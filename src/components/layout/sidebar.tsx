@@ -10,6 +10,7 @@ import {
   LayoutTemplate,
   CalendarDays,
   FileText,
+  Sparkles,
   Search,
   Settings,
   Plus,
@@ -43,6 +44,7 @@ const NAV = [
   { href: "/estados", label: "Estados", icon: MessageSquare, badge: 8 },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
+  { href: "/asistente", label: "Asistente IA", icon: Sparkles },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];
 

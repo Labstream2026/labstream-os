@@ -23,6 +23,8 @@ services:
       AUTHENTIK_PROVISION_DOMAIN: ${AUTHENTIK_PROVISION_DOMAIN:-labstreamsas.com}
       ONLYOFFICE_DOCS_URL: ${ONLYOFFICE_DOCS_URL:-}
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:
