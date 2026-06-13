@@ -3,14 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+
+// La wiki es del equipo: cualquier usuario con sesión puede crear/editar páginas.
+async function requireSession() {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  return session;
+}
 
 export async function createWikiPage(): Promise<void> {
+  await requireSession();
   const page = await db.wikiPage.create({ data: {} });
   revalidatePath("/wiki");
   redirect(`/wiki/${page.id}`);
 }
 
 export async function updateWikiPage(id: string, formData: FormData): Promise<void> {
+  await requireSession();
   const title = String(formData.get("title") ?? "").trim() || "Página sin título";
   const icon = String(formData.get("icon") ?? "").trim() || null;
   const content = String(formData.get("content") ?? "");
@@ -20,6 +30,7 @@ export async function updateWikiPage(id: string, formData: FormData): Promise<vo
 }
 
 export async function deleteWikiPage(id: string): Promise<void> {
+  await requireSession();
   await db.wikiPage.delete({ where: { id } });
   revalidatePath("/wiki");
   redirect("/wiki");

@@ -2,8 +2,49 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
+import { canAccessProject } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
+
+const accessSelect = {
+  isPrivate: true,
+  leadId: true,
+  members: { select: { userId: true, role: true } },
+} as const;
+
+// Acceso a una tabla: si cuelga de un proyecto → acceso al proyecto; si es de wiki
+// o suelta → basta sesión (la wiki es del equipo). Lanza si no hay acceso.
+async function ensureTableAccess(tableId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const t = await db.dataTable.findUnique({
+    where: { id: tableId },
+    select: { projectId: true, project: { select: accessSelect } },
+  });
+  if (!t) throw new Error("No autorizado");
+  if (t.project && !canAccessProject(t.project, session)) throw new Error("No autorizado");
+}
+
+// Acceso vía columna o fila (resuelven su tableId primero).
+async function ensureColumnAccess(columnId: string): Promise<string> {
+  const col = await db.dataColumn.findUnique({ where: { id: columnId }, select: { tableId: true } });
+  if (!col) throw new Error("No autorizado");
+  await ensureTableAccess(col.tableId);
+  return col.tableId;
+}
+async function ensureRowAccess(rowId: string): Promise<string> {
+  const row = await db.dataRow.findUnique({ where: { id: rowId }, select: { tableId: true } });
+  if (!row) throw new Error("No autorizado");
+  await ensureTableAccess(row.tableId);
+  return row.tableId;
+}
+
+async function ensureProjectAccess(projectId: string): Promise<void> {
+  const session = await getSession();
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  if (!project || !canAccessProject(project, session)) throw new Error("No autorizado");
+}
 
 async function revalidateForTable(tableId: string) {
   const t = await db.dataTable.findUnique({ where: { id: tableId }, select: { projectId: true, wikiPageId: true } });
@@ -28,18 +69,22 @@ const DEFAULT_TABLE = {
 };
 
 export async function createTable(projectId: string, formData: FormData): Promise<void> {
+  await ensureProjectAccess(projectId);
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
   await db.dataTable.create({ data: { name, projectId, ...DEFAULT_TABLE } });
   revalidatePath(`/proyectos/${projectId}`);
 }
 
 export async function createTableForWiki(wikiPageId: string, formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
   await db.dataTable.create({ data: { name, wikiPageId, ...DEFAULT_TABLE } });
   revalidatePath(`/wiki/${wikiPageId}`);
 }
 
 export async function addColumn(tableId: string, name: string, type: string) {
+  await ensureTableAccess(tableId);
   const count = await db.dataColumn.count({ where: { tableId } });
   const options =
     type === "SELECT"
@@ -55,27 +100,32 @@ export async function addColumn(tableId: string, name: string, type: string) {
 }
 
 export async function renameColumn(columnId: string, name: string) {
+  await ensureColumnAccess(columnId);
   const col = await db.dataColumn.update({ where: { id: columnId }, data: { name: name.trim() || "Columna" } });
   await revalidateForTable(col.tableId);
 }
 
 export async function deleteColumn(columnId: string) {
+  await ensureColumnAccess(columnId);
   const col = await db.dataColumn.delete({ where: { id: columnId } });
   await revalidateForTable(col.tableId);
 }
 
 export async function addRow(tableId: string) {
+  await ensureTableAccess(tableId);
   const count = await db.dataRow.count({ where: { tableId } });
   await db.dataRow.create({ data: { tableId, position: count } });
   await revalidateForTable(tableId);
 }
 
 export async function deleteRow(rowId: string) {
+  await ensureRowAccess(rowId);
   const row = await db.dataRow.delete({ where: { id: rowId } });
   await revalidateForTable(row.tableId);
 }
 
 export async function addSelectOption(columnId: string, label: string) {
+  await ensureColumnAccess(columnId);
   const col = await db.dataColumn.findUnique({ where: { id: columnId } });
   if (!col) return;
   const opts = (col.options as { id: string; label: string; color: string }[] | null) ?? [];
@@ -88,6 +138,7 @@ export async function addSelectOption(columnId: string, label: string) {
 
 // Guarda una celda. PERSON → notifica al asignado.
 export async function setCell(rowId: string, columnId: string, value: unknown) {
+  await ensureRowAccess(rowId);
   const col = await db.dataColumn.findUnique({
     where: { id: columnId },
     include: { table: { select: { id: true, name: true, projectId: true } } },
@@ -117,6 +168,7 @@ export async function setEventCell(
   columnId: string,
   data: { title: string; start: string; attendeeId: string },
 ) {
+  await ensureRowAccess(rowId);
   const col = await db.dataColumn.findUnique({
     where: { id: columnId },
     include: { table: { select: { id: true, name: true, projectId: true } } },
