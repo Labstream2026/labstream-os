@@ -1,0 +1,36 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { SESSION_COOKIE, verifyToken } from "@/lib/session";
+
+// Protección de rutas (Next 16 "proxy", antes "middleware").
+// Rutas públicas (sin sesión). /review/* será el portal de cliente (fase 5).
+const PUBLIC_PREFIXES = ["/login", "/review"];
+
+export async function proxy(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+
+  const session = await verifyToken(req.cookies.get(SESSION_COOKIE)?.value);
+
+  if (!session && !isPublic) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
+    return NextResponse.redirect(url);
+  }
+
+  if (session && pathname === "/login") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
+};

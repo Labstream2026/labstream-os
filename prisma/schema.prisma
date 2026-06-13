@@ -1,0 +1,305 @@
+// Labstream OS — esquema base (Fase 0)
+// Modelos núcleo: usuarios, roles, permisos, clientes, proyectos.
+// Las demás entidades (tareas, entregables, chat, archivos, etc.) se añaden en fases siguientes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Roles y permisos
+// ─────────────────────────────────────────────
+
+model Role {
+  id          String           @id @default(cuid())
+  key         String           @unique // admin, gerente, ventas, productor, ...
+  name        String
+  description String?
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique // ver_proyectos, crear_proyectos, ver_cotizaciones, ...
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId       String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permissionId String
+
+  @@id([roleId, permissionId])
+}
+
+// ─────────────────────────────────────────────
+// Usuarios
+// ─────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  title        String? // cargo visible: "Productora", "Editor", ...
+  passwordHash String? // se completa en fase 1 (auth real)
+  initials     String? // "MR"
+  avatarColor  String? // clase/HEX para el avatar
+  active       Boolean   @default(true)
+  role         Role      @relation(fields: [roleId], references: [id])
+  roleId       String
+  ledProjects  Project[] @relation("ProjectLead")
+
+  assignedTasks    Task[]               @relation("TaskAssignee")
+  ownedDeliverables Deliverable[]       @relation("DeliverableOwner")
+  uploadedFiles    FileAsset[]          @relation("FileUploader")
+  uploadedVersions DeliverableVersion[] @relation("VersionUploader")
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Clientes
+// ─────────────────────────────────────────────
+
+model Client {
+  id          String    @id @default(cuid())
+  name        String
+  company     String?
+  description String? // "Productora audiovisual · 2 proyectos"
+  emoji       String? // 🎬 🌐 ☀️ 🟠
+  accentColor String?
+  notes       String?
+  projects    Project[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Proyectos
+// ─────────────────────────────────────────────
+
+enum ProjectStatus {
+  NUEVO
+  EN_PLANEACION
+  EN_PREPRODUCCION
+  EN_PRODUCCION
+  EN_EDICION
+  REVISION_INTERNA
+  REVISION_CLIENTE
+  CORRECCIONES
+  APROBADO
+  ENTREGADO
+  CERRADO
+  PAUSADO
+  CANCELADO
+}
+
+enum ProjectType {
+  REEL
+  PODCAST
+  DOCUMENTAL
+  STREAMING
+  CURSO
+  PUBLICIDAD
+  EVENTO
+  CORPORATIVO
+  INSTITUCIONAL
+  FOTOGRAFIA
+  CAMPANA_MENSUAL
+}
+
+enum Priority {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  code        String        @unique // LS-0001
+  name        String
+  description String?
+  type        ProjectType   @default(REEL)
+  status      ProjectStatus @default(NUEVO)
+  priority    Priority      @default(MEDIA)
+  progress    Int           @default(0) // 0-100
+  emoji       String?
+  startDate   DateTime?
+  dueDate     DateTime?
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    String
+  lead        User?         @relation("ProjectLead", fields: [leadId], references: [id])
+  leadId      String?
+  templateKey String? // plantilla de origen, si se creó desde una
+
+  tasks        Task[]
+  deliverables Deliverable[]
+  folders      ProjectFolder[]
+  files        FileAsset[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Tareas
+// ─────────────────────────────────────────────
+
+enum TaskStatus {
+  PENDIENTE
+  EN_PROCESO
+  EN_ESPERA
+  EN_REVISION
+  COMPLETADA
+  CANCELADA
+}
+
+model Task {
+  id            String          @id @default(cuid())
+  title         String
+  description   String?
+  status        TaskStatus      @default(PENDIENTE)
+  priority      Priority        @default(MEDIA)
+  dueDate       DateTime?
+  position      Int             @default(0)
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String
+  deliverable   Deliverable?    @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  deliverableId String?
+  assignee      User?           @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId    String?
+  checklist     ChecklistItem[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model ChecklistItem {
+  id       String  @id @default(cuid())
+  label    String
+  done     Boolean @default(false)
+  position Int     @default(0)
+  task     Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId   String
+}
+
+// ─────────────────────────────────────────────
+// Entregables y versiones
+// ─────────────────────────────────────────────
+
+enum DeliverableType {
+  REEL
+  SHORT
+  VIDEO_LARGO
+  FOTOGRAFIA
+  PODCAST
+  TEASER
+  DOCUMENTO
+  OTRO
+}
+
+enum DeliverableStatus {
+  PENDIENTE
+  EN_PRODUCCION
+  EN_EDICION
+  REVISION_INTERNA
+  ENVIADO_CLIENTE
+  CORRECCIONES
+  APROBADO
+  ENTREGADO
+}
+
+model Deliverable {
+  id        String               @id @default(cuid())
+  name      String
+  type      DeliverableType      @default(REEL)
+  status    DeliverableStatus    @default(PENDIENTE)
+  dueDate   DateTime?
+  project   Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  owner     User?                @relation("DeliverableOwner", fields: [ownerId], references: [id])
+  ownerId   String?
+  versions  DeliverableVersion[]
+  tasks     Task[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model DeliverableVersion {
+  id            String      @id @default(cuid())
+  number        Int
+  notes         String?
+  fileUrl       String?
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  deliverableId String
+  uploadedBy    User?       @relation("VersionUploader", fields: [uploadedById], references: [id])
+  uploadedById  String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([deliverableId, number])
+}
+
+// ─────────────────────────────────────────────
+// Archivos y carpetas
+// ─────────────────────────────────────────────
+
+enum FileKind {
+  LOCAL
+  DRIVE
+  LINK
+}
+
+model ProjectFolder {
+  id        String      @id @default(cuid())
+  name      String // "01 Brief"
+  position  Int         @default(0)
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  files     FileAsset[]
+
+  @@unique([projectId, name])
+}
+
+model FileAsset {
+  id           String         @id @default(cuid())
+  name         String
+  kind         FileKind       @default(LINK)
+  url          String? // link externo / Google Drive
+  path         String? // ruta local en el storage del NAS
+  mime         String?
+  size         Int?
+  version      Int            @default(1)
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId     String?
+  uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt    DateTime       @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Plantillas de proyecto
+// ─────────────────────────────────────────────
+
+model ProjectTemplate {
+  id          String      @id @default(cuid())
+  key         String      @unique
+  name        String
+  description String?
+  emoji       String?
+  type        ProjectType @default(REEL)
+  content     Json // { stages, folders, tasks[], deliverables[] }
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}

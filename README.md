@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Labstream OS
 
-## Getting Started
+Sistema operativo colaborativo para producción audiovisual de **Labstream Studio**.
+Gestiona el flujo: Cliente → Proyecto → Entregables → Tareas → Archivos → Revisión → Aprobación → Entrega.
 
-First, run the development server:
+> **Fase 0 (actual):** cimientos — layout de 3 columnas (Notion/Linear/Slack/Frame.io),
+> sistema de diseño claro/oscuro, esquema base (usuarios, roles, permisos, clientes,
+> proyectos) y empaquetado Docker listo para el NAS. Ver el roadmap por fases abajo.
+
+## Stack
+
+- **Next.js 16** (App Router) + TypeScript + Tailwind v4 + shadcn-style UI
+- **Prisma 6 + PostgreSQL 16**
+- Auth (Auth.js) · Redis + worker (Socket.IO/BullMQ) · FFmpeg — fases siguientes
+
+## Desarrollo local (Mac)
+
+Requisitos: Node 20+, PostgreSQL 16 (Homebrew).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. Postgres
+brew services start postgresql@16
+createdb labstream_os_dev
+
+# 2. Dependencias y entorno
+npm install
+cp .env.example .env        # ajusta DATABASE_URL a tu usuario local
+
+# 3. Base de datos
+npm run db:migrate          # aplica migraciones
+npm run db:seed             # carga roles, permisos, equipo, clientes y proyectos demo
+
+# 4. Arrancar
+npm run dev                 # http://localhost:3200
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Scripts
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Script | Acción |
+|---|---|
+| `npm run dev` | Dev server en el puerto 3200 |
+| `npm run build` | `prisma generate` + build de producción |
+| `npm run db:migrate` | Migraciones de desarrollo |
+| `npm run db:push` | Sincroniza el esquema sin crear migración |
+| `npm run db:seed` | Carga datos de ejemplo |
+| `npm run db:reset` | Reinicia la BD y vuelve a sembrar |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Despliegue en el NAS Synology (Docker)
 
-## Learn More
+```bash
+# En el build dir del NAS (p.ej. /volume1/docker/labstream-os)
+docker compose -p labstream-os up -d --build
+docker compose -p labstream-os exec app npx prisma migrate deploy
+```
 
-To learn more about Next.js, take a look at the following resources:
+- La app expone **3200 → 3000**; el reverse proxy de DSM sirve `os.labstreamsas.com`.
+- Datos persistentes en `./data/{postgres,redis,storage}` (bind mounts).
+- Variables en `.env` (junto al `docker-compose.yml`): `POSTGRES_PASSWORD`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Backup / restore de la BD
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# Backup
+docker compose -p labstream-os exec postgres pg_dump -U labstream labstream_os > backup_$(date +%F).sql
+# Restore
+cat backup.sql | docker compose -p labstream-os exec -T postgres psql -U labstream -d labstream_os
+```
 
-## Deploy on Vercel
+## Roadmap por fases
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **F0 — Cimientos** ✅ layout, diseño, esquema base, Docker.
+- **F1 — Auth + esqueleto desplegable** · login real, roles/permisos, clientes y proyectos CRUD, **primer deploy al NAS**.
+- **F2 — Núcleo de producción** · plantillas, tareas, entregables, archivos, automatizaciones v1.
+- **F3 — Comunicación** · chat realtime (worker + Socket.IO), offline, mensaje→acción.
+- **F4 — Calendario + Cotizaciones + Notificaciones** · = MVP completo.
+- **F5 — Revisión audiovisual + Portal de cliente** · Frame.io-like, links públicos, biblioteca.
+- **F6 — Integraciones + IA** · Google Calendar/Drive, Claude API, email/push.
+- **F7 — App de escritorio** · Tauri (opcional).
