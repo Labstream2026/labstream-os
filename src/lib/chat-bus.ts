@@ -11,6 +11,9 @@ export type AttachmentPayload = {
   editable: boolean; // editable en OnlyOffice
 };
 
+export type PollOptionData = { id: string; text: string; votes: number };
+export type PollData = { id: string; question: string; options: PollOptionData[]; totalVotes: number };
+
 export type ChatMessagePayload = {
   id: string;
   channelId: string;
@@ -19,6 +22,7 @@ export type ChatMessagePayload = {
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
   attachments: AttachmentPayload[];
+  poll?: PollData | null;
 };
 
 const globalForBus = globalThis as unknown as { __chatBus?: EventEmitter };
@@ -32,4 +36,9 @@ export function channelEvent(channelId: string) {
 
 export function publishMessage(msg: ChatMessagePayload) {
   chatBus.emit(channelEvent(msg.channelId), msg);
+}
+
+// Actualización de votos de una encuesta (mismo canal SSE, discriminada por `kind`).
+export function publishPollUpdate(channelId: string, poll: PollData) {
+  chatBus.emit(channelEvent(channelId), { kind: "poll", channelId, poll });
 }

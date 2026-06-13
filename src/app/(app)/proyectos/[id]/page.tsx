@@ -35,7 +35,8 @@ export default async function ProyectoPage({
   const { id } = await params;
   const { tab = "resumen" } = await searchParams;
 
-  const [project, team, session] = await Promise.all([
+  const session = await getSession();
+  const [project, team] = await Promise.all([
     db.project.findUnique({
       where: { id },
       include: {
@@ -49,6 +50,12 @@ export default async function ProyectoPage({
               include: {
                 author: { select: { name: true, initials: true, avatarColor: true } },
                 attachments: true,
+                poll: {
+                  include: {
+                    options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
+                    votes: { where: { userId: session?.id ?? "" }, select: { optionId: true } },
+                  },
+                },
               },
             },
             members: {
@@ -79,7 +86,6 @@ export default async function ProyectoPage({
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, initials: true, avatarColor: true },
     }),
-    getSession(),
   ]);
 
   if (!project) notFound();
@@ -246,6 +252,15 @@ export default async function ProyectoPage({
                           mime: a.mime,
                           editable: isEditableOffice(a.name),
                         })),
+                        poll: m.poll
+                          ? {
+                              id: m.poll.id,
+                              question: m.poll.question,
+                              options: m.poll.options.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
+                              totalVotes: m.poll.options.reduce((n, o) => n + o._count.votes, 0),
+                            }
+                          : null,
+                        myOptionId: m.poll?.votes[0]?.optionId ?? null,
                       }))}
                     />
                   </div>

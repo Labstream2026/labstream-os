@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, X } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, X, BarChart3 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage, sendMessageWithAttachments } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll } from "@/app/(app)/chat/actions";
+import { PollWidget } from "@/components/chat/poll-widget";
+import type { PollData } from "@/lib/chat-bus";
 
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
 
@@ -16,6 +18,8 @@ export type ChatMsg = {
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
   attachments?: Attachment[];
+  poll?: PollData | null;
+  myOptionId?: string | null;
   status?: "sending" | "sent" | "error" | "pending";
 };
 
@@ -65,6 +69,14 @@ export function ChannelChat({
   const [replyText, setReplyText] = React.useState<Record<string, string>>({});
   const [openThreads, setOpenThreads] = React.useState<Set<string>>(new Set());
   const [online, setOnline] = React.useState(true);
+  const [myVotes, setMyVotes] = React.useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      initialMessages.filter((m) => m.poll && m.myOptionId).map((m) => [m.poll!.id, m.myOptionId!]),
+    ),
+  );
+  const [pollMode, setPollMode] = React.useState(false);
+  const [pollQ, setPollQ] = React.useState("");
+  const [pollOpts, setPollOpts] = React.useState<string[]>(["", ""]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const queueKey = `labstream-chat-queue:${channelId}`;
@@ -90,7 +102,12 @@ export function ChannelChat({
     const es = new EventSource(`/api/chat/${channelId}/stream`);
     es.onmessage = (e) => {
       try {
-        const m = JSON.parse(e.data) as ChatMsg;
+        const data = JSON.parse(e.data);
+        if (data?.kind === "poll") {
+          setMessages((prev) => prev.map((m) => (m.poll?.id === data.poll.id ? { ...m, poll: data.poll } : m)));
+          return;
+        }
+        const m = data as ChatMsg;
         upsert({ ...m, status: "sent" });
         if (!m.parentId) scrollToBottom();
       } catch {
@@ -200,6 +217,26 @@ export function ChannelChat({
     setText("");
   }
 
+  async function vote(pollId: string, optionId: string) {
+    setMyVotes((prev) => ({ ...prev, [pollId]: optionId }));
+    const data = await votePoll(pollId, optionId);
+    if (data) setMessages((prev) => prev.map((m) => (m.poll?.id === pollId ? { ...m, poll: data } : m)));
+  }
+
+  async function submitPoll(e: React.FormEvent) {
+    e.preventDefault();
+    const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
+    if (!pollQ.trim() || opts.length < 2) return;
+    const fd = new FormData();
+    fd.set("question", pollQ.trim());
+    opts.forEach((o) => fd.append("options", o));
+    setPollMode(false);
+    setPollQ("");
+    setPollOpts(["", ""]);
+    await createPoll(channelId, fd); // el mensaje con la encuesta llega por SSE
+    scrollToBottom();
+  }
+
   function statusTag(s?: string) {
     if (!s || s === "sent") return null;
     return (
@@ -229,6 +266,9 @@ export function ChannelChat({
                 </div>
                 <p className="text-sm text-foreground/90">{m.body}</p>
                 <Attachments items={m.attachments} />
+                {m.poll ? (
+                  <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                ) : null}
 
                 {!readOnly || replies.length > 0 ? (
                   <button
@@ -259,6 +299,9 @@ export function ChannelChat({
                           </div>
                           <p className="text-[13px] text-foreground/90">{r.body}</p>
                           <Attachments items={r.attachments} />
+                          {r.poll ? (
+                            <PollWidget poll={r.poll} myOptionId={myVotes[r.poll.id] ?? null} onVote={(opt) => vote(r.poll!.id, opt)} />
+                          ) : null}
                         </div>
                       </div>
                     ))}
@@ -297,7 +340,39 @@ export function ChannelChat({
       ) : null}
 
       {!readOnly ? (
-        <form onSubmit={submitMain} className="border-t border-border p-3">
+       <div className="border-t border-border">
+        {pollMode ? (
+          <form onSubmit={submitPoll} className="space-y-2 border-b border-border p-3">
+            <input
+              value={pollQ}
+              onChange={(e) => setPollQ(e.target.value)}
+              placeholder="Pregunta de la encuesta…"
+              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+            />
+            {pollOpts.map((o, i) => (
+              <input
+                key={i}
+                value={o}
+                onChange={(e) => setPollOpts((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                placeholder={`Opción ${i + 1}`}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+              />
+            ))}
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setPollOpts((p) => [...p, ""])} className="text-xs font-medium text-primary">
+                + Opción
+              </button>
+              <span className="flex-1" />
+              <button type="button" onClick={() => setPollMode(false)} className="text-xs text-muted-foreground">
+                Cancelar
+              </button>
+              <button className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
+                Crear encuesta
+              </button>
+            </div>
+          </form>
+        ) : null}
+        <form onSubmit={submitMain} className="p-3">
           {files.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {files.map((f, i) => (
@@ -327,6 +402,15 @@ export function ChannelChat({
             >
               <Paperclip className="size-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => setPollMode((v) => !v)}
+              className={cn("hover:text-foreground", pollMode ? "text-primary" : "text-muted-foreground")}
+              aria-label="Crear encuesta"
+              title="Crear encuesta"
+            >
+              <BarChart3 className="size-4" />
+            </button>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -344,6 +428,7 @@ export function ChannelChat({
             </button>
           </div>
         </form>
+       </div>
       ) : null}
     </div>
   );

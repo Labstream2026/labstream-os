@@ -26,6 +26,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           include: {
             author: { select: { name: true, initials: true, avatarColor: true } },
             attachments: true,
+            poll: {
+              include: {
+                options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
+                votes: { where: { userId: session.id }, select: { optionId: true } },
+              },
+            },
           },
         },
       },
@@ -69,6 +75,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   mime: a.mime,
                   editable: isEditableOffice(a.name),
                 })),
+                poll: m.poll
+                  ? {
+                      id: m.poll.id,
+                      question: m.poll.question,
+                      options: m.poll.options.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
+                      totalVotes: m.poll.options.reduce((n, o) => n + o._count.votes, 0),
+                    }
+                  : null,
+                myOptionId: m.poll?.votes[0]?.optionId ?? null,
               })),
             }
           : null

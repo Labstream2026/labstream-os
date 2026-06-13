@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
-import { publishMessage, type ChatMessagePayload } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, type ChatMessagePayload, type PollData } from "@/lib/chat-bus";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
 
@@ -83,6 +83,81 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
       : null,
     attachments: created,
   });
+}
+
+// ── Encuestas ──
+
+export async function createPoll(channelId: string, formData: FormData): Promise<void> {
+  const question = String(formData.get("question") ?? "").trim();
+  const options = formData
+    .getAll("options")
+    .map((o) => String(o).trim())
+    .filter(Boolean);
+  if (!question || options.length < 2) return;
+
+  const user = await getCurrentUser();
+  const msg = await db.chatMessage.create({
+    data: {
+      channelId,
+      body: `📊 ${question}`,
+      authorId: user?.id ?? null,
+      poll: {
+        create: {
+          channelId,
+          question,
+          createdById: user?.id ?? null,
+          options: { create: options.map((text, i) => ({ text, position: i })) },
+        },
+      },
+    },
+    include: {
+      author: { select: { name: true, initials: true, avatarColor: true } },
+      poll: { include: { options: { orderBy: { position: "asc" } } } },
+    },
+  });
+
+  publishMessage({
+    id: msg.id,
+    channelId,
+    body: msg.body,
+    parentId: msg.parentId,
+    createdAt: msg.createdAt.toISOString(),
+    author: msg.author
+      ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor }
+      : null,
+    attachments: [],
+    poll: msg.poll
+      ? {
+          id: msg.poll.id,
+          question: msg.poll.question,
+          options: msg.poll.options.map((o) => ({ id: o.id, text: o.text, votes: 0 })),
+          totalVotes: 0,
+        }
+      : null,
+  });
+}
+
+export async function votePoll(pollId: string, optionId: string): Promise<PollData | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  await db.pollVote.upsert({
+    where: { pollId_userId: { pollId, userId: user.id } },
+    create: { pollId, optionId, userId: user.id },
+    update: { optionId },
+  });
+  const poll = await db.poll.findUnique({
+    where: { id: pollId },
+    include: { options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } } },
+  });
+  if (!poll) return null;
+  const data: PollData = {
+    id: poll.id,
+    question: poll.question,
+    options: poll.options.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
+    totalVotes: poll.options.reduce((n, o) => n + o._count.votes, 0),
+  };
+  publishPollUpdate(poll.channelId, data);
+  return data;
 }
 
 // ── Gestión del canal (miembros / visibilidad) ──
