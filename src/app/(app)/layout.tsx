@@ -54,6 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               messages: general.messages.map((m) => ({
                 id: m.id,
                 body: m.body,
+                parentId: m.parentId,
                 createdAt: m.createdAt.toISOString(),
                 author: m.author
                   ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }

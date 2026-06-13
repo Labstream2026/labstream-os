@@ -95,6 +95,7 @@ const USERS: {
   initials: string;
   color: string;
 }[] = [
+  { email: "hola@labstream.co", name: "Jonathan Flórez", title: "Dirección", roleKey: "admin", initials: "JF", color: "indigo" },
   { email: "mateo@labstream.co", name: "Mateo Ríos", title: "Productora", roleKey: "admin", initials: "MR", color: "indigo" },
   { email: "lucia@labstream.co", name: "Lucía Fernández", title: "Editora", roleKey: "editor", initials: "LF", color: "emerald" },
   { email: "sara@labstream.co", name: "Sara Martín", title: "Diseñadora", roleKey: "disenador", initials: "SM", color: "violet" },

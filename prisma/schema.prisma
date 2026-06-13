@@ -50,7 +50,7 @@ model User {
   email        String    @unique
   name         String
   title        String? // cargo visible: "Productora", "Editor", ...
-  passwordHash String? // se completa en fase 1 (auth real)
+  passwordHash String? // se completa en fase 1 (auth real); SSO Authentik mapea por email
   initials     String? // "MR"
   avatarColor  String? // clase/HEX para el avatar
   active       Boolean   @default(true)
@@ -63,6 +63,9 @@ model User {
   uploadedFiles    FileAsset[]          @relation("FileUploader")
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
+  channelMemberships ChannelMember[]
+  createdPolls     Poll[]               @relation("PollCreator")
+  pollVotes        PollVote[]
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -165,26 +168,91 @@ enum ChannelType {
 }
 
 model ChatChannel {
-  id        String        @id @default(cuid())
-  type      ChannelType   @default(GENERAL)
+  id        String          @id @default(cuid())
+  type      ChannelType     @default(GENERAL)
   name      String
-  slug      String?       @unique // canales generales: "general", "estados-equipo"
-  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId String?       @unique // un canal por proyecto
+  slug      String?         @unique // canales generales: "general", "estados-equipo"
+  isPublic  Boolean         @default(true) // público a todo el equipo o solo a invitados
+  project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String?         @unique // un canal por proyecto
   messages  ChatMessage[]
-  createdAt DateTime      @default(now())
+  members   ChannelMember[]
+  polls     Poll[]
+  createdAt DateTime        @default(now())
+}
+
+model ChannelMember {
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime    @default(now())
+
+  @@id([channelId, userId])
 }
 
 model ChatMessage {
-  id        String      @id @default(cuid())
-  body      String
-  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  channelId String
-  author    User?       @relation("MessageAuthor", fields: [authorId], references: [id])
-  authorId  String?
-  createdAt DateTime    @default(now())
+  id          String              @id @default(cuid())
+  body        String
+  channel     ChatChannel         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId   String
+  author      User?               @relation("MessageAuthor", fields: [authorId], references: [id])
+  authorId    String?
+  parent      ChatMessage?        @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId    String? // si está, es respuesta dentro de un hilo
+  replies     ChatMessage[]       @relation("Thread")
+  attachments MessageAttachment[]
+  poll        Poll?
+  createdAt   DateTime            @default(now())
 
   @@index([channelId, createdAt])
+  @@index([parentId])
+}
+
+model MessageAttachment {
+  id        String      @id @default(cuid())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  name      String
+  path      String // ruta en el storage del NAS
+  mime      String?
+  size      Int?
+  createdAt DateTime    @default(now())
+}
+
+model Poll {
+  id          String       @id @default(cuid())
+  question    String
+  channel     ChatChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId   String
+  message     ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId   String?      @unique
+  createdBy   User?        @relation("PollCreator", fields: [createdById], references: [id])
+  createdById String?
+  options     PollOption[]
+  votes       PollVote[]
+  createdAt   DateTime     @default(now())
+}
+
+model PollOption {
+  id       String     @id @default(cuid())
+  poll     Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollId   String
+  text     String
+  position Int        @default(0)
+  votes    PollVote[]
+}
+
+model PollVote {
+  id       String     @id @default(cuid())
+  poll     Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollId   String
+  option   PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  optionId String
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+
+  @@unique([pollId, userId])
 }
 
 // ─────────────────────────────────────────────

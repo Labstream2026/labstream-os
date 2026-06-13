@@ -6,7 +6,10 @@ import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
+import { canAccessChannel } from "@/lib/chat-access";
 import { ChannelChat } from "@/components/chat/channel-chat";
+import { ChannelSettings } from "@/components/chat/channel-settings";
+import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
@@ -41,8 +44,11 @@ export default async function ProyectoPage({
           include: {
             messages: {
               orderBy: { createdAt: "asc" },
-              take: 50,
+              take: 100,
               include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+            },
+            members: {
+              include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } },
             },
           },
         },
@@ -177,24 +183,65 @@ export default async function ProyectoPage({
         ) : null}
         {tab === "chat" ? (
           project.channel ? (
-            <div className="h-[60vh] overflow-hidden rounded-xl border border-border bg-card">
-              <ChannelChat
-                channelId={project.channel.id}
-                me={{
-                  name: session?.name ?? "Tú",
-                  initials: session?.initials ?? null,
-                  color: session?.color ?? null,
-                }}
-                initialMessages={project.channel.messages.map((m) => ({
-                  id: m.id,
-                  body: m.body,
-                  createdAt: m.createdAt.toISOString(),
-                  author: m.author
-                    ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
-                    : null,
-                }))}
-              />
-            </div>
+            (() => {
+              const ch = project.channel;
+              const access = canAccessChannel(
+                { isPublic: ch.isPublic, project: { leadId: project.leadId }, members: ch.members },
+                session,
+              );
+              const canManage =
+                session?.role === "admin" ||
+                project.leadId === session?.id ||
+                ch.members.some((m) => m.userId === session?.id);
+
+              if (!access) {
+                return (
+                  <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
+                    <Lock className="size-6 text-muted-foreground" />
+                    <p className="font-medium">Canal privado</p>
+                    <p className="text-sm text-muted-foreground">
+                      Solo los miembros invitados pueden ver este chat. Pídele acceso al responsable del proyecto.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  <ChannelSettings
+                    channelId={ch.id}
+                    isPublic={ch.isPublic}
+                    canManage={canManage}
+                    members={ch.members.map((m) => ({
+                      id: m.user.id,
+                      name: m.user.name,
+                      initials: m.user.initials,
+                      color: m.user.avatarColor,
+                    }))}
+                    team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+                  />
+                  <div className="h-[55vh] overflow-hidden rounded-xl border border-border bg-card">
+                    <ChannelChat
+                      channelId={ch.id}
+                      me={{
+                        name: session?.name ?? "Tú",
+                        initials: session?.initials ?? null,
+                        color: session?.color ?? null,
+                      }}
+                      initialMessages={ch.messages.map((m) => ({
+                        id: m.id,
+                        body: m.body,
+                        parentId: m.parentId,
+                        createdAt: m.createdAt.toISOString(),
+                        author: m.author
+                          ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
+                          : null,
+                      }))}
+                    />
+                  </div>
+                </>
+              );
+            })()
           ) : (
             <p className="text-sm text-muted-foreground">Este proyecto aún no tiene canal de chat.</p>
           )

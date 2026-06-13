@@ -8,6 +8,7 @@ export type ChatMessagePayload = {
   id: string;
   channelId: string;
   body: string;
+  parentId: string | null;
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
 };
