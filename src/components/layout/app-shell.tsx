@@ -4,18 +4,25 @@ import * as React from "react";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
 import { ContextPanel } from "@/components/layout/context-panel";
+import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
+
+export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } | null;
 
 export function AppShell({
   user,
   clients,
   team,
   canAdmin,
+  me,
+  generalChannel,
   children,
 }: {
   user: SidebarUser;
   clients: SidebarClient[];
   team: TopbarAvatar[];
   canAdmin: boolean;
+  me: ChatMe;
+  generalChannel: GeneralChannel;
   children: React.ReactNode;
 }) {
   const [panelOpen, setPanelOpen] = React.useState(true);
@@ -27,7 +34,7 @@ export function AppShell({
         <Topbar team={team} onTogglePanel={() => setPanelOpen((v) => !v)} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-      <ContextPanel open={panelOpen} />
+      <ContextPanel open={panelOpen} me={me} channel={generalChannel} />
     </div>
   );
 }

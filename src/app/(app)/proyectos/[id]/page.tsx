@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { getSession } from "@/lib/auth";
+import { ChannelChat } from "@/components/chat/channel-chat";
 import { TasksBoard } from "./tasks-board";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
@@ -16,6 +18,7 @@ const TABS = [
   { key: "tareas", label: "Tareas" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
+  { key: "chat", label: "Chat" },
 ];
 
 export default async function ProyectoPage({
@@ -28,12 +31,21 @@ export default async function ProyectoPage({
   const { id } = await params;
   const { tab = "resumen" } = await searchParams;
 
-  const [project, team] = await Promise.all([
+  const [project, team, session] = await Promise.all([
     db.project.findUnique({
       where: { id },
       include: {
         client: true,
         lead: true,
+        channel: {
+          include: {
+            messages: {
+              orderBy: { createdAt: "asc" },
+              take: 50,
+              include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+            },
+          },
+        },
         tasks: {
           orderBy: { position: "asc" },
           include: {
@@ -57,6 +69,7 @@ export default async function ProyectoPage({
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, initials: true, avatarColor: true },
     }),
+    getSession(),
   ]);
 
   if (!project) notFound();
@@ -161,6 +174,30 @@ export default async function ProyectoPage({
             }))}
             looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url }))}
           />
+        ) : null}
+        {tab === "chat" ? (
+          project.channel ? (
+            <div className="h-[60vh] overflow-hidden rounded-xl border border-border bg-card">
+              <ChannelChat
+                channelId={project.channel.id}
+                me={{
+                  name: session?.name ?? "Tú",
+                  initials: session?.initials ?? null,
+                  color: session?.color ?? null,
+                }}
+                initialMessages={project.channel.messages.map((m) => ({
+                  id: m.id,
+                  body: m.body,
+                  createdAt: m.createdAt.toISOString(),
+                  author: m.author
+                    ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
+                    : null,
+                }))}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Este proyecto aún no tiene canal de chat.</p>
+          )
         ) : null}
       </div>
     </div>

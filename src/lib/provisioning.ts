@@ -45,6 +45,11 @@ export async function instantiateTemplate(
     },
   });
 
+  // canal de chat del proyecto (automatización)
+  await db.chatChannel.create({
+    data: { type: "PROJECT", name: opts.name, projectId: project.id },
+  });
+
   const content = tpl?.content;
   await createFolders(db, project.id, content?.folders ?? DEFAULT_FOLDERS);
 

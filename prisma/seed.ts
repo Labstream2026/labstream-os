@@ -134,8 +134,10 @@ const PROJECTS: {
 
 async function main() {
   // limpieza idempotente (orden seguro con FKs)
+  await prisma.chatMessage.deleteMany();
+  await prisma.chatChannel.deleteMany();
   await prisma.projectTemplate.deleteMany();
-  await prisma.project.deleteMany(); // cascada a tareas, entregables, carpetas y archivos
+  await prisma.project.deleteMany(); // cascada a tareas, entregables, carpetas, archivos y canal
   await prisma.client.deleteMany();
   await prisma.user.deleteMany();
   await prisma.rolePermission.deleteMany();
@@ -187,7 +189,7 @@ async function main() {
   }
 
   // proyectos
-  const projectIds: { id: string; leadId: string }[] = [];
+  const projectIds: { id: string; leadId: string; name: string }[] = [];
   for (const p of PROJECTS) {
     const leadId = userByEmail[p.leadEmail];
     const project = await prisma.project.create({
@@ -204,7 +206,7 @@ async function main() {
         leadId,
       },
     });
-    projectIds.push({ id: project.id, leadId });
+    projectIds.push({ id: project.id, leadId, name: p.name });
   }
 
   // plantillas de proyecto
@@ -231,8 +233,17 @@ async function main() {
     { title: "Entrega final", status: "PENDIENTE" },
   ];
 
-  for (const { id: projectId, leadId } of projectIds) {
+  for (const { id: projectId, leadId, name } of projectIds) {
     await createFolders(prisma, projectId);
+    const channel = await prisma.chatChannel.create({
+      data: { type: "PROJECT", name, projectId },
+    });
+    await prisma.chatMessage.createMany({
+      data: [
+        { channelId: channel.id, authorId: leadId, body: "Abro el canal del proyecto 🎬 Aquí coordinamos todo." },
+        { channelId: channel.id, authorId: userByEmail["lucia@labstream.co"], body: "¡Listo! Subo el primer corte esta tarde." },
+      ],
+    });
 
     for (let i = 0; i < TASKS.length; i++) {
       const t = TASKS[i];
@@ -293,8 +304,26 @@ async function main() {
     });
   }
 
+  // canales generales del equipo
+  const general = await prisma.chatChannel.create({
+    data: { type: "GENERAL", name: "general", slug: "general" },
+  });
+  await prisma.chatMessage.createMany({
+    data: [
+      { channelId: general.id, authorId: userByEmail["mateo@labstream.co"], body: "Buenos días equipo ☕ Recordatorio: daily a las 12:00." },
+      { channelId: general.id, authorId: userByEmail["nora@labstream.co"], body: "Llego tarde al daily, estoy en una llamada con Horizon." },
+      { channelId: general.id, authorId: userByEmail["ivan@labstream.co"], body: "Subo el storyboard de la promo de Nova 🎬" },
+    ],
+  });
+  const estados = await prisma.chatChannel.create({
+    data: { type: "GENERAL", name: "estados-equipo", slug: "estados-equipo" },
+  });
+  await prisma.chatMessage.create({
+    data: { channelId: estados.id, authorId: userByEmail["lucia@labstream.co"], body: "Avanzando con la API de integración — el webhook ya recibe eventos correctamente 🎉" },
+  });
+
   console.log(
-    `Seed listo: ${PERMISSIONS.length} permisos, ${ROLES.length} roles, ${USERS.length} usuarios, ${CLIENTS.length} clientes, ${PROJECTS.length} proyectos, ${TEMPLATES.length} plantillas (+ tareas, entregables, carpetas y archivos demo).`,
+    `Seed listo: ${PERMISSIONS.length} permisos, ${ROLES.length} roles, ${USERS.length} usuarios, ${CLIENTS.length} clientes, ${PROJECTS.length} proyectos, ${TEMPLATES.length} plantillas, canales de chat (+ tareas, entregables, carpetas y archivos demo).`,
   );
 }
 

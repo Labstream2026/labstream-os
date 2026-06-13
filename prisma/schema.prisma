@@ -62,6 +62,7 @@ model User {
   ownedDeliverables Deliverable[]       @relation("DeliverableOwner")
   uploadedFiles    FileAsset[]          @relation("FileUploader")
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
+  chatMessages     ChatMessage[]        @relation("MessageAuthor")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -147,9 +148,43 @@ model Project {
   deliverables Deliverable[]
   folders      ProjectFolder[]
   files        FileAsset[]
+  channel      ChatChannel?
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Chat
+// ─────────────────────────────────────────────
+
+enum ChannelType {
+  PROJECT
+  GENERAL
+  DIRECT
+}
+
+model ChatChannel {
+  id        String        @id @default(cuid())
+  type      ChannelType   @default(GENERAL)
+  name      String
+  slug      String?       @unique // canales generales: "general", "estados-equipo"
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String?       @unique // un canal por proyecto
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  body      String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId String
+  author    User?       @relation("MessageAuthor", fields: [authorId], references: [id])
+  authorId  String?
+  createdAt DateTime    @default(now())
+
+  @@index([channelId, createdAt])
 }
 
 // ─────────────────────────────────────────────

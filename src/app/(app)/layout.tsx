@@ -10,12 +10,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [clients, team] = await Promise.all([
+  const [clients, team, general] = await Promise.all([
     db.client.findMany({
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { projects: true } } },
     }),
     db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
+    db.chatChannel.findUnique({
+      where: { slug: "general" },
+      include: {
+        messages: {
+          orderBy: { createdAt: "asc" },
+          take: 50,
+          include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+        },
+      },
+    }),
   ]);
 
   return (
@@ -26,6 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         initials: session.initials,
         color: session.color,
       }}
+      me={{ name: session.name, initials: session.initials, color: session.color }}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       clients={clients.map((c) => ({
         id: c.id,
@@ -35,6 +46,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         projectCount: c._count.projects,
       }))}
       team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
+      generalChannel={
+        general
+          ? {
+              id: general.id,
+              name: general.name,
+              messages: general.messages.map((m) => ({
+                id: m.id,
+                body: m.body,
+                createdAt: m.createdAt.toISOString(),
+                author: m.author
+                  ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
+                  : null,
+              })),
+            }
+          : null
+      }
     >
       {children}
     </AppShell>
