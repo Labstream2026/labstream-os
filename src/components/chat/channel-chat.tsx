@@ -1,10 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Send, MessageSquare } from "lucide-react";
+import Link from "next/link";
+import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, X } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments } from "@/app/(app)/chat/actions";
+
+export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
 
 export type ChatMsg = {
   id: string;
@@ -12,6 +15,7 @@ export type ChatMsg = {
   parentId: string | null;
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
+  attachments?: Attachment[];
   status?: "sending" | "sent" | "error" | "pending";
 };
 
@@ -19,6 +23,28 @@ export type ChatMe = { name: string; initials: string | null; color: string | nu
 
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+}
+
+function Attachments({ items }: { items?: Attachment[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      {items.map((a) => (
+        <div key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{a.name}</span>
+          {a.editable ? (
+            <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+              <Pencil className="size-3" /> Editar
+            </Link>
+          ) : null}
+          <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+            <Download className="size-3" /> Descargar
+          </a>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ChannelChat({
@@ -34,17 +60,18 @@ export function ChannelChat({
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
   const [text, setText] = React.useState("");
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [uploading, setUploading] = React.useState(false);
   const [replyText, setReplyText] = React.useState<Record<string, string>>({});
   const [openThreads, setOpenThreads] = React.useState<Set<string>>(new Set());
   const [online, setOnline] = React.useState(true);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
   const roots = messages.filter((m) => !m.parentId);
   const repliesFor = (id: string) =>
-    messages
-      .filter((m) => m.parentId === id)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    messages.filter((m) => m.parentId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -77,7 +104,6 @@ export function ChannelChat({
     scrollToBottom();
   }, [scrollToBottom]);
 
-  // offline + reenvío de cola
   React.useEffect(() => {
     setOnline(navigator.onLine);
     const flush = async () => {
@@ -129,7 +155,7 @@ export function ChannelChat({
     }
   }
 
-  function submitBody(body: string, parentId: string | null) {
+  function submitText(body: string, parentId: string | null) {
     const clean = body.trim();
     if (!clean) return;
     const tempId = `temp-${Date.now()}-${Math.round(performance.now())}`;
@@ -150,6 +176,28 @@ export function ChannelChat({
       return;
     }
     void deliver(tempId, clean, parentId);
+  }
+
+  async function submitMain(e: React.FormEvent) {
+    e.preventDefault();
+    if (files.length > 0) {
+      const fd = new FormData();
+      fd.set("channelId", channelId);
+      fd.set("body", text.trim());
+      files.forEach((f) => fd.append("files", f));
+      setUploading(true);
+      setText("");
+      setFiles([]);
+      try {
+        await sendMessageWithAttachments(fd); // el mensaje llega por SSE
+      } finally {
+        setUploading(false);
+        scrollToBottom();
+      }
+      return;
+    }
+    submitText(text, null);
+    setText("");
   }
 
   function statusTag(s?: string) {
@@ -180,6 +228,7 @@ export function ChannelChat({
                   {statusTag(m.status)}
                 </div>
                 <p className="text-sm text-foreground/90">{m.body}</p>
+                <Attachments items={m.attachments} />
 
                 {!readOnly || replies.length > 0 ? (
                   <button
@@ -209,6 +258,7 @@ export function ChannelChat({
                             {statusTag(r.status)}
                           </div>
                           <p className="text-[13px] text-foreground/90">{r.body}</p>
+                          <Attachments items={r.attachments} />
                         </div>
                       </div>
                     ))}
@@ -216,7 +266,7 @@ export function ChannelChat({
                       <form
                         onSubmit={(e) => {
                           e.preventDefault();
-                          submitBody(replyText[m.id] ?? "", m.id);
+                          submitText(replyText[m.id] ?? "", m.id);
                           setReplyText((p) => ({ ...p, [m.id]: "" }));
                         }}
                         className="flex items-center gap-2"
@@ -247,24 +297,46 @@ export function ChannelChat({
       ) : null}
 
       {!readOnly ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submitBody(text, null);
-            setText("");
-          }}
-          className="border-t border-border p-3"
-        >
+        <form onSubmit={submitMain} className="border-t border-border p-3">
+          {files.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {files.map((f, i) => (
+                <span key={i} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
+                  <FileText className="size-3" /> {f.name}
+                  <button type="button" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}>
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Adjuntar archivo"
+              title="Adjuntar archivo"
+            >
+              <Paperclip className="size-4" />
+            </button>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Escribe un mensaje…"
+              placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…"}
+              disabled={uploading}
               className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
             <button
               type="submit"
-              disabled={!text.trim()}
+              disabled={uploading || (!text.trim() && files.length === 0)}
               className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
               aria-label="Enviar"
             >

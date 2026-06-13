@@ -4,6 +4,13 @@ import { EventEmitter } from "node:events";
 // Suficiente para un contenedor único; si algún día hay varias instancias,
 // se sustituye el transporte por Redis pub/sub (worker).
 
+export type AttachmentPayload = {
+  id: string;
+  name: string;
+  mime: string | null;
+  editable: boolean; // editable en OnlyOffice
+};
+
 export type ChatMessagePayload = {
   id: string;
   channelId: string;
@@ -11,6 +18,7 @@ export type ChatMessagePayload = {
   parentId: string | null;
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
+  attachments: AttachmentPayload[];
 };
 
 const globalForBus = globalThis as unknown as { __chatBus?: EventEmitter };

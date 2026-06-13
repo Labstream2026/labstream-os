@@ -7,6 +7,7 @@ import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
+import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { Lock } from "lucide-react";
@@ -45,7 +46,10 @@ export default async function ProyectoPage({
             messages: {
               orderBy: { createdAt: "asc" },
               take: 100,
-              include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+              include: {
+                author: { select: { name: true, initials: true, avatarColor: true } },
+                attachments: true,
+              },
             },
             members: {
               include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } },
@@ -236,6 +240,12 @@ export default async function ProyectoPage({
                         author: m.author
                           ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
                           : null,
+                        attachments: m.attachments.map((a) => ({
+                          id: a.id,
+                          name: a.name,
+                          mime: a.mime,
+                          editable: isEditableOffice(a.name),
+                        })),
                       }))}
                     />
                   </div>

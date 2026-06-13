@@ -214,10 +214,12 @@ model MessageAttachment {
   message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
   messageId String
   name      String
-  path      String // ruta en el storage del NAS
+  path      String // ruta relativa dentro del storage
   mime      String?
   size      Int?
+  version   Int         @default(1) // se incrementa al guardar desde OnlyOffice (doc key)
   createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 }
 
 model Poll {

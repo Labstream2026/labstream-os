@@ -16,6 +16,13 @@ services:
       REDIS_URL: redis://redis:6379
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-cambia-esto}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-https://os.labstreamsas.com}
+      STORAGE_DIR: /app/storage
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
+      AUTHENTIK_PROVISION_DOMAIN: ${AUTHENTIK_PROVISION_DOMAIN:-labstreamsas.com}
+      ONLYOFFICE_DOCS_URL: ${ONLYOFFICE_DOCS_URL:-}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:

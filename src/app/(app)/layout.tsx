@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { isEditableOffice } from "@/lib/onlyoffice";
 import { AppShell } from "@/components/layout/app-shell";
 
 // Datos por petición desde Postgres → render dinámico (evita prerender en el build de Docker).
@@ -22,7 +23,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         messages: {
           orderBy: { createdAt: "asc" },
           take: 50,
-          include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+          include: {
+            author: { select: { name: true, initials: true, avatarColor: true } },
+            attachments: true,
+          },
         },
       },
     }),
@@ -59,6 +63,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 author: m.author
                   ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
                   : null,
+                attachments: m.attachments.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  mime: a.mime,
+                  editable: isEditableOffice(a.name),
+                })),
               })),
             }
           : null
