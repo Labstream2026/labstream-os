@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   LayoutTemplate,
   CalendarDays,
+  FileText,
   Search,
   Settings,
   Plus,
@@ -48,10 +49,12 @@ export function Sidebar({
   user,
   clients,
   canAdmin,
+  canQuotes,
 }: {
   user: SidebarUser;
   clients: SidebarClient[];
   canAdmin: boolean;
+  canQuotes?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -104,6 +107,20 @@ export function Sidebar({
             </Link>
           );
         })}
+        {canQuotes ? (
+          <Link
+            href="/cotizaciones"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              pathname.startsWith("/cotizaciones")
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+            )}
+          >
+            <FileText className="size-4" />
+            <span className="flex-1">Cotizaciones</span>
+          </Link>
+        ) : null}
       </nav>
 
       {/* Clientes */}

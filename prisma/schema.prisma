@@ -65,6 +65,8 @@ model User {
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
   channelMemberships ChannelMember[]
   projectMemberships ProjectMember[]
+  createdQuotes    Quote[]              @relation("QuoteCreator")
+  approvedQuotes   Quote[]              @relation("QuoteApprover")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
   notifications    Notification[]
@@ -88,6 +90,7 @@ model Client {
   accentColor String?
   notes       String?
   projects    Project[]
+  quotes      Quote[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
@@ -162,6 +165,7 @@ model Project {
   events       CalendarEvent[]
   tables       DataTable[]
   members      ProjectMember[]
+  quotes       Quote[]
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -184,6 +188,50 @@ model ProjectMember {
   createdAt DateTime    @default(now())
 
   @@id([projectId, userId])
+}
+
+// ─────────────────────────────────────────────
+// Cotizaciones (fase 4)
+// ─────────────────────────────────────────────
+
+enum QuoteStatus {
+  BORRADOR
+  ENVIADA
+  APROBADA
+  RECHAZADA
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  code         String      @unique // COT-0001
+  title        String
+  status       QuoteStatus @default(BORRADOR)
+  currency     String      @default("COP")
+  taxRate      Int         @default(0) // % IVA (0-100)
+  notes        String?
+  validUntil   DateTime?
+  client       Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId     String
+  project      Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId    String?
+  createdBy    User?       @relation("QuoteCreator", fields: [createdById], references: [id])
+  createdById  String?
+  approvedBy   User?       @relation("QuoteApprover", fields: [approvedById], references: [id])
+  approvedById String?
+  approvedAt   DateTime?
+  items        QuoteItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model QuoteItem {
+  id          String @id @default(cuid())
+  quote       Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId     String
+  description String
+  quantity    Float  @default(1)
+  unitPrice   Float  @default(0)
+  position    Int    @default(0)
 }
 
 // ─────────────────────────────────────────────

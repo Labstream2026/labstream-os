@@ -14,6 +14,7 @@ export function AppShell({
   clients,
   team,
   canAdmin,
+  canQuotes,
   me,
   generalChannel,
   notifications,
@@ -23,6 +24,7 @@ export function AppShell({
   clients: SidebarClient[];
   team: TopbarAvatar[];
   canAdmin: boolean;
+  canQuotes?: boolean;
   me: ChatMe;
   generalChannel: GeneralChannel;
   notifications: NotificationItem[];
@@ -32,7 +34,7 @@ export function AppShell({
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      <Sidebar user={user} clients={clients} canAdmin={canAdmin} />
+      <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar team={team} notifications={notifications} onTogglePanel={() => setPanelOpen((v) => !v)} />
         <main className="flex-1 overflow-y-auto">{children}</main>

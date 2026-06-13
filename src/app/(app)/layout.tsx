@@ -49,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
       me={{ name: session.name, initials: session.initials, color: session.color }}
       canAdmin={hasPermission(session, "administrar_usuarios")}
+      canQuotes={hasPermission(session, "ver_cotizaciones")}
       clients={clients.map((c) => ({
         id: c.id,
         name: c.name,

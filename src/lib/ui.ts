@@ -113,3 +113,33 @@ export const FILE_KIND_LABEL: Record<string, string> = {
   DRIVE: "Google Drive",
   LINK: "Enlace",
 };
+
+// ── Cotizaciones ──
+export function formatMoney(amount: number, currency = "COP") {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+export const QUOTE_STATUS: Record<string, StatusMeta> = {
+  BORRADOR: { label: "Borrador", className: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" },
+  ENVIADA: { label: "Enviada", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" },
+  APROBADA: { label: "Aprobada", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
+  RECHAZADA: { label: "Rechazada", className: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" },
+};
+
+export function quoteStatusMeta(s: string): StatusMeta {
+  return QUOTE_STATUS[s] ?? QUOTE_STATUS.BORRADOR;
+}
+
+// Total de una cotización (subtotal + IVA) a partir de sus líneas.
+export function quoteTotals(
+  items: { quantity: number; unitPrice: number }[],
+  taxRate = 0,
+) {
+  const subtotal = items.reduce((n, i) => n + i.quantity * i.unitPrice, 0);
+  const tax = Math.round((subtotal * taxRate) / 100);
+  return { subtotal, tax, total: subtotal + tax };
+}
