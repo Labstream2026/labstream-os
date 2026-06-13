@@ -29,11 +29,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Cliente Prisma + engine + schema (para migrate/seed dentro del contenedor)
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+# node_modules COMPLETO: el trace del output standalone de Next recorta módulos y
+# rompe el CLI de prisma/tsx; con el node_modules entero funcionan migrate y seed.
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
 
 USER nextjs
 EXPOSE 3000
