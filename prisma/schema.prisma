@@ -67,6 +67,7 @@ model User {
   projectMemberships ProjectMember[]
   createdQuotes    Quote[]              @relation("QuoteCreator")
   approvedQuotes   Quote[]              @relation("QuoteApprover")
+  libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
   notifications    Notification[]
@@ -548,6 +549,20 @@ model Deliverable {
 // ─────────────────────────────────────────────
 // Revisión de cliente (fase 5): portal público + comentarios con timestamp
 // ─────────────────────────────────────────────
+
+// Biblioteca de medios reutilizables del equipo (fase 5): música, logos, stock, plantillas…
+model LibraryAsset {
+  id           String   @id @default(cuid())
+  name         String
+  kind         FileKind @default(LINK)
+  url          String?
+  category     String? // "Música", "Logos", "Stock", "Plantillas"…
+  uploadedBy   User?    @relation("LibraryUploader", fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([category])
+}
 
 model ReviewComment {
   id            String      @id @default(cuid())

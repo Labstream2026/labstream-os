@@ -15,6 +15,7 @@ import {
   Plus,
   ChevronsUpDown,
   BookOpen,
+  Library,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -169,6 +170,18 @@ export function Sidebar({
         >
           <BookOpen className="size-4" />
           <span className="flex-1">Wiki del equipo</span>
+        </Link>
+        <Link
+          href="/biblioteca"
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+            pathname.startsWith("/biblioteca")
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+          )}
+        >
+          <Library className="size-4" />
+          <span className="flex-1">Biblioteca</span>
         </Link>
       </div>
 
