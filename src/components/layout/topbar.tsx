@@ -5,6 +5,7 @@ import { PanelRight, MoreHorizontal, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
 
 export type TopbarAvatar = { initials: string | null; color: string | null };
 
@@ -15,6 +16,8 @@ function crumb(pathname: string): { emoji: string; label: string } {
   if (pathname.startsWith("/proyectos/nuevo")) return { emoji: "✨", label: "Nuevo proyecto" };
   if (pathname.startsWith("/proyectos")) return { emoji: "🗂️", label: "Proyectos" };
   if (pathname.startsWith("/plantillas")) return { emoji: "🧩", label: "Plantillas" };
+  if (pathname.startsWith("/calendario")) return { emoji: "📅", label: "Calendario" };
+  if (pathname.startsWith("/wiki")) return { emoji: "📚", label: "Wiki del equipo" };
   if (pathname.startsWith("/clientes/nuevo")) return { emoji: "✨", label: "Nuevo cliente" };
   if (pathname.startsWith("/clientes")) return { emoji: "🏢", label: "Cliente" };
   if (pathname.startsWith("/configuracion")) return { emoji: "⚙️", label: "Configuración" };
@@ -23,9 +26,11 @@ function crumb(pathname: string): { emoji: string; label: string } {
 
 export function Topbar({
   team,
+  notifications,
   onTogglePanel,
 }: {
   team: TopbarAvatar[];
+  notifications: NotificationItem[];
   onTogglePanel: () => void;
 }) {
   const pathname = usePathname();
@@ -48,6 +53,7 @@ export function Topbar({
           <Share2 className="size-4" />
           Compartir
         </Button>
+        <NotificationsBell items={notifications} />
         <ThemeToggle />
         <Button
           variant="ghost"

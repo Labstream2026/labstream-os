@@ -1,20 +1,31 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { canAccessProject } from "@/lib/project-access";
 import { ProjectCard } from "@/components/project-card";
 import { LayoutGrid, List, Calendar, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProyectosPage() {
-  const clients = await db.client.findMany({
+  const session = await getSession();
+  const allClients = await db.client.findMany({
     orderBy: { createdAt: "asc" },
     include: {
       projects: {
         orderBy: { createdAt: "asc" },
-        include: { lead: { select: { initials: true, avatarColor: true } } },
+        include: {
+          lead: { select: { initials: true, avatarColor: true } },
+          members: { select: { userId: true, role: true } },
+        },
       },
     },
   });
+
+  // Solo proyectos visibles para el usuario (públicos con permiso, o donde es lead/miembro/admin).
+  const clients = allClients
+    .map((c) => ({ ...c, projects: c.projects.filter((p) => canAccessProject(p, session)) }))
+    .filter((c) => c.projects.length > 0);
 
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
 

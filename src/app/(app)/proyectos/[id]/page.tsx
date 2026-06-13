@@ -7,9 +7,13 @@ import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
+import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { ProjectSettings } from "@/components/project-settings";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
 import { ChannelSettings } from "@/components/chat/channel-settings";
+import { DataTableView } from "@/components/tables/data-table";
+import { createTable } from "@/app/(app)/tablas/actions";
 import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { DeliverablesPanel } from "./deliverables-panel";
@@ -22,6 +26,7 @@ const TABS = [
   { key: "tareas", label: "Tareas" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
+  { key: "tablas", label: "Tablas" },
   { key: "chat", label: "Chat" },
 ];
 
@@ -79,6 +84,14 @@ export default async function ProyectoPage({
         },
         folders: { orderBy: { position: "asc" }, include: { files: true } },
         files: { where: { folderId: null }, orderBy: { createdAt: "asc" } },
+        tables: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            columns: { orderBy: { position: "asc" } },
+            rows: { orderBy: { position: "asc" }, include: { cells: true } },
+          },
+        },
+        members: { select: { userId: true, role: true } },
       },
     }),
     db.user.findMany({
@@ -89,6 +102,22 @@ export default async function ProyectoPage({
   ]);
 
   if (!project) notFound();
+
+  // Acceso al proyecto: público → equipo con ver_proyectos; privado → responsable/miembros/admin.
+  if (!canAccessProject(project, session)) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-8 py-24 text-center">
+        <Lock className="size-7 text-muted-foreground" />
+        <h1 className="text-xl font-semibold">Proyecto privado</h1>
+        <p className="text-sm text-muted-foreground">
+          No tienes acceso a este proyecto. Pídele al responsable que te añada como miembro.
+        </p>
+        <Link href="/proyectos" className="mt-2 text-sm font-medium text-primary hover:underline">
+          ← Volver a proyectos
+        </Link>
+      </div>
+    );
+  }
 
   const status = statusMeta(project.status);
   const counts = {
@@ -145,7 +174,25 @@ export default async function ProyectoPage({
       </div>
 
       <div className="mt-6">
-        {tab === "resumen" ? <Resumen project={project} /> : null}
+        {tab === "resumen" ? (
+          <div className="space-y-5">
+            {canManageProject(project, session) ? (
+              <ProjectSettings
+                projectId={project.id}
+                isPrivate={project.isPrivate}
+                leadId={project.leadId}
+                members={project.members.flatMap((m) => {
+                  const u = team.find((t) => t.id === m.userId);
+                  return u
+                    ? [{ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor, role: m.role as string }]
+                    : [];
+                })}
+                team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+              />
+            ) : null}
+            <Resumen project={project} />
+          </div>
+        ) : null}
         {tab === "tareas" ? (
           <TasksBoard
             projectId={id}
@@ -199,10 +246,9 @@ export default async function ProyectoPage({
                 { isPublic: ch.isPublic, project: { leadId: project.leadId }, members: ch.members },
                 session,
               );
-              const canManage =
-                session?.role === "admin" ||
-                project.leadId === session?.id ||
-                ch.members.some((m) => m.userId === session?.id);
+              // Gestión del canal (visibilidad/miembros), estilo Mattermost: solo
+              // admin del sistema o responsable del proyecto. Los invitados solo participan.
+              const canManage = session?.role === "admin" || project.leadId === session?.id;
 
               if (!access) {
                 return (
@@ -270,6 +316,46 @@ export default async function ProyectoPage({
           ) : (
             <p className="text-sm text-muted-foreground">Este proyecto aún no tiene canal de chat.</p>
           )
+        ) : null}
+
+        {tab === "tablas" ? (
+          <div className="space-y-5">
+            <form action={createTable.bind(null, id)} className="flex items-center gap-2">
+              <input
+                name="name"
+                placeholder="Nombre de la tabla (ej. Plan de rodaje)"
+                className="min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Nueva tabla
+              </button>
+            </form>
+            {project.tables.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Crea una tabla tipo Notion: columnas de texto, estado, fecha, persona y citas de calendario.
+              </p>
+            ) : null}
+            {project.tables.map((t) => (
+              <DataTableView
+                key={t.id}
+                team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
+                table={{
+                  id: t.id,
+                  name: t.name,
+                  columns: t.columns.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    type: c.type,
+                    options: (c.options as { id: string; label: string; color: string }[] | null) ?? null,
+                  })),
+                  rows: t.rows.map((r) => ({
+                    id: r.id,
+                    cells: Object.fromEntries(r.cells.map((cell) => [cell.columnId, cell.value])),
+                  })),
+                }}
+              />
+            ))}
+          </div>
         ) : null}
       </div>
     </div>

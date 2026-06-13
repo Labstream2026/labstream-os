@@ -11,12 +11,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [clients, team, general] = await Promise.all([
+  const [clients, team, notifs, general] = await Promise.all([
     db.client.findMany({
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { projects: true } } },
     }),
     db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
+    db.notification.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 15 }),
     db.chatChannel.findUnique({
       where: { slug: "general" },
       include: {
@@ -56,6 +57,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         projectCount: c._count.projects,
       }))}
       team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
+      notifications={notifs.map((n) => ({
+        id: n.id,
+        title: n.title,
+        body: n.body,
+        link: n.link,
+        read: n.read,
+        createdAt: n.createdAt.toISOString(),
+      }))}
       generalChannel={
         general
           ? {

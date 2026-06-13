@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { canAccessChannel } from "@/lib/chat-access";
 import { absPath, verifyFileToken, mimeFor } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -12,12 +13,33 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const url = new URL(req.url);
   const token = url.searchParams.get("t");
 
-  // Acceso: usuario con sesión (in-app) o token firmado (Document Server OnlyOffice, sin cookie).
-  const authed = verifyFileToken(id, token) || Boolean(await getSession());
-  if (!authed) return new NextResponse("No autorizado", { status: 401 });
-
-  const att = await db.messageAttachment.findUnique({ where: { id } });
+  const att = await db.messageAttachment.findUnique({
+    where: { id },
+    include: {
+      message: {
+        select: {
+          channel: {
+            select: {
+              isPublic: true,
+              project: { select: { leadId: true } },
+              members: { select: { userId: true } },
+            },
+          },
+        },
+      },
+    },
+  });
   if (!att || !att.path) return new NextResponse("No encontrado", { status: 404 });
+
+  // Acceso: token firmado (Document Server OnlyOffice, sin cookie) o usuario con
+  // sesión QUE ADEMÁS pueda ver el canal del adjunto (no basta con estar logueado).
+  if (!verifyFileToken(id, token)) {
+    const session = await getSession();
+    if (!session) return new NextResponse("No autorizado", { status: 401 });
+    if (!att.message?.channel || !canAccessChannel(att.message.channel, session)) {
+      return new NextResponse("Prohibido", { status: 403 });
+    }
+  }
 
   let buf: Buffer;
   try {

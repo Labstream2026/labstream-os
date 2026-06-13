@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/current-user";
+import { getSession } from "@/lib/auth";
+import { canAccessProject, canManageProject } from "@/lib/project-access";
+import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string) {
   revalidatePath(`/proyectos/${projectId}`);
@@ -10,8 +12,32 @@ function refresh(projectId: string) {
   revalidatePath("/");
 }
 
+const accessSelect = {
+  isPrivate: true,
+  leadId: true,
+  members: { select: { userId: true, role: true } },
+} as const;
+
+// Verifica acceso a un proyecto por id. Lanza si no hay acceso. Devuelve la sesión.
+async function ensureProjectAccess(projectId: string): Promise<SessionUser> {
+  const session = await getSession();
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  if (!project || !canAccessProject(project, session)) throw new Error("No autorizado");
+  return session!;
+}
+
+// Para acciones sobre un recurso hijo: resuelve el projectId REAL del recurso (no se
+// confía en el projectId que manda el cliente) y verifica acceso a ese proyecto.
+type WithProject = { projectId: string; project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } } | null;
+async function ensureAccessVia(resource: WithProject): Promise<string> {
+  const session = await getSession();
+  if (!resource || !canAccessProject(resource.project, session)) throw new Error("No autorizado");
+  return resource.projectId;
+}
+
 // ── Tareas ──
 export async function createTask(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
   const assigneeId = String(formData.get("assigneeId") ?? "") || null;
@@ -23,22 +49,33 @@ export async function createTask(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
-export async function setTaskStatus(taskId: string, projectId: string, status: string) {
+export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { status: status as never } });
   refresh(projectId);
 }
 
-export async function deleteTask(taskId: string, projectId: string) {
+export async function deleteTask(taskId: string, _projectId: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(task);
   await db.task.delete({ where: { id: taskId } });
   refresh(projectId);
 }
 
-export async function toggleChecklistItem(itemId: string, projectId: string, done: boolean) {
+export async function toggleChecklistItem(itemId: string, _projectId: string, done: boolean) {
+  const item = await db.checklistItem.findUnique({
+    where: { id: itemId },
+    select: { task: { select: { projectId: true, project: { select: accessSelect } } } },
+  });
+  const projectId = await ensureAccessVia(item?.task ?? null);
   await db.checklistItem.update({ where: { id: itemId }, data: { done } });
   refresh(projectId);
 }
 
-export async function addChecklistItem(taskId: string, projectId: string, formData: FormData) {
+export async function addChecklistItem(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(task);
   const label = String(formData.get("label") ?? "").trim();
   if (!label) return;
   const count = await db.checklistItem.count({ where: { taskId } });
@@ -48,6 +85,7 @@ export async function addChecklistItem(taskId: string, projectId: string, formDa
 
 // ── Entregables ──
 export async function createDeliverable(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const type = String(formData.get("type") ?? "REEL");
@@ -55,19 +93,23 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
-export async function setDeliverableStatus(id: string, projectId: string, status: string) {
+export async function setDeliverableStatus(id: string, _projectId: string, status: string) {
+  const deliverable = await db.deliverable.findUnique({ where: { id }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(deliverable);
   await db.deliverable.update({ where: { id }, data: { status: status as never } });
   refresh(projectId);
 }
 
 export async function addDeliverableVersion(
   deliverableId: string,
-  projectId: string,
+  _projectId: string,
   formData: FormData,
 ) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canAccessProject(deliverable.project, session)) throw new Error("No autorizado");
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const fileUrl = String(formData.get("fileUrl") ?? "").trim() || null;
-  const user = await getCurrentUser();
   const last = await db.deliverableVersion.findFirst({
     where: { deliverableId },
     orderBy: { number: "desc" },
@@ -78,27 +120,59 @@ export async function addDeliverableVersion(
       number: (last?.number ?? 0) + 1,
       notes,
       fileUrl,
-      uploadedById: user?.id ?? null,
+      uploadedById: session!.id,
     },
   });
-  refresh(projectId);
+  refresh(deliverable.projectId);
 }
 
 // ── Archivos ──
 export async function addFile(projectId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId);
   const name = String(formData.get("name") ?? "").trim();
   const url = String(formData.get("url") ?? "").trim();
   if (!name || !url) return;
   const folderId = String(formData.get("folderId") ?? "") || null;
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
-  const user = await getCurrentUser();
   await db.fileAsset.create({
-    data: { projectId, name, url, folderId, kind, uploadedById: user?.id ?? null },
+    data: { projectId, name, url, folderId, kind, uploadedById: session.id },
   });
   refresh(projectId);
 }
 
-export async function deleteFile(fileId: string, projectId: string) {
+export async function deleteFile(fileId: string, _projectId: string) {
+  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(file);
   await db.fileAsset.delete({ where: { id: fileId } });
+  refresh(projectId);
+}
+
+// ── Proyecto compartido: visibilidad y miembros (solo gestores) ──
+async function ensureProjectManage(projectId: string): Promise<SessionUser> {
+  const session = await getSession();
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  if (!project || !canManageProject(project, session)) throw new Error("No autorizado");
+  return session!;
+}
+
+export async function setProjectVisibility(projectId: string, isPrivate: boolean) {
+  await ensureProjectManage(projectId);
+  await db.project.update({ where: { id: projectId }, data: { isPrivate } });
+  refresh(projectId);
+}
+
+export async function addProjectMember(projectId: string, userId: string, role: string = "MEMBER") {
+  await ensureProjectManage(projectId);
+  await db.projectMember.upsert({
+    where: { projectId_userId: { projectId, userId } },
+    create: { projectId, userId, role: role as never },
+    update: { role: role as never },
+  });
+  refresh(projectId);
+}
+
+export async function removeProjectMember(projectId: string, userId: string) {
+  await ensureProjectManage(projectId);
+  await db.projectMember.delete({ where: { projectId_userId: { projectId, userId } } }).catch(() => null);
   refresh(projectId);
 }

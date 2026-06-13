@@ -8,6 +8,7 @@ import {
   MessageSquare,
   LayoutGrid,
   LayoutTemplate,
+  CalendarDays,
   Search,
   Settings,
   Plus,
@@ -39,6 +40,7 @@ const NAV = [
   { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks, badge: 4 },
   { href: "/estados", label: "Estados", icon: MessageSquare, badge: 8 },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
+  { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];
 
@@ -139,10 +141,18 @@ export function Sidebar({
             Wiki
           </span>
         </div>
-        <div className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/80">
+        <Link
+          href="/wiki"
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+            pathname.startsWith("/wiki")
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+          )}
+        >
           <BookOpen className="size-4" />
           <span className="flex-1">Wiki del equipo</span>
-        </div>
+        </Link>
       </div>
 
       {/* Footer */}

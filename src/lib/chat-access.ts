@@ -38,8 +38,9 @@ export async function userCanAccessChannel(
 }
 
 // ¿Puede el usuario GESTIONAR el canal (visibilidad, miembros)?
-// Estilo Mattermost: solo admin del sistema o responsable del proyecto del canal.
-// Los miembros invitados solo participan, no administran.
+// Estilo Mattermost: admin del sistema, responsable del proyecto del canal, o
+// un miembro del canal con rol ADMIN (channel admin). Los miembros normales
+// (rol MEMBER) solo participan, no administran.
 export async function userCanManageChannel(
   channelId: string,
   session: SessionUser | null,
@@ -48,8 +49,12 @@ export async function userCanManageChannel(
   if (session.role === "admin") return true;
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { project: { select: { leadId: true } } },
+    select: {
+      project: { select: { leadId: true } },
+      members: { where: { userId: session.id }, select: { role: true } },
+    },
   });
   if (!channel) return false;
-  return channel.project?.leadId === session.id;
+  if (channel.project?.leadId === session.id) return true;
+  return channel.members.some((m) => m.role === "ADMIN");
 }

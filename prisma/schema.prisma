@@ -64,8 +64,12 @@ model User {
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
   channelMemberships ChannelMember[]
+  projectMemberships ProjectMember[]
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
+  notifications    Notification[]
+  createdEvents    CalendarEvent[]      @relation("EventCreator")
+  eventAttendances CalendarAttendee[]
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -146,15 +150,40 @@ model Project {
   lead        User?         @relation("ProjectLead", fields: [leadId], references: [id])
   leadId      String?
   templateKey String? // plantilla de origen, si se creó desde una
+  // Proyecto compartido (estilo Mattermost): público = visible a todo el equipo
+  // con permiso ver_proyectos; privado = solo responsable + miembros + admin.
+  isPrivate   Boolean       @default(false)
 
   tasks        Task[]
   deliverables Deliverable[]
   folders      ProjectFolder[]
   files        FileAsset[]
   channel      ChatChannel?
+  events       CalendarEvent[]
+  tables       DataTable[]
+  members      ProjectMember[]
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+}
+
+// Rol dentro de un proyecto compartido (estilo Mattermost):
+// OWNER gestiona el proyecto y sus miembros; MEMBER colabora; GUEST acceso limitado.
+enum ProjectRole {
+  OWNER
+  MEMBER
+  GUEST
+}
+
+model ProjectMember {
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  role      ProjectRole @default(MEMBER)
+  createdAt DateTime    @default(now())
+
+  @@id([projectId, userId])
 }
 
 // ─────────────────────────────────────────────
@@ -181,11 +210,19 @@ model ChatChannel {
   createdAt DateTime        @default(now())
 }
 
+// Rol dentro de un canal (estilo Mattermost): ADMIN gestiona el canal
+// (visibilidad/miembros), MEMBER solo participa.
+enum ChannelRole {
+  ADMIN
+  MEMBER
+}
+
 model ChannelMember {
   channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   channelId String
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  role      ChannelRole @default(MEMBER)
   createdAt DateTime    @default(now())
 
   @@id([channelId, userId])
@@ -255,6 +292,125 @@ model PollVote {
   userId   String
 
   @@unique([pollId, userId])
+}
+
+// ─────────────────────────────────────────────
+// Notificaciones (fase 4)
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  type      String // mention, event, task, etc.
+  title     String
+  body      String?
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+// ─────────────────────────────────────────────
+// Calendario (fase 4)
+// ─────────────────────────────────────────────
+
+model CalendarEvent {
+  id          String             @id @default(cuid())
+  title       String
+  description String?
+  start       DateTime
+  end         DateTime?
+  allDay      Boolean            @default(false)
+  project     Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId   String?
+  createdBy   User?              @relation("EventCreator", fields: [createdById], references: [id])
+  createdById String?
+  attendees   CalendarAttendee[]
+  createdAt   DateTime           @default(now())
+
+  @@index([start])
+}
+
+model CalendarAttendee {
+  event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String
+
+  @@id([eventId, userId])
+}
+
+// ─────────────────────────────────────────────
+// Tablas tipo Notion (fase 4)
+// ─────────────────────────────────────────────
+
+enum ColumnType {
+  TEXT
+  NUMBER
+  SELECT // estado / etiqueta
+  DATE
+  PERSON // mención a una persona
+  CHECKBOX
+  URL
+  EVENT // cita de calendario que se envía al asignado
+}
+
+model WikiPage {
+  id        String      @id @default(cuid())
+  title     String      @default("Página sin título")
+  icon      String? // emoji
+  content   String      @default("") // markdown / texto
+  parent    WikiPage?   @relation("WikiTree", fields: [parentId], references: [id], onDelete: SetNull)
+  parentId  String?
+  children  WikiPage[]  @relation("WikiTree")
+  tables    DataTable[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model DataTable {
+  id         String       @id @default(cuid())
+  name       String
+  project    Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  String?
+  wikiPage   WikiPage?    @relation(fields: [wikiPageId], references: [id], onDelete: Cascade)
+  wikiPageId String?
+  columns    DataColumn[]
+  rows       DataRow[]
+  createdAt  DateTime     @default(now())
+}
+
+model DataColumn {
+  id       String     @id @default(cuid())
+  table    DataTable  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId  String
+  name     String
+  type     ColumnType @default(TEXT)
+  options  Json? // para SELECT: [{label, color}]
+  position Int        @default(0)
+  cells    DataCell[]
+}
+
+model DataRow {
+  id       String     @id @default(cuid())
+  table    DataTable  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId  String
+  position Int        @default(0)
+  cells    DataCell[]
+  createdAt DateTime  @default(now())
+}
+
+model DataCell {
+  id       String     @id @default(cuid())
+  row      DataRow    @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  rowId    String
+  column   DataColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  columnId String
+  value    Json? // texto, número, optionId, fecha ISO, userId, {eventId,...}
+
+  @@unique([rowId, columnId])
 }
 
 // ─────────────────────────────────────────────
