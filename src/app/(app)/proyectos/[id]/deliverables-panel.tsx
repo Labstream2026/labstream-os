@@ -8,7 +8,11 @@ import {
   formatShortDate,
 } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { signReviewToken } from "@/lib/review-token";
+import { CopyLink } from "@/components/copy-link";
 import { createDeliverable, setDeliverableStatus, addDeliverableVersion } from "./actions";
+
+const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
 type Version = {
   id: string;
@@ -101,6 +105,20 @@ export function DeliverablesPanel({
                   ) : null}
                 </div>
               ))}
+          </div>
+
+          {/* Compartir para revisión del cliente (portal público) */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <span className="text-xs text-muted-foreground">Revisión del cliente:</span>
+            <CopyLink url={`${REVIEW_BASE}/review/${signReviewToken(d.id)}`} />
+            <a
+              href={`/review/${signReviewToken(d.id)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              Abrir portal
+            </a>
           </div>
 
           {/* Nueva versión */}

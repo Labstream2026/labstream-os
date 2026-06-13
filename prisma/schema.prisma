@@ -540,8 +540,28 @@ model Deliverable {
   ownerId   String?
   versions  DeliverableVersion[]
   tasks     Task[]
+  reviewComments ReviewComment[]
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Revisión de cliente (fase 5): portal público + comentarios con timestamp
+// ─────────────────────────────────────────────
+
+model ReviewComment {
+  id            String      @id @default(cuid())
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  deliverableId String
+  versionNumber Int? // versión del entregable a la que se refiere
+  authorName    String // nombre que escribe el cliente (sin cuenta)
+  body          String
+  timecode      Float? // segundos dentro del video, si aplica
+  resolved      Boolean     @default(false)
+  fromClient    Boolean     @default(true) // true = cliente; false = respuesta del equipo
+  createdAt     DateTime    @default(now())
+
+  @@index([deliverableId, createdAt])
 }
 
 model DeliverableVersion {
