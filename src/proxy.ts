@@ -3,8 +3,12 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 
 // Protección de rutas (Next 16 "proxy", antes "middleware").
-// Rutas públicas (sin sesión). /review/* será el portal de cliente (fase 5).
-const PUBLIC_PREFIXES = ["/login", "/review"];
+// Rutas públicas (sin sesión):
+// - /login: pantalla de acceso.
+// - /api/auth: arranque/retorno de SSO (login + callback de Authentik). DEBEN ser
+//   públicas o el usuario sin sesión nunca puede iniciar el flujo OIDC.
+// - /review: portal de cliente (fase 5).
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

@@ -5,12 +5,10 @@ import { safeNext } from "@/lib/safe-next";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function baseUrl() {
-  return process.env.NEXTAUTH_URL || "http://localhost:3200";
-}
-
 export async function GET(req: NextRequest) {
-  const base = baseUrl();
+  // Misma base que el callback (NEXTAUTH_URL → origin) para que el redirect_uri
+  // del authorize coincida EXACTO con el del token exchange; si no, Authentik rechaza.
+  const base = process.env.NEXTAUTH_URL || new URL(req.url).origin;
   if (!authentikEnabled) {
     return NextResponse.redirect(new URL("/login?error=sso", base));
   }
