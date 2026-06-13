@@ -4,8 +4,18 @@ import { useActionState } from "react";
 import { login, type LoginState } from "@/lib/auth-actions";
 import { Button } from "@/components/ui/button";
 
-export function LoginForm({ ssoEnabled, errorMsg }: { ssoEnabled: boolean; errorMsg?: string }) {
+export function LoginForm({
+  ssoEnabled,
+  errorMsg,
+  next = "/",
+}: {
+  ssoEnabled: boolean;
+  errorMsg?: string;
+  next?: string;
+}) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
+  const ssoHref =
+    next && next !== "/" ? `/api/auth/oidc/login?next=${encodeURIComponent(next)}` : "/api/auth/oidc/login";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
@@ -21,7 +31,7 @@ export function LoginForm({ ssoEnabled, errorMsg }: { ssoEnabled: boolean; error
         {ssoEnabled ? (
           <>
             <a
-              href="/api/auth/oidc/login"
+              href={ssoHref}
               className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-medium hover:bg-accent"
             >
               Entrar con Authentik
@@ -33,12 +43,12 @@ export function LoginForm({ ssoEnabled, errorMsg }: { ssoEnabled: boolean; error
         ) : null}
 
         <form action={action} className="space-y-3">
+          <input type="hidden" name="next" value={next} />
           <input
             name="email"
             type="email"
             required
             placeholder="tu@labstream.co"
-            defaultValue="mateo@labstream.co"
             autoComplete="email"
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />

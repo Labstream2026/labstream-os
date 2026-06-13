@@ -1,4 +1,5 @@
 import type { SessionUser } from "@/lib/session";
+import { db } from "@/lib/db";
 
 // ¿Puede el usuario ver/escribir en este canal?
 // Público → todo el equipo. Privado → admin, responsable del proyecto o miembro invitado.
@@ -15,4 +16,40 @@ export function canAccessChannel(
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;
   return channel.members.some((m) => m.userId === session.id);
+}
+
+// Variante que carga el canal por id y resuelve el acceso (para server actions y rutas).
+// Devuelve false si el canal no existe o el usuario no puede verlo.
+export async function userCanAccessChannel(
+  channelId: string,
+  session: SessionUser | null,
+): Promise<boolean> {
+  if (!session) return false;
+  const channel = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: {
+      isPublic: true,
+      project: { select: { leadId: true } },
+      members: { select: { userId: true } },
+    },
+  });
+  if (!channel) return false;
+  return canAccessChannel(channel, session);
+}
+
+// ¿Puede el usuario GESTIONAR el canal (visibilidad, miembros)?
+// Estilo Mattermost: solo admin del sistema o responsable del proyecto del canal.
+// Los miembros invitados solo participan, no administran.
+export async function userCanManageChannel(
+  channelId: string,
+  session: SessionUser | null,
+): Promise<boolean> {
+  if (!session) return false;
+  if (session.role === "admin") return true;
+  const channel = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: { project: { select: { leadId: true } } },
+  });
+  if (!channel) return false;
+  return channel.project?.leadId === session.id;
 }

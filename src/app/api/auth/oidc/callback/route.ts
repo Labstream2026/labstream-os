@@ -2,17 +2,30 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { authentikEnabled, exchangeCode, fetchUserinfo, PROVISION_DOMAIN } from "@/lib/oidc";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
+import { safeNext } from "@/lib/safe-next";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const roleInclude = { role: { include: { permissions: { include: { permission: true } } } } } as const;
 
+// Iniciales a partir del nombre, tolerando espacios extra / nombres vacíos.
+function initialsFrom(name: string, email: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const src = parts.length ? parts : [email];
+  return src
+    .map((s) => s[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 export async function GET(req: NextRequest) {
   const base = process.env.NEXTAUTH_URL || new URL(req.url).origin;
   const fail = (e: string) => {
     const r = NextResponse.redirect(new URL(`/login?error=${e}`, base));
     r.cookies.delete("oidc_state");
+    r.cookies.delete("oidc_next");
     return r;
   };
 
@@ -24,11 +37,14 @@ export async function GET(req: NextRequest) {
   const expected = req.cookies.get("oidc_state")?.value;
   if (!code || !state || !expected || state !== expected) return fail("state");
 
+  const next = safeNext(req.cookies.get("oidc_next")?.value);
+
   try {
     const redirectUri = `${base}/api/auth/oidc/callback`;
     const accessToken = await exchangeCode(code, redirectUri);
     const info = await fetchUserinfo(accessToken);
-    const email = info.email.toLowerCase();
+    const email = info.email?.trim().toLowerCase();
+    if (!email) return fail("email");
 
     let user = await db.user.findUnique({ where: { email }, include: roleInclude });
 
@@ -36,16 +52,22 @@ export async function GET(req: NextRequest) {
       if (!email.endsWith(`@${PROVISION_DOMAIN}`)) return fail("dominio");
       const role = await db.role.findUnique({ where: { key: "editor" } });
       if (!role) return fail("rol");
-      const initials = info.name
-        .split(" ")
-        .map((s) => s[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase();
-      user = await db.user.create({
-        data: { email, name: info.name, roleId: role.id, initials, avatarColor: "slate" },
-        include: roleInclude,
-      });
+      try {
+        user = await db.user.create({
+          data: {
+            email,
+            name: info.name || email,
+            roleId: role.id,
+            initials: initialsFrom(info.name, email),
+            avatarColor: "slate",
+          },
+          include: roleInclude,
+        });
+      } catch {
+        // Carrera: otra petición creó el usuario en paralelo → reintentar lectura.
+        user = await db.user.findUnique({ where: { email }, include: roleInclude });
+        if (!user) return fail("oidc");
+      }
     }
 
     if (!user.active) return fail("inactivo");
@@ -61,8 +83,9 @@ export async function GET(req: NextRequest) {
       color: user.avatarColor,
     });
 
-    const res = NextResponse.redirect(new URL("/", base));
+    const res = NextResponse.redirect(new URL(next, base));
     res.cookies.delete("oidc_state");
+    res.cookies.delete("oidc_next");
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",

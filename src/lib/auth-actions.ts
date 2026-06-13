@@ -5,12 +5,14 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
+import { safeNext } from "@/lib/safe-next";
 
 export type LoginState = { error?: string };
 
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
+  const next = safeNext(String(formData.get("next") ?? ""));
   if (!email || !password) return { error: "Ingresa correo y contraseña." };
 
   const user = await db.user.findUnique({
@@ -44,7 +46,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     maxAge: SESSION_MAX_AGE,
   });
 
-  redirect("/");
+  redirect(next);
 }
 
 export async function logout() {

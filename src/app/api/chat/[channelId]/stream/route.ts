@@ -1,5 +1,7 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { chatBus, channelEvent, type ChatMessagePayload } from "@/lib/chat-bus";
+import { getSession } from "@/lib/auth";
+import { userCanAccessChannel } from "@/lib/chat-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -7,6 +9,13 @@ export const runtime = "nodejs";
 // SSE: emite los mensajes nuevos del canal en tiempo real.
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ channelId: string }> }) {
   const { channelId } = await ctx.params;
+
+  // Solo quien puede ver el canal recibe su stream (los canales privados no se filtran).
+  const session = await getSession();
+  if (!(await userCanAccessChannel(channelId, session))) {
+    return new NextResponse("No autorizado", { status: 403 });
+  }
+
   const event = channelEvent(channelId);
   const encoder = new TextEncoder();
 

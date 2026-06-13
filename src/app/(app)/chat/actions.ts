@@ -3,20 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { getCurrentUser } from "@/lib/current-user";
+import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { publishMessage, publishPollUpdate, type ChatMessagePayload, type PollData } from "@/lib/chat-bus";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
-
-async function canManageChannel(channelId: string, userId: string, isAdmin: boolean) {
-  if (isAdmin) return true;
-  const channel = await db.chatChannel.findUnique({
-    where: { id: channelId },
-    include: { project: { select: { leadId: true } }, members: { where: { userId } } },
-  });
-  if (!channel) return false;
-  return channel.project?.leadId === userId || channel.members.length > 0;
-}
 
 export async function sendMessage(
   channelId: string,
@@ -26,9 +16,11 @@ export async function sendMessage(
   const text = body.trim();
   if (!text) return null;
 
-  const user = await getCurrentUser();
+  const session = await getSession();
+  if (!(await userCanAccessChannel(channelId, session))) return null;
+
   const msg = await db.chatMessage.create({
-    data: { channelId, body: text, parentId: parentId ?? null, authorId: user?.id ?? null },
+    data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
     include: { author: { select: { name: true, initials: true, avatarColor: true } } },
   });
 
@@ -55,9 +47,11 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   if (!channelId || (!body && files.length === 0)) return;
 
-  const user = await getCurrentUser();
+  const session = await getSession();
+  if (!(await userCanAccessChannel(channelId, session))) return;
+
   const msg = await db.chatMessage.create({
-    data: { channelId, body: body || "📎 Archivo adjunto", parentId, authorId: user?.id ?? null },
+    data: { channelId, body: body || "📎 Archivo adjunto", parentId, authorId: session!.id },
     include: { author: { select: { name: true, initials: true, avatarColor: true } } },
   });
 
@@ -95,17 +89,19 @@ export async function createPoll(channelId: string, formData: FormData): Promise
     .filter(Boolean);
   if (!question || options.length < 2) return;
 
-  const user = await getCurrentUser();
+  const session = await getSession();
+  if (!(await userCanAccessChannel(channelId, session))) return;
+
   const msg = await db.chatMessage.create({
     data: {
       channelId,
       body: `📊 ${question}`,
-      authorId: user?.id ?? null,
+      authorId: session!.id,
       poll: {
         create: {
           channelId,
           question,
-          createdById: user?.id ?? null,
+          createdById: session!.id,
           options: { create: options.map((text, i) => ({ text, position: i })) },
         },
       },
@@ -138,23 +134,35 @@ export async function createPoll(channelId: string, formData: FormData): Promise
 }
 
 export async function votePoll(pollId: string, optionId: string): Promise<PollData | null> {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  await db.pollVote.upsert({
-    where: { pollId_userId: { pollId, userId: user.id } },
-    create: { pollId, optionId, userId: user.id },
-    update: { optionId },
-  });
+  const session = await getSession();
+  if (!session) return null;
+
+  // La opción debe pertenecer a esta encuesta (evita votos cruzados entre encuestas).
   const poll = await db.poll.findUnique({
     where: { id: pollId },
-    include: { options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } } },
+    include: {
+      options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
+    },
   });
-  if (!poll) return null;
+  if (!poll || !poll.options.some((o) => o.id === optionId)) return null;
+  if (!(await userCanAccessChannel(poll.channelId, session))) return null;
+
+  await db.pollVote.upsert({
+    where: { pollId_userId: { pollId, userId: session.id } },
+    create: { pollId, optionId, userId: session.id },
+    update: { optionId },
+  });
+  // recuento tras el voto
+  const counts = await db.pollOption.findMany({
+    where: { pollId },
+    orderBy: { position: "asc" },
+    include: { _count: { select: { votes: true } } },
+  });
   const data: PollData = {
     id: poll.id,
     question: poll.question,
-    options: poll.options.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
-    totalVotes: poll.options.reduce((n, o) => n + o._count.votes, 0),
+    options: counts.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
+    totalVotes: counts.reduce((n, o) => n + o._count.votes, 0),
   };
   publishPollUpdate(poll.channelId, data);
   return data;
@@ -164,7 +172,7 @@ export async function votePoll(pollId: string, optionId: string): Promise<PollDa
 
 export async function setChannelVisibility(channelId: string, isPublic: boolean) {
   const session = await getSession();
-  if (!session || !(await canManageChannel(channelId, session.id, session.role === "admin"))) {
+  if (!(await userCanManageChannel(channelId, session))) {
     throw new Error("No autorizado");
   }
   const channel = await db.chatChannel.update({ where: { id: channelId }, data: { isPublic } });
@@ -173,7 +181,7 @@ export async function setChannelVisibility(channelId: string, isPublic: boolean)
 
 export async function addChannelMember(channelId: string, userId: string) {
   const session = await getSession();
-  if (!session || !(await canManageChannel(channelId, session.id, session.role === "admin"))) {
+  if (!(await userCanManageChannel(channelId, session))) {
     throw new Error("No autorizado");
   }
   await db.channelMember.upsert({
@@ -187,7 +195,7 @@ export async function addChannelMember(channelId: string, userId: string) {
 
 export async function removeChannelMember(channelId: string, userId: string) {
   const session = await getSession();
-  if (!session || !(await canManageChannel(channelId, session.id, session.role === "admin"))) {
+  if (!(await userCanManageChannel(channelId, session))) {
     throw new Error("No autorizado");
   }
   await db.channelMember
