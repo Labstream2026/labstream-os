@@ -12,10 +12,13 @@ REPO="Labstream2026/labstream-os"
 BRANCH="main"
 DEST="/volume1/docker/labstream-os"
 PROJECT="labstream-os"
-LOG="/home/labstream-os-deploy.log"
+# /volume1/docker siempre existe; /home no resuelve bajo sudo/Task Scheduler.
+LOG="/volume1/docker/labstream-os-deploy.log"
 TMP="/tmp/lsos-deploy"
 
-echo "=== deploy inicio $(date) ===" >> "$LOG"
+# El log nunca debe tumbar el deploy (de ahí el "|| true").
+log() { echo "=== $* $(date) ===" >> "$LOG" 2>/dev/null || true; }
+log "deploy inicio"
 
 # 1) Descargar el código más reciente de GitHub (repo público).
 rm -rf "$TMP"
@@ -38,7 +41,7 @@ rsync -a \
 mkdir -p "$DEST/data/postgres" "$DEST/data/redis" "$DEST/data/storage"
 
 if [ ! -f "$DEST/.env" ]; then
-  echo "AVISO: falta $DEST/.env (secretos de producción). El contenedor no arrancará bien." >> "$LOG"
+  log "AVISO: falta $DEST/.env (secretos de produccion)"
 fi
 
 # 4) Reconstruir y levantar (el cambio de código invalida la caché del COPY . .).
@@ -49,4 +52,5 @@ docker compose -p "$PROJECT" up -d --build
 #    -u root = evita EACCES al leer /app/package.json con el usuario del contenedor.
 docker compose -p "$PROJECT" exec -T -u root app npx prisma migrate deploy
 
-echo "=== deploy OK $(date) ===" >> "$LOG"
+log "deploy OK"
+echo "Deploy completado."
