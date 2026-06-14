@@ -11,7 +11,9 @@
 
 services:
   onlyoffice-documentserver:
-    image: onlyoffice/documentserver:latest
+    # Versión FIJADA a propósito (no usar :latest). No la cambies salvo que sea
+    # necesario; mantenemos versiones estables para no romper nada.
+    image: onlyoffice/documentserver:8.2.2
     container_name: onlyoffice-documentserver
     restart: unless-stopped
     ports:

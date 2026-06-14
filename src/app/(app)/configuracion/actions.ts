@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { emailEnabled, sendEmail } from "@/lib/email";
+import { testCaldav } from "@/lib/caldav";
 
 export type AdminActionResult = { ok: boolean; error?: string };
 
@@ -26,6 +27,13 @@ export async function sendTestEmail(): Promise<AdminActionResult> {
     html: "<p>Funciona ✅</p><p>El envío de correo desde Labstream OS (Synology MailPlus) está operativo.</p>",
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+// Prueba la conexión al Synology Calendar (CalDAV).
+export async function testCalendar(): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  return testCaldav();
 }
 
 // Activar/desactivar un permiso para un rol. El rol "admin" es todopoderoso por

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2 } from "lucide-react";
-import { sendTestEmail } from "./actions";
+import { sendTestEmail, testCalendar } from "./actions";
 
 function StatusRow({
   icon,
@@ -52,6 +52,7 @@ export function IntegrationsPanel({
 }) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
+  const [calMsg, setCalMsg] = React.useState<string | null>(null);
 
   return (
     <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -73,7 +74,24 @@ export function IntegrationsPanel({
         ) : null}
       </StatusRow>
       {msg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{msg}</p> : null}
-      <StatusRow icon={<CalendarDays className="size-4" />} label="Calendario (Synology CalDAV)" on={caldav} detail="Sincroniza las citas internas del equipo al Synology Calendar." />
+      <StatusRow icon={<CalendarDays className="size-4" />} label="Calendario (Synology CalDAV)" on={caldav} detail="Sincroniza las citas internas del equipo al Synology Calendar.">
+        {caldav ? (
+          <button
+            onClick={() => {
+              setCalMsg(null);
+              start(async () => {
+                const r = await testCalendar();
+                setCalMsg(r.ok ? "✓ Conexión CalDAV correcta" : `⚠️ ${r.error}`);
+              });
+            }}
+            disabled={pending}
+            className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarDays className="size-3.5" />} Probar
+          </button>
+        ) : null}
+      </StatusRow>
+      {calMsg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{calMsg}</p> : null}
       <StatusRow icon={<Sparkles className="size-4" />} label="Asistente IA (Claude)" on={ai} detail="Copiloto para correos, resúmenes e ideas." />
       <StatusRow icon={<FileEdit className="size-4" />} label="Edición de documentos (OnlyOffice)" on={onlyoffice} detail="Editar Word/Excel/PPT del chat y los proyectos." />
     </div>

@@ -19,6 +19,9 @@ de un miembro). En DSM → MailPlus Server están el host y los puertos.
     SMTP_USER=no-reply@labstreamsas.com    # buzón que autentica/envía
     SMTP_PASSWORD=la-contraseña-del-buzón
     SMTP_FROM=Labstream <no-reply@labstreamsas.com>
+    # Si el correo del NAS tiene cert auto-firmado y la prueba falla con error de
+    # certificado, pon esto en false:
+    SMTP_TLS_REJECT_UNAUTHORIZED=true
 
 Tras configurarlo, en la app: **Configuración → Integraciones → Enviar prueba**.
 Te debe llegar un correo de prueba a tu propio buzón.
@@ -36,6 +39,10 @@ calendario del NAS (en Synology Calendar → ajustes de CalDAV verás algo como
     CALDAV_URL=https://nas.labstreamsas.com:5006/caldav/equipo/personal/
     CALDAV_USER=usuario-del-calendario
     CALDAV_PASSWORD=la-contraseña
+    # Si el NAS tiene cert auto-firmado y la prueba CalDAV falla por certificado:
+    CALDAV_INSECURE_TLS=true
+
+Verifica la conexión en Configuración → Integraciones → Calendario → "Probar".
 
 > Los **clientes** nunca reciben citas automáticas. Solo cuando el equipo lo pide
 > explícitamente (acción "Invitar cliente"), se les envía un `.ics` por correo que

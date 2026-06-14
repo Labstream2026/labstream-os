@@ -32,10 +32,14 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # =false acepta el cert auto-firmado del NAS (correo local Synology)
+      SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       # Synology Calendar (CalDAV) — sincronización interna del equipo
       CALDAV_URL: ${CALDAV_URL:-}
       CALDAV_USER: ${CALDAV_USER:-}
       CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
+      # =true acepta el cert auto-firmado del NAS (CalDAV local Synology)
+      CALDAV_INSECURE_TLS: ${CALDAV_INSECURE_TLS:-false}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:

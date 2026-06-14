@@ -9,6 +9,9 @@ const PASSWORD = process.env.SMTP_PASSWORD;
 const PORT = parseInt(process.env.SMTP_PORT || "587", 10);
 const SECURE = process.env.SMTP_SECURE === "true" || PORT === 465;
 const FROM = process.env.SMTP_FROM || (USER ? `Labstream <${USER}>` : "");
+// Synology MailPlus en la red local suele tener cert auto-firmado/no válido.
+// SMTP_TLS_REJECT_UNAUTHORIZED=false lo acepta (solo recomendable para el NAS propio).
+const REJECT_UNAUTHORIZED = process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false";
 
 export const emailEnabled = Boolean(HOST && USER && PASSWORD);
 
@@ -23,6 +26,7 @@ function transporter(): nodemailer.Transporter {
         port: PORT,
         secure: SECURE,
         auth: { user: USER, pass: PASSWORD },
+        tls: { rejectUnauthorized: REJECT_UNAUTHORIZED },
       }),
     };
   }
