@@ -14,6 +14,7 @@ export type SessionUser = {
   perms: string[];
   initials: string | null;
   color: string | null;
+  avatarUrl?: string | null;
 };
 
 function secretKey() {
@@ -42,6 +43,7 @@ export async function verifyToken(token?: string | null): Promise<SessionUser | 
       perms: (payload.perms as string[]) ?? [],
       initials: (payload.initials as string | null) ?? null,
       color: (payload.color as string | null) ?? null,
+      avatarUrl: (payload.avatarUrl as string | null) ?? null,
     };
   } catch {
     return null;

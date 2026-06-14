@@ -20,6 +20,7 @@ export default async function PerfilPage() {
         title={me.title}
         initials={me.initials}
         color={me.avatarColor}
+        avatarUrl={me.avatarUrl}
       />
     </div>
   );

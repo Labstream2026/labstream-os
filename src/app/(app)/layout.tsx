@@ -46,6 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         title: session.title,
         initials: session.initials,
         color: session.color,
+        avatarUrl: session.avatarUrl,
       }}
       me={{ name: session.name, initials: session.initials, color: session.color }}
       canAdmin={hasPermission(session, "administrar_usuarios")}

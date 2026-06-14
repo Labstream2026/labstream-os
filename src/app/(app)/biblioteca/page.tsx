@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
-import { ExternalLink, Trash2, Library } from "lucide-react";
-import { addLibraryAsset, deleteLibraryAsset } from "./actions";
+import { ExternalLink, Trash2, Library, Server } from "lucide-react";
+import { CopyText } from "@/components/actions/copy-text";
+import { addLibraryAsset, addLibraryNasPath, deleteLibraryAsset } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,20 @@ export default async function BibliotecaPage() {
         </button>
       </form>
 
+      {/* Añadir ruta del NAS (SMB) para copiar/pegar en el explorador de Windows */}
+      <details className="mt-3 rounded-xl border border-dashed border-border bg-card/50">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-medium text-muted-foreground">
+          <Server className="size-4" /> + Añadir ruta del NAS (SMB)
+        </summary>
+        <form action={addLibraryNasPath} className="flex flex-wrap items-center gap-2 border-t border-border p-3">
+          <input name="name" required placeholder="Nombre (ej. Material bruto Danney)" className="min-w-44 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input name="path" required placeholder="\\NAS\proyectos\danney\bruto" className="min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input name="category" defaultValue="NAS" className="w-32 rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir ruta</button>
+        </form>
+        <p className="px-4 pb-3 text-xs text-muted-foreground">Pega la ruta tal cual la usas en Windows. Aparecerá con un botón &quot;Copiar&quot; para pegarla en el explorador.</p>
+      </details>
+
       {assets.length === 0 ? (
         <div className="mt-10 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
           <Library className="size-7 text-muted-foreground" />
@@ -71,15 +86,26 @@ export default async function BibliotecaPage() {
                 {items.map((a) => (
                   <div key={a.id} className="flex items-center gap-3 p-3">
                     <div className="min-w-0 flex-1">
-                      <a href={a.url ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium hover:underline">
-                        {a.name} <ExternalLink className="size-3.5 text-muted-foreground" />
-                      </a>
+                      {a.kind === "NAS" ? (
+                        <div className="flex items-center gap-2">
+                          <Server className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="font-medium">{a.name}</span>
+                        </div>
+                      ) : (
+                        <a href={a.url ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium hover:underline">
+                          {a.name} <ExternalLink className="size-3.5 text-muted-foreground" />
+                        </a>
+                      )}
+                      {a.kind === "NAS" && a.url ? (
+                        <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{a.url}</p>
+                      ) : null}
                       <p className="truncate text-xs text-muted-foreground">
                         {FILE_KIND_LABEL[a.kind] ?? a.kind}
                         {a.uploadedBy ? ` · ${a.uploadedBy.name}` : ""}
                         {` · ${formatShortDate(a.createdAt)}`}
                       </p>
                     </div>
+                    {a.kind === "NAS" && a.url ? <CopyText text={a.url} /> : null}
                     <form action={deleteLibraryAsset.bind(null, a.id)}>
                       <button
                         type="submit"

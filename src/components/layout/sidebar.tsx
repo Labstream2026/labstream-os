@@ -28,6 +28,7 @@ export type SidebarUser = {
   title: string | null;
   initials: string | null;
   color: string | null;
+  avatarUrl?: string | null;
 };
 
 export type SidebarClient = {
@@ -207,7 +208,7 @@ export function Sidebar({
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:opacity-80"
             title="Mi perfil"
           >
-            <UserAvatar initials={user.initials} color={user.color} size="md" />
+            <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
             {!collapsed ? (
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{user.name}</span>

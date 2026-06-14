@@ -112,6 +112,7 @@ export const FILE_KIND_LABEL: Record<string, string> = {
   LOCAL: "Archivo",
   DRIVE: "Google Drive",
   LINK: "Enlace",
+  NAS: "Ruta del NAS",
 };
 
 // ── Cotizaciones ──

@@ -21,6 +21,23 @@ export async function addLibraryAsset(formData: FormData) {
   revalidatePath("/biblioteca");
 }
 
+// Añadir una RUTA del NAS (SMB) para copiar/pegar en el explorador de Windows.
+// No es una URL http; se valida de forma laxa (\\servidor\carpeta, smb://… o X:\…).
+export async function addLibraryNasPath(formData: FormData) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const name = String(formData.get("name") ?? "").trim();
+  const path = String(formData.get("path") ?? "").trim();
+  const category = String(formData.get("category") ?? "").trim() || "NAS";
+  if (!name || !path) return;
+  const ok = /^(\\\\|smb:\/\/|[a-zA-Z]:\\)/.test(path) && !/^(https?:|javascript:)/i.test(path);
+  if (!ok) throw new Error("Ruta de NAS no válida (usa \\\\servidor\\carpeta, smb:// o X:\\)");
+  await db.libraryAsset.create({
+    data: { name, url: path, category, kind: "NAS" as never, uploadedById: session.id },
+  });
+  revalidatePath("/biblioteca");
+}
+
 export async function deleteLibraryAsset(id: string) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
-import { updateMyProfile } from "./actions";
+import { updateMyProfile, updateMyAvatar, removeMyAvatar } from "./actions";
 
 const COLORS = ["indigo", "emerald", "violet", "cyan", "amber", "rose", "orange", "slate"];
 
@@ -12,17 +12,21 @@ export function ProfileForm({
   title,
   initials,
   color,
+  avatarUrl,
 }: {
   name: string;
   email: string;
   title: string | null;
   initials: string | null;
   color: string | null;
+  avatarUrl?: string | null;
 }) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
   const [sel, setSel] = React.useState(color ?? "slate");
   const [ini, setIni] = React.useState(initials ?? "");
+  const [photoMsg, setPhotoMsg] = React.useState<string | null>(null);
+  const [photoPending, startPhoto] = React.useTransition();
 
   function submit(formData: FormData) {
     formData.set("color", sel);
@@ -34,9 +38,53 @@ export function ProfileForm({
   }
 
   return (
-    <form action={submit} className="mt-6 max-w-md space-y-4">
+    <>
+      {/* Foto de perfil */}
+      <div className="mt-6 max-w-md rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center gap-4">
+          <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} url={avatarUrl} size="lg" className="size-16" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Foto de perfil</p>
+            <p className="text-xs text-muted-foreground">JPG, PNG o WebP · máx 5MB</p>
+            <div className="mt-2 flex items-center gap-2">
+              <label className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+                {photoPending ? "Subiendo…" : "Cambiar foto"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={photoPending}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const fd = new FormData();
+                    fd.set("avatar", f);
+                    setPhotoMsg(null);
+                    startPhoto(async () => {
+                      const r = await updateMyAvatar(fd);
+                      setPhotoMsg(r.ok ? "✓ Foto actualizada" : `⚠️ ${r.error ?? "Error"}`);
+                    });
+                  }}
+                />
+              </label>
+              {avatarUrl ? (
+                <button
+                  type="button"
+                  onClick={() => startPhoto(async () => { await removeMyAvatar(); setPhotoMsg("✓ Foto eliminada"); })}
+                  className="text-xs text-muted-foreground hover:text-destructive"
+                >
+                  Quitar
+                </button>
+              ) : null}
+              {photoMsg ? <span className="text-xs text-muted-foreground">{photoMsg}</span> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+    <form action={submit} className="mt-4 max-w-md space-y-4">
       <div className="flex items-center gap-3">
-        <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} size="lg" />
+        <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} url={avatarUrl} size="lg" />
         <div className="min-w-0">
           <p className="truncate font-medium">{name}</p>
           <p className="truncate text-xs text-muted-foreground">{email}</p>
@@ -95,5 +143,6 @@ export function ProfileForm({
         {msg ? <span className="text-sm text-muted-foreground">{msg}</span> : null}
       </div>
     </form>
+    </>
   );
 }

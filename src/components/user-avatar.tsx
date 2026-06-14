@@ -10,16 +10,33 @@ const SIZES: Record<string, string> = {
 export function UserAvatar({
   initials,
   color,
+  url,
   size = "md",
   className,
   ring,
 }: {
   initials?: string | null;
   color?: string | null;
+  url?: string | null;
   size?: "sm" | "md" | "lg";
   className?: string;
   ring?: boolean;
 }) {
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return (
+      <img
+        src={url}
+        alt={(initials ?? "").slice(0, 2)}
+        className={cn(
+          "inline-block shrink-0 rounded-full object-cover",
+          SIZES[size],
+          ring && "ring-2 ring-background",
+          className,
+        )}
+      />
+    );
+  }
   return (
     <span
       className={cn(
