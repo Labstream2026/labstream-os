@@ -5,7 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { formatMoney, quoteTotals } from "@/lib/ui";
 import { addItem, removeItem, updateItem } from "../actions";
 
-type Item = { id: string; description: string; quantity: number; unitPrice: number };
+type Item = { id: string; section: string; description: string; quantity: number; unitPrice: number };
 
 export function QuoteEditor({
   quoteId,
@@ -27,26 +27,35 @@ export function QuoteEditor({
   React.useEffect(() => setItems(initialItems), [initialItems]);
 
   const patch = (id: string, field: keyof Item, value: string) => {
+    const numeric = field === "quantity" || field === "unitPrice";
     setItems((prev) =>
       prev.map((it) =>
         it.id === id
-          ? { ...it, [field]: field === "description" ? value : Number(value.replace(/[^\d.]/g, "")) || 0 }
+          ? { ...it, [field]: numeric ? Number(value.replace(/[^\d.]/g, "")) || 0 : value }
           : it,
       ),
     );
   };
 
   const commit = (it: Item) => {
-    updateItem(it.id, { description: it.description, quantity: it.quantity, unitPrice: it.unitPrice });
+    updateItem(it.id, { section: it.section, description: it.description, quantity: it.quantity, unitPrice: it.unitPrice });
   };
 
   const { subtotal, tax, total } = quoteTotals(items, taxRate);
 
+  const sectionSuggestions = Array.from(
+    new Set([...items.map((i) => i.section).filter(Boolean), "Preproducción", "Rodaje", "Postproducción", "Equipo y logística", "Otros"]),
+  );
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <datalist id="quote-sections">
+        {sectionSuggestions.map((s) => (<option key={s} value={s} />))}
+      </datalist>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
+            <th className="w-36 px-3 py-2.5 font-medium">Sección</th>
             <th className="px-4 py-2.5 font-medium">Descripción</th>
             <th className="w-20 px-2 py-2.5 text-right font-medium">Cant.</th>
             <th className="w-36 px-2 py-2.5 text-right font-medium">Precio unit.</th>
@@ -57,6 +66,17 @@ export function QuoteEditor({
         <tbody>
           {items.map((it) => (
             <tr key={it.id} className="border-b border-border last:border-0">
+              <td className="px-3 py-1.5">
+                <input
+                  value={it.section}
+                  disabled={!canEdit}
+                  onChange={(e) => patch(it.id, "section", e.target.value)}
+                  onBlur={() => commit(it)}
+                  placeholder="—"
+                  list="quote-sections"
+                  className="w-full rounded-md bg-transparent px-2 py-1 text-xs text-muted-foreground outline-none focus:bg-accent/50 disabled:opacity-70"
+                />
+              </td>
               <td className="px-4 py-1.5">
                 <input
                   value={it.description}

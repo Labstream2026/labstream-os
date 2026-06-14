@@ -82,7 +82,7 @@ export async function addItem(quoteId: string) {
 
 export async function updateItem(
   itemId: string,
-  data: { description: string; quantity: number; unitPrice: number },
+  data: { section?: string; description: string; quantity: number; unitPrice: number },
 ) {
   await requirePerm("crear_cotizaciones");
   const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
@@ -91,9 +91,10 @@ export async function updateItem(
   // cantidades y precios no negativos (evita totales manipulados)
   const quantity = Math.max(0, Number.isFinite(data.quantity) ? data.quantity : 0);
   const unitPrice = Math.max(0, Number.isFinite(data.unitPrice) ? data.unitPrice : 0);
+  const section = (data.section ?? "").trim().slice(0, 60) || null;
   await db.quoteItem.update({
     where: { id: itemId },
-    data: { description: data.description, quantity, unitPrice },
+    data: { section, description: data.description, quantity, unitPrice },
   });
   refresh(existing.quoteId);
 }

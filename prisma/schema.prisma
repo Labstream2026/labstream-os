@@ -272,13 +272,16 @@ model Quote {
 }
 
 model QuoteItem {
-  id          String @id @default(cuid())
-  quote       Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id          String  @id @default(cuid())
+  quote       Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   quoteId     String
+  section     String? // agrupa el ítem en una sección del desglose (Preproducción, Rodaje…)
   description String
-  quantity    Float  @default(1)
-  unitPrice   Float  @default(0)
-  position    Int    @default(0)
+  quantity    Float   @default(1)
+  unitPrice   Float   @default(0)
+  position    Int     @default(0)
+
+  @@index([quoteId])
 }
 
 // ─────────────────────────────────────────────

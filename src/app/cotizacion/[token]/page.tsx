@@ -1,0 +1,71 @@
+import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { verifyQuoteToken } from "@/lib/quote-token";
+import { QuoteDocument } from "@/components/quote-document";
+import { PrintButton } from "@/components/print-button";
+import { QuoteDecision } from "./decision";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export default async function CotizacionPublicaPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const quoteId = verifyQuoteToken(token);
+  if (!quoteId) notFound();
+
+  const quote = await db.quote.findUnique({
+    where: { id: quoteId },
+    include: {
+      client: { select: { name: true } },
+      project: { select: { name: true } },
+      items: { orderBy: { position: "asc" } },
+    },
+  });
+  if (!quote) notFound();
+
+  const decided = quote.status === "APROBADA" || quote.status === "RECHAZADA";
+
+  return (
+    <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
+      <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 print:hidden">
+        <div>
+          <p className="text-sm font-semibold text-neutral-800">Cotización de Labstream</p>
+          <p className="text-xs text-neutral-500">Revisa el detalle y apruébala o recházala al final.</p>
+        </div>
+        <PrintButton label="Descargar PDF" />
+      </div>
+
+      {quote.status === "APROBADA" ? (
+        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 print:hidden">
+          ✅ Aprobaste esta cotización. ¡Gracias! Nos pondremos en contacto.
+        </div>
+      ) : quote.status === "RECHAZADA" ? (
+        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
+          Esta cotización fue rechazada. Si fue un error, contáctanos.
+        </div>
+      ) : null}
+
+      <QuoteDocument
+        quote={{
+          code: quote.code,
+          title: quote.title,
+          status: quote.status,
+          currency: quote.currency,
+          taxRate: quote.taxRate,
+          notes: quote.notes,
+          validUntil: quote.validUntil,
+          createdAt: quote.createdAt,
+          clientName: quote.client.name,
+          projectName: quote.project?.name ?? null,
+          items: quote.items.map((i) => ({ section: i.section, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })),
+        }}
+      />
+
+      {!decided ? (
+        <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">
+          <QuoteDecision token={token} />
+        </div>
+      ) : null}
+    </div>
+  );
+}

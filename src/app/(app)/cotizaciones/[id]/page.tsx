@@ -4,9 +4,12 @@ import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
+import { signQuoteToken } from "@/lib/quote-token";
+import { Printer } from "lucide-react";
 import { updateQuoteMeta } from "../actions";
 import { QuoteEditor } from "./quote-editor";
 import { QuoteStatusActions } from "./quote-status";
+import { ShareQuote } from "./share-quote";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +34,7 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
 
   const meta = quoteStatusMeta(quote.status);
   const validUntilValue = quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "";
+  const publicPath = `/cotizacion/${signQuoteToken(quote.id)}`;
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
@@ -58,6 +62,14 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
           </p>
         </div>
         <QuoteStatusActions quoteId={quote.id} status={quote.status} canEdit={canEdit} canApprove={canApprove} />
+      </div>
+
+      {/* Acciones de documento: imprimir/PDF + enlace público al cliente */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Link href={`/cotizaciones/${quote.id}/imprimir`} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
+          <Printer className="size-4" /> Imprimir / PDF
+        </Link>
+        {canEdit ? <ShareQuote path={publicPath} /> : null}
       </div>
 
       {quote.status === "APROBADA" && quote.approvedBy ? (
@@ -98,7 +110,7 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
       <h2 className="mb-2 mt-6 text-sm font-semibold">Conceptos</h2>
       <QuoteEditor
         quoteId={quote.id}
-        initialItems={quote.items.map((i) => ({ id: i.id, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice }))}
+        initialItems={quote.items.map((i) => ({ id: i.id, section: i.section ?? "", description: i.description, quantity: i.quantity, unitPrice: i.unitPrice }))}
         taxRate={quote.taxRate}
         currency={quote.currency}
         canEdit={canEdit}

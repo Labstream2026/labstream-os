@@ -8,7 +8,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /api/auth: arranque/retorno de SSO (login + callback de Authentik). DEBEN ser
 //   públicas o el usuario sin sesión nunca puede iniciar el flujo OIDC.
 // - /review: portal de cliente (fase 5).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review"];
+// - /cotizacion: vista pública de cotización para el cliente (token firmado).
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
