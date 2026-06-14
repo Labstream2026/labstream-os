@@ -1,5 +1,20 @@
 import type { PrismaClient } from "@prisma/client";
-import { DEFAULT_FOLDERS, TEMPLATES } from "./templates";
+import { DEFAULT_FOLDERS, TEMPLATES, type TemplateContent } from "./templates";
+
+// Resuelve la definición de una plantilla por su `key`: primero la versión
+// editable de la BD (ProjectTemplate), y si no existe cae a la del código.
+async function resolveTemplate(
+  db: PrismaClient,
+  key: string,
+): Promise<{ type: string; emoji: string; content: TemplateContent } | null> {
+  if (!key) return null;
+  const row = await db.projectTemplate.findUnique({ where: { key } });
+  if (row) {
+    return { type: row.type, emoji: row.emoji ?? "🎬", content: row.content as unknown as TemplateContent };
+  }
+  const tpl = TEMPLATES.find((t) => t.key === key);
+  return tpl ? { type: tpl.type, emoji: tpl.emoji, content: tpl.content } : null;
+}
 
 // Siguiente código correlativo LS-XXXX.
 export async function nextProjectCode(db: PrismaClient): Promise<string> {
@@ -29,7 +44,7 @@ export async function instantiateTemplate(
   db: PrismaClient,
   opts: { templateKey: string; name: string; clientId: string; leadId?: string | null },
 ) {
-  const tpl = TEMPLATES.find((t) => t.key === opts.templateKey);
+  const tpl = await resolveTemplate(db, opts.templateKey);
   const code = await nextProjectCode(db);
 
   const stages = tpl?.content?.stages?.length ? tpl.content.stages : undefined;
@@ -39,9 +54,9 @@ export async function instantiateTemplate(
       name: opts.name,
       clientId: opts.clientId,
       leadId: opts.leadId ?? null,
-      type: tpl?.type ?? "REEL",
+      type: (tpl?.type ?? "REEL") as never,
       emoji: tpl?.emoji ?? "🎬",
-      templateKey: tpl?.key ?? null,
+      templateKey: opts.templateKey || null,
       status: "EN_PLANEACION",
       ...(stages ? { stages } : {}),
     },
