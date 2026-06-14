@@ -17,7 +17,8 @@ import {
   toggleChecklistItem,
   addChecklistItem,
 } from "./actions";
-import { type Task, type TeamMember, STATUS_OPTIONS, PRIORITY_OPTIONS, toDateInputValue } from "./task-shared";
+import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
+import { type LabelRow, labelOptions } from "@/lib/colors";
 
 // Panel lateral para editar TODOS los campos de una tarea.
 export function TaskDetail({
@@ -25,12 +26,16 @@ export function TaskDetail({
   projectId,
   team,
   stages,
+  statuses,
+  priorities,
   onClose,
 }: {
   task: Task;
   projectId: string;
   team: TeamMember[];
   stages: string[];
+  statuses: LabelRow[];
+  priorities: LabelRow[];
   onClose: () => void;
 }) {
   const stageOptions = (stages.length ? stages : ["Por hacer"]).map((s) => ({ value: s, label: s }));
@@ -64,13 +69,13 @@ export function TaskDetail({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Estado">
-              <StatusSelect value={task.status} options={STATUS_OPTIONS} action={setTaskStatus.bind(null, task.id, projectId)} className="w-full" />
+              <StatusSelect value={task.status} options={labelOptions(statuses)} action={setTaskStatus.bind(null, task.id, projectId)} className="w-full" />
             </Field>
             <Field label="Fase">
               <StatusSelect value={curStage} options={stageOptions} action={setTaskStage.bind(null, task.id, projectId)} className="w-full" />
             </Field>
             <Field label="Prioridad">
-              <StatusSelect value={task.priority} options={PRIORITY_OPTIONS} action={setTaskPriority.bind(null, task.id, projectId)} className="w-full" />
+              <StatusSelect value={task.priority} options={labelOptions(priorities)} action={setTaskPriority.bind(null, task.id, projectId)} className="w-full" />
             </Field>
             <Field label="Responsable">
               <select

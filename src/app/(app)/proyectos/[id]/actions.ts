@@ -8,7 +8,8 @@ import { safeExternalUrl } from "@/lib/url";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
-import { TASK_STATUS } from "@/lib/ui";
+import { deliverableStatusMeta } from "@/lib/ui";
+import { statusLabelOf } from "@/lib/workflow-labels";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string | null) {
@@ -16,8 +17,6 @@ function refresh(projectId: string | null) {
   revalidatePath("/mis-tareas");
   revalidatePath("/");
 }
-
-const statusLabel = (s: string) => (TASK_STATUS as Record<string, { label: string }>)[s]?.label ?? s;
 
 const accessSelect = {
   isPrivate: true,
@@ -175,10 +174,10 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
 export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
-  await db.task.update({ where: { id: taskId }, data: { status: status as never } });
+  await db.task.update({ where: { id: taskId }, data: { status } });
   await logActivity({
     action: "task.status",
-    summary: `cambió el estado de «${task!.title}» a ${statusLabel(status)}`,
+    summary: `cambió el estado de «${task!.title}» a ${await statusLabelOf(status)}`,
     projectId,
     entityType: "task",
     entityId: taskId,
@@ -283,7 +282,7 @@ export async function setDeliverableStatus(id: string, _projectId: string, statu
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(deliverable);
   await db.deliverable.update({ where: { id }, data: { status: status as never } });
-  await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${statusLabel(status)}`, projectId, entityType: "deliverable", entityId: id });
+  await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${deliverableStatusMeta(status).label}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
 }
 

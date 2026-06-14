@@ -2,10 +2,10 @@ import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { PRIORITY } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
-import { type Task, type TeamMember, STATUS_OPTIONS, toDateInputValue } from "./task-shared";
+import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 
 // Vista Lista: todas las tareas en una tabla densa estilo Notion, ordenadas por fase.
 export function TasksList({
@@ -13,11 +13,15 @@ export function TasksList({
   tasks,
   team,
   stages,
+  statuses,
+  priorities,
 }: {
   projectId: string;
   tasks: Task[];
   team: TeamMember[];
   stages: string[];
+  statuses: LabelRow[];
+  priorities: LabelRow[];
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
   const stageOptions = cols.map((s) => ({ value: s, label: s }));
@@ -50,7 +54,7 @@ export function TasksList({
             </tr>
           ) : null}
           {sorted.map((t) => {
-            const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
+            const prio = labelMeta(priorities, t.priority);
             const done = t.checklist.filter((c) => c.done).length;
             return (
               <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/20">
@@ -70,12 +74,12 @@ export function TasksList({
                 <td className="px-3 py-2">
                   <StatusSelect
                     value={t.status}
-                    options={STATUS_OPTIONS}
+                    options={labelOptions(statuses)}
                     action={setTaskStatus.bind(null, t.id, projectId)}
                   />
                 </td>
                 <td className="px-3 py-2">
-                  <Badge className={cn("text-[10px]", prio.className)}>{prio.label}</Badge>
+                  <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
                 </td>
                 <td className="px-3 py-2">
                   {t.assignee ? (
@@ -117,9 +121,9 @@ export function TasksList({
           placeholder="+ Añadir tarea"
           className="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
-        <select name="priority" defaultValue="MEDIA" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">
-          {Object.entries(PRIORITY).map(([v, m]) => (
-            <option key={v} value={v}>{m.label}</option>
+        <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">
+          {priorities.map((p) => (
+            <option key={p.key} value={p.key}>{p.label}</option>
           ))}
         </select>
         <select name="assigneeId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">

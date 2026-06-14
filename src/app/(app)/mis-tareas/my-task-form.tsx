@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { PRIORITY } from "@/lib/ui";
+import { type LabelRow, defaultKey } from "@/lib/colors";
 import { createMyTask } from "./actions";
 
 // Formulario para crear una tarea personal o asignarla a alguien del equipo.
-export function MyTaskForm({ team }: { team: { id: string; name: string }[] }) {
+export function MyTaskForm({ team, priorities }: { team: { id: string; name: string }[]; priorities: LabelRow[] }) {
   const [open, setOpen] = React.useState(false);
   const formRef = React.useRef<HTMLFormElement>(null);
 
@@ -45,9 +45,9 @@ export function MyTaskForm({ team }: { team: { id: string; name: string }[] }) {
                 ))}
               </select>
             </label>
-            <select name="priority" defaultValue="MEDIA" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
-              {Object.entries(PRIORITY).map(([v, m]) => (
-                <option key={v} value={v}>{m.label}</option>
+            <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+              {priorities.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
               ))}
             </select>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">

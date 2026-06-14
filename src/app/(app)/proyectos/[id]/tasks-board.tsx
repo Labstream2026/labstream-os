@@ -20,7 +20,6 @@ import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
-import { PRIORITY } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import {
   createTask,
@@ -35,22 +34,26 @@ import {
   deleteStage,
   setStageColor,
 } from "./actions";
-import { type Task, type TeamMember, STATUS_OPTIONS, toDateInputValue } from "./task-shared";
+import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { TaskDetail } from "./task-detail";
 import { formatShortDate } from "@/lib/ui";
-import { TONES, tone } from "@/lib/colors";
+import { TONES, tone, type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
 
 export function TasksBoard({
   projectId,
   tasks,
   team,
   stages,
+  statuses,
+  priorities,
   stageColors = {},
 }: {
   projectId: string;
   tasks: Task[];
   team: TeamMember[];
   stages: string[];
+  statuses: LabelRow[];
+  priorities: LabelRow[];
   stageColors?: Record<string, string>;
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
@@ -104,12 +107,13 @@ export function TasksBoard({
             count={items.filter((t) => colFor(t) === col).length}
             projectId={projectId}
             team={team}
+            priorities={priorities}
             canDelete={cols.length > 1}
           >
             {items
               .filter((t) => colFor(t) === col)
               .map((t) => (
-                <DraggableCard key={t.id} task={t} projectId={projectId} dimmed={t.id === activeId} onOpen={() => setDetailId(t.id)} />
+                <DraggableCard key={t.id} task={t} projectId={projectId} statuses={statuses} priorities={priorities} dimmed={t.id === activeId} onOpen={() => setDetailId(t.id)} />
               ))}
           </Column>
         ))}
@@ -125,11 +129,11 @@ export function TasksBoard({
 
       {/* Ficha flotante mientras se arrastra */}
       <DragOverlay>
-        {activeTask ? <CardContent task={activeTask} projectId={projectId} overlay /> : null}
+        {activeTask ? <CardContent task={activeTask} projectId={projectId} statuses={statuses} priorities={priorities} overlay /> : null}
       </DragOverlay>
 
       {detailTask ? (
-        <TaskDetail task={detailTask} projectId={projectId} team={team} stages={cols} onClose={() => setDetailId(null)} />
+        <TaskDetail task={detailTask} projectId={projectId} team={team} stages={cols} statuses={statuses} priorities={priorities} onClose={() => setDetailId(null)} />
       ) : null}
     </DndContext>
   );
@@ -141,6 +145,7 @@ function Column({
   count,
   projectId,
   team,
+  priorities,
   canDelete,
   children,
 }: {
@@ -149,6 +154,7 @@ function Column({
   count: number;
   projectId: string;
   team: TeamMember[];
+  priorities: LabelRow[];
   canDelete: boolean;
   children: React.ReactNode;
 }) {
@@ -213,9 +219,9 @@ function Column({
           className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:bg-background"
         />
         <div className="mt-1 flex items-center gap-1.5">
-          <select name="priority" defaultValue="MEDIA" className="rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
-            {Object.entries(PRIORITY).map(([v, m]) => (
-              <option key={v} value={v}>{m.label}</option>
+          <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
+            {priorities.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
             ))}
           </select>
           <select name="assigneeId" defaultValue="" className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
@@ -233,11 +239,11 @@ function Column({
   );
 }
 
-function DraggableCard({ task, projectId, dimmed, onOpen }: { task: Task; projectId: string; dimmed: boolean; onOpen: () => void }) {
+function DraggableCard({ task, projectId, statuses, priorities, dimmed, onOpen }: { task: Task; projectId: string; statuses: LabelRow[]; priorities: LabelRow[]; dimmed: boolean; onOpen: () => void }) {
   const { setNodeRef, listeners, attributes, setActivatorNodeRef } = useDraggable({ id: task.id });
   return (
     <div ref={setNodeRef} className={cn(dimmed && "opacity-40")}>
-      <CardContent task={task} projectId={projectId} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} onOpen={onOpen} />
+      <CardContent task={task} projectId={projectId} statuses={statuses} priorities={priorities} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} onOpen={onOpen} />
     </div>
   );
 }
@@ -245,6 +251,8 @@ function DraggableCard({ task, projectId, dimmed, onOpen }: { task: Task; projec
 function CardContent({
   task: t,
   projectId,
+  statuses,
+  priorities,
   handleRef,
   handleProps,
   overlay,
@@ -252,12 +260,14 @@ function CardContent({
 }: {
   task: Task;
   projectId: string;
+  statuses: LabelRow[];
+  priorities: LabelRow[];
   handleRef?: (el: HTMLElement | null) => void;
   handleProps?: Record<string, unknown>;
   overlay?: boolean;
   onOpen?: () => void;
 }) {
-  const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
+  const prio = labelMeta(priorities, t.priority);
   const done = t.checklist.filter((c) => c.done).length;
   return (
     <div className={cn("rounded-lg border border-border bg-card p-3 shadow-sm", overlay && "w-72 rotate-2 shadow-lg")}>
@@ -283,7 +293,7 @@ function CardContent({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
-        <Badge className={cn("text-[10px]", prio.className)}>{prio.label}</Badge>
+        <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
         {t.dueDate ? (
           <span className="text-[11px] text-muted-foreground">📅 {formatShortDate(t.dueDate)}</span>
         ) : null}
@@ -318,7 +328,7 @@ function CardContent({
           <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
             <StatusSelect
               value={t.status}
-              options={STATUS_OPTIONS}
+              options={labelOptions(statuses)}
               action={setTaskStatus.bind(null, t.id, projectId)}
               className="flex-1"
             />

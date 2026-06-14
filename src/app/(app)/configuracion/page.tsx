@@ -9,6 +9,7 @@ import { onlyofficeEnabled } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
 import { RolePermissions } from "./role-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
+import { LabelsManager } from "./labels-manager";
 
 export default async function ConfiguracionPage() {
   const session = await getSession();
@@ -28,6 +29,10 @@ export default async function ConfiguracionPage() {
     }),
     db.permission.findMany({ orderBy: { key: "asc" }, select: { key: true, description: true } }),
   ]);
+
+  const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
+  const statusRows = taskLabels.filter((l) => l.kind === "TASK_STATUS").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
+  const priorityRows = taskLabels.filter((l) => l.kind === "TASK_PRIORITY").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
 
   const roleOptions = roles.map((r) => ({ key: r.key, name: r.name }));
 
@@ -77,6 +82,27 @@ export default async function ConfiguracionPage() {
             />
           </div>
         ))}
+      </div>
+
+      {/* ── Estados y prioridades de tarea ── */}
+      <h2 className="mb-1 mt-8 text-lg font-semibold">Estados y prioridades de tarea</h2>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Personaliza las opciones de estado y prioridad de las tareas (nombre, color de 20 tonos y
+        orden). La ⭐ marca el valor por defecto al crear una tarea; «Terminada» saca el estado de «Mis tareas».
+      </p>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <LabelsManager
+          kind="TASK_STATUS"
+          title="Estados"
+          hint="Columnas de avance de una tarea."
+          rows={statusRows}
+        />
+        <LabelsManager
+          kind="TASK_PRIORITY"
+          title="Prioridades"
+          hint="Nivel de urgencia (también aplica a proyectos)."
+          rows={priorityRows}
+        />
       </div>
 
       {/* ── Roles y permisos ── */}

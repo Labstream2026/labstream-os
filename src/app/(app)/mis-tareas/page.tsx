@@ -7,7 +7,9 @@ import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { setTaskStatus, setTaskDueDate } from "@/app/(app)/proyectos/[id]/actions";
-import { TASK_STATUS, PRIORITY, formatShortDate } from "@/lib/ui";
+import { formatShortDate } from "@/lib/ui";
+import { labelOptions, labelMeta } from "@/lib/colors";
+import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
@@ -16,17 +18,19 @@ import { DueCalendar } from "./due-calendar";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_OPTIONS = Object.entries(TASK_STATUS).map(([value, m]) => ({ value, label: m.label }));
-const OPEN = ["PENDIENTE", "EN_PROCESO", "EN_ESPERA", "EN_REVISION"];
-
 export default async function MisTareasPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  const { statuses, priorities } = await getTaskLabels();
+  const statusOptions = labelOptions(statuses);
+  // "Abiertas" = estados que no están marcados como terminados.
+  const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
+
   const [tasks, team] = await Promise.all([
     db.task.findMany({
       where: {
-        status: { in: OPEN as never },
+        status: { in: openKeys },
         OR: [{ assigneeId: user.id }, { ownerId: user.id }],
       },
       orderBy: [{ dueDate: "asc" }, { status: "asc" }],
@@ -52,7 +56,7 @@ export default async function MisTareasPage() {
         <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
       ) : (
         tasks.map((t) => {
-          const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
+          const prio = labelMeta(priorities, t.priority);
           const assignedToMeByOther = t.assigneeId === user.id && t.assignedBy;
           return (
             <div key={t.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
@@ -78,14 +82,14 @@ export default async function MisTareasPage() {
                   </p>
                 ) : null}
               </div>
-              <Badge className={cn("text-[10px]", prio.className)}>{prio.label}</Badge>
+              <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
               <DateInput
                 name="dueDate"
                 value={toDateInputValue(t.dueDate)}
                 action={setTaskDueDate.bind(null, t.id, t.project?.id ?? "")}
                 title="Fecha de entrega"
               />
-              <StatusSelect value={t.status} options={STATUS_OPTIONS} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
+              <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
             </div>
           );
         })
@@ -101,7 +105,7 @@ export default async function MisTareasPage() {
       </p>
 
       <div className="mt-6">
-        <MyTaskForm team={team} />
+        <MyTaskForm team={team} priorities={priorities} />
       </div>
 
       <div className="mt-6">
@@ -109,7 +113,7 @@ export default async function MisTareasPage() {
           storageKey="mis-tareas-view"
           views={[
             { key: "lista", label: "Lista", icon: "☰", node: list },
-            { key: "calendario", label: "Calendario", icon: "📅", node: <DueCalendar items={calItems} /> },
+            { key: "calendario", label: "Calendario", icon: "📅", node: <DueCalendar items={calItems} priorities={priorities} /> },
           ]}
         />
       </div>

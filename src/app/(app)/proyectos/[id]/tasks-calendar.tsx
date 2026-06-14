@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { PRIORITY } from "@/lib/ui";
+import { type LabelRow, labelMeta } from "@/lib/colors";
 import type { Task } from "./task-shared";
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -20,7 +20,7 @@ function dayKey(d: Date | string | null): string | null {
 }
 
 // Vista Calendario: rejilla mensual con los rodajes (tareas con fecha de rodaje).
-export function TasksCalendar({ tasks }: { tasks: Task[] }) {
+export function TasksCalendar({ tasks, priorities }: { tasks: Task[]; priorities: LabelRow[] }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-11
@@ -107,7 +107,7 @@ export function TasksCalendar({ tasks }: { tasks: Task[] }) {
                   </div>
                   <div className="space-y-1">
                     {dayTasks.map((t) => {
-                      const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
+                      const prio = labelMeta(priorities, t.priority);
                       return (
                         <div
                           key={t.id}

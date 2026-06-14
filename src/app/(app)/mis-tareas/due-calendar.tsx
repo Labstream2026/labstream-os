@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { PRIORITY } from "@/lib/ui";
+import { type LabelRow, labelMeta } from "@/lib/colors";
 
 type Item = { id: string; title: string; dueDate: string | null; priority: string; projectName: string | null };
 
@@ -17,7 +17,7 @@ function dayKey(d: string | null): string | null {
 }
 
 // Calendario mensual de tareas por su fecha de ENTREGA (dueDate).
-export function DueCalendar({ items }: { items: Item[] }) {
+export function DueCalendar({ items, priorities }: { items: Item[]; priorities: LabelRow[] }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -72,9 +72,9 @@ export function DueCalendar({ items }: { items: Item[] }) {
                   <div className={cn("mb-1 inline-flex size-5 items-center justify-center rounded-full text-[11px]", isToday ? "bg-primary font-semibold text-primary-foreground" : "text-muted-foreground")}>{d}</div>
                   <div className="space-y-1">
                     {dayItems.map((t) => {
-                      const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
+                      const prio = labelMeta(priorities, t.priority);
                       return (
-                        <div key={t.id} title={`${t.title}${t.projectName ? ` · ${t.projectName}` : ""}`} className={cn("truncate rounded px-1.5 py-0.5 text-[11px]", prio.className)}>
+                        <div key={t.id} title={`${t.title}${t.projectName ? ` · ${t.projectName}` : ""}`} className={cn("truncate rounded px-1.5 py-0.5 text-[11px]", prio.chip)}>
                           {t.title}
                         </div>
                       );

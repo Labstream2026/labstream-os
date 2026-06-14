@@ -39,3 +39,23 @@ export const TONE_MAP: Record<string, Tone> = Object.fromEntries(TONES.map((t) =
 export function tone(key: string | null | undefined): Tone {
   return (key && TONE_MAP[key]) || TONES[0];
 }
+
+// ── Etiquetas configurables (estados / prioridades de tarea) ──
+// Fila ligera que viaja del servidor a los componentes cliente.
+export type LabelRow = { key: string; label: string; color: string; isDefault: boolean; isDone: boolean };
+
+// Devuelve { value, label } para poblar un <select>.
+export function labelOptions(rows: LabelRow[]): { value: string; label: string }[] {
+  return rows.map((r) => ({ value: r.key, label: r.label }));
+}
+
+// Presentación de una etiqueta por su key: nombre + clases del chip (con color).
+export function labelMeta(rows: LabelRow[], key: string): { label: string; chip: string } {
+  const r = rows.find((x) => x.key === key);
+  return { label: r?.label ?? key, chip: tone(r?.color).chip };
+}
+
+// key del valor por defecto (o el primero) — para los formularios de "nueva tarea".
+export function defaultKey(rows: LabelRow[]): string {
+  return (rows.find((r) => r.isDefault) ?? rows[0])?.key ?? "";
+}

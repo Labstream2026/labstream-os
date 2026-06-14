@@ -2,7 +2,6 @@ import {
   PrismaClient,
   ProjectStatus,
   ProjectType,
-  Priority,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { TEMPLATES } from "../src/lib/templates";
@@ -119,18 +118,18 @@ const PROJECTS: {
   clientName: string;
   type: ProjectType;
   status: ProjectStatus;
-  priority: Priority;
+  priority: string;
   progress: number;
   emoji: string;
   leadEmail: string;
   dueDate: Date;
 }[] = [
-  { code: "LS-0001", name: "Campaña de lanzamiento", clientName: "Acme Studios", type: ProjectType.PUBLICIDAD, status: ProjectStatus.EN_PRODUCCION, priority: Priority.ALTA, progress: 62, emoji: "🚀", leadEmail: "mateo@labstream.co", dueDate: new Date("2026-06-14") },
-  { code: "LS-0002", name: "Sitio web corporativo", clientName: "Acme Studios", type: ProjectType.CORPORATIVO, status: ProjectStatus.REVISION_INTERNA, priority: Priority.MEDIA, progress: 80, emoji: "🌐", leadEmail: "mateo@labstream.co", dueDate: new Date("2026-06-19") },
-  { code: "LS-0003", name: "Documental Nova", clientName: "Nova Films", type: ProjectType.DOCUMENTAL, status: ProjectStatus.EN_EDICION, priority: Priority.ALTA, progress: 45, emoji: "🎥", leadEmail: "diego@labstream.co", dueDate: new Date("2026-06-27") },
-  { code: "LS-0004", name: "Promo Nova", clientName: "Nova Films", type: ProjectType.REEL, status: ProjectStatus.EN_PREPRODUCCION, priority: Priority.MEDIA, progress: 20, emoji: "🎬", leadEmail: "nora@labstream.co", dueDate: new Date("2026-07-02") },
-  { code: "LS-0005", name: "Reel mensual Brightside", clientName: "Brightside", type: ProjectType.CAMPANA_MENSUAL, status: ProjectStatus.EN_PRODUCCION, priority: Priority.MEDIA, progress: 35, emoji: "✨", leadEmail: "nora@labstream.co", dueDate: new Date("2026-06-30") },
-  { code: "LS-0006", name: "Streaming Horizon", clientName: "Horizon Media", type: ProjectType.STREAMING, status: ProjectStatus.PAUSADO, priority: Priority.ALTA, progress: 10, emoji: "📡", leadEmail: "diego@labstream.co", dueDate: new Date("2026-07-10") },
+  { code: "LS-0001", name: "Campaña de lanzamiento", clientName: "Acme Studios", type: ProjectType.PUBLICIDAD, status: ProjectStatus.EN_PRODUCCION, priority: "ALTA", progress: 62, emoji: "🚀", leadEmail: "mateo@labstream.co", dueDate: new Date("2026-06-14") },
+  { code: "LS-0002", name: "Sitio web corporativo", clientName: "Acme Studios", type: ProjectType.CORPORATIVO, status: ProjectStatus.REVISION_INTERNA, priority: "MEDIA", progress: 80, emoji: "🌐", leadEmail: "mateo@labstream.co", dueDate: new Date("2026-06-19") },
+  { code: "LS-0003", name: "Documental Nova", clientName: "Nova Films", type: ProjectType.DOCUMENTAL, status: ProjectStatus.EN_EDICION, priority: "ALTA", progress: 45, emoji: "🎥", leadEmail: "diego@labstream.co", dueDate: new Date("2026-06-27") },
+  { code: "LS-0004", name: "Promo Nova", clientName: "Nova Films", type: ProjectType.REEL, status: ProjectStatus.EN_PREPRODUCCION, priority: "MEDIA", progress: 20, emoji: "🎬", leadEmail: "nora@labstream.co", dueDate: new Date("2026-07-02") },
+  { code: "LS-0005", name: "Reel mensual Brightside", clientName: "Brightside", type: ProjectType.CAMPANA_MENSUAL, status: ProjectStatus.EN_PRODUCCION, priority: "MEDIA", progress: 35, emoji: "✨", leadEmail: "nora@labstream.co", dueDate: new Date("2026-06-30") },
+  { code: "LS-0006", name: "Streaming Horizon", clientName: "Horizon Media", type: ProjectType.STREAMING, status: ProjectStatus.PAUSADO, priority: "ALTA", progress: 10, emoji: "📡", leadEmail: "diego@labstream.co", dueDate: new Date("2026-07-10") },
 ];
 
 async function main() {

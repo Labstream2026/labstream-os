@@ -156,11 +156,26 @@ enum ProjectType {
   CAMPANA_MENSUAL
 }
 
-enum Priority {
-  BAJA
-  MEDIA
-  ALTA
-  URGENTE
+// Estados y prioridades de tarea personalizables por el equipo (con color de la
+// paleta de 20 tonos). El valor que guardan Task.status / Task.priority es la `key`.
+enum WorkflowLabelKind {
+  TASK_STATUS
+  TASK_PRIORITY
+}
+
+model WorkflowLabel {
+  id        String            @id @default(cuid())
+  kind      WorkflowLabelKind
+  key       String // clave estable que guarda la tarea (ej. PENDIENTE, ALTA o custom-xxxx)
+  label     String // nombre visible, editable
+  color     String            @default("slate") // tono de lib/colors
+  position  Int               @default(0)
+  isDefault Boolean           @default(false) // valor por defecto al crear tarea
+  isDone    Boolean           @default(false) // marca "terminado" (solo estados) para "Mis tareas"
+  createdAt DateTime          @default(now())
+
+  @@unique([kind, key])
+  @@index([kind, position])
 }
 
 model Project {
@@ -170,7 +185,7 @@ model Project {
   description String?
   type        ProjectType   @default(REEL)
   status      ProjectStatus @default(NUEVO)
-  priority    Priority      @default(MEDIA)
+  priority    String        @default("MEDIA")
   progress    Int           @default(0) // 0-100
   emoji       String?
   startDate   DateTime?
@@ -525,22 +540,13 @@ model DataCell {
 // Tareas
 // ─────────────────────────────────────────────
 
-enum TaskStatus {
-  PENDIENTE
-  EN_PROCESO
-  EN_ESPERA
-  EN_REVISION
-  COMPLETADA
-  CANCELADA
-}
-
 model Task {
   id            String          @id @default(cuid())
   title         String
   description   String?
-  status        TaskStatus      @default(PENDIENTE)
+  status        String          @default("PENDIENTE")
   stage         String? // columna del tablero (fase de producción); null = primera columna
-  priority      Priority        @default(MEDIA)
+  priority      String          @default("MEDIA")
   dueDate       DateTime?
   shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
   position      Int             @default(0)

@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
-import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
+import { statusMeta, PROJECT_TYPE, formatShortDate } from "@/lib/ui";
+import { labelMeta } from "@/lib/colors";
+import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
@@ -42,7 +44,7 @@ export default async function ProyectoPage({
   const { tab = "resumen" } = await searchParams;
 
   const session = await getSession();
-  const [project, team] = await Promise.all([
+  const [project, team, taskLabels] = await Promise.all([
     db.project.findUnique({
       where: { id },
       include: {
@@ -105,6 +107,7 @@ export default async function ProyectoPage({
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, initials: true, avatarColor: true },
     }),
+    getTaskLabels(),
   ]);
 
   if (!project) notFound();
@@ -196,7 +199,7 @@ export default async function ProyectoPage({
                 team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
               />
             ) : null}
-            <Resumen project={project} />
+            <Resumen project={project} priorities={taskLabels.priorities} />
           </div>
         ) : null}
         {tab === "tareas" ? (
@@ -225,19 +228,19 @@ export default async function ProyectoPage({
                       key: "tablero",
                       label: "Tablero",
                       icon: "🗂️",
-                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} />,
+                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} />,
                     },
                     {
                       key: "lista",
                       label: "Lista",
                       icon: "☰",
-                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} />,
+                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} />,
                     },
                     {
                       key: "calendario",
                       label: "Calendario",
                       icon: "📅",
-                      node: <TasksCalendar tasks={tasksData} />,
+                      node: <TasksCalendar tasks={tasksData} priorities={taskLabels.priorities} />,
                     },
                   ]}
                 />
@@ -337,6 +340,7 @@ export default async function ProyectoPage({
 
 function Resumen({
   project,
+  priorities,
 }: {
   project: {
     progress: number;
@@ -344,8 +348,9 @@ function Resumen({
     dueDate: Date | null;
     lead: { name: string; initials: string | null; avatarColor: string | null } | null;
   };
+  priorities: import("@/lib/colors").LabelRow[];
 }) {
-  const priority = PRIORITY[project.priority];
+  const priority = labelMeta(priorities, project.priority);
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
       <Field label="Progreso">
@@ -357,7 +362,7 @@ function Resumen({
         </div>
       </Field>
       <Field label="Prioridad">
-        <Badge className={cn(priority.className)}>{priority.label}</Badge>
+        <Badge className={cn(priority.chip)}>{priority.label}</Badge>
       </Field>
       <Field label="Entrega">
         <span className="text-sm">{formatShortDate(project.dueDate) ?? "—"}</span>
