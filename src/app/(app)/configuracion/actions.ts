@@ -12,6 +12,40 @@ async function requireAdmin() {
   return session!;
 }
 
+// Activar/desactivar un permiso para un rol. El rol "admin" es todopoderoso por
+// código (hasPermission lo deja pasar siempre), así que no se edita aquí.
+export async function setRolePermission(
+  roleId: string,
+  permissionKey: string,
+  enabled: boolean,
+): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+
+  const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true } });
+  if (!role) return { ok: false, error: "Rol inexistente" };
+  if (role.key === "admin") return { ok: false, error: "El rol Administrador no se edita (acceso total)." };
+
+  const perm = await db.permission.findUnique({ where: { key: permissionKey }, select: { id: true } });
+  if (!perm) return { ok: false, error: "Permiso inexistente" };
+
+  if (enabled) {
+    await db.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId, permissionId: perm.id } },
+      create: { roleId, permissionId: perm.id },
+      update: {},
+    });
+  } else {
+    await db.rolePermission
+      .delete({ where: { roleId_permissionId: { roleId, permissionId: perm.id } } })
+      .catch((e: { code?: string }) => {
+        if (e?.code !== "P2025") throw e;
+      });
+  }
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
 // Cambiar el rol de un usuario. Bajo Authentik la creación es por auto-provisión;
 // esta es la palanca para ajustar el rol después.
 export async function setUserRole(userId: string, roleKey: string): Promise<AdminActionResult> {

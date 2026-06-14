@@ -3,12 +3,13 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { UserAvatar } from "@/components/user-avatar";
 import { UserControls } from "./user-controls";
+import { RolePermissions } from "./role-permissions";
 
 export default async function ConfiguracionPage() {
   const session = await getSession();
   if (!hasPermission(session, "administrar_usuarios")) redirect("/");
 
-  const [roles, users] = await Promise.all([
+  const [roles, users, allPermissions] = await Promise.all([
     db.role.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -20,6 +21,7 @@ export default async function ConfiguracionPage() {
       orderBy: [{ active: "desc" }, { name: "asc" }],
       include: { role: { select: { key: true, name: true } } },
     }),
+    db.permission.findMany({ orderBy: { key: "asc" }, select: { key: true, description: true } }),
   ]);
 
   const roleOptions = roles.map((r) => ({ key: r.key, name: r.name }));
@@ -77,19 +79,20 @@ export default async function ConfiguracionPage() {
                 {r._count.users} usuario{r._count.users === 1 ? "" : "s"}
               </span>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {r.permissions.map((rp) => (
-                <span
-                  key={rp.permissionId}
-                  className="rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground"
-                >
-                  {rp.permission.key}
-                </span>
-              ))}
+            <div className="mt-3">
+              <RolePermissions
+                roleId={r.id}
+                roleKey={r.key}
+                permissions={allPermissions}
+                assigned={r.permissions.map((rp) => rp.permission.key)}
+              />
             </div>
           </div>
         ))}
       </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Haz clic en un permiso para activarlo o quitarlo del rol. El rol Administrador tiene acceso total.
+      </p>
     </div>
   );
 }
