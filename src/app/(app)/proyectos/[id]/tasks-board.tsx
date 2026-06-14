@@ -32,6 +32,8 @@ import {
   addChecklistItem,
 } from "./actions";
 import { type Task, type TeamMember, STATUS_OPTIONS, toDateInputValue } from "./task-shared";
+import { TaskDetail } from "./task-detail";
+import { formatShortDate } from "@/lib/ui";
 
 export function TasksBoard({
   projectId,
@@ -56,6 +58,8 @@ export function TasksBoard({
 
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const activeTask = items.find((t) => t.id === activeId) ?? null;
+  const [detailId, setDetailId] = React.useState<string | null>(null);
+  const detailTask = items.find((t) => t.id === detailId) ?? null;
 
   // Sensores: ratón/lápiz arrastra tras 6px; táctil tras mantener pulsado 200ms
   // (así el scroll del móvil sigue funcionando y no se arrastra sin querer).
@@ -93,7 +97,7 @@ export function TasksBoard({
             {items
               .filter((t) => colFor(t) === col)
               .map((t) => (
-                <DraggableCard key={t.id} task={t} projectId={projectId} dimmed={t.id === activeId} />
+                <DraggableCard key={t.id} task={t} projectId={projectId} dimmed={t.id === activeId} onOpen={() => setDetailId(t.id)} />
               ))}
           </Column>
         ))}
@@ -103,6 +107,10 @@ export function TasksBoard({
       <DragOverlay>
         {activeTask ? <CardContent task={activeTask} projectId={projectId} overlay /> : null}
       </DragOverlay>
+
+      {detailTask ? (
+        <TaskDetail task={detailTask} projectId={projectId} team={team} stages={cols} onClose={() => setDetailId(null)} />
+      ) : null}
     </DndContext>
   );
 }
@@ -173,11 +181,11 @@ function Column({
   );
 }
 
-function DraggableCard({ task, projectId, dimmed }: { task: Task; projectId: string; dimmed: boolean }) {
+function DraggableCard({ task, projectId, dimmed, onOpen }: { task: Task; projectId: string; dimmed: boolean; onOpen: () => void }) {
   const { setNodeRef, listeners, attributes, setActivatorNodeRef } = useDraggable({ id: task.id });
   return (
     <div ref={setNodeRef} className={cn(dimmed && "opacity-40")}>
-      <CardContent task={task} projectId={projectId} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} />
+      <CardContent task={task} projectId={projectId} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} onOpen={onOpen} />
     </div>
   );
 }
@@ -188,12 +196,14 @@ function CardContent({
   handleRef,
   handleProps,
   overlay,
+  onOpen,
 }: {
   task: Task;
   projectId: string;
   handleRef?: (el: HTMLElement | null) => void;
   handleProps?: Record<string, unknown>;
   overlay?: boolean;
+  onOpen?: () => void;
 }) {
   const prio = PRIORITY[t.priority] ?? PRIORITY.MEDIA;
   const done = t.checklist.filter((c) => c.done).length;
@@ -210,12 +220,21 @@ function CardContent({
         >
           <GripVertical className="size-4" />
         </button>
-        <p className="flex-1 text-sm font-medium leading-snug">{t.title}</p>
+        {onOpen ? (
+          <button type="button" onClick={onOpen} className="flex-1 text-left text-sm font-medium leading-snug hover:underline">
+            {t.title}
+          </button>
+        ) : (
+          <p className="flex-1 text-sm font-medium leading-snug">{t.title}</p>
+        )}
         {t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" /> : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
         <Badge className={cn("text-[10px]", prio.className)}>{prio.label}</Badge>
+        {t.dueDate ? (
+          <span className="text-[11px] text-muted-foreground">📅 {formatShortDate(t.dueDate)}</span>
+        ) : null}
         {t.checklist.length > 0 ? (
           <span className="text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
         ) : null}

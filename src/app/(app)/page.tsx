@@ -76,13 +76,13 @@ export default async function HomePage() {
               myTasks.map((t) => (
                 <Link
                   key={t.id}
-                  href={`/proyectos/${t.project.id}?tab=tareas`}
+                  href={t.project ? `/proyectos/${t.project.id}?tab=tareas` : "/mis-tareas"}
                   className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
                 >
                   <span className="flex size-5 items-center justify-center rounded-md border border-border" />
                   <span className="flex-1 truncate text-sm">{t.title}</span>
                   <span className="hidden truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:inline">
-                    {t.project.emoji} {t.project.name}
+                    {t.project ? `${t.project.emoji} ${t.project.name}` : "Personal"}
                   </span>
                 </Link>
               ))

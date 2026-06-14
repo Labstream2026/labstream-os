@@ -59,6 +59,8 @@ model User {
   ledProjects  Project[] @relation("ProjectLead")
 
   assignedTasks    Task[]               @relation("TaskAssignee")
+  ownedTasks       Task[]               @relation("TaskOwner")
+  tasksAssignedByMe Task[]              @relation("TaskAssigner")
   ownedDeliverables Deliverable[]       @relation("DeliverableOwner")
   uploadedFiles    FileAsset[]          @relation("FileUploader")
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
@@ -506,12 +508,21 @@ model Task {
   dueDate       DateTime?
   shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
   position      Int             @default(0)
-  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId     String
+  // projectId opcional: las tareas personales/sueltas (ej. "limpiar escritorio") no
+  // pertenecen a un proyecto. Las de proyecto sí lo tienen.
+  project       Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String?
   deliverable   Deliverable?    @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
   deliverableId String?
   assignee      User?           @relation("TaskAssignee", fields: [assigneeId], references: [id])
   assigneeId    String?
+  // Quién creó la tarea (dueño) y quién la asignó por última vez (para "quién me la asignó").
+  owner         User?           @relation("TaskOwner", fields: [ownerId], references: [id])
+  ownerId       String?
+  assignedBy    User?           @relation("TaskAssigner", fields: [assignedById], references: [id])
+  assignedById  String?
+  // Tarea privada: solo la ve su dueño y su responsable (no todo el equipo).
+  isPrivate     Boolean         @default(false)
   checklist     ChecklistItem[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt

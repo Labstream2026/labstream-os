@@ -7,11 +7,12 @@ import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
+import { notifyAndEmail } from "@/lib/notify";
 import { TASK_STATUS } from "@/lib/ui";
 import type { SessionUser } from "@/lib/session";
 
-function refresh(projectId: string) {
-  revalidatePath(`/proyectos/${projectId}`);
+function refresh(projectId: string | null) {
+  if (projectId) revalidatePath(`/proyectos/${projectId}`);
   revalidatePath("/mis-tareas");
   revalidatePath("/");
 }
@@ -33,13 +34,34 @@ async function ensureProjectAccess(projectId: string): Promise<SessionUser> {
 }
 
 // Para acciones sobre un recurso hijo: resuelve el projectId REAL del recurso (no se
-// confía en el projectId que manda el cliente) y verifica acceso a ese proyecto.
-type WithProject = { projectId: string; project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } } | null;
-async function ensureAccessVia(resource: WithProject): Promise<string> {
+// confía en el projectId que manda el cliente) y verifica acceso. Si el recurso no
+// tiene proyecto (tarea personal/suelta), el acceso es de su dueño/responsable/admin.
+type WithProject = {
+  projectId: string | null;
+  ownerId?: string | null;
+  assigneeId?: string | null;
+  project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } | null;
+} | null;
+async function ensureAccessVia(resource: WithProject): Promise<string | null> {
   const session = await getSession();
-  if (!resource || !canAccessProject(resource.project, session)) throw new Error("No autorizado");
+  if (!resource || !session) throw new Error("No autorizado");
+  if (resource.project) {
+    if (!canAccessProject(resource.project, session)) throw new Error("No autorizado");
+  } else {
+    const ok = session.role === "admin" || resource.ownerId === session.id || resource.assigneeId === session.id;
+    if (!ok) throw new Error("No autorizado");
+  }
   return resource.projectId;
 }
+
+// Select reutilizable para resolver acceso a una tarea (de proyecto o personal).
+const taskAccessSelect = {
+  title: true,
+  projectId: true,
+  ownerId: true,
+  assigneeId: true,
+  project: { select: accessSelect },
+} as const;
 
 // ── Tareas ──
 export async function createTask(projectId: string, formData: FormData) {
@@ -49,9 +71,22 @@ export async function createTask(projectId: string, formData: FormData) {
   const assigneeId = String(formData.get("assigneeId") ?? "") || null;
   const priority = String(formData.get("priority") ?? "MEDIA");
   const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
+  const dueRaw = String(formData.get("dueDate") ?? "").trim();
+  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
+  const session = await getSession();
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
-    data: { projectId, title, assigneeId, priority: priority as never, stage, position: count },
+    data: {
+      projectId,
+      title,
+      assigneeId,
+      priority: priority as never,
+      stage,
+      position: count,
+      dueDate,
+      ownerId: session?.id ?? null,
+      assignedById: assigneeId ? session?.id ?? null : null,
+    },
   });
   await logActivity({
     action: "task.create",
@@ -60,11 +95,84 @@ export async function createTask(projectId: string, formData: FormData) {
     entityType: "task",
     entityId: task.id,
   });
+  // Si se asigna a alguien (que no soy yo) al crear → avísale.
+  if (assigneeId && assigneeId !== session?.id) {
+    await notifyAndEmail(assigneeId, {
+      type: "task",
+      title: `Nueva tarea: ${title}`,
+      body: `Te asignaron una tarea${dueRaw ? ` (entrega ${dueRaw})` : ""}.`,
+      link: `/proyectos/${projectId}?tab=tareas`,
+    });
+  }
+  refresh(projectId);
+}
+
+// Editar el nombre de la tarea (corrige typos).
+export async function renameTask(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title || title === task!.title) return;
+  await db.task.update({ where: { id: taskId }, data: { title } });
+  await logActivity({ action: "task.rename", summary: `renombró «${task!.title}» → «${title}»`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+}
+
+// Cambiar la prioridad de la tarea.
+export async function setTaskPriority(taskId: string, _projectId: string, priority: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  await db.task.update({ where: { id: taskId }, data: { priority: priority as never } });
+  await logActivity({ action: "task.priority", summary: `cambió la prioridad de «${task!.title}» a ${priority}`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+}
+
+// Cambiar el responsable. Avisa (app + correo) al anterior y al nuevo.
+export async function setTaskAssignee(taskId: string, _projectId: string, assigneeId: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const session = await getSession();
+  const newId = assigneeId || null;
+  if (newId) {
+    const target = await db.user.findUnique({ where: { id: newId }, select: { active: true } });
+    if (!target?.active) throw new Error("Usuario inválido");
+  }
+  const prevId = task!.assigneeId ?? null;
+  if (prevId === newId) return;
+  await db.task.update({ where: { id: taskId }, data: { assigneeId: newId, assignedById: session?.id ?? null } });
+  const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
+  if (newId && newId !== session?.id) {
+    await notifyAndEmail(newId, { type: "task", title: `Te asignaron: ${task!.title}`, body: "Eres el nuevo responsable de esta tarea.", link });
+  }
+  if (prevId && prevId !== session?.id) {
+    await notifyAndEmail(prevId, { type: "task", title: `Ya no eres responsable de: ${task!.title}`, body: "La tarea se reasignó a otra persona.", link });
+  }
+  await logActivity({ action: "task.assignee", summary: `reasignó la tarea «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+}
+
+// Fijar/limpiar la fecha de entrega. Avisa al responsable.
+export async function setTaskDueDate(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const raw = String(formData.get("dueDate") ?? "").trim();
+  const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
+  await db.task.update({ where: { id: taskId }, data: { dueDate } });
+  const session = await getSession();
+  if (task!.assigneeId && task!.assigneeId !== session?.id) {
+    await notifyAndEmail(task!.assigneeId, {
+      type: "task",
+      title: `Fecha de entrega de «${task!.title}»`,
+      body: raw ? `Nueva fecha de entrega: ${raw}` : "Se quitó la fecha de entrega.",
+      link: projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas",
+    });
+  }
+  await logActivity({ action: "task.dueDate", summary: raw ? `fijó la entrega de «${task!.title}» el ${raw}` : `quitó la entrega de «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
   refresh(projectId);
 }
 
 export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { status: status as never } });
   await logActivity({
@@ -79,7 +187,7 @@ export async function setTaskStatus(taskId: string, _projectId: string, status: 
 
 // Mover una tarea a otra fase/columna del tablero.
 export async function setTaskStage(taskId: string, _projectId: string, stage: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { stage: stage || null } });
   await logActivity({
@@ -94,7 +202,7 @@ export async function setTaskStage(taskId: string, _projectId: string, stage: st
 
 // Fijar/limpiar la fecha de rodaje de una tarea (alimenta la vista de calendario).
 export async function setTaskShootDate(taskId: string, _projectId: string, formData: FormData) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   const raw = String(formData.get("shootDate") ?? "").trim();
   // input type=date → "YYYY-MM-DD"; se ancla a mediodía UTC para evitar saltos de día por zona horaria.
@@ -111,7 +219,7 @@ export async function setTaskShootDate(taskId: string, _projectId: string, formD
 }
 
 export async function deleteTask(taskId: string, _projectId: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   await db.task.delete({ where: { id: taskId } });
   await logActivity({
@@ -127,7 +235,7 @@ export async function deleteTask(taskId: string, _projectId: string) {
 export async function toggleChecklistItem(itemId: string, _projectId: string, done: boolean) {
   const item = await db.checklistItem.findUnique({
     where: { id: itemId },
-    select: { label: true, task: { select: { title: true, projectId: true, project: { select: accessSelect } } } },
+    select: { label: true, task: { select: taskAccessSelect } },
   });
   const projectId = await ensureAccessVia(item?.task ?? null);
   await db.checklistItem.update({ where: { id: itemId }, data: { done } });
@@ -141,7 +249,7 @@ export async function toggleChecklistItem(itemId: string, _projectId: string, do
 }
 
 export async function addChecklistItem(taskId: string, _projectId: string, formData: FormData) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   const label = String(formData.get("label") ?? "").trim();
   if (!label) return;

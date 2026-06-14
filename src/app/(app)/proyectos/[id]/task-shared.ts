@@ -9,6 +9,8 @@ export type Task = {
   stage: string | null;
   priority: string;
   shootDate: Date | string | null;
+  dueDate: Date | string | null;
+  assigneeId: string | null;
   assignee: { initials: string | null; avatarColor: string | null } | null;
   checklist: ChecklistItem[];
 };

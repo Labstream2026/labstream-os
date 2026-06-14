@@ -212,6 +212,8 @@ export default async function ProyectoPage({
               stage: t.stage,
               priority: t.priority,
               shootDate: t.shootDate,
+              dueDate: t.dueDate,
+              assigneeId: t.assigneeId,
               assignee: t.assignee,
               checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
             }));
