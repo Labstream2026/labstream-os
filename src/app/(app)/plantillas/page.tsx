@@ -38,6 +38,9 @@ export default async function PlantillasPage() {
                 <span className="rounded bg-secondary px-2 py-0.5">{c.stages.length} etapas</span>
                 <span className="rounded bg-secondary px-2 py-0.5">{c.tasks.length} tareas</span>
                 <span className="rounded bg-secondary px-2 py-0.5">{c.deliverables.length} entregables</span>
+                {c.tables?.length ? (
+                  <span className="rounded bg-secondary px-2 py-0.5">{c.tables.length} tableros</span>
+                ) : null}
               </div>
               <Link
                 href={`/proyectos/nuevo?template=${t.key}`}
