@@ -2,8 +2,13 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { UserAvatar } from "@/components/user-avatar";
+import { emailEnabled } from "@/lib/email";
+import { caldavEnabled } from "@/lib/caldav";
+import { aiEnabled } from "@/lib/ai";
+import { onlyofficeEnabled } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
 import { RolePermissions } from "./role-permissions";
+import { IntegrationsPanel } from "./integrations-panel";
 
 export default async function ConfiguracionPage() {
   const session = await getSession();
@@ -32,6 +37,15 @@ export default async function ConfiguracionPage() {
       <p className="mt-1 text-sm text-muted-foreground">
         Equipo y permisos · {users.length} usuarios, {roles.length} roles.
       </p>
+
+      {/* ── Integraciones ── */}
+      <h2 className="mb-2 mt-8 text-lg font-semibold">Integraciones</h2>
+      <IntegrationsPanel
+        email={emailEnabled}
+        caldav={caldavEnabled}
+        ai={aiEnabled}
+        onlyoffice={onlyofficeEnabled}
+      />
 
       {/* ── Usuarios ── */}
       <h2 className="mb-1 mt-8 text-lg font-semibold">Usuarios</h2>

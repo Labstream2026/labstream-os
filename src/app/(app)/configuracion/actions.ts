@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { emailEnabled, sendEmail } from "@/lib/email";
 
 export type AdminActionResult = { ok: boolean; error?: string };
 
@@ -10,6 +11,21 @@ async function requireAdmin() {
   const session = await getSession();
   if (!hasPermission(session, "administrar_usuarios")) return null;
   return session!;
+}
+
+// Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.
+export async function sendTestEmail(): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  if (!emailEnabled) return { ok: false, error: "SMTP no configurado (faltan SMTP_HOST/USER/PASSWORD)." };
+  if (!session.email) return { ok: false, error: "Tu usuario no tiene correo." };
+  const r = await sendEmail({
+    to: session.email,
+    subject: "Correo de prueba · Labstream OS",
+    text: "Funciona ✅ El envío de correo desde Labstream OS (Synology MailPlus) está operativo.",
+    html: "<p>Funciona ✅</p><p>El envío de correo desde Labstream OS (Synology MailPlus) está operativo.</p>",
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Activar/desactivar un permiso para un rol. El rol "admin" es todopoderoso por
