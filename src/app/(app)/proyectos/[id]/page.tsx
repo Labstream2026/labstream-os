@@ -252,6 +252,7 @@ export default async function ProyectoPage({
               name: d.name,
               type: d.type,
               status: d.status,
+              dueDate: d.dueDate,
               owner: d.owner,
               versions: d.versions.map((v) => ({
                 id: v.id,

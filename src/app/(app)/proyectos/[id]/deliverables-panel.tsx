@@ -1,6 +1,6 @@
-import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
+import { DateInput } from "@/components/actions/date-input";
 import {
   DELIVERABLE_STATUS,
   DELIVERABLE_TYPE,
@@ -8,10 +8,11 @@ import {
   formatShortDate,
 } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { toDateInputValue } from "./task-shared";
 import { signReviewToken } from "@/lib/review-token";
 import { CopyLink } from "@/components/copy-link";
 import { EmailReviewButton } from "./email-review-button";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion } from "./actions";
+import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate } from "./actions";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -28,6 +29,7 @@ type Deliverable = {
   name: string;
   type: string;
   status: string;
+  dueDate: Date | string | null;
   owner: { initials: string | null; avatarColor: string | null } | null;
   versions: Version[];
 };
@@ -59,6 +61,7 @@ export function DeliverablesPanel({
             <option key={v} value={v}>{l}</option>
           ))}
         </select>
+        <input name="dueDate" type="date" title="Fecha de entrega" className="rounded-md border border-input bg-background px-2 py-2 text-sm" />
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           Añadir
         </button>
@@ -78,12 +81,16 @@ export function DeliverablesPanel({
                 <p className="text-xs text-muted-foreground">{DELIVERABLE_TYPE[d.type] ?? d.type}</p>
               </div>
             </div>
-            <StatusSelect
-              value={d.status}
-              options={STATUS_OPTIONS}
-              action={setDeliverableStatus.bind(null, d.id, projectId)}
-              className={cn("border-0", deliverableStatusMeta(d.status).className)}
-            />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">🏁 Entrega</span>
+              <DateInput name="dueDate" value={toDateInputValue(d.dueDate)} action={setDeliverableDueDate.bind(null, d.id, projectId)} title="Fecha de entrega" />
+              <StatusSelect
+                value={d.status}
+                options={STATUS_OPTIONS}
+                action={setDeliverableStatus.bind(null, d.id, projectId)}
+                className={cn("border-0", deliverableStatusMeta(d.status).className)}
+              />
+            </div>
           </div>
 
           {/* Versiones */}

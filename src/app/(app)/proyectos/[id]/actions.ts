@@ -271,7 +271,9 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const type = String(formData.get("type") ?? "REEL");
-  const d = await db.deliverable.create({ data: { projectId, name, type: type as never } });
+  const dueRaw = String(formData.get("dueDate") ?? "").trim();
+  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
+  const d = await db.deliverable.create({ data: { projectId, name, type: type as never, dueDate } });
   await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
   refresh(projectId);
 }
@@ -404,6 +406,28 @@ async function ensureProjectManage(projectId: string): Promise<SessionUser> {
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
   if (!project || !canManageProject(project, session)) throw new Error("No autorizado");
   return session!;
+}
+
+// Color del proyecto (se usa en el calendario de proyectos). Cualquier miembro con acceso.
+export async function setProjectColor(projectId: string, color: string) {
+  await ensureProjectAccess(projectId);
+  const safe = color || null;
+  await db.project.update({ where: { id: projectId }, data: { color: safe } });
+  await logActivity({ action: "project.color", summary: `cambió el color del proyecto`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/proyectos");
+  refresh(projectId);
+}
+
+// Fecha de entrega de un entregable (alimenta el calendario de proyectos/clientes).
+export async function setDeliverableDueDate(id: string, _projectId: string, formData: FormData) {
+  const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(deliverable);
+  const raw = String(formData.get("dueDate") ?? "").trim();
+  const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
+  await db.deliverable.update({ where: { id }, data: { dueDate } });
+  await logActivity({ action: "deliverable.dueDate", summary: raw ? `fijó la entrega de «${deliverable!.name}» el ${raw}` : `quitó la entrega de «${deliverable!.name}»`, projectId, entityType: "deliverable", entityId: id });
+  revalidatePath("/proyectos");
+  refresh(projectId);
 }
 
 export async function setProjectVisibility(projectId: string, isPrivate: boolean) {
