@@ -7,6 +7,7 @@ export async function logActivity(input: {
   action: string;
   summary: string;
   projectId?: string | null;
+  clientId?: string | null;
   entityType?: string;
   entityId?: string;
 }): Promise<void> {
@@ -17,6 +18,7 @@ export async function logActivity(input: {
         action: input.action,
         summary: input.summary,
         projectId: input.projectId ?? null,
+        clientId: input.clientId ?? null,
         entityType: input.entityType,
         entityId: input.entityId,
         userId: me?.id ?? null,

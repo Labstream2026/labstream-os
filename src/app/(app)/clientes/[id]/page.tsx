@@ -1,65 +1,147 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { canAccessProject } from "@/lib/project-access";
 import { ProjectCard } from "@/components/project-card";
+import { Badge } from "@/components/ui/badge";
+import { statusMeta, formatShortDate } from "@/lib/ui";
+import { cn } from "@/lib/utils";
+import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { ProjectsCalendar, type CalProject } from "@/app/(app)/proyectos/projects-calendar";
+import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
+
+export const dynamic = "force-dynamic";
 
 export default async function ClientePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const session = await getSession();
   const client = await db.client.findUnique({
     where: { id },
     include: {
+      _count: { select: { quotes: true } },
       projects: {
         orderBy: { createdAt: "asc" },
-        include: { lead: { select: { initials: true, avatarColor: true } } },
+        include: {
+          lead: { select: { initials: true, avatarColor: true } },
+          members: { select: { userId: true, role: true } },
+          deliverables: { select: { name: true, dueDate: true } },
+        },
       },
     },
   });
 
   if (!client) notFound();
 
-  const active = client.projects.filter((p) => !["CERRADO", "CANCELADO"].includes(p.status)).length;
+  // Solo proyectos visibles para el usuario.
+  const projects = client.projects.filter((p) => canAccessProject(p, session));
+  const projectIds = projects.map((p) => p.id);
+  const active = projects.filter((p) => !["CERRADO", "CANCELADO"].includes(p.status)).length;
+
+  // Actividad del cliente: cambios del propio cliente + de sus proyectos.
+  const activity = await db.activityLog.findMany({
+    where: { OR: [{ clientId: id }, { projectId: { in: projectIds.length ? projectIds : ["__none__"] } }] },
+    orderBy: { createdAt: "desc" },
+    take: 60,
+    include: { user: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+
+  const calProjects: CalProject[] = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    emoji: p.emoji,
+    color: p.color,
+    clientName: client.name,
+    startDate: p.startDate ? p.startDate.toISOString() : null,
+    dueDate: p.dueDate ? p.dueDate.toISOString() : null,
+    deliverables: p.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate ? d.dueDate.toISOString() : null })),
+  }));
+
+  const board = projects.length === 0 ? (
+    <p className="text-sm text-muted-foreground">Este cliente aún no tiene proyectos.</p>
+  ) : (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {projects.map((p) => (
+        <ProjectCard
+          key={p.id}
+          project={{ id: p.id, name: p.name, emoji: p.emoji, status: p.status, progress: p.progress, dueDate: p.dueDate, lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null }}
+        />
+      ))}
+    </div>
+  );
+
+  const list = (
+    <div className="overflow-hidden rounded-xl border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+            <th className="px-3 py-2 font-medium">Proyecto</th>
+            <th className="px-3 py-2 font-medium">Estado</th>
+            <th className="px-3 py-2 font-medium">Progreso</th>
+            <th className="px-3 py-2 font-medium">Entrega</th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((p) => {
+            const st = statusMeta(p.status);
+            return (
+              <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                <td className="px-3 py-2"><Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link></td>
+                <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
+                <td className="px-3 py-2"><span className="text-xs text-muted-foreground">{p.progress}%</span></td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-10">
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex items-center gap-4">
-        <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-3xl">
-          {client.emoji ?? "🏢"}
-        </span>
+        <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-3xl">{client.emoji ?? "🏢"}</span>
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{client.name}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {client.description} · {client.projects.length} proyecto
-            {client.projects.length === 1 ? "" : "s"}
+            {client.description} · {projects.length} proyecto{projects.length === 1 ? "" : "s"}
           </p>
         </div>
       </div>
 
       <div className="mt-8 grid grid-cols-3 gap-4">
-        <Stat value={client.projects.length} label="Proyectos" />
+        <Stat value={projects.length} label="Proyectos" />
         <Stat value={active} label="Activos" />
-        <Stat value={0} label="Cotizaciones" hint="Fase 4" />
+        <Stat value={client._count.quotes} label="Cotizaciones" />
       </div>
 
-      <h2 className="mb-3 mt-10 text-lg font-semibold">Proyectos</h2>
-      {client.projects.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Este cliente aún no tiene proyectos.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {client.projects.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={{
-                id: p.id,
-                name: p.name,
-                emoji: p.emoji,
-                status: p.status,
-                progress: p.progress,
-                dueDate: p.dueDate,
-                lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <div className="mt-8">
+        <ViewTabs
+          storageKey={`cliente-view`}
+          views={[
+            { key: "proyectos", label: "Proyectos", icon: "🗂️", node: board },
+            { key: "lista", label: "Lista", icon: "☰", node: list },
+            { key: "calendario", label: "Calendario", icon: "📅", node: <ProjectsCalendar projects={calProjects} /> },
+            {
+              key: "actividad",
+              label: "Actividad",
+              icon: "📝",
+              node: (
+                <ActivityFeed
+                  items={activity.map((a) => ({
+                    id: a.id,
+                    action: a.action,
+                    summary: a.summary,
+                    createdAt: a.createdAt.toISOString(),
+                    user: a.user ? { name: a.user.name, initials: a.user.initials, color: a.user.avatarColor } : null,
+                  }))}
+                />
+              ),
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }
