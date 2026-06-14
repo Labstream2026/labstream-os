@@ -18,6 +18,7 @@ import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
 import { ActivityFeed } from "./activity-feed";
+import { cellsToMap } from "@/lib/table-cells";
 
 export const dynamic = "force-dynamic";
 
@@ -322,7 +323,7 @@ export default async function ProyectoPage({
                   })),
                   rows: t.rows.map((r) => ({
                     id: r.id,
-                    cells: Object.fromEntries(r.cells.map((cell) => [cell.columnId, cell.value])),
+                    cells: cellsToMap(t.columns, r.cells),
                   })),
                 }}
               />

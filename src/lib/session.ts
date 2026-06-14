@@ -17,8 +17,19 @@ export type SessionUser = {
   avatarUrl?: string | null;
 };
 
+// Un secreto débil/placeholder permitiría forjar sesiones de admin: en producción
+// se exige uno real (openssl rand -base64 32). En dev se usa un fallback fijo.
+function isWeakSecret(s: string | undefined): boolean {
+  return !s || s.length < 16 || s === "dev-secret-cambiar" || /genera-uno|cambiar|changeme|example|secret-aqui/i.test(s);
+}
 function secretKey() {
-  const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "dev-secret-cambiar";
+  const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+  if (isWeakSecret(secret)) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("NEXTAUTH_SECRET ausente o inseguro en producción. Genera uno con: openssl rand -base64 32");
+    }
+    return new TextEncoder().encode("dev-secret-cambiar");
+  }
   return new TextEncoder().encode(secret);
 }
 

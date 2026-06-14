@@ -9,6 +9,7 @@ import { notify } from "@/lib/notify";
 import { pushEventToSynology } from "@/lib/caldav";
 import { logActivity } from "@/lib/activity";
 import { saveBuffer } from "@/lib/storage";
+import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 // projectId de una tabla (para registrar actividad; null si la tabla es de wiki).
 async function projectIdOfTable(tableId: string): Promise<string | null> {
@@ -190,7 +191,7 @@ export async function uploadCellImage(rowId: string, columnId: string, formData:
   if (col) await revalidateForTable(col.tableId);
 }
 
-// Guarda una celda. PERSON → notifica al asignado.
+// Guarda una celda. PERSON → notifica al asignado. PASSWORD → cifra el valor.
 export async function setCell(rowId: string, columnId: string, value: unknown) {
   await ensureRowAccess(rowId);
   const col = await db.dataColumn.findUnique({
@@ -199,10 +200,16 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
   });
   if (!col) return;
 
+  // Las contraseñas se guardan cifradas (nunca en claro en la BD).
+  let stored: unknown = value;
+  if (col.type === "PASSWORD" && typeof value === "string") {
+    stored = value ? encryptSecret(value) : "";
+  }
+
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },
-    create: { rowId, columnId, value: value as never },
-    update: { value: value as never },
+    create: { rowId, columnId, value: stored as never },
+    update: { value: stored as never },
   });
 
   if (col.type === "PERSON" && typeof value === "string" && value && (await isRealUser(value))) {
@@ -214,6 +221,15 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
     });
   }
   await revalidateForTable(col.tableId);
+}
+
+// Revela (descifra) el valor de una celda PASSWORD bajo demanda, con control de acceso.
+export async function revealCell(rowId: string, columnId: string): Promise<string> {
+  await ensureRowAccess(rowId);
+  const cell = await db.dataCell.findUnique({ where: { rowId_columnId: { rowId, columnId } }, select: { value: true } });
+  const v = cell?.value;
+  if (typeof v !== "string" || !v) return "";
+  return decryptSecret(v);
 }
 
 // Celda EVENT: crea una cita de calendario y la envía (notifica) a la persona invitada.

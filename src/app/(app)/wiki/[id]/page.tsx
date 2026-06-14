@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { DataTableView } from "@/components/tables/data-table";
 import { createTableForWiki } from "@/app/(app)/tablas/actions";
 import { updateWikiPage, deleteWikiPage } from "../actions";
+import { cellsToMap } from "@/lib/table-cells";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,7 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
               id: t.id,
               name: t.name,
               columns: t.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
-              rows: t.rows.map((r) => ({ id: r.id, cells: Object.fromEntries(r.cells.map((cell) => [cell.columnId, cell.value])) })),
+              rows: t.rows.map((r) => ({ id: r.id, cells: cellsToMap(t.columns, r.cells) })),
             }}
           />
         ))}

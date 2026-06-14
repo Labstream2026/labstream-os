@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { canAccessChannel } from "@/lib/chat-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -21,6 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.chatChannel.findUnique({
       where: { slug: "general" },
       include: {
+        members: { select: { userId: true } },
         messages: {
           orderBy: { createdAt: "asc" },
           take: 50,
@@ -49,6 +51,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ),
   );
   const chatUnread = unreadCounts.reduce((a, b) => a + b, 0);
+
+  // El canal general solo se envía al cliente si el usuario puede verlo (por si se
+  // marca privado): evita filtrar mensajes a quien no tiene acceso.
+  const generalVisible =
+    general && canAccessChannel({ isPublic: general.isPublic, project: null, members: general.members }, session)
+      ? general
+      : null;
 
   return (
     <AppShell
@@ -81,11 +90,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         createdAt: n.createdAt.toISOString(),
       }))}
       generalChannel={
-        general
+        generalVisible
           ? {
-              id: general.id,
-              name: general.name,
-              messages: general.messages.map((m) => ({
+              id: generalVisible.id,
+              name: generalVisible.name,
+              messages: generalVisible.messages.map((m) => ({
                 id: m.id,
                 body: m.body,
                 parentId: m.parentId,

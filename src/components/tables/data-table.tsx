@@ -9,7 +9,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import {
@@ -23,7 +23,9 @@ import {
   setCell,
   setEventCell,
   uploadCellImage,
+  revealCell,
 } from "@/app/(app)/tablas/actions";
+import { PW_MASK } from "@/lib/table-cells";
 
 type Option = { id: string; label: string; color: string };
 type Column = { id: string; name: string; type: string; options: Option[] | null };
@@ -222,7 +224,7 @@ function Cell({ column, row, team, run }: { column: Column; row: Row; team: Memb
   }
 
   if (column.type === "PASSWORD") {
-    return <PasswordCell value={(value as string) ?? ""} onSave={(v) => run(() => setCell(row.id, column.id, v))} />;
+    return <PasswordCell value={(value as string) ?? ""} rowId={row.id} columnId={column.id} onSave={(v) => run(() => setCell(row.id, column.id, v))} />;
   }
 
   if (column.type === "MULTISELECT") {
@@ -322,20 +324,49 @@ function EventCell({ column, row, value, team, run }: { column: Column; row: Row
   );
 }
 
-// Celda contraseña: oculta hasta hacer clic en el ojo. Editable.
-function PasswordCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [show, setShow] = React.useState(false);
+// Celda contraseña: el valor real NO viaja al cliente (se guarda cifrado en BD).
+// Se revela bajo demanda con revealCell y se edita escribiendo uno nuevo.
+function PasswordCell({ value, rowId, columnId, onSave }: { value: string; rowId: string; columnId: string; onSave: (v: string) => void }) {
+  const has = value === PW_MASK;
+  const [revealed, setRevealed] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { if (draft) onSave(draft); setEditing(false); setRevealed(null); }}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditing(false); }}
+        placeholder="Nueva contraseña"
+        className="w-full rounded bg-transparent px-1 py-0.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+      />
+    );
+  }
   return (
     <div className="flex items-center gap-1">
-      <input
-        type={show ? "text" : "password"}
-        defaultValue={value}
-        onBlur={(e) => e.target.value !== value && onSave(e.target.value)}
-        placeholder="••••••"
-        className="w-full bg-transparent px-1 py-0.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring rounded"
-      />
-      <button type="button" onClick={() => setShow((s) => !s)} className="text-muted-foreground hover:text-foreground" title={show ? "Ocultar" : "Mostrar"}>
-        {show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{revealed != null ? revealed : has ? "••••••••" : "—"}</span>
+      {has ? (
+        <button
+          type="button"
+          title={revealed != null ? "Ocultar" : "Mostrar"}
+          onClick={async () => {
+            if (revealed != null) { setRevealed(null); return; }
+            setLoading(true);
+            try { setRevealed(await revealCell(rowId, columnId)); } finally { setLoading(false); }
+          }}
+          className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+          disabled={loading}
+        >
+          {revealed != null ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+        </button>
+      ) : null}
+      <button type="button" title="Editar" onClick={() => { setDraft(""); setEditing(true); }} className="text-muted-foreground hover:text-foreground">
+        <Pencil className="size-3.5" />
       </button>
     </div>
   );
