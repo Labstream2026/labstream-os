@@ -379,10 +379,13 @@ export async function createFolder(projectId: string, formData: FormData) {
   const icon = String(formData.get("icon") ?? "").trim() || null;
   const color = String(formData.get("color") ?? "").trim() || null;
   const count = await db.projectFolder.count({ where: { projectId } });
-  // skipDuplicates por @@unique(projectId,name): si ya existe, no rompe.
-  const existing = await db.projectFolder.findFirst({ where: { projectId, name } });
-  if (existing) return;
-  await db.projectFolder.create({ data: { projectId, name, icon, color, position: count } });
+  // Carrera/duplicado: el @@unique(projectId,name) protege; capturamos P2002 para no romper.
+  try {
+    await db.projectFolder.create({ data: { projectId, name, icon, color, position: count } });
+  } catch (e) {
+    if ((e as { code?: string })?.code === "P2002") return; // ya existe una carpeta con ese nombre
+    throw e;
+  }
   await logActivity({ action: "folder.create", summary: `creó la carpeta «${name}»`, projectId, entityType: "folder" });
   refresh(projectId);
 }

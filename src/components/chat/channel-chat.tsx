@@ -314,10 +314,18 @@ export function ChannelChat({
     scrollToBottom();
   }, [scrollToBottom]);
 
-  // Marca el canal como leído al abrirlo y al llegar mensajes nuevos.
+  // Marca el canal como leído solo si la pestaña está visible (con debounce para no
+  // llamar por cada mensaje). Así los no-leídos no se borran si llegan en segundo plano.
   React.useEffect(() => {
-    void markChannelRead(channelId);
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const t = setTimeout(() => void markChannelRead(channelId), 800);
+    return () => clearTimeout(t);
   }, [channelId, messages.length]);
+  React.useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "visible") void markChannelRead(channelId); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [channelId]);
 
   React.useEffect(() => {
     setOnline(navigator.onLine);

@@ -22,6 +22,7 @@ import {
   addSelectOption,
   setCell,
   setEventCell,
+  deleteEventCell,
   uploadCellImage,
   revealCell,
 } from "@/app/(app)/tablas/actions";
@@ -290,16 +291,32 @@ function Cell({ column, row, team, run }: { column: Column; row: Row; team: Memb
   return null;
 }
 
+// Convierte un ISO a formato datetime-local "YYYY-MM-DDTHH:mm" (hora local).
+function toLocalInput(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function EventCell({ column, row, value, team, run }: { column: Column; row: Row; value: { start?: string; attendeeId?: string } | undefined; team: Member[]; run: (fn: () => Promise<unknown>) => void }) {
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [startAt, setStartAt] = React.useState("");
   const [att, setAtt] = React.useState("");
 
+  // Abre el formulario precargando los datos de la cita existente (editar, no duplicar).
+  const edit = () => {
+    setStartAt(toLocalInput(value?.start));
+    setAtt(value?.attendeeId ?? "");
+    setOpen(true);
+  };
+
   if (value?.start && !open) {
     const u = team.find((m) => m.id === value.attendeeId);
     return (
-      <button onClick={() => setOpen(true)} className="flex flex-col items-start text-xs">
+      <button onClick={edit} className="flex flex-col items-start text-xs">
         <span className="font-medium text-primary">📅 {new Date(value.start).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}</span>
         {u ? <span className="text-muted-foreground">→ {u.name}</span> : null}
       </button>
@@ -310,15 +327,18 @@ function EventCell({ column, row, value, team, run }: { column: Column; row: Row
   }
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (!startAt) return; run(() => setEventCell(row.id, column.id, { title, start: startAt, attendeeId: att })); setOpen(false); }} className="flex flex-col gap-1">
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título" className="rounded border border-input bg-background px-1.5 py-1 text-xs" />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título (opcional)" className="rounded border border-input bg-background px-1.5 py-1 text-xs" />
       <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="rounded border border-input bg-background px-1.5 py-1 text-xs" />
       <select value={att} onChange={(e) => setAtt(e.target.value)} className="rounded border border-input bg-background px-1.5 py-1 text-xs">
         <option value="">Invitar a…</option>
         {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
       </select>
-      <div className="flex gap-1">
-        <button className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground">Crear y enviar</button>
+      <div className="flex flex-wrap gap-1">
+        <button className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground">{value?.start ? "Guardar" : "Crear y enviar"}</button>
         <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground">Cancelar</button>
+        {value?.start ? (
+          <button type="button" onClick={() => { run(() => deleteEventCell(row.id, column.id)); setOpen(false); }} className="ml-auto text-xs text-destructive">Eliminar</button>
+        ) : null}
       </div>
     </form>
   );

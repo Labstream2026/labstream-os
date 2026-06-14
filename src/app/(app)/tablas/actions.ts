@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
-import { pushEventToSynology } from "@/lib/caldav";
+import { pushEventToSynology, deleteEventFromSynology } from "@/lib/caldav";
 import { logActivity } from "@/lib/activity";
 import { saveBuffer } from "@/lib/storage";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
@@ -232,33 +232,48 @@ export async function revealCell(rowId: string, columnId: string): Promise<strin
   return decryptSecret(v);
 }
 
-// Celda EVENT: crea una cita de calendario y la envía (notifica) a la persona invitada.
+// Celda EVENT: crea o ACTUALIZA la cita (no duplica) y la notifica al invitado.
 export async function setEventCell(
   rowId: string,
   columnId: string,
   data: { title: string; start: string; attendeeId: string },
 ) {
   await ensureRowAccess(rowId);
+  const start = new Date(data.start);
+  if (Number.isNaN(start.getTime())) return; // fecha inválida → no crear basura
   const col = await db.dataColumn.findUnique({
     where: { id: columnId },
     include: { table: { select: { id: true, name: true, projectId: true } } },
   });
   if (!col) return;
   const me = await getCurrentUser();
-  // solo se invita a un usuario real y activo del equipo
   const attendeeId = (await isRealUser(data.attendeeId)) ? data.attendeeId : null;
+  const title = data.title.trim() || `Cita · ${col.table.name}`;
 
-  const event = await db.calendarEvent.create({
-    data: {
-      title: data.title.trim() || `Cita · ${col.table.name}`,
-      start: new Date(data.start),
-      projectId: col.table.projectId,
-      createdById: me?.id ?? null,
-      attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined,
-    },
-  });
+  // Si la celda ya tiene una cita, se ACTUALIZA esa misma (evita duplicados en BD/CalDAV).
+  const existing = await db.dataCell.findUnique({ where: { rowId_columnId: { rowId, columnId } }, select: { value: true } });
+  const prevEventId = (existing?.value as { eventId?: string } | null)?.eventId;
 
-  // Sincroniza la cita al Synology Calendar del equipo (auto, best-effort).
+  let event;
+  if (prevEventId && (await db.calendarEvent.findUnique({ where: { id: prevEventId }, select: { id: true } }))) {
+    await db.calendarAttendee.deleteMany({ where: { eventId: prevEventId } });
+    event = await db.calendarEvent.update({
+      where: { id: prevEventId },
+      data: { title, start, attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined },
+    });
+  } else {
+    event = await db.calendarEvent.create({
+      data: {
+        title,
+        start,
+        projectId: col.table.projectId,
+        createdById: me?.id ?? null,
+        attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined,
+      },
+    });
+  }
+
+  // Sincroniza la cita al Synology Calendar del equipo (auto, best-effort; idempotente por uid).
   await pushEventToSynology({ uid: event.id, title: event.title, start: event.start });
 
   await db.dataCell.upsert({
@@ -277,4 +292,23 @@ export async function setEventCell(
   }
   revalidatePath("/calendario");
   await revalidateForTable(col.tableId);
+}
+
+// Borra la cita de una celda EVENT (de la BD y del Synology Calendar) y limpia la celda.
+export async function deleteEventCell(rowId: string, columnId: string) {
+  await ensureRowAccess(rowId);
+  const cell = await db.dataCell.findUnique({ where: { rowId_columnId: { rowId, columnId } }, select: { value: true } });
+  const eventId = (cell?.value as { eventId?: string } | null)?.eventId;
+  if (eventId) {
+    await db.calendarEvent.delete({ where: { id: eventId } }).catch(() => null);
+    await deleteEventFromSynology(eventId);
+    revalidatePath("/calendario");
+  }
+  await db.dataCell.upsert({
+    where: { rowId_columnId: { rowId, columnId } },
+    create: { rowId, columnId, value: undefined as never },
+    update: { value: undefined as never },
+  });
+  const col = await db.dataColumn.findUnique({ where: { id: columnId }, select: { tableId: true } });
+  if (col) await revalidateForTable(col.tableId);
 }

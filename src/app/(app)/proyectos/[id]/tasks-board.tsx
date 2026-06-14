@@ -85,9 +85,12 @@ export function TasksBoard({
     if (!overId) return;
     const task = items.find((t) => t.id === String(e.active.id));
     if (!task || colFor(task) === overId) return;
-    // optimista + persistir (queda registrado en el log de actividad).
+    const prevStage = task.stage;
+    // optimista + persistir; si la server action falla, se revierte la ficha.
     setItems((prev) => prev.map((t) => (t.id === task.id ? { ...t, stage: overId } : t)));
-    setTaskStage(task.id, projectId, overId);
+    setTaskStage(task.id, projectId, overId).catch(() => {
+      setItems((prev) => prev.map((t) => (t.id === task.id ? { ...t, stage: prevStage } : t)));
+    });
   }
 
   return (
