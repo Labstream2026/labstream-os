@@ -9,18 +9,20 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink } from "lucide-react";
+import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import {
   addColumn,
   renameColumn,
   deleteColumn,
+  deleteTable,
   addRow,
   deleteRow,
   addSelectOption,
   setCell,
   setEventCell,
+  uploadCellImage,
 } from "@/app/(app)/tablas/actions";
 
 type Option = { id: string; label: string; color: string };
@@ -41,12 +43,16 @@ const COLOR: Record<string, string> = {
 
 const TYPES = [
   { v: "TEXT", l: "Texto" },
+  { v: "LONGTEXT", l: "Texto largo" },
   { v: "NUMBER", l: "Número" },
   { v: "SELECT", l: "Estado" },
+  { v: "MULTISELECT", l: "Multi-selección" },
   { v: "DATE", l: "Fecha" },
   { v: "PERSON", l: "Persona" },
   { v: "CHECKBOX", l: "Casilla" },
   { v: "URL", l: "Enlace" },
+  { v: "IMAGE", l: "Imagen" },
+  { v: "PASSWORD", l: "Contraseña" },
   { v: "EVENT", l: "Cita calendario" },
 ];
 
@@ -60,8 +66,14 @@ function displayText(col: Column, value: unknown, team: Member[]): string {
       return team.find((m) => m.id === value)?.name ?? "";
     case "CHECKBOX":
       return value ? "sí" : "";
+    case "MULTISELECT":
+      return Array.isArray(value) ? (value as string[]).map((id) => col.options?.find((o) => o.id === id)?.label ?? "").join(" ") : "";
     case "EVENT":
       return (value as { start?: string }).start ?? "";
+    case "PASSWORD":
+      return ""; // nunca se indexa/busca en texto plano
+    case "IMAGE":
+      return "";
     default:
       return String(value);
   }
@@ -104,9 +116,18 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
     <div className="rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
         <span className="text-sm font-semibold">📊 {table.name}</span>
-        <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
-          <Search className="size-3.5 text-muted-foreground" />
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar…" className="w-32 bg-transparent text-xs outline-none" />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
+            <Search className="size-3.5 text-muted-foreground" />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar…" className="w-32 bg-transparent text-xs outline-none" />
+          </div>
+          <button
+            onClick={() => { if (confirm(`¿Eliminar la tabla «${table.name}»? Esto no se puede deshacer.`)) run(() => deleteTable(table.id)); }}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            title="Eliminar tabla"
+          >
+            <Trash2 className="size-4" />
+          </button>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -187,6 +208,29 @@ function Cell({ column, row, team, run }: { column: Column; row: Row; team: Memb
         className="w-full bg-transparent px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring rounded"
       />
     );
+  }
+
+  if (column.type === "LONGTEXT") {
+    return (
+      <textarea
+        defaultValue={(value as string) ?? ""}
+        rows={2}
+        onBlur={(e) => run(() => setCell(row.id, column.id, e.target.value))}
+        className="w-full min-w-48 resize-y bg-transparent px-1 py-0.5 text-xs outline-none focus:ring-1 focus:ring-ring rounded"
+      />
+    );
+  }
+
+  if (column.type === "PASSWORD") {
+    return <PasswordCell value={(value as string) ?? ""} onSave={(v) => run(() => setCell(row.id, column.id, v))} />;
+  }
+
+  if (column.type === "MULTISELECT") {
+    return <MultiSelectCell column={column} value={Array.isArray(value) ? (value as string[]) : []} onSave={(v) => run(() => setCell(row.id, column.id, v))} />;
+  }
+
+  if (column.type === "IMAGE") {
+    return <ImageCell url={(value as string) ?? ""} rowId={row.id} columnId={column.id} onClear={() => run(() => setCell(row.id, column.id, ""))} />;
   }
 
   if (column.type === "URL") {
@@ -275,5 +319,87 @@ function EventCell({ column, row, value, team, run }: { column: Column; row: Row
         <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground">Cancelar</button>
       </div>
     </form>
+  );
+}
+
+// Celda contraseña: oculta hasta hacer clic en el ojo. Editable.
+function PasswordCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [show, setShow] = React.useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type={show ? "text" : "password"}
+        defaultValue={value}
+        onBlur={(e) => e.target.value !== value && onSave(e.target.value)}
+        placeholder="••••••"
+        className="w-full bg-transparent px-1 py-0.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring rounded"
+      />
+      <button type="button" onClick={() => setShow((s) => !s)} className="text-muted-foreground hover:text-foreground" title={show ? "Ocultar" : "Mostrar"}>
+        {show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+// Celda multi-selección: varias etiquetas; menú con casillas + añadir opción.
+function MultiSelectCell({ column, value, onSave }: { column: Column; value: string[]; onSave: (v: string[]) => void }) {
+  const opts = column.options ?? [];
+  const toggle = (id: string) => onSave(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  return (
+    <details className="relative">
+      <summary className="flex cursor-pointer list-none flex-wrap gap-1">
+        {value.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : null}
+        {value.map((id) => {
+          const o = opts.find((x) => x.id === id);
+          if (!o) return null;
+          return <span key={id} className={cn("rounded-full px-2 py-0.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>;
+        })}
+      </summary>
+      <div className="absolute z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-lg">
+        {opts.map((o) => (
+          <button key={o.id} type="button" onClick={() => toggle(o.id)} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted">
+            <input type="checkbox" readOnly checked={value.includes(o.id)} className="size-3" />
+            <span className={cn("rounded-full px-1.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => { const l = prompt("Nueva opción"); if (l) addSelectOption(column.id, l); }}
+          className="w-full rounded px-2 py-1 text-left text-xs text-primary hover:bg-muted"
+        >
+          + Nueva opción…
+        </button>
+      </div>
+    </details>
+  );
+}
+
+// Celda imagen: sube una foto (se guarda en el NAS) y la muestra como miniatura.
+function ImageCell({ url, rowId, columnId, onClear }: { url: string; rowId: string; columnId: string; onClear: () => void }) {
+  const [pending, start] = React.useTransition();
+  return (
+    <div className="flex items-center gap-2">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="" className="size-12 rounded object-cover" /></a>
+      ) : null}
+      <label className="cursor-pointer text-xs text-primary hover:underline">
+        {pending ? "Subiendo…" : url ? "Cambiar" : "Subir foto"}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          disabled={pending}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const fd = new FormData();
+            fd.set("image", f);
+            start(() => void uploadCellImage(rowId, columnId, fd));
+          }}
+        />
+      </label>
+      {url ? <button type="button" onClick={onClear} className="text-xs text-muted-foreground hover:text-destructive">Quitar</button> : null}
+    </div>
   );
 }

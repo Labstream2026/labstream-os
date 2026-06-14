@@ -8,6 +8,7 @@ import { canAccessProject } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
 import { pushEventToSynology } from "@/lib/caldav";
 import { logActivity } from "@/lib/activity";
+import { saveBuffer } from "@/lib/storage";
 
 // projectId de una tabla (para registrar actividad; null si la tabla es de wiki).
 async function projectIdOfTable(tableId: string): Promise<string | null> {
@@ -168,6 +169,25 @@ async function isRealUser(id: unknown): Promise<boolean> {
   if (typeof id !== "string" || !id) return false;
   const u = await db.user.findFirst({ where: { id, active: true }, select: { id: true } });
   return Boolean(u);
+}
+
+// Sube una imagen a una celda IMAGE (se guarda en el NAS) y guarda su URL.
+export async function uploadCellImage(rowId: string, columnId: string, formData: FormData) {
+  await ensureRowAccess(rowId);
+  const file = formData.get("image");
+  if (!(file instanceof File) || file.size === 0) return;
+  if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return;
+  const buf = Buffer.from(await file.arrayBuffer());
+  const key = `${rowId}-${columnId}`.replace(/[^a-zA-Z0-9-]/g, "");
+  await saveBuffer("tableimg", key, buf);
+  const url = `/api/img/${key}?v=${Date.now()}`;
+  await db.dataCell.upsert({
+    where: { rowId_columnId: { rowId, columnId } },
+    create: { rowId, columnId, value: url as never },
+    update: { value: url as never },
+  });
+  const col = await db.dataColumn.findUnique({ where: { id: columnId }, select: { tableId: true } });
+  if (col) await revalidateForTable(col.tableId);
 }
 
 // Guarda una celda. PERSON → notifica al asignado.
