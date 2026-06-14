@@ -130,7 +130,7 @@ export default async function ProyectoPage({
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-10">
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
         ← Proyectos
       </Link>
@@ -154,7 +154,7 @@ export default async function ProyectoPage({
       </div>
 
       {/* Tabs */}
-      <div className="mt-8 flex gap-1 border-b border-border">
+      <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map((t) => {
           const active = tab === t.key;
           const count = (counts as Record<string, number>)[t.key];
@@ -163,7 +163,7 @@ export default async function ProyectoPage({
               key={t.key}
               href={`/proyectos/${id}?tab=${t.key}`}
               className={cn(
-                "-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+                "-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
                 active
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
