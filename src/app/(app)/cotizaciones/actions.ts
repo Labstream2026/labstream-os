@@ -21,6 +21,15 @@ async function nextCode(): Promise<string> {
   return `COT-${String(count + 1).padStart(4, "0")}`;
 }
 
+const QUOTE_STATUSES = ["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"];
+
+// Una cotización APROBADA no se edita (el total firmado debe quedar fijo).
+async function assertEditable(quoteId: string) {
+  const q = await db.quote.findUnique({ where: { id: quoteId }, select: { status: true } });
+  if (!q) throw new Error("Cotización inexistente");
+  if (q.status === "APROBADA") throw new Error("La cotización está aprobada y no se puede editar.");
+}
+
 export async function createQuote(formData: FormData) {
   await requirePerm("crear_cotizaciones");
   const title = String(formData.get("title") ?? "").trim() || "Cotización sin título";
@@ -44,6 +53,7 @@ export async function createQuote(formData: FormData) {
 
 export async function updateQuoteMeta(quoteId: string, formData: FormData) {
   await requirePerm("crear_cotizaciones");
+  await assertEditable(quoteId);
   const title = String(formData.get("title") ?? "").trim();
   const taxRate = Math.max(0, Math.min(100, parseInt(String(formData.get("taxRate") ?? "0"), 10) || 0));
   const notes = String(formData.get("notes") ?? "").trim() || null;
@@ -62,6 +72,7 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
 
 export async function addItem(quoteId: string) {
   await requirePerm("crear_cotizaciones");
+  await assertEditable(quoteId);
   const count = await db.quoteItem.count({ where: { quoteId } });
   await db.quoteItem.create({
     data: { quoteId, description: "", quantity: 1, unitPrice: 0, position: count },
@@ -74,26 +85,31 @@ export async function updateItem(
   data: { description: string; quantity: number; unitPrice: number },
 ) {
   await requirePerm("crear_cotizaciones");
-  const item = await db.quoteItem.update({
+  const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
+  if (!existing) return;
+  await assertEditable(existing.quoteId);
+  // cantidades y precios no negativos (evita totales manipulados)
+  const quantity = Math.max(0, Number.isFinite(data.quantity) ? data.quantity : 0);
+  const unitPrice = Math.max(0, Number.isFinite(data.unitPrice) ? data.unitPrice : 0);
+  await db.quoteItem.update({
     where: { id: itemId },
-    data: {
-      description: data.description,
-      quantity: Number.isFinite(data.quantity) ? data.quantity : 0,
-      unitPrice: Number.isFinite(data.unitPrice) ? data.unitPrice : 0,
-    },
-    select: { quoteId: true },
+    data: { description: data.description, quantity, unitPrice },
   });
-  refresh(item.quoteId);
+  refresh(existing.quoteId);
 }
 
 export async function removeItem(itemId: string) {
   await requirePerm("crear_cotizaciones");
-  const item = await db.quoteItem.delete({ where: { id: itemId }, select: { quoteId: true } });
-  refresh(item.quoteId);
+  const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
+  if (!existing) return;
+  await assertEditable(existing.quoteId);
+  await db.quoteItem.delete({ where: { id: itemId } });
+  refresh(existing.quoteId);
 }
 
 // Cambiar estado. BORRADOR/ENVIADA → crear_cotizaciones. APROBADA/RECHAZADA → aprobar_cotizaciones.
 export async function setQuoteStatus(quoteId: string, status: string) {
+  if (!QUOTE_STATUSES.includes(status)) throw new Error("Estado inválido");
   const needsApproval = status === "APROBADA" || status === "RECHAZADA";
   const session = await requirePerm(needsApproval ? "aprobar_cotizaciones" : "crear_cotizaciones");
   await db.quote.update({

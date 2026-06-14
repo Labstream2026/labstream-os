@@ -22,9 +22,10 @@ export async function saveBuffer(relDir: string, filename: string, buf: Buffer) 
 }
 
 export function absPath(rel: string) {
-  // evita path traversal
-  const full = path.join(STORAGE_DIR, rel);
-  if (!full.startsWith(STORAGE_DIR)) throw new Error("ruta inválida");
+  // evita path traversal (compara por límite de ruta, no por prefijo de string)
+  const full = path.resolve(STORAGE_DIR, rel);
+  const root = path.resolve(STORAGE_DIR);
+  if (full !== root && !full.startsWith(root + path.sep)) throw new Error("ruta inválida");
   return full;
 }
 
@@ -49,7 +50,10 @@ export function verifyFileToken(attachmentId: string, token: string | null) {
     .createHmac("sha256", secret())
     .update(`${attachmentId}.${exp}`)
     .digest("base64url");
-  return crypto.timingSafeEqual(Buffer.from(sig || ""), Buffer.from(expected));
+  const a = Buffer.from(sig || "");
+  const b = Buffer.from(expected);
+  // timingSafeEqual lanza si difieren en longitud → comparar largo primero (evita 500).
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 const MIME: Record<string, string> = {

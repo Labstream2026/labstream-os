@@ -78,12 +78,24 @@ export async function signConfig(config: EditorConfig): Promise<EditorConfig> {
 }
 
 // Verifica el JWT que el Document Server envía en el callback (body.token o header).
+// SIN secreto configurado NO se acepta el callback: aceptarlo permitiría a cualquiera
+// sobrescribir archivos (fs.writeFile desde una url arbitraria) y forzar SSRF.
 export async function verifyCallbackToken(token: string | undefined): Promise<boolean> {
-  if (!JWT_SECRET) return true; // si el server no usa JWT, no verificamos
-  if (!token) return false;
+  if (!JWT_SECRET || !token) return false;
   try {
     await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
     return true;
+  } catch {
+    return false;
+  }
+}
+
+// El callback solo puede descargar el archivo editado desde el propio Document Server.
+// Evita SSRF: la url de descarga debe apuntar al host de ONLYOFFICE_DOCS_URL.
+export function isAllowedDocsUrl(url: string | undefined): boolean {
+  if (!url || !DOCS_URL) return false;
+  try {
+    return new URL(url).host === new URL(DOCS_URL).host;
   } catch {
     return false;
   }

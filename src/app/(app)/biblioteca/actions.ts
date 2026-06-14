@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { safeExternalUrl } from "@/lib/url";
 
 // Biblioteca del equipo: cualquier usuario con sesión puede añadir; borrar solo
 // quien lo subió o un admin.
@@ -10,7 +11,7 @@ export async function addLibraryAsset(formData: FormData) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim();
-  const url = String(formData.get("url") ?? "").trim();
+  const url = safeExternalUrl(String(formData.get("url") ?? ""));
   const category = String(formData.get("category") ?? "").trim() || null;
   if (!name || !url) return;
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";

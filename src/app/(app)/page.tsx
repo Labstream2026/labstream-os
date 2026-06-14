@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 
@@ -22,19 +23,20 @@ const OPEN = ["PENDIENTE", "EN_PROCESO", "EN_ESPERA", "EN_REVISION"];
 
 export default async function HomePage() {
   const me = await getCurrentUser();
+  if (!me) redirect("/login");
   const [clients, projects, blocked, myTasks] = await Promise.all([
     db.client.findMany({ orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: true } } } }),
     db.project.count({ where: { status: { notIn: INACTIVE as never } } }),
     db.project.count({ where: { status: "PAUSADO" } }),
     db.task.findMany({
-      where: { assigneeId: me?.id, status: { in: OPEN as never } },
+      where: { assigneeId: me.id, status: { in: OPEN as never } },
       orderBy: { dueDate: "asc" },
       take: 5,
       include: { project: { select: { id: true, name: true, emoji: true } } },
     }),
   ]);
 
-  const myTaskCount = await db.task.count({ where: { assigneeId: me?.id, status: { in: OPEN as never } } });
+  const myTaskCount = await db.task.count({ where: { assigneeId: me.id, status: { in: OPEN as never } } });
 
   const stats = [
     { emoji: "🏢", value: clients.length, label: "Clientes", sub: "activos" },

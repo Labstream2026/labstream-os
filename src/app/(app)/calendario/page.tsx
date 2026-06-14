@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { canAccessProject } from "@/lib/project-access";
 import { UserAvatar } from "@/components/user-avatar";
 
 export const dynamic = "force-dynamic";
@@ -9,12 +11,22 @@ function dayLabel(d: Date) {
 }
 
 export default async function CalendarioPage() {
-  const events = await db.calendarEvent.findMany({
+  const session = await getSession();
+  const all = await db.calendarEvent.findMany({
     orderBy: { start: "asc" },
     include: {
-      project: { select: { name: true, emoji: true } },
+      project: { select: { name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
       attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
     },
+  });
+
+  // No se muestran citas de proyectos privados a quien no tiene acceso (responsable,
+  // miembro, admin) o no es invitado/creador. Las citas sin proyecto son del equipo.
+  const events = all.filter((e) => {
+    if (!e.project) return true;
+    if (e.createdById === session?.id) return true;
+    if (e.attendees.some((a) => a.userId === session?.id)) return true;
+    return canAccessProject(e.project, session);
   });
 
   // agrupar por día

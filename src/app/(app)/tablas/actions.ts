@@ -136,6 +136,13 @@ export async function addSelectOption(columnId: string, label: string) {
   await revalidateForTable(col.tableId);
 }
 
+// ¿Es un id de usuario real y activo del equipo? (evita notificar/invitar a ids arbitrarios)
+async function isRealUser(id: unknown): Promise<boolean> {
+  if (typeof id !== "string" || !id) return false;
+  const u = await db.user.findFirst({ where: { id, active: true }, select: { id: true } });
+  return Boolean(u);
+}
+
 // Guarda una celda. PERSON → notifica al asignado.
 export async function setCell(rowId: string, columnId: string, value: unknown) {
   await ensureRowAccess(rowId);
@@ -151,7 +158,7 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
     update: { value: value as never },
   });
 
-  if (col.type === "PERSON" && typeof value === "string" && value) {
+  if (col.type === "PERSON" && typeof value === "string" && value && (await isRealUser(value))) {
     await notify(value, {
       type: "mention",
       title: `Te asignaron en "${col.table.name}"`,
@@ -175,6 +182,8 @@ export async function setEventCell(
   });
   if (!col) return;
   const me = await getCurrentUser();
+  // solo se invita a un usuario real y activo del equipo
+  const attendeeId = (await isRealUser(data.attendeeId)) ? data.attendeeId : null;
 
   const event = await db.calendarEvent.create({
     data: {
@@ -182,18 +191,18 @@ export async function setEventCell(
       start: new Date(data.start),
       projectId: col.table.projectId,
       createdById: me?.id ?? null,
-      attendees: data.attendeeId ? { create: [{ userId: data.attendeeId }] } : undefined,
+      attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined,
     },
   });
 
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },
-    create: { rowId, columnId, value: { eventId: event.id, start: data.start, attendeeId: data.attendeeId } as never },
-    update: { value: { eventId: event.id, start: data.start, attendeeId: data.attendeeId } as never },
+    create: { rowId, columnId, value: { eventId: event.id, start: data.start, attendeeId } as never },
+    update: { value: { eventId: event.id, start: data.start, attendeeId } as never },
   });
 
-  if (data.attendeeId) {
-    await notify(data.attendeeId, {
+  if (attendeeId) {
+    await notify(attendeeId, {
       type: "event",
       title: `Nueva cita: ${event.title}`,
       body: new Date(data.start).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),

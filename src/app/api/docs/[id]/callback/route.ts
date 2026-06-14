@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { absPath } from "@/lib/storage";
-import { verifyCallbackToken } from "@/lib/onlyoffice";
+import { verifyCallbackToken, isAllowedDocsUrl } from "@/lib/onlyoffice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   if ((body.status === 2 || body.status === 6) && body.url) {
+    if (!isAllowedDocsUrl(body.url)) return NextResponse.json({ error: 1 });
     const att = await db.messageAttachment.findUnique({ where: { id } });
     if (att?.path) {
       try {

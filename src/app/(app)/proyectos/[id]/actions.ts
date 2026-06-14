@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { safeExternalUrl } from "@/lib/url";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string) {
@@ -109,7 +110,7 @@ export async function addDeliverableVersion(
   const session = await getSession();
   if (!deliverable || !canAccessProject(deliverable.project, session)) throw new Error("No autorizado");
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  const fileUrl = String(formData.get("fileUrl") ?? "").trim() || null;
+  const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({
     where: { deliverableId },
     orderBy: { number: "desc" },
@@ -130,7 +131,7 @@ export async function addDeliverableVersion(
 export async function addFile(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId);
   const name = String(formData.get("name") ?? "").trim();
-  const url = String(formData.get("url") ?? "").trim();
+  const url = safeExternalUrl(String(formData.get("url") ?? ""));
   if (!name || !url) return;
   const folderId = String(formData.get("folderId") ?? "") || null;
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
@@ -162,17 +163,35 @@ export async function setProjectVisibility(projectId: string, isPrivate: boolean
 }
 
 export async function addProjectMember(projectId: string, userId: string, role: string = "MEMBER") {
-  await ensureProjectManage(projectId);
+  const session = await ensureProjectManage(projectId);
+  // El rol debe ser uno conocido; conceder OWNER solo lo puede hacer admin o el responsable
+  // (evita que un OWNER no-admin promueva a otros y escale control del proyecto).
+  const allowed = ["MEMBER", "GUEST", "OWNER"];
+  const safeRole = allowed.includes(role) ? role : "MEMBER";
+  if (safeRole === "OWNER") {
+    const project = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true } });
+    if (!(session.role === "admin" || project?.leadId === session.id)) {
+      throw new Error("Solo un administrador o el responsable puede asignar OWNER");
+    }
+  }
+  // El usuario debe existir y estar activo (no se invita a ids arbitrarios).
+  const target = await db.user.findUnique({ where: { id: userId }, select: { active: true } });
+  if (!target?.active) throw new Error("Usuario inválido");
+
   await db.projectMember.upsert({
     where: { projectId_userId: { projectId, userId } },
-    create: { projectId, userId, role: role as never },
-    update: { role: role as never },
+    create: { projectId, userId, role: safeRole as never },
+    update: { role: safeRole as never },
   });
   refresh(projectId);
 }
 
 export async function removeProjectMember(projectId: string, userId: string) {
   await ensureProjectManage(projectId);
-  await db.projectMember.delete({ where: { projectId_userId: { projectId, userId } } }).catch(() => null);
+  await db.projectMember
+    .delete({ where: { projectId_userId: { projectId, userId } } })
+    .catch((e: { code?: string }) => {
+      if (e?.code !== "P2025") throw e; // P2025 = no existe → ignorar; el resto propaga
+    });
   refresh(projectId);
 }

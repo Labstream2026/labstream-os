@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +15,9 @@ const OPEN = ["PENDIENTE", "EN_PROCESO", "EN_ESPERA", "EN_REVISION"];
 
 export default async function MisTareasPage() {
   const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const tasks = await db.task.findMany({
-    where: { assigneeId: user?.id, status: { in: OPEN as never } },
+    where: { assigneeId: user.id, status: { in: OPEN as never } },
     orderBy: [{ status: "asc" }, { dueDate: "asc" }],
     include: { project: { select: { id: true, name: true, emoji: true } } },
   });

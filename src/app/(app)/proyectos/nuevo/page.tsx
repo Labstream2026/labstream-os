@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getSession, hasPermission } from "@/lib/auth";
 import { createProject } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +11,8 @@ export default async function NuevoProyectoPage({
 }: {
   searchParams: Promise<{ template?: string }>;
 }) {
+  const session = await getSession();
+  if (!hasPermission(session, "crear_proyectos")) redirect("/proyectos");
   const { template = "" } = await searchParams;
 
   const [clients, team, templates] = await Promise.all([
