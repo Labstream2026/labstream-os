@@ -24,14 +24,16 @@ export function DateInput({
       type="date"
       title={title}
       defaultValue={value ?? ""}
-      disabled={pending}
+      // No se deshabilita durante la acción (que puede tardar por el envío de correo):
+      // deshabilitar cerraría el selector nativo si está abierto. Solo baja la opacidad.
       onChange={(e) => {
         const fd = new FormData();
         fd.set(name, e.target.value);
         start(() => action(fd));
       }}
       className={cn(
-        "cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+        "cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring",
+        pending && "opacity-60",
         className,
       )}
     />

@@ -1,18 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelRight, PanelLeft, MoreHorizontal, Share2, Menu } from "lucide-react";
+import { PanelRight, PanelLeft, MoreHorizontal, Share2, Menu, User, Settings, CalendarDays, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
+import { logout } from "@/lib/auth-actions";
 
 export type TopbarAvatar = { initials: string | null; color: string | null };
 
 function crumb(pathname: string): { emoji: string; label: string } {
   if (pathname === "/") return { emoji: "🏠", label: "Inicio" };
   if (pathname.startsWith("/mis-tareas")) return { emoji: "✅", label: "Mis tareas" };
-  if (pathname.startsWith("/estados")) return { emoji: "💬", label: "Estados del equipo" };
+  if (pathname.startsWith("/estados")) return { emoji: "💬", label: "Chat del día" };
   if (pathname.startsWith("/proyectos/nuevo")) return { emoji: "✨", label: "Nuevo proyecto" };
   if (pathname.startsWith("/proyectos")) return { emoji: "🗂️", label: "Proyectos" };
   if (pathname.startsWith("/plantillas")) return { emoji: "🧩", label: "Plantillas" };
@@ -95,9 +97,27 @@ export function Topbar({
         >
           <PanelRight />
         </Button>
-        <Button variant="ghost" size="icon" className="hidden text-muted-foreground md:inline-flex" aria-label="Más">
-          <MoreHorizontal />
-        </Button>
+        <details className="relative hidden md:block">
+          <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Más opciones">
+            <MoreHorizontal className="size-5" />
+          </summary>
+          <div className="absolute right-0 z-30 mt-1 w-52 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+            <Link href="/perfil" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+              <User className="size-4" /> Mi perfil
+            </Link>
+            <Link href="/calendario" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+              <CalendarDays className="size-4" /> Mi calendario
+            </Link>
+            <Link href="/configuracion" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+              <Settings className="size-4" /> Configuración
+            </Link>
+            <form action={logout} className="border-t border-border">
+              <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-destructive hover:bg-muted">
+                <LogOut className="size-4" /> Cerrar sesión
+              </button>
+            </form>
+          </div>
+        </details>
       </div>
     </header>
   );

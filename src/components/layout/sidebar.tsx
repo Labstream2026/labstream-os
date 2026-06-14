@@ -40,8 +40,8 @@ export type SidebarClient = {
 
 const NAV = [
   { href: "/", label: "Inicio", icon: Home },
-  { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks, badge: 4 },
-  { href: "/estados", label: "Estados", icon: MessageSquare, badge: 8 },
+  { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
+  { href: "/estados", label: "Chat del día", icon: MessageSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/asistente", label: "Asistente IA", icon: Sparkles },
@@ -135,7 +135,7 @@ export function Sidebar({
 
       {/* Navegación principal */}
       <nav className={cn("py-1", collapsed ? "px-2" : "px-3")}>
-        {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href, item.badge))}
+        {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href))}
         {canQuotes
           ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones"))
           : null}
