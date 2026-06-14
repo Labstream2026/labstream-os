@@ -193,6 +193,22 @@ export async function addChannelMember(channelId: string, userId: string) {
   if (channel?.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
 }
 
+// Promover/degradar a un miembro como channel-admin (gestiona visibilidad/miembros).
+export async function setChannelMemberRole(channelId: string, userId: string, makeAdmin: boolean) {
+  const session = await getSession();
+  if (!(await userCanManageChannel(channelId, session))) {
+    throw new Error("No autorizado");
+  }
+  await db.channelMember
+    .update({
+      where: { channelId_userId: { channelId, userId } },
+      data: { role: (makeAdmin ? "ADMIN" : "MEMBER") as never },
+    })
+    .catch(() => null);
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true } });
+  if (channel?.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
+}
+
 export async function removeChannelMember(channelId: string, userId: string) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) {

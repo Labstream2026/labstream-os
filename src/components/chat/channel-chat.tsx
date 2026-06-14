@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, X, BarChart3 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, Eye, X, BarChart3 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll } from "@/app/(app)/chat/actions";
@@ -29,24 +29,53 @@ function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 }
 
+function isImage(a: Attachment) {
+  return (a.mime ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp|avif)$/i.test(a.name);
+}
+function isPdf(a: Attachment) {
+  return a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
+}
+
 function Attachments({ items }: { items?: Attachment[] }) {
   if (!items || items.length === 0) return null;
   return (
-    <div className="mt-1.5 space-y-1">
-      {items.map((a) => (
-        <div key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
-          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{a.name}</span>
-          {a.editable ? (
-            <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-              <Pencil className="size-3" /> Editar
-            </Link>
-          ) : null}
-          <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <Download className="size-3" /> Descargar
-          </a>
-        </div>
-      ))}
+    <div className="mt-1.5 space-y-1.5">
+      {items.map((a) => {
+        if (isImage(a)) {
+          // Vista previa de imagen (la descarga va con cookie de sesión → /api/files valida acceso)
+          return (
+            <a key={a.id} href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/files/${a.id}`}
+                alt={a.name}
+                className="max-h-56 max-w-full rounded-lg border border-border object-contain"
+                loading="lazy"
+              />
+              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{a.name}</span>
+            </a>
+          );
+        }
+        return (
+          <div key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{a.name}</span>
+            {isPdf(a) ? (
+              <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                <Eye className="size-3" /> Ver
+              </a>
+            ) : null}
+            {a.editable ? (
+              <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                <Pencil className="size-3" /> Editar
+              </Link>
+            ) : null}
+            <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+              <Download className="size-3" /> Descargar
+            </a>
+          </div>
+        );
+      })}
     </div>
   );
 }

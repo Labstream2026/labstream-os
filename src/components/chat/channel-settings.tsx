@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Globe, Lock, Plus, X } from "lucide-react";
+import { Globe, Lock, Plus, X, Crown } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { setChannelVisibility, addChannelMember, removeChannelMember } from "@/app/(app)/chat/actions";
+import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole } from "@/app/(app)/chat/actions";
 
-type Member = { id: string; name: string; initials: string | null; color: string | null };
+type Member = { id: string; name: string; initials: string | null; color: string | null; role?: string };
 
 export function ChannelSettings({
   channelId,
@@ -50,17 +50,35 @@ export function ChannelSettings({
       {/* Miembros */}
       <div className="flex items-center gap-1.5">
         <div className="flex -space-x-2">
-          {members.slice(0, 6).map((m) => (
+          {members.slice(0, 8).map((m) => (
             <span key={m.id} className="group relative">
-              <UserAvatar initials={m.initials} color={m.color} size="sm" ring />
+              <UserAvatar
+                initials={m.initials}
+                color={m.color}
+                size="sm"
+                ring
+                className={m.role === "ADMIN" ? "ring-amber-400" : undefined}
+              />
+              {m.role === "ADMIN" ? (
+                <Crown className="absolute -left-1 -top-1.5 size-3 text-amber-500" />
+              ) : null}
               {canManage ? (
-                <button
-                  onClick={() => start(() => removeChannelMember(channelId, m.id))}
-                  className="absolute -right-1 -top-1 hidden size-3.5 items-center justify-center rounded-full bg-destructive text-[8px] text-white group-hover:flex"
-                  title={`Quitar a ${m.name}`}
-                >
-                  <X className="size-2.5" />
-                </button>
+                <>
+                  <button
+                    onClick={() => start(() => setChannelMemberRole(channelId, m.id, m.role !== "ADMIN"))}
+                    className="absolute -left-1 -top-1 hidden size-3.5 items-center justify-center rounded-full bg-amber-500 text-[8px] text-white group-hover:flex"
+                    title={m.role === "ADMIN" ? `Quitar admin a ${m.name}` : `Hacer admin a ${m.name}`}
+                  >
+                    <Crown className="size-2.5" />
+                  </button>
+                  <button
+                    onClick={() => start(() => removeChannelMember(channelId, m.id))}
+                    className="absolute -right-1 -top-1 hidden size-3.5 items-center justify-center rounded-full bg-destructive text-[8px] text-white group-hover:flex"
+                    title={`Quitar a ${m.name}`}
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                </>
               ) : null}
             </span>
           ))}

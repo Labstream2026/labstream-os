@@ -273,6 +273,7 @@ export default async function ProyectoPage({
                       name: m.user.name,
                       initials: m.user.initials,
                       color: m.user.avatarColor,
+                      role: m.role,
                     }))}
                     team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
                   />
