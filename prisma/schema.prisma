@@ -321,6 +321,8 @@ model ChatMessage {
   attachments MessageAttachment[]
   reactions   MessageReaction[]
   poll        Poll?
+  pinned      Boolean             @default(false) // mensaje fijado en el canal
+  editedAt    DateTime? // se rellena al editar el mensaje
   createdAt   DateTime            @default(now())
 
   @@index([channelId, createdAt])

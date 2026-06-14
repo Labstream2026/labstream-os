@@ -2,7 +2,7 @@
 
 import { Hash, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ChannelChat, type ChatMe, type ChatMsg } from "@/components/chat/channel-chat";
+import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
 
 type Channel = { id: string; name: string; messages: ChatMsg[] } | null;
 
@@ -11,10 +11,12 @@ type Channel = { id: string; name: string; messages: ChatMsg[] } | null;
 export function ChatBody({
   me,
   channel,
+  members = [],
   onClose,
 }: {
   me: ChatMe;
   channel: Channel;
+  members?: Member[];
   onClose?: () => void;
 }) {
   return (
@@ -40,7 +42,7 @@ export function ChatBody({
       </div>
 
       {channel ? (
-        <ChannelChat channelId={channel.id} initialMessages={channel.messages} me={me} />
+        <ChannelChat channelId={channel.id} initialMessages={channel.messages} me={me} members={members} />
       ) : (
         <p className="p-4 text-sm text-muted-foreground">No hay canal general.</p>
       )}
@@ -49,7 +51,7 @@ export function ChatBody({
 }
 
 // Panel de chat de ESCRITORIO (columna derecha plegable a 0).
-export function ContextPanel({ open, me, channel }: { open: boolean; me: ChatMe; channel: Channel }) {
+export function ContextPanel({ open, me, channel, members = [] }: { open: boolean; me: ChatMe; channel: Channel; members?: Member[] }) {
   return (
     <aside
       className={cn(
@@ -58,7 +60,7 @@ export function ContextPanel({ open, me, channel }: { open: boolean; me: ChatMe;
       )}
     >
       <div className="h-full w-80">
-        <ChatBody me={me} channel={channel} />
+        <ChatBody me={me} channel={channel} members={members} />
       </div>
     </aside>
   );

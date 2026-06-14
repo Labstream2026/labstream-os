@@ -20,6 +20,7 @@ export default async function ChatDelDiaPage() {
     });
   }
 
+  const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } });
   const messages = await db.chatMessage.findMany({
     where: { channelId: channel.id },
     orderBy: { createdAt: "asc" },
@@ -50,6 +51,7 @@ export default async function ChatDelDiaPage() {
         <ChannelChat
           channelId={channel.id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+          members={team}
           initialMessages={messages.map((m) => ({
             id: m.id,
             body: m.body,

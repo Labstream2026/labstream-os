@@ -26,6 +26,8 @@ export type ChatMessagePayload = {
   attachments: AttachmentPayload[];
   poll?: PollData | null;
   reactions?: ReactionItem[];
+  pinned?: boolean;
+  editedAt?: string | null;
 };
 
 const globalForBus = globalThis as unknown as { __chatBus?: EventEmitter };
@@ -49,4 +51,20 @@ export function publishPollUpdate(channelId: string, poll: PollData) {
 // Actualización de reacciones de un mensaje (lista completa de reacciones del mensaje).
 export function publishReactionUpdate(channelId: string, messageId: string, reactions: ReactionItem[]) {
   chatBus.emit(channelEvent(channelId), { kind: "reaction", channelId, messageId, reactions });
+}
+
+// Edición de un mensaje (nuevo cuerpo) / borrado / fijado.
+export function publishMessageEdit(channelId: string, messageId: string, body: string, editedAt: string) {
+  chatBus.emit(channelEvent(channelId), { kind: "edit", channelId, messageId, body, editedAt });
+}
+export function publishMessageDelete(channelId: string, messageId: string) {
+  chatBus.emit(channelEvent(channelId), { kind: "delete", channelId, messageId });
+}
+export function publishMessagePin(channelId: string, messageId: string, pinned: boolean) {
+  chatBus.emit(channelEvent(channelId), { kind: "pin", channelId, messageId, pinned });
+}
+
+// Indicador de "escribiendo…" (efímero).
+export function publishTyping(channelId: string, userId: string, name: string) {
+  chatBus.emit(channelEvent(channelId), { kind: "typing", channelId, userId, name });
 }

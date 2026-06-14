@@ -2,15 +2,16 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, Search, Check } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
 
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
+export type Member = { id: string; name: string };
 
 export type ChatMsg = {
   id: string;
@@ -22,6 +23,8 @@ export type ChatMsg = {
   reactions?: ReactionItem[];
   poll?: PollData | null;
   myOptionId?: string | null;
+  pinned?: boolean;
+  editedAt?: string | null;
   status?: "sending" | "sent" | "error" | "pending";
 };
 
@@ -29,6 +32,29 @@ export type ChatMe = { id: string; name: string; initials: string | null; color:
 
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Resalta @menciones conocidas (de la lista de miembros) en el cuerpo del mensaje.
+function renderBody(text: string, members: Member[]): React.ReactNode {
+  if (!members.length || !text.includes("@")) return text;
+  const names = members.map((m) => m.name).sort((a, b) => b.length - a.length);
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`@(${escaped.join("|")})`, "g");
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(<span key={i++} className="rounded bg-primary/15 px-1 font-medium text-primary">@{m[1]}</span>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+// IDs de miembros mencionados con @ en el texto.
+function detectMentions(text: string, members: Member[]): string[] {
+  return members.filter((mem) => text.includes(`@${mem.name}`)).map((mem) => mem.id);
 }
 
 function isImage(a: Attachment) {
@@ -143,11 +169,13 @@ export function ChannelChat({
   channelId,
   initialMessages,
   me,
+  members = [],
   readOnly = false,
 }: {
   channelId: string;
   initialMessages: ChatMsg[];
   me: ChatMe;
+  members?: Member[];
   readOnly?: boolean;
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
@@ -166,16 +194,40 @@ export function ChannelChat({
   const [pollQ, setPollQ] = React.useState("");
   const [pollOpts, setPollOpts] = React.useState<string[]>(["", ""]);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<string | null>(null);
+  const [editText, setEditText] = React.useState("");
+  const [search, setSearch] = React.useState("");
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [typingNames, setTypingNames] = React.useState<Record<string, number>>({}); // name → expiry ts
+  const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
-  const roots = messages.filter((m) => !m.parentId);
+  const q = search.trim().toLowerCase();
+  const roots = messages
+    .filter((m) => !m.parentId)
+    .filter((m) => !q || m.body.toLowerCase().includes(q));
   const repliesFor = (id: string) =>
     messages.filter((m) => m.parentId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const pinned = messages.filter((m) => m.pinned && !m.parentId);
 
   // ¿El mensaje es mío? (para alinearlo a la derecha con burbuja propia).
   const isMine = (a: ChatMsg["author"]) => !!a && a.name === me.name && a.color === me.color;
+
+  // Limpia los indicadores de "escribiendo…" caducados.
+  React.useEffect(() => {
+    const t = setInterval(() => {
+      setTypingNames((prev) => {
+        const now = Date.now();
+        const next: Record<string, number> = {};
+        for (const [n, exp] of Object.entries(prev)) if (exp > now) next[n] = exp;
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 1500);
+    return () => clearInterval(t);
+  }, []);
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -203,6 +255,22 @@ export function ChannelChat({
           setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, reactions: data.reactions } : m)));
           return;
         }
+        if (data?.kind === "edit") {
+          setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, body: data.body, editedAt: data.editedAt } : m)));
+          return;
+        }
+        if (data?.kind === "delete") {
+          setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+          return;
+        }
+        if (data?.kind === "pin") {
+          setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, pinned: data.pinned } : m)));
+          return;
+        }
+        if (data?.kind === "typing") {
+          if (data.userId !== me.id) setTypingNames((prev) => ({ ...prev, [data.name]: Date.now() + 4000 }));
+          return;
+        }
         const m = data as ChatMsg;
         upsert({ ...m, status: "sent", reactions: m.reactions ?? [] });
         if (!m.parentId) scrollToBottom();
@@ -211,7 +279,7 @@ export function ChannelChat({
       }
     };
     return () => es.close();
-  }, [channelId, upsert, scrollToBottom]);
+  }, [channelId, upsert, scrollToBottom, me.id]);
 
   React.useEffect(() => {
     scrollToBottom();
@@ -252,7 +320,7 @@ export function ChannelChat({
   async function deliver(tempId: string, body: string, parentId: string | null) {
     setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "sending" } : m)));
     try {
-      const real = await sendMessage(channelId, body, parentId);
+      const real = await sendMessage(channelId, body, parentId, detectMentions(body, members));
       if (!real) return;
       unpersist(tempId);
       setMessages((prev) => {
@@ -311,6 +379,42 @@ export function ChannelChat({
     }
     submitText(text, null);
     setText("");
+    setMentionQuery(null);
+  }
+
+  // Cambio del texto del composer: dispara "escribiendo…" (throttle) y detecta @menciones.
+  function onComposerChange(v: string) {
+    setText(v);
+    const now = Date.now();
+    if (now - lastTypingRef.current > 2500) {
+      lastTypingRef.current = now;
+      void notifyTyping(channelId);
+    }
+    const m = /(?:^|\s)@([\p{L}0-9]*)$/u.exec(v);
+    setMentionQuery(m ? m[1] : null);
+  }
+  function insertMention(name: string) {
+    setText((t) => t.replace(/(^|\s)@([\p{L}0-9]*)$/u, `$1@${name} `));
+    setMentionQuery(null);
+  }
+  const mentionMatches = mentionQuery != null
+    ? members.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  async function saveEdit(id: string) {
+    const body = editText.trim();
+    setEditing(null);
+    if (!body) return;
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, body, editedAt: new Date().toISOString() } : m)));
+    await editMessage(id, body);
+  }
+  async function removeMsg(id: string) {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    await deleteMessage(id);
+  }
+  async function pin(id: string, current: boolean) {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: !current } : m)));
+    await togglePin(id);
   }
 
   async function vote(pollId: string, optionId: string) {
@@ -359,6 +463,37 @@ export function ChannelChat({
 
   return (
     <div className="flex h-full flex-col">
+      {/* Barra: buscar + mensajes fijados */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+        {searchOpen ? (
+          <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
+            <Search className="size-3.5 text-muted-foreground" />
+            <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en el chat…" className="w-full bg-transparent text-xs outline-none" />
+            <button onClick={() => { setSearch(""); setSearchOpen(false); }} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+          </div>
+        ) : (
+          <>
+            <button onClick={() => setSearchOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Buscar">
+              <Search className="size-3.5" /> Buscar
+            </button>
+            {pinned.length > 0 ? (
+              <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Pin className="size-3" /> {pinned.length} fijado{pinned.length === 1 ? "" : "s"}</span>
+            ) : null}
+          </>
+        )}
+      </div>
+      {pinned.length > 0 && !searchOpen ? (
+        <div className="shrink-0 space-y-1 border-b border-border bg-amber-50/50 px-3 py-1.5 dark:bg-amber-500/5">
+          {pinned.map((p) => (
+            <div key={p.id} className="flex items-center gap-1.5 text-[11px]">
+              <Pin className="size-3 shrink-0 text-amber-600" />
+              <span className="truncate text-muted-foreground"><span className="font-medium text-foreground">{isMine(p.author) ? "Tú" : p.author?.name}:</span> {p.body}</span>
+              {!readOnly ? <button onClick={() => pin(p.id, true)} className="ml-auto shrink-0 text-muted-foreground hover:text-destructive" title="Desfijar"><X className="size-3" /></button> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
         {roots.map((m) => {
@@ -372,16 +507,46 @@ export function ChannelChat({
                 <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
                   <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
                   <span className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
+                  {m.editedAt ? <span className="text-[10px] text-muted-foreground">(editado)</span> : null}
+                  {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
                   {statusTag(m.status)}
+                  {!readOnly && !m.status ? (
+                    <details className="relative">
+                      <summary className="cursor-pointer list-none rounded px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
+                      <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
+                          <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+                        </button>
+                        {mine ? (
+                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
+                            <Pencil className="size-3.5" /> Editar
+                          </button>
+                        ) : null}
+                        {mine ? (
+                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
+                            <Trash2 className="size-3.5" /> Borrar
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
-                {m.body ? (
+                {editing === m.id ? (
+                  <div className="mt-0.5 w-full max-w-[88%]">
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
+                    <div className="mt-1 flex gap-2">
+                      <button onClick={() => saveEdit(m.id)} className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"><Check className="size-3" /> Guardar</button>
+                      <button onClick={() => setEditing(null)} className="text-xs text-muted-foreground">Cancelar</button>
+                    </div>
+                  </div>
+                ) : m.body ? (
                   <div
                     className={cn(
                       "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-2 text-sm",
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                    <p className="whitespace-pre-wrap break-words">{renderBody(m.body, members)}</p>
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
@@ -464,8 +629,23 @@ export function ChannelChat({
         </p>
       ) : null}
 
+      {Object.keys(typingNames).length > 0 ? (
+        <p className="px-4 py-0.5 text-[11px] italic text-muted-foreground">
+          {Object.keys(typingNames).join(", ")} {Object.keys(typingNames).length === 1 ? "está" : "están"} escribiendo…
+        </p>
+      ) : null}
+
       {!readOnly ? (
-       <div className="border-t border-border pb-[env(safe-area-inset-bottom)]">
+       <div className="relative border-t border-border pb-[env(safe-area-inset-bottom)]">
+        {mentionMatches.length > 0 ? (
+          <div className="absolute bottom-full left-3 z-30 mb-1 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+            {mentionMatches.map((mem) => (
+              <button key={mem.id} type="button" onClick={() => insertMention(mem.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted">
+                <span className="text-primary">@</span> {mem.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {pollMode ? (
           <form onSubmit={submitPoll} className="space-y-2 border-b border-border p-3">
             <input
@@ -555,8 +735,8 @@ export function ChannelChat({
             </div>
             <input
               value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…"}
+              onChange={(e) => onComposerChange(e.target.value)}
+              placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…  (@ para mencionar)"}
               disabled={uploading}
               enterKeyHint="send"
               className="min-w-0 flex-1 bg-transparent px-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"

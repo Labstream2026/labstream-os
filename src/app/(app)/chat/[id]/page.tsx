@@ -83,6 +83,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
         <ChannelChat
           channelId={id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+          members={team.map((t) => ({ id: t.id, name: t.name }))}
           initialMessages={channel.messages.map((m) => ({
             id: m.id,
             body: m.body,

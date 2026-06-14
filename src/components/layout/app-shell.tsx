@@ -8,6 +8,7 @@ import { ContextPanel, ChatBody } from "@/components/layout/context-panel";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
+import type { Member } from "@/components/chat/channel-chat";
 
 export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } | null;
 
@@ -19,6 +20,7 @@ export function AppShell({
   canQuotes,
   me,
   generalChannel,
+  chatMembers = [],
   notifications,
   children,
 }: {
@@ -29,6 +31,7 @@ export function AppShell({
   canQuotes?: boolean;
   me: ChatMe;
   generalChannel: GeneralChannel;
+  chatMembers?: Member[];
   notifications: NotificationItem[];
   children: React.ReactNode;
 }) {
@@ -104,12 +107,12 @@ export function AppShell({
       </div>
 
       {/* Panel de chat de escritorio */}
-      <ContextPanel open={chatOpen} me={me} channel={generalChannel} />
+      <ContextPanel open={chatOpen} me={me} channel={generalChannel} members={chatMembers} />
 
       {/* Hoja de chat a pantalla completa (móvil) */}
       {mobileChatOpen ? (
         <div className="fixed inset-0 z-50 bg-background md:hidden">
-          <ChatBody me={me} channel={generalChannel} onClose={() => setMobileChatOpen(false)} />
+          <ChatBody me={me} channel={generalChannel} members={chatMembers} onClose={() => setMobileChatOpen(false)} />
         </div>
       ) : null}
 

@@ -75,9 +75,78 @@ export async function leaveChannel(channelId: string) {
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }
-import { publishMessage, publishPollUpdate, publishReactionUpdate, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
+
+// ── Editar / borrar / fijar mensajes ──
+
+// Editar el cuerpo de un mensaje propio (o admin del sistema).
+export async function editMessage(messageId: string, body: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  const text = body.trim();
+  if (!text) return;
+  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true } });
+  if (!msg) return;
+  if (msg.authorId !== session.id && session.role !== "admin") return;
+  if (!(await userCanAccessChannel(msg.channelId, session))) return;
+  const updated = await db.chatMessage.update({ where: { id: messageId }, data: { body: text, editedAt: new Date() } });
+  publishMessageEdit(msg.channelId, messageId, updated.body, updated.editedAt!.toISOString());
+}
+
+// Borrar un mensaje propio (o admin del sistema / gestor del canal).
+export async function deleteMessage(messageId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true } });
+  if (!msg) return;
+  const isOwner = msg.authorId === session.id;
+  if (!isOwner && session.role !== "admin" && !(await userCanManageChannel(msg.channelId, session))) return;
+  await db.chatMessage.delete({ where: { id: messageId } });
+  publishMessageDelete(msg.channelId, messageId);
+}
+
+// Fijar / desfijar un mensaje del canal (cualquier miembro con acceso).
+export async function togglePin(messageId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, pinned: true } });
+  if (!msg) return;
+  if (!(await userCanAccessChannel(msg.channelId, session))) return;
+  await db.chatMessage.update({ where: { id: messageId }, data: { pinned: !msg.pinned } });
+  publishMessagePin(msg.channelId, messageId, !msg.pinned);
+}
+
+// Indicador efímero de "escribiendo…".
+export async function notifyTyping(channelId: string): Promise<void> {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) return;
+  publishTyping(channelId, session.id, session.name);
+}
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
+import { notifyAndEmail } from "@/lib/notify";
+
+// Notifica (app + correo) a los usuarios mencionados con @ que tengan acceso al canal.
+async function notifyMentions(channelId: string, mentionIds: string[] | undefined, authorId: string, channelName: string, body: string) {
+  if (!mentionIds?.length) return;
+  const unique = [...new Set(mentionIds)].filter((id) => id && id !== authorId).slice(0, 20);
+  if (!unique.length) return;
+  const channel = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: { isPublic: true, members: { select: { userId: true } } },
+  });
+  if (!channel) return;
+  const memberIds = new Set(channel.members.map((m) => m.userId));
+  for (const userId of unique) {
+    if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros
+    await notifyAndEmail(userId, {
+      type: "mention",
+      title: `Te mencionaron en ${channelName}`,
+      body: body.slice(0, 140),
+      link: `/chat/${channelId}`,
+    });
+  }
+}
 
 // Reacción con emoji a un mensaje (toggle). Devuelve la lista de reacciones del mensaje.
 export async function toggleReaction(channelId: string, messageId: string, emoji: string): Promise<ReactionItem[] | null> {
@@ -101,6 +170,7 @@ export async function sendMessage(
   channelId: string,
   body: string,
   parentId?: string | null,
+  mentionIds?: string[],
 ): Promise<ChatMessagePayload | null> {
   const text = body.trim();
   if (!text) return null;
@@ -110,8 +180,9 @@ export async function sendMessage(
 
   const msg = await db.chatMessage.create({
     data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
-    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+    include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
   });
+  await notifyMentions(channelId, mentionIds, session!.id, msg.channel.name, text);
 
   const payload: ChatMessagePayload = {
     id: msg.id,

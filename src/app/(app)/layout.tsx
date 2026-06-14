@@ -11,7 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [clients, team, notifs, general] = await Promise.all([
+  const [clients, team, notifs, general, chatMembers] = await Promise.all([
     db.client.findMany({
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { projects: true } } },
@@ -38,6 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         },
       },
     }),
+    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   return (
@@ -50,6 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         avatarUrl: session.avatarUrl,
       }}
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+      chatMembers={chatMembers}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
       clients={clients.map((c) => ({
