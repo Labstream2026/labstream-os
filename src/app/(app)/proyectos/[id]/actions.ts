@@ -67,6 +67,17 @@ export async function setTaskStage(taskId: string, _projectId: string, stage: st
   refresh(projectId);
 }
 
+// Fijar/limpiar la fecha de rodaje de una tarea (alimenta la vista de calendario).
+export async function setTaskShootDate(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(task);
+  const raw = String(formData.get("shootDate") ?? "").trim();
+  // input type=date → "YYYY-MM-DD"; se ancla a mediodía UTC para evitar saltos de día por zona horaria.
+  const shootDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
+  await db.task.update({ where: { id: taskId }, data: { shootDate } });
+  refresh(projectId);
+}
+
 export async function deleteTask(taskId: string, _projectId: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);

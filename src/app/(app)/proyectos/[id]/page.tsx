@@ -16,6 +16,9 @@ import { DataTableView } from "@/components/tables/data-table";
 import { createTable } from "@/app/(app)/tablas/actions";
 import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
+import { TasksList } from "./tasks-list";
+import { TasksCalendar } from "./tasks-calendar";
+import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
 
@@ -194,11 +197,8 @@ export default async function ProyectoPage({
           </div>
         ) : null}
         {tab === "tareas" ? (
-          <TasksBoard
-            projectId={id}
-            team={team}
-            stages={project.stages}
-            tasks={project.tasks.map((t) => ({
+          (() => {
+            const tasksData = project.tasks.map((t) => ({
               id: t.id,
               title: t.title,
               status: t.status,
@@ -207,8 +207,38 @@ export default async function ProyectoPage({
               shootDate: t.shootDate,
               assignee: t.assignee,
               checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
-            }))}
-          />
+            }));
+            return (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Espacio de tareas por fases de producción. Cambia entre tablero, lista y calendario de rodajes.
+                </p>
+                <ViewTabs
+                  storageKey="tareas-view"
+                  views={[
+                    {
+                      key: "tablero",
+                      label: "Tablero",
+                      icon: "🗂️",
+                      node: <TasksBoard projectId={id} team={team} stages={project.stages} tasks={tasksData} />,
+                    },
+                    {
+                      key: "lista",
+                      label: "Lista",
+                      icon: "☰",
+                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} />,
+                    },
+                    {
+                      key: "calendario",
+                      label: "Calendario",
+                      icon: "📅",
+                      node: <TasksCalendar tasks={tasksData} />,
+                    },
+                  ]}
+                />
+              </div>
+            );
+          })()
         ) : null}
         {tab === "entregables" ? (
           <DeliverablesPanel
