@@ -1,0 +1,29 @@
+# OnlyOffice Document Server para el NAS Synology.
+# Levanta el servidor que permite editar Word/Excel/PPT adjuntos en el navegador.
+# El reverse proxy de DSM ya apunta docs.labstreamsas.com → localhost:8088.
+#
+# Instalar/levantar (por SSH, ver deploy/onlyoffice/README.md):
+#   cd /volume1/docker/onlyoffice
+#   docker compose -p onlyoffice up -d
+#
+# JWT_SECRET debe ser el MISMO valor que ONLYOFFICE_JWT_SECRET en el .env de
+# labstream-os (si no, el editor da "token inválido" o el callback se rechaza).
+
+services:
+  onlyoffice-documentserver:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice-documentserver
+    restart: unless-stopped
+    ports:
+      - "8088:80" # reverse proxy DSM: docs.labstreamsas.com → localhost:8088
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:-cambia-este-secreto}"
+      JWT_HEADER: "Authorization"
+    volumes:
+      # Synology NO autocrea dirs de bind mount → crearlos antes (ver README).
+      - ./data:/var/www/onlyoffice/Data
+      - ./logs:/var/log/onlyoffice
+      - ./lib:/var/lib/onlyoffice
+      - ./db:/var/lib/postgresql
+    stop_grace_period: 60s

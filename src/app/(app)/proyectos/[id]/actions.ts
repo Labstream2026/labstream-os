@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
+import { saveBuffer, mimeFor } from "@/lib/storage";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string) {
@@ -138,6 +139,32 @@ export async function addFile(projectId: string, formData: FormData) {
   await db.fileAsset.create({
     data: { projectId, name, url, folderId, kind, uploadedById: session.id },
   });
+  refresh(projectId);
+}
+
+// Subir archivos LOCALES al proyecto (se guardan en el storage del NAS y se pueden
+// editar con OnlyOffice). Distinto de addFile, que solo guarda enlaces.
+export async function uploadProjectFiles(projectId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId);
+  const folderId = String(formData.get("folderId") ?? "") || null;
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  for (const file of files) {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const asset = await db.fileAsset.create({
+      data: {
+        projectId,
+        name: file.name,
+        kind: "LOCAL",
+        path: "",
+        mime: mimeFor(file.name, file.type),
+        size: buf.length,
+        folderId,
+        uploadedById: session.id,
+      },
+    });
+    const rel = await saveBuffer(`project/${projectId}`, `${asset.id}-${file.name}`, buf);
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+  }
   refresh(projectId);
 }
 

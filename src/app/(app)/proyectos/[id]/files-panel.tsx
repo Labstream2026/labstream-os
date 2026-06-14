@@ -1,5 +1,6 @@
 import { FILE_KIND_LABEL } from "@/lib/ui";
-import { addFile, deleteFile } from "./actions";
+import { isEditableOffice } from "@/lib/onlyoffice";
+import { addFile, deleteFile, uploadProjectFiles } from "./actions";
 
 type FileAsset = { id: string; name: string; kind: string; url: string | null };
 type Folder = { id: string; name: string; files: FileAsset[] };
@@ -40,6 +41,29 @@ export function FilesPanel({
         </select>
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           Añadir
+        </button>
+      </form>
+
+      {/* Subir archivos (locales, editables con OnlyOffice) */}
+      <form
+        action={uploadProjectFiles.bind(null, projectId)}
+        className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-card p-3"
+      >
+        <input
+          type="file"
+          name="files"
+          multiple
+          required
+          className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+        />
+        <select name="folderId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
+          <option value="">Sin carpeta</option>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+        <button className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-accent">
+          Subir archivos
         </button>
       </form>
 
@@ -87,7 +111,21 @@ function FileRow({ file, projectId }: { file: FileAsset; projectId: string }) {
         <p className="truncate text-sm">{file.name}</p>
         <p className="text-[11px] text-muted-foreground">{FILE_KIND_LABEL[file.kind] ?? file.kind}</p>
       </div>
-      {file.url ? (
+      {file.kind === "LOCAL" ? (
+        <>
+          <a href={`/api/files-asset/${file.id}`} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:text-foreground">
+            Ver
+          </a>
+          {isEditableOffice(file.name) ? (
+            <a href={`/docs/file/${file.id}`} className="text-xs text-primary hover:underline">
+              Editar
+            </a>
+          ) : null}
+          <a href={`/api/files-asset/${file.id}?download=1`} className="text-xs text-muted-foreground hover:text-foreground">
+            Descargar
+          </a>
+        </>
+      ) : file.url ? (
         <a href={file.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
           Abrir
         </a>
