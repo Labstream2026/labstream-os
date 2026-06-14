@@ -18,7 +18,9 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
           orderBy: { createdAt: "asc" },
           include: {
             columns: { orderBy: { position: "asc" } },
-            rows: { orderBy: { position: "asc" }, include: { cells: true } },
+            // Acotamos a 500 filas por tabla para no cargar tablas enormes de golpe.
+            rows: { orderBy: { position: "asc" }, take: 500, include: { cells: true } },
+            _count: { select: { rows: true } },
           },
         },
       },
@@ -69,16 +71,22 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
           </p>
         ) : null}
         {page.tables.map((t) => (
-          <DataTableView
-            key={t.id}
-            team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
-            table={{
-              id: t.id,
-              name: t.name,
-              columns: t.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
-              rows: t.rows.map((r) => ({ id: r.id, cells: cellsToMap(t.columns, r.cells) })),
-            }}
-          />
+          <div key={t.id}>
+            <DataTableView
+              team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
+              table={{
+                id: t.id,
+                name: t.name,
+                columns: t.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
+                rows: t.rows.map((r) => ({ id: r.id, cells: cellsToMap(t.columns, r.cells) })),
+              }}
+            />
+            {t._count.rows > t.rows.length ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mostrando las primeras {t.rows.length} de {t._count.rows} filas.
+              </p>
+            ) : null}
+          </div>
         ))}
       </div>
     </div>

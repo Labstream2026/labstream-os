@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function WikiPage() {
   const pages = await db.wikiPage.findMany({
     orderBy: { updatedAt: "desc" },
+    take: 100,
     include: { _count: { select: { tables: true } } },
   });
 

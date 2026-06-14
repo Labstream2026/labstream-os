@@ -307,6 +307,7 @@ model ChannelMember {
   createdAt  DateTime    @default(now())
 
   @@id([channelId, userId])
+  @@index([userId])
 }
 
 model ChatMessage {
@@ -408,6 +409,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, read])
+  @@index([userId, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -429,6 +431,7 @@ model CalendarEvent {
   createdAt   DateTime           @default(now())
 
   @@index([start])
+  @@index([projectId])
 }
 
 model CalendarAttendee {
@@ -438,6 +441,7 @@ model CalendarAttendee {
   userId  String
 
   @@id([eventId, userId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -502,6 +506,8 @@ model DataRow {
   position Int        @default(0)
   cells    DataCell[]
   createdAt DateTime  @default(now())
+
+  @@index([tableId, position])
 }
 
 model DataCell {
@@ -556,6 +562,10 @@ model Task {
   checklist     ChecklistItem[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([deliverableId])
 }
 
 model ChecklistItem {
@@ -608,6 +618,8 @@ model Deliverable {
   reviewComments ReviewComment[]
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
+
+  @@index([projectId])
 }
 
 // ─────────────────────────────────────────────
@@ -697,6 +709,9 @@ model FileAsset {
   uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
   createdAt    DateTime       @default(now())
+
+  @@index([projectId])
+  @@index([folderId])
 }
 
 // ─────────────────────────────────────────────

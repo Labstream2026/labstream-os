@@ -38,16 +38,17 @@ export default async function ChatHubPage() {
   const explore = publicChannels.filter((c) => !myChannelIds.has(c.id));
 
   // No leídos por canal: mensajes de otros posteriores a mi última lectura.
-  const unreadPairs = await Promise.all(
-    myChannels.map(async (c) => {
-      const mine = c.members.find((m) => m.userId === session.id);
-      const count = await db.chatMessage.count({
-        where: { channelId: c.id, parentId: null, authorId: { not: session.id }, createdAt: { gt: mine?.lastReadAt ?? new Date(0) } },
-      });
-      return [c.id, count] as const;
-    }),
-  );
-  const unread = new Map(unreadPairs);
+  // Una sola consulta agrupada por canal en vez de un count por canal (N+1).
+  const unreadRows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
+    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
+    FROM "ChatMessage" m
+    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${session.id}
+    WHERE m."parentId" IS NULL
+      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
+      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
+    GROUP BY m."channelId"
+  `;
+  const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
   const badge = (id: string) => {
     const n = unread.get(id) ?? 0;
     return n > 0 ? <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">{n}</span> : null;

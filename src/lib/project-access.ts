@@ -37,6 +37,20 @@ export function canManageProject(project: ProjectShape, session: SessionUser | n
   return project.members.some((m) => m.userId === session.id && m.role === "OWNER");
 }
 
+// Cláusula `where` de Prisma que limita la consulta a los proyectos que el
+// usuario puede ver — así no traemos todos los proyectos para descartarlos en JS.
+// Refleja exactamente la lógica de canAccessProject().
+export function accessibleProjectWhere(session: SessionUser | null): Record<string, unknown> {
+  if (!session) return { id: "__none__" }; // nada
+  if (session.role === "admin") return {};
+  const or: Record<string, unknown>[] = [
+    { leadId: session.id },
+    { members: { some: { userId: session.id } } },
+  ];
+  if (session.perms.includes("ver_proyectos")) or.push({ isPrivate: false });
+  return { OR: or };
+}
+
 const accessSelect = {
   isPrivate: true,
   leadId: true,

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { accessibleProjectWhere } from "@/lib/project-access";
 import { ProjectCard } from "@/components/project-card";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +15,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ProyectosPage() {
   const session = await getSession();
+  // Solo traemos de la BD los proyectos que el usuario puede ver (no todos para
+  // descartarlos en JS): el filtro de acceso va en la propia consulta.
   const allClients = await db.client.findMany({
     orderBy: { createdAt: "asc" },
     include: {
       projects: {
+        where: accessibleProjectWhere(session),
         orderBy: { createdAt: "asc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },
@@ -29,9 +32,7 @@ export default async function ProyectosPage() {
     },
   });
 
-  const clients = allClients
-    .map((c) => ({ ...c, projects: c.projects.filter((p) => canAccessProject(p, session)) }))
-    .filter((c) => c.projects.length > 0);
+  const clients = allClients.filter((c) => c.projects.length > 0);
 
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
   const flat = clients.flatMap((c) => c.projects.map((p) => ({ ...p, clientName: c.name, clientEmoji: c.emoji })));

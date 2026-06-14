@@ -44,13 +44,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]);
 
   // Total de mensajes no leídos en los canales/DMs del usuario (badge del sidebar).
-  const memberships = await db.channelMember.findMany({ where: { userId: session.id }, select: { channelId: true, lastReadAt: true } });
-  const unreadCounts = await Promise.all(
-    memberships.map((m) =>
-      db.chatMessage.count({ where: { channelId: m.channelId, parentId: null, authorId: { not: session.id }, createdAt: { gt: m.lastReadAt ?? new Date(0) } } }),
-    ),
-  );
-  const chatUnread = unreadCounts.reduce((a, b) => a + b, 0);
+  // Una sola consulta con JOIN en vez de un count por canal (evita N+1).
+  const unreadRows = await db.$queryRaw<{ total: bigint }[]>`
+    SELECT COUNT(*)::bigint AS total
+    FROM "ChatMessage" m
+    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
+    WHERE cm."userId" = ${session.id}
+      AND m."parentId" IS NULL
+      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
+      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
+  `;
+  const chatUnread = Number(unreadRows[0]?.total ?? 0);
 
   // El canal general solo se envía al cliente si el usuario puede verlo (por si se
   // marca privado): evita filtrar mensajes a quien no tiene acceso.

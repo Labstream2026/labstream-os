@@ -14,8 +14,13 @@ function dayLabel(d: Date) {
 
 export default async function CalendarioPage() {
   const session = await getSession();
+  // Ventana acotada: desde el inicio del mes anterior en adelante (no toda la
+  // historia de eventos). Cubre la rejilla mensual y la agenda próxima.
+  const now = new Date();
+  const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const [all, myTasks] = await Promise.all([
     db.calendarEvent.findMany({
+      where: { start: { gte: windowStart } },
       orderBy: { start: "asc" },
       include: {
         project: { select: { name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
@@ -23,7 +28,7 @@ export default async function CalendarioPage() {
       },
     }),
     db.task.findMany({
-      where: { assigneeId: session?.id ?? "", dueDate: { not: null } },
+      where: { assigneeId: session?.id ?? "", dueDate: { gte: windowStart } },
       select: { id: true, title: true, dueDate: true, project: { select: { name: true } } },
     }),
   ]);
