@@ -298,12 +298,13 @@ enum ChannelRole {
 }
 
 model ChannelMember {
-  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  channelId String
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  role      ChannelRole @default(MEMBER)
-  createdAt DateTime    @default(now())
+  channel    ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId  String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  role       ChannelRole @default(MEMBER)
+  lastReadAt DateTime? // última vez que el usuario abrió el canal (para no leídos)
+  createdAt  DateTime    @default(now())
 
   @@id([channelId, userId])
 }

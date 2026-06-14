@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, Search, Check } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
@@ -34,9 +34,9 @@ function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 }
 
-// Resalta @menciones conocidas (de la lista de miembros) en el cuerpo del mensaje.
-function renderBody(text: string, members: Member[]): React.ReactNode {
-  if (!members.length || !text.includes("@")) return text;
+// Resalta @menciones conocidas y convierte URLs en enlaces clicables.
+function highlightMentions(text: string, members: Member[], keyBase: string): React.ReactNode[] {
+  if (!members.length || !text.includes("@")) return [text];
   const names = members.map((m) => m.name).sort((a, b) => b.length - a.length);
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const re = new RegExp(`@(${escaped.join("|")})`, "g");
@@ -46,11 +46,40 @@ function renderBody(text: string, members: Member[]): React.ReactNode {
   let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<span key={i++} className="rounded bg-primary/15 px-1 font-medium text-primary">@{m[1]}</span>);
+    out.push(<span key={`${keyBase}m${i++}`} className="rounded bg-primary/15 px-1 font-medium text-primary">@{m[1]}</span>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+function renderBody(text: string, members: Member[]): React.ReactNode {
+  const urlRe = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRe);
+  return parts.map((part, idx) => {
+    if (urlRe.test(part)) {
+      return (
+        <a key={`u${idx}`} href={part} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:opacity-80">
+          {part}
+        </a>
+      );
+    }
+    return <React.Fragment key={`t${idx}`}>{highlightMentions(part, members, `${idx}`)}</React.Fragment>;
+  });
+}
+
+// Etiqueta de día para separadores (Hoy / Ayer / fecha).
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const y = new Date(); y.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, today)) return "Hoy";
+  if (sameDay(d, y)) return "Ayer";
+  return d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+}
+function dayKeyOf(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 // IDs de miembros mencionados con @ en el texto.
 function detectMentions(text: string, members: Member[]): string[] {
@@ -285,6 +314,11 @@ export function ChannelChat({
     scrollToBottom();
   }, [scrollToBottom]);
 
+  // Marca el canal como leído al abrirlo y al llegar mensajes nuevos.
+  React.useEffect(() => {
+    void markChannelRead(channelId);
+  }, [channelId, messages.length]);
+
   React.useEffect(() => {
     setOnline(navigator.onLine);
     const flush = async () => {
@@ -496,12 +530,21 @@ export function ChannelChat({
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
-        {roots.map((m) => {
+        {roots.map((m, idx) => {
           const replies = repliesFor(m.id);
           const open = openThreads.has(m.id);
           const mine = isMine(m.author);
+          const showDay = idx === 0 || dayKeyOf(roots[idx - 1].createdAt) !== dayKeyOf(m.createdAt);
           return (
-            <div key={m.id} className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
+            <React.Fragment key={m.id}>
+            {showDay ? (
+              <div className="flex items-center gap-2 py-1">
+                <span className="h-px flex-1 bg-border" />
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{dayLabel(m.createdAt)}</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
+            <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
               <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                 <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
@@ -619,6 +662,7 @@ export function ChannelChat({
                 ) : null}
               </div>
             </div>
+            </React.Fragment>
           );
         })}
       </div>
@@ -733,13 +777,20 @@ export function ChannelChat({
                 <EmojiPicker onPick={(e) => { setText((t) => t + e); setEmojiOpen(false); }} />
               ) : null}
             </div>
-            <input
+            <textarea
               value={text}
               onChange={(e) => onComposerChange(e.target.value)}
-              placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…  (@ para mencionar)"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              rows={1}
+              placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…  (@ menciona · Enter envía · Shift+Enter salto)"}
               disabled={uploading}
               enterKeyHint="send"
-              className="min-w-0 flex-1 bg-transparent px-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
+              className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             />
             <button
               type="submit"

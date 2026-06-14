@@ -21,6 +21,7 @@ export function AppShell({
   me,
   generalChannel,
   chatMembers = [],
+  chatUnread = 0,
   notifications,
   children,
 }: {
@@ -32,6 +33,7 @@ export function AppShell({
   me: ChatMe;
   generalChannel: GeneralChannel;
   chatMembers?: Member[];
+  chatUnread?: number;
   notifications: NotificationItem[];
   children: React.ReactNode;
 }) {
@@ -75,7 +77,7 @@ export function AppShell({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} collapsed={sidebarCollapsed} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} collapsed={sidebarCollapsed} chatUnread={chatUnread} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -88,6 +90,7 @@ export function AppShell({
               clients={clients}
               canAdmin={canAdmin}
               canQuotes={canQuotes}
+              chatUnread={chatUnread}
               onNavigate={() => setMobileMenuOpen(false)}
             />
           </div>

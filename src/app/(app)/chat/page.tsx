@@ -37,6 +37,22 @@ export default async function ChatHubPage() {
   const myChannelIds = new Set(myChannels.map((c) => c.id));
   const explore = publicChannels.filter((c) => !myChannelIds.has(c.id));
 
+  // No leídos por canal: mensajes de otros posteriores a mi última lectura.
+  const unreadPairs = await Promise.all(
+    myChannels.map(async (c) => {
+      const mine = c.members.find((m) => m.userId === session.id);
+      const count = await db.chatMessage.count({
+        where: { channelId: c.id, parentId: null, authorId: { not: session.id }, createdAt: { gt: mine?.lastReadAt ?? new Date(0) } },
+      });
+      return [c.id, count] as const;
+    }),
+  );
+  const unread = new Map(unreadPairs);
+  const badge = (id: string) => {
+    const n = unread.get(id) ?? 0;
+    return n > 0 ? <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">{n}</span> : null;
+  };
+
   const dmName = (c: (typeof myChannels)[number]) => {
     const other = c.members.find((m) => m.user.id !== session.id)?.user;
     return other ?? { name: c.name, initials: null, avatarColor: null, id: "" };
@@ -76,6 +92,7 @@ export default async function ChatHubPage() {
               <Row key={c.id} href={`/chat/${c.id}`}>
                 <UserAvatar initials={o.initials} color={o.avatarColor} size="sm" />
                 <span className="flex-1 truncate font-medium">{o.name}</span>
+                {badge(c.id)}
                 <span className="text-xs text-muted-foreground">{c._count.messages} msj.</span>
               </Row>
             );
@@ -92,6 +109,7 @@ export default async function ChatHubPage() {
             <Row key={c.id} href={`/chat/${c.id}`}>
               {c.isPublic ? <Hash className="size-4 text-muted-foreground" /> : <Lock className="size-4 text-amber-600" />}
               <span className="flex-1 truncate font-medium">{c.name}</span>
+              {badge(c.id)}
               <span className="text-xs text-muted-foreground">{c.members.length} miembros</span>
             </Row>
           ))

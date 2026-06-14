@@ -57,6 +57,7 @@ export function Sidebar({
   canAdmin,
   canQuotes,
   collapsed = false,
+  chatUnread = 0,
   onNavigate,
 }: {
   user: SidebarUser;
@@ -64,6 +65,7 @@ export function Sidebar({
   canAdmin: boolean;
   canQuotes?: boolean;
   collapsed?: boolean;
+  chatUnread?: number;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -138,7 +140,7 @@ export function Sidebar({
 
       {/* Navegación principal */}
       <nav className={cn("py-1", collapsed ? "px-2" : "px-3")}>
-        {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href))}
+        {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href, item.href === "/chat" ? chatUnread || undefined : undefined))}
         {canQuotes
           ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones"))
           : null}

@@ -122,6 +122,17 @@ export async function notifyTyping(channelId: string): Promise<void> {
   if (!session || !(await userCanAccessChannel(channelId, session))) return;
   publishTyping(channelId, session.id, session.name);
 }
+
+// Marca el canal como leído por el usuario (para los contadores de no leídos).
+// Solo actualiza si ya es miembro (no auto-une a canales públicos).
+export async function markChannelRead(channelId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  await db.channelMember.updateMany({
+    where: { channelId, userId: session.id },
+    data: { lastReadAt: new Date() },
+  });
+}
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { notifyAndEmail } from "@/lib/notify";
@@ -142,6 +153,24 @@ async function notifyMentions(channelId: string, mentionIds: string[] | undefine
     await notifyAndEmail(userId, {
       type: "mention",
       title: `Te mencionaron en ${channelName}`,
+      body: body.slice(0, 140),
+      link: `/chat/${channelId}`,
+    });
+  }
+}
+
+// Notifica al otro participante de un DM cuando recibe un mensaje.
+async function notifyDirectMessage(channelId: string, authorId: string, authorName: string, body: string) {
+  const channel = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: { type: true, members: { select: { userId: true } } },
+  });
+  if (channel?.type !== "DIRECT") return;
+  for (const m of channel.members) {
+    if (m.userId === authorId) continue;
+    await notifyAndEmail(m.userId, {
+      type: "dm",
+      title: `Mensaje de ${authorName}`,
       body: body.slice(0, 140),
       link: `/chat/${channelId}`,
     });
@@ -183,6 +212,7 @@ export async function sendMessage(
     include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
   });
   await notifyMentions(channelId, mentionIds, session!.id, msg.channel.name, text);
+  await notifyDirectMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   const payload: ChatMessagePayload = {
     id: msg.id,

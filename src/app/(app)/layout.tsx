@@ -41,6 +41,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
+  // Total de mensajes no leídos en los canales/DMs del usuario (badge del sidebar).
+  const memberships = await db.channelMember.findMany({ where: { userId: session.id }, select: { channelId: true, lastReadAt: true } });
+  const unreadCounts = await Promise.all(
+    memberships.map((m) =>
+      db.chatMessage.count({ where: { channelId: m.channelId, parentId: null, authorId: { not: session.id }, createdAt: { gt: m.lastReadAt ?? new Date(0) } } }),
+    ),
+  );
+  const chatUnread = unreadCounts.reduce((a, b) => a + b, 0);
+
   return (
     <AppShell
       user={{
@@ -52,6 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
       chatMembers={chatMembers}
+      chatUnread={chatUnread}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
       clients={clients.map((c) => ({
