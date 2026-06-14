@@ -137,22 +137,39 @@ import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { notifyAndEmail } from "@/lib/notify";
 
+// Detecta @menciones en el TEXTO (servidor, no se confía en el cliente). Coincidencia
+// exacta con límites de palabra; nombres largos tienen prioridad ("@Ana María" antes que "@Ana").
+function detectMentionIds(body: string, users: { id: string; name: string }[]): string[] {
+  if (!body.includes("@") || users.length === 0) return [];
+  const sorted = [...users].sort((a, b) => b.name.length - a.name.length);
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?<![\\p{L}0-9_])@(${sorted.map((u) => esc(u.name)).join("|")})(?![\\p{L}0-9_])`, "gu");
+  const ids = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    const u = sorted.find((x) => x.name === m![1]);
+    if (u) ids.add(u.id);
+  }
+  return [...ids];
+}
+
 // Notifica (app + correo) a los usuarios mencionados con @ que tengan acceso al canal.
-async function notifyMentions(channelId: string, mentionIds: string[] | undefined, authorId: string, channelName: string, body: string) {
-  if (!mentionIds?.length) return;
-  const unique = [...new Set(mentionIds)].filter((id) => id && id !== authorId).slice(0, 20);
-  if (!unique.length) return;
+// Recalcula las menciones EN EL SERVIDOR a partir del texto (el cliente no es de fiar).
+async function notifyMentions(channelId: string, authorId: string, body: string) {
+  if (!body.includes("@")) return;
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { isPublic: true, members: { select: { userId: true } } },
+    select: { name: true, isPublic: true, members: { select: { userId: true } } },
   });
   if (!channel) return;
+  const users = await db.user.findMany({ where: { active: true }, select: { id: true, name: true } });
   const memberIds = new Set(channel.members.map((m) => m.userId));
-  for (const userId of unique) {
-    if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros
+  const ids = detectMentionIds(body, users).filter((id) => id !== authorId);
+  for (const userId of ids) {
+    if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros del canal
     await notifyAndEmail(userId, {
       type: "mention",
-      title: `Te mencionaron en ${channelName}`,
+      title: `Te mencionaron en ${channel.name}`,
       body: body.slice(0, 140),
       link: `/chat/${channelId}`,
     });
@@ -199,7 +216,7 @@ export async function sendMessage(
   channelId: string,
   body: string,
   parentId?: string | null,
-  mentionIds?: string[],
+  _mentionIds?: string[], // el cliente puede pasar menciones, pero se recalculan en el servidor
 ): Promise<ChatMessagePayload | null> {
   const text = body.trim();
   if (!text) return null;
@@ -211,7 +228,7 @@ export async function sendMessage(
     data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
     include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
   });
-  await notifyMentions(channelId, mentionIds, session!.id, msg.channel.name, text);
+  await notifyMentions(channelId, session!.id, text);
   await notifyDirectMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   const payload: ChatMessagePayload = {
@@ -234,7 +251,8 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
   const channelId = String(formData.get("channelId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   const parentId = String(formData.get("parentId") ?? "") || null;
-  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  const MAX = 50 * 1024 * 1024; // 50 MB por archivo
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX);
   if (!channelId || (!body && files.length === 0)) return;
 
   const session = await getSession();
@@ -267,6 +285,10 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
       : null,
     attachments: created,
   });
+  if (body) {
+    await notifyMentions(channelId, session!.id, body);
+    await notifyDirectMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body);
+  }
 }
 
 // ── Encuestas ──

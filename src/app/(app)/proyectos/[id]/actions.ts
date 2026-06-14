@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
@@ -25,11 +25,12 @@ const accessSelect = {
   members: { select: { userId: true, role: true } },
 } as const;
 
-// Verifica acceso a un proyecto por id. Lanza si no hay acceso. Devuelve la sesión.
+// Verifica permiso de ESCRITURA en un proyecto (mutaciones). Lanza si no. Devuelve la sesión.
+// Los invitados (GUEST) son de solo lectura → no pueden crear/editar/borrar.
 async function ensureProjectAccess(projectId: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project || !canAccessProject(project, session)) throw new Error("No autorizado");
+  if (!project || !canWriteProject(project, session)) throw new Error("No autorizado");
   return session!;
 }
 
@@ -46,7 +47,7 @@ async function ensureAccessVia(resource: WithProject): Promise<string | null> {
   const session = await getSession();
   if (!resource || !session) throw new Error("No autorizado");
   if (resource.project) {
-    if (!canAccessProject(resource.project, session)) throw new Error("No autorizado");
+    if (!canWriteProject(resource.project, session)) throw new Error("No autorizado");
   } else {
     const ok = session.role === "admin" || resource.ownerId === session.id || resource.assigneeId === session.id;
     if (!ok) throw new Error("No autorizado");
@@ -331,10 +332,16 @@ export async function addFile(projectId: string, formData: FormData) {
 
 // Subir archivos LOCALES al proyecto (se guardan en el storage del NAS y se pueden
 // editar con OnlyOffice). Distinto de addFile, que solo guarda enlaces.
+// Extensiones ejecutables/peligrosas que no se permiten subir.
+const BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|pif|cpl|jar|js|vbs|ps1|sh|app|dmg|deb|rpm)$/i;
+const MAX_UPLOAD = 100 * 1024 * 1024; // 100 MB por archivo (coincide con bodySizeLimit)
+
 export async function uploadProjectFiles(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId);
   const folderId = String(formData.get("folderId") ?? "") || null;
-  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name));
   for (const file of files) {
     const buf = Buffer.from(await file.arrayBuffer());
     const asset = await db.fileAsset.create({

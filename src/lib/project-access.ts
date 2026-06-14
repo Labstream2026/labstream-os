@@ -18,6 +18,16 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
   return false;
 }
 
+// ¿Puede ESCRIBIR (crear/editar/borrar tareas, archivos, entregables, fases)?
+// Igual que acceder, pero los invitados (rol GUEST) son de solo lectura.
+export function canWriteProject(project: ProjectShape, session: SessionUser | null): boolean {
+  if (!canAccessProject(project, session)) return false;
+  if (session!.role === "admin") return true;
+  const membership = project.members.find((m) => m.userId === session!.id);
+  if (membership?.role === "GUEST") return false; // invitado = solo lectura
+  return true;
+}
+
 // ¿Puede GESTIONAR el proyecto (visibilidad, miembros, ajustes)?
 // Estilo Mattermost: admin del sistema, responsable del proyecto o miembro con rol OWNER.
 export function canManageProject(project: ProjectShape, session: SessionUser | null): boolean {
