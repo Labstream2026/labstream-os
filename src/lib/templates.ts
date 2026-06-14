@@ -158,6 +158,50 @@ export type TemplateDef = {
 
 const PROD_STAGES = ["Preproducción", "Producción", "Edición", "Revisión", "Entrega"];
 
+// Wizard: preguntas al crear el proyecto desde plantilla. Cada paso apunta a una
+// tarea (por título) y pide responsable y/o fecha, que se aplican tras crearlo.
+export type WizardStep = {
+  taskTitle: string; // debe coincidir con el título de una tarea de la plantilla
+  askAssignee?: boolean;
+  askDate?: boolean;
+  dateLabel?: string;
+};
+
+export const WIZARDS: Record<string, WizardStep[]> = {
+  "reel-medico": [
+    { taskTitle: "Guion y storyboard", askAssignee: true },
+    { taskTitle: "Grabación en locación", askAssignee: true, askDate: true, dateLabel: "Fecha de grabación" },
+    { taskTitle: "Edición V1", askAssignee: true },
+    { taskTitle: "Envío a cliente", askDate: true, dateLabel: "Fecha de entrega al cliente" },
+  ],
+  podcast: [
+    { taskTitle: "Definir tema e invitado", askAssignee: true },
+    { taskTitle: "Grabación del episodio", askAssignee: true, askDate: true, dateLabel: "Fecha de grabación" },
+    { taskTitle: "Edición de audio y video", askAssignee: true },
+    { taskTitle: "Publicación y distribución", askDate: true, dateLabel: "Fecha de publicación" },
+  ],
+  streaming: [
+    { taskTitle: "Plan técnico y escaleta", askAssignee: true },
+    { taskTitle: "Transmisión en vivo", askAssignee: true, askDate: true, dateLabel: "Fecha del evento" },
+    { taskTitle: "Generar clips destacados", askAssignee: true },
+  ],
+  "video-institucional": [
+    { taskTitle: "Guion técnico y literario", askAssignee: true },
+    { taskTitle: "Grabación", askAssignee: true, askDate: true, dateLabel: "Fecha de rodaje" },
+    { taskTitle: "Edición y color", askAssignee: true },
+    { taskTitle: "Entrega de masters", askDate: true, dateLabel: "Fecha de entrega" },
+  ],
+  "campana-mensual": [
+    { taskTitle: "Planeación de contenido del mes", askAssignee: true },
+    { taskTitle: "Día de grabación", askAssignee: true, askDate: true, dateLabel: "Día de grabación" },
+    { taskTitle: "Revisión del cliente", askDate: true, dateLabel: "Fecha de revisión" },
+  ],
+};
+
+export function wizardFor(key: string): WizardStep[] {
+  return WIZARDS[key] ?? [];
+}
+
 export const TEMPLATES: TemplateDef[] = [
   {
     key: "reel-medico",
