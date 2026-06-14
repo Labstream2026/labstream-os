@@ -224,7 +224,7 @@ export default async function ProyectoPage({
                       key: "tablero",
                       label: "Tablero",
                       icon: "🗂️",
-                      node: <TasksBoard projectId={id} team={team} stages={project.stages} tasks={tasksData} />,
+                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} />,
                     },
                     {
                       key: "lista",

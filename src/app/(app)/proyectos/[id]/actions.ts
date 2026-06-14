@@ -408,6 +408,57 @@ async function ensureProjectManage(projectId: string): Promise<SessionUser> {
   return session!;
 }
 
+// ── Fases del tablero (columnas personalizables: añadir, renombrar, borrar, color) ──
+export async function addStage(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { stages: true } });
+  const stages = project?.stages ?? [];
+  if (stages.includes(name)) return;
+  await db.project.update({ where: { id: projectId }, data: { stages: [...stages, name] } });
+  await logActivity({ action: "stage.add", summary: `añadió la fase «${name}»`, projectId, entityType: "project", entityId: projectId });
+  refresh(projectId);
+}
+
+export async function renameStage(projectId: string, oldName: string, newName: string) {
+  await ensureProjectAccess(projectId);
+  const name = newName.trim();
+  if (!name || name === oldName) return;
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { stages: true, stageColors: true } });
+  if (!project) return;
+  const stages = project.stages.map((s) => (s === oldName ? name : s));
+  const colors = (project.stageColors as Record<string, string> | null) ?? {};
+  if (colors[oldName]) { colors[name] = colors[oldName]; delete colors[oldName]; }
+  await db.project.update({ where: { id: projectId }, data: { stages, stageColors: colors as never } });
+  await db.task.updateMany({ where: { projectId, stage: oldName }, data: { stage: name } });
+  await logActivity({ action: "stage.rename", summary: `renombró la fase «${oldName}» → «${name}»`, projectId, entityType: "project", entityId: projectId });
+  refresh(projectId);
+}
+
+export async function deleteStage(projectId: string, name: string) {
+  await ensureProjectAccess(projectId);
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { stages: true, stageColors: true } });
+  if (!project || project.stages.length <= 1) return; // siempre queda al menos una fase
+  const stages = project.stages.filter((s) => s !== name);
+  const colors = (project.stageColors as Record<string, string> | null) ?? {};
+  delete colors[name];
+  await db.project.update({ where: { id: projectId }, data: { stages, stageColors: colors as never } });
+  // Las tareas de la fase borrada pasan a la primera fase.
+  await db.task.updateMany({ where: { projectId, stage: name }, data: { stage: stages[0] ?? null } });
+  await logActivity({ action: "stage.delete", summary: `eliminó la fase «${name}»`, projectId, entityType: "project", entityId: projectId });
+  refresh(projectId);
+}
+
+export async function setStageColor(projectId: string, stage: string, color: string) {
+  await ensureProjectAccess(projectId);
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { stageColors: true } });
+  const colors = (project?.stageColors as Record<string, string> | null) ?? {};
+  if (color) colors[stage] = color; else delete colors[stage];
+  await db.project.update({ where: { id: projectId }, data: { stageColors: colors as never } });
+  refresh(projectId);
+}
+
 // Color del proyecto (se usa en el calendario de proyectos). Cualquier miembro con acceso.
 export async function setProjectColor(projectId: string, color: string) {
   await ensureProjectAccess(projectId);

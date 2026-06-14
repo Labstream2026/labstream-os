@@ -185,6 +185,7 @@ model Project {
   isPrivate   Boolean       @default(false)
   // Columnas del tablero de tareas = fases de producción audiovisual (personalizables).
   stages      String[]      @default(["Preproducción", "Producción", "Postproducción", "Revisión cliente", "Entregado"])
+  stageColors Json? // mapa fase → tono de color (opcional), para colorear columnas
 
   tasks        Task[]
   deliverables Deliverable[]

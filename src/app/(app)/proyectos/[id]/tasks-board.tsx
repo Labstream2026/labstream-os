@@ -30,21 +30,28 @@ import {
   deleteTask,
   toggleChecklistItem,
   addChecklistItem,
+  addStage,
+  renameStage,
+  deleteStage,
+  setStageColor,
 } from "./actions";
 import { type Task, type TeamMember, STATUS_OPTIONS, toDateInputValue } from "./task-shared";
 import { TaskDetail } from "./task-detail";
 import { formatShortDate } from "@/lib/ui";
+import { TONES, tone } from "@/lib/colors";
 
 export function TasksBoard({
   projectId,
   tasks,
   team,
   stages,
+  stageColors = {},
 }: {
   projectId: string;
   tasks: Task[];
   team: TeamMember[];
   stages: string[];
+  stageColors?: Record<string, string>;
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
   const colFor = React.useCallback(
@@ -90,9 +97,11 @@ export function TasksBoard({
           <Column
             key={col}
             stage={col}
+            color={stageColors[col] ?? null}
             count={items.filter((t) => colFor(t) === col).length}
             projectId={projectId}
             team={team}
+            canDelete={cols.length > 1}
           >
             {items
               .filter((t) => colFor(t) === col)
@@ -101,6 +110,14 @@ export function TasksBoard({
               ))}
           </Column>
         ))}
+
+        {/* Añadir nueva fase/columna */}
+        <form action={addStage.bind(null, projectId)} className="flex w-56 shrink-0 flex-col">
+          <div className="rounded-lg border border-dashed border-border p-2">
+            <input name="name" required placeholder="+ Nueva fase" className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:bg-background" />
+            <button className="mt-1 w-full rounded-md bg-secondary px-2 py-1 text-xs font-medium hover:bg-secondary/80">Añadir columna</button>
+          </div>
+        </form>
       </div>
 
       {/* Ficha flotante mientras se arrastra */}
@@ -117,23 +134,55 @@ export function TasksBoard({
 
 function Column({
   stage,
+  color,
   count,
   projectId,
   team,
+  canDelete,
   children,
 }: {
   stage: string;
+  color: string | null;
   count: number;
   projectId: string;
   team: TeamMember[];
+  canDelete: boolean;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
+  const t = color ? tone(color) : null;
   return (
     <div className="flex w-72 shrink-0 flex-col gap-2.5">
-      <div className="flex items-center gap-2 px-1">
-        <span className="text-sm font-semibold">{stage}</span>
+      <div className="group flex items-center gap-1.5 px-1">
+        <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: t ? t.hex : "#cbd5e1" }} />
+        <input
+          defaultValue={stage}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== stage) renameStage(projectId, stage, v); }}
+          className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none focus:rounded focus:bg-background focus:px-1"
+        />
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{count}</span>
+        <details className="relative">
+          <summary className="cursor-pointer list-none px-1 text-xs text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100">⋯</summary>
+          <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-2 shadow-lg">
+            <p className="mb-1 text-[11px] font-medium text-muted-foreground">Color de la fase</p>
+            <select
+              defaultValue={color ?? ""}
+              onChange={(e) => setStageColor(projectId, stage, e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+            >
+              <option value="">Sin color</option>
+              {TONES.map((to) => (<option key={to.key} value={to.key}>{to.label}</option>))}
+            </select>
+            {canDelete ? (
+              <button
+                onClick={() => { if (confirm(`¿Eliminar la fase «${stage}»? Sus tareas pasan a la primera fase.`)) deleteStage(projectId, stage); }}
+                className="mt-2 w-full rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-muted"
+              >
+                Eliminar fase
+              </button>
+            ) : null}
+          </div>
+        </details>
       </div>
 
       <div
