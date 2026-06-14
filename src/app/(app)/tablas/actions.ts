@@ -7,6 +7,13 @@ import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
 import { pushEventToSynology } from "@/lib/caldav";
+import { logActivity } from "@/lib/activity";
+
+// projectId de una tabla (para registrar actividad; null si la tabla es de wiki).
+async function projectIdOfTable(tableId: string): Promise<string | null> {
+  const t = await db.dataTable.findUnique({ where: { id: tableId }, select: { projectId: true } });
+  return t?.projectId ?? null;
+}
 
 const accessSelect = {
   isPrivate: true,
@@ -72,8 +79,22 @@ const DEFAULT_TABLE = {
 export async function createTable(projectId: string, formData: FormData): Promise<void> {
   await ensureProjectAccess(projectId);
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
-  await db.dataTable.create({ data: { name, projectId, ...DEFAULT_TABLE } });
+  const table = await db.dataTable.create({ data: { name, projectId, ...DEFAULT_TABLE } });
+  await logActivity({ action: "table.create", summary: `creó la tabla «${name}»`, projectId, entityType: "table", entityId: table.id });
   revalidatePath(`/proyectos/${projectId}`);
+}
+
+// Eliminar una tabla completa (queda registrado quién y cuándo).
+export async function deleteTable(tableId: string): Promise<void> {
+  await ensureTableAccess(tableId);
+  const table = await db.dataTable.findUnique({ where: { id: tableId }, select: { name: true, projectId: true, wikiPageId: true } });
+  if (!table) return;
+  await db.dataTable.delete({ where: { id: tableId } });
+  if (table.projectId) {
+    await logActivity({ action: "table.delete", summary: `eliminó la tabla «${table.name}»`, projectId: table.projectId, entityType: "table", entityId: tableId });
+    revalidatePath(`/proyectos/${table.projectId}`);
+  }
+  if (table.wikiPageId) revalidatePath(`/wiki/${table.wikiPageId}`);
 }
 
 export async function createTableForWiki(wikiPageId: string, formData: FormData): Promise<void> {
@@ -108,7 +129,10 @@ export async function renameColumn(columnId: string, name: string) {
 
 export async function deleteColumn(columnId: string) {
   await ensureColumnAccess(columnId);
+  const before = await db.dataColumn.findUnique({ where: { id: columnId }, select: { name: true, tableId: true } });
   const col = await db.dataColumn.delete({ where: { id: columnId } });
+  const projectId = await projectIdOfTable(col.tableId);
+  if (projectId) await logActivity({ action: "table.column.delete", summary: `eliminó la columna «${before?.name ?? ""}» de una tabla`, projectId, entityType: "table", entityId: col.tableId });
   await revalidateForTable(col.tableId);
 }
 
@@ -122,6 +146,8 @@ export async function addRow(tableId: string) {
 export async function deleteRow(rowId: string) {
   await ensureRowAccess(rowId);
   const row = await db.dataRow.delete({ where: { id: rowId } });
+  const projectId = await projectIdOfTable(row.tableId);
+  if (projectId) await logActivity({ action: "table.row.delete", summary: `eliminó una fila de una tabla`, projectId, entityType: "table", entityId: row.tableId });
   await revalidateForTable(row.tableId);
 }
 

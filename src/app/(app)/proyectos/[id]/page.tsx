@@ -6,12 +6,8 @@ import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, PRIORITY, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
-import { canAccessChannel } from "@/lib/chat-access";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
-import { isEditableOffice } from "@/lib/onlyoffice";
-import { ChannelChat } from "@/components/chat/channel-chat";
-import { ChannelSettings } from "@/components/chat/channel-settings";
 import { DataTableView } from "@/components/tables/data-table";
 import { createTable } from "@/app/(app)/tablas/actions";
 import { Lock } from "lucide-react";
@@ -32,7 +28,6 @@ const TABS = [
   { key: "archivos", label: "Archivos" },
   { key: "tablas", label: "Tablas" },
   { key: "actividad", label: "Actividad" },
-  { key: "chat", label: "Chat" },
 ];
 
 export default async function ProyectoPage({
@@ -275,6 +270,8 @@ export default async function ProyectoPage({
             folders={project.folders.map((f) => ({
               id: f.id,
               name: f.name,
+              icon: f.icon,
+              color: f.color,
               files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url })),
             }))}
             looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url }))}
@@ -290,87 +287,6 @@ export default async function ProyectoPage({
               user: a.user ? { name: a.user.name, initials: a.user.initials, color: a.user.avatarColor } : null,
             }))}
           />
-        ) : null}
-
-        {tab === "chat" ? (
-          project.channel ? (
-            (() => {
-              const ch = project.channel;
-              const access = canAccessChannel(
-                { isPublic: ch.isPublic, project: { leadId: project.leadId }, members: ch.members },
-                session,
-              );
-              // Gestión del canal (visibilidad/miembros), estilo Mattermost: solo
-              // admin del sistema o responsable del proyecto. Los invitados solo participan.
-              const canManage = session?.role === "admin" || project.leadId === session?.id;
-
-              if (!access) {
-                return (
-                  <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
-                    <Lock className="size-6 text-muted-foreground" />
-                    <p className="font-medium">Canal privado</p>
-                    <p className="text-sm text-muted-foreground">
-                      Solo los miembros invitados pueden ver este chat. Pídele acceso al responsable del proyecto.
-                    </p>
-                  </div>
-                );
-              }
-
-              return (
-                <>
-                  <ChannelSettings
-                    channelId={ch.id}
-                    isPublic={ch.isPublic}
-                    canManage={canManage}
-                    members={ch.members.map((m) => ({
-                      id: m.user.id,
-                      name: m.user.name,
-                      initials: m.user.initials,
-                      color: m.user.avatarColor,
-                      role: m.role,
-                    }))}
-                    team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-                  />
-                  <div className="h-[55vh] overflow-hidden rounded-xl border border-border bg-card">
-                    <ChannelChat
-                      channelId={ch.id}
-                      me={{
-                        name: session?.name ?? "Tú",
-                        initials: session?.initials ?? null,
-                        color: session?.color ?? null,
-                      }}
-                      initialMessages={ch.messages.map((m) => ({
-                        id: m.id,
-                        body: m.body,
-                        parentId: m.parentId,
-                        createdAt: m.createdAt.toISOString(),
-                        author: m.author
-                          ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
-                          : null,
-                        attachments: m.attachments.map((a) => ({
-                          id: a.id,
-                          name: a.name,
-                          mime: a.mime,
-                          editable: isEditableOffice(a.name),
-                        })),
-                        poll: m.poll
-                          ? {
-                              id: m.poll.id,
-                              question: m.poll.question,
-                              options: m.poll.options.map((o) => ({ id: o.id, text: o.text, votes: o._count.votes })),
-                              totalVotes: m.poll.options.reduce((n, o) => n + o._count.votes, 0),
-                            }
-                          : null,
-                        myOptionId: m.poll?.votes[0]?.optionId ?? null,
-                      }))}
-                    />
-                  </div>
-                </>
-              );
-            })()
-          ) : (
-            <p className="text-sm text-muted-foreground">Este proyecto aún no tiene canal de chat.</p>
-          )
         ) : null}
 
         {tab === "tablas" ? (

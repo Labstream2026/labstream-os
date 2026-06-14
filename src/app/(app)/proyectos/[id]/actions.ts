@@ -362,6 +362,42 @@ export async function deleteFile(fileId: string, _projectId: string) {
   refresh(projectId);
 }
 
+// ── Carpetas (personalizables: nombre, icono, color; se pueden crear y borrar) ──
+export async function createFolder(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const icon = String(formData.get("icon") ?? "").trim() || null;
+  const color = String(formData.get("color") ?? "").trim() || null;
+  const count = await db.projectFolder.count({ where: { projectId } });
+  // skipDuplicates por @@unique(projectId,name): si ya existe, no rompe.
+  const existing = await db.projectFolder.findFirst({ where: { projectId, name } });
+  if (existing) return;
+  await db.projectFolder.create({ data: { projectId, name, icon, color, position: count } });
+  await logActivity({ action: "folder.create", summary: `creó la carpeta «${name}»`, projectId, entityType: "folder" });
+  refresh(projectId);
+}
+
+export async function updateFolder(folderId: string, _projectId: string, formData: FormData) {
+  const folder = await db.projectFolder.findUnique({ where: { id: folderId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(folder);
+  const name = String(formData.get("name") ?? "").trim() || folder!.name;
+  const icon = String(formData.get("icon") ?? "").trim() || null;
+  const color = String(formData.get("color") ?? "").trim() || null;
+  await db.projectFolder.update({ where: { id: folderId }, data: { name, icon, color } });
+  await logActivity({ action: "folder.update", summary: `editó la carpeta «${name}»`, projectId, entityType: "folder", entityId: folderId });
+  refresh(projectId);
+}
+
+export async function deleteFolder(folderId: string, _projectId: string) {
+  const folder = await db.projectFolder.findUnique({ where: { id: folderId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(folder);
+  // Los archivos de la carpeta quedan "sin carpeta" (folderId → null por onDelete: SetNull).
+  await db.projectFolder.delete({ where: { id: folderId } });
+  await logActivity({ action: "folder.delete", summary: `eliminó la carpeta «${folder!.name}»`, projectId, entityType: "folder", entityId: folderId });
+  refresh(projectId);
+}
+
 // ── Proyecto compartido: visibilidad y miembros (solo gestores) ──
 async function ensureProjectManage(projectId: string): Promise<SessionUser> {
   const session = await getSession();
