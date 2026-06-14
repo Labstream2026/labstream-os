@@ -27,6 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           include: {
             author: { select: { name: true, initials: true, avatarColor: true } },
             attachments: true,
+            reactions: { select: { emoji: true, userId: true } },
             poll: {
               include: {
                 options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
@@ -48,7 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         color: session.color,
         avatarUrl: session.avatarUrl,
       }}
-      me={{ name: session.name, initials: session.initials, color: session.color }}
+      me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
       clients={clients.map((c) => ({
@@ -86,6 +87,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   mime: a.mime,
                   editable: isEditableOffice(a.name),
                 })),
+                reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
                 poll: m.poll
                   ? {
                       id: m.poll.id,

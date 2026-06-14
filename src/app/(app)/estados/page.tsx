@@ -27,6 +27,7 @@ export default async function ChatDelDiaPage() {
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
       attachments: true,
+      reactions: { select: { emoji: true, userId: true } },
       poll: {
         include: {
           options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
@@ -48,7 +49,7 @@ export default async function ChatDelDiaPage() {
       <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card">
         <ChannelChat
           channelId={channel.id}
-          me={{ name: session.name, initials: session.initials, color: session.color }}
+          me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           initialMessages={messages.map((m) => ({
             id: m.id,
             body: m.body,
@@ -56,6 +57,7 @@ export default async function ChatDelDiaPage() {
             createdAt: m.createdAt.toISOString(),
             author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
             attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name) })),
+            reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
             poll: m.poll
               ? {
                   id: m.poll.id,

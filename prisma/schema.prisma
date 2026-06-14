@@ -77,6 +77,7 @@ model User {
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
   activity         ActivityLog[]
+  messageReactions MessageReaction[]    @relation("ReactionUser")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -318,11 +319,26 @@ model ChatMessage {
   parentId    String? // si está, es respuesta dentro de un hilo
   replies     ChatMessage[]       @relation("Thread")
   attachments MessageAttachment[]
+  reactions   MessageReaction[]
   poll        Poll?
   createdAt   DateTime            @default(now())
 
   @@index([channelId, createdAt])
   @@index([parentId])
+}
+
+// Reacción con emoji a un mensaje (un usuario puede poner varios emojis distintos).
+model MessageReaction {
+  id        String      @id @default(cuid())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  user      User        @relation("ReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  emoji     String
+  createdAt DateTime    @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
 
 model MessageAttachment {

@@ -4,9 +4,27 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
-import { publishMessage, publishPollUpdate, type ChatMessagePayload, type PollData } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, publishReactionUpdate, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
+
+// Reacción con emoji a un mensaje (toggle). Devuelve la lista de reacciones del mensaje.
+export async function toggleReaction(channelId: string, messageId: string, emoji: string): Promise<ReactionItem[] | null> {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) return null;
+  const clean = emoji.slice(0, 16);
+  const existing = await db.messageReaction.findUnique({
+    where: { messageId_userId_emoji: { messageId, userId: session.id, emoji: clean } },
+  });
+  if (existing) {
+    await db.messageReaction.delete({ where: { id: existing.id } });
+  } else {
+    await db.messageReaction.create({ data: { messageId, userId: session.id, emoji: clean } });
+  }
+  const all = await db.messageReaction.findMany({ where: { messageId }, select: { emoji: true, userId: true } });
+  publishReactionUpdate(channelId, messageId, all);
+  return all;
+}
 
 export async function sendMessage(
   channelId: string,

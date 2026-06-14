@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, Download, Pencil, Eye, X, BarChart3 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
-import type { PollData } from "@/lib/chat-bus";
+import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
+import type { PollData, ReactionItem } from "@/lib/chat-bus";
 
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
 
@@ -18,12 +19,13 @@ export type ChatMsg = {
   createdAt: string;
   author: { name: string; initials: string | null; color: string | null } | null;
   attachments?: Attachment[];
+  reactions?: ReactionItem[];
   poll?: PollData | null;
   myOptionId?: string | null;
   status?: "sending" | "sent" | "error" | "pending";
 };
 
-export type ChatMe = { name: string; initials: string | null; color: string | null };
+export type ChatMe = { id: string; name: string; initials: string | null; color: string | null };
 
 function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
@@ -34,6 +36,14 @@ function isImage(a: Attachment) {
 }
 function isPdf(a: Attachment) {
   return a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
+}
+// Icono y color según el tipo de archivo (Word/Excel/PPT/PDF/genérico).
+function fileIcon(name: string) {
+  if (/\.(docx?|odt|rtf)$/i.test(name)) return { Icon: FileText, color: "text-blue-600" };
+  if (/\.(xlsx?|csv|ods)$/i.test(name)) return { Icon: FileSpreadsheet, color: "text-emerald-600" };
+  if (/\.(pptx?|odp)$/i.test(name)) return { Icon: Presentation, color: "text-orange-600" };
+  if (/\.pdf$/i.test(name)) return { Icon: FileType, color: "text-red-600" };
+  return { Icon: FileIcon, color: "text-muted-foreground" };
 }
 
 function Attachments({ items }: { items?: Attachment[] }) {
@@ -56,10 +66,11 @@ function Attachments({ items }: { items?: Attachment[] }) {
             </a>
           );
         }
+        const { Icon, color } = fileIcon(a.name);
         return (
-          <div key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
-            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{a.name}</span>
+          <div key={a.id} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs">
+            <Icon className={cn("size-5 shrink-0", color)} />
+            <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
             {isPdf(a) ? (
               <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                 <Eye className="size-3" /> Ver
@@ -76,6 +87,54 @@ function Attachments({ items }: { items?: Attachment[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Fila de reacciones (emoji + conteo) bajo un mensaje, con botón para reaccionar.
+function Reactions({ reactions, meId, onToggle }: { reactions: ReactionItem[] | undefined; meId: string; onToggle: (emoji: string) => void }) {
+  const [pickQuick, setPickQuick] = React.useState(false);
+  const groups = new Map<string, { count: number; mine: boolean }>();
+  for (const r of reactions ?? []) {
+    const g = groups.get(r.emoji) ?? { count: 0, mine: false };
+    g.count++;
+    if (r.userId === meId) g.mine = true;
+    groups.set(r.emoji, g);
+  }
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {[...groups.entries()].map(([emoji, g]) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={() => onToggle(emoji)}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px]",
+            g.mine ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:bg-muted",
+          )}
+        >
+          <span>{emoji}</span> {g.count}
+        </button>
+      ))}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setPickQuick((v) => !v)}
+          className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+          title="Reaccionar"
+        >
+          <SmilePlus className="size-3.5" />
+        </button>
+        {pickQuick ? (
+          <div className="absolute bottom-6 left-0 z-30 flex gap-0.5 rounded-full border border-border bg-popover px-1.5 py-1 shadow-lg">
+            {QUICK_REACTIONS.map((e) => (
+              <button key={e} type="button" onClick={() => { onToggle(e); setPickQuick(false); }} className="flex size-7 items-center justify-center rounded-full text-lg hover:bg-muted">
+                {e}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -106,6 +165,7 @@ export function ChannelChat({
   const [pollMode, setPollMode] = React.useState(false);
   const [pollQ, setPollQ] = React.useState("");
   const [pollOpts, setPollOpts] = React.useState<string[]>(["", ""]);
+  const [emojiOpen, setEmojiOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const queueKey = `labstream-chat-queue:${channelId}`;
@@ -139,8 +199,12 @@ export function ChannelChat({
           setMessages((prev) => prev.map((m) => (m.poll?.id === data.poll.id ? { ...m, poll: data.poll } : m)));
           return;
         }
+        if (data?.kind === "reaction") {
+          setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, reactions: data.reactions } : m)));
+          return;
+        }
         const m = data as ChatMsg;
-        upsert({ ...m, status: "sent" });
+        upsert({ ...m, status: "sent", reactions: m.reactions ?? [] });
         if (!m.parentId) scrollToBottom();
       } catch {
         /* ignore */
@@ -255,6 +319,19 @@ export function ChannelChat({
     if (data) setMessages((prev) => prev.map((m) => (m.poll?.id === pollId ? { ...m, poll: data } : m)));
   }
 
+  // Alternar una reacción de emoji (optimista; SSE sincroniza a los demás).
+  function react(messageId: string, emoji: string) {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const list = m.reactions ?? [];
+        const has = list.some((r) => r.emoji === emoji && r.userId === me.id);
+        return { ...m, reactions: has ? list.filter((r) => !(r.emoji === emoji && r.userId === me.id)) : [...list, { emoji, userId: me.id }] };
+      }),
+    );
+    void toggleReaction(channelId, messageId, emoji);
+  }
+
   async function submitPoll(e: React.FormEvent) {
     e.preventDefault();
     const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
@@ -313,6 +390,10 @@ export function ChannelChat({
                     <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
                   ) : null}
                 </div>
+
+                {!readOnly || (m.reactions?.length ?? 0) > 0 ? (
+                  <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
+                ) : null}
 
                 {!readOnly || replies.length > 0 ? (
                   <button
@@ -458,6 +539,20 @@ export function ChannelChat({
             >
               <BarChart3 className="size-5" />
             </button>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setEmojiOpen((v) => !v)}
+                className={cn("flex size-9 items-center justify-center rounded-full hover:bg-muted hover:text-foreground", emojiOpen ? "text-primary" : "text-muted-foreground")}
+                aria-label="Emojis"
+                title="Emojis"
+              >
+                <Smile className="size-5" />
+              </button>
+              {emojiOpen ? (
+                <EmojiPicker onPick={(e) => { setText((t) => t + e); setEmojiOpen(false); }} />
+              ) : null}
+            </div>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
