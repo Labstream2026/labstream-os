@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { UserAvatar } from "@/components/user-avatar";
+import { caldavEnabled } from "@/lib/caldav";
+import { MyCalendar, type CalItem } from "./my-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +14,19 @@ function dayLabel(d: Date) {
 
 export default async function CalendarioPage() {
   const session = await getSession();
-  const all = await db.calendarEvent.findMany({
-    orderBy: { start: "asc" },
-    include: {
-      project: { select: { name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
-      attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
-    },
-  });
+  const [all, myTasks] = await Promise.all([
+    db.calendarEvent.findMany({
+      orderBy: { start: "asc" },
+      include: {
+        project: { select: { name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
+        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+      },
+    }),
+    db.task.findMany({
+      where: { assigneeId: session?.id ?? "", dueDate: { not: null } },
+      select: { id: true, title: true, dueDate: true, project: { select: { name: true } } },
+    }),
+  ]);
 
   // No se muestran citas de proyectos privados a quien no tiene acceso (responsable,
   // miembro, admin) o no es invitado/creador. Las citas sin proyecto son del equipo.
@@ -29,6 +37,25 @@ export default async function CalendarioPage() {
     return canAccessProject(e.project, session);
   });
 
+  // Items para la rejilla mensual: eventos visibles + mis tareas con fecha de entrega.
+  const calItems: CalItem[] = [
+    ...events.map((e) => ({
+      id: `e-${e.id}`,
+      title: e.title,
+      date: e.start.toISOString(),
+      kind: "event" as const,
+      time: e.allDay ? null : new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(e.start),
+      projectName: e.project?.name ?? null,
+    })),
+    ...myTasks.map((t) => ({
+      id: `t-${t.id}`,
+      title: t.title,
+      date: t.dueDate!.toISOString(),
+      kind: "task" as const,
+      projectName: t.project?.name ?? null,
+    })),
+  ];
+
   // agrupar por día
   const groups = new Map<string, typeof events>();
   for (const e of events) {
@@ -38,16 +65,22 @@ export default async function CalendarioPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Calendario</h1>
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
+      <h1 className="text-3xl font-bold tracking-tight">Mi calendario</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Citas del equipo. Las creadas desde las tablas de proyectos aparecen aquí y se notifican al invitado.
+        Tus reuniones y citas del equipo + tus tareas con fecha de entrega.
+        {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : " (Synology Calendar se conecta luego con CALDAV_*.)"}
       </p>
 
+      <div className="mt-6">
+        <MyCalendar items={calItems} />
+      </div>
+
+      <h2 className="mt-10 text-lg font-semibold">Agenda</h2>
       {events.length === 0 ? (
-        <p className="mt-8 text-sm text-muted-foreground">No hay citas todavía.</p>
+        <p className="mt-2 text-sm text-muted-foreground">No hay citas todavía.</p>
       ) : (
-        <div className="mt-8 space-y-6">
+        <div className="mt-3 space-y-6">
           {[...groups.entries()].map(([key, evs]) => (
             <section key={key}>
               <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{dayLabel(new Date(key))}</h2>
