@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { signReviewToken } from "@/lib/review-token";
 import { CopyLink } from "@/components/copy-link";
+import { EmailReviewButton } from "./email-review-button";
 import { createDeliverable, setDeliverableStatus, addDeliverableVersion } from "./actions";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -119,6 +120,7 @@ export function DeliverablesPanel({
             >
               Abrir portal
             </a>
+            <EmailReviewButton deliverableId={d.id} />
           </div>
 
           {/* Nueva versión */}

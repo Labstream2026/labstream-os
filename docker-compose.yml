@@ -25,6 +25,17 @@ services:
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      # Correo Synology MailPlus (SMTP) — equipo @labstreamsas.com
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      # Synology Calendar (CalDAV) — sincronización interna del equipo
+      CALDAV_URL: ${CALDAV_URL:-}
+      CALDAV_USER: ${CALDAV_USER:-}
+      CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:

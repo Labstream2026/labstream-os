@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
+import { pushEventToSynology } from "@/lib/caldav";
 
 const accessSelect = {
   isPrivate: true,
@@ -194,6 +195,9 @@ export async function setEventCell(
       attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined,
     },
   });
+
+  // Sincroniza la cita al Synology Calendar del equipo (auto, best-effort).
+  await pushEventToSynology({ uid: event.id, title: event.title, start: event.start });
 
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },
