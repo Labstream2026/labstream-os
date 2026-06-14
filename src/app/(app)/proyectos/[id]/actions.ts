@@ -6,6 +6,8 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { saveBuffer, mimeFor } from "@/lib/storage";
+import { logActivity } from "@/lib/activity";
+import { TASK_STATUS } from "@/lib/ui";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string) {
@@ -13,6 +15,8 @@ function refresh(projectId: string) {
   revalidatePath("/mis-tareas");
   revalidatePath("/");
 }
+
+const statusLabel = (s: string) => (TASK_STATUS as Record<string, { label: string }>)[s]?.label ?? s;
 
 const accessSelect = {
   isPrivate: true,
@@ -46,62 +50,110 @@ export async function createTask(projectId: string, formData: FormData) {
   const priority = String(formData.get("priority") ?? "MEDIA");
   const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
   const count = await db.task.count({ where: { projectId } });
-  await db.task.create({
+  const task = await db.task.create({
     data: { projectId, title, assigneeId, priority: priority as never, stage, position: count },
+  });
+  await logActivity({
+    action: "task.create",
+    summary: `creó la tarea «${title}»${stage ? ` en ${stage}` : ""}`,
+    projectId,
+    entityType: "task",
+    entityId: task.id,
   });
   refresh(projectId);
 }
 
 export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { status: status as never } });
+  await logActivity({
+    action: "task.status",
+    summary: `cambió el estado de «${task!.title}» a ${statusLabel(status)}`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
   refresh(projectId);
 }
 
 // Mover una tarea a otra fase/columna del tablero.
 export async function setTaskStage(taskId: string, _projectId: string, stage: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { stage: stage || null } });
+  await logActivity({
+    action: "task.stage",
+    summary: `movió «${task!.title}» a ${stage || "la primera fase"}`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
   refresh(projectId);
 }
 
 // Fijar/limpiar la fecha de rodaje de una tarea (alimenta la vista de calendario).
 export async function setTaskShootDate(taskId: string, _projectId: string, formData: FormData) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   const raw = String(formData.get("shootDate") ?? "").trim();
   // input type=date → "YYYY-MM-DD"; se ancla a mediodía UTC para evitar saltos de día por zona horaria.
   const shootDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
   await db.task.update({ where: { id: taskId }, data: { shootDate } });
+  await logActivity({
+    action: "task.shootDate",
+    summary: raw ? `fijó el rodaje de «${task!.title}» el ${raw}` : `quitó la fecha de rodaje de «${task!.title}»`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
   refresh(projectId);
 }
 
 export async function deleteTask(taskId: string, _projectId: string) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   await db.task.delete({ where: { id: taskId } });
+  await logActivity({
+    action: "task.delete",
+    summary: `eliminó la tarea «${task!.title}»`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
   refresh(projectId);
 }
 
 export async function toggleChecklistItem(itemId: string, _projectId: string, done: boolean) {
   const item = await db.checklistItem.findUnique({
     where: { id: itemId },
-    select: { task: { select: { projectId: true, project: { select: accessSelect } } } },
+    select: { label: true, task: { select: { title: true, projectId: true, project: { select: accessSelect } } } },
   });
   const projectId = await ensureAccessVia(item?.task ?? null);
   await db.checklistItem.update({ where: { id: itemId }, data: { done } });
+  await logActivity({
+    action: "checklist.toggle",
+    summary: `${done ? "completó" : "reabrió"} «${item!.label}» en «${item!.task.title}»`,
+    projectId,
+    entityType: "task",
+  });
   refresh(projectId);
 }
 
 export async function addChecklistItem(taskId: string, _projectId: string, formData: FormData) {
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   const label = String(formData.get("label") ?? "").trim();
   if (!label) return;
   const count = await db.checklistItem.count({ where: { taskId } });
   await db.checklistItem.create({ data: { taskId, label, position: count } });
+  await logActivity({
+    action: "checklist.add",
+    summary: `añadió «${label}» al checklist de «${task!.title}»`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
   refresh(projectId);
 }
 
@@ -111,14 +163,16 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const type = String(formData.get("type") ?? "REEL");
-  await db.deliverable.create({ data: { projectId, name, type: type as never } });
+  const d = await db.deliverable.create({ data: { projectId, name, type: type as never } });
+  await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
   refresh(projectId);
 }
 
 export async function setDeliverableStatus(id: string, _projectId: string, status: string) {
-  const deliverable = await db.deliverable.findUnique({ where: { id }, select: { projectId: true, project: { select: accessSelect } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(deliverable);
   await db.deliverable.update({ where: { id }, data: { status: status as never } });
+  await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${statusLabel(status)}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
 }
 
@@ -127,7 +181,7 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
   if (!deliverable || !canAccessProject(deliverable.project, session)) throw new Error("No autorizado");
   const notes = String(formData.get("notes") ?? "").trim() || null;
@@ -136,15 +190,17 @@ export async function addDeliverableVersion(
     where: { deliverableId },
     orderBy: { number: "desc" },
   });
+  const number = (last?.number ?? 0) + 1;
   await db.deliverableVersion.create({
     data: {
       deliverableId,
-      number: (last?.number ?? 0) + 1,
+      number,
       notes,
       fileUrl,
       uploadedById: session!.id,
     },
   });
+  await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   refresh(deliverable.projectId);
 }
 
@@ -156,9 +212,10 @@ export async function addFile(projectId: string, formData: FormData) {
   if (!name || !url) return;
   const folderId = String(formData.get("folderId") ?? "") || null;
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
-  await db.fileAsset.create({
+  const f = await db.fileAsset.create({
     data: { projectId, name, url, folderId, kind, uploadedById: session.id },
   });
+  await logActivity({ action: "file.link", summary: `añadió el enlace «${name}»`, projectId, entityType: "file", entityId: f.id });
   refresh(projectId);
 }
 
@@ -184,14 +241,16 @@ export async function uploadProjectFiles(projectId: string, formData: FormData) 
     });
     const rel = await saveBuffer(`project/${projectId}`, `${asset.id}-${file.name}`, buf);
     await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    await logActivity({ action: "file.upload", summary: `subió el archivo «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
   }
   refresh(projectId);
 }
 
 export async function deleteFile(fileId: string, _projectId: string) {
-  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { projectId: true, project: { select: accessSelect } } });
+  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(file);
   await db.fileAsset.delete({ where: { id: fileId } });
+  await logActivity({ action: "file.delete", summary: `eliminó el archivo «${file!.name}»`, projectId, entityType: "file", entityId: fileId });
   refresh(projectId);
 }
 
@@ -206,6 +265,7 @@ async function ensureProjectManage(projectId: string): Promise<SessionUser> {
 export async function setProjectVisibility(projectId: string, isPrivate: boolean) {
   await ensureProjectManage(projectId);
   await db.project.update({ where: { id: projectId }, data: { isPrivate } });
+  await logActivity({ action: "project.visibility", summary: `marcó el proyecto como ${isPrivate ? "privado" : "público"}`, projectId, entityType: "project", entityId: projectId });
   refresh(projectId);
 }
 
@@ -230,6 +290,8 @@ export async function addProjectMember(projectId: string, userId: string, role: 
     create: { projectId, userId, role: safeRole as never },
     update: { role: safeRole as never },
   });
+  const member = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await logActivity({ action: "member.add", summary: `añadió a ${member?.name ?? "un miembro"} como ${safeRole}`, projectId, entityType: "member", entityId: userId });
   refresh(projectId);
 }
 
@@ -240,5 +302,7 @@ export async function removeProjectMember(projectId: string, userId: string) {
     .catch((e: { code?: string }) => {
       if (e?.code !== "P2025") throw e; // P2025 = no existe → ignorar; el resto propaga
     });
+  const member = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await logActivity({ action: "member.remove", summary: `quitó a ${member?.name ?? "un miembro"} del proyecto`, projectId, entityType: "member", entityId: userId });
   refresh(projectId);
 }

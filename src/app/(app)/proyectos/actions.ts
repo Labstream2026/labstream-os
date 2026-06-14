@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { instantiateTemplate } from "@/lib/provisioning";
+import { logActivity } from "@/lib/activity";
 
 export async function createProject(formData: FormData) {
   const session = await getSession();
@@ -20,6 +21,14 @@ export async function createProject(formData: FormData) {
     name,
     clientId,
     leadId,
+  });
+
+  await logActivity({
+    action: "project.create",
+    summary: templateKey ? `creó el proyecto «${name}» desde plantilla` : `creó el proyecto «${name}»`,
+    projectId: project.id,
+    entityType: "project",
+    entityId: project.id,
   });
 
   revalidatePath("/proyectos");

@@ -114,6 +114,9 @@ export function ChannelChat({
   const repliesFor = (id: string) =>
     messages.filter((m) => m.parentId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
+  // ¿El mensaje es mío? (para alinearlo a la derecha con burbuja propia).
+  const isMine = (a: ChatMsg["author"]) => !!a && a.name === me.name && a.color === me.color;
+
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
@@ -284,20 +287,32 @@ export function ChannelChat({
         {roots.map((m) => {
           const replies = repliesFor(m.id);
           const open = openThreads.has(m.id);
+          const mine = isMine(m.author);
           return (
-            <div key={m.id} className="flex gap-2.5">
+            <div key={m.id} className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
               <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{m.author?.name ?? "Sistema"}</span>
+              <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
+                <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
+                  <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
                   <span className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
                   {statusTag(m.status)}
                 </div>
-                <p className="text-sm text-foreground/90">{m.body}</p>
-                <Attachments items={m.attachments} />
-                {m.poll ? (
-                  <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                {m.body ? (
+                  <div
+                    className={cn(
+                      "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-2 text-sm",
+                      mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                  </div>
                 ) : null}
+                <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
+                  <Attachments items={m.attachments} />
+                  {m.poll ? (
+                    <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                  ) : null}
+                </div>
 
                 {!readOnly || replies.length > 0 ? (
                   <button
@@ -308,7 +323,7 @@ export function ChannelChat({
                         return next;
                       })
                     }
-                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-primary"
+                    className="mt-1 inline-flex items-center gap-1 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-primary"
                   >
                     <MessageSquare className="size-3" />
                     {replies.length > 0 ? `${replies.length} respuesta${replies.length === 1 ? "" : "s"}` : "Responder"}
@@ -316,17 +331,17 @@ export function ChannelChat({
                 ) : null}
 
                 {open ? (
-                  <div className="mt-2 space-y-2 border-l-2 border-border pl-3">
+                  <div className="mt-2 w-full space-y-2 self-stretch border-l-2 border-border pl-3 text-left">
                     {replies.map((r) => (
                       <div key={r.id} className="flex gap-2">
                         <UserAvatar initials={r.author?.initials} color={r.author?.color} size="sm" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-semibold">{r.author?.name ?? "Sistema"}</span>
+                            <span className="text-xs font-semibold">{isMine(r.author) ? "Tú" : r.author?.name ?? "Sistema"}</span>
                             <span className="text-[10px] text-muted-foreground">{hhmm(r.createdAt)}</span>
                             {statusTag(r.status)}
                           </div>
-                          <p className="text-[13px] text-foreground/90">{r.body}</p>
+                          <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{r.body}</p>
                           <Attachments items={r.attachments} />
                           {r.poll ? (
                             <PollWidget poll={r.poll} myOptionId={myVotes[r.poll.id] ?? null} onVote={(opt) => vote(r.poll!.id, opt)} />
@@ -369,7 +384,7 @@ export function ChannelChat({
       ) : null}
 
       {!readOnly ? (
-       <div className="border-t border-border">
+       <div className="border-t border-border pb-[env(safe-area-inset-bottom)]">
         {pollMode ? (
           <form onSubmit={submitPoll} className="space-y-2 border-b border-border p-3">
             <input
@@ -414,7 +429,7 @@ export function ChannelChat({
               ))}
             </div>
           ) : null}
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+          <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
             <input
               ref={fileRef}
               type="file"
@@ -425,35 +440,39 @@ export function ChannelChat({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="text-muted-foreground hover:text-foreground"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Adjuntar archivo"
               title="Adjuntar archivo"
             >
-              <Paperclip className="size-4" />
+              <Paperclip className="size-5" />
             </button>
             <button
               type="button"
               onClick={() => setPollMode((v) => !v)}
-              className={cn("hover:text-foreground", pollMode ? "text-primary" : "text-muted-foreground")}
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-muted hover:text-foreground",
+                pollMode ? "text-primary" : "text-muted-foreground",
+              )}
               aria-label="Crear encuesta"
               title="Crear encuesta"
             >
-              <BarChart3 className="size-4" />
+              <BarChart3 className="size-5" />
             </button>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…"}
               disabled={uploading}
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              enterKeyHint="send"
+              className="min-w-0 flex-1 bg-transparent px-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             />
             <button
               type="submit"
               disabled={uploading || (!text.trim() && files.length === 0)}
-              className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
               aria-label="Enviar"
             >
-              <Send className="size-3.5" />
+              <Send className="size-4" />
             </button>
           </div>
         </form>

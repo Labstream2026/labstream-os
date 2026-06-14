@@ -21,6 +21,7 @@ import { TasksCalendar } from "./tasks-calendar";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
+import { ActivityFeed } from "./activity-feed";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ const TABS = [
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
   { key: "tablas", label: "Tablas" },
+  { key: "actividad", label: "Actividad" },
   { key: "chat", label: "Chat" },
 ];
 
@@ -95,6 +97,11 @@ export default async function ProyectoPage({
           },
         },
         members: { select: { userId: true, role: true } },
+        activity: {
+          orderBy: { createdAt: "desc" },
+          take: 60,
+          include: { user: { select: { name: true, initials: true, avatarColor: true } } },
+        },
       },
     }),
     db.user.findMany({
@@ -271,6 +278,18 @@ export default async function ProyectoPage({
             looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url }))}
           />
         ) : null}
+        {tab === "actividad" ? (
+          <ActivityFeed
+            items={project.activity.map((a) => ({
+              id: a.id,
+              action: a.action,
+              summary: a.summary,
+              createdAt: a.createdAt.toISOString(),
+              user: a.user ? { name: a.user.name, initials: a.user.initials, color: a.user.avatarColor } : null,
+            }))}
+          />
+        ) : null}
+
         {tab === "chat" ? (
           project.channel ? (
             (() => {

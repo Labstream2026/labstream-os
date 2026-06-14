@@ -73,9 +73,27 @@ model User {
   notifications    Notification[]
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
+  activity         ActivityLog[]
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// Registro de actividad: cada cambio relevante queda con su fecha/hora y autor.
+model ActivityLog {
+  id         String   @id @default(cuid())
+  action     String // "task.create", "task.stage", "task.status", "file.upload", ...
+  summary    String // descripción legible: «movió "Grabación" a Producción»
+  entityType String? // "task" | "deliverable" | "file" | "member" | "project"
+  entityId   String?
+  project    Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -169,6 +187,7 @@ model Project {
   tables       DataTable[]
   members      ProjectMember[]
   quotes       Quote[]
+  activity     ActivityLog[]
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
