@@ -77,5 +77,24 @@ export async function instantiateTemplate(
     });
   }
 
+  // Tableros colaborativos especializados (plan de rodaje, shot list, etc.).
+  for (const tbl of content?.tables ?? []) {
+    await db.dataTable.create({
+      data: {
+        name: tbl.name,
+        projectId: project.id,
+        columns: {
+          create: tbl.columns.map((c, i) => ({
+            name: c.name,
+            type: c.type as never,
+            position: i,
+            options: (c.options ?? undefined) as never,
+          })),
+        },
+        rows: { create: Array.from({ length: tbl.rows ?? 3 }, (_, i) => ({ position: i })) },
+      },
+    });
+  }
+
   return project;
 }

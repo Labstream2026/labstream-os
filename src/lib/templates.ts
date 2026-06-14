@@ -32,11 +32,108 @@ export type TemplateDeliverable = {
     | "OTRO";
 };
 
+export type ColumnType =
+  | "TEXT" | "NUMBER" | "SELECT" | "DATE" | "PERSON" | "CHECKBOX" | "URL" | "EVENT";
+
+export type TemplateColumn = {
+  name: string;
+  type: ColumnType;
+  options?: { id: string; label: string; color: string }[]; // solo SELECT
+};
+
+// Tablero colaborativo especializado (estilo Notion) que se crea con el proyecto.
+export type TemplateTable = {
+  name: string;
+  description?: string;
+  columns: TemplateColumn[];
+  rows?: number; // filas vacías iniciales
+};
+
 export type TemplateContent = {
   stages: string[];
   folders: string[];
   tasks: TemplateTask[];
   deliverables: TemplateDeliverable[];
+  tables?: TemplateTable[];
+};
+
+// ── Tableros especializados reutilizables para producción audiovisual ──
+const sel = (...labels: [string, string][]): { id: string; label: string; color: string }[] =>
+  labels.map(([label, color], i) => ({ id: `o${i}`, label, color }));
+
+export const SPECIAL_TABLES: Record<string, TemplateTable> = {
+  planRodaje: {
+    name: "Plan de rodaje",
+    description: "Escenas, locaciones y horarios del día de grabación.",
+    columns: [
+      { name: "Escena", type: "TEXT" },
+      { name: "Locación", type: "TEXT" },
+      { name: "Día / hora", type: "TEXT" },
+      { name: "Estado", type: "SELECT", options: sel(["Pendiente", "slate"], ["Listo para grabar", "amber"], ["Grabado", "emerald"]) },
+      { name: "Responsable", type: "PERSON" },
+      { name: "Cita de rodaje", type: "EVENT" },
+    ],
+    rows: 4,
+  },
+  shotList: {
+    name: "Shot list",
+    description: "Lista de planos a grabar.",
+    columns: [
+      { name: "#", type: "TEXT" },
+      { name: "Descripción del plano", type: "TEXT" },
+      { name: "Tipo", type: "SELECT", options: sel(["Plano general", "blue"], ["Plano medio", "cyan"], ["Primer plano", "violet"], ["Detalle", "rose"]) },
+      { name: "Movimiento", type: "SELECT", options: sel(["Fijo", "slate"], ["Paneo", "blue"], ["Travelling", "amber"], ["Dron", "emerald"]) },
+      { name: "Duración", type: "TEXT" },
+      { name: "Grabado", type: "CHECKBOX" },
+    ],
+    rows: 6,
+  },
+  broll: {
+    name: "Lista de B-roll",
+    description: "Tomas de recurso para la edición.",
+    columns: [
+      { name: "Descripción", type: "TEXT" },
+      { name: "Locación", type: "TEXT" },
+      { name: "Prioridad", type: "SELECT", options: sel(["Alta", "rose"], ["Media", "amber"], ["Baja", "slate"]) },
+      { name: "Grabado", type: "CHECKBOX" },
+    ],
+    rows: 5,
+  },
+  callSheet: {
+    name: "Llamados del equipo",
+    description: "Quién va, su rol y a qué hora llega.",
+    columns: [
+      { name: "Persona", type: "PERSON" },
+      { name: "Rol", type: "TEXT" },
+      { name: "Contacto", type: "TEXT" },
+      { name: "Llamado", type: "EVENT" },
+    ],
+    rows: 4,
+  },
+  invitados: {
+    name: "Invitados",
+    description: "Invitados del episodio y su confirmación.",
+    columns: [
+      { name: "Invitado", type: "TEXT" },
+      { name: "Tema", type: "TEXT" },
+      { name: "Confirmado", type: "SELECT", options: sel(["Por contactar", "slate"], ["Invitado", "amber"], ["Confirmado", "emerald"]) },
+      { name: "Contacto", type: "TEXT" },
+      { name: "Grabación", type: "EVENT" },
+    ],
+    rows: 3,
+  },
+  calendarioContenido: {
+    name: "Calendario de contenido",
+    description: "Piezas del mes, formato y fecha de publicación.",
+    columns: [
+      { name: "Pieza", type: "TEXT" },
+      { name: "Formato", type: "SELECT", options: sel(["Reel", "violet"], ["Short", "cyan"], ["Carrusel", "amber"], ["Foto", "blue"]) },
+      { name: "Estado", type: "SELECT", options: sel(["Idea", "slate"], ["Guion", "blue"], ["Grabado", "amber"], ["Editado", "violet"], ["Publicado", "emerald"]) },
+      { name: "Responsable", type: "PERSON" },
+      { name: "Publicación", type: "DATE" },
+    ],
+    rows: 8,
+  },
 };
 
 export type TemplateDef = {
@@ -86,6 +183,7 @@ export const TEMPLATES: TemplateDef[] = [
         { name: "Short vertical", type: "SHORT" },
         { name: "Set de fotografías", type: "FOTOGRAFIA" },
       ],
+      tables: [SPECIAL_TABLES.planRodaje, SPECIAL_TABLES.shotList, SPECIAL_TABLES.broll],
     },
   },
   {
@@ -111,6 +209,7 @@ export const TEMPLATES: TemplateDef[] = [
         { name: "3 cortes verticales", type: "SHORT" },
         { name: "Audio del episodio", type: "PODCAST" },
       ],
+      tables: [SPECIAL_TABLES.invitados, SPECIAL_TABLES.callSheet],
     },
   },
   {
@@ -136,6 +235,7 @@ export const TEMPLATES: TemplateDef[] = [
         { name: "Clips destacados", type: "SHORT" },
         { name: "Teaser del evento", type: "TEASER" },
       ],
+      tables: [SPECIAL_TABLES.planRodaje, SPECIAL_TABLES.callSheet],
     },
   },
   {
@@ -163,6 +263,7 @@ export const TEMPLATES: TemplateDef[] = [
         { name: "Versión 60s para redes", type: "SHORT" },
         { name: "Teaser", type: "TEASER" },
       ],
+      tables: [SPECIAL_TABLES.planRodaje, SPECIAL_TABLES.shotList, SPECIAL_TABLES.callSheet, SPECIAL_TABLES.broll],
     },
   },
   {
@@ -188,6 +289,7 @@ export const TEMPLATES: TemplateDef[] = [
         { name: "4 shorts", type: "SHORT" },
         { name: "Set de fotografías", type: "FOTOGRAFIA" },
       ],
+      tables: [SPECIAL_TABLES.calendarioContenido, SPECIAL_TABLES.planRodaje],
     },
   },
 ];
