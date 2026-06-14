@@ -226,12 +226,12 @@ async function main() {
 
   // poblar cada proyecto con carpetas, tareas, entregables y archivos demo
   const TASKS = [
-    { title: "Brief y objetivos", status: "COMPLETADA" },
-    { title: "Guion / escaleta", status: "COMPLETADA" },
-    { title: "Grabación", status: "EN_PROCESO" },
-    { title: "Edición V1", status: "EN_PROCESO" },
-    { title: "Revisión interna", status: "EN_REVISION" },
-    { title: "Entrega final", status: "PENDIENTE" },
+    { title: "Brief y objetivos", status: "COMPLETADA", stage: "Preproducción" },
+    { title: "Guion / escaleta", status: "COMPLETADA", stage: "Preproducción" },
+    { title: "Grabación", status: "EN_PROCESO", stage: "Producción" },
+    { title: "Edición V1", status: "EN_PROCESO", stage: "Postproducción" },
+    { title: "Revisión interna", status: "EN_REVISION", stage: "Revisión cliente" },
+    { title: "Entrega final", status: "PENDIENTE", stage: "Entregado" },
   ];
 
   for (const { id: projectId, leadId, name } of projectIds) {
@@ -253,6 +253,7 @@ async function main() {
           projectId,
           title: t.title,
           status: t.status as never,
+          stage: t.stage,
           position: i,
           assigneeId: leadId,
         },

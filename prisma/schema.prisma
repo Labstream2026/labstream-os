@@ -157,6 +157,8 @@ model Project {
   // Proyecto compartido (estilo Mattermost): público = visible a todo el equipo
   // con permiso ver_proyectos; privado = solo responsable + miembros + admin.
   isPrivate   Boolean       @default(false)
+  // Columnas del tablero de tareas = fases de producción audiovisual (personalizables).
+  stages      String[]      @default(["Preproducción", "Producción", "Postproducción", "Revisión cliente", "Entregado"])
 
   tasks        Task[]
   deliverables Deliverable[]
@@ -480,8 +482,10 @@ model Task {
   title         String
   description   String?
   status        TaskStatus      @default(PENDIENTE)
+  stage         String? // columna del tablero (fase de producción); null = primera columna
   priority      Priority        @default(MEDIA)
   dueDate       DateTime?
+  shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
   position      Int             @default(0)
   project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId     String

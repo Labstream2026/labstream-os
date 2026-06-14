@@ -44,9 +44,10 @@ export async function createTask(projectId: string, formData: FormData) {
   if (!title) return;
   const assigneeId = String(formData.get("assigneeId") ?? "") || null;
   const priority = String(formData.get("priority") ?? "MEDIA");
+  const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
   const count = await db.task.count({ where: { projectId } });
   await db.task.create({
-    data: { projectId, title, assigneeId, priority: priority as never, position: count },
+    data: { projectId, title, assigneeId, priority: priority as never, stage, position: count },
   });
   refresh(projectId);
 }
@@ -55,6 +56,14 @@ export async function setTaskStatus(taskId: string, _projectId: string, status: 
   const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(task);
   await db.task.update({ where: { id: taskId }, data: { status: status as never } });
+  refresh(projectId);
+}
+
+// Mover una tarea a otra fase/columna del tablero.
+export async function setTaskStage(taskId: string, _projectId: string, stage: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(task);
+  await db.task.update({ where: { id: taskId }, data: { stage: stage || null } });
   refresh(projectId);
 }
 

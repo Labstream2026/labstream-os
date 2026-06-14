@@ -197,11 +197,14 @@ export default async function ProyectoPage({
           <TasksBoard
             projectId={id}
             team={team}
+            stages={project.stages}
             tasks={project.tasks.map((t) => ({
               id: t.id,
               title: t.title,
               status: t.status,
+              stage: t.stage,
               priority: t.priority,
+              shootDate: t.shootDate,
               assignee: t.assignee,
               checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
             }))}

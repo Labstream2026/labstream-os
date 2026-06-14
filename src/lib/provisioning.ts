@@ -32,6 +32,7 @@ export async function instantiateTemplate(
   const tpl = TEMPLATES.find((t) => t.key === opts.templateKey);
   const code = await nextProjectCode(db);
 
+  const stages = tpl?.content?.stages?.length ? tpl.content.stages : undefined;
   const project = await db.project.create({
     data: {
       code,
@@ -42,6 +43,7 @@ export async function instantiateTemplate(
       emoji: tpl?.emoji ?? "🎬",
       templateKey: tpl?.key ?? null,
       status: "EN_PLANEACION",
+      ...(stages ? { stages } : {}),
     },
   });
 
@@ -54,11 +56,15 @@ export async function instantiateTemplate(
   await createFolders(db, project.id, content?.folders ?? DEFAULT_FOLDERS);
 
   if (content?.tasks.length) {
+    const cols = content.stages?.length ? content.stages : [];
+    const total = content.tasks.length;
     await db.task.createMany({
       data: content.tasks.map((t, i) => ({
         projectId: project.id,
         title: t.title,
         priority: t.priority ?? "MEDIA",
+        // fase explícita de la plantilla; si no, se distribuye por la posición.
+        stage: t.stage ?? (cols.length ? cols[Math.min(cols.length - 1, Math.floor((i * cols.length) / total))] : null),
         position: i,
         assigneeId: opts.leadId ?? null,
       })),

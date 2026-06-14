@@ -1,4 +1,3 @@
-import { Agent } from "undici";
 import { buildIcs, type IcsEvent } from "@/lib/ics";
 
 // Sincroniza citas INTERNAS del equipo al Synology Calendar vía CalDAV.
@@ -17,11 +16,23 @@ function authHeader() {
 }
 
 // Dispatcher que acepta certificados auto-firmados del NAS cuando CALDAV_INSECURE_TLS=true.
-const insecureDispatcher = INSECURE ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+// undici se importa de forma perezosa para no incluirlo en el bundle cliente/edge
+// (Turbopack no resuelve sus require internos) — solo se carga en runtime de servidor.
+let dispatcherPromise: Promise<unknown> | undefined;
+function getDispatcher(): Promise<unknown> {
+  if (!INSECURE) return Promise.resolve(undefined);
+  if (!dispatcherPromise) {
+    dispatcherPromise = import("undici").then(
+      ({ Agent }) => new Agent({ connect: { rejectUnauthorized: false } }),
+    );
+  }
+  return dispatcherPromise;
+}
 
 type FetchInit = RequestInit & { dispatcher?: unknown };
-function caldavFetch(url: string, init: FetchInit): Promise<Response> {
-  return fetch(url, { ...init, dispatcher: insecureDispatcher } as RequestInit);
+async function caldavFetch(url: string, init: FetchInit): Promise<Response> {
+  const dispatcher = await getDispatcher();
+  return fetch(url, { ...init, dispatcher } as RequestInit);
 }
 
 // Crea/actualiza un evento en el calendario del NAS (idempotente por uid). Best-effort.

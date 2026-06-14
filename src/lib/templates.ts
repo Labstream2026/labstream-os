@@ -16,6 +16,7 @@ export const DEFAULT_FOLDERS = [
 export type TemplateTask = {
   title: string;
   priority?: "BAJA" | "MEDIA" | "ALTA" | "URGENTE";
+  stage?: string; // fase/columna del tablero (debe existir en content.stages)
 };
 
 export type TemplateDeliverable = {
