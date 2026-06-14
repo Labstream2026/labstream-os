@@ -15,6 +15,7 @@ function crumb(pathname: string): { emoji: string; label: string } {
   if (pathname === "/") return { emoji: "🏠", label: "Inicio" };
   if (pathname.startsWith("/mis-tareas")) return { emoji: "✅", label: "Mis tareas" };
   if (pathname.startsWith("/estados")) return { emoji: "💬", label: "Chat del día" };
+  if (pathname.startsWith("/chat")) return { emoji: "💬", label: "Chats" };
   if (pathname.startsWith("/proyectos/nuevo")) return { emoji: "✨", label: "Nuevo proyecto" };
   if (pathname.startsWith("/proyectos")) return { emoji: "🗂️", label: "Proyectos" };
   if (pathname.startsWith("/plantillas")) return { emoji: "🧩", label: "Plantillas" };

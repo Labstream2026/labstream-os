@@ -1,9 +1,80 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
+
+// ── Crear canales y mensajes directos ──
+
+// Crea un canal (público para todo el equipo, o privado solo para invitados).
+// El creador queda como ADMIN del canal.
+export async function createChannel(formData: FormData) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const name = String(formData.get("name") ?? "").trim().slice(0, 80);
+  if (!name) return;
+  const isPublic = formData.get("isPublic") !== "false"; // por defecto público
+  const channel = await db.chatChannel.create({
+    data: {
+      type: "GENERAL",
+      name,
+      isPublic,
+      members: { create: { userId: session.id, role: "ADMIN" } },
+    },
+  });
+  revalidatePath("/chat");
+  redirect(`/chat/${channel.id}`);
+}
+
+// Abre (o crea) un mensaje directo 1:1 con otra persona.
+export async function openDirectMessage(otherUserId: string) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  if (otherUserId === session.id) return;
+  const other = await db.user.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, active: true } });
+  if (!other?.active) throw new Error("Usuario inválido");
+
+  const existing = await db.chatChannel.findFirst({
+    where: {
+      type: "DIRECT",
+      AND: [{ members: { some: { userId: session.id } } }, { members: { some: { userId: otherUserId } } }],
+    },
+    select: { id: true },
+  });
+  if (existing) redirect(`/chat/${existing.id}`);
+
+  const channel = await db.chatChannel.create({
+    data: {
+      type: "DIRECT",
+      name: other.name, // referencia; en la UI se muestra el nombre del otro
+      isPublic: false,
+      members: { create: [{ userId: session.id }, { userId: otherUserId }] },
+    },
+  });
+  revalidatePath("/chat");
+  redirect(`/chat/${channel.id}`);
+}
+
+// Unirse / salir de un canal público (para que aparezca en "mis chats").
+export async function joinChannel(channelId: string) {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) throw new Error("No autorizado");
+  await db.channelMember.upsert({
+    where: { channelId_userId: { channelId, userId: session.id } },
+    create: { channelId, userId: session.id },
+    update: {},
+  });
+  revalidatePath("/chat");
+}
+
+export async function leaveChannel(channelId: string) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
+  revalidatePath("/chat");
+}
 import { publishMessage, publishPollUpdate, publishReactionUpdate, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
