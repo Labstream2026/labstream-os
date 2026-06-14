@@ -199,11 +199,13 @@ export function Sidebar({
           </Link>
         ) : null}
         <div className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5">
-          <UserAvatar initials={user.initials} color={user.color} size="md" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{user.name}</span>
-            <span className="block truncate text-xs text-sidebar-muted">{user.title}</span>
-          </span>
+          <Link href="/perfil" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:opacity-80" title="Mi perfil">
+            <UserAvatar initials={user.initials} color={user.color} size="md" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{user.name}</span>
+              <span className="block truncate text-xs text-sidebar-muted">{user.title}</span>
+            </span>
+          </Link>
           <form action={logout}>
             <button
               type="submit"
