@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { createWikiPage } from "./actions";
+import { PromptCreate } from "@/components/prompt-create";
 import { WikiTabs } from "./wiki-tabs";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +29,13 @@ export default async function WikiPage() {
             Páginas con texto, imágenes, enlaces (Drive) y tablas tipo Notion.
           </p>
         </div>
-        <form action={createWikiPage}>
-          <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            <Plus className="size-4" /> Nueva página
-          </button>
-        </form>
+        <PromptCreate
+          action={createWikiPage}
+          promptText="Título de la página:"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+        >
+          <Plus className="size-4" /> Nueva página
+        </PromptCreate>
       </div>
 
       <div className="mt-8 space-y-2">

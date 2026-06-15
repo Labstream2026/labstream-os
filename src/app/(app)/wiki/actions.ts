@@ -12,9 +12,9 @@ async function requireSession() {
   return session;
 }
 
-export async function createWikiPage(): Promise<void> {
+export async function createWikiPage(title?: string): Promise<void> {
   await requireSession();
-  const page = await db.wikiPage.create({ data: {} });
+  const page = await db.wikiPage.create({ data: { title: title?.trim() || "Página sin título" } });
   revalidatePath("/wiki");
   redirect(`/wiki/${page.id}`);
 }

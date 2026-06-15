@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import type { TemplateContent } from "@/lib/templates";
 import { createTemplate, duplicateTemplate } from "./actions";
+import { PromptCreate } from "@/components/prompt-create";
 import { Plus, Pencil, Copy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -23,11 +24,13 @@ export default async function PlantillasPage() {
         </div>
         <div className="flex items-center gap-2">
           {canManage ? (
-            <form action={createTemplate}>
-              <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                <Plus className="size-4" /> Nueva plantilla
-              </button>
-            </form>
+            <PromptCreate
+              action={createTemplate}
+              promptText="Nombre de la plantilla:"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Plus className="size-4" /> Nueva plantilla
+            </PromptCreate>
           ) : null}
           <Link
             href="/proyectos/nuevo"

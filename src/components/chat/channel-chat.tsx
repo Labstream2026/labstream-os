@@ -557,7 +557,7 @@ export function ChannelChat({
             {showDay ? (
               <div className="flex items-center gap-2 py-1">
                 <span className="h-px flex-1 bg-border" />
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{dayLabel(m.createdAt)}</span>
+                <span suppressHydrationWarning className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{dayLabel(m.createdAt)}</span>
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
@@ -566,7 +566,7 @@ export function ChannelChat({
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                 <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
                   <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
-                  <span className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
+                  <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
                   {m.editedAt ? <span className="text-[10px] text-muted-foreground">(editado)</span> : null}
                   {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
                   {statusTag(m.status)}
@@ -644,7 +644,7 @@ export function ChannelChat({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
                             <span className="text-xs font-semibold">{isMine(r.author) ? "Tú" : r.author?.name ?? "Sistema"}</span>
-                            <span className="text-[10px] text-muted-foreground">{hhmm(r.createdAt)}</span>
+                            <span suppressHydrationWarning className="text-[10px] text-muted-foreground">{hhmm(r.createdAt)}</span>
                             {statusTag(r.status)}
                           </div>
                           <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{r.body}</p>

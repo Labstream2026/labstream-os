@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
 import { ExternalLink, Trash2, Library, Server } from "lucide-react";
 import { CopyText } from "@/components/actions/copy-text";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import { addLibraryAsset, addLibraryNasPath, deleteLibraryAsset } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -107,13 +108,13 @@ export default async function BibliotecaPage() {
                     </div>
                     {a.kind === "NAS" && a.url ? <CopyText text={a.url} /> : null}
                     <form action={deleteLibraryAsset.bind(null, a.id)}>
-                      <button
-                        type="submit"
+                      <ConfirmSubmit
+                        message={`¿Eliminar «${a.name}» de la biblioteca?`}
                         title="Eliminar"
                         className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="size-4" />
-                      </button>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 ))}

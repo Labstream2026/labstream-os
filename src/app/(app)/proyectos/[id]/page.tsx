@@ -8,6 +8,7 @@ import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
+import { emailEnabled } from "@/lib/email";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { DataTableView } from "@/components/tables/data-table";
@@ -242,10 +243,12 @@ export default async function ProyectoPage({
                 number: v.number,
                 notes: v.notes,
                 fileUrl: v.fileUrl,
+                fileAssetId: v.fileAssetId,
                 createdAt: v.createdAt,
                 uploadedBy: v.uploadedBy,
               })),
             }))}
+            emailEnabled={emailEnabled}
           />
         ) : null}
         {tab === "archivos" ? (

@@ -302,12 +302,36 @@ export async function addDeliverableVersion(
     orderBy: { number: "desc" },
   });
   const number = (last?.number ?? 0) + 1;
+
+  // Archivo subido (opcional): se guarda como FileAsset del proyecto y se vincula
+  // a la versión, para que el portal del cliente pueda mostrarlo/reproducirlo.
+  const file = formData.get("file");
+  let fileAssetId: string | null = null;
+  if (file instanceof File && file.size > 0 && file.size <= MAX_UPLOAD && !BLOCKED_EXT.test(file.name)) {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const asset = await db.fileAsset.create({
+      data: {
+        projectId: deliverable.projectId,
+        name: file.name,
+        kind: "LOCAL",
+        path: "",
+        mime: mimeFor(file.name, file.type),
+        size: buf.length,
+        uploadedById: session!.id,
+      },
+    });
+    const rel = await saveBufferWithPreview(`project/${deliverable.projectId}`, `${asset.id}-${file.name}`, buf, file.type);
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    fileAssetId = asset.id;
+  }
+
   await db.deliverableVersion.create({
     data: {
       deliverableId,
       number,
       notes,
       fileUrl,
+      fileAssetId,
       uploadedById: session!.id,
     },
   });

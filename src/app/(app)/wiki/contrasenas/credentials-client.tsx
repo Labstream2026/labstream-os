@@ -80,7 +80,11 @@ function CredentialCard({ cred, team }: { cred: Cred; team: TeamMember[] }) {
             <button onClick={() => setShare((v) => !v)} title="Compartir" className={cn("rounded p-1.5 text-muted-foreground hover:text-foreground", share && "bg-accent text-foreground")}><Share2 className="size-4" /></button>
             <button onClick={() => setEditing(true)} title="Editar" className="rounded p-1.5 text-muted-foreground hover:text-foreground"><Pencil className="size-4" /></button>
             <form action={deleteCredential.bind(null, cred.id)}>
-              <button title="Eliminar" className="rounded p-1.5 text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
+              <button
+                title="Eliminar"
+                className="rounded p-1.5 text-muted-foreground hover:text-destructive"
+                onClick={(e) => { if (!confirm(`¿Eliminar la credencial «${cred.title}»? No se puede deshacer.`)) e.preventDefault(); }}
+              ><Trash2 className="size-4" /></button>
             </form>
           </div>
         ) : null}

@@ -23,12 +23,14 @@ const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i;
 export function ReviewClient({
   token,
   videoUrl,
+  fileName,
   versionNumber,
   comments,
   status,
 }: {
   token: string;
   videoUrl: string | null;
+  fileName?: string | null;
   versionNumber: number | null;
   comments: Comment[];
   status: string;
@@ -38,7 +40,9 @@ export function ReviewClient({
   const [body, setBody] = React.useState("");
   const [tc, setTc] = React.useState<number | null>(null);
   const [pending, start] = React.useTransition();
-  const isVideo = !!videoUrl && VIDEO_EXT.test(videoUrl);
+  // El archivo subido se sirve sin extensión en la URL; detectamos vídeo por el
+  // nombre del archivo cuando lo tenemos, y si no, por la propia URL (enlaces).
+  const isVideo = !!videoUrl && VIDEO_EXT.test(fileName || videoUrl);
 
   React.useEffect(() => {
     setName(localStorage.getItem("review_name") || "");

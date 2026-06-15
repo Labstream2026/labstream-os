@@ -98,7 +98,11 @@ export function TasksList({
                 </td>
                 <td className="px-3 py-2 text-right">
                   <form action={deleteTask.bind(null, t.id, projectId)}>
-                    <button className="px-1 text-xs text-muted-foreground hover:text-destructive" title="Eliminar">
+                    <button
+                      className="px-1 text-xs text-muted-foreground hover:text-destructive"
+                      title="Eliminar"
+                      onClick={(e) => { if (!confirm(`¿Eliminar la tarea «${t.title}»?`)) e.preventDefault(); }}
+                    >
                       ✕
                     </button>
                   </form>

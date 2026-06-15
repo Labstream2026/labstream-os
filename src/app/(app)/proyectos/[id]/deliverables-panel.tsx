@@ -21,6 +21,7 @@ type Version = {
   number: number;
   notes: string | null;
   fileUrl: string | null;
+  fileAssetId: string | null;
   createdAt: Date;
   uploadedBy: { initials: string | null; avatarColor: string | null } | null;
 };
@@ -39,9 +40,11 @@ const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({
 export function DeliverablesPanel({
   projectId,
   deliverables,
+  emailEnabled = false,
 }: {
   projectId: string;
   deliverables: Deliverable[];
+  emailEnabled?: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -102,7 +105,11 @@ export function DeliverablesPanel({
                 <div key={v.id} className="flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2">
                   <span className="rounded bg-background px-2 py-0.5 text-xs font-semibold">V{v.number}</span>
                   <span className="flex-1 text-sm">{v.notes ?? "Sin notas"}</span>
-                  {v.fileUrl ? (
+                  {v.fileAssetId ? (
+                    <a href={`/api/files-asset/${v.fileAssetId}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
+                      Ver archivo
+                    </a>
+                  ) : v.fileUrl ? (
                     <a href={v.fileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
                       Abrir
                     </a>
@@ -127,7 +134,7 @@ export function DeliverablesPanel({
             >
               Abrir portal
             </a>
-            <EmailReviewButton deliverableId={d.id} />
+            {emailEnabled ? <EmailReviewButton deliverableId={d.id} /> : null}
           </div>
 
           {/* Nueva versión */}
@@ -144,6 +151,12 @@ export function DeliverablesPanel({
               name="fileUrl"
               placeholder="Link (opcional)"
               className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <input
+              type="file"
+              name="file"
+              title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal"
+              className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs"
             />
             <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">
               + Versión

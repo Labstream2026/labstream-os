@@ -67,7 +67,7 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
                   <span className="font-medium">{a.user?.name ?? "Alguien"}</span>{" "}
                   <span className="text-muted-foreground">{a.summary}</span>
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground" title={abs}>
+                <p suppressHydrationWarning className="mt-0.5 text-xs text-muted-foreground" title={abs}>
                   <span className="mr-1">{iconFor(a.action)}</span>
                   {abs} · {rel}
                 </p>

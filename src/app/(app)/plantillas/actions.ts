@@ -46,12 +46,12 @@ async function saveContent(id: string, content: TemplateContent) {
 }
 
 // ── CRUD de plantilla ───────────────────────────────────────────────
-export async function createTemplate() {
+export async function createTemplate(name?: string) {
   await ensureCanManage();
   const tpl = await db.projectTemplate.create({
     data: {
       key: freshKey(),
-      name: "Nueva plantilla",
+      name: name?.trim() || "Nueva plantilla",
       emoji: "🎬",
       description: "",
       type: "REEL",

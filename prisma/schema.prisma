@@ -732,7 +732,9 @@ model DeliverableVersion {
   id            String      @id @default(cuid())
   number        Int
   notes         String?
-  fileUrl       String?
+  fileUrl       String? // enlace externo (Drive, etc.)
+  fileAsset     FileAsset?  @relation("VersionFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
+  fileAssetId   String? // archivo subido al storage (para el portal del cliente)
   deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
   deliverableId String
   uploadedBy    User?       @relation("VersionUploader", fields: [uploadedById], references: [id])
@@ -781,6 +783,7 @@ model FileAsset {
   folderId     String?
   uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
+  deliverableVersions DeliverableVersion[] @relation("VersionFile")
   createdAt    DateTime       @default(now())
 
   @@index([projectId])

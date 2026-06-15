@@ -98,7 +98,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                     <div className={cn("border-b border-border px-4 py-2.5 last:border-0 hover:bg-accent", !n.read && "bg-primary/5")}>
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-medium">{n.title}</p>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                        <span suppressHydrationWarning className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
                       </div>
                       {n.body ? <p className="text-xs text-muted-foreground">{n.body}</p> : null}
                     </div>

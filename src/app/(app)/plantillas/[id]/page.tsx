@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import type { TemplateContent } from "@/lib/templates";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Trash2, X } from "lucide-react";
 import {
   updateTemplateMeta,
@@ -61,9 +62,9 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
             <button className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">Duplicar</button>
           </form>
           <form action={deleteTemplate.bind(null, id)}>
-            <button className="flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">
+            <ConfirmSubmit message="¿Eliminar esta plantilla? No se puede deshacer." className="flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">
               <Trash2 className="size-3.5" /> Eliminar
-            </button>
+            </ConfirmSubmit>
           </form>
         </div>
       </div>

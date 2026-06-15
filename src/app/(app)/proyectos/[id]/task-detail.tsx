@@ -112,7 +112,12 @@ export function TaskDetail({
 
           {/* Eliminar */}
           <form action={deleteTask.bind(null, task.id, projectId)} className="border-t border-border pt-4">
-            <button className="text-sm text-destructive hover:underline">Eliminar tarea</button>
+            <button
+              className="text-sm text-destructive hover:underline"
+              onClick={(e) => { if (!confirm("¿Eliminar esta tarea? No se puede deshacer.")) e.preventDefault(); }}
+            >
+              Eliminar tarea
+            </button>
           </form>
         </div>
       </div>

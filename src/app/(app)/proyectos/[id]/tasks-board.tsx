@@ -339,7 +339,11 @@ function CardContent({
               title="Fecha de rodaje"
             />
             <form action={deleteTask.bind(null, t.id, projectId)}>
-              <button className="px-1 text-xs text-muted-foreground hover:text-destructive" title="Eliminar">✕</button>
+              <button
+                className="px-1 text-xs text-muted-foreground hover:text-destructive"
+                title="Eliminar"
+                onClick={(e) => { if (!confirm(`¿Eliminar la tarea «${t.title}»?`)) e.preventDefault(); }}
+              >✕</button>
             </form>
           </div>
         </>

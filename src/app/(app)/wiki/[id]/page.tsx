@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { DataTableView } from "@/components/tables/data-table";
 import { createTableForWiki } from "@/app/(app)/tablas/actions";
 import { updateWikiPage, deleteWikiPage } from "../actions";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import { cellsToMap } from "@/lib/table-cells";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
       <div className="flex items-center justify-between">
         <Link href="/wiki" className="text-sm text-muted-foreground hover:text-foreground">← Wiki</Link>
         <form action={deleteWikiPage.bind(null, id)}>
-          <button className="text-xs text-muted-foreground hover:text-destructive">Eliminar página</button>
+          <ConfirmSubmit message="¿Eliminar esta página de la wiki? No se puede deshacer." className="text-xs text-muted-foreground hover:text-destructive">Eliminar página</ConfirmSubmit>
         </form>
       </div>
 

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
+import { signFileToken } from "@/lib/storage";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { ReviewClient } from "./review-client";
 
@@ -16,7 +17,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     where: { id: deliverableId },
     include: {
       project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
-      versions: { orderBy: { number: "desc" } },
+      versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
       reviewComments: { orderBy: { createdAt: "asc" } },
     },
   });
@@ -24,6 +25,14 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
 
   const latest = deliverable.versions[0] ?? null;
   const meta = deliverableStatusMeta(deliverable.status);
+
+  // Material a mostrar: el archivo subido (servido con token público) o, si no
+  // hay, el enlace externo de la versión.
+  const latestFile = latest?.fileAsset
+    ? { url: `/api/files-asset/${latest.fileAsset.id}?t=${signFileToken(latest.fileAsset.id)}`, name: latest.fileAsset.name }
+    : latest?.fileUrl
+      ? { url: latest.fileUrl, name: latest.fileUrl }
+      : null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -52,7 +61,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
 
         <ReviewClient
           token={token}
-          videoUrl={latest?.fileUrl ?? null}
+          videoUrl={latestFile?.url ?? null}
+          fileName={latestFile?.name ?? null}
           versionNumber={latest?.number ?? null}
           status={deliverable.status}
           comments={deliverable.reviewComments.map((c) => ({
