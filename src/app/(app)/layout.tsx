@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
+import { accessibleProjectWhere } from "@/lib/project-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -15,7 +16,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [clients, team, notifs, general, chatMembers] = await Promise.all([
     db.client.findMany({
       orderBy: { createdAt: "asc" },
-      include: { _count: { select: { projects: true } } },
+      include: {
+        // Solo los proyectos que el usuario puede ver, para el desplegable del sidebar.
+        projects: {
+          where: accessibleProjectWhere(session),
+          orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, emoji: true },
+        },
+      },
     }),
     db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
     db.notification.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 15 }),
@@ -82,7 +90,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         name: c.name,
         emoji: c.emoji,
         accentColor: c.accentColor,
-        projectCount: c._count.projects,
+        projectCount: c.projects.length,
+        projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji })),
       }))}
       team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
       notifications={notifs.map((n) => ({

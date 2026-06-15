@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -16,6 +17,7 @@ import {
   Settings,
   Plus,
   ChevronsUpDown,
+  ChevronRight,
   BookOpen,
   Library,
   LogOut,
@@ -32,12 +34,15 @@ export type SidebarUser = {
   avatarUrl?: string | null;
 };
 
+export type SidebarProject = { id: string; name: string; emoji: string | null };
+
 export type SidebarClient = {
   id: string;
   name: string;
   emoji: string | null;
   accentColor: string | null;
   projectCount: number;
+  projects: SidebarProject[];
 };
 
 const NAV = [
@@ -69,6 +74,13 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+
+  // Proyecto activo (para resaltar y auto-desplegar su cliente).
+  const activeProjectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
+  // Despliegue manual de cada cliente; por defecto se abre el que tiene el proyecto activo.
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  const isClientOpen = (c: SidebarClient) =>
+    openMap[c.id] ?? c.projects.some((p) => p.id === activeProjectId);
 
   // Fila de navegación reutilizable; oculta la etiqueta en modo riel (collapsed).
   const navRow = (
@@ -164,28 +176,89 @@ export function Sidebar({
         </div>
         {clients.map((c) => {
           const active = pathname === `/clientes/${c.id}`;
+
+          // En modo riel (collapsed) se mantiene el enlace simple con el emoji.
+          if (collapsed) {
+            return (
+              <Link
+                key={c.id}
+                href={`/clientes/${c.id}`}
+                onClick={onNavigate}
+                title={c.name}
+                className={cn(
+                  "flex items-center justify-center rounded-md px-2 py-2 text-sm transition-colors",
+                  active
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+                )}
+              >
+                <span className="text-base leading-none">{c.emoji ?? "•"}</span>
+              </Link>
+            );
+          }
+
+          const open = isClientOpen(c);
+          const hasProjects = c.projects.length > 0;
           return (
-            <Link
-              key={c.id}
-              href={`/clientes/${c.id}`}
-              onClick={onNavigate}
-              title={collapsed ? c.name : undefined}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md text-sm transition-colors",
-                collapsed ? "justify-center px-2 py-2" : "px-2.5 py-2",
-                active
-                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
-              )}
-            >
-              <span className="text-base leading-none">{c.emoji ?? "•"}</span>
-              {!collapsed ? (
-                <>
+            <div key={c.id}>
+              {/* Fila del cliente: chevron para desplegar + enlace al cliente */}
+              <div
+                className={cn(
+                  "flex items-center rounded-md text-sm transition-colors",
+                  active
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+                )}
+              >
+                {hasProjects ? (
+                  <button
+                    type="button"
+                    onClick={() => setOpenMap((m) => ({ ...m, [c.id]: !open }))}
+                    aria-label={open ? "Contraer" : "Desplegar"}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground"
+                  >
+                    <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+                  </button>
+                ) : (
+                  <span className="w-7 shrink-0" />
+                )}
+                <Link
+                  href={`/clientes/${c.id}`}
+                  onClick={onNavigate}
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2.5"
+                >
+                  <span className="text-base leading-none">{c.emoji ?? "•"}</span>
                   <span className="flex-1 truncate">{c.name}</span>
                   <span className="text-xs text-sidebar-muted">{c.projectCount}</span>
-                </>
+                </Link>
+              </div>
+
+              {/* Proyectos del cliente (desplegados) */}
+              {open && hasProjects ? (
+                <div className="ml-[1.375rem] flex flex-col gap-0.5 border-l border-sidebar-border pb-1 pl-2 pt-0.5">
+                  {c.projects.map((p) => {
+                    const pActive = activeProjectId === p.id;
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/proyectos/${p.id}`}
+                        onClick={onNavigate}
+                        title={p.name}
+                        className={cn(
+                          "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
+                          pActive
+                            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40",
+                        )}
+                      >
+                        <span className="text-sm leading-none">{p.emoji ?? "•"}</span>
+                        <span className="flex-1 truncate">{p.name}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               ) : null}
-            </Link>
+            </div>
           );
         })}
 
