@@ -23,6 +23,11 @@ services:
       AUTHENTIK_PROVISION_DOMAIN: ${AUTHENTIK_PROVISION_DOMAIN:-labstreamsas.com}
       ONLYOFFICE_DOCS_URL: ${ONLYOFFICE_DOCS_URL:-}
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      # URL con la que el contenedor de OnlyOffice descarga/guarda el documento
+      # (la app vista DESDE OnlyOffice, no desde el navegador). Debe ser alcanzable
+      # entre contenedores: la IP LAN del NAS, p.ej. http://192.168.1.50:3200.
+      # Sin esto cae a NEXTAUTH_URL (dominio público) → suele dar "Error de descarga".
+      ONLYOFFICE_CALLBACK_BASE: ${ONLYOFFICE_CALLBACK_BASE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       # Correo Synology MailPlus (SMTP) — equipo @labstreamsas.com

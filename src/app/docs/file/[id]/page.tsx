@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
-import { onlyofficeEnabled, isEditableOffice, buildConfig, signConfig, DOCS_URL } from "@/lib/onlyoffice";
+import { onlyofficeEnabled, isEditableOffice, buildConfig, signConfig, DOCS_URL, APP_BASE } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "../../[id]/editor";
 
@@ -40,9 +40,8 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
-  const base = process.env.NEXTAUTH_URL || "http://localhost:3200";
-  const fileUrl = `${base}/api/files-asset/${id}?t=${signFileToken(id)}`;
-  const callbackUrl = `${base}/api/docs/file/${id}/callback`;
+  const fileUrl = `${APP_BASE}/api/files-asset/${id}?t=${signFileToken(id)}`;
+  const callbackUrl = `${APP_BASE}/api/docs/file/${id}/callback`;
   const config = await signConfig(
     buildConfig({
       attachmentId: id,

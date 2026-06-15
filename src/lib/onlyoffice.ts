@@ -7,6 +7,19 @@ export const DOCS_URL = (process.env.ONLYOFFICE_DOCS_URL || "").replace(/\/$/, "
 const JWT_SECRET = process.env.ONLYOFFICE_JWT_SECRET || "";
 export const onlyofficeEnabled = Boolean(DOCS_URL);
 
+// URL con la que el Document Server (OnlyOffice) DESCARGA el documento y envía el
+// callback. OJO: es la app vista DESDE el contenedor de OnlyOffice, no desde el
+// navegador. Como app y OnlyOffice están en redes Docker distintas, el dominio
+// público (NEXTAUTH_URL = https://os.labstreamsas.com) suele NO ser alcanzable
+// (NAT loopback / TLS) → "Error de descarga". Configura ONLYOFFICE_CALLBACK_BASE
+// con una dirección que el contenedor SÍ alcance: la IP LAN del NAS, p.ej.
+// http://192.168.1.50:3200, o el nombre de servicio si comparten red Docker.
+export const APP_BASE = (
+  process.env.ONLYOFFICE_CALLBACK_BASE ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost:3200"
+).replace(/\/$/, "");
+
 const WORD = ["doc", "docx", "odt", "rtf", "txt"];
 const CELL = ["xls", "xlsx", "ods", "csv"];
 const SLIDE = ["ppt", "pptx", "odp"];
