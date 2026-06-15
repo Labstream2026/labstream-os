@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { ViewTabs } from "./[id]/view-tabs";
 import { ProjectsCalendar, type CalProject } from "./projects-calendar";
 import { ProjectColorPicker } from "./project-color-picker";
+import { ProjectsBoard, type BoardClient } from "./projects-board";
 
 export const dynamic = "force-dynamic";
 
@@ -50,74 +51,69 @@ export default async function ProyectosPage() {
     deliverables: p.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate ? d.dueDate.toISOString() : null })),
   }));
 
-  // Vista Tablero (cards por cliente)
-  const board = (
+  // Vista Tablero (cards por cliente; vertical u horizontal — ProjectsBoard)
+  const boardClients: BoardClient[] = clients.map((c) => ({
+    id: c.id,
+    name: c.name,
+    emoji: c.emoji,
+    projects: c.projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      status: p.status,
+      progress: p.progress,
+      dueDate: p.dueDate ? p.dueDate.toISOString() : null,
+      lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
+    })),
+  }));
+  const board = <ProjectsBoard clients={boardClients} />;
+
+  // Vista Lista: una tabla por cliente (segmentación clara por cliente).
+  const list = (
     <div className="space-y-8">
       {clients.map((c) => (
         <section key={c.id}>
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <span className="text-base">{c.emoji}</span>
             <h2 className="text-sm font-semibold">{c.name}</h2>
             <span className="text-xs text-muted-foreground">· {c.projects.length}</span>
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {c.projects.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={{
-                  id: p.id,
-                  name: p.name,
-                  emoji: p.emoji,
-                  status: p.status,
-                  progress: p.progress,
-                  dueDate: p.dueDate,
-                  lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
-                }}
-              />
-            ))}
+          <div className="overflow-hidden rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">Color</th>
+                  <th className="px-3 py-2 font-medium">Proyecto</th>
+                  <th className="px-3 py-2 font-medium">Estado</th>
+                  <th className="px-3 py-2 font-medium">Progreso</th>
+                  <th className="px-3 py-2 font-medium">Entrega</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.projects.map((p) => {
+                  const st = statusMeta(p.status);
+                  return (
+                    <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                      <td className="px-3 py-2"><ProjectColorPicker projectId={p.id} color={p.color} /></td>
+                      <td className="px-3 py-2">
+                        <Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link>
+                      </td>
+                      <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} /></div>
+                          <span className="text-xs text-muted-foreground">{p.progress}%</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </section>
       ))}
-    </div>
-  );
-
-  // Vista Lista (tabla con color asignable)
-  const list = (
-    <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-            <th className="px-3 py-2 font-medium">Color</th>
-            <th className="px-3 py-2 font-medium">Proyecto</th>
-            <th className="px-3 py-2 font-medium">Cliente</th>
-            <th className="px-3 py-2 font-medium">Estado</th>
-            <th className="px-3 py-2 font-medium">Progreso</th>
-            <th className="px-3 py-2 font-medium">Entrega</th>
-          </tr>
-        </thead>
-        <tbody>
-          {flat.map((p) => {
-            const st = statusMeta(p.status);
-            return (
-              <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                <td className="px-3 py-2"><ProjectColorPicker projectId={p.id} color={p.color} /></td>
-                <td className="px-3 py-2">
-                  <Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link>
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">{p.clientEmoji} {p.clientName}</td>
-                <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} /></div>
-                    <span className="text-xs text-muted-foreground">{p.progress}%</span>
-                  </div>
-                </td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
     </div>
   );
 
