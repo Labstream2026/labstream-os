@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { accessibleClientWhere } from "@/lib/client-access";
 import { signProposalToken } from "@/lib/proposals/token";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalEditor } from "./editor";
@@ -13,7 +14,10 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
   if (!hasPermission(session, "ver_cotizaciones")) redirect("/");
   if (!hasPermission(session, "crear_cotizaciones")) redirect("/cotizaciones");
 
-  const p = await db.proposal.findUnique({ where: { id } });
+  const [p, clients] = await Promise.all([
+    db.proposal.findUnique({ where: { id } }),
+    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true, emoji: true } }),
+  ]);
   if (!p) notFound();
 
   const brand = { ...BRAND_DEFAULT, ...((p.brand as unknown as Brand) ?? {}) };
@@ -31,6 +35,8 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
       initialBrand={brand}
       initialStatus={status}
       initialExpiresAt={expiresAt}
+      initialClientId={p.clientId ?? ""}
+      clients={clients.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
       publicUrl={publicUrl}
     />
   );

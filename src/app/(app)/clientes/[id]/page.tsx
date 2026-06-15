@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProjectsCalendar, type CalProject } from "@/app/(app)/proyectos/projects-calendar";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
+import { tone } from "@/lib/colors";
+import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
+import { TEMPLATE_MAP } from "@/lib/proposals/templates";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +52,13 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     orderBy: { createdAt: "desc" },
     take: 60,
     include: { user: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+
+  // Propuestas vinculadas a este cliente (constructor de propuestas).
+  const proposals = await db.proposal.findMany({
+    where: { clientId: id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, code: true, title: true, status: true, expiresAt: true, templateKey: true },
   });
 
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
@@ -144,6 +154,32 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             { key: "proyectos", label: "Proyectos", icon: "🗂️", node: board },
             { key: "lista", label: "Lista", icon: "☰", node: list },
             { key: "calendario", label: "Calendario", icon: "📅", node: <ProjectsCalendar projects={calProjects} /> },
+            {
+              key: "propuestas",
+              label: "Propuestas",
+              icon: "✦",
+              node: proposals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin propuestas vinculadas. Vincúlalas desde el editor de la propuesta (Ajustes → Cliente vinculado).</p>
+              ) : (
+                <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                  {proposals.map((p) => {
+                    const st = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
+                    const meta = STATUS_META[st];
+                    const tpl = TEMPLATE_MAP[p.templateKey];
+                    return (
+                      <Link key={p.id} href={`/cotizaciones/propuestas/${p.id}`} className="flex items-center gap-3 p-3 transition-colors hover:bg-accent/50">
+                        <span className="text-lg">{tpl?.icon ?? "📄"}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{p.title}</p>
+                          <p className="truncate text-xs text-muted-foreground">{tpl?.name ?? p.templateKey} · {p.code}</p>
+                        </div>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${tone(meta.tone).chip}`}>{meta.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ),
+            },
             {
               key: "actividad",
               label: "Actividad",

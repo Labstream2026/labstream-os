@@ -17,7 +17,7 @@ import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deletePropos
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
 export function ProposalEditor({
-  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, publicUrl,
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", clients = [], publicUrl,
 }: {
   id: string;
   code: string;
@@ -26,12 +26,15 @@ export function ProposalEditor({
   initialBrand: Brand;
   initialStatus: ProposalStatus;
   initialExpiresAt: string;
+  initialClientId?: string;
+  clients?: { id: string; name: string; emoji: string | null }[];
   publicUrl: string;
 }) {
   const router = useRouter();
   const [blocks, setBlocks] = React.useState<Block[]>(initialBlocks);
   const [brand, setBrand] = React.useState<Brand>(initialBrand);
   const [title, setTitle] = React.useState(initialTitle);
+  const [clientId, setClientId] = React.useState(initialClientId);
   const [expiresAt, setExpiresAt] = React.useState(initialExpiresAt);
   const [status, setStatus] = React.useState<ProposalStatus>(initialStatus);
   const [preview, setPreview] = React.useState(false);
@@ -78,7 +81,7 @@ export function ProposalEditor({
   const updateBlock = (i: number, b: Block) => mutate((prev) => prev.map((x, idx) => (idx === i ? b : x)));
 
   async function saveMeta() {
-    await updateProposalMeta(id, { title, brand, expiresAt: expiresAt || null });
+    await updateProposalMeta(id, { title, brand, expiresAt: expiresAt || null, clientId: clientId || null });
     setShowSettings(false);
     router.refresh();
   }
@@ -136,6 +139,13 @@ export function ProposalEditor({
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">Título (interno)</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Cliente vinculado (aparece en su ficha)</span>
+            <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <option value="">Sin vincular</option>
+              {clients.map((c) => (<option key={c.id} value={c.id}>{c.emoji ? `${c.emoji} ` : ""}{c.name}</option>))}
+            </select>
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm">

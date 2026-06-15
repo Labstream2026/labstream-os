@@ -52,6 +52,11 @@ export async function createProposal(
   const tpl = templateKey;
   const title = cliente ? `Propuesta · ${cliente}` : "Propuesta sin título";
 
+  // Si el nombre del cliente coincide con un cliente de OS, se vincula solo.
+  const matched = cliente
+    ? await db.client.findFirst({ where: { name: { equals: cliente, mode: "insensitive" } }, select: { id: true } })
+    : null;
+
   const proposal = await db.proposal.create({
     data: {
       code: await nextCode(),
@@ -60,6 +65,7 @@ export async function createProposal(
       brand: brand as unknown as object,
       blocks: blocks as unknown as object,
       answers: answers as unknown as object,
+      clientId: matched?.id ?? null,
       createdById: session.id,
     },
   });
@@ -76,15 +82,17 @@ export async function saveProposalBlocks(id: string, blocks: unknown) {
 
 export async function updateProposalMeta(
   id: string,
-  data: { title?: string; brand?: Brand; expiresAt?: string | null },
+  data: { title?: string; brand?: Brand; expiresAt?: string | null; clientId?: string | null },
 ) {
   await requirePerm("crear_cotizaciones");
   const patch: Record<string, unknown> = {};
   if (typeof data.title === "string" && data.title.trim()) patch.title = data.title.trim().slice(0, 160);
   if (data.brand) patch.brand = { ...BRAND_DEFAULT, ...data.brand } as unknown as object;
   if (data.expiresAt !== undefined) patch.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+  if (data.clientId !== undefined) patch.clientId = data.clientId || null;
   await db.proposal.update({ where: { id }, data: patch });
   refresh(id);
+  if (data.clientId) revalidatePath(`/clientes/${data.clientId}`);
 }
 
 const STATUSES = ["BORRADOR", "ENVIADA", "ACEPTADA", "VENCIDA"];
