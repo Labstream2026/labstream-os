@@ -4,6 +4,7 @@ import { canAccessProject } from "@/lib/project-access";
 import { UserAvatar } from "@/components/user-avatar";
 import { caldavEnabled } from "@/lib/caldav";
 import { MyCalendar, type CalItem } from "./my-calendar";
+import { createMyEvent } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +79,7 @@ export default async function CalendarioPage() {
       </p>
 
       <div className="mt-6">
-        <MyCalendar items={calItems} />
+        <MyCalendar items={calItems} onCreate={createMyEvent} />
       </div>
 
       <h2 className="mt-10 text-lg font-semibold">Agenda</h2>

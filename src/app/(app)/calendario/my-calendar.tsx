@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 
 export type CalItem = {
@@ -23,10 +23,18 @@ function dayKey(d: string): string | null {
 
 // Calendario mensual del usuario: combina sus eventos (reuniones, citas) y sus
 // tareas con fecha de entrega. Base lista para sincronizar con Synology Calendar.
-export function MyCalendar({ items }: { items: CalItem[] }) {
+export function MyCalendar({
+  items,
+  onCreate,
+}: {
+  items: CalItem[];
+  onCreate?: (fd: FormData) => Promise<void>;
+}) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  const [pending, start] = useTransition();
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalItem[]>();
@@ -71,7 +79,11 @@ export function MyCalendar({ items }: { items: CalItem[] }) {
           const evs = key ? byDay.get(key) ?? [] : [];
           const isToday = key === todayKey;
           return (
-            <div key={i} className={cn("min-h-24 bg-card p-1.5", !d && "bg-muted/20")}>
+            <div
+              key={i}
+              onClick={() => { if (d && key && onCreate) setOpenDay(key); }}
+              className={cn("min-h-24 bg-card p-1.5", !d && "bg-muted/20", d && onCreate && "cursor-pointer hover:bg-muted/30")}
+            >
               {d ? (
                 <>
                   <div className={cn("mb-1 inline-flex size-5 items-center justify-center rounded-full text-[11px]", isToday ? "bg-primary font-semibold text-primary-foreground" : "text-muted-foreground")}>{d}</div>
@@ -96,10 +108,42 @@ export function MyCalendar({ items }: { items: CalItem[] }) {
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-primary/40" /> Eventos / reuniones</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-amber-500/40" /> Tareas con entrega</span>
+        {onCreate ? <span className="ml-auto">Toca un día para crear una cita.</span> : null}
       </div>
+
+      {/* Crear cita al tocar un día */}
+      {openDay && onCreate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenDay(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold">Nueva cita</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {new Date(`${openDay}T00:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                fd.set("date", openDay);
+                start(() => onCreate(fd).then(() => setOpenDay(null)));
+              }}
+              className="mt-3 space-y-2"
+            >
+              <input name="title" required autoFocus placeholder="Título de la cita" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              <div className="flex items-center gap-2">
+                <input name="time" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                <span className="text-xs text-muted-foreground">(vacío = todo el día)</span>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setOpenDay(null)} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">Cancelar</button>
+                <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">{pending ? "Creando…" : "Crear"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
