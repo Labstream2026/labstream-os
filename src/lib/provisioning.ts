@@ -75,7 +75,9 @@ export async function instantiateTemplate(
   });
 
   const content = tpl?.content;
-  await createFolders(db, project.id, content?.folders ?? DEFAULT_FOLDERS);
+  // Solo se crean carpetas si la plantilla define una lista explícita y no vacía.
+  // Los proyectos nuevos arrancan SIN carpetas (el equipo las crea a su gusto).
+  if (content?.folders?.length) await createFolders(db, project.id, content.folders);
 
   if (content?.tasks.length) {
     const cols = content.stages?.length ? content.stages : [];

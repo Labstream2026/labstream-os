@@ -211,7 +211,7 @@ export const TEMPLATES: TemplateDef[] = [
     type: "REEL",
     content: {
       stages: PROD_STAGES,
-      folders: DEFAULT_FOLDERS,
+      folders: [],
       tasks: [
         { title: "Brief con el cliente", priority: "ALTA" },
         { title: "Guion y storyboard" },
@@ -238,7 +238,7 @@ export const TEMPLATES: TemplateDef[] = [
     type: "PODCAST",
     content: {
       stages: ["Preproducción", "Grabación", "Edición", "Publicación"],
-      folders: DEFAULT_FOLDERS,
+      folders: [],
       tasks: [
         { title: "Definir tema e invitado", priority: "ALTA" },
         { title: "Preparar preguntas" },
@@ -264,7 +264,7 @@ export const TEMPLATES: TemplateDef[] = [
     type: "STREAMING",
     content: {
       stages: ["Preproducción", "Montaje técnico", "Transmisión", "Postevento"],
-      folders: DEFAULT_FOLDERS,
+      folders: [],
       tasks: [
         { title: "Plan técnico y escaleta", priority: "ALTA" },
         { title: "Prueba de conectividad", priority: "URGENTE" },
@@ -290,7 +290,7 @@ export const TEMPLATES: TemplateDef[] = [
     type: "INSTITUCIONAL",
     content: {
       stages: PROD_STAGES,
-      folders: DEFAULT_FOLDERS,
+      folders: [],
       tasks: [
         { title: "Reunión de brief", priority: "ALTA" },
         { title: "Guion técnico y literario" },
@@ -318,7 +318,7 @@ export const TEMPLATES: TemplateDef[] = [
     type: "CAMPANA_MENSUAL",
     content: {
       stages: ["Planeación", "Grabación", "Edición", "Publicación"],
-      folders: DEFAULT_FOLDERS,
+      folders: [],
       tasks: [
         { title: "Planeación de contenido del mes", priority: "ALTA" },
         { title: "Día de grabación", priority: "ALTA" },

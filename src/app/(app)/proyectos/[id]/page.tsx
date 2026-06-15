@@ -9,6 +9,7 @@ import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { emailEnabled } from "@/lib/email";
+import { isEditableOffice } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { DataTableView } from "@/components/tables/data-table";
@@ -259,9 +260,9 @@ export default async function ProyectoPage({
               name: f.name,
               icon: f.icon,
               color: f.color,
-              files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url })),
+              files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) })),
             }))}
-            looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url }))}
+            looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) }))}
           />
         ) : null}
         {tab === "actividad" ? (

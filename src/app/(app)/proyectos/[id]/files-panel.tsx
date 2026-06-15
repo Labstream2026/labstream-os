@@ -1,11 +1,30 @@
-import { FILE_KIND_LABEL } from "@/lib/ui";
-import { isEditableOffice } from "@/lib/onlyoffice";
+"use client";
+
+import * as React from "react";
+import {
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  FileText,
+  FileSpreadsheet,
+  Presentation,
+  FileType,
+  File as FileIcon,
+  Link2,
+  Upload,
+  FolderPlus,
+  MoreHorizontal,
+  Trash2,
+  Download,
+  Eye,
+  Pencil,
+} from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { addFile, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null };
-type Folder = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; editable: boolean };
+type FolderItem = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
 
 export function FilesPanel({
   projectId,
@@ -13,132 +32,209 @@ export function FilesPanel({
   looseFiles,
 }: {
   projectId: string;
-  folders: Folder[];
+  folders: FolderItem[];
   looseFiles: FileAsset[];
 }) {
+  const [tool, setTool] = React.useState<null | "upload" | "link" | "folder">(null);
+  const [open, setOpen] = React.useState<Record<string, boolean>>(() =>
+    Object.fromEntries(folders.filter((f) => f.files.length).map((f) => [f.id, true])),
+  );
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const flip = (t: "upload" | "link" | "folder") => setTool((cur) => (cur === t ? null : t));
+
+  const empty = folders.length === 0 && looseFiles.length === 0;
+
   return (
-    <div className="space-y-5">
-      {/* Añadir archivo / enlace */}
-      <form
-        action={addFile.bind(null, projectId)}
-        className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3"
-      >
-        <input name="name" required placeholder="Nombre del archivo o enlace…" className="min-w-44 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-        <input name="url" required placeholder="https:// (Drive, link…)" className="min-w-44 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-        <select name="folderId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
-          <option value="">Sin carpeta</option>
-          {folders.map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
-        </select>
-        <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</button>
-      </form>
+    <div className="space-y-3">
+      {/* Barra de acciones (estilo Finder: limpia, las opciones se despliegan al pulsar) */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <ToolBtn active={tool === "upload"} onClick={() => flip("upload")} icon={Upload}>Subir archivos</ToolBtn>
+        <ToolBtn active={tool === "link"} onClick={() => flip("link")} icon={Link2}>Añadir enlace</ToolBtn>
+        <ToolBtn active={tool === "folder"} onClick={() => flip("folder")} icon={FolderPlus}>Nueva carpeta</ToolBtn>
+      </div>
 
-      {/* Subir archivos (locales, editables con OnlyOffice) */}
-      <form
-        action={uploadProjectFiles.bind(null, projectId)}
-        className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-card p-3"
-      >
-        <input type="file" name="files" multiple required className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-        <select name="folderId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
-          <option value="">Sin carpeta</option>
-          {folders.map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
-        </select>
-        <button className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-accent">Subir archivos</button>
-      </form>
-
-      {/* Nueva carpeta (icono + color) */}
-      <details className="rounded-xl border border-dashed border-border bg-card/50">
-        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-muted-foreground">+ Nueva carpeta</summary>
-        <form action={createFolder.bind(null, projectId)} className="flex flex-wrap items-end gap-2 border-t border-border p-3">
+      {/* Formulario activo */}
+      {tool === "upload" ? (
+        <form action={uploadProjectFiles.bind(null, projectId)} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
+          <input type="file" name="files" multiple required className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+          <FolderSelect folders={folders} />
+          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Subir</button>
+        </form>
+      ) : null}
+      {tool === "link" ? (
+        <form action={addFile.bind(null, projectId)} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
+          <input name="name" required placeholder="Nombre" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input name="url" type="url" required placeholder="https:// (Drive, web…)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <FolderSelect folders={folders} />
+          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</button>
+        </form>
+      ) : null}
+      {tool === "folder" ? (
+        <form action={createFolder.bind(null, projectId)} className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
           <input name="name" required placeholder="Nombre de la carpeta" className="min-w-44 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <input name="icon" maxLength={2} placeholder="📁" className="w-16 rounded-md border border-input bg-background px-2 py-2 text-center text-sm" />
+          <input name="icon" maxLength={2} placeholder="📁" className="w-14 rounded-md border border-input bg-background px-2 py-2 text-center text-sm" />
           <ColorSelect />
           <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Crear</button>
         </form>
-      </details>
+      ) : null}
 
-      <div className="space-y-3">
-        {folders.map((folder) => {
-          const t = tone(folder.color);
-          return (
-            <div key={folder.id} className={cn("rounded-xl border bg-card p-4", folder.color ? "border-l-4" : "border-border")} style={folder.color ? { borderLeftColor: t.hex } : undefined}>
-              <div className="flex items-center gap-2">
-                <span className="text-base">{folder.icon ?? "📁"}</span>
-                <h3 className="text-sm font-semibold">{folder.name}</h3>
-                <span className="text-xs text-muted-foreground">{folder.files.length}</span>
-                <span className="flex-1" />
-                <details data-autoclose className="relative">
-                  <summary className="cursor-pointer list-none rounded px-1.5 text-xs text-muted-foreground hover:text-foreground">⋯</summary>
-                  <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-border bg-popover p-3 shadow-lg">
-                    <form action={updateFolder.bind(null, folder.id, projectId)} className="space-y-2">
-                      <input name="name" defaultValue={folder.name} className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
-                      <div className="flex gap-2">
-                        <input name="icon" maxLength={2} defaultValue={folder.icon ?? ""} placeholder="📁" className="w-14 rounded-md border border-input bg-background px-2 py-1.5 text-center text-sm" />
-                        <ColorSelect defaultValue={folder.color ?? ""} />
-                      </div>
-                      <button className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Guardar</button>
-                    </form>
-                    <form action={deleteFolder.bind(null, folder.id, projectId)} className="mt-2 border-t border-border pt-2">
-                      <button className="text-xs text-destructive hover:underline">Eliminar carpeta</button>
-                    </form>
+      {/* Lista tipo Finder: carpetas (expandibles) + archivos, en una sola lista limpia */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        {empty ? (
+          <p className="px-4 py-12 text-center text-sm text-muted-foreground">
+            Aún no hay archivos. Sube uno, añade un enlace o crea una carpeta.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {folders.map((folder) => {
+              const t = tone(folder.color);
+              const isOpen = !!open[folder.id];
+              return (
+                <li key={folder.id}>
+                  <div className="group/row flex items-center gap-1 px-2 py-1.5 hover:bg-muted/40">
+                    <button
+                      type="button"
+                      onClick={() => toggle(folder.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left"
+                    >
+                      <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
+                      {folder.icon ? (
+                        <span className="text-base leading-none">{folder.icon}</span>
+                      ) : isOpen ? (
+                        <FolderOpen className="size-4 shrink-0" style={folder.color ? { color: t.hex } : undefined} />
+                      ) : (
+                        <Folder className="size-4 shrink-0" style={folder.color ? { color: t.hex } : undefined} />
+                      )}
+                      <span className="truncate text-sm font-medium">{folder.name}</span>
+                      <span className="text-xs text-muted-foreground">{folder.files.length}</span>
+                    </button>
+                    <FolderMenu folder={folder} projectId={projectId} />
                   </div>
-                </details>
-              </div>
-              {folder.files.length > 0 ? (
-                <ul className="mt-2 divide-y divide-border">
-                  {folder.files.map((file) => (<FileRow key={file.id} file={file} projectId={projectId} />))}
-                </ul>
-              ) : (
-                <p className="mt-1 pl-7 text-xs text-muted-foreground">Vacía</p>
-              )}
-            </div>
-          );
-        })}
-
-        {looseFiles.length > 0 ? (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold">Sin carpeta</h3>
-            <ul className="mt-2 divide-y divide-border">
-              {looseFiles.map((file) => (<FileRow key={file.id} file={file} projectId={projectId} />))}
-            </ul>
-          </div>
-        ) : null}
+                  {isOpen ? (
+                    folder.files.length > 0 ? (
+                      <ul>
+                        {folder.files.map((file) => (
+                          <FileRow key={file.id} file={file} projectId={projectId} indent />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="py-2 pl-12 text-xs text-muted-foreground">Carpeta vacía</p>
+                    )
+                  ) : null}
+                </li>
+              );
+            })}
+            {looseFiles.map((file) => (
+              <li key={file.id}>
+                <FileRow file={file} projectId={projectId} />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
 }
 
+function ToolBtn({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+        active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      <Icon className="size-4" /> {children}
+    </button>
+  );
+}
+
+function FolderSelect({ folders }: { folders: FolderItem[] }) {
+  return (
+    <select name="folderId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
+      <option value="">Sin carpeta</option>
+      {folders.map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
+    </select>
+  );
+}
+
 function ColorSelect({ defaultValue = "" }: { defaultValue?: string }) {
   return (
-    <select name="color" defaultValue={defaultValue} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+    <select name="color" defaultValue={defaultValue} className="rounded-md border border-input bg-background px-2 py-2 text-sm">
       <option value="">Sin color</option>
       {TONES.map((t) => (<option key={t.key} value={t.key}>{t.label}</option>))}
     </select>
   );
 }
 
-function FileRow({ file, projectId }: { file: FileAsset; projectId: string }) {
-  const icon = file.kind === "DRIVE" ? "🟢" : file.kind === "LOCAL" ? "📄" : "🔗";
+function FolderMenu({ folder, projectId }: { folder: FolderItem; projectId: string }) {
   return (
-    <li className="flex items-center gap-3 py-2">
-      <span>{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm">{file.name}</p>
-        <p className="text-[11px] text-muted-foreground">{FILE_KIND_LABEL[file.kind] ?? file.kind}</p>
+    <details data-autoclose className="relative shrink-0">
+      <summary className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover/row:opacity-100">
+        <MoreHorizontal className="size-4" />
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-border bg-popover p-3 shadow-lg">
+        <form action={updateFolder.bind(null, folder.id, projectId)} className="space-y-2">
+          <input name="name" defaultValue={folder.name} className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+          <div className="flex gap-2">
+            <input name="icon" maxLength={2} defaultValue={folder.icon ?? ""} placeholder="📁" className="w-14 rounded-md border border-input bg-background px-2 py-1.5 text-center text-sm" />
+            <ColorSelect defaultValue={folder.color ?? ""} />
+          </div>
+          <button className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Guardar</button>
+        </form>
+        <form action={deleteFolder.bind(null, folder.id, projectId)} className="mt-2 border-t border-border pt-2">
+          <button
+            onClick={(e) => { if (!confirm(`¿Eliminar la carpeta «${folder.name}»? Sus archivos quedan sin carpeta.`)) e.preventDefault(); }}
+            className="text-xs text-destructive hover:underline"
+          >
+            Eliminar carpeta
+          </button>
+        </form>
       </div>
-      {file.kind === "LOCAL" ? (
-        <>
-          <a href={`/api/files-asset/${file.id}`} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Ver</a>
-          {isEditableOffice(file.name) ? (
-            <a href={`/docs/file/${file.id}`} className="text-xs text-primary hover:underline">Editar</a>
-          ) : null}
-          <a href={`/api/files-asset/${file.id}?download=1`} className="text-xs text-muted-foreground hover:text-foreground">Descargar</a>
-        </>
-      ) : file.url ? (
-        <a href={file.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir</a>
-      ) : null}
-      <form action={deleteFile.bind(null, file.id, projectId)}>
-        <button className="text-xs text-muted-foreground hover:text-destructive" title="Eliminar">✕</button>
-      </form>
-    </li>
+    </details>
+  );
+}
+
+function fileIcon(name: string, kind: string) {
+  if (kind === "DRIVE") return { Icon: Link2, color: "text-emerald-600" };
+  if (kind === "LINK") return { Icon: Link2, color: "text-muted-foreground" };
+  if (/\.(docx?|odt|rtf)$/i.test(name)) return { Icon: FileText, color: "text-blue-600" };
+  if (/\.(xlsx?|csv|ods)$/i.test(name)) return { Icon: FileSpreadsheet, color: "text-emerald-600" };
+  if (/\.(pptx?|odp)$/i.test(name)) return { Icon: Presentation, color: "text-orange-600" };
+  if (/\.pdf$/i.test(name)) return { Icon: FileType, color: "text-red-600" };
+  return { Icon: FileIcon, color: "text-muted-foreground" };
+}
+
+function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: string; indent?: boolean }) {
+  const { Icon, color } = fileIcon(file.name, file.kind);
+  return (
+    <div className={cn("group/file flex items-center gap-2.5 py-2 pr-2 hover:bg-muted/40", indent ? "pl-12" : "pl-3")}>
+      <Icon className={cn("size-4 shrink-0", color)} />
+      <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+      <div className="flex items-center gap-2.5 opacity-0 group-hover/file:opacity-100">
+        {file.kind === "LOCAL" ? (
+          <>
+            <a href={`/api/files-asset/${file.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Ver"><Eye className="size-3.5" /></a>
+            {file.editable ? (
+              <a href={`/docs/file/${file.id}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline" title="Editar"><Pencil className="size-3.5" /></a>
+            ) : null}
+            <a href={`/api/files-asset/${file.id}?download=1`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Descargar"><Download className="size-3.5" /></a>
+          </>
+        ) : file.url ? (
+          <a href={file.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir</a>
+        ) : null}
+        <form action={deleteFile.bind(null, file.id, projectId)}>
+          <button
+            onClick={(e) => { if (!confirm(`¿Eliminar «${file.name}»?`)) e.preventDefault(); }}
+            className="text-muted-foreground hover:text-destructive"
+            title="Eliminar"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
