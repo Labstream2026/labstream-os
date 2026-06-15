@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { verifyProposalToken } from "@/lib/proposals/token";
+import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
 import { PrintButton } from "@/components/print-button";
@@ -12,10 +12,10 @@ export const runtime = "nodejs";
 export default async function PropuestaPublicaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const id = verifyProposalToken(token);
-  if (!id) notFound();
+  if (!id) return <PublicLinkInvalid />;
 
   const p = await db.proposal.findUnique({ where: { id } });
-  if (!p) notFound();
+  if (!p) return <PublicLinkInvalid />;
 
   // Cuenta una visita del cliente (no bloquea el render si falla).
   await db.proposal.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});

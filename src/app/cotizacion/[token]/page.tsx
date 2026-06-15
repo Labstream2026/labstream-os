@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { verifyQuoteToken } from "@/lib/quote-token";
+import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { QuoteDocument } from "@/components/quote-document";
 import { PrintButton } from "@/components/print-button";
 import { QuoteDecision } from "./decision";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export default async function CotizacionPublicaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const quoteId = verifyQuoteToken(token);
-  if (!quoteId) notFound();
+  if (!quoteId) return <PublicLinkInvalid />;
 
   const quote = await db.quote.findUnique({
     where: { id: quoteId },
@@ -21,7 +21,7 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
       items: { orderBy: { position: "asc" } },
     },
   });
-  if (!quote) notFound();
+  if (!quote) return <PublicLinkInvalid />;
 
   const decided = quote.status === "APROBADA" || quote.status === "RECHAZADA";
 

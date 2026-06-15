@@ -1,9 +1,9 @@
-import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { signFileToken } from "@/lib/storage";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { detectSource } from "@/lib/media-source";
+import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { ReviewClient, type ReviewVersion } from "./review-client";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ const VID = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i;
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const deliverableId = verifyReviewToken(token);
-  if (!deliverableId) notFound();
+  if (!deliverableId) return <PublicLinkInvalid />;
 
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
@@ -25,7 +25,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       reviewComments: { orderBy: { createdAt: "asc" } },
     },
   });
-  if (!deliverable) notFound();
+  if (!deliverable) return <PublicLinkInvalid />;
 
   // Enlace revocado: estado inválido (no se muestra el material).
   if (deliverable.reviewRevokedAt) {
