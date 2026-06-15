@@ -29,11 +29,13 @@ export function canWriteProject(project: ProjectShape, session: SessionUser | nu
 }
 
 // ¿Puede GESTIONAR el proyecto (visibilidad, miembros, ajustes)?
-// Estilo Mattermost: admin del sistema, responsable del proyecto o miembro con rol OWNER.
+// Admin del sistema, editores (sobre proyectos que ya ven), el responsable del
+// proyecto o un miembro con rol OWNER.
 export function canManageProject(project: ProjectShape, session: SessionUser | null): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
   if (project.leadId === session.id) return true;
+  if (session.role === "editor" && canAccessProject(project, session)) return true;
   return project.members.some((m) => m.userId === session.id && m.role === "OWNER");
 }
 
