@@ -242,10 +242,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn }: {
     return <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">Sin material para esta versión.</div>;
   }
 
-  // Elemento del que se puede capturar el fotograma (video/imagen); null en embeds.
+  // Elemento del que se puede capturar el fotograma (video/imagen del mismo origen);
+  // null en embeds: YouTube/Vimeo/Drive son iframes de otro origen y el navegador no
+  // deja leer sus píxeles. En esos casos el cliente pega o sube una captura para anotarla.
   const captureTarget = () => (version?.kind === "video" ? videoRef.current : version?.kind === "image" ? imgRef.current : null);
+  const canCapture = version?.kind === "video" || version?.kind === "image";
   const overlay = drawOpen ? (
-    <DrawOverlay onCommit={(strokes, box) => onDrawn(compositeFromEl(captureTarget(), strokes, box))} />
+    <DrawOverlay captureEl={captureTarget} canCapture={canCapture} onResult={onDrawn} />
   ) : null;
 
   if (version.kind === "video") {
@@ -284,11 +287,20 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn }: {
 
 type Stroke = { x: number; y: number }[];
 
-// Lienzo transparente para dibujar trazos sobre el material.
-function DrawOverlay({ onCommit }: { onCommit: (strokes: Stroke[], box: { w: number; h: number }) => void }) {
+// Lienzo de anotación. Compone un JPEG con un fondo + los trazos rojos. El fondo es,
+// por prioridad: (1) una captura que el cliente pegó/subió — sirve para Drive,
+// YouTube y Vimeo, donde el navegador no puede leer el iframe; (2) el fotograma del
+// <video>/<img> del mismo origen; (3) si nada de eso, un fondo oscuro con los trazos.
+function DrawOverlay({ captureEl, canCapture, onResult }: {
+  captureEl: () => HTMLVideoElement | HTMLImageElement | null;
+  canCapture: boolean;
+  onResult: (dataUrl: string | null) => void;
+}) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   const strokes = React.useRef<Stroke[]>([]);
   const drawingNow = React.useRef(false);
+  const bgImg = React.useRef<HTMLImageElement | null>(null);
+  const [bgUrl, setBgUrl] = React.useState<string | null>(null);
 
   const ctx = () => ref.current?.getContext("2d") ?? null;
   const redraw = () => {
@@ -296,18 +308,42 @@ function DrawOverlay({ onCommit }: { onCommit: (strokes: Stroke[], box: { w: num
     if (!c || !g) return;
     g.clearRect(0, 0, c.width, c.height);
     g.strokeStyle = "#ef4444"; g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round";
-    for (const s of strokes.current) {
-      g.beginPath();
-      s.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
-      g.stroke();
-    }
+    for (const s of strokes.current) { g.beginPath(); s.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); g.stroke(); }
+  };
+  const commit = () => {
+    const c = ref.current; if (!c) return;
+    const src = bgImg.current ?? captureEl();
+    onResult(composite(src, strokes.current, { w: c.width, h: c.height }));
   };
 
   React.useEffect(() => {
-    const c = ref.current;
-    if (!c) return;
-    const r = c.getBoundingClientRect();
-    c.width = r.width; c.height = r.height;
+    const c = ref.current; if (!c) return;
+    const r = c.getBoundingClientRect(); c.width = r.width; c.height = r.height;
+  }, []);
+
+  // Carga una captura (pegada o subida) como fondo de la anotación.
+  const loadBg = (file: File | Blob | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      const img = new Image();
+      img.onload = () => { bgImg.current = img; setBgUrl(url); commit(); };
+      img.src = url;
+    };
+    reader.readAsDataURL(file);
+  };
+  const loadBgRef = React.useRef(loadBg);
+  loadBgRef.current = loadBg;
+
+  // Pegar (Ctrl/Cmd+V) una imagen del portapapeles mientras se anota.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith("image/"));
+      if (item) { e.preventDefault(); loadBgRef.current(item.getAsFile()); }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
   }, []);
 
   const pos = (e: React.PointerEvent) => {
@@ -317,36 +353,48 @@ function DrawOverlay({ onCommit }: { onCommit: (strokes: Stroke[], box: { w: num
 
   return (
     <div className="absolute inset-0">
+      {bgUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={bgUrl} alt="" className="absolute inset-0 h-full w-full rounded-xl bg-black object-contain" />
+      ) : null}
       <canvas
         ref={ref}
         className="absolute inset-0 h-full w-full cursor-crosshair touch-none rounded-xl"
         onPointerDown={(e) => { drawingNow.current = true; strokes.current.push([pos(e)]); (e.target as HTMLElement).setPointerCapture(e.pointerId); }}
         onPointerMove={(e) => { if (!drawingNow.current) return; strokes.current[strokes.current.length - 1].push(pos(e)); redraw(); }}
-        onPointerUp={() => { drawingNow.current = false; const c = ref.current!; onCommit(strokes.current, { w: c.width, h: c.height }); }}
+        onPointerUp={() => { drawingNow.current = false; commit(); }}
       />
+      {!bgUrl && !canCapture ? (
+        <div className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit max-w-[90%] rounded-md bg-black/70 px-3 py-1 text-center text-[11px] text-white">
+          Pega (Ctrl/Cmd+V) o sube una captura del momento para anotarla
+        </div>
+      ) : null}
       <div className="absolute right-2 top-2 flex gap-1.5">
-        <button onClick={() => { strokes.current = []; redraw(); onCommit([], { w: ref.current!.width, h: ref.current!.height }); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-neutral-700 shadow">Borrar</button>
+        <label className="cursor-pointer rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-neutral-700 shadow hover:bg-white">
+          Subir captura
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => loadBg(e.target.files?.[0] ?? null)} />
+        </label>
+        <button onClick={() => { strokes.current = []; bgImg.current = null; setBgUrl(null); redraw(); onResult(null); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-neutral-700 shadow hover:bg-white">Limpiar</button>
       </div>
     </div>
   );
 }
 
-// Compone el fotograma del elemento (video/imagen, si se puede) + los trazos en
-// un JPEG. Dibuja el elemento directamente (sin round-trip por dataURL). En embeds
-// (el = null) o si falla por CORS, usa un fondo oscuro con solo los trazos.
-function compositeFromEl(el: HTMLVideoElement | HTMLImageElement | null, strokes: Stroke[], box: { w: number; h: number }): string | null {
-  if (!strokes.length) return null;
-  const natW = el ? ((el as HTMLVideoElement).videoWidth || (el as HTMLImageElement).naturalWidth || el.clientWidth) : 0;
-  const natH = el ? ((el as HTMLVideoElement).videoHeight || (el as HTMLImageElement).naturalHeight || el.clientHeight) : 0;
+// Compone un fondo (imagen/fotograma) + los trazos en un JPEG. Dibuja la fuente
+// directamente; si no hay fuente o falla por CORS, usa fondo oscuro con los trazos.
+function composite(source: HTMLImageElement | HTMLVideoElement | null, strokes: Stroke[], box: { w: number; h: number }): string | null {
+  if (!strokes.length && !source) return null;
+  const natW = source ? ((source as HTMLVideoElement).videoWidth || (source as HTMLImageElement).naturalWidth || source.clientWidth) : 0;
+  const natH = source ? ((source as HTMLVideoElement).videoHeight || (source as HTMLImageElement).naturalHeight || source.clientHeight) : 0;
   const bgW = natW || box.w || 800;
   const bgH = natH || box.h || 450;
   const scale = Math.min(1, 800 / bgW);
   const cw = Math.round(bgW * scale), ch = Math.round(bgH * scale);
   const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
   const g = cv.getContext("2d"); if (!g) return null;
-  let drewFrame = false;
-  if (el && natW) { try { g.drawImage(el, 0, 0, cw, ch); drewFrame = true; } catch { /* CORS */ } }
-  if (!drewFrame) { g.fillStyle = "#0f172a"; g.fillRect(0, 0, cw, ch); }
+  let drew = false;
+  if (source && natW) { try { g.drawImage(source, 0, 0, cw, ch); drew = true; } catch { /* CORS */ } }
+  if (!drew) { g.fillStyle = "#0f172a"; g.fillRect(0, 0, cw, ch); }
   const sx = cw / box.w, sy = ch / box.h;
   g.strokeStyle = "#ef4444"; g.lineWidth = 3 * sx; g.lineCap = "round"; g.lineJoin = "round";
   for (const s of strokes) { g.beginPath(); s.forEach((p, i) => (i ? g.lineTo(p.x * sx, p.y * sy) : g.moveTo(p.x * sx, p.y * sy))); g.stroke(); }
