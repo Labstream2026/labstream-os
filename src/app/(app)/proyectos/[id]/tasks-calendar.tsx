@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { type LabelRow, labelMeta } from "@/lib/colors";
+import { type LabelRow, labelMeta, tone } from "@/lib/colors";
 import type { Task } from "./task-shared";
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -24,6 +24,7 @@ export function TasksCalendar({ tasks, priorities }: { tasks: Task[]; priorities
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-11
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   const byDay = useMemo(() => {
     const map = new Map<string, Task[]>();
@@ -109,13 +110,15 @@ export function TasksCalendar({ tasks, priorities }: { tasks: Task[]; priorities
                     {dayTasks.map((t) => {
                       const prio = labelMeta(priorities, t.priority);
                       return (
-                        <div
+                        <button
                           key={t.id}
+                          type="button"
+                          onClick={() => setSelectedTask(t)}
                           title={`${t.title} · ${prio.label}`}
-                          className="truncate rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-foreground"
+                          className="block w-full truncate rounded bg-primary/10 px-1.5 py-0.5 text-left text-[11px] text-foreground hover:bg-primary/20"
                         >
                           🎬 {t.title}
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -131,6 +134,32 @@ export function TasksCalendar({ tasks, priorities }: { tasks: Task[]; priorities
           {withoutDate.length} tarea{withoutDate.length === 1 ? "" : "s"} sin fecha de rodaje. Asígnala desde el tablero o la lista para verla aquí.
         </p>
       ) : null}
+
+      {/* Resumen de la tarea/rodaje (sin entrar), acentuado con el color de prioridad */}
+      {selectedTask ? (() => {
+        const prio = labelMeta(priorities, selectedTask.priority);
+        const prioHex = tone(priorities.find((p) => p.key === selectedTask.priority)?.color).hex;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelectedTask(null)}>
+            <div className="w-full max-w-xs overflow-hidden rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+              <div className="h-1.5 w-full" style={{ backgroundColor: prioHex }} />
+              <div className="p-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Rodaje</p>
+                <h3 className="mt-1 text-sm font-semibold">🎬 {selectedTask.title}</h3>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className={cn("rounded px-1.5 py-0.5 text-[10px]", prio.chip)}>{prio.label}</span>
+                  {selectedTask.shootDate ? (
+                    <span>🎬 {new Date(selectedTask.shootDate).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}</span>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={() => setSelectedTask(null)} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">Cerrar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
     </div>
   );
 }
