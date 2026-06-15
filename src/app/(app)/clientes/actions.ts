@@ -30,6 +30,18 @@ export async function createClient(formData: FormData) {
   redirect(`/clientes/${client.id}`);
 }
 
+// Borra un cliente y TODO lo suyo (proyectos, cotizaciones, canal, miembros) en
+// cascada. Solo administradores. Es destructivo e irreversible.
+export async function deleteClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede borrar clientes." };
+  await db.client.delete({ where: { id: clientId } }).catch(() => null);
+  revalidatePath("/");
+  revalidatePath("/proyectos");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 export type ClientMemberResult = { ok: boolean; error?: string };
 
 // Añade un miembro al cliente (quién puede verlo). Solo admin o miembro actual.

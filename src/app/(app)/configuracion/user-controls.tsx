@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setUserRole, setUserActive, setUserGuest } from "./actions";
+import { Trash2 } from "lucide-react";
+import { setUserRole, setUserActive, setUserGuest, deleteUser } from "./actions";
 
 export function UserControls({
   userId,
+  userName,
   roleKey,
   active,
   isGuest,
@@ -12,6 +14,7 @@ export function UserControls({
   isSelf,
 }: {
   userId: string;
+  userName: string;
   roleKey: string;
   active: boolean;
   isGuest: boolean;
@@ -77,6 +80,18 @@ export function UserControls({
         >
           {active ? "Activo" : "Inactivo"}
         </button>
+
+        {!isSelf ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => { if (confirm(`¿Eliminar a ${userName}? Se borra su cuenta y sus pertenencias; el contenido en propiedad queda sin autor. No se puede deshacer.`)) run(() => deleteUser(userId)); }}
+            title="Eliminar usuario"
+            className="rounded-md border border-border bg-card p-1.5 text-muted-foreground hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        ) : null}
       </div>
       {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
     </div>

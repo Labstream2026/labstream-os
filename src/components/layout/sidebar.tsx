@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
   ListChecks,
@@ -20,10 +20,12 @@ import {
   BookOpen,
   Library,
   LogOut,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { logout } from "@/lib/auth-actions";
+import { deleteClient } from "@/app/(app)/clientes/actions";
 
 export type SidebarUser = {
   name: string;
@@ -77,6 +79,14 @@ export function Sidebar({
   onSearch?: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [, startDelete] = useTransition();
+
+  // Borrar un cliente (solo admin). Confirma porque arrastra proyectos/cotizaciones/chat.
+  function removeClient(id: string, name: string) {
+    if (!confirm(`¿Eliminar el cliente «${name}» y TODOS sus proyectos, cotizaciones y chat? No se puede deshacer.`)) return;
+    startDelete(async () => { await deleteClient(id); router.refresh(); });
+  }
 
   // Proyecto activo (para resaltar y auto-desplegar su cliente).
   const activeProjectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
@@ -207,7 +217,7 @@ export function Sidebar({
               {/* Fila del cliente: chevron para desplegar + enlace al cliente */}
               <div
                 className={cn(
-                  "flex items-center rounded-md text-sm transition-colors",
+                  "group/cli flex items-center rounded-md text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
@@ -228,12 +238,23 @@ export function Sidebar({
                 <Link
                   href={`/clientes/${c.id}`}
                   onClick={onNavigate}
-                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2.5"
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2"
                 >
                   <span className="text-base leading-none">{c.emoji ?? "•"}</span>
                   <span className="flex-1 truncate">{c.name}</span>
-                  <span className="text-xs text-sidebar-muted">{c.projectCount}</span>
                 </Link>
+                <span className="px-1 text-xs text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span>
+                {canAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => removeClient(c.id, c.name)}
+                    title="Eliminar cliente"
+                    aria-label={`Eliminar ${c.name}`}
+                    className="mr-1 hidden size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive group-hover/cli:flex"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                ) : null}
               </div>
 
               {/* Proyectos del cliente (desplegados) */}

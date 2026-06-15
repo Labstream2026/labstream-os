@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/current-user";
 import { UserAvatar } from "@/components/user-avatar";
 import { emailEnabled } from "@/lib/email";
 import { caldavEnabled } from "@/lib/caldav";
@@ -10,12 +11,17 @@ import { UserControls } from "./user-controls";
 import { RolePermissions } from "./role-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
 import { LabelsManager } from "./labels-manager";
+import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { ProfileForm } from "@/app/(app)/perfil/profile-form";
+import { Mail } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
   const session = await getSession();
   if (!hasPermission(session, "administrar_usuarios")) redirect("/");
 
-  const [roles, users, allPermissions] = await Promise.all([
+  const [roles, users, allPermissions, me] = await Promise.all([
     db.role.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -28,6 +34,7 @@ export default async function ConfiguracionPage() {
       include: { role: { select: { key: true, name: true } } },
     }),
     db.permission.findMany({ orderBy: { key: "asc" }, select: { key: true, description: true } }),
+    getCurrentUser(),
   ]);
 
   const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
@@ -36,27 +43,12 @@ export default async function ConfiguracionPage() {
 
   const roleOptions = roles.map((r) => ({ key: r.key, name: r.name }));
 
-  return (
-    <div className="mx-auto max-w-4xl px-8 py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Equipo y permisos · {users.length} usuarios, {roles.length} roles.
-      </p>
-
-      {/* ── Integraciones ── */}
-      <h2 className="mb-2 mt-8 text-lg font-semibold">Integraciones</h2>
-      <IntegrationsPanel
-        email={emailEnabled}
-        caldav={caldavEnabled}
-        ai={aiEnabled}
-        onlyoffice={onlyofficeEnabled}
-      />
-
-      {/* ── Usuarios ── */}
-      <h2 className="mb-1 mt-8 text-lg font-semibold">Usuarios</h2>
+  // ── Sección Usuarios ──
+  const usuariosNode = (
+    <div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Los miembros del equipo entran con Authentik y se crean automáticamente. Aquí ajustas su
-        rol y puedes desactivar cuentas (un usuario inactivo no puede iniciar sesión).
+        Los miembros del equipo entran con Authentik y se crean automáticamente. Aquí ajustas su rol,
+        das/quitas acceso a la Wiki, desactivas cuentas (no pueden iniciar sesión) o las eliminas.
       </p>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {users.map((u) => (
@@ -66,15 +58,14 @@ export default async function ConfiguracionPage() {
               <div className="min-w-0">
                 <p className="truncate font-medium">
                   {u.name}
-                  {u.email === session!.email ? (
-                    <span className="ml-2 text-[11px] font-normal text-muted-foreground">(tú)</span>
-                  ) : null}
+                  {u.email === session!.email ? <span className="ml-2 text-[11px] font-normal text-muted-foreground">(tú)</span> : null}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{u.email}</p>
               </div>
             </div>
             <UserControls
               userId={u.id}
+              userName={u.name}
               roleKey={u.role.key}
               active={u.active}
               isGuest={u.isGuest}
@@ -84,56 +75,87 @@ export default async function ConfiguracionPage() {
           </div>
         ))}
       </div>
+    </div>
+  );
 
-      {/* ── Estados y prioridades de tarea ── */}
-      <h2 className="mb-1 mt-8 text-lg font-semibold">Estados y prioridades de tarea</h2>
+  // ── Sección Estados y prioridades ──
+  const labelsNode = (
+    <div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Personaliza las opciones de estado y prioridad de las tareas (nombre, color de 20 tonos y
-        orden). La ⭐ marca el valor por defecto al crear una tarea; «Terminada» saca el estado de «Mis tareas».
+        Personaliza las opciones de estado y prioridad de las tareas (nombre, color de 20 tonos y orden).
+        La ⭐ marca el valor por defecto al crear una tarea; «Terminada» saca el estado de «Mis tareas».
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <LabelsManager
-          kind="TASK_STATUS"
-          title="Estados"
-          hint="Columnas de avance de una tarea."
-          rows={statusRows}
-        />
-        <LabelsManager
-          kind="TASK_PRIORITY"
-          title="Prioridades"
-          hint="Nivel de urgencia (también aplica a proyectos)."
-          rows={priorityRows}
-        />
+        <LabelsManager kind="TASK_STATUS" title="Estados" hint="Columnas de avance de una tarea." rows={statusRows} />
+        <LabelsManager kind="TASK_PRIORITY" title="Prioridades" hint="Nivel de urgencia (también aplica a proyectos)." rows={priorityRows} />
       </div>
+    </div>
+  );
 
-      {/* ── Roles y permisos ── */}
-      <h2 className="mb-3 mt-8 text-lg font-semibold">Roles y permisos</h2>
-      <div className="space-y-3">
-        {roles.map((r) => (
-          <div key={r.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">{r.name}</h3>
-                <p className="text-xs text-muted-foreground">{r.description}</p>
-              </div>
-              <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                {r._count.users} usuario{r._count.users === 1 ? "" : "s"}
-              </span>
+  // ── Sección Roles y permisos ──
+  const rolesNode = (
+    <div className="space-y-3">
+      {roles.map((r) => (
+        <div key={r.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold">{r.name}</h3>
+              <p className="text-xs text-muted-foreground">{r.description}</p>
             </div>
-            <div className="mt-3">
-              <RolePermissions
-                roleId={r.id}
-                roleKey={r.key}
-                permissions={allPermissions}
-                assigned={r.permissions.map((rp) => rp.permission.key)}
-              />
-            </div>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              {r._count.users} usuario{r._count.users === 1 ? "" : "s"}
+            </span>
           </div>
-        ))}
+          <div className="mt-3">
+            <RolePermissions roleId={r.id} roleKey={r.key} permissions={allPermissions} assigned={r.permissions.map((rp) => rp.permission.key)} />
+          </div>
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground">Haz clic en un permiso para activarlo o quitarlo del rol. El rol Administrador tiene acceso total.</p>
+    </div>
+  );
+
+  // ── Sección Integraciones ──
+  const integracionesNode = (
+    <IntegrationsPanel email={emailEnabled} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} />
+  );
+
+  // ── Sección Personalización (perfil propio) ──
+  const personalizacionNode = me ? (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
+        <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <div>
+          <p className="font-medium">Correo de notificaciones</p>
+          <p className="text-muted-foreground">
+            Tus notificaciones por correo llegan a <span className="font-medium text-foreground">{me.email}</span>.
+            Lo gestiona Authentik (SSO); para cambiarlo, contacta con el administrador del sistema.
+          </p>
+        </div>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">
-        Haz clic en un permiso para activarlo o quitarlo del rol. El rol Administrador tiene acceso total.
+      <ProfileForm name={me.name} email={me.email} title={me.title} initials={me.initials} color={me.avatarColor} avatarUrl={me.avatarUrl} />
+    </div>
+  ) : (
+    <p className="text-sm text-muted-foreground">No se pudo cargar tu perfil.</p>
+  );
+
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
+      <h1 className="text-3xl font-bold tracking-tight">Configuración</h1>
+      <p className="mb-6 mt-1 text-sm text-muted-foreground">
+        Equipo y permisos · {users.length} usuarios, {roles.length} roles.
       </p>
+
+      <ViewTabs
+        storageKey="config-view"
+        views={[
+          { key: "usuarios", label: "Usuarios", icon: "👥", node: usuariosNode },
+          { key: "labels", label: "Estados y prioridades", icon: "🏷️", node: labelsNode },
+          { key: "roles", label: "Roles y permisos", icon: "🔐", node: rolesNode },
+          { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
+          { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
+        ]}
+      />
     </div>
   );
 }

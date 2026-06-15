@@ -114,6 +114,26 @@ export async function setUserActive(userId: string, active: boolean): Promise<Ad
   return { ok: true };
 }
 
+// Borra un usuario por completo. Sus pertenencias (miembros de proyecto/cliente/
+// canal, reacciones, votos, notificaciones, asistencias) se borran en cascada; el
+// contenido en propiedad (tareas, archivos, mensajes) queda con autor nulo. No se
+// puede borrar la propia cuenta ni al último administrador activo.
+export async function deleteUser(userId: string): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  if (session.id === userId) return { ok: false, error: "No puedes borrar tu propia cuenta." };
+  const target = await db.user.findUnique({ where: { id: userId }, include: { role: true } });
+  if (!target) return { ok: true };
+  if (target.role.key === "admin") {
+    const admins = await db.user.count({ where: { active: true, role: { key: "admin" } } });
+    if (admins <= 1) return { ok: false, error: "Es el único administrador activo." };
+  }
+  await db.user.delete({ where: { id: userId } });
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // Marca/desmarca a un usuario como invitado: pierde acceso a la Wiki (documentación,
 // inventario, ubicación y contraseñas) y a sus enlaces, aunque sea del equipo.
 export async function setUserGuest(userId: string, isGuest: boolean): Promise<AdminActionResult> {
