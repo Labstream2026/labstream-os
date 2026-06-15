@@ -65,6 +65,7 @@ export default async function ProyectoPage({
             owner: { select: { initials: true, avatarColor: true } },
             versions: { include: { uploadedBy: { select: { initials: true, avatarColor: true } } } },
             decisions: { orderBy: { createdAt: "desc" }, take: 12, include: { by: { select: { name: true } } } },
+            reviewComments: { orderBy: { createdAt: "asc" } },
           },
         },
         folders: { orderBy: { position: "asc" }, include: { files: true } },
@@ -262,6 +263,17 @@ export default async function ProyectoPage({
                 byName: dec.by?.name ?? dec.byName ?? null,
                 note: dec.note,
                 createdAt: dec.createdAt,
+              })),
+              comments: d.reviewComments.map((c) => ({
+                id: c.id,
+                authorName: c.authorName,
+                body: c.body,
+                timecode: c.timecode,
+                versionNumber: c.versionNumber,
+                hasDrawing: !!c.drawingData,
+                resolved: c.resolved,
+                fromClient: c.fromClient,
+                createdAt: c.createdAt,
               })),
             }))}
             emailEnabled={emailEnabled}

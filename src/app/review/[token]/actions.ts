@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
+import { logActivity } from "@/lib/activity";
 
 // Acciones del portal PÚBLICO de revisión. La autorización es el token firmado
 // (no hay sesión); el deliverableId siempre se deriva del token, nunca del cliente.
@@ -11,13 +12,13 @@ import { verifyReviewToken } from "@/lib/review-token";
 async function resolveDeliverable(token: string) {
   const deliverableId = verifyReviewToken(token);
   if (!deliverableId) throw new Error("Enlace inválido");
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, reviewRevokedAt: true } });
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, reviewRevokedAt: true } });
   if (!d || d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
-  return d.id;
+  return d;
 }
 
 export async function addReviewComment(token: string, formData: FormData) {
-  const deliverableId = await resolveDeliverable(token);
+  const { id: deliverableId, name, projectId } = await resolveDeliverable(token);
 
   const authorName = String(formData.get("authorName") ?? "").trim().slice(0, 80) || "Cliente";
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
@@ -49,11 +50,20 @@ export async function addReviewComment(token: string, formData: FormData) {
       fromClient: true,
     },
   });
+  // Avisa al equipo del proyecto (y admins) que el cliente comentó.
+  await logActivity({
+    action: "deliverable.client_comment",
+    summary: `comentó la revisión de «${name}»`,
+    projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${authorName} (cliente)`,
+  });
   revalidatePath(`/review/${token}`);
 }
 
 export async function setReviewDecision(token: string, decision: string, name?: string) {
-  const deliverableId = await resolveDeliverable(token);
+  const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
   const approved = decision === "APROBADO";
   const status = approved ? "APROBADO" : "CORRECCIONES";
   const who = (name ?? "").trim().slice(0, 80) || "Cliente";
@@ -78,6 +88,15 @@ export async function setReviewDecision(token: string, decision: string, name?: 
       versionNumber: latestApproved.number,
       fromClient: true,
     },
+  });
+  // Avisa al equipo del proyecto (y admins) de la decisión del cliente.
+  await logActivity({
+    action: approved ? "deliverable.client_approved" : "deliverable.client_changes",
+    summary: approved ? `aprobó la revisión de «${delName}»` : `solicitó cambios en «${delName}»`,
+    projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${who} (cliente)`,
   });
   revalidatePath(`/review/${token}`);
 }

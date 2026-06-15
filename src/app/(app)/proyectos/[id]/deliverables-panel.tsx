@@ -13,7 +13,7 @@ import { toDateInputValue } from "./task-shared";
 import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
-import { PreApproval, ReviewLinkBar } from "./deliverable-review";
+import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate } from "./actions";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -49,6 +49,17 @@ type Deliverable = {
   reviewAllowDrawings: boolean;
   versions: Version[];
   decisions: Decision[];
+  comments: {
+    id: string;
+    authorName: string;
+    body: string;
+    timecode: number | null;
+    versionNumber: number | null;
+    hasDrawing: boolean;
+    resolved: boolean;
+    fromClient: boolean;
+    createdAt: Date;
+  }[];
 };
 
 const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({ value, label: m.label }));
@@ -179,6 +190,9 @@ export function DeliverablesPanel({
                 {emailEnabled && !d.reviewRevoked ? <EmailReviewButton deliverableId={d.id} /> : null}
               </ReviewLinkBar>
             </div>
+
+            {/* Comentarios del cliente (resolver + responder) */}
+            <ReviewThread deliverableId={d.id} projectId={projectId} comments={d.comments} />
 
             {/* Nueva versión */}
             <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">

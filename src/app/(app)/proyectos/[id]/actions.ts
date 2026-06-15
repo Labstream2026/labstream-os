@@ -496,6 +496,30 @@ export async function setReviewDrawings(deliverableId: string, _projectId: strin
   refresh(deliverable.projectId);
 }
 
+// Marcar/desmarcar como resuelto un comentario del cliente.
+export async function resolveReviewComment(commentId: string, _projectId: string, resolved: boolean) {
+  const c = await db.reviewComment.findUnique({ where: { id: commentId }, select: { deliverable: { select: { projectId: true, project: { select: accessSelect } } } } });
+  const session = await getSession();
+  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
+  refresh(c.deliverable.projectId);
+}
+
+// Respuesta del equipo a la revisión del cliente (se ve en el portal público).
+export async function replyToReview(deliverableId: string, _projectId: string, formData: FormData) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
+  if (!body) return;
+  const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
+  await db.reviewComment.create({
+    data: { deliverableId, authorName: me?.name ?? "Equipo", body, fromClient: false },
+  });
+  await logActivity({ action: "deliverable.team_reply", summary: `respondió en la revisión de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(deliverable.projectId);
+}
+
 // ── Archivos ──
 export async function addFile(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId);
