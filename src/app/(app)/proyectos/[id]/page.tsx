@@ -64,6 +64,7 @@ export default async function ProyectoPage({
           include: {
             owner: { select: { initials: true, avatarColor: true } },
             versions: { include: { uploadedBy: { select: { initials: true, avatarColor: true } } } },
+            decisions: { orderBy: { createdAt: "desc" }, take: 12, include: { by: { select: { name: true } } } },
           },
         },
         folders: { orderBy: { position: "asc" }, include: { files: true } },
@@ -232,6 +233,7 @@ export default async function ProyectoPage({
         {tab === "entregables" ? (
           <DeliverablesPanel
             projectId={id}
+            canManage={canManageProject(project, session)}
             deliverables={project.deliverables.map((d) => ({
               id: d.id,
               name: d.name,
@@ -239,14 +241,27 @@ export default async function ProyectoPage({
               status: d.status,
               dueDate: d.dueDate,
               owner: d.owner,
+              reviewVisits: d.reviewVisits,
+              reviewRevoked: !!d.reviewRevokedAt,
+              reviewAllowDrawings: d.reviewAllowDrawings,
               versions: d.versions.map((v) => ({
                 id: v.id,
                 number: v.number,
                 notes: v.notes,
                 fileUrl: v.fileUrl,
                 fileAssetId: v.fileAssetId,
+                internalApproved: v.internalApproved,
                 createdAt: v.createdAt,
                 uploadedBy: v.uploadedBy,
+              })),
+              decisions: d.decisions.map((dec) => ({
+                id: dec.id,
+                versionNumber: dec.versionNumber,
+                stage: dec.stage,
+                result: dec.result,
+                byName: dec.by?.name ?? dec.byName ?? null,
+                note: dec.note,
+                createdAt: dec.createdAt,
               })),
             }))}
             emailEnabled={emailEnabled}

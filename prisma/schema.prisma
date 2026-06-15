@@ -75,6 +75,7 @@ model User {
   createdQuotes    Quote[]              @relation("QuoteCreator")
   approvedQuotes   Quote[]              @relation("QuoteApprover")
   createdProposals Proposal[]           @relation("ProposalCreator")
+  deliverableDecisions DeliverableDecision[] @relation("DecisionAuthor")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
@@ -738,6 +739,11 @@ model Deliverable {
   versions  DeliverableVersion[]
   tasks     Task[]
   reviewComments ReviewComment[]
+  decisions DeliverableDecision[]
+  // Enlace de revisión del cliente: único por entregable, con visitas y revocación.
+  reviewVisits        Int       @default(0)
+  reviewRevokedAt     DateTime? // si está puesto, el portal del cliente queda inválido
+  reviewAllowDrawings Boolean   @default(false) // habilita el modo dibujos/anotación
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
@@ -770,6 +776,7 @@ model ReviewComment {
   authorName    String // nombre que escribe el cliente (sin cuenta)
   body          String
   timecode      Float? // segundos dentro del video, si aplica
+  drawingData   Json? // anotación/dibujo sobre un fotograma (trazos + captura), modo dibujos
   resolved      Boolean     @default(false)
   fromClient    Boolean     @default(true) // true = cliente; false = respuesta del equipo
   createdAt     DateTime    @default(now())
@@ -788,9 +795,40 @@ model DeliverableVersion {
   deliverableId String
   uploadedBy    User?       @relation("VersionUploader", fields: [uploadedById], references: [id])
   uploadedById  String?
+  // Compuerta de pre-aprobación interna: una versión solo llega al cliente cuando
+  // el equipo la aprueba internamente (bloqueante).
+  internalApproved   Boolean   @default(false)
+  internalApprovedAt DateTime?
   createdAt     DateTime    @default(now())
 
   @@unique([deliverableId, number])
+}
+
+// Registro de decisiones de aprobación (pre-aprobación interna y revisión del cliente).
+enum DecisionStage {
+  INTERNA // pre-aprobación del equipo
+  CLIENTE // revisión del cliente
+}
+
+enum DecisionResult {
+  APROBADO
+  CAMBIOS // se solicitaron cambios
+}
+
+model DeliverableDecision {
+  id            String         @id @default(cuid())
+  deliverable   Deliverable    @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  deliverableId String
+  versionNumber Int? // versión a la que aplica la decisión
+  stage         DecisionStage
+  result        DecisionResult
+  by            User?          @relation("DecisionAuthor", fields: [byUserId], references: [id], onDelete: SetNull)
+  byUserId      String? // null si fue el cliente desde el enlace público
+  byName        String? // nombre mostrado (cliente sin cuenta)
+  note          String?
+  createdAt     DateTime       @default(now())
+
+  @@index([deliverableId, createdAt])
 }
 
 // ─────────────────────────────────────────────

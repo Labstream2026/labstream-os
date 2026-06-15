@@ -430,9 +430,69 @@ export async function addDeliverableVersion(
       fileUrl,
       fileAssetId,
       uploadedById: session!.id,
+      // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla).
+      internalApproved: false,
     },
   });
-  await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  // La nueva versión pasa a revisión interna (compuerta bloqueante).
+  await db.deliverable.update({ where: { id: deliverableId }, data: { status: "REVISION_INTERNA" } });
+  await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(deliverable.projectId);
+}
+
+// ── Decisiones de pre-aprobación interna (equipo) ──
+// Aprueba o solicita cambios sobre una versión. Solo al aprobar internamente la
+// versión puede compartirse con el cliente (compuerta bloqueante).
+export async function internalDecision(
+  deliverableId: string,
+  _projectId: string,
+  versionNumber: number,
+  result: "APROBADO" | "CAMBIOS",
+  note?: string,
+) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  const projectId = deliverable.projectId;
+  const approved = result === "APROBADO";
+
+  await db.deliverableDecision.create({
+    data: { deliverableId, versionNumber, stage: "INTERNA", result, byUserId: session!.id, note: note?.slice(0, 1000) || null },
+  });
+  if (approved) {
+    await db.deliverableVersion.updateMany({ where: { deliverableId, number: versionNumber }, data: { internalApproved: true, internalApprovedAt: new Date() } });
+    await db.deliverable.update({ where: { id: deliverableId }, data: { status: "ENVIADO_CLIENTE" } });
+  } else {
+    await db.deliverable.update({ where: { id: deliverableId }, data: { status: "CORRECCIONES" } });
+  }
+  await logActivity({
+    action: "deliverable.preapproval",
+    summary: approved
+      ? `aprobó internamente la v${versionNumber} de «${deliverable.name}»`
+      : `solicitó cambios internos en la v${versionNumber} de «${deliverable.name}»`,
+    projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+  });
+  refresh(projectId);
+}
+
+// Revocar / restaurar el enlace de revisión del cliente.
+export async function setReviewRevoked(deliverableId: string, _projectId: string, revoked: boolean) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewRevokedAt: revoked ? new Date() : null } });
+  await logActivity({ action: "deliverable.review_link", summary: revoked ? `revocó el enlace de revisión de «${deliverable.name}»` : `reactivó el enlace de revisión de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(deliverable.projectId);
+}
+
+// Activar / desactivar el modo dibujos (anotación) en el portal del cliente.
+export async function setReviewDrawings(deliverableId: string, _projectId: string, allow: boolean) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewAllowDrawings: allow } });
   refresh(deliverable.projectId);
 }
 

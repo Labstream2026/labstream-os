@@ -3,10 +3,14 @@ import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { signFileToken } from "@/lib/storage";
 import { deliverableStatusMeta } from "@/lib/ui";
-import { ReviewClient } from "./review-client";
+import { detectSource } from "@/lib/media-source";
+import { ReviewClient, type ReviewVersion } from "./review-client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const IMG = /\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i;
+const VID = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i;
 
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -23,16 +27,47 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   });
   if (!deliverable) notFound();
 
-  const latest = deliverable.versions[0] ?? null;
+  // Enlace revocado: estado inválido (no se muestra el material).
+  if (deliverable.reviewRevokedAt) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6 text-center">
+        <div className="max-w-md">
+          <h1 className="text-xl font-bold">Enlace no disponible</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Cuenta una visita (no bloquea el render si falla).
+  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewVisits: { increment: 1 } } }).catch(() => {});
+
+  // Compuerta bloqueante: el cliente solo ve versiones aprobadas internamente.
+  const approved = deliverable.versions.filter((v) => v.internalApproved);
   const meta = deliverableStatusMeta(deliverable.status);
 
-  // Material a mostrar: el archivo subido (servido con token público) o, si no
-  // hay, el enlace externo de la versión.
-  const latestFile = latest?.fileAsset
-    ? { url: `/api/files-asset/${latest.fileAsset.id}?t=${signFileToken(latest.fileAsset.id)}`, name: latest.fileAsset.name }
-    : latest?.fileUrl
-      ? { url: latest.fileUrl, name: latest.fileUrl }
-      : null;
+  const versions: ReviewVersion[] = approved.map((v) => {
+    if (v.fileAsset) {
+      const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}`;
+      const name = v.fileAsset.name;
+      const kind = IMG.test(name) ? "image" : VID.test(name) ? "video" : "other";
+      return { number: v.number, notes: v.notes, kind, src: url, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
+    }
+    const s = detectSource(v.fileUrl);
+    if (!s) return { number: v.number, notes: v.notes, kind: "none", src: null, openUrl: null, fileName: null, timecodeCapable: false };
+    const kindMap: Record<string, ReviewVersion["kind"]> = {
+      YOUTUBE: "youtube", VIMEO: "vimeo", DRIVE_FILE: "drive_file", DRIVE_FOLDER: "drive_folder", MP4: "video", IMAGE: "image", OTHER: "other",
+    };
+    return {
+      number: v.number,
+      notes: v.notes,
+      kind: kindMap[s.type] ?? "other",
+      src: s.embedUrl ?? s.url,
+      openUrl: s.url,
+      fileName: null,
+      timecodeCapable: s.timecodeCapable,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -53,27 +88,31 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       <main className="mx-auto max-w-5xl px-6 py-6">
         <div className="mb-4">
           <h1 className="text-xl font-bold tracking-tight">Revisión del cliente</h1>
-          <p className="text-sm text-muted-foreground">
-            {latest ? `Versión ${latest.number}` : "Sin versiones aún"}
-            {" · "}Revisa el material, deja comentarios y aprueba o solicita cambios.
-          </p>
+          <p className="text-sm text-muted-foreground">Revisa el material, deja comentarios y aprueba o solicita cambios.</p>
         </div>
 
-        <ReviewClient
-          token={token}
-          videoUrl={latestFile?.url ?? null}
-          fileName={latestFile?.name ?? null}
-          versionNumber={latest?.number ?? null}
-          status={deliverable.status}
-          comments={deliverable.reviewComments.map((c) => ({
-            id: c.id,
-            authorName: c.authorName,
-            body: c.body,
-            timecode: c.timecode,
-            fromClient: c.fromClient,
-            createdAt: c.createdAt.toISOString(),
-          }))}
-        />
+        {versions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+            El material aún está en revisión interna del equipo. En cuanto esté listo, lo verás aquí.
+          </div>
+        ) : (
+          <ReviewClient
+            token={token}
+            versions={versions}
+            status={deliverable.status}
+            allowDrawings={deliverable.reviewAllowDrawings}
+            comments={deliverable.reviewComments.map((c) => ({
+              id: c.id,
+              authorName: c.authorName,
+              body: c.body,
+              timecode: c.timecode,
+              versionNumber: c.versionNumber,
+              drawing: (c.drawingData as { image?: string } | null) ?? null,
+              fromClient: c.fromClient,
+              createdAt: c.createdAt.toISOString(),
+            }))}
+          />
+        )}
       </main>
     </div>
   );
