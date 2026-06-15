@@ -32,7 +32,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
     db.notification.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 15 }),
     db.chatChannel.findUnique({
-      where: { slug: "general" },
+      // El chat por defecto del dock es el "Chat del día" del equipo (estados-equipo).
+      where: { slug: "estados-equipo" },
       include: {
         members: { select: { userId: true } },
         messages: {

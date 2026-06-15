@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
-import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2 } from "lucide-react";
+import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
@@ -18,6 +18,20 @@ type DockChannel = {
   members: { id: string; name: string; initials: string | null; color: string | null; role?: string }[];
 };
 type DockPayload = { channel: DockChannel | null; canAccess: boolean; messages: ChatMsg[] };
+type DockTask = {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  priority: string;
+  projectId: string | null;
+  projectName: string | null;
+  projectEmoji: string | null;
+};
+
+function dueLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+}
 
 const MIN_W = 300;
 const MAX_W = 640;
@@ -43,12 +57,27 @@ export function ChatDock({
   const onRealProject = !!projectId && projectId !== "nuevo";
   const clientId = pathname.startsWith("/clientes/") ? pathname.split("/")[2] : null;
   const onRealClient = !!clientId && clientId !== "nuevo";
+  // En "Chat del día" el chat ya es el contenido principal → a la derecha mostramos
+  // las tareas pendientes en vez de repetir el chat.
+  const onEstados = pathname === "/estados";
   const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
   const [dock, setDock] = React.useState<DockPayload | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [showMembers, setShowMembers] = React.useState(false);
+  const [tasks, setTasks] = React.useState<DockTask[] | null>(null);
+
+  // Tareas pendientes para el panel de "Chat del día".
+  React.useEffect(() => {
+    if (!onEstados) return;
+    let cancelled = false;
+    fetch("/api/my-tasks", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { tasks: [] }))
+      .then((d) => { if (!cancelled) setTasks(d.tasks ?? []); })
+      .catch(() => { if (!cancelled) setTasks([]); });
+    return () => { cancelled = true; };
+  }, [onEstados, pathname]);
 
   // Al cambiar de proyecto/cliente, se sale del DM y se vuelve al chat del contexto.
   React.useEffect(() => { setDmUserId(null); setShowMembers(false); }, [contextKey]);
@@ -223,8 +252,45 @@ export function ChatDock({
     </div>
   );
 
+  // Panel de tareas pendientes (solo en "Chat del día").
+  const tasksBody = (
+    <div className="flex h-full w-full flex-col">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
+        <ListChecks className="size-4 text-muted-foreground" />
+        <p className="flex-1 text-sm font-semibold">Mis tareas pendientes</p>
+        {onClose ? (
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {tasks === null ? (
+          <p className="p-2 text-sm text-muted-foreground">Cargando…</p>
+        ) : tasks.length === 0 ? (
+          <p className="p-3 text-sm text-muted-foreground">No tienes tareas pendientes 🎉</p>
+        ) : (
+          <div className="space-y-1.5">
+            {tasks.map((t) => (
+              <a key={t.id} href={t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas"} className="block rounded-lg border border-border bg-card px-3 py-2 hover:bg-accent">
+                <p className="truncate text-sm font-medium">{t.title}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {t.projectName ? `${t.projectEmoji ?? "📁"} ${t.projectName}` : "Personal"}
+                  {dueLabel(t.dueDate) ? ` · 📅 ${dueLabel(t.dueDate)}` : ""}
+                </p>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 border-t border-border p-2">
+        <a href="/mis-tareas" className="block rounded-md px-2 py-1.5 text-center text-xs font-medium text-primary hover:bg-muted">Ver todas mis tareas →</a>
+      </div>
+    </div>
+  );
+
+  const panel = onEstados ? tasksBody : body;
+
   if (variant === "mobile") {
-    return <div className="h-full w-full bg-background">{body}</div>;
+    return <div className="h-full w-full bg-background">{panel}</div>;
   }
 
   // Escritorio: aside redimensionable, plegable a 0.
@@ -241,7 +307,7 @@ export function ChatDock({
           title="Arrastra para redimensionar"
         />
       ) : null}
-      <div className="h-full" style={{ width: open ? width : 0 }}>{body}</div>
+      <div className="h-full" style={{ width: open ? width : 0 }}>{panel}</div>
     </aside>
   );
 }
