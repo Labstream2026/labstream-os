@@ -17,6 +17,7 @@ export function AppShell({
   team,
   canAdmin,
   canQuotes,
+  canWiki = true,
   me,
   generalChannel,
   dockTeam = [],
@@ -29,6 +30,7 @@ export function AppShell({
   team: TopbarAvatar[];
   canAdmin: boolean;
   canQuotes?: boolean;
+  canWiki?: boolean;
   me: ChatMe;
   generalChannel: GeneralChannel;
   dockTeam?: DockTeamMember[];
@@ -76,7 +78,7 @@ export function AppShell({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} collapsed={sidebarCollapsed} chatUnread={chatUnread} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canWiki={canWiki} collapsed={sidebarCollapsed} chatUnread={chatUnread} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -89,6 +91,7 @@ export function AppShell({
               clients={clients}
               canAdmin={canAdmin}
               canQuotes={canQuotes}
+              canWiki={canWiki}
               chatUnread={chatUnread}
               onNavigate={() => setMobileMenuOpen(false)}
             />

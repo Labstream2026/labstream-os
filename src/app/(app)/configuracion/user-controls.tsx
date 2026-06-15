@@ -1,18 +1,20 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setUserRole, setUserActive } from "./actions";
+import { setUserRole, setUserActive, setUserGuest } from "./actions";
 
 export function UserControls({
   userId,
   roleKey,
   active,
+  isGuest,
   roles,
   isSelf,
 }: {
   userId: string;
   roleKey: string;
   active: boolean;
+  isGuest: boolean;
   roles: { key: string; name: string }[];
   isSelf: boolean;
 }) {
@@ -45,6 +47,21 @@ export function UserControls({
             </option>
           ))}
         </select>
+
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run(() => setUserGuest(userId, !isGuest))}
+          title={isGuest ? "Invitado: sin acceso a la Wiki. Clic para dar acceso." : "Con acceso a la Wiki. Clic para marcar como invitado (sin Wiki)."}
+          className={
+            "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 " +
+            (isGuest
+              ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+              : "border-border bg-card text-muted-foreground hover:bg-accent")
+          }
+        >
+          {isGuest ? "Invitado" : "Equipo"}
+        </button>
 
         <button
           type="button"

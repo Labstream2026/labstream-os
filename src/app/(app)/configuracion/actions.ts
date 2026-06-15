@@ -113,3 +113,14 @@ export async function setUserActive(userId: string, active: boolean): Promise<Ad
   revalidatePath("/configuracion");
   return { ok: true };
 }
+
+// Marca/desmarca a un usuario como invitado: pierde acceso a la Wiki (documentación,
+// inventario, ubicación y contraseñas) y a sus enlaces, aunque sea del equipo.
+export async function setUserGuest(userId: string, isGuest: boolean): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  await db.user.update({ where: { id: userId }, data: { isGuest } });
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}

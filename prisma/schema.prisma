@@ -55,6 +55,9 @@ model User {
   avatarColor  String? // clase/HEX para el avatar
   avatarUrl    String? // foto de perfil subida (opcional)
   active       Boolean   @default(true)
+  // Invitado puntual: además de freelancer/cliente, marca a un usuario interno
+  // como invitado sin acceso a la Wiki (ni a sus enlaces compartidos).
+  isGuest      Boolean   @default(false)
   role         Role      @relation(fields: [roleId], references: [id])
   roleId       String
   ledProjects  Project[] @relation("ProjectLead")
@@ -78,6 +81,9 @@ model User {
   eventAttendances CalendarAttendee[]
   activity         ActivityLog[]
   messageReactions MessageReaction[]    @relation("ReactionUser")
+  ownedCredentials   Credential[]       @relation("CredentialOwner")
+  createdCredentials Credential[]       @relation("CredentialCreator")
+  credentialViews    CredentialViewer[] @relation("CredViewer")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -497,6 +503,7 @@ model WikiPage {
 model DataTable {
   id         String       @id @default(cuid())
   name       String
+  key        String?      @unique // tablas globales únicas de la wiki (ej. "sys:inventario")
   project    Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId  String?
   wikiPage   WikiPage?    @relation(fields: [wikiPageId], references: [id], onDelete: Cascade)
@@ -537,6 +544,42 @@ model DataCell {
   value    Json? // texto, número, optionId, fecha ISO, userId, {eventId,...}
 
   @@unique([rowId, columnId])
+}
+
+// ─────────────────────────────────────────────
+// Usuarios y contraseñas (bóveda de la Wiki, con permisos por credencial)
+// ─────────────────────────────────────────────
+// La contraseña se guarda cifrada (AES-256-GCM, igual que las celdas PASSWORD).
+// Quién puede REVELARla: administradores siempre, el creador, y los usuarios de
+// la lista `viewers`. El "dueño" (ownerUser) es solo una etiqueta (de quién es la
+// cuenta) y NO implica que pueda verla.
+model Credential {
+  id          String             @id @default(cuid())
+  title       String // ej. "Correo Jaime", "Instagram Labstream"
+  category    String? // agrupa: correo, redes, hosting, software…
+  username    String? // usuario / correo de acceso
+  secretEnc   String // contraseña cifrada
+  url         String? // enlace de inicio de sesión
+  notes       String?
+  ownerUser   User?              @relation("CredentialOwner", fields: [ownerUserId], references: [id])
+  ownerUserId String?
+  createdBy   User?              @relation("CredentialCreator", fields: [createdById], references: [id])
+  createdById String?
+  viewers     CredentialViewer[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([category])
+}
+
+model CredentialViewer {
+  credential   Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  credentialId String
+  user         User       @relation("CredViewer", fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+
+  @@id([credentialId, userId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────

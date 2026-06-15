@@ -77,6 +77,7 @@ export default async function ConfiguracionPage() {
               userId={u.id}
               roleKey={u.role.key}
               active={u.active}
+              isGuest={u.isGuest}
               roles={roleOptions}
               isSelf={u.email === session!.email}
             />

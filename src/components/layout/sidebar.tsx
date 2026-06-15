@@ -61,6 +61,7 @@ export function Sidebar({
   clients,
   canAdmin,
   canQuotes,
+  canWiki = true,
   collapsed = false,
   chatUnread = 0,
   onNavigate,
@@ -69,6 +70,7 @@ export function Sidebar({
   clients: SidebarClient[];
   canAdmin: boolean;
   canQuotes?: boolean;
+  canWiki?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   onNavigate?: () => void;
@@ -269,7 +271,7 @@ export function Sidebar({
         ) : (
           <div className="mt-4" />
         )}
-        {navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki"))}
+        {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
         {navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca"))}
       </div>
 

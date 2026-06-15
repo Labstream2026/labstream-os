@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { createWikiPage } from "./actions";
+import { WikiTabs } from "./wiki-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +14,18 @@ export default async function WikiPage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
+      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
+      <p className="mt-1 mb-6 text-sm text-muted-foreground">
+        Documentación, inventario, ubicación del material y contraseñas del equipo.
+      </p>
+      <WikiTabs />
+
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Documentación y bases de conocimiento. Cada página admite texto y tablas tipo Notion.
+          <h2 className="text-lg font-semibold">Documentación</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Páginas con texto, imágenes, enlaces (Drive) y tablas tipo Notion.
           </p>
         </div>
         <form action={createWikiPage}>

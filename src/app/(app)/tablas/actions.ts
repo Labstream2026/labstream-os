@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
+import { canSeeWiki } from "@/lib/wiki-access";
 import { notify } from "@/lib/notify";
 import { pushEventToSynology, deleteEventFromSynology } from "@/lib/caldav";
 import { logActivity } from "@/lib/activity";
@@ -33,7 +34,12 @@ async function ensureTableAccess(tableId: string): Promise<void> {
     select: { projectId: true, project: { select: accessSelect } },
   });
   if (!t) throw new Error("No autorizado");
-  if (t.project && !canAccessProject(t.project, session)) throw new Error("No autorizado");
+  if (t.project) {
+    if (!canAccessProject(t.project, session)) throw new Error("No autorizado");
+  } else {
+    // Tablas de wiki o globales (inventario/ubicación): solo equipo interno (no invitados).
+    if (!(await canSeeWiki(session))) throw new Error("No autorizado");
+  }
 }
 
 // Acceso vía columna o fila (resuelven su tableId primero).

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { canSeeWiki } from "@/lib/wiki-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -67,6 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
   `;
   const chatUnread = Number(unreadRows[0]?.total ?? 0);
+  const showWiki = await canSeeWiki(session);
 
   // El canal general solo se envía al cliente si el usuario puede verlo (por si se
   // marca privado): evita filtrar mensajes a quien no tiene acceso.
@@ -89,6 +91,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       chatUnread={chatUnread}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
+      canWiki={showWiki}
       clients={clients.map((c) => ({
         id: c.id,
         name: c.name,
