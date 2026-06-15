@@ -1,4 +1,5 @@
 import { formatMoney, quoteTotals, formatShortDate } from "@/lib/ui";
+import { COMPANY } from "@/lib/branding";
 
 export type DocItem = { section: string | null; description: string; quantity: number; unitPrice: number };
 export type QuoteDoc = {
@@ -39,7 +40,7 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
       {/* Cabecera */}
       <div className="flex items-start justify-between gap-6 border-b border-neutral-200 pb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/logo.png" alt="Labstream" className="h-12 w-auto object-contain" />
+        <img src="/brand/logo.png" alt={COMPANY.name} className="h-12 w-auto object-contain" />
         <div className="text-right">
           <p className="text-lg font-bold tracking-tight text-neutral-900">COTIZACIÓN</p>
           <p className="font-mono text-xs text-neutral-500">{quote.code}</p>
@@ -111,7 +112,7 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/firma.png" alt="Firma" className="h-16 w-auto object-contain" />
-          <p className="mt-1 border-t border-neutral-300 pt-1 text-xs font-medium text-neutral-700">Labstream SAS</p>
+          <p className="mt-1 border-t border-neutral-300 pt-1 text-xs font-medium text-neutral-700">{COMPANY.legalName}</p>
         </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/membrete.png" alt="" className="h-14 w-auto object-contain opacity-80" />

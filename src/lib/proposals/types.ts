@@ -2,6 +2,8 @@
 // el tipo Block es deliberadamente flexible: un objeto con `type` y los campos
 // propios de cada tipo. Las funciones del editor leen/escriben campos por nombre.
 
+import { COMPANY } from "@/lib/branding";
+
 export type BlockType =
   | "hero"
   | "text"
@@ -36,12 +38,13 @@ export type ProposalStatus = "BORRADOR" | "ENVIADA" | "ACEPTADA" | "VENCIDA";
 export type Answers = Record<string, string>;
 
 // Marca por defecto (Labstream). Se snapshotea en cada propuesta y es editable.
+// Toma los valores de la marca centralizada de la empresa (branding.ts).
 export const BRAND_DEFAULT: Brand = {
-  company: "Labstream",
-  tagline: "Producción de contenidos innovadores",
-  accent: "#6366f1",
-  email: "hola@labstream.co",
-  whatsapp: "573017548378",
+  company: COMPANY.name,
+  tagline: COMPANY.tagline,
+  accent: COMPANY.accent,
+  email: COMPANY.email,
+  whatsapp: COMPANY.whatsapp,
 };
 
 // Etiquetas en español de cada tipo de bloque (para el menú "añadir bloque").
