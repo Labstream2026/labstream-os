@@ -39,15 +39,15 @@ export default async function ChatDelDiaPage() {
   });
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-4 sm:px-8 sm:py-6">
-      <div className="mb-2">
-        <h1 className="text-2xl font-bold tracking-tight">💬 Chat del día</h1>
-        <p className="text-sm text-muted-foreground">
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+        <h1 className="text-lg font-semibold tracking-tight">💬 Chat del día</h1>
+        <p className="text-xs text-muted-foreground">
           Lo del día a día del equipo (sin seguimiento): recordatorios, reuniones, avisos rápidos.
         </p>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1">
         <ChannelChat
           channelId={channel.id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}

@@ -545,7 +545,8 @@ export function ChannelChat({
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4">
         <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
         {roots.map((m, idx) => {
           const replies = repliesFor(m.id);
@@ -682,6 +683,7 @@ export function ChannelChat({
             </React.Fragment>
           );
         })}
+        </div>
       </div>
 
       {!online ? (
@@ -738,7 +740,7 @@ export function ChannelChat({
             </div>
           </form>
         ) : null}
-        <form onSubmit={submitMain} className="p-3">
+        <form onSubmit={submitMain} className="mx-auto w-full max-w-3xl p-3">
           {files.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {files.map((f, i) => (
