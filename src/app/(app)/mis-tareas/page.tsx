@@ -15,6 +15,7 @@ import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
 import { MyTaskForm } from "./my-task-form";
 import { DueCalendar } from "./due-calendar";
+import { TaskDetailButton } from "./task-detail-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function MisTareasPage() {
       include: {
         project: { select: { id: true, name: true, emoji: true } },
         assignedBy: { select: { name: true, initials: true, avatarColor: true } },
+        checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
       },
     }),
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -90,6 +92,24 @@ export default async function MisTareasPage() {
                 title="Fecha de entrega"
               />
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
+              <TaskDetailButton
+                task={{
+                  id: t.id,
+                  title: t.title,
+                  description: t.description,
+                  status: t.status,
+                  priority: t.priority,
+                  dueDateValue: toDateInputValue(t.dueDate) ?? "",
+                  projectId: t.project?.id ?? null,
+                  projectName: t.project?.name ?? null,
+                  projectEmoji: t.project?.emoji ?? null,
+                  assigneeId: t.assigneeId,
+                  checklist: t.checklist,
+                }}
+                team={team}
+                statuses={statuses}
+                priorities={priorities}
+              />
             </div>
           );
         })

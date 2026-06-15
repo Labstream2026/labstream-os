@@ -8,7 +8,7 @@ import { safeExternalUrl } from "@/lib/url";
 import { mimeFor } from "@/lib/storage";
 import { saveBufferWithPreview } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
-import { notifyAndEmail } from "@/lib/notify";
+import { notify, notifyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import type { SessionUser } from "@/lib/session";
@@ -264,6 +264,83 @@ export async function addChecklistItem(taskId: string, _projectId: string, formD
     entityId: taskId,
   });
   refresh(projectId);
+}
+
+// Editar la descripción de la tarea.
+export async function setTaskDescription(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const description = String(formData.get("description") ?? "").trim() || null;
+  await db.task.update({ where: { id: taskId }, data: { description } });
+  refresh(projectId);
+}
+
+export type TaskCommentItem = {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: { name: string; initials: string | null; color: string | null } | null;
+  mine: boolean;
+};
+
+// Lee los comentarios de una tarea (verificando acceso).
+export async function getTaskComments(taskId: string): Promise<TaskCommentItem[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  await ensureAccessVia(task);
+  const session = await getSession();
+  const rows = await db.taskComment.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "asc" },
+    include: { author: { select: { id: true, name: true, initials: true, avatarColor: true } } },
+  });
+  return rows.map((c) => ({
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+    author: c.author ? { name: c.author.name, initials: c.author.initials, color: c.author.avatarColor } : null,
+    mine: c.author?.id === session?.id,
+  }));
+}
+
+// Añade un comentario a la tarea y avisa al dueño/responsable (menos al autor).
+export async function addTaskComment(taskId: string, _projectId: string, formData: FormData): Promise<TaskCommentItem | null> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const session = await getSession();
+  const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
+  if (!body) return null;
+  const c = await db.taskComment.create({
+    data: { taskId, authorId: session?.id ?? null, body },
+    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+  const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
+  const recipients = new Set<string>();
+  if (task!.ownerId) recipients.add(task!.ownerId);
+  if (task!.assigneeId) recipients.add(task!.assigneeId);
+  recipients.delete(session?.id ?? "");
+  for (const userId of recipients) {
+    await notify(userId, { type: "task", title: `Comentario en «${task!.title}»`, body: body.slice(0, 140), link });
+  }
+  await logActivity({ action: "task.comment", summary: `comentó en «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+  return {
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+    author: c.author ? { name: c.author.name, initials: c.author.initials, color: c.author.avatarColor } : null,
+    mine: true,
+  };
+}
+
+// Borra un comentario propio (o admin).
+export async function deleteTaskComment(commentId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const c = await db.taskComment.findUnique({ where: { id: commentId }, select: { authorId: true, task: { select: { projectId: true } } } });
+  if (!c) return;
+  if (!(session.role === "admin" || c.authorId === session.id)) throw new Error("No autorizado");
+  await db.taskComment.delete({ where: { id: commentId } });
+  refresh(c.task.projectId);
 }
 
 // ── Entregables ──

@@ -85,6 +85,7 @@ model User {
   ownedCredentials   Credential[]       @relation("CredentialOwner")
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
+  taskComments       TaskComment[]      @relation("TaskCommentAuthor")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -633,12 +634,26 @@ model Task {
   // Tarea privada: solo la ve su dueño y su responsable (no todo el equipo).
   isPrivate     Boolean         @default(false)
   checklist     ChecklistItem[]
+  comments      TaskComment[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([deliverableId])
+}
+
+// Comentario/nota en una tarea (hilo de conversación de la tarea).
+model TaskComment {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  author    User?    @relation("TaskCommentAuthor", fields: [authorId], references: [id])
+  authorId  String?
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
 }
 
 model ChecklistItem {
