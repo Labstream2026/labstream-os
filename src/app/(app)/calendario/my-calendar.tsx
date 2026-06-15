@@ -34,6 +34,7 @@ export function MyCalendar({
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [openDay, setOpenDay] = useState<string | null>(null);
+  const [selectedEv, setSelectedEv] = useState<CalItem | null>(null);
   const [pending, start] = useTransition();
 
   const byDay = useMemo(() => {
@@ -89,16 +90,18 @@ export function MyCalendar({
                   <div className={cn("mb-1 inline-flex size-5 items-center justify-center rounded-full text-[11px]", isToday ? "bg-primary font-semibold text-primary-foreground" : "text-muted-foreground")}>{d}</div>
                   <div className="space-y-1">
                     {evs.map((ev) => (
-                      <div
+                      <button
                         key={ev.id}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setSelectedEv(ev); }}
                         title={`${ev.title}${ev.projectName ? ` · ${ev.projectName}` : ""}`}
                         className={cn(
-                          "truncate rounded px-1.5 py-0.5 text-[11px]",
+                          "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px]",
                           ev.kind === "event" ? "bg-primary/15 text-foreground" : "bg-amber-500/15 text-foreground",
                         )}
                       >
                         {ev.kind === "event" ? "📅" : "✅"} {ev.time ? `${ev.time} ` : ""}{ev.title}
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </>
@@ -141,6 +144,29 @@ export function MyCalendar({
                 <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">{pending ? "Creando…" : "Crear"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Resumen del evento/tarea (sin entrar), acentuado con su color */}
+      {selectedEv ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelectedEv(null)}>
+          <div className="w-full max-w-xs overflow-hidden rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className={cn("h-1.5 w-full", selectedEv.kind === "event" ? "bg-primary" : "bg-amber-500")} />
+            <div className="p-4">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {selectedEv.kind === "event" ? "Cita / reunión" : "Tarea con entrega"}
+              </p>
+              <h3 className="mt-1 text-sm font-semibold">{selectedEv.kind === "event" ? "📅" : "✅"} {selectedEv.title}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {new Date(selectedEv.date).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
+                {selectedEv.time ? ` · ${selectedEv.time}` : ""}
+              </p>
+              {selectedEv.projectName ? <p className="mt-0.5 text-xs text-muted-foreground">🗂️ {selectedEv.projectName}</p> : null}
+              <div className="mt-3 flex justify-end">
+                <button type="button" onClick={() => setSelectedEv(null)} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">Cerrar</button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

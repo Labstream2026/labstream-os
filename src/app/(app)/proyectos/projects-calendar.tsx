@@ -34,6 +34,7 @@ export function ProjectsCalendar({ projects }: { projects: CalProject[] }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
+  const [selected, setSelected] = useState<Ev | null>(null); // evento abierto en el popover
 
   const byDay = useMemo(() => {
     const map = new Map<string, Ev[]>();
@@ -90,16 +91,17 @@ export function ProjectsCalendar({ projects }: { projects: CalProject[] }) {
                     {evs.map((ev, j) => {
                       const t = tone(ev.color);
                       return (
-                        <Link
+                        <button
                           key={j}
-                          href={`/proyectos/${ev.projectId}`}
+                          type="button"
+                          onClick={() => setSelected(ev)}
                           title={ev.label}
-                          className="block truncate rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
+                          className="block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white"
                           style={{ backgroundColor: ev.color ? t.hex : "#64748b" }}
                         >
                           {ev.kind === "start" ? "▶ " : ev.kind === "due" ? "🏁 " : "🎬 "}
                           {ev.name}
-                        </Link>
+                        </button>
                       );
                     })}
                   </div>
@@ -125,6 +127,26 @@ export function ProjectsCalendar({ projects }: { projects: CalProject[] }) {
       ) : (
         <p className="text-xs text-muted-foreground">Asigna un color a cada proyecto (en la vista Lista) y fechas de entrega para verlos aquí.</p>
       )}
+
+      {/* Resumen del evento (sin salir de la página), acentuado con su color */}
+      {selected ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelected(null)}>
+          <div className="w-full max-w-xs overflow-hidden rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="h-1.5 w-full" style={{ backgroundColor: selected.color ? tone(selected.color).hex : "#64748b" }} />
+            <div className="p-4">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {selected.kind === "start" ? "Inicio de proyecto" : selected.kind === "due" ? "Entrega del proyecto" : "Entregable"}
+              </p>
+              <h3 className="mt-1 text-sm font-semibold">{selected.emoji} {selected.name}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{selected.label}</p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setSelected(null)} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">Cerrar</button>
+                <Link href={`/proyectos/${selected.projectId}`} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Abrir proyecto</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
