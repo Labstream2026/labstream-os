@@ -62,9 +62,16 @@ export async function instantiateTemplate(
     },
   });
 
-  // canal de chat del proyecto (automatización)
+  // Canal de chat del proyecto: PRIVADO (por invitación). El responsable entra
+  // como administrador del chat; el resto del equipo debe ser invitado.
   await db.chatChannel.create({
-    data: { type: "PROJECT", name: opts.name, projectId: project.id },
+    data: {
+      type: "PROJECT",
+      name: opts.name,
+      projectId: project.id,
+      isPublic: false,
+      ...(opts.leadId ? { members: { create: { userId: opts.leadId, role: "ADMIN" as never } } } : {}),
+    },
   });
 
   const content = tpl?.content;

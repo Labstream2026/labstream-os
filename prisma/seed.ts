@@ -235,8 +235,15 @@ async function main() {
 
   for (const { id: projectId, leadId, name } of projectIds) {
     await createFolders(prisma, projectId);
+    // Canal de proyecto PRIVADO (por invitación); el responsable entra como admin del chat.
     const channel = await prisma.chatChannel.create({
-      data: { type: "PROJECT", name, projectId },
+      data: {
+        type: "PROJECT",
+        name,
+        projectId,
+        isPublic: false,
+        ...(leadId ? { members: { create: { userId: leadId, role: "ADMIN" } } } : {}),
+      },
     });
     await prisma.chatMessage.createMany({
       data: [

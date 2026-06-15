@@ -19,6 +19,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const channel = await db.chatChannel.findUnique({
     where: { id },
     include: {
+      project: { select: { leadId: true } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       messages: {
         orderBy: { createdAt: "asc" },
@@ -40,7 +41,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   if (!channel) notFound();
 
   // Acceso: público → equipo; privado → admin/responsable/miembro.
-  if (!canAccessChannel({ isPublic: channel.isPublic, project: null, members: channel.members }, session)) {
+  if (!canAccessChannel({ isPublic: channel.isPublic, project: channel.project, members: channel.members }, session)) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-8 py-24 text-center">
         <Lock className="size-7 text-muted-foreground" />

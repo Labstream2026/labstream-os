@@ -9,6 +9,8 @@ import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { canAccessChannel } from "@/lib/chat-access";
+import { ProjectChat } from "./project-chat";
 import { ProjectSettings } from "@/components/project-settings";
 import { DataTableView } from "@/components/tables/data-table";
 import { createTable } from "@/app/(app)/tablas/actions";
@@ -27,6 +29,7 @@ export const dynamic = "force-dynamic";
 const TABS = [
   { key: "resumen", label: "Resumen" },
   { key: "tareas", label: "Tareas" },
+  { key: "chat", label: "Chat" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
   { key: "tablas", label: "Tablas" },
@@ -58,6 +61,7 @@ export default async function ProyectoPage({
               include: {
                 author: { select: { name: true, initials: true, avatarColor: true } },
                 attachments: true,
+                reactions: { select: { emoji: true, userId: true } },
                 poll: {
                   include: {
                     options: { orderBy: { position: "asc" }, include: { _count: { select: { votes: true } } } },
@@ -134,6 +138,22 @@ export default async function ProyectoPage({
     entregables: project.deliverables.length,
     archivos: project.folders.reduce((n, f) => n + f.files.length, 0) + project.files.length,
   };
+
+  // Chat del proyecto (privado, por invitación). Acceso: admin del sistema,
+  // responsable del proyecto o miembro del canal. Gestión (invitar): admin/responsable
+  // o miembro con rol ADMIN del chat.
+  const chatChannel = project.channel;
+  const chatAccess = chatChannel
+    ? canAccessChannel(
+        { isPublic: chatChannel.isPublic, project: { leadId: project.leadId }, members: chatChannel.members.map((m) => ({ userId: m.userId })) },
+        session,
+      )
+    : false;
+  const chatManage = chatChannel
+    ? session?.role === "admin" ||
+      project.leadId === session?.id ||
+      chatChannel.members.some((m) => m.userId === session?.id && m.role === "ADMIN")
+    : false;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
@@ -247,6 +267,19 @@ export default async function ProyectoPage({
               </div>
             );
           })()
+        ) : null}
+        {tab === "chat" ? (
+          chatChannel ? (
+            <ProjectChat
+              channel={{ id: chatChannel.id, name: chatChannel.name, isPublic: chatChannel.isPublic, messages: chatChannel.messages, members: chatChannel.members }}
+              me={{ id: session!.id, name: session!.name, initials: session!.initials, color: session!.color }}
+              team={team}
+              canAccess={chatAccess}
+              canManage={chatManage}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Este proyecto aún no tiene chat.</p>
+          )
         ) : null}
         {tab === "entregables" ? (
           <DeliverablesPanel
