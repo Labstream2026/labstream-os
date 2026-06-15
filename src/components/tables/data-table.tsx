@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import {
   useReactTable,
   getCoreRowModel,
@@ -393,35 +394,99 @@ function PasswordCell({ value, rowId, columnId, onSave }: { value: string; rowId
 }
 
 // Celda multi-selección: varias etiquetas; menú con casillas + añadir opción.
+// Popover anclado al disparador y renderizado en un PORTAL (document.body) con
+// posición fija, para que NO lo recorte el overflow de la tabla. Se voltea hacia
+// arriba si no hay espacio abajo, y cierra al hacer clic fuera o con Escape.
+type PopRect = { left: number; width: number; top?: number; bottom?: number };
+function CellPopover({ summary, children }: { summary: React.ReactNode; children: (close: () => void) => React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const [rect, setRect] = React.useState<PopRect | null>(null);
+
+  const place = React.useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.max(r.width, 192);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const flipUp = spaceBelow < 260 && r.top > 260;
+    setRect(flipUp ? { left: r.left, width, bottom: window.innerHeight - r.top + 4 } : { left: r.left, width, top: r.bottom + 4 });
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    place();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!btnRef.current?.contains(t) && !t.closest("[data-cellpop]")) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, place]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} className="flex w-full cursor-pointer flex-wrap items-center gap-1 text-left">
+        {summary}
+      </button>
+      {open && rect
+        ? createPortal(
+            <div
+              data-cellpop
+              style={{ position: "fixed", left: rect.left, width: rect.width, top: rect.top, bottom: rect.bottom, zIndex: 60 }}
+              className="max-h-64 overflow-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
+            >
+              {children(() => setOpen(false))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 function MultiSelectCell({ column, value, onSave }: { column: Column; value: string[]; onSave: (v: string[]) => void }) {
   const opts = column.options ?? [];
   const toggle = (id: string) => onSave(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
-    <details data-autoclose className="relative">
-      <summary className="flex cursor-pointer list-none flex-wrap gap-1">
-        {value.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : null}
-        {value.map((id) => {
-          const o = opts.find((x) => x.id === id);
-          if (!o) return null;
-          return <span key={id} className={cn("rounded-full px-2 py-0.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>;
-        })}
-      </summary>
-      <div className="absolute z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-lg">
-        {opts.map((o) => (
-          <button key={o.id} type="button" onClick={() => toggle(o.id)} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted">
-            <input type="checkbox" readOnly checked={value.includes(o.id)} className="size-3" />
-            <span className={cn("rounded-full px-1.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>
+    <CellPopover
+      summary={
+        <>
+          {value.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : null}
+          {value.map((id) => {
+            const o = opts.find((x) => x.id === id);
+            if (!o) return null;
+            return <span key={id} className={cn("rounded-full px-2 py-0.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>;
+          })}
+        </>
+      }
+    >
+      {() => (
+        <>
+          {opts.map((o) => (
+            <button key={o.id} type="button" onClick={() => toggle(o.id)} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted">
+              <input type="checkbox" readOnly checked={value.includes(o.id)} className="size-3" />
+              <span className={cn("rounded-full px-1.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => { const l = prompt("Nueva opción"); if (l) addSelectOption(column.id, l); }}
+            className="w-full rounded px-2 py-1 text-left text-xs text-primary hover:bg-muted"
+          >
+            + Nueva opción…
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => { const l = prompt("Nueva opción"); if (l) addSelectOption(column.id, l); }}
-          className="w-full rounded px-2 py-1 text-left text-xs text-primary hover:bg-muted"
-        >
-          + Nueva opción…
-        </button>
-      </div>
-    </details>
+        </>
+      )}
+    </CellPopover>
   );
 }
 
