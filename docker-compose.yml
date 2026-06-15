@@ -28,6 +28,11 @@ services:
       # entre contenedores: la IP LAN del NAS, p.ej. http://192.168.1.50:3200.
       # Sin esto cae a NEXTAUTH_URL (dominio público) → suele dar "Error de descarga".
       ONLYOFFICE_CALLBACK_BASE: ${ONLYOFFICE_CALLBACK_BASE:-}
+      # Dirección de OnlyOffice alcanzable DESDE la app, para bajar el archivo
+      # editado al GUARDAR. La IP LAN del NAS + puerto de OnlyOffice (8088),
+      # p.ej. http://192.168.1.50:8088. Sin esto el guardado da "No se ha podido
+      # guardar" (la app no llega al dominio público docs.labstreamsas.com).
+      ONLYOFFICE_INTERNAL_URL: ${ONLYOFFICE_INTERNAL_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       # Correo Synology MailPlus (SMTP) — equipo @labstreamsas.com
