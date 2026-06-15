@@ -47,7 +47,7 @@ export default async function ChatDelDiaPage() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex-1 overflow-hidden">
         <ChannelChat
           channelId={channel.id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}

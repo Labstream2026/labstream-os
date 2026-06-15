@@ -116,8 +116,8 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
   const sortedRows = rt.getRowModel().rows;
 
   return (
-    <div className="rounded-xl border border-border bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+    <div>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
         <span className="text-sm font-semibold">📊 {table.name}</span>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
