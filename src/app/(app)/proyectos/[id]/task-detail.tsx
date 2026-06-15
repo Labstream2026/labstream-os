@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { X } from "lucide-react";
+import { X, Send, Trash2 } from "lucide-react";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
+import { UserAvatar } from "@/components/user-avatar";
 import {
   renameTask,
   setTaskStatus,
@@ -16,9 +17,21 @@ import {
   deleteTask,
   toggleChecklistItem,
   addChecklistItem,
+  getTaskComments,
+  addTaskComment,
+  deleteTaskComment,
+  type TaskCommentItem,
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { type LabelRow, labelOptions } from "@/lib/colors";
+
+function timeAgo(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "ahora";
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  return new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+}
 
 // Panel lateral para editar TODOS los campos de una tarea.
 export function TaskDetail({
@@ -41,6 +54,35 @@ export function TaskDetail({
   const stageOptions = (stages.length ? stages : ["Por hacer"]).map((s) => ({ value: s, label: s }));
   const curStage = task.stage && stages.includes(task.stage) ? task.stage : stages[0] ?? "Por hacer";
   const done = task.checklist.filter((c) => c.done).length;
+
+  const [comments, setComments] = React.useState<TaskCommentItem[] | null>(null);
+  const [body, setBody] = React.useState("");
+  const [pending, start] = React.useTransition();
+
+  React.useEffect(() => {
+    let alive = true;
+    getTaskComments(task.id).then((c) => { if (alive) setComments(c); }).catch(() => { if (alive) setComments([]); });
+    return () => { alive = false; };
+  }, [task.id]);
+
+  function submitComment(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const text = body.trim();
+    if (!text) return;
+    const fd = new FormData();
+    fd.set("body", text);
+    setBody("");
+    start(async () => {
+      const saved = await addTaskComment(task.id, projectId, fd);
+      if (saved) setComments((prev) => [...(prev ?? []), saved]);
+    });
+  }
+  function removeComment(id: string) {
+    start(async () => {
+      await deleteTaskComment(id);
+      setComments((prev) => (prev ?? []).filter((c) => c.id !== id));
+    });
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -107,6 +149,49 @@ export function TaskDetail({
             </div>
             <form action={addChecklistItem.bind(null, task.id, projectId)} className="mt-2">
               <input name="label" placeholder="+ Añadir ítem" className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
+            </form>
+          </div>
+
+          {/* Comentarios */}
+          <div className="border-t border-border pt-4">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Comentarios</p>
+            <div className="space-y-3">
+              {comments === null ? (
+                <p className="text-xs text-muted-foreground">Cargando…</p>
+              ) : comments.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sé el primero en comentar.</p>
+              ) : (
+                comments.map((c) => (
+                  <div key={c.id} className="flex gap-2">
+                    <UserAvatar initials={c.author?.initials ?? null} color={c.author?.color ?? null} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs">
+                        <span className="font-medium">{c.author?.name ?? "Alguien"}</span>{" "}
+                        <span suppressHydrationWarning className="text-muted-foreground">{timeAgo(c.createdAt)}</span>
+                      </p>
+                      <p className="whitespace-pre-wrap break-words text-sm">{c.body}</p>
+                    </div>
+                    {c.mine ? (
+                      <button onClick={() => removeComment(c.id)} title="Borrar" className="self-start rounded p-1 text-muted-foreground hover:text-destructive">
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+            <form onSubmit={submitComment} className="mt-3 flex items-end gap-2">
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                rows={2}
+                placeholder="Escribe un comentario…"
+                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }}
+                className="min-w-0 flex-1 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button type="submit" disabled={pending || !body.trim()} className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50" title="Enviar (⌘/Ctrl+Enter)">
+                <Send className="size-4" />
+              </button>
             </form>
           </div>
 
