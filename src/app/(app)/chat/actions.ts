@@ -75,7 +75,7 @@ export async function leaveChannel(channelId: string) {
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }
-import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, publishConversationClear, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
 
 // ── Editar / borrar / fijar mensajes ──
 
@@ -94,15 +94,34 @@ export async function editMessage(messageId: string, body: string): Promise<void
 }
 
 // Borrar un mensaje propio (o admin del sistema / gestor del canal).
+// Borrado SUAVE: el mensaje desaparece para los usuarios pero el administrador lo
+// sigue viendo (en gris) para seguimiento. No se elimina la fila de la BD.
 export async function deleteMessage(messageId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
-  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true } });
-  if (!msg) return;
+  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true, deletedAt: true } });
+  if (!msg || msg.deletedAt) return;
   const isOwner = msg.authorId === session.id;
   if (!isOwner && session.role !== "admin" && !(await userCanManageChannel(msg.channelId, session))) return;
-  await db.chatMessage.delete({ where: { id: messageId } });
+  await db.chatMessage.update({ where: { id: messageId }, data: { deletedAt: new Date(), deletedById: session.id } });
   publishMessageDelete(msg.channelId, messageId);
+}
+
+// Borrar una conversación entera (todos sus mensajes). Borrado suave: para los
+// usuarios desaparece; el administrador la sigue viendo en gris. Permitido en los
+// chats directos (cualquiera de los dos) o por admin / gestor del canal.
+export async function clearConversation(channelId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  if (!(await userCanAccessChannel(channelId, session))) return;
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
+  const allowed = channel?.type === "DIRECT" || session.role === "admin" || (await userCanManageChannel(channelId, session));
+  if (!allowed) return;
+  await db.chatMessage.updateMany({
+    where: { channelId, deletedAt: null },
+    data: { deletedAt: new Date(), deletedById: session.id },
+  });
+  publishConversationClear(channelId);
 }
 
 // Fijar / desfijar un mensaje del canal (cualquier miembro con acceso).

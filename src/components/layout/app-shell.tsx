@@ -21,6 +21,7 @@ export function AppShell({
   canQuotes,
   canWiki = true,
   me,
+  isAdmin = false,
   generalChannel,
   dockTeam = [],
   chatUnread = 0,
@@ -34,6 +35,7 @@ export function AppShell({
   canQuotes?: boolean;
   canWiki?: boolean;
   me: ChatMe;
+  isAdmin?: boolean;
   generalChannel: GeneralChannel;
   dockTeam?: DockTeamMember[];
   chatUnread?: number;
@@ -128,12 +130,12 @@ export function AppShell({
       </div>
 
       {/* Panel de chat de escritorio (redimensionable; muestra el chat del proyecto) */}
-      <ChatDock variant="desktop" open={chatOpen} me={me} team={dockTeam} generalChannel={generalChannel} />
+      <ChatDock variant="desktop" open={chatOpen} me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} />
 
       {/* Hoja de chat a pantalla completa (móvil) */}
       {mobileChatOpen ? (
         <div className="fixed inset-0 z-50 bg-background md:hidden">
-          <ChatDock variant="mobile" me={me} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
+          <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
         </div>
       ) : null}
 

@@ -406,6 +406,10 @@ model ChatMessage {
   poll        Poll?
   pinned      Boolean             @default(false) // mensaje fijado en el canal
   editedAt    DateTime? // se rellena al editar el mensaje
+  // Borrado suave: el mensaje desaparece para los usuarios, pero el administrador
+  // lo sigue viendo (en gris) para auditoría/seguimiento. No se elimina la fila.
+  deletedAt   DateTime?
+  deletedById String?
   createdAt   DateTime            @default(now())
 
   @@index([channelId, createdAt])

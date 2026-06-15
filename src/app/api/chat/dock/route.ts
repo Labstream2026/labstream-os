@@ -34,6 +34,7 @@ type RawMessage = {
   createdAt: Date;
   pinned: boolean;
   editedAt: Date | null;
+  deletedAt: Date | null;
   author: { name: string; initials: string | null; avatarColor: string | null } | null;
   attachments: { id: string; name: string; mime: string | null }[];
   reactions: { emoji: string; userId: string }[];
@@ -45,6 +46,7 @@ function shape(messages: RawMessage[], myVotes: Map<string, string>) {
     id: m.id,
     body: m.body,
     parentId: m.parentId,
+    deleted: !!m.deletedAt,
     createdAt: m.createdAt.toISOString(),
     pinned: m.pinned,
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
@@ -66,6 +68,9 @@ function shape(messages: RawMessage[], myVotes: Map<string, string>) {
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "unauth" }, { status: 401 });
+  // El admin ve los mensajes borrados (en gris) para seguimiento; los demás no.
+  const adminAll = session.role === "admin";
+  const msgWhere = (channelId: string) => ({ channelId, ...(adminAll ? {} : { deletedAt: null }) });
 
   const url = new URL(req.url);
   const projectId = url.searchParams.get("project");
@@ -97,7 +102,7 @@ export async function GET(req: Request) {
       });
     }
     const [messages, votes] = await Promise.all([
-      db.chatMessage.findMany({ where: { channelId: channel.id }, ...messageInclude }),
+      db.chatMessage.findMany({ where: msgWhere(channel.id), ...messageInclude }),
       db.pollVote.findMany({ where: { userId: session.id, poll: { channelId: channel.id } }, select: { pollId: true, optionId: true } }),
     ]);
     const myVotes = new Map(votes.map((v) => [v.pollId, v.optionId] as const));
@@ -143,7 +148,7 @@ export async function GET(req: Request) {
     if (!canAccess) return NextResponse.json(payload);
 
     const [messages, votes] = await Promise.all([
-      db.chatMessage.findMany({ where: { channelId: channel.id }, ...messageInclude }),
+      db.chatMessage.findMany({ where: msgWhere(channel.id), ...messageInclude }),
       db.pollVote.findMany({ where: { userId: session.id, poll: { channelId: channel.id } }, select: { pollId: true, optionId: true } }),
     ]);
     const myVotes = new Map(votes.map((v) => [v.pollId, v.optionId] as const));
@@ -177,7 +182,7 @@ export async function GET(req: Request) {
     if (!canAccess) return NextResponse.json(payload);
 
     const [messages, votes] = await Promise.all([
-      db.chatMessage.findMany({ where: { channelId: channel.id }, ...messageInclude }),
+      db.chatMessage.findMany({ where: msgWhere(channel.id), ...messageInclude }),
       db.pollVote.findMany({ where: { userId: session.id, poll: { channelId: channel.id } }, select: { pollId: true, optionId: true } }),
     ]);
     const myVotes = new Map(votes.map((v) => [v.pollId, v.optionId] as const));

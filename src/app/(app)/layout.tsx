@@ -37,6 +37,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       include: {
         members: { select: { userId: true } },
         messages: {
+          // El admin ve los borrados (en gris) para seguimiento; los demás no.
+          where: session.role === "admin" ? undefined : { deletedAt: null },
           orderBy: { createdAt: "asc" },
           take: 50,
           include: {
@@ -91,6 +93,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         avatarUrl: session.avatarUrl,
       }}
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+      isAdmin={session.role === "admin"}
       dockTeam={dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
       canAdmin={hasPermission(session, "administrar_usuarios")}
@@ -122,6 +125,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 id: m.id,
                 body: m.body,
                 parentId: m.parentId,
+                deleted: !!m.deletedAt,
                 createdAt: m.createdAt.toISOString(),
                 author: m.author
                   ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }

@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, Search, Check } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
@@ -25,6 +25,7 @@ export type ChatMsg = {
   myOptionId?: string | null;
   pinned?: boolean;
   editedAt?: string | null;
+  deleted?: boolean; // borrado suave: solo lo recibe el admin (lo ve en gris)
   status?: "sending" | "sent" | "error" | "pending";
 };
 
@@ -221,12 +222,14 @@ export function ChannelChat({
   me,
   members = [],
   readOnly = false,
+  isAdmin = false,
 }: {
   channelId: string;
   initialMessages: ChatMsg[];
   me: ChatMe;
   members?: Member[];
   readOnly?: boolean;
+  isAdmin?: boolean;
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
   const [text, setText] = React.useState("");
@@ -310,7 +313,16 @@ export function ChannelChat({
           return;
         }
         if (data?.kind === "delete") {
-          setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+          // El admin lo conserva en gris (auditoría); los demás lo quitan.
+          setMessages((prev) =>
+            isAdmin
+              ? prev.map((m) => (m.id === data.messageId ? { ...m, deleted: true } : m))
+              : prev.filter((m) => m.id !== data.messageId),
+          );
+          return;
+        }
+        if (data?.kind === "clear") {
+          setMessages((prev) => (isAdmin ? prev.map((m) => ({ ...m, deleted: true })) : []));
           return;
         }
         if (data?.kind === "pin") {
@@ -329,7 +341,7 @@ export function ChannelChat({
       }
     };
     return () => es.close();
-  }, [channelId, upsert, scrollToBottom, me.id]);
+  }, [channelId, upsert, scrollToBottom, me.id, isAdmin]);
 
   React.useEffect(() => {
     scrollToBottom();
@@ -477,8 +489,16 @@ export function ChannelChat({
     await editMessage(id, body);
   }
   async function removeMsg(id: string) {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
+    // El admin lo conserva en gris (auditoría); los demás lo quitan de su vista.
+    setMessages((prev) => (isAdmin ? prev.map((m) => (m.id === id ? { ...m, deleted: true } : m)) : prev.filter((m) => m.id !== id)));
     await deleteMessage(id);
+  }
+  const [clearing, setClearing] = React.useState(false);
+  async function clearAll() {
+    if (!confirm("¿Borrar toda la conversación? Los mensajes desaparecerán para los participantes.")) return;
+    setClearing(true);
+    setMessages((prev) => (isAdmin ? prev.map((m) => ({ ...m, deleted: true })) : []));
+    try { await clearConversation(channelId); } finally { setClearing(false); }
   }
   async function pin(id: string, current: boolean) {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: !current } : m)));
@@ -544,9 +564,25 @@ export function ChannelChat({
             <button onClick={() => setSearchOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Buscar">
               <Search className="size-3.5" /> Buscar
             </button>
-            {pinned.length > 0 ? (
-              <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Pin className="size-3" /> {pinned.length} fijado{pinned.length === 1 ? "" : "s"}</span>
-            ) : null}
+            <span className="ml-auto flex items-center gap-2">
+              {pinned.length > 0 ? (
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Pin className="size-3" /> {pinned.length} fijado{pinned.length === 1 ? "" : "s"}</span>
+              ) : null}
+              {!readOnly ? (
+                <details data-autoclose className="relative">
+                  <summary className="flex cursor-pointer list-none items-center rounded-md px-1.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Opciones de la conversación"><MoreHorizontal className="size-4" /></summary>
+                  <div className="absolute right-0 z-30 mt-1 w-52 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg">
+                    <button
+                      onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; clearAll(); }}
+                      disabled={clearing}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted disabled:opacity-50"
+                    >
+                      <Trash2 className="size-3.5" /> Borrar conversación
+                    </button>
+                  </div>
+                </details>
+              ) : null}
+            </span>
           </>
         )}
       </div>
@@ -579,6 +615,21 @@ export function ChannelChat({
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
+            {m.deleted ? (
+              <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
+                <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
+                <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
+                  <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
+                    <span className="text-sm font-semibold text-muted-foreground">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
+                    <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"><Trash2 className="size-3" /> Borrado · visible solo para admin</span>
+                  </div>
+                  <div className="mt-0.5 inline-block max-w-[88%] rounded-2xl border border-dashed border-border bg-muted/40 px-3 py-2 text-sm italic text-muted-foreground">
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{m.body || "(sin texto)"}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
               <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
@@ -600,7 +651,7 @@ export function ChannelChat({
                             <Pencil className="size-3.5" /> Editar
                           </button>
                         ) : null}
-                        {mine ? (
+                        {mine || isAdmin ? (
                           <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
                             <Trash2 className="size-3.5" /> Borrar
                           </button>
@@ -697,6 +748,7 @@ export function ChannelChat({
                 ) : null}
               </div>
             </div>
+            )}
             </React.Fragment>
           );
         })}

@@ -15,6 +15,9 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const session = await getSession();
   if (!session) redirect("/login");
+  // El administrador ve también los mensajes borrados (en gris) para seguimiento;
+  // los demás solo ven los no borrados.
+  const isAdmin = session.role === "admin";
 
   const channel = await db.chatChannel.findUnique({
     where: { id },
@@ -22,6 +25,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
       project: { select: { leadId: true } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       messages: {
+        where: isAdmin ? undefined : { deletedAt: null },
         orderBy: { createdAt: "asc" },
         take: 100,
         include: {
@@ -87,12 +91,14 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
       <div className="min-h-0 flex-1">
         <ChannelChat
           channelId={id}
+          isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={team.map((t) => ({ id: t.id, name: t.name }))}
           initialMessages={channel.messages.map((m) => ({
             id: m.id,
             body: m.body,
             parentId: m.parentId,
+            deleted: !!m.deletedAt,
             createdAt: m.createdAt.toISOString(),
             author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
             attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name) })),

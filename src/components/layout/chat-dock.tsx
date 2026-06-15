@@ -39,6 +39,7 @@ const DEFAULT_W = 340;
 
 export function ChatDock({
   me,
+  isAdmin = false,
   team,
   generalChannel,
   variant = "desktop",
@@ -46,6 +47,7 @@ export function ChatDock({
   onClose,
 }: {
   me: ChatMe;
+  isAdmin?: boolean;
   team: DockTeamMember[];
   generalChannel: { id: string; name: string; messages: ChatMsg[] } | null;
   variant?: "desktop" | "mobile";
@@ -246,7 +248,7 @@ export function ChatDock({
             </p>
           </div>
         ) : (
-          <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} members={mentionMembers} initialMessages={messages} />
+          <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} isAdmin={isAdmin} members={mentionMembers} initialMessages={messages} />
         )}
       </div>
     </div>

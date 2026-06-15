@@ -63,6 +63,10 @@ export function publishMessageDelete(channelId: string, messageId: string) {
 export function publishMessagePin(channelId: string, messageId: string, pinned: boolean) {
   chatBus.emit(channelEvent(channelId), { kind: "pin", channelId, messageId, pinned });
 }
+// Conversación borrada (todos sus mensajes): los usuarios la vacían; el admin los ve en gris.
+export function publishConversationClear(channelId: string) {
+  chatBus.emit(channelEvent(channelId), { kind: "clear", channelId });
+}
 
 // Indicador de "escribiendo…" (efímero).
 export function publishTyping(channelId: string, userId: string, name: string) {
