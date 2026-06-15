@@ -98,29 +98,48 @@ const CAL_CO: PaisCal = {
 
 // Argentina, México y USA: meses clave (el resto cae al foco genérico).
 const CAL_AR: PaisCal = {
-  Marzo: { foco: "Mujer y otoño austral.", hitos: [{ f: "8 mar", t: "Día de la Mujer", i: "Liderazgo femenino." }, { f: "24 mar", t: "Día de la Memoria", i: "Fecha cívica." }] },
+  Enero: { foco: "Verano austral: vacaciones, turismo y ocio.", hitos: [{ f: "Todo el mes", t: "Temporada de verano", i: "Costa, viajes y planes al aire libre." }, { f: "Propósitos", t: "Año nuevo", i: "Hábitos y nuevos comienzos." }] },
+  Febrero: { foco: "Carnaval y San Valentín.", hitos: [{ f: "14 feb", t: "San Valentín", i: "Parejas y regalos." }, { f: "Carnaval", t: "Feriado de Carnaval", i: "Color y contenido festivo." }] },
+  Marzo: { foco: "Mujer, vuelta a clases y otoño.", hitos: [{ f: "8 mar", t: "Día de la Mujer", i: "Liderazgo femenino." }, { f: "Inicio", t: "Vuelta a clases", i: "Rutinas y productividad." }, { f: "24 mar", t: "Día de la Memoria", i: "Fecha cívica." }] },
+  Abril: { foco: "Otoño, Pascua y Malvinas.", hitos: [{ f: "2 abr", t: "Día del Veterano (Malvinas)", i: "Fecha cívica." }, { f: "Semana Santa", t: "Pascua", i: "Familia y descanso." }] },
   Mayo: { foco: "Patria y trabajo.", hitos: [{ f: "1 may", t: "Día del Trabajador", i: "Equipo y oficios." }, { f: "25 may", t: "Revolución de Mayo", i: "Orgullo nacional." }] },
-  Julio: { foco: "Independencia e invierno.", hitos: [{ f: "9 jul", t: "Día de la Independencia", i: "Fecha patria." }, { f: "Vacaciones", t: "Receso invernal", i: "Familia y planes." }] },
-  Octubre: { foco: "Madre (Argentina) y primavera.", hitos: [{ f: "3.er domingo", t: "Día de la Madre", i: "Regalos y gratitud." }] },
-  Noviembre: { foco: "Hot Sale / pico de ventas.", hitos: [{ f: "Cyber", t: "CyberMonday AR", i: "Ofertas y conversión." }] },
-  Diciembre: { foco: "Fiestas y cierre.", hitos: [{ f: "24–25 dic", t: "Navidad", i: "Familia y regalos." }, { f: "31 dic", t: "Año Nuevo", i: "Balance." }] },
+  Junio: { foco: "Padre y mitad de año.", hitos: [{ f: "3.er domingo", t: "Día del Padre", i: "Regalos y homenajes." }, { f: "20 jun", t: "Día de la Bandera", i: "Fecha patria." }] },
+  Julio: { foco: "Independencia, invierno y vacaciones.", hitos: [{ f: "9 jul", t: "Día de la Independencia", i: "Fecha patria." }, { f: "Receso", t: "Vacaciones de invierno", i: "Familia, planes y entretenimiento." }] },
+  Agosto: { foco: "Niñez y reactivación.", hitos: [{ f: "3.er domingo", t: "Día de las Infancias", i: "Familias y juguetería." }, { f: "17 ago", t: "Paso a la inmortalidad de San Martín", i: "Fecha cívica." }] },
+  Septiembre: { foco: "Primavera y estudiante.", hitos: [{ f: "21 sep", t: "Día de la Primavera y del Estudiante", i: "Juventud, aire libre y frescura." }] },
+  Octubre: { foco: "Madre y diversidad.", hitos: [{ f: "3.er domingo", t: "Día de la Madre", i: "Alta fecha de consumo." }, { f: "12 oct", t: "Día del Respeto a la Diversidad Cultural", i: "Fecha cívica." }] },
+  Noviembre: { foco: "Hot Sale / pico de ventas previo a fiestas.", hitos: [{ f: "Cyber", t: "CyberMonday AR", i: "Ofertas y conversión." }, { f: "20 nov", t: "Día de la Soberanía", i: "Fecha cívica." }] },
+  Diciembre: { foco: "Fiestas y cierre de año.", hitos: [{ f: "24–25 dic", t: "Navidad", i: "Familia y regalos." }, { f: "31 dic", t: "Año Nuevo", i: "Balance y celebración." }] },
 };
 
 const CAL_MX: PaisCal = {
-  Febrero: { foco: "Amor y amistad.", hitos: [{ f: "14 feb", t: "Día del Amor y la Amistad", i: "Parejas y regalos." }] },
-  Mayo: { foco: "Madres (10 de mayo).", hitos: [{ f: "10 may", t: "Día de las Madres", i: "Alta fecha de consumo." }, { f: "5 may", t: "Batalla de Puebla", i: "Fecha cívica." }] },
-  Septiembre: { foco: "Fiestas patrias.", hitos: [{ f: "16 sep", t: "Independencia de México", i: "Orgullo nacional." }] },
-  Octubre: { foco: "Buen Fin / temporada alta.", hitos: [{ f: "Fin de mes", t: "El Buen Fin (antesala)", i: "Mayor evento de ventas." }] },
-  Noviembre: { foco: "Día de Muertos y Buen Fin.", hitos: [{ f: "1–2 nov", t: "Día de Muertos", i: "Tradición y cultura." }, { f: "Mediados", t: "El Buen Fin", i: "Ofertas y conversión." }] },
-  Diciembre: { foco: "Guadalupe-Reyes y fiestas.", hitos: [{ f: "12 dic", t: "Día de la Virgen de Guadalupe", i: "Tradición." }, { f: "24–25 dic", t: "Navidad", i: "Familia y regalos." }] },
+  Enero: { foco: "Reyes, cuesta de enero y propósitos.", hitos: [{ f: "6 ene", t: "Día de Reyes", i: "Rosca, regalos y cierre navideño." }, { f: "Todo el mes", t: "Propósitos de año nuevo", i: "Hábitos y nuevos comienzos." }] },
+  Febrero: { foco: "Amor y amistad.", hitos: [{ f: "14 feb", t: "Día del Amor y la Amistad", i: "Parejas y regalos." }, { f: "5 feb", t: "Día de la Constitución", i: "Fecha cívica." }] },
+  Marzo: { foco: "Primavera y mujer.", hitos: [{ f: "8 mar", t: "Día Internacional de la Mujer", i: "Liderazgo femenino." }, { f: "21 mar", t: "Natalicio de Benito Juárez", i: "Fecha cívica." }] },
+  Abril: { foco: "Niño y vacaciones de Semana Santa.", hitos: [{ f: "30 abr", t: "Día del Niño", i: "Familias y juguetería." }, { f: "Semana Santa", t: "Vacaciones", i: "Viajes y descanso." }] },
+  Mayo: { foco: "Madres (10 de mayo): pico de consumo.", hitos: [{ f: "10 may", t: "Día de las Madres", i: "Alta fecha de consumo." }, { f: "5 may", t: "Batalla de Puebla", i: "Fecha cívica." }, { f: "15 may", t: "Día del Maestro", i: "Educación y reconocimiento." }] },
+  Junio: { foco: "Padre y mitad de año.", hitos: [{ f: "3.er domingo", t: "Día del Padre", i: "Regalos y homenajes." }] },
+  Julio: { foco: "Verano y vacaciones.", hitos: [{ f: "Todo el mes", t: "Vacaciones de verano", i: "Viajes, ocio y entretenimiento." }] },
+  Agosto: { foco: "Regreso a clases.", hitos: [{ f: "Fin de mes", t: "Regreso a clases", i: "Útiles, rutinas y productividad." }] },
+  Septiembre: { foco: "Mes patrio.", hitos: [{ f: "15–16 sep", t: "Independencia de México", i: "Orgullo nacional y el Grito." }] },
+  Octubre: { foco: "Antesala del Buen Fin y temporada alta.", hitos: [{ f: "Rosa", t: "Lucha contra el cáncer de mama", i: "Causa y concienciación." }, { f: "31 oct", t: "Halloween", i: "Disfraces y contenido lúdico." }] },
+  Noviembre: { foco: "Día de Muertos y El Buen Fin (mayor evento de ventas).", hitos: [{ f: "1–2 nov", t: "Día de Muertos", i: "Tradición y cultura." }, { f: "Mediados", t: "El Buen Fin", i: "Ofertas y conversión máxima." }] },
+  Diciembre: { foco: "Guadalupe-Reyes y fiestas.", hitos: [{ f: "12 dic", t: "Día de la Virgen de Guadalupe", i: "Tradición." }, { f: "16–24 dic", t: "Posadas", i: "Reuniones y celebración." }, { f: "24–25 dic", t: "Navidad", i: "Familia y regalos." }] },
 };
 
 const CAL_US: PaisCal = {
-  Febrero: { foco: "Valentine's & Super Bowl.", hitos: [{ f: "14 feb", t: "Valentine's Day", i: "Parejas y regalos." }, { f: "Inicio", t: "Super Bowl", i: "Gran audiencia." }] },
+  Enero: { foco: "New Year & resolutions.", hitos: [{ f: "1 ene", t: "New Year's Day", i: "Hábitos y nuevos comienzos." }, { f: "3.er lunes", t: "Martin Luther King Jr. Day", i: "Causa y comunidad." }] },
+  Febrero: { foco: "Valentine's & Super Bowl.", hitos: [{ f: "14 feb", t: "Valentine's Day", i: "Parejas y regalos." }, { f: "Inicio", t: "Super Bowl", i: "Gran audiencia." }, { f: "Black History Month", t: "Mes de la Historia Negra", i: "Causa y representación." }] },
+  Marzo: { foco: "Spring & St. Patrick's.", hitos: [{ f: "17 mar", t: "St. Patrick's Day", i: "Contenido festivo." }, { f: "20 mar", t: "Inicio de la primavera", i: "Renovación y frescura." }] },
+  Abril: { foco: "Easter & taxes.", hitos: [{ f: "Variable", t: "Easter", i: "Familia y temporada." }, { f: "22 abr", t: "Earth Day", i: "Sostenibilidad y propósito." }] },
   Mayo: { foco: "Mother's Day & Memorial Day.", hitos: [{ f: "2.º domingo", t: "Mother's Day", i: "Alta fecha de consumo." }, { f: "Último lunes", t: "Memorial Day", i: "Inicio del verano." }] },
+  Junio: { foco: "Father's Day & Pride.", hitos: [{ f: "3.er domingo", t: "Father's Day", i: "Regalos y homenajes." }, { f: "Todo el mes", t: "Pride Month", i: "Diversidad e inclusión." }] },
   Julio: { foco: "Independence Day & verano.", hitos: [{ f: "4 jul", t: "Independence Day", i: "Orgullo y celebración." }] },
-  Noviembre: { foco: "Thanksgiving & Black Friday.", hitos: [{ f: "4.º jueves", t: "Thanksgiving", i: "Familia y gratitud." }, { f: "Viernes sig.", t: "Black Friday / Cyber Monday", i: "Pico de ventas." }] },
-  Diciembre: { foco: "Holidays & fin de año.", hitos: [{ f: "25 dic", t: "Christmas", i: "Regalos y familia." }, { f: "31 dic", t: "New Year's Eve", i: "Balance." }] },
+  Agosto: { foco: "Back to school.", hitos: [{ f: "Fin de mes", t: "Back to School", i: "Útiles, rutinas y productividad." }] },
+  Septiembre: { foco: "Labor Day & otoño.", hitos: [{ f: "1.er lunes", t: "Labor Day", i: "Cierre del verano y ofertas." }] },
+  Octubre: { foco: "Halloween & Breast Cancer Awareness.", hitos: [{ f: "31 oct", t: "Halloween", i: "Disfraces y contenido lúdico." }, { f: "Rosa", t: "Breast Cancer Awareness", i: "Causa y concienciación." }] },
+  Noviembre: { foco: "Thanksgiving & Black Friday (pico de ventas).", hitos: [{ f: "4.º jueves", t: "Thanksgiving", i: "Familia y gratitud." }, { f: "Viernes sig.", t: "Black Friday / Cyber Monday", i: "Pico de ventas." }] },
+  Diciembre: { foco: "Holidays & fin de año.", hitos: [{ f: "25 dic", t: "Christmas", i: "Regalos y familia." }, { f: "31 dic", t: "New Year's Eve", i: "Balance y celebración." }] },
 };
 
 export const CALENDARIOS: Record<string, PaisCal> = {
