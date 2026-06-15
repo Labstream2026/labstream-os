@@ -1,32 +1,11 @@
-import crypto from "node:crypto";
-import { appSecret } from "@/lib/app-secret";
+import { signScopedToken, verifyScopedToken } from "@/lib/signed-token";
 
-// Token HMAC para el portal público de revisión de cliente (sin sesión).
-// Embebe el deliverableId firmado; enlace estable que se puede compartir.
-function secret() {
-  return appSecret();
-}
-
+// Token público (con caducidad) para el portal de revisión del cliente. Caduca a los
+// 60 días; además el equipo puede revocarlo en cualquier momento (reviewRevokedAt).
 export function signReviewToken(deliverableId: string): string {
-  const sig = crypto.createHmac("sha256", secret()).update(`review:${deliverableId}`).digest("base64url");
-  const id = Buffer.from(deliverableId).toString("base64url");
-  return `${id}.${sig}`;
+  return signScopedToken("review", deliverableId, 60);
 }
 
 export function verifyReviewToken(token: string): string | null {
-  const [idB64, sig] = (token || "").split(".");
-  if (!idB64 || !sig) return null;
-  let deliverableId: string;
-  try {
-    deliverableId = Buffer.from(idB64, "base64url").toString("utf8");
-  } catch {
-    return null;
-  }
-  const expected = crypto.createHmac("sha256", secret()).update(`review:${deliverableId}`).digest("base64url");
-  try {
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  } catch {
-    return null;
-  }
-  return deliverableId;
+  return verifyScopedToken("review", token);
 }
