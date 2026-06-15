@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
+import { EstadosTabs, type AuditMessage } from "./estados-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,19 @@ export default async function ChatDelDiaPage() {
     },
   });
 
+  // Registro para auditoría (solo administradores): historial del chat por día.
+  const isAdmin = session.role === "admin";
+  const auditMessages: AuditMessage[] = isAdmin
+    ? (
+        await db.chatMessage.findMany({
+          where: { channelId: channel.id },
+          orderBy: { createdAt: "desc" },
+          take: 500,
+          include: { author: { select: { name: true } } },
+        })
+      ).map((m) => ({ id: m.id, author: m.author?.name ?? null, body: m.body, createdAt: m.createdAt.toISOString() }))
+    : [];
+
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
@@ -48,6 +62,7 @@ export default async function ChatDelDiaPage() {
       </div>
 
       <div className="min-h-0 flex-1">
+        <EstadosTabs isAdmin={isAdmin} audit={auditMessages}>
         <ChannelChat
           channelId={channel.id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
@@ -71,6 +86,7 @@ export default async function ChatDelDiaPage() {
             myOptionId: m.poll?.votes[0]?.optionId ?? null,
           }))}
         />
+        </EstadosTabs>
       </div>
     </div>
   );
