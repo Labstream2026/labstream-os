@@ -64,6 +64,19 @@ const taskAccessSelect = {
   project: { select: accessSelect },
 } as const;
 
+// ¿Puede cambiar PRIORIDAD y FECHA de entrega? Solo quien la creó (dueño), un
+// admin o el responsable del proyecto. El responsable al que se la ASIGNARON no
+// (se la dieron con esos datos). Si la creó para sí mismo, dueño = él → sí puede.
+function canEditTaskMeta(
+  task: { ownerId: string | null; project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } | null },
+  session: SessionUser | null,
+): boolean {
+  if (!session) return false;
+  if (session.role === "admin") return true;
+  if (task.ownerId === session.id) return true;
+  return !!task.project && canManageProject(task.project, session);
+}
+
 // ── Tareas ──
 export async function createTask(projectId: string, formData: FormData) {
   await ensureProjectAccess(projectId);
@@ -123,6 +136,7 @@ export async function renameTask(taskId: string, _projectId: string, formData: F
 export async function setTaskPriority(taskId: string, _projectId: string, priority: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
+  if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la prioridad.");
   await db.task.update({ where: { id: taskId }, data: { priority: priority as never } });
   await logActivity({ action: "task.priority", summary: `cambió la prioridad de «${task!.title}» a ${priority}`, projectId, entityType: "task", entityId: taskId });
   refresh(projectId);
@@ -156,6 +170,7 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
 export async function setTaskDueDate(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
+  if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la fecha de entrega.");
   const raw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
   await db.task.update({ where: { id: taskId }, data: { dueDate } });

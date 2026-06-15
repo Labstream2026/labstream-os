@@ -53,11 +53,13 @@ export function TaskDetailButton({
   team,
   statuses,
   priorities,
+  canEditMeta = true,
 }: {
   task: DetailTask;
   team: TeamMember[];
   statuses: LabelRow[];
   priorities: LabelRow[];
+  canEditMeta?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -71,7 +73,7 @@ export function TaskDetailButton({
         Detalle
       </button>
       {open ? (
-        <TaskDetailPanel task={task} team={team} statuses={statuses} priorities={priorities} onClose={() => setOpen(false)} />
+        <TaskDetailPanel task={task} team={team} statuses={statuses} priorities={priorities} canEditMeta={canEditMeta} onClose={() => setOpen(false)} />
       ) : null}
     </>
   );
@@ -82,12 +84,14 @@ function TaskDetailPanel({
   team,
   statuses,
   priorities,
+  canEditMeta,
   onClose,
 }: {
   task: DetailTask;
   team: TeamMember[];
   statuses: LabelRow[];
   priorities: LabelRow[];
+  canEditMeta: boolean;
   onClose: () => void;
 }) {
   const projectId = task.projectId ?? "";
@@ -159,7 +163,13 @@ function TaskDetailPanel({
               <StatusSelect value={task.status} options={labelOptions(statuses)} action={setTaskStatus.bind(null, task.id, projectId)} className="w-full" />
             </Field>
             <Field label="Prioridad">
-              <StatusSelect value={task.priority} options={labelOptions(priorities)} action={setTaskPriority.bind(null, task.id, projectId)} className="w-full" />
+              {canEditMeta ? (
+                <StatusSelect value={task.priority} options={labelOptions(priorities)} action={setTaskPriority.bind(null, task.id, projectId)} className="w-full" />
+              ) : (
+                <span className="block rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground" title="La fija quien asignó la tarea">
+                  {labelOptions(priorities).find((o) => o.value === task.priority)?.label ?? task.priority}
+                </span>
+              )}
             </Field>
             <Field label="Responsable">
               <select
@@ -174,7 +184,13 @@ function TaskDetailPanel({
               </select>
             </Field>
             <Field label="📅 Fecha de entrega">
-              <DateInput name="dueDate" value={task.dueDateValue} action={setTaskDueDate.bind(null, task.id, projectId)} className="w-full" />
+              {canEditMeta ? (
+                <DateInput name="dueDate" value={task.dueDateValue} action={setTaskDueDate.bind(null, task.id, projectId)} className="w-full" />
+              ) : (
+                <span className="block rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground" title="La fija quien asignó la tarea">
+                  {task.dueDateValue || "Sin fecha"}
+                </span>
+              )}
             </Field>
           </div>
 

@@ -116,7 +116,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
   const sortedRows = rt.getRowModel().rows;
 
   return (
-    <div>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
         <span className="text-sm font-semibold">📊 {table.name}</span>
         <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
                 const tc = rt.getColumn(c.id);
                 const sorted = tc?.getIsSorted();
                 return (
-                  <th key={c.id} className="group min-w-36 px-3 py-2 text-left font-medium text-muted-foreground">
+                  <th key={c.id} className="group min-w-28 px-3 py-2 text-left font-medium text-muted-foreground">
                     <div className="flex items-center gap-1">
                       <input
                         defaultValue={c.name}

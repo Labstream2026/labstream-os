@@ -36,7 +36,7 @@ export default async function MisTareasPage() {
       },
       orderBy: [{ dueDate: "asc" }, { status: "asc" }],
       include: {
-        project: { select: { id: true, name: true, emoji: true } },
+        project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
         assignedBy: { select: { name: true, initials: true, avatarColor: true } },
         checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
       },
@@ -60,13 +60,18 @@ export default async function MisTareasPage() {
         tasks.map((t) => {
           const prio = labelMeta(priorities, t.priority);
           const assignedToMeByOther = t.assigneeId === user.id && t.assignedBy;
+          // Solo el dueño (quien la creó) cambia prioridad/fecha; el responsable
+          // que la recibió no (se la asignaron con esos datos).
+          const canEditMeta = t.ownerId === user.id;
           return (
             <div key={t.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
               <div className="min-w-0 flex-1">
                 {t.project ? (
                   <Link href={`/proyectos/${t.project.id}?tab=tareas`} className="block min-w-0">
                     <p className="truncate text-sm font-medium">{t.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{t.project.emoji} {t.project.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {t.project.client ? `🏢 ${t.project.client.name} · ` : ""}{t.project.emoji} {t.project.name}
+                    </p>
                   </Link>
                 ) : (
                   <>
@@ -85,12 +90,18 @@ export default async function MisTareasPage() {
                 ) : null}
               </div>
               <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
-              <DateInput
-                name="dueDate"
-                value={toDateInputValue(t.dueDate)}
-                action={setTaskDueDate.bind(null, t.id, t.project?.id ?? "")}
-                title="Fecha de entrega"
-              />
+              {canEditMeta ? (
+                <DateInput
+                  name="dueDate"
+                  value={toDateInputValue(t.dueDate)}
+                  action={setTaskDueDate.bind(null, t.id, t.project?.id ?? "")}
+                  title="Fecha de entrega"
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground" title="La fecha la fija quien asignó la tarea">
+                  📅 {formatShortDate(t.dueDate) ?? "Sin fecha"}
+                </span>
+              )}
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
               <TaskDetailButton
                 task={{
@@ -109,6 +120,7 @@ export default async function MisTareasPage() {
                 team={team}
                 statuses={statuses}
                 priorities={priorities}
+                canEditMeta={canEditMeta}
               />
             </div>
           );
