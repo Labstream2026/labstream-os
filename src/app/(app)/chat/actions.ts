@@ -270,7 +270,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   if (!(await userCanAccessChannel(channelId, session))) return null;
 
   const msg = await db.chatMessage.create({
-    data: { channelId, body: body || "📎 Archivo adjunto", parentId, authorId: session!.id },
+    data: { channelId, body, parentId, authorId: session!.id },
     include: { author: { select: { name: true, initials: true, avatarColor: true } } },
   });
 

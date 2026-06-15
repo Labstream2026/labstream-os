@@ -104,6 +104,19 @@ function fileIcon(name: string) {
   return { Icon: FileIcon, color: "text-muted-foreground" };
 }
 
+// Acorta nombres largos conservando la extensión: "Guion_Viral_Restylane….docx".
+function shortName(name: string, max = 26): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const keep = Math.max(6, max - ext.length - 1);
+  return `${base.slice(0, keep)}…${ext}`;
+}
+
+// Cuerpo de mensaje vacío de los adjuntos (placeholder antiguo): no se muestra.
+const ATTACH_PLACEHOLDER = "📎 Archivo adjunto";
+
 function Attachments({ items }: { items?: Attachment[] }) {
   if (!items || items.length === 0) return null;
   return (
@@ -127,22 +140,26 @@ function Attachments({ items }: { items?: Attachment[] }) {
         }
         const { Icon, color } = fileIcon(a.name);
         return (
-          <div key={a.id} className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs">
-            <Icon className={cn("size-5 shrink-0", color)} />
-            <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
-            {isPdf(a) ? (
-              <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                <Eye className="size-3" /> Ver
+          <div key={a.id} className="w-56 max-w-full rounded-xl border border-border bg-background p-2.5">
+            <div className="flex items-center gap-2">
+              <Icon className={cn("size-7 shrink-0", color)} />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium" title={a.name}>{shortName(a.name)}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-3 border-t border-border pt-2 text-[11px]">
+              {isPdf(a) ? (
+                <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                  <Eye className="size-3.5" /> Ver
+                </a>
+              ) : null}
+              {a.editable ? (
+                <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                  <Pencil className="size-3.5" /> Editar
+                </Link>
+              ) : null}
+              <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                <Download className="size-3.5" /> Descargar
               </a>
-            ) : null}
-            {a.editable ? (
-              <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                <Pencil className="size-3" /> Editar
-              </Link>
-            ) : null}
-            <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-              <Download className="size-3" /> Descargar
-            </a>
+            </div>
           </div>
         );
       })}
@@ -600,14 +617,14 @@ export function ChannelChat({
                       <button onClick={() => setEditing(null)} className="text-xs text-muted-foreground">Cancelar</button>
                     </div>
                   </div>
-                ) : m.body ? (
+                ) : m.body && m.body !== ATTACH_PLACEHOLDER ? (
                   <div
                     className={cn(
                       "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-2 text-sm",
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words">{renderBody(m.body, members)}</p>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, members)}</p>
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
