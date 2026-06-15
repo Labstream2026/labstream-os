@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
-import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks } from "lucide-react";
+import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks, CircleCheck } from "lucide-react";
+import { completeMyTask } from "@/app/(app)/mis-tareas/actions";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
@@ -272,13 +273,26 @@ export function ChatDock({
         ) : (
           <div className="space-y-1.5">
             {tasks.map((t) => (
-              <a key={t.id} href={t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas"} className="block rounded-lg border border-border bg-card px-3 py-2 hover:bg-accent">
-                <p className="truncate text-sm font-medium">{t.title}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {t.projectName ? `${t.projectEmoji ?? "📁"} ${t.projectName}` : "Personal"}
-                  {dueLabel(t.dueDate) ? ` · 📅 ${dueLabel(t.dueDate)}` : ""}
-                </p>
-              </a>
+              <div key={t.id} className="flex items-start gap-2 rounded-lg border border-border bg-card px-2.5 py-2 hover:bg-accent">
+                <button
+                  type="button"
+                  title="Marcar como hecha"
+                  onClick={() => {
+                    setTasks((prev) => (prev ?? []).filter((x) => x.id !== t.id));
+                    void completeMyTask(t.id);
+                  }}
+                  className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-emerald-600"
+                >
+                  <CircleCheck className="size-4" />
+                </button>
+                <a href={t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas"} className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{t.title}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {t.projectName ? `${t.projectEmoji ?? "📁"} ${t.projectName}` : "Personal"}
+                    {dueLabel(t.dueDate) ? ` · 📅 ${dueLabel(t.dueDate)}` : ""}
+                  </p>
+                </a>
+              </div>
             ))}
           </div>
         )}

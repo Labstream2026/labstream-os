@@ -5,6 +5,24 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
+import { getTaskLabels } from "@/lib/workflow-labels";
+
+// Marcar una tarea como terminada (desde el dock o Mis tareas). Solo el responsable
+// o el dueño pueden. Usa el estado configurado como "Terminada" (isDone).
+export async function completeMyTask(taskId: string) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { assigneeId: true, ownerId: true, projectId: true } });
+  if (!task) return;
+  if (task.assigneeId !== session.id && task.ownerId !== session.id) throw new Error("No autorizado");
+  const { statuses } = await getTaskLabels();
+  const done = statuses.find((s) => s.isDone) ?? statuses[statuses.length - 1];
+  if (!done) return;
+  await db.task.update({ where: { id: taskId }, data: { status: done.key as never } });
+  revalidatePath("/mis-tareas");
+  revalidatePath("/");
+  if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
+}
 
 // Crear una tarea personal o asignada a alguien (sin proyecto).
 // - Sin responsable o asignada a mí → tarea personal mía.
