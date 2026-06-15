@@ -16,16 +16,61 @@ export type NotificationItem = {
   createdAt: string;
 };
 
+const POLL_MS = 20000; // cada 20 s buscamos notificaciones nuevas sin recargar
+
+// Tiempo relativo corto en español ("ahora", "hace 5 min", "hace 2 h", "hace 3 d").
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "ahora";
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} d`;
+}
+
 export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const [open, setOpen] = React.useState(false);
+  const [list, setList] = React.useState<NotificationItem[]>(items);
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
+
+  // Trae el estado más reciente del servidor (polling + al enfocar la pestaña).
+  const refresh = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { items: NotificationItem[]; unread: number };
+      setList(data.items);
+      setUnread(data.unread);
+    } catch {
+      /* sin red: reintenta en el siguiente ciclo */
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const id = setInterval(refresh, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refresh]);
 
   function toggle() {
     const next = !open;
     setOpen(next);
-    if (next && unread > 0) {
-      setUnread(0);
-      void markAllNotificationsRead();
+    if (next) {
+      // Al abrir: refrescamos la lista y marcamos todo como leído.
+      void refresh();
+      if (unread > 0) {
+        setUnread(0);
+        setList((prev) => prev.map((n) => ({ ...n, read: true })));
+        void markAllNotificationsRead();
+      }
     }
   }
 
@@ -35,7 +80,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
         <Bell />
         {unread > 0 ? (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-white">
-            {unread}
+            {unread > 9 ? "9+" : unread}
           </span>
         ) : null}
       </Button>
@@ -45,13 +90,16 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
           <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
             <div className="border-b border-border px-4 py-2.5 text-sm font-semibold">Notificaciones</div>
             <div className="max-h-96 overflow-y-auto">
-              {items.length === 0 ? (
+              {list.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin notificaciones</p>
               ) : (
-                items.map((n) => {
+                list.map((n) => {
                   const inner = (
                     <div className={cn("border-b border-border px-4 py-2.5 last:border-0 hover:bg-accent", !n.read && "bg-primary/5")}>
-                      <p className="text-sm font-medium">{n.title}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium">{n.title}</p>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                      </div>
                       {n.body ? <p className="text-xs text-muted-foreground">{n.body}</p> : null}
                     </div>
                   );
