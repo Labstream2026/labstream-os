@@ -4,11 +4,10 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
-import { ContextPanel, ChatBody } from "@/components/layout/context-panel";
+import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
-import type { Member } from "@/components/chat/channel-chat";
 
 export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } | null;
 
@@ -20,7 +19,7 @@ export function AppShell({
   canQuotes,
   me,
   generalChannel,
-  chatMembers = [],
+  dockTeam = [],
   chatUnread = 0,
   notifications,
   children,
@@ -32,7 +31,7 @@ export function AppShell({
   canQuotes?: boolean;
   me: ChatMe;
   generalChannel: GeneralChannel;
-  chatMembers?: Member[];
+  dockTeam?: DockTeamMember[];
   chatUnread?: number;
   notifications: NotificationItem[];
   children: React.ReactNode;
@@ -109,13 +108,13 @@ export function AppShell({
         <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
       </div>
 
-      {/* Panel de chat de escritorio */}
-      <ContextPanel open={chatOpen} me={me} channel={generalChannel} members={chatMembers} />
+      {/* Panel de chat de escritorio (redimensionable; muestra el chat del proyecto) */}
+      <ChatDock variant="desktop" open={chatOpen} me={me} team={dockTeam} generalChannel={generalChannel} />
 
       {/* Hoja de chat a pantalla completa (móvil) */}
       {mobileChatOpen ? (
         <div className="fixed inset-0 z-50 bg-background md:hidden">
-          <ChatBody me={me} channel={generalChannel} members={chatMembers} onClose={() => setMobileChatOpen(false)} />
+          <ChatDock variant="mobile" me={me} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
         </div>
       ) : null}
 

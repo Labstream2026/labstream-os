@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [clients, team, notifs, general, chatMembers] = await Promise.all([
+  const [clients, team, notifs, general, dockTeam] = await Promise.all([
     db.client.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -48,7 +48,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         },
       },
     }),
-    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.user.findMany({
+      where: { active: true, NOT: { id: session.id } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, initials: true, avatarColor: true },
+    }),
   ]);
 
   // Total de mensajes no leídos en los canales/DMs del usuario (badge del sidebar).
@@ -81,7 +85,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         avatarUrl: session.avatarUrl,
       }}
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
-      chatMembers={chatMembers}
+      dockTeam={dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
