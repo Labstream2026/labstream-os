@@ -397,7 +397,7 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
   const opts = column.options ?? [];
   const toggle = (id: string) => onSave(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
-    <details className="relative">
+    <details data-autoclose className="relative">
       <summary className="flex cursor-pointer list-none flex-wrap gap-1">
         {value.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : null}
         {value.map((id) => {

@@ -571,7 +571,7 @@ export function ChannelChat({
                   {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
                   {statusTag(m.status)}
                   {!readOnly && !m.status ? (
-                    <details className="relative">
+                    <details data-autoclose className="relative">
                       <summary className="cursor-pointer list-none rounded px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
                       <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
                         <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">

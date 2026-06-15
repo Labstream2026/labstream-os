@@ -6,6 +6,7 @@ import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layo
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
 import { CommandPalette } from "@/components/layout/command-palette";
+import { DetailsAutoClose } from "@/components/details-auto-close";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
@@ -135,6 +136,9 @@ export function AppShell({
           <ChatDock variant="mobile" me={me} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
         </div>
       ) : null}
+
+      {/* Cierra los menús <details> al hacer clic fuera o con Escape */}
+      <DetailsAutoClose />
 
       {/* Buscador global (⌘K) */}
       <CommandPalette clients={clients} open={searchOpen} onClose={() => setSearchOpen(false)} />

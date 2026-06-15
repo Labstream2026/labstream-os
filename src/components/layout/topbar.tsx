@@ -118,7 +118,7 @@ export function Topbar({
         >
           <PanelRight />
         </Button>
-        <details className="relative hidden md:block">
+        <details data-autoclose className="relative hidden md:block">
           <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Más opciones">
             <MoreHorizontal className="size-5" />
           </summary>

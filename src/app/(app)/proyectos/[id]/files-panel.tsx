@@ -66,7 +66,7 @@ export function FilesPanel({
                 <h3 className="text-sm font-semibold">{folder.name}</h3>
                 <span className="text-xs text-muted-foreground">{folder.files.length}</span>
                 <span className="flex-1" />
-                <details className="relative">
+                <details data-autoclose className="relative">
                   <summary className="cursor-pointer list-none rounded px-1.5 text-xs text-muted-foreground hover:text-foreground">⋯</summary>
                   <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-border bg-popover p-3 shadow-lg">
                     <form action={updateFolder.bind(null, folder.id, projectId)} className="space-y-2">
