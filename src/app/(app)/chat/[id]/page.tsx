@@ -61,26 +61,30 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-4 sm:px-8 sm:py-6">
-      <Link href="/chat" className="text-sm text-muted-foreground hover:text-foreground">← Chats</Link>
-      <div className="mb-2 mt-2 flex items-center gap-2">
-        {isDM ? null : channel.isPublic ? <Hash className="size-5 text-muted-foreground" /> : <Lock className="size-5 text-amber-600" />}
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
-        {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+        <Link href="/chat" className="text-xs text-muted-foreground hover:text-foreground">← Chats</Link>
+        <div className="mt-1 flex items-center gap-2">
+          {isDM ? null : channel.isPublic ? <Hash className="size-5 text-muted-foreground" /> : <Lock className="size-5 text-amber-600" />}
+          <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+          {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
+          {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
+        </div>
+
+        {canManage ? (
+          <div className="mt-2">
+            <ChannelSettings
+              channelId={id}
+              isPublic={channel.isPublic}
+              canManage={canManage}
+              members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
+              team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+            />
+          </div>
+        ) : null}
       </div>
 
-      {canManage ? (
-        <ChannelSettings
-          channelId={id}
-          isPublic={channel.isPublic}
-          canManage={canManage}
-          members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
-          team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-        />
-      ) : null}
-
-      <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="min-h-0 flex-1">
         <ChannelChat
           channelId={id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
