@@ -16,7 +16,6 @@ import {
   Search,
   Settings,
   Plus,
-  ChevronsUpDown,
   ChevronRight,
   BookOpen,
   Library,
@@ -65,6 +64,7 @@ export function Sidebar({
   collapsed = false,
   chatUnread = 0,
   onNavigate,
+  onSearch,
 }: {
   user: SidebarUser;
   clients: SidebarClient[];
@@ -74,6 +74,7 @@ export function Sidebar({
   collapsed?: boolean;
   chatUnread?: number;
   onNavigate?: () => void;
+  onSearch?: () => void;
 }) {
   const pathname = usePathname();
 
@@ -120,8 +121,11 @@ export function Sidebar({
         collapsed ? "w-16 items-stretch" : "w-64",
       )}
     >
-      {/* Marca */}
-      <button
+      {/* Marca (enlace a Inicio) */}
+      <Link
+        href="/"
+        onClick={onNavigate}
+        title="Ir a Inicio"
         className={cn(
           "flex items-center gap-3 py-3.5 text-left transition-colors hover:bg-sidebar-accent/40",
           collapsed ? "justify-center px-2" : "px-4",
@@ -131,20 +135,17 @@ export function Sidebar({
           L
         </span>
         {!collapsed ? (
-          <>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold leading-tight">Labstream</span>
-              <span className="block truncate text-xs text-sidebar-muted">Productora · equipo</span>
-            </span>
-            <ChevronsUpDown className="size-4 text-sidebar-muted" />
-          </>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold leading-tight">Labstream</span>
+            <span className="block truncate text-xs text-sidebar-muted">Productora · equipo</span>
+          </span>
         ) : null}
-      </button>
+      </Link>
 
       {/* Buscador (oculto en riel) */}
       {!collapsed ? (
         <div className="px-3 pb-2">
-          <button className="flex w-full items-center gap-2 rounded-md border border-sidebar-border bg-background/60 px-3 py-2 text-sm text-sidebar-muted transition-colors hover:bg-background">
+          <button onClick={onSearch} className="flex w-full items-center gap-2 rounded-md border border-sidebar-border bg-background/60 px-3 py-2 text-sm text-sidebar-muted transition-colors hover:bg-background">
             <Search className="size-4" />
             <span className="flex-1 text-left">Buscar</span>
             <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>

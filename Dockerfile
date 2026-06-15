@@ -38,6 +38,12 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
+# Carpeta de subidas: debe pertenecer al usuario del contenedor (uid 1001) para
+# poder escribir. Sin esto, EACCES rompe TODAS las subidas (chat, avatar, fotos
+# de inventario, archivos de proyecto). El bind-mount del NAS se corrige además
+# en el script de deploy con un chown.
+RUN mkdir -p /app/storage && chown -R nextjs:nodejs /app/storage
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

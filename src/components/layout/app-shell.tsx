@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
+import { CommandPalette } from "@/components/layout/command-palette";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
@@ -44,8 +45,21 @@ export function AppShell({
   // Móvil (cajones, no se recuerdan).
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(false);
 
   const pathname = usePathname();
+
+  // Atajo ⌘K / Ctrl+K para abrir el buscador.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Cargar preferencias de escritorio tras montar (evita mismatch de hidratación).
   React.useEffect(() => {
@@ -78,7 +92,7 @@ export function AppShell({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canWiki={canWiki} collapsed={sidebarCollapsed} chatUnread={chatUnread} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canWiki={canWiki} collapsed={sidebarCollapsed} chatUnread={chatUnread} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -93,6 +107,7 @@ export function AppShell({
               canQuotes={canQuotes}
               canWiki={canWiki}
               chatUnread={chatUnread}
+              onSearch={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
               onNavigate={() => setMobileMenuOpen(false)}
             />
           </div>
@@ -120,6 +135,9 @@ export function AppShell({
           <ChatDock variant="mobile" me={me} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
         </div>
       ) : null}
+
+      {/* Buscador global (⌘K) */}
+      <CommandPalette clients={clients} open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* Barra de navegación inferior (móvil) */}
       <BottomNav

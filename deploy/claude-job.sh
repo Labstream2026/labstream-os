@@ -39,6 +39,9 @@ rsync -a \
 
 # 3) Crear los directorios de bind mount (Synology no los autocrea → "Bind mount failed").
 mkdir -p "$DEST/data/postgres" "$DEST/data/redis" "$DEST/data/storage"
+# La carpeta de subidas debe ser escribible por el usuario del contenedor (uid 1001),
+# si no, EACCES rompe TODAS las subidas (chat, avatares, fotos de inventario, archivos).
+chown -R 1001:1001 "$DEST/data/storage" 2>/dev/null || true
 
 if [ ! -f "$DEST/.env" ]; then
   log "AVISO: falta $DEST/.env (secretos de produccion)"

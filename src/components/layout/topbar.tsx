@@ -1,8 +1,9 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelRight, PanelLeft, MoreHorizontal, Share2, Menu, User, Settings, CalendarDays, LogOut } from "lucide-react";
+import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, Settings, CalendarDays, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -29,6 +30,28 @@ function crumb(pathname: string): { emoji: string; label: string } {
   if (pathname.startsWith("/asistente")) return { emoji: "✨", label: "Asistente IA" };
   if (pathname.startsWith("/perfil")) return { emoji: "🙂", label: "Mi perfil" };
   return { emoji: "•", label: "Labstream" };
+}
+
+// Copia el enlace de la página actual (para compartir con el equipo).
+function ShareButton() {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <Button
+      size="sm"
+      className="hidden gap-1.5 sm:inline-flex"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1800);
+        } catch { /* ignora */ }
+      }}
+      title="Copiar el enlace de esta página"
+    >
+      {copied ? <Check className="size-4" /> : <Share2 className="size-4" />}
+      {copied ? "¡Enlace copiado!" : "Compartir"}
+    </Button>
+  );
 }
 
 export function Topbar({
@@ -82,10 +105,7 @@ export function Topbar({
             <UserAvatar key={i} initials={m.initials} color={m.color} size="sm" ring />
           ))}
         </div>
-        <Button size="sm" className="hidden gap-1.5 sm:inline-flex">
-          <Share2 className="size-4" />
-          Compartir
-        </Button>
+        <ShareButton />
         <NotificationsBell items={notifications} />
         <ThemeToggle />
         {/* Plegar chat (solo escritorio; en móvil el chat está en la barra inferior) */}
