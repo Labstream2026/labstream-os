@@ -9,7 +9,7 @@ import { canSeeWiki } from "@/lib/wiki-access";
 import { notify } from "@/lib/notify";
 import { pushEventToSynology, deleteEventFromSynology } from "@/lib/caldav";
 import { logActivity } from "@/lib/activity";
-import { saveBuffer } from "@/lib/storage";
+import { saveBufferWithPreview } from "@/lib/image";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 
 // projectId de una tabla (para registrar actividad; null si la tabla es de wiki).
@@ -186,7 +186,7 @@ export async function uploadCellImage(rowId: string, columnId: string, formData:
   if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return;
   const buf = Buffer.from(await file.arrayBuffer());
   const key = `${rowId}-${columnId}`.replace(/[^a-zA-Z0-9-]/g, "");
-  await saveBuffer("tableimg", key, buf);
+  await saveBufferWithPreview("tableimg", key, buf, file.type);
   const url = `/api/img/${key}?v=${Date.now()}`;
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },

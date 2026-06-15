@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { db } from "@/lib/db";
 import { readBuffer } from "@/lib/storage";
+import { previewRel } from "@/lib/image";
 
 // Sirve imágenes subidas a celdas de tablas (storage/tableimg/<rowId-columnId>).
 // Requiere sesión Y acceso al proyecto dueño de la tabla (las de wiki son del equipo).
@@ -33,13 +34,21 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     return new NextResponse("No autorizado", { status: 403 });
   }
 
+  // Servimos el derivado WebP optimizado si existe; si no, el original.
   let buf: Buffer;
+  let contentType: string;
   try {
-    buf = await readBuffer(`tableimg/${safe}`);
+    buf = await readBuffer(previewRel(`tableimg/${safe}`));
+    contentType = "image/webp";
   } catch {
-    return new NextResponse("No encontrado", { status: 404 });
+    try {
+      buf = await readBuffer(`tableimg/${safe}`);
+      contentType = sniff(buf);
+    } catch {
+      return new NextResponse("No encontrado", { status: 404 });
+    }
   }
   return new NextResponse(new Uint8Array(buf), {
-    headers: { "Content-Type": sniff(buf), "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" },
+    headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" },
   });
 }

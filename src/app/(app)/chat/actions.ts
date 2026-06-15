@@ -133,7 +133,8 @@ export async function markChannelRead(channelId: string): Promise<void> {
     data: { lastReadAt: new Date() },
   });
 }
-import { saveBuffer, mimeFor } from "@/lib/storage";
+import { mimeFor } from "@/lib/storage";
+import { saveBufferWithPreview } from "@/lib/image";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { notifyAndEmail, notify } from "@/lib/notify";
 
@@ -279,7 +280,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
     const att = await db.messageAttachment.create({
       data: { messageId: msg.id, name: file.name, path: "", mime: mimeFor(file.name, file.type), size: buf.length },
     });
-    const rel = await saveBuffer(`chat/${att.id}`, file.name, buf);
+    const rel = await saveBufferWithPreview(`chat/${att.id}`, file.name, buf, file.type);
     await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
     created.push({ id: att.id, name: file.name, mime: mimeFor(file.name, file.type), editable: isEditableOffice(file.name) });
   }

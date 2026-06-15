@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE, type SessionUser } from "@/lib/session";
 import { AVATAR_COLORS } from "@/lib/ui";
-import { saveBuffer } from "@/lib/storage";
+import { saveBufferWithPreview, IMAGE_EDGES } from "@/lib/image";
 
 export type ProfileResult = { ok: boolean; error?: string };
 
@@ -47,7 +47,7 @@ export async function updateMyAvatar(formData: FormData): Promise<ProfileResult>
   if (!file.type.startsWith("image/")) return { ok: false, error: "El archivo debe ser una imagen" };
   if (file.size > 5 * 1024 * 1024) return { ok: false, error: "La imagen supera 5MB" };
   const buf = Buffer.from(await file.arrayBuffer());
-  await saveBuffer("avatars", session.id, buf);
+  await saveBufferWithPreview("avatars", session.id, buf, file.type, { maxEdge: IMAGE_EDGES.AVATAR_EDGE });
   const url = `/api/avatar/${session.id}?v=${Date.now()}`;
   await db.user.update({ where: { id: session.id }, data: { avatarUrl: url } });
   await resignSession(session.id);

@@ -86,12 +86,11 @@ function detectMentions(text: string, members: Member[]): string[] {
   return members.filter((mem) => text.includes(`@${mem.name}`)).map((mem) => mem.id);
 }
 
-// Solo formatos que el navegador puede mostrar en <img>. HEIC/HEIF/TIFF (fotos de
-// iPhone, etc.) NO se previsualizan — caen a tarjeta de archivo descargable.
+// Imágenes previsualizables. Incluye HEIC/HEIF/TIFF (fotos de iPhone, etc.): el
+// servidor las convierte a WebP al subir y /api/files las sirve ya convertidas.
 function isImage(a: Attachment) {
-  if (/\.(heic|heif|tiff?)$/i.test(a.name)) return false;
-  const WEB = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml"];
-  return WEB.includes((a.mime ?? "").toLowerCase()) || /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(a.name);
+  const WEB = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml", "image/heic", "image/heif", "image/tiff", "image/bmp"];
+  return WEB.includes((a.mime ?? "").toLowerCase()) || /\.(png|jpe?g|gif|webp|avif|svg|heic|heif|tiff?|bmp)$/i.test(a.name);
 }
 function isPdf(a: Attachment) {
   return a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
@@ -120,6 +119,7 @@ function Attachments({ items }: { items?: Attachment[] }) {
                 alt={a.name}
                 className="max-h-56 max-w-full rounded-lg border border-border object-contain"
                 loading="lazy"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
               <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{a.name}</span>
             </a>

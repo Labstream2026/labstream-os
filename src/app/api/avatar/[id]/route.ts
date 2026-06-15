@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readBuffer } from "@/lib/storage";
+import { previewRel } from "@/lib/image";
 
 // Sirve la foto de perfil de un usuario (guardada en storage/avatars/<id>).
 // Pública (solo imágenes de avatar); detecta el tipo por los primeros bytes.
@@ -16,15 +17,23 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   // id viene de la URL; sanitizamos a [a-z0-9] para evitar traversal.
   const safe = id.replace(/[^a-zA-Z0-9]/g, "");
   if (!safe) return new NextResponse("No encontrado", { status: 404 });
+  // Derivado WebP optimizado si existe; si no, el original.
   let buf: Buffer;
+  let contentType: string;
   try {
-    buf = await readBuffer(`avatars/${safe}`);
+    buf = await readBuffer(previewRel(`avatars/${safe}`));
+    contentType = "image/webp";
   } catch {
-    return new NextResponse("No encontrado", { status: 404 });
+    try {
+      buf = await readBuffer(`avatars/${safe}`);
+      contentType = sniff(buf);
+    } catch {
+      return new NextResponse("No encontrado", { status: 404 });
+    }
   }
   return new NextResponse(new Uint8Array(buf), {
     headers: {
-      "Content-Type": sniff(buf),
+      "Content-Type": contentType,
       "Cache-Control": "private, max-age=60",
     },
   });

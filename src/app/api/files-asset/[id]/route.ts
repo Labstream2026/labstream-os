@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { absPath, verifyFileToken, mimeFor } from "@/lib/storage";
+import { previewRel } from "@/lib/image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,17 +34,31 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (!canAccessProject(file.project, session)) return new NextResponse("Prohibido", { status: 403 });
   }
 
-  let buf: Buffer;
-  try {
-    buf = await fs.readFile(absPath(file.path));
-  } catch {
-    return new NextResponse("Archivo no disponible", { status: 404 });
+  const download = url.searchParams.get("download");
+
+  // Previsualización (inline) → derivado WebP si existe; descarga → original.
+  let buf: Buffer | null = null;
+  let contentType = mimeFor(file.name, file.mime);
+  if (!download) {
+    try {
+      buf = await fs.readFile(absPath(previewRel(file.path)));
+      contentType = "image/webp";
+    } catch {
+      buf = null;
+    }
+  }
+  if (!buf) {
+    try {
+      buf = await fs.readFile(absPath(file.path));
+    } catch {
+      return new NextResponse("Archivo no disponible", { status: 404 });
+    }
   }
 
-  const disposition = url.searchParams.get("download") ? "attachment" : "inline";
+  const disposition = download ? "attachment" : "inline";
   return new NextResponse(new Uint8Array(buf), {
     headers: {
-      "Content-Type": mimeFor(file.name, file.mime),
+      "Content-Type": contentType,
       "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
       "Cache-Control": "private, no-store",
     },

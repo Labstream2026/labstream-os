@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
-import { saveBuffer, mimeFor } from "@/lib/storage";
+import { mimeFor } from "@/lib/storage";
+import { saveBufferWithPreview } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
@@ -355,7 +356,7 @@ export async function uploadProjectFiles(projectId: string, formData: FormData) 
         uploadedById: session.id,
       },
     });
-    const rel = await saveBuffer(`project/${projectId}`, `${asset.id}-${file.name}`, buf);
+    const rel = await saveBufferWithPreview(`project/${projectId}`, `${asset.id}-${file.name}`, buf, file.type);
     await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
     await logActivity({ action: "file.upload", summary: `subió el archivo «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
   }

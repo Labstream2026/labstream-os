@@ -33,6 +33,15 @@ export async function readBuffer(rel: string) {
   return fs.readFile(absPath(rel));
 }
 
+// Escribe un buffer en una ruta relativa EXACTA (ya resuelta, p. ej. el hermano
+// «.opt.webp» de un original). Crea la carpeta si hace falta. Valida traversal.
+export async function writeRelBuffer(rel: string, buf: Buffer) {
+  const full = absPath(rel);
+  await fs.mkdir(path.dirname(full), { recursive: true });
+  await fs.writeFile(full, buf);
+  return rel;
+}
+
 // Token HMAC para que el Document Server (sin cookie) pueda leer/guardar un adjunto.
 export function signFileToken(attachmentId: string, ttlSeconds = 3600) {
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
