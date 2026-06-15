@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { accessibleClientWhere } from "@/lib/client-access";
 import { createQuote } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default async function NuevaCotizacionPage() {
   if (!hasPermission(session, "crear_cotizaciones")) redirect("/cotizaciones");
 
   const clients = await db.client.findMany({
+    where: accessibleClientWhere(session),
     orderBy: { name: "asc" },
     select: { id: true, name: true, emoji: true, projects: { select: { id: true, name: true, code: true } } },
   });

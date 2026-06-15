@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { accessibleClientWhere } from "@/lib/client-access";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { AppShell } from "@/components/layout/app-shell";
@@ -16,6 +17,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const [clients, team, notifs, general, dockTeam] = await Promise.all([
     db.client.findMany({
+      // Solo los clientes que el usuario puede ver (miembro o participa en sus proyectos).
+      where: accessibleClientWhere(session),
       orderBy: { createdAt: "asc" },
       include: {
         // Solo los proyectos que el usuario puede ver, para el desplegable del sidebar.

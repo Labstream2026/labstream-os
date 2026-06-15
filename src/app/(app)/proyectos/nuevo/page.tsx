@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { accessibleClientWhere } from "@/lib/client-access";
 import { WIZARDS } from "@/lib/templates";
 import { NewProjectForm } from "./new-project-form";
 
@@ -17,7 +18,7 @@ export default async function NuevoProyectoPage({
   const { template = "" } = await searchParams;
 
   const [clients, team, templates] = await Promise.all([
-    db.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true } }),
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     db.projectTemplate.findMany({ orderBy: { name: "asc" }, select: { key: true, name: true, emoji: true } }),
   ]);

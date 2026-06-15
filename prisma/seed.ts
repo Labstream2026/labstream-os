@@ -133,6 +133,15 @@ const PROJECTS: {
 ];
 
 async function main() {
+  // SALVAGUARDA: este seed BORRA todo (usuarios, clientes, proyectos, mensajes) y
+  // recrea los datos demo. Jamás debe correr contra producción. Solo se permite en
+  // desarrollo, o forzándolo explícitamente con LABSTREAM_SEED_FORCE=1.
+  if (process.env.NODE_ENV === "production" && process.env.LABSTREAM_SEED_FORCE !== "1") {
+    throw new Error(
+      "Seed bloqueado en producción (borraría todos los datos). Si de verdad lo necesitas, usa LABSTREAM_SEED_FORCE=1.",
+    );
+  }
+
   // limpieza idempotente (orden seguro con FKs)
   await prisma.chatMessage.deleteMany();
   await prisma.chatChannel.deleteMany();

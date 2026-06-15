@@ -71,6 +71,7 @@ model User {
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
   channelMemberships ChannelMember[]
   projectMemberships ProjectMember[]
+  clientMemberships  ClientMember[]
   createdQuotes    Quote[]              @relation("QuoteCreator")
   approvedQuotes   Quote[]              @relation("QuoteApprover")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
@@ -125,8 +126,22 @@ model Client {
   quotes      Quote[]
   activity    ActivityLog[]
   channel     ChatChannel?
+  members     ClientMember[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+// Quién puede VER un cliente. Los admin ven todos; el resto solo los clientes
+// donde es miembro explícito o donde participa en algún proyecto del cliente.
+model ClientMember {
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@id([clientId, userId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
+import { getSession } from "@/lib/auth";
+import { accessibleClientWhere } from "@/lib/client-access";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -24,8 +26,9 @@ const OPEN = ["PENDIENTE", "EN_PROCESO", "EN_ESPERA", "EN_REVISION"];
 export default async function HomePage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
+  const session = await getSession();
   const [clients, projects, blocked, myTasks] = await Promise.all([
-    db.client.findMany({ orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: true } } } }),
+    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: true } } } }),
     db.project.count({ where: { status: { notIn: INACTIVE as never } } }),
     db.project.count({ where: { status: "PAUSADO" } }),
     db.task.findMany({

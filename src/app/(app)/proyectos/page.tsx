@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { accessibleClientWhere } from "@/lib/client-access";
 import { ProjectCard } from "@/components/project-card";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ export default async function ProyectosPage() {
   // Solo traemos de la BD los proyectos que el usuario puede ver (no todos para
   // descartarlos en JS): el filtro de acceso va en la propia consulta.
   const allClients = await db.client.findMany({
+    where: accessibleClientWhere(session),
     orderBy: { createdAt: "asc" },
     include: {
       projects: {

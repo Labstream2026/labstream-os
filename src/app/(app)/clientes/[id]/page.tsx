@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
+import { canAccessClient, canManageClient } from "@/lib/client-access";
+import { ClientMembers } from "./client-members";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
@@ -20,6 +22,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     where: { id },
     include: {
       _count: { select: { quotes: true } },
+      members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       projects: {
         orderBy: { createdAt: "asc" },
         include: {
@@ -32,6 +35,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   });
 
   if (!client) notFound();
+  // Solo quien puede ver el cliente (miembro o participa en sus proyectos; admin todos).
+  if (!canAccessClient(client, session)) notFound();
 
   // Solo proyectos visibles para el usuario.
   const projects = client.projects.filter((p) => canAccessProject(p, session));
@@ -45,6 +50,22 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     take: 60,
     include: { user: { select: { name: true, initials: true, avatarColor: true } } },
   });
+
+  // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
+  const canManage = canManageClient(client, session);
+  const memberItems = client.members.map((m) => ({
+    id: m.user.id,
+    name: m.user.name,
+    initials: m.user.initials,
+    color: m.user.avatarColor,
+  }));
+  const team = canManage
+    ? await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } })
+    : [];
+  const memberIds = new Set(memberItems.map((m) => m.id));
+  const addable = team
+    .filter((u) => !memberIds.has(u.id))
+    .map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }));
 
   const calProjects: CalProject[] = projects.map((p) => ({
     id: p.id,
@@ -137,6 +158,16 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     user: a.user ? { name: a.user.name, initials: a.user.initials, color: a.user.avatarColor } : null,
                   }))}
                 />
+              ),
+            },
+            {
+              key: "acceso",
+              label: "Acceso",
+              icon: "🔒",
+              node: (
+                <div className="max-w-md">
+                  <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                </div>
               ),
             },
           ]}
