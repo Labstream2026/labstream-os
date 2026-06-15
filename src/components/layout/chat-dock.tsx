@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
-import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus } from "lucide-react";
+import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
@@ -41,22 +41,25 @@ export function ChatDock({
   const pathname = usePathname();
   const projectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
   const onRealProject = !!projectId && projectId !== "nuevo";
+  const clientId = pathname.startsWith("/clientes/") ? pathname.split("/")[2] : null;
+  const onRealClient = !!clientId && clientId !== "nuevo";
+  const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
   const [dock, setDock] = React.useState<DockPayload | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [showMembers, setShowMembers] = React.useState(false);
 
-  // Al cambiar de proyecto, se sale del DM y se vuelve al chat del proyecto.
-  React.useEffect(() => { setDmUserId(null); setShowMembers(false); }, [projectId]);
+  // Al cambiar de proyecto/cliente, se sale del DM y se vuelve al chat del contexto.
+  React.useEffect(() => { setDmUserId(null); setShowMembers(false); }, [contextKey]);
 
-  // Resolver el canal a mostrar: DM > proyecto > general.
+  // Resolver el canal a mostrar: DM > proyecto > cliente > general.
   React.useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!dmUserId && !onRealProject) { setDock(null); return; } // usa el general (prop)
+      if (!dmUserId && !onRealProject && !onRealClient) { setDock(null); return; } // usa el general (prop)
       setLoading(true);
-      const q = dmUserId ? `dm=${dmUserId}` : `project=${projectId}`;
+      const q = dmUserId ? `dm=${dmUserId}` : onRealProject ? `project=${projectId}` : `client=${clientId}`;
       try {
         // Reintento corto: en dev la ruta puede compilarse en frío en la 1.ª petición.
         let r = await fetch(`/api/chat/dock?${q}`, { credentials: "include" });
@@ -75,7 +78,7 @@ export function ChatDock({
     }
     load();
     return () => { cancelled = true; };
-  }, [dmUserId, projectId, onRealProject]);
+  }, [dmUserId, projectId, clientId, onRealProject, onRealClient]);
 
   // Ancho redimensionable (escritorio).
   const [width, setWidth] = React.useState(DEFAULT_W);
@@ -103,7 +106,7 @@ export function ChatDock({
 
   // ── Estado a renderizar ──
   const isDM = !!dmUserId;
-  const usingGeneral = !isDM && !onRealProject;
+  const usingGeneral = !isDM && !onRealProject && !onRealClient;
   const effectiveChannel = usingGeneral
     ? generalChannel
       ? { id: generalChannel.id, name: generalChannel.name, type: "GENERAL", isPublic: true, canManage: false, members: [] as DockChannel["members"] }
@@ -157,10 +160,10 @@ export function ChatDock({
           </>
         ) : (
           <>
-            {usingGeneral ? <Hash className="size-4 text-muted-foreground" /> : effectiveChannel?.isPublic ? <Globe className="size-4 text-emerald-600" /> : <Lock className="size-4 text-amber-600" />}
+            {usingGeneral ? <Hash className="size-4 text-muted-foreground" /> : effectiveChannel?.type === "CLIENT" ? <Building2 className="size-4 text-indigo-600" /> : effectiveChannel?.isPublic ? <Globe className="size-4 text-emerald-600" /> : <Lock className="size-4 text-amber-600" />}
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{usingGeneral ? `Equipo · ${effectiveChannel?.name ?? "general"}` : effectiveChannel?.name ?? "Chat del proyecto"}</p>
-              <p className="truncate text-[11px] text-muted-foreground">{usingGeneral ? "Canal del equipo" : effectiveChannel?.isPublic ? "Público para el equipo" : "Privado · por invitación"}</p>
+              <p className="truncate text-sm font-semibold">{usingGeneral ? `Equipo · ${effectiveChannel?.name ?? "general"}` : effectiveChannel?.name ?? "Chat"}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{usingGeneral ? "Canal del equipo" : effectiveChannel?.type === "CLIENT" ? "Todos los que trabajan con el cliente" : effectiveChannel?.isPublic ? "Público para el equipo" : "Privado · por invitación"}</p>
             </div>
             {!usingGeneral && effectiveChannel ? (
               <button type="button" onClick={() => setShowMembers((v) => !v)} title="Miembros del chat" className={cn("flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs", showMembers ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted")}>
@@ -201,13 +204,17 @@ export function ChatDock({
           <p className="p-4 text-sm text-muted-foreground">Cargando…</p>
         ) : !effectiveChannel ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-            {onRealProject ? "Este proyecto aún no tiene chat." : "Entra a un proyecto para ver su chat, o elige a un compañero arriba para un mensaje directo."}
+            {onRealProject ? "Este proyecto aún no tiene chat." : onRealClient ? "Este cliente aún no tiene chat." : "Entra a un proyecto o cliente para ver su chat, o elige a un compañero arriba para un mensaje directo."}
           </div>
         ) : !canAccess ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <Lock className="size-7 text-muted-foreground" />
-            <p className="text-sm font-medium">Chat privado del proyecto</p>
-            <p className="max-w-xs text-xs text-muted-foreground">No estás en esta conversación. Pídele al responsable o a un administrador del chat que te invite.</p>
+            <p className="text-sm font-medium">{effectiveChannel?.type === "CLIENT" ? "Chat del cliente" : "Chat privado del proyecto"}</p>
+            <p className="max-w-xs text-xs text-muted-foreground">
+              {effectiveChannel?.type === "CLIENT"
+                ? "No trabajas en ningún proyecto de este cliente todavía."
+                : "No estás en esta conversación. Pídele al responsable o a un administrador del chat que te invite."}
+            </p>
           </div>
         ) : (
           <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} members={mentionMembers} initialMessages={messages} />

@@ -124,6 +124,7 @@ model Client {
   projects    Project[]
   quotes      Quote[]
   activity    ActivityLog[]
+  channel     ChatChannel?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
@@ -298,6 +299,7 @@ model QuoteItem {
 
 enum ChannelType {
   PROJECT
+  CLIENT // chat del cliente: reúne a todos los que trabajan en sus proyectos
   GENERAL
   DIRECT
 }
@@ -310,6 +312,8 @@ model ChatChannel {
   isPublic  Boolean         @default(true) // público a todo el equipo o solo a invitados
   project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId String?         @unique // un canal por proyecto
+  client    Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String?         @unique // un canal por cliente
   messages  ChatMessage[]
   members   ChannelMember[]
   polls     Poll[]

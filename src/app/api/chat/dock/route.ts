@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
+import { getOrCreateClientChannel } from "@/lib/client-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +69,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const projectId = url.searchParams.get("project");
+  const clientId = url.searchParams.get("client");
   const dmUserId = url.searchParams.get("dm");
 
   // ── Mensaje directo ──────────────────────────────────────────────
@@ -133,6 +135,40 @@ export async function GET(req: Request) {
         type: "PROJECT",
         isPublic: channel.isPublic,
         canManage,
+        members: channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role })),
+      },
+      canAccess,
+      messages: [] as ReturnType<typeof shape>,
+    };
+    if (!canAccess) return NextResponse.json(payload);
+
+    const [messages, votes] = await Promise.all([
+      db.chatMessage.findMany({ where: { channelId: channel.id }, ...messageInclude }),
+      db.pollVote.findMany({ where: { userId: session.id, poll: { channelId: channel.id } }, select: { pollId: true, optionId: true } }),
+    ]);
+    const myVotes = new Map(votes.map((v) => [v.pollId, v.optionId] as const));
+    payload.messages = shape(messages as RawMessage[], myVotes);
+    return NextResponse.json(payload);
+  }
+
+  // ── Canal de cliente (reúne a todos los de sus proyectos) ────────
+  if (clientId) {
+    const chId = await getOrCreateClientChannel(clientId); // crea y sincroniza miembros
+    if (!chId) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
+    const channel = await db.chatChannel.findUnique({
+      where: { id: chId },
+      include: { members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } } },
+    });
+    if (!channel) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
+
+    const canAccess = session.role === "admin" || channel.members.some((m) => m.userId === session.id);
+    const payload = {
+      channel: {
+        id: channel.id,
+        name: channel.name,
+        type: "CLIENT",
+        isPublic: channel.isPublic,
+        canManage: false, // la membresía se sincroniza con los proyectos del cliente
         members: channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role })),
       },
       canAccess,
