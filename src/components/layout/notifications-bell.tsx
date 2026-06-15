@@ -64,12 +64,15 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     const next = !open;
     setOpen(next);
     if (next) {
-      // Al abrir: refrescamos la lista y marcamos todo como leído.
-      void refresh();
+      // Al abrir: marcar como leído de forma optimista y, solo cuando el servidor
+      // confirme, refrescar (si refrescáramos antes, podría devolver el estado aún
+      // sin leer y reaparecería el contador).
       if (unread > 0) {
         setUnread(0);
         setList((prev) => prev.map((n) => ({ ...n, read: true })));
-        void markAllNotificationsRead();
+        void markAllNotificationsRead().then(refresh).catch(() => {});
+      } else {
+        void refresh();
       }
     }
   }

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
 import { signQuoteToken } from "@/lib/quote-token";
 import { Printer } from "lucide-react";
@@ -31,6 +32,9 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
     },
   });
   if (!quote) notFound();
+  // No basta el permiso global: hay que poder ver el cliente de la cotización
+  // (un colaborador no debe abrir por URL la cotización de un cliente ajeno).
+  if (!(await userCanAccessClient(quote.clientId, session))) redirect("/cotizaciones");
 
   const meta = quoteStatusMeta(quote.status);
   const validUntilValue = quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "";

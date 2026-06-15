@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+import { appSecret } from "@/lib/app-secret";
 
 // Token HMAC para el portal público de revisión de cliente (sin sesión).
 // Embebe el deliverableId firmado; enlace estable que se puede compartir.
 function secret() {
-  return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "dev-secret-cambiar";
+  return appSecret();
 }
 
 export function signReviewToken(deliverableId: string): string {

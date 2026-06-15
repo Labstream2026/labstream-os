@@ -107,7 +107,7 @@ export async function deleteTable(tableId: string): Promise<void> {
 
 export async function createTableForWiki(wikiPageId: string, formData: FormData): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session || !(await canSeeWiki(session))) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
   await db.dataTable.create({ data: { name, wikiPageId, ...DEFAULT_TABLE } });
   revalidatePath(`/wiki/${wikiPageId}`);

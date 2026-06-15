@@ -1,12 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { appSecret } from "@/lib/app-secret";
 
 // Storage local (en el NAS es el bind mount ./data/storage → /app/storage).
 export const STORAGE_DIR = process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
 
 function secret() {
-  return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "dev-secret-cambiar";
+  return appSecret();
 }
 
 export function sanitizeName(name: string) {

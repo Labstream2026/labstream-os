@@ -108,6 +108,8 @@ export async function createTask(projectId: string, formData: FormData) {
     projectId,
     entityType: "task",
     entityId: task.id,
+    // Al asignado le llega una notificación directa más abajo: evita el duplicado.
+    exclude: assigneeId && assigneeId !== session?.id ? [assigneeId] : undefined,
   });
   // Si se asigna a alguien (que no soy yo) al crear → avísale.
   if (assigneeId && assigneeId !== session?.id) {
@@ -205,7 +207,10 @@ export async function setTaskStatus(taskId: string, _projectId: string, status: 
 export async function setTaskStage(taskId: string, _projectId: string, stage: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
-  await db.task.update({ where: { id: taskId }, data: { stage: stage || null } });
+  // Al mover de columna, la ficha pasa al final (mayor posición del proyecto) para
+  // que el orden quede estable tras recargar (antes conservaba su posición antigua).
+  const last = await db.task.findFirst({ where: { projectId }, orderBy: { position: "desc" }, select: { position: true } });
+  await db.task.update({ where: { id: taskId }, data: { stage: stage || null, position: (last?.position ?? 0) + 1 } });
   await logActivity({
     action: "task.stage",
     summary: `movió «${task!.title}» a ${stage || "la primera fase"}`,

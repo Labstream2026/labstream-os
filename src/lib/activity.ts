@@ -10,6 +10,9 @@ export async function logActivity(input: {
   clientId?: string | null;
   entityType?: string;
   entityId?: string;
+  // No notificar (vía actividad) a estos usuarios: p.ej. el asignado de una tarea
+  // que ya recibe una notificación directa y más rica. Evita duplicados.
+  exclude?: string[];
 }): Promise<void> {
   let actorId: string | null = null;
   try {
@@ -54,7 +57,7 @@ const TAB_BY_ENTITY: Record<string, string> = {
 // pertenecen (líder + miembros, o miembros del cliente y de sus proyectos) y a
 // los administradores. Se excluye a quien hizo el cambio. Solo en la app.
 async function notifyActivity(
-  input: { summary: string; projectId?: string | null; clientId?: string | null; entityType?: string },
+  input: { summary: string; projectId?: string | null; clientId?: string | null; entityType?: string; exclude?: string[] },
   actorId: string | null,
 ): Promise<void> {
   const ids = new Set<string>();
@@ -98,6 +101,7 @@ async function notifyActivity(
   admins.forEach((a) => ids.add(a.id));
 
   if (actorId) ids.delete(actorId); // a uno mismo no se le notifica su propio cambio
+  input.exclude?.forEach((id) => ids.delete(id)); // ya recibieron una notificación directa
   if (ids.size === 0) return;
 
   const actor = actorId ? await db.user.findUnique({ where: { id: actorId }, select: { name: true } }) : null;

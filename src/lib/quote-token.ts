@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+import { appSecret } from "@/lib/app-secret";
 
 // Token HMAC para la vista PÚBLICA de una cotización (sin sesión). Embebe el
 // quoteId firmado; enlace estable que se comparte con el cliente para aprobar.
 function secret() {
-  return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "dev-secret-cambiar";
+  return appSecret();
 }
 
 export function signQuoteToken(quoteId: string): string {
