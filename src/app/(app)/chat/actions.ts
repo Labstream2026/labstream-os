@@ -135,7 +135,7 @@ export async function markChannelRead(channelId: string): Promise<void> {
 }
 import { saveBuffer, mimeFor } from "@/lib/storage";
 import { isEditableOffice } from "@/lib/onlyoffice";
-import { notifyAndEmail } from "@/lib/notify";
+import { notifyAndEmail, notify } from "@/lib/notify";
 
 // Detecta @menciones en el TEXTO (servidor, no se confía en el cliente). Coincidencia
 // exacta con límites de palabra; nombres largos tienen prioridad ("@Ana María" antes que "@Ana").
@@ -177,20 +177,30 @@ async function notifyMentions(channelId: string, authorId: string, body: string)
 }
 
 // Notifica al otro participante de un DM cuando recibe un mensaje.
-async function notifyDirectMessage(channelId: string, authorId: string, authorName: string, body: string) {
+// Notifica a los miembros del canal (menos al autor) que llegó un mensaje nuevo.
+// Cubre DMs, chats de proyecto y grupos privados. Se omiten los canales de
+// difusión del equipo (general, estados-equipo) para no saturar de avisos.
+async function notifyChannelMessage(channelId: string, authorId: string, authorName: string, body: string) {
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { type: true, members: { select: { userId: true } } },
+    select: { type: true, name: true, slug: true, members: { select: { userId: true } } },
   });
-  if (channel?.type !== "DIRECT") return;
+  if (!channel) return;
+  const isBroadcast = channel.type === "GENERAL" && !!channel.slug; // general / estados-equipo
+  if (isBroadcast) return;
+
+  const isDM = channel.type === "DIRECT";
+  const link = isDM ? `/chat/${channelId}` : channel.type === "PROJECT" ? `/chat/${channelId}` : `/chat/${channelId}`;
+  const title = isDM ? `Mensaje de ${authorName}` : `${authorName} en ${channel.name}`;
+
   for (const m of channel.members) {
     if (m.userId === authorId) continue;
-    await notifyAndEmail(m.userId, {
-      type: "dm",
-      title: `Mensaje de ${authorName}`,
-      body: body.slice(0, 140),
-      link: `/chat/${channelId}`,
-    });
+    // En app (sin email para no saturar). Los DMs sí van también por correo.
+    if (isDM) {
+      await notifyAndEmail(m.userId, { type: "dm", title, body: body.slice(0, 140), link });
+    } else {
+      await notify(m.userId, { type: "chat", title, body: body.slice(0, 140), link });
+    }
   }
 }
 
@@ -229,7 +239,7 @@ export async function sendMessage(
     include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
   });
   await notifyMentions(channelId, session!.id, text);
-  await notifyDirectMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
+  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   const payload: ChatMessagePayload = {
     id: msg.id,
@@ -247,16 +257,16 @@ export async function sendMessage(
 }
 
 // Envío con archivos adjuntos (Word, Excel, PDF, imágenes, etc.)
-export async function sendMessageWithAttachments(formData: FormData): Promise<void> {
+export async function sendMessageWithAttachments(formData: FormData): Promise<ChatMessagePayload | null> {
   const channelId = String(formData.get("channelId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   const parentId = String(formData.get("parentId") ?? "") || null;
   const MAX = 50 * 1024 * 1024; // 50 MB por archivo
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX);
-  if (!channelId || (!body && files.length === 0)) return;
+  if (!channelId || (!body && files.length === 0)) return null;
 
   const session = await getSession();
-  if (!(await userCanAccessChannel(channelId, session))) return;
+  if (!(await userCanAccessChannel(channelId, session))) return null;
 
   const msg = await db.chatMessage.create({
     data: { channelId, body: body || "📎 Archivo adjunto", parentId, authorId: session!.id },
@@ -274,7 +284,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
     created.push({ id: att.id, name: file.name, mime: mimeFor(file.name, file.type), editable: isEditableOffice(file.name) });
   }
 
-  publishMessage({
+  const payload: ChatMessagePayload = {
     id: msg.id,
     channelId,
     body: msg.body,
@@ -284,11 +294,12 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<vo
       ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor }
       : null,
     attachments: created,
-  });
-  if (body) {
-    await notifyMentions(channelId, session!.id, body);
-    await notifyDirectMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body);
-  }
+  };
+  publishMessage(payload);
+  await notifyMentions(channelId, session!.id, body);
+  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
+  // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
+  return payload;
 }
 
 // ── Encuestas ──

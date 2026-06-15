@@ -86,8 +86,12 @@ function detectMentions(text: string, members: Member[]): string[] {
   return members.filter((mem) => text.includes(`@${mem.name}`)).map((mem) => mem.id);
 }
 
+// Solo formatos que el navegador puede mostrar en <img>. HEIC/HEIF/TIFF (fotos de
+// iPhone, etc.) NO se previsualizan — caen a tarjeta de archivo descargable.
 function isImage(a: Attachment) {
-  return (a.mime ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp|avif)$/i.test(a.name);
+  if (/\.(heic|heif|tiff?)$/i.test(a.name)) return false;
+  const WEB = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml"];
+  return WEB.includes((a.mime ?? "").toLowerCase()) || /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(a.name);
 }
 function isPdf(a: Attachment) {
   return a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
@@ -412,7 +416,12 @@ export function ChannelChat({
       setText("");
       setFiles([]);
       try {
-        await sendMessageWithAttachments(fd); // el mensaje llega por SSE
+        // El servidor devuelve el mensaje ya guardado: se muestra al instante
+        // (sin depender del SSE, que puede no llegar al propio emisor).
+        const saved = await sendMessageWithAttachments(fd);
+        if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+      } catch {
+        alert("No se pudo enviar el archivo. Revisa el tamaño o tu conexión.");
       } finally {
         setUploading(false);
         scrollToBottom();
