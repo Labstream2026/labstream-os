@@ -74,6 +74,7 @@ model User {
   clientMemberships  ClientMember[]
   createdQuotes    Quote[]              @relation("QuoteCreator")
   approvedQuotes   Quote[]              @relation("QuoteApprover")
+  createdProposals Proposal[]           @relation("ProposalCreator")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
@@ -125,6 +126,7 @@ model Client {
   notes       String?
   projects    Project[]
   quotes      Quote[]
+  proposals   Proposal[]
   activity    ActivityLog[]
   channel     ChatChannel?
   members     ClientMember[]
@@ -307,6 +309,38 @@ model QuoteItem {
   position    Int     @default(0)
 
   @@index([quoteId])
+}
+
+// Propuestas interactivas (constructor por bloques + asistente).
+// A diferencia de la cotización simple (Quote), una propuesta es un documento
+// editable hecho de bloques (portada, textos, plan, calendario, inversión, …).
+enum ProposalStatus {
+  BORRADOR
+  ENVIADA
+  ACEPTADA
+  VENCIDA
+}
+
+model Proposal {
+  id          String         @id @default(cuid())
+  code        String         @unique // PROP-0001
+  templateKey String // plantilla que la generó
+  title       String
+  status      ProposalStatus @default(BORRADOR)
+  expiresAt   DateTime? // fecha de validez → deriva "VENCIDA"
+  views       Int            @default(0) // se incrementa al abrir el enlace del cliente
+  answers     Json? // respuestas del asistente (regeneración / referencia)
+  brand       Json // snapshot de marca (empresa, acento, contacto)
+  blocks      Json // lista ordenada de bloques del documento
+  client      Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId    String?
+  createdBy   User?          @relation("ProposalCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([clientId])
+  @@index([createdAt])
 }
 
 // ─────────────────────────────────────────────

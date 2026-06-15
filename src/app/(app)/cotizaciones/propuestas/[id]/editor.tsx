@@ -1,0 +1,233 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  ArrowLeft, ChevronUp, ChevronDown, Copy, Trash2, Pencil, Plus, Eye, EyeOff,
+  Link2, Printer, Settings2, Check, Loader2, Cloud,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { tone } from "@/lib/colors";
+import { ProposalRenderer } from "../proposal-renderer";
+import { BlockEditPanel } from "./block-edit";
+import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
+import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal } from "../actions";
+
+const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
+
+export function ProposalEditor({
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, publicUrl,
+}: {
+  id: string;
+  code: string;
+  initialTitle: string;
+  initialBlocks: Block[];
+  initialBrand: Brand;
+  initialStatus: ProposalStatus;
+  initialExpiresAt: string;
+  publicUrl: string;
+}) {
+  const router = useRouter();
+  const [blocks, setBlocks] = React.useState<Block[]>(initialBlocks);
+  const [brand, setBrand] = React.useState<Brand>(initialBrand);
+  const [title, setTitle] = React.useState(initialTitle);
+  const [expiresAt, setExpiresAt] = React.useState(initialExpiresAt);
+  const [status, setStatus] = React.useState<ProposalStatus>(initialStatus);
+  const [preview, setPreview] = React.useState(false);
+  const [editing, setEditing] = React.useState<number | null>(null);
+  const [showSettings, setShowSettings] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
+  const dirtyRef = React.useRef(false);
+
+  // Autoguardado de bloques (debounce). Solo tras la primera edición real.
+  React.useEffect(() => {
+    if (!dirtyRef.current) return;
+    setSaveState("saving");
+    const t = setTimeout(async () => {
+      try {
+        await saveProposalBlocks(id, blocks);
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1500);
+      } catch {
+        setSaveState("idle");
+      }
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [blocks, id]);
+
+  const mutate = (fn: (prev: Block[]) => Block[]) => {
+    dirtyRef.current = true;
+    setBlocks(fn);
+  };
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= blocks.length) return;
+    mutate((prev) => {
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+    setEditing(null);
+  };
+  const dup = (i: number) => mutate((prev) => [...prev.slice(0, i + 1), { ...prev[i] }, ...prev.slice(i + 1)]);
+  const del = (i: number) => { mutate((prev) => prev.filter((_, idx) => idx !== i)); setEditing(null); };
+  const add = (type: BlockType) => { mutate((prev) => [...prev, newBlock(type, brand.email)]); };
+  const updateBlock = (i: number, b: Block) => mutate((prev) => prev.map((x, idx) => (idx === i ? b : x)));
+
+  async function saveMeta() {
+    await updateProposalMeta(id, { title, brand, expiresAt: expiresAt || null });
+    setShowSettings(false);
+    router.refresh();
+  }
+  async function changeStatus(s: ProposalStatus) {
+    setStatus(s);
+    await setProposalStatus(id, s);
+  }
+  function copyLink() {
+    navigator.clipboard.writeText(window.location.origin + publicUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+
+  const meta = STATUS_META[status];
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      {/* Toolbar */}
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6">
+        <Link href="/cotizaciones" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" /> <span className="hidden sm:inline">Cotizaciones</span>
+        </Link>
+        <span className="font-mono text-xs text-muted-foreground">{code}</span>
+        <select
+          value={status}
+          onChange={(e) => changeStatus(e.target.value as ProposalStatus)}
+          className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", tone(meta.tone).chip)}
+        >
+          {(Object.keys(STATUS_META) as ProposalStatus[]).map((s) => (<option key={s} value={s}>{STATUS_META[s].label}</option>))}
+        </select>
+
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="mr-1 hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
+            {saveState === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : saveState === "saved" ? <><Cloud className="size-3.5" /> Guardado</> : null}
+          </span>
+          <button onClick={() => { setPreview((p) => !p); setEditing(null); }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Vista previa">
+            {preview ? <EyeOff className="size-4" /> : <Eye className="size-4" />} <span className="hidden sm:inline">{preview ? "Editar" : "Vista previa"}</span>
+          </button>
+          <button onClick={copyLink} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Copiar enlace del cliente">
+            {copied ? <Check className="size-4 text-emerald-600" /> : <Link2 className="size-4" />} <span className="hidden sm:inline">{copied ? "Copiado" : "Enlace"}</span>
+          </button>
+          <a href={`/cotizaciones/propuestas/${id}/imprimir`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Imprimir / PDF">
+            <Printer className="size-4" /> <span className="hidden sm:inline">PDF</span>
+          </a>
+          <button onClick={() => setShowSettings((s) => !s)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Ajustes">
+            <Settings2 className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Ajustes (título, marca, validez) */}
+      {showSettings ? (
+        <div className="mb-5 space-y-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Título (interno)</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Empresa (marca)</span>
+              <input value={brand.company} onChange={(e) => setBrand({ ...brand, company: e.target.value })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Color de acento</span>
+              <input type="color" value={brand.accent} onChange={(e) => setBrand({ ...brand, accent: e.target.value })} className="h-9 w-full rounded-md border border-input bg-background px-1" />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Email de contacto</span>
+              <input value={brand.email} onChange={(e) => setBrand({ ...brand, email: e.target.value })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Válida hasta</span>
+              <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+            </label>
+          </div>
+          <div className="flex justify-end">
+            <button onClick={saveMeta} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar ajustes</button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Documento */}
+      {preview ? (
+        <ProposalRenderer blocks={blocks} brand={brand} />
+      ) : (
+        <div className="space-y-3">
+          {blocks.map((b, i) => (
+            <div key={i} className="group/blk relative rounded-xl border border-dashed border-transparent p-2 transition-colors hover:border-border">
+              {/* Toolbar del bloque */}
+              <div className="absolute -top-2 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5 opacity-0 shadow-sm transition-opacity group-hover/blk:opacity-100">
+                <span className="px-1.5 text-[10px] font-medium uppercase text-muted-foreground">{BLOCK_LABELS[b.type]}</span>
+                <IconBtn title="Subir" onClick={() => move(i, -1)} disabled={i === 0}><ChevronUp className="size-3.5" /></IconBtn>
+                <IconBtn title="Bajar" onClick={() => move(i, 1)} disabled={i === blocks.length - 1}><ChevronDown className="size-3.5" /></IconBtn>
+                <IconBtn title="Editar" onClick={() => setEditing(editing === i ? null : i)} active={editing === i}><Pencil className="size-3.5" /></IconBtn>
+                <IconBtn title="Duplicar" onClick={() => dup(i)}><Copy className="size-3.5" /></IconBtn>
+                <IconBtn title="Eliminar" onClick={() => { if (confirm("¿Eliminar este bloque?")) del(i); }} danger><Trash2 className="size-3.5" /></IconBtn>
+              </div>
+
+              <ProposalRenderer blocks={[b]} brand={brand} />
+
+              {editing === i ? (
+                <div className="mt-3 rounded-xl border border-border bg-muted/30 p-4">
+                  <BlockEditPanel block={b} onChange={(nb) => updateBlock(i, nb)} />
+                </div>
+              ) : null}
+            </div>
+          ))}
+
+          {/* Añadir bloque */}
+          <details data-autoclose className="relative">
+            <summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:bg-accent/50">
+              <Plus className="size-4" /> Añadir bloque
+            </summary>
+            <div className="absolute left-1/2 z-10 mt-1 grid w-72 -translate-x-1/2 grid-cols-2 gap-1 rounded-lg border border-border bg-popover p-2 shadow-lg">
+              {ALL_TYPES.map((t) => (
+                <button key={t} onClick={() => add(t)} className="rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-accent">{BLOCK_LABELS[t]}</button>
+              ))}
+            </div>
+          </details>
+
+          <div className="pt-4">
+            <button
+              onClick={() => { if (confirm("¿Eliminar esta propuesta? No se puede deshacer.")) deleteProposal(id); }}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="size-3.5" /> Eliminar propuesta
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconBtn({ children, onClick, title, disabled, danger, active }: { children: React.ReactNode; onClick: () => void; title: string; disabled?: boolean; danger?: boolean; active?: boolean }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30",
+        danger && "hover:bg-destructive/10 hover:text-destructive",
+        active && "bg-accent text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
