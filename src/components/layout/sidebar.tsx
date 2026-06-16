@@ -186,7 +186,7 @@ export function Sidebar({
       <div className={cn("mt-4 flex-1 overflow-y-auto", collapsed ? "px-2" : "px-3")}>
         <div className={cn("flex items-center justify-between pb-1", collapsed ? "px-0 justify-center" : "px-2")}>
           {!collapsed ? (
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted">Clientes</span>
+            <Link href="/clientes" onClick={onNavigate} className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted hover:text-sidebar-foreground">Clientes</Link>
           ) : null}
           <Link
             href="/clientes/nuevo"
