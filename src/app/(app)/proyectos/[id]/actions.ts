@@ -182,8 +182,10 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
       type: "task",
-      title: `Fecha de entrega de «${task!.title}»`,
-      body: raw ? `Nueva fecha de entrega: ${raw}` : "Se quitó la fecha de entrega.",
+      title: `Fecha de entrega: ${task!.title}`,
+      body: raw
+        ? `${session?.name ?? "Alguien"} cambió la entrega de tu tarea al ${raw}.`
+        : `${session?.name ?? "Alguien"} quitó la fecha de entrega de tu tarea.`,
       link: projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas",
     });
   }
@@ -235,6 +237,18 @@ export async function setTaskShootDate(taskId: string, _projectId: string, formD
   // input type=date → "YYYY-MM-DD"; se ancla a mediodía UTC para evitar saltos de día por zona horaria.
   const shootDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
   await db.task.update({ where: { id: taskId }, data: { shootDate } });
+  const session = await getSession();
+  // Avisar (app + correo) al responsable del cambio de fecha de rodaje.
+  if (task!.assigneeId && task!.assigneeId !== session?.id) {
+    await notifyAndEmail(task!.assigneeId, {
+      type: "task",
+      title: `Fecha de rodaje: ${task!.title}`,
+      body: raw
+        ? `${session?.name ?? "Alguien"} fijó el rodaje de tu tarea el ${raw}.`
+        : `${session?.name ?? "Alguien"} quitó la fecha de rodaje de tu tarea.`,
+      link: projectId ? `/proyectos/${projectId}?tab=calendario` : "/mis-tareas",
+    });
+  }
   await logActivity({
     action: "task.shootDate",
     summary: raw ? `fijó el rodaje de «${task!.title}» el ${raw}` : `quitó la fecha de rodaje de «${task!.title}»`,
