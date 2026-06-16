@@ -3,12 +3,20 @@
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { SESSION_COOKIE, verifyToken, type SessionUser } from "./session";
+import { getLiveAuthState } from "./permissions";
 
 export type { SessionUser };
 
 export async function getSession(): Promise<SessionUser | null> {
   const store = await cookies();
-  return verifyToken(store.get(SESSION_COOKIE)?.value);
+  const base = await verifyToken(store.get(SESSION_COOKIE)?.value);
+  if (!base) return null;
+  // Superpone rol y permisos EN VIVO desde la BD (cacheado por request): cualquier
+  // cambio de rol/permisos aplica al instante, sin re-login. Un usuario desactivado o
+  // borrado pierde la sesión de inmediato.
+  const live = await getLiveAuthState(base.id);
+  if (!live || !live.active) return null;
+  return { ...base, role: live.roleKey, perms: live.perms };
 }
 
 export function hasPermission(session: SessionUser | null, key: string): boolean {

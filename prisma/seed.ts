@@ -165,7 +165,7 @@ async function main() {
   const roleByKey: Record<string, string> = {};
   for (const r of ROLES) {
     const role = await prisma.role.create({
-      data: { key: r.key, name: r.name, description: r.description },
+      data: { key: r.key, name: r.name, description: r.description, isSystem: true },
     });
     roleByKey[r.key] = role.id;
     await prisma.rolePermission.createMany({

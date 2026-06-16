@@ -20,6 +20,11 @@ model Role {
   key         String           @unique // admin, gerente, ventas, productor, ...
   name        String
   description String?
+  emoji       String? // icono visible del rol
+  color       String? // tono de la paleta (lib/colors) para el chip del rol
+  // Rol del sistema (admin y los del seed): no se puede eliminar; admin además es
+  // todopoderoso por código. Los roles creados por el admin tienen isSystem=false.
+  isSystem    Boolean          @default(false)
   permissions RolePermission[]
   users       User[]
   createdAt   DateTime         @default(now())
@@ -29,7 +34,22 @@ model Permission {
   id          String           @id @default(cuid())
   key         String           @unique // ver_proyectos, crear_proyectos, ver_cotizaciones, ...
   description String?
+  category    String           @default("General") // agrupación para el panel de roles
   roles       RolePermission[]
+}
+
+// Permiso concedido o revocado a un usuario CONCRETO, por encima de su rol.
+// Permisos efectivos = (permisos del rol ∪ concedidos) − revocados.
+model UserPermission {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  permissionKey String // clave del catálogo (lib/permissions)
+  granted       Boolean // true = concedido extra; false = revocado
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, permissionKey])
+  @@index([userId])
 }
 
 model RolePermission {
@@ -91,6 +111,7 @@ model User {
   credentialViews    CredentialViewer[] @relation("CredViewer")
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
+  permissionOverrides UserPermission[]
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

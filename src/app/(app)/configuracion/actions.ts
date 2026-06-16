@@ -5,13 +5,42 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { emailEnabled, sendEmail } from "@/lib/email";
 import { testCaldav } from "@/lib/caldav";
+import { notifyAndEmail } from "@/lib/notify";
+import { logActivity } from "@/lib/activity";
+import { permissionLabel, ALL_PERMISSION_KEYS } from "@/lib/permissions";
 
 export type AdminActionResult = { ok: boolean; error?: string };
+
+const ALL_KEYS = new Set(ALL_PERMISSION_KEYS);
 
 async function requireAdmin() {
   const session = await getSession();
   if (!hasPermission(session, "administrar_usuarios")) return null;
   return session!;
+}
+
+// clave estable a partir del nombre del rol (slug); evita choques con un sufijo.
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+// Notifica (app + correo) a todos los usuarios ACTIVOS de un rol, salvo al actor.
+async function notifyRoleUsers(
+  roleId: string,
+  actorId: string | undefined,
+  n: { type: string; title: string; body?: string; link?: string },
+) {
+  const users = await db.user.findMany({ where: { roleId, active: true }, select: { id: true } });
+  for (const u of users) {
+    if (u.id === actorId) continue;
+    await notifyAndEmail(u.id, n);
+  }
 }
 
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.
@@ -46,7 +75,7 @@ export async function setRolePermission(
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
 
-  const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true } });
+  const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true, name: true } });
   if (!role) return { ok: false, error: "Rol inexistente" };
   if (role.key === "admin") return { ok: false, error: "El rol Administrador no se edita (acceso total)." };
 
@@ -66,6 +95,20 @@ export async function setRolePermission(
         if (e?.code !== "P2025") throw e;
       });
   }
+  // Notifica a todos los del rol y registra el cambio (auditoría).
+  const label = permissionLabel(permissionKey);
+  await notifyRoleUsers(roleId, session.id, {
+    type: "role",
+    title: `Permisos de tu rol «${role.name}» actualizados`,
+    body: `${enabled ? "Se añadió" : "Se quitó"} el permiso: ${label}.`,
+    link: "/perfil",
+  });
+  await logActivity({
+    action: "role.permission",
+    summary: `${enabled ? "añadió" : "quitó"} el permiso «${label}» ${enabled ? "a" : "de"}l rol «${role.name}»`,
+    entityType: "role",
+    entityId: roleId,
+  });
   revalidatePath("/configuracion");
   return { ok: true };
 }
@@ -76,7 +119,7 @@ export async function setUserRole(userId: string, roleKey: string): Promise<Admi
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
 
-  const role = await db.role.findUnique({ where: { key: roleKey } });
+  const role = await db.role.findUnique({ where: { key: roleKey }, select: { id: true, name: true } });
   if (!role) return { ok: false, error: "Rol inexistente" };
 
   // No permitir que el último admin se quite a sí mismo el rol admin (evita quedarse sin admins).
@@ -85,7 +128,23 @@ export async function setUserRole(userId: string, roleKey: string): Promise<Admi
     if (admins <= 1) return { ok: false, error: "Eres el único administrador activo." };
   }
 
+  const target = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
   await db.user.update({ where: { id: userId }, data: { roleId: role.id } });
+  // Avisa al usuario y registra el cambio.
+  if (userId !== session.id) {
+    await notifyAndEmail(userId, {
+      type: "role",
+      title: `Tu rol ahora es «${role.name}»`,
+      body: "Un administrador actualizó tu rol. Tus permisos se aplicaron de inmediato.",
+      link: "/perfil",
+    });
+  }
+  await logActivity({
+    action: "user.role",
+    summary: `cambió el rol de ${target?.name ?? "un usuario"} a «${role.name}»`,
+    entityType: "user",
+    entityId: userId,
+  });
   revalidatePath("/configuracion");
   return { ok: true };
 }
@@ -142,5 +201,165 @@ export async function setUserGuest(userId: string, isGuest: boolean): Promise<Ad
   await db.user.update({ where: { id: userId }, data: { isGuest } });
   revalidatePath("/configuracion");
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// ── Roles personalizables (CRUD) ──
+
+// Crea un rol nuevo. Opcionalmente copia los permisos de un rol existente (copyFromKey).
+export async function createRole(formData: FormData): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { ok: false, error: "El nombre es obligatorio." };
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const emoji = String(formData.get("emoji") ?? "").trim() || null;
+  const color = String(formData.get("color") ?? "").trim() || null;
+  const copyFromKey = String(formData.get("copyFromKey") ?? "").trim();
+
+  // Clave única: slug del nombre + sufijo si choca.
+  let key = slugify(name) || "rol";
+  if (await db.role.findUnique({ where: { key }, select: { id: true } })) {
+    key = `${key}-${Date.now().toString(36).slice(-4)}`;
+  }
+  const role = await db.role.create({
+    data: { key, name, description, emoji, color, isSystem: false },
+  });
+  // Copiar permisos del rol de origen (si se indicó).
+  if (copyFromKey) {
+    const src = await db.role.findUnique({
+      where: { key: copyFromKey },
+      select: { key: true, permissions: { select: { permissionId: true } } },
+    });
+    if (src) {
+      const perms = src.key === "admin"
+        ? await db.permission.findMany({ select: { id: true } })
+        : src.permissions.map((p) => ({ id: p.permissionId }));
+      if (perms.length) {
+        await db.rolePermission.createMany({
+          data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
+          skipDuplicates: true,
+        });
+      }
+    }
+  }
+  await logActivity({ action: "role.create", summary: `creó el rol «${name}»`, entityType: "role", entityId: role.id });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// Edita nombre, descripción, emoji y color de un rol (incl. los del sistema).
+export async function updateRole(roleId: string, formData: FormData): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const role = await db.role.findUnique({ where: { id: roleId }, select: { name: true } });
+  if (!role) return { ok: false, error: "Rol inexistente" };
+  const name = String(formData.get("name") ?? "").trim() || role.name;
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const emoji = String(formData.get("emoji") ?? "").trim() || null;
+  const color = String(formData.get("color") ?? "").trim() || null;
+  await db.role.update({ where: { id: roleId }, data: { name, description, emoji, color } });
+  await logActivity({ action: "role.update", summary: `editó el rol «${name}»`, entityType: "role", entityId: roleId });
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Elimina un rol creado por el admin. Los roles del sistema no se borran. Los usuarios
+// que tuvieran el rol se reasignan al rol indicado (reassignToKey).
+export async function deleteRole(roleId: string, reassignToKey: string): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true, name: true, isSystem: true } });
+  if (!role) return { ok: true };
+  if (role.isSystem) return { ok: false, error: "Los roles del sistema no se pueden eliminar." };
+  const fallback = await db.role.findUnique({ where: { key: reassignToKey }, select: { id: true, name: true } });
+  if (!fallback || reassignToKey === role.key) return { ok: false, error: "Elige un rol válido al que reasignar." };
+
+  // Reasigna y avisa a los afectados.
+  const affected = await db.user.findMany({ where: { roleId }, select: { id: true } });
+  await db.user.updateMany({ where: { roleId }, data: { roleId: fallback.id } });
+  for (const u of affected) {
+    if (u.id === session.id) continue;
+    await notifyAndEmail(u.id, {
+      type: "role",
+      title: `Tu rol cambió a «${fallback.name}»`,
+      body: `El rol «${role.name}» se eliminó; tu cuenta se reasignó a «${fallback.name}».`,
+      link: "/perfil",
+    });
+  }
+  await db.role.delete({ where: { id: roleId } });
+  await logActivity({ action: "role.delete", summary: `eliminó el rol «${role.name}» (reasignó a «${fallback.name}»)`, entityType: "role" });
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Lee el estado de permisos de un usuario para el editor de overrides.
+export async function getUserPermissionState(userId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  isAdmin?: boolean;
+  roleName?: string;
+  rolePerms?: string[];
+  overrides?: Record<string, boolean>;
+}> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: { select: { key: true, name: true, permissions: { select: { permission: { select: { key: true } } } } } },
+      permissionOverrides: { select: { permissionKey: true, granted: true } },
+    },
+  });
+  if (!user) return { ok: false, error: "Usuario inexistente" };
+  const isAdmin = user.role.key === "admin";
+  const rolePerms = isAdmin ? [...ALL_KEYS] : user.role.permissions.map((rp) => rp.permission.key);
+  const overrides: Record<string, boolean> = {};
+  for (const o of user.permissionOverrides) overrides[o.permissionKey] = o.granted;
+  return { ok: true, isAdmin, roleName: user.role.name, rolePerms, overrides };
+}
+
+// ── Permisos por usuario (overrides sobre su rol) ──
+// state: "grant" (conceder extra) | "revoke" (quitar) | "inherit" (volver al rol).
+export async function setUserPermissionOverride(
+  userId: string,
+  permissionKey: string,
+  state: "grant" | "revoke" | "inherit",
+): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  if (!ALL_KEYS.has(permissionKey)) return { ok: false, error: "Permiso desconocido." };
+
+  if (state === "inherit") {
+    await db.userPermission
+      .delete({ where: { userId_permissionKey: { userId, permissionKey } } })
+      .catch((e: { code?: string }) => { if (e?.code !== "P2025") throw e; });
+  } else {
+    const granted = state === "grant";
+    await db.userPermission.upsert({
+      where: { userId_permissionKey: { userId, permissionKey } },
+      create: { userId, permissionKey, granted },
+      update: { granted },
+    });
+  }
+  const label = permissionLabel(permissionKey);
+  const target = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  if (userId !== session.id && state !== "inherit") {
+    await notifyAndEmail(userId, {
+      type: "role",
+      title: state === "grant" ? `Permiso concedido: ${label}` : `Permiso retirado: ${label}`,
+      body: state === "grant" ? "Un administrador te concedió un permiso adicional." : "Un administrador te retiró un permiso.",
+      link: "/perfil",
+    });
+  }
+  await logActivity({
+    action: "user.permission",
+    summary: `${state === "grant" ? "concedió" : state === "revoke" ? "revocó" : "restableció"} «${label}» ${state === "inherit" ? "en" : "a"} ${target?.name ?? "un usuario"}`,
+    entityType: "user",
+    entityId: userId,
+  });
+  revalidatePath("/configuracion");
   return { ok: true };
 }

@@ -8,8 +8,10 @@ import { caldavEnabled } from "@/lib/caldav";
 import { aiEnabled } from "@/lib/ai";
 import { onlyofficeEnabled } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
-import { RolePermissions } from "./role-permissions";
+import { RolesManager } from "./roles-manager";
+import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
@@ -21,7 +23,12 @@ export default async function ConfiguracionPage() {
   const session = await getSession();
   if (!hasPermission(session, "administrar_usuarios")) redirect("/");
 
-  const [roles, users, allPermissions, me] = await Promise.all([
+  // Sincroniza el catálogo de permisos y marca los roles del sistema (idempotente):
+  // así producción recibe los permisos nuevos sin necesidad de reseed.
+  await ensurePermissionsCatalog();
+  await ensureBuiltinRolesFlag();
+
+  const [roles, users, me] = await Promise.all([
     db.role.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -33,9 +40,12 @@ export default async function ConfiguracionPage() {
       orderBy: [{ active: "desc" }, { name: "asc" }],
       include: { role: { select: { key: true, name: true } } },
     }),
-    db.permission.findMany({ orderBy: { key: "asc" }, select: { key: true, description: true } }),
     getCurrentUser(),
   ]);
+
+  // Catálogo de permisos (fuente de verdad en código), agrupado por categoría.
+  const catalog = PERMISSION_CATALOG.map((p) => ({ key: p.key, label: p.label, category: p.category }));
+  const categories = [...PERMISSION_CATEGORIES];
 
   const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
   const statusRows = taskLabels.filter((l) => l.kind === "TASK_STATUS").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
@@ -63,15 +73,18 @@ export default async function ConfiguracionPage() {
                 <p className="truncate text-xs text-muted-foreground">{u.email}</p>
               </div>
             </div>
-            <UserControls
-              userId={u.id}
-              userName={u.name}
-              roleKey={u.role.key}
-              active={u.active}
-              isGuest={u.isGuest}
-              roles={roleOptions}
-              isSelf={u.email === session!.email}
-            />
+            <div className="flex flex-col items-end gap-1.5">
+              <UserControls
+                userId={u.id}
+                userName={u.name}
+                roleKey={u.role.key}
+                active={u.active}
+                isGuest={u.isGuest}
+                roles={roleOptions}
+                isSelf={u.email === session!.email}
+              />
+              <UserPermissions userId={u.id} userName={u.name} permissions={catalog} categories={categories} />
+            </div>
           </div>
         ))}
       </div>
@@ -94,25 +107,21 @@ export default async function ConfiguracionPage() {
 
   // ── Sección Roles y permisos ──
   const rolesNode = (
-    <div className="space-y-3">
-      {roles.map((r) => (
-        <div key={r.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold">{r.name}</h3>
-              <p className="text-xs text-muted-foreground">{r.description}</p>
-            </div>
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              {r._count.users} usuario{r._count.users === 1 ? "" : "s"}
-            </span>
-          </div>
-          <div className="mt-3">
-            <RolePermissions roleId={r.id} roleKey={r.key} permissions={allPermissions} assigned={r.permissions.map((rp) => rp.permission.key)} />
-          </div>
-        </div>
-      ))}
-      <p className="text-xs text-muted-foreground">Haz clic en un permiso para activarlo o quitarlo del rol. El rol Administrador tiene acceso total.</p>
-    </div>
+    <RolesManager
+      permissions={catalog}
+      categories={categories}
+      roles={roles.map((r) => ({
+        id: r.id,
+        key: r.key,
+        name: r.name,
+        description: r.description,
+        emoji: r.emoji,
+        color: r.color,
+        isSystem: r.isSystem,
+        userCount: r._count.users,
+        assigned: r.permissions.map((rp) => rp.permission.key),
+      }))}
+    />
   );
 
   // ── Sección Integraciones ──
