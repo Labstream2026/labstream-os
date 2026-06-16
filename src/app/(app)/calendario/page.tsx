@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { caldavEnabled } from "@/lib/caldav";
 import { CalendarBoard } from "./calendar-board";
@@ -12,6 +13,8 @@ const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { hour: "2-digit",
 
 export default async function CalendarioPage() {
   const session = await getSession();
+  // Acceso al calendario por permiso (el backfill lo da al equipo; los clientes no).
+  if (!hasPermission(session, "ver_calendario")) redirect("/");
   // Ventana acotada: desde el inicio del mes anterior en adelante.
   const now = new Date();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);

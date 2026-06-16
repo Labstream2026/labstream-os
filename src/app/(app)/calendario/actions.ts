@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { notifyAndEmail } from "@/lib/notify";
 import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites } from "@/lib/calendar-sync";
 
@@ -20,6 +20,7 @@ function parseGuestEmails(formData: FormData): string[] {
 export async function createMyEvent(formData: FormData): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
   const title = String(formData.get("title") ?? "").trim();
   const date = String(formData.get("date") ?? "").trim(); // YYYY-MM-DD
   const time = String(formData.get("time") ?? "").trim(); // HH:mm o ""
@@ -93,6 +94,7 @@ export async function createMyEvent(formData: FormData): Promise<void> {
 export async function updateMyEvent(eventId: string, formData: FormData): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
     select: { createdById: true, source: true, attendees: { select: { userId: true } }, guests: { select: { email: true } } },
@@ -172,6 +174,7 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
 export async function moveMyEvent(eventId: string, startIso: string, endIso: string | null): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
   const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true } });
   if (!event) return;
   if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
@@ -188,6 +191,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
 export async function deleteMyEvent(eventId: string): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
   const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true } });
   if (!event) return;
   if (event.createdById !== session.id) throw new Error("No autorizado");

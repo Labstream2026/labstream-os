@@ -65,6 +65,8 @@ export function Sidebar({
   canQuotes,
   canWiki = true,
   canBiblioteca = true,
+  canCalendar = true,
+  canTimeline = true,
   collapsed = false,
   chatUnread = 0,
   onNavigate,
@@ -76,6 +78,8 @@ export function Sidebar({
   canQuotes?: boolean;
   canWiki?: boolean;
   canBiblioteca?: boolean;
+  canCalendar?: boolean;
+  canTimeline?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   onNavigate?: () => void;
@@ -179,7 +183,11 @@ export function Sidebar({
 
       {/* Navegación principal */}
       <nav className={cn("py-1", collapsed ? "px-2" : "px-3")}>
-        {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href, item.href === "/chat" ? chatUnread || undefined : undefined))}
+        {NAV.map((item) => {
+          if (item.href === "/calendario" && !canCalendar) return null;
+          if (item.href === "/timeline" && !canTimeline) return null;
+          return navRow(item.href, item.label, item.icon, pathname === item.href, item.href === "/chat" ? chatUnread || undefined : undefined);
+        })}
       </nav>
 
       {/* Clientes + Wiki */}

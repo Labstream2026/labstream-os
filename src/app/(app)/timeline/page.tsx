@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { tone } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
@@ -15,6 +16,8 @@ const accessSelect = { isPrivate: true, leadId: true, members: { select: { userI
 
 export default async function TimelinePage() {
   const session = await getSession();
+  // El cronograma general es una vista cross-proyecto: requiere ver_proyectos.
+  if (!hasPermission(session, "ver_proyectos")) redirect("/");
 
   const [projects, taskLabels] = await Promise.all([
     db.project.findMany({
