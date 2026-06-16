@@ -141,3 +141,32 @@ export function internalDocsFetchUrl(url: string): string {
     return url;
   }
 }
+
+// Candidatos para descargar el documento guardado, en orden de preferencia:
+// primero la dirección interna reescrita, luego la URL original (pública). Únicos.
+export function docsFetchCandidates(url: string): string[] {
+  return [...new Set([internalDocsFetchUrl(url), url].filter(Boolean))];
+}
+
+// Descarga el documento editado del Document Server probando los candidatos hasta
+// que uno responda OK. Lanza con detalle si TODOS fallan (queda en el log del NAS,
+// para diagnosticar el "No se ha podido guardar"). Verifica res.ok para no escribir
+// una página de error como si fuera el documento (corrupción silenciosa).
+export async function fetchSavedDoc(url: string): Promise<Buffer> {
+  const errors: string[] = [];
+  for (const candidate of docsFetchCandidates(url)) {
+    try {
+      const res = await fetch(candidate, { cache: "no-store" });
+      if (!res.ok) { errors.push(`${candidate} → HTTP ${res.status}`); continue; }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0) { errors.push(`${candidate} → vacío`); continue; }
+      return buf;
+    } catch (e) {
+      errors.push(`${candidate} → ${e instanceof Error ? e.message : "error de red"}`);
+    }
+  }
+  throw new Error(
+    `OnlyOffice: no se pudo descargar el documento guardado. Intentos: ${errors.join(" | ")}. ` +
+    `Revisa ONLYOFFICE_INTERNAL_URL (dirección del Document Server alcanzable desde el contenedor de la app).`,
+  );
+}

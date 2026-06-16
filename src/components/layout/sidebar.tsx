@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -86,6 +86,17 @@ export function Sidebar({
     if (!confirm(`¿Eliminar el cliente «${name}» y TODOS sus proyectos, cotizaciones y chat? No se puede deshacer.`)) return;
     startDelete(async () => { await deleteClient(id); router.refresh(); });
   }
+
+  // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si
+  // estás en una de sus rutas para no esconder la activa).
+  const adminActive = pathname.startsWith("/cotizaciones") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/biblioteca");
+  const [adminOpen, setAdminOpen] = useState(true);
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ui:adminOpen");
+    if (saved != null) setAdminOpen(saved === "1");
+  }, []);
+  const toggleAdmin = () => setAdminOpen((o) => { const n = !o; window.localStorage.setItem("ui:adminOpen", n ? "1" : "0"); return n; });
+  const showAdminItems = adminOpen || adminActive;
 
   // Proyecto activo (para resaltar y auto-desplegar su cliente).
   const activeProjectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
@@ -283,16 +294,25 @@ export function Sidebar({
         })}
 
         {!collapsed ? (
-          <div className="mt-4 px-2 pb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted">Administrativo</span>
-          </div>
+          <button
+            type="button"
+            onClick={toggleAdmin}
+            className="mt-4 flex w-full items-center gap-1 px-2 pb-1 text-left text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted hover:text-sidebar-foreground"
+          >
+            <ChevronRight className={cn("size-3 transition-transform", showAdminItems && "rotate-90")} />
+            <span className="flex-1">Administrativo</span>
+          </button>
         ) : (
           <div className="mt-4" />
         )}
-        {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
-        {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
-        {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
-        {navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca"))}
+        {collapsed || showAdminItems ? (
+          <>
+            {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
+            {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
+            {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
+            {navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca"))}
+          </>
+        ) : null}
       </div>
 
       {/* Footer */}

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { absPath } from "@/lib/storage";
-import { verifyCallbackToken, isAllowedDocsUrl, internalDocsFetchUrl } from "@/lib/onlyoffice";
+import { verifyCallbackToken, isAllowedDocsUrl, fetchSavedDoc } from "@/lib/onlyoffice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,14 +28,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const att = await db.messageAttachment.findUnique({ where: { id } });
     if (att?.path) {
       try {
-        const res = await fetch(internalDocsFetchUrl(body.url), { cache: "no-store" });
-        const buf = Buffer.from(await res.arrayBuffer());
+        const buf = await fetchSavedDoc(body.url);
         await fs.writeFile(absPath(att.path), buf);
         await db.messageAttachment.update({
           where: { id },
           data: { size: buf.length, version: { increment: 1 } },
         });
-      } catch {
+      } catch (e) {
+        console.error("[onlyoffice] guardar adjunto falló:", e instanceof Error ? e.message : e);
         return NextResponse.json({ error: 1 });
       }
     }

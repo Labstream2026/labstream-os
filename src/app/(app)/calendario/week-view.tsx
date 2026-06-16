@@ -97,34 +97,35 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
 
       <div className="relative">
         {/* Rejilla (ancho completo; el detalle flota encima a la derecha) */}
-        <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card">
           {/* Cabecera de días */}
-          <div className="grid border-b border-border" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
-            <div className="border-r border-border" />
+          <div className="grid border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+            <div />
             {days.map((d) => {
               const isToday = sameDay(d, today);
               return (
-                <div key={d.toISOString()} className="border-r border-border px-1 py-1.5 text-center last:border-r-0">
-                  <span className="text-[11px] uppercase text-muted-foreground">{DAYS[d.getDay()]}</span>{" "}
-                  <span className={cn("inline-flex size-5 items-center justify-center rounded-full text-xs", isToday ? "bg-primary font-semibold text-primary-foreground" : "font-medium")}>{d.getDate()}</span>
+                <div key={d.toISOString()} className={cn("flex items-center justify-center gap-1.5 px-1 py-2 text-center", isToday && "bg-rose-50/60 dark:bg-rose-500/[0.06]")}>
+                  <span className="text-[11px] uppercase text-muted-foreground">{DAYS[d.getDay()]}</span>
+                  <span className={cn("inline-flex size-6 items-center justify-center rounded-md text-xs", isToday ? "bg-rose-500 font-semibold text-white" : "font-medium text-foreground")}>{d.getDate()}</span>
                 </div>
               );
             })}
           </div>
 
           {/* Franja "todo el día" (tareas, rodajes, eventos all-day) */}
-          <div className="grid border-b border-border bg-muted/20" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
-            <div className="flex items-center justify-end border-r border-border pr-1 text-[9px] text-muted-foreground">todo el día</div>
+          <div className="grid border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+            <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
               const chips = parsed.filter((p) => !p.timed && sameDay(p.start, d));
+              const isToday = sameDay(d, today);
               return (
-                <div key={d.toISOString()} className="min-h-7 space-y-0.5 border-r border-border p-0.5 last:border-r-0">
+                <div key={d.toISOString()} className={cn("min-h-8 space-y-1 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
                   {chips.map((p) => {
                     const t = calTone(p.it.kind, p.it.kind === "shoot");
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
-                        className={cn("flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[10px] font-medium", selectedId === p.it.id && "ring-1 ring-primary")}
-                        style={{ background: t.bg, borderLeft: `2px solid ${t.bar}` }}
+                        className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-1 text-left text-[11px] font-medium", selectedId === p.it.id && "ring-2 ring-primary/60")}
+                        style={{ background: t.bg, borderLeft: `3px solid ${t.bar}` }}
                         title={p.it.title}>
                         <span className="truncate">{p.it.kind === "shoot" ? "🎬" : p.it.kind === "task" ? "✅" : "📅"} {p.it.title}</span>
                       </button>
@@ -139,10 +140,10 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
           <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
             <div className="grid" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))", height: 24 * HOUR_H }}>
               {/* Columna de horas */}
-              <div className="relative border-r border-border">
+              <div className="relative">
                 {hours.map((h) => (
                   <div key={h} style={{ height: HOUR_H }} className="relative">
-                    {h > 0 ? <span className="absolute -top-2 right-1 text-[10px] text-muted-foreground">{h % 12 === 0 ? 12 : h % 12}{h < 12 ? "AM" : "PM"}</span> : null}
+                    {h > 0 ? <span className="absolute -top-2 right-1.5 text-[10px] text-muted-foreground">{h % 12 === 0 ? 12 : h % 12}{h < 12 ? "AM" : "PM"}</span> : null}
                   </div>
                 ))}
               </div>
@@ -158,8 +159,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                 const positioned = layoutDay(dayTimed);
                 const isToday = sameDay(d, today);
                 return (
-                  <div key={d.toISOString()} className="relative border-r border-border last:border-r-0">
-                    {hours.map((h) => (<div key={h} style={{ height: HOUR_H }} className="border-b border-border/40" />))}
+                  <div key={d.toISOString()} className={cn("relative border-l border-border/40", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]")}>
+                    {hours.map((h) => (<div key={h} style={{ height: HOUR_H }} className="border-b border-border/25" />))}
                     {isToday ? <NowLine /> : null}
                     {positioned.map((p) => {
                       const t = calTone(p.it.kind);
@@ -167,8 +168,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       return (
                         <button key={p.it.id} onClick={() => select(p.it)}
-                          className={cn("absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[10px] leading-tight", selectedId === p.it.id && "ring-1 ring-primary")}
-                          style={{ top, height, left: `calc(${p.left}% + 1px)`, width: `calc(${p.width}% - 2px)`, background: t.bg, borderLeft: `3px solid ${t.bar}` }}
+                          className={cn("absolute overflow-hidden rounded-md px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow", selectedId === p.it.id && "ring-2 ring-primary/60")}
+                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.bg, borderLeft: `3px solid ${t.bar}` }}
                           title={p.it.title}>
                           <span className="block truncate font-medium">{p.it.title}</span>
                           {p.it.time ? <span className="block truncate text-muted-foreground">{p.it.time}</span> : null}
