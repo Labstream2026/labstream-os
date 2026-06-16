@@ -13,7 +13,6 @@ import { ProjectColorPicker } from "./project-color-picker";
 import { ProjectsBoard, type BoardClient } from "./projects-board";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
-import { createMyEvent } from "@/app/(app)/calendario/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -42,14 +41,15 @@ export default async function ProyectosPage() {
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
   const flat = clients.flatMap((c) => c.projects.map((p) => ({ ...p, clientName: c.name, clientEmoji: c.emoji })));
 
-  // Calendario del portafolio: citas + tareas de los proyectos visibles + reuniones
-  // del equipo (sin proyecto). Mismo board colaborativo que la pestaña Calendario.
+  // Calendario del portafolio: SOLO citas + tareas de los proyectos visibles (no las
+  // reuniones del equipo sin proyecto: eso solo se ve en la pestaña Calendario, que es
+  // la única ventana que muestra TODO). Mismo board colaborativo.
   const visibleProjectIds = flat.map((p) => p.id);
   const safeIds = visibleProjectIds.length ? visibleProjectIds : ["__none__"];
   const calWindowStart = new Date(new Date().setMonth(new Date().getMonth() - 1));
   const [overviewEvents, overviewTasks, calTeam] = await Promise.all([
     db.calendarEvent.findMany({
-      where: { start: { gte: calWindowStart }, OR: [{ projectId: { in: safeIds } }, { projectId: null }] },
+      where: { projectId: { in: safeIds }, start: { gte: calWindowStart } },
       include: {
         project: { select: { name: true, emoji: true } },
         attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
@@ -159,9 +159,10 @@ export default async function ProyectosPage() {
               key: "calendario", label: "Calendario", icon: "📅",
               node: (
                 <div className="h-[72vh]">
+                  {/* Vista de portafolio: ver/editar/arrastrar las citas de los proyectos.
+                      Crear citas se hace dentro de cada proyecto o en la pestaña Calendario. */}
                   <CalendarBoard
                     items={overviewCalItems}
-                    onCreate={createMyEvent}
                     team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
                   />
                 </div>
