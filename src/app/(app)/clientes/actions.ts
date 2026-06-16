@@ -9,7 +9,9 @@ import { logActivity } from "@/lib/activity";
 
 export async function createClient(formData: FormData) {
   const session = await getSession();
-  if (!hasPermission(session, "crear_proyectos")) {
+  // Permiso específico de clientes (el backfill se lo concede a los roles que ya
+  // podían, p. ej. gerente/ventas; el admin pasa siempre).
+  if (!hasPermission(session, "crear_clientes")) {
     throw new Error("No autorizado");
   }
   const name = String(formData.get("name") ?? "").trim();

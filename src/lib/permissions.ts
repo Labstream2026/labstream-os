@@ -96,6 +96,51 @@ export async function ensurePermissionsCatalog(): Promise<void> {
   );
 }
 
+// Permisos "legacy" que ya existían (los 12 del seed original). Todo lo demás del
+// catálogo es NUEVO; se usa para detectar si el backfill ya corrió.
+const LEGACY_KEYS = new Set([
+  "ver_proyectos", "crear_proyectos", "editar_proyectos",
+  "ver_cotizaciones", "crear_cotizaciones", "aprobar_cotizaciones",
+  "ver_archivos", "subir_archivos", "comentar", "aprobar_entregables",
+  "administrar_usuarios", "ver_reportes",
+]);
+
+// Conjunto sensato de permisos por rol del sistema, para POBLAR los roles con los
+// permisos nuevos sin dejar a nadie sin lo que ya podía hacer. Es ADITIVO y se aplica
+// UNA sola vez (ver ensureRoleDefaults). El admin luego ajusta a gusto.
+const ROLE_DEFAULTS: Record<string, string[]> = {
+  gerente: ALL_PERMISSION_KEYS.filter((k) => !["administrar_usuarios", "administrar_roles", "administrar_integraciones"].includes(k)),
+  ventas: ["ver_proyectos", "ver_clientes", "crear_clientes", "editar_clientes", "ver_cotizaciones", "crear_cotizaciones", "enviar_cotizaciones", "ver_calendario", "comentar", "ver_reportes", "ver_biblioteca", "ver_wiki"],
+  productor: ["ver_proyectos", "crear_proyectos", "editar_proyectos", "gestionar_miembros_proyecto", "ver_clientes", "crear_clientes", "editar_clientes", "crear_tareas", "editar_tareas", "eliminar_tareas", "gestionar_cronograma", "registrar_horas", "aprobar_entregables", "compartir_cliente", "ver_archivos", "subir_archivos", "eliminar_archivos", "ver_calendario", "gestionar_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "ver_clientes", "comentar", "ver_actividad"],
+  director: ["ver_proyectos", "editar_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "aprobar_entregables", "compartir_cliente", "ver_archivos", "subir_archivos", "ver_calendario", "gestionar_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "ver_clientes", "comentar"],
+  editor: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "comentar"],
+  camarografo: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "ver_wiki", "ver_biblioteca", "comentar"],
+  disenador: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "ver_wiki", "ver_biblioteca", "comentar"],
+  community: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "comentar"],
+  freelancer: ["ver_proyectos", "ver_archivos", "comentar", "ver_calendario", "ver_biblioteca"],
+  cliente: ["comentar"],
+};
+
+// Puebla los roles del sistema con un set sensato de permisos nuevos, UNA sola vez
+// (si ningún rol tiene aún ningún permiso nuevo). Aditivo: nunca quita permisos, así
+// que no pisa los ajustes manuales del admin en cargas posteriores.
+export async function ensureRoleDefaults(): Promise<void> {
+  const NEW_KEYS = ALL_PERMISSION_KEYS.filter((k) => !LEGACY_KEYS.has(k));
+  const alreadyAssigned = await db.rolePermission.count({ where: { permission: { key: { in: NEW_KEYS } } } });
+  if (alreadyAssigned > 0) return; // el backfill ya corrió (o el admin ya asignó permisos nuevos)
+
+  const permIdByKey = new Map((await db.permission.findMany({ select: { id: true, key: true } })).map((p) => [p.key, p.id]));
+  for (const [roleKey, keys] of Object.entries(ROLE_DEFAULTS)) {
+    const role = await db.role.findUnique({ where: { key: roleKey }, select: { id: true } });
+    if (!role) continue;
+    const data = keys
+      .map((k) => permIdByKey.get(k))
+      .filter((id): id is string => !!id)
+      .map((permissionId) => ({ roleId: role.id, permissionId }));
+    if (data.length) await db.rolePermission.createMany({ data, skipDuplicates: true });
+  }
+}
+
 // Roles creados por el seed: se marcan como del sistema (no eliminables). Idempotente.
 export const BUILTIN_ROLE_KEYS = [
   "admin", "gerente", "ventas", "productor", "director",
