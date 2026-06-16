@@ -490,32 +490,47 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
   );
 }
 
-// Celda imagen: sube una foto (se guarda en el NAS) y la muestra como miniatura.
+// Celda imagen: sube una foto (se guarda optimizada en el NAS) y la muestra como
+// miniatura pequeña. Al subir muestra "Subiendo…" y, si falla, el motivo.
 function ImageCell({ url, rowId, columnId, onClear }: { url: string; rowId: string; columnId: string; onClear: () => void }) {
   const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
   return (
     <div className="flex items-center gap-2">
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="" className="size-12 rounded object-cover" /></a>
+        <a href={url} target="_blank" rel="noreferrer" title="Abrir en grande">
+          <img src={url} alt="" className="size-14 rounded-md border border-border object-cover" />
+        </a>
       ) : null}
-      <label className="cursor-pointer text-xs text-primary hover:underline">
-        {pending ? "Subiendo…" : url ? "Cambiar" : "Subir foto"}
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          disabled={pending}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (!f) return;
-            const fd = new FormData();
-            fd.set("image", f);
-            start(() => void uploadCellImage(rowId, columnId, fd));
-          }}
-        />
-      </label>
-      {url ? <button type="button" onClick={onClear} className="text-xs text-muted-foreground hover:text-destructive">Quitar</button> : null}
+      <div className="flex flex-col gap-0.5">
+        <label className={cn("cursor-pointer text-xs text-primary hover:underline", pending && "pointer-events-none opacity-60")}>
+          {pending ? "Subiendo…" : url ? "Cambiar" : "Subir foto"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={pending}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = ""; // permite re-subir el mismo archivo
+              if (!f) return;
+              setError(null);
+              const fd = new FormData();
+              fd.set("image", f);
+              start(async () => {
+                try {
+                  await uploadCellImage(rowId, columnId, fd);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "No se pudo subir la imagen.");
+                }
+              });
+            }}
+          />
+        </label>
+        {url ? <button type="button" onClick={onClear} className="text-left text-xs text-muted-foreground hover:text-destructive">Quitar</button> : null}
+        {error ? <span className="text-[11px] text-destructive">{error}</span> : null}
+      </div>
     </div>
   );
 }

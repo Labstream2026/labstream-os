@@ -5,6 +5,7 @@ import { DateInput } from "@/components/actions/date-input";
 import { cn } from "@/lib/utils";
 import { type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 
 // Vista Lista: todas las tareas en una tabla densa estilo Notion, ordenadas por fase.
@@ -98,13 +99,13 @@ export function TasksList({
                 </td>
                 <td className="px-3 py-2 text-right">
                   <form action={deleteTask.bind(null, t.id, projectId)}>
-                    <button
-                      className="px-1 text-xs text-muted-foreground hover:text-destructive"
+                    <ConfirmSubmit
+                      message={`¿Eliminar la tarea «${t.title}»?`}
                       title="Eliminar"
-                      onClick={(e) => { if (!confirm(`¿Eliminar la tarea «${t.title}»?`)) e.preventDefault(); }}
+                      className="px-1 text-xs text-muted-foreground hover:text-destructive"
                     >
                       ✕
-                    </button>
+                    </ConfirmSubmit>
                   </form>
                 </td>
               </tr>

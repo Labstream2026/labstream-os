@@ -63,9 +63,14 @@ async function ensureProjectAccess(projectId: string): Promise<void> {
 }
 
 async function revalidateForTable(tableId: string) {
-  const t = await db.dataTable.findUnique({ where: { id: tableId }, select: { projectId: true, wikiPageId: true } });
+  const t = await db.dataTable.findUnique({ where: { id: tableId }, select: { projectId: true, wikiPageId: true, key: true } });
   if (t?.projectId) revalidatePath(`/proyectos/${t.projectId}`);
   if (t?.wikiPageId) revalidatePath(`/wiki/${t.wikiPageId}`);
+  // Tablas globales de la Wiki (sin proyecto ni página): viven en rutas fijas. Sin
+  // esto, los cambios se guardaban en la BD pero la página no se refrescaba (parecía
+  // que "no se guardaban" y que las fotos no subían).
+  if (t?.key === "sys:inventario") revalidatePath("/wiki/inventario");
+  if (t?.key === "sys:ubicacion") revalidatePath("/wiki/ubicacion");
 }
 
 const DEFAULT_TABLE = {
@@ -179,15 +184,19 @@ async function isRealUser(id: unknown): Promise<boolean> {
 }
 
 // Sube una imagen a una celda IMAGE (se guarda en el NAS) y guarda su URL.
+// Lanza un error legible si el archivo no sirve (para que la UI lo muestre).
 export async function uploadCellImage(rowId: string, columnId: string, formData: FormData) {
   await ensureRowAccess(rowId);
   const file = formData.get("image");
-  if (!(file instanceof File) || file.size === 0) return;
-  if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return;
+  if (!(file instanceof File) || file.size === 0) throw new Error("No se recibió ninguna imagen.");
+  if (!file.type.startsWith("image/")) throw new Error("El archivo no es una imagen.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("La imagen supera 15 MB.");
   const buf = Buffer.from(await file.arrayBuffer());
   const key = `${rowId}-${columnId}`.replace(/[^a-zA-Z0-9-]/g, "");
-  await saveBufferWithPreview("tableimg", key, buf, file.type);
-  const url = `/api/img/${key}?v=${Date.now()}`;
+  // Miniatura optimizada (WebP, lado largo ≤ 640) para que la celda sea ligera;
+  // el original también se guarda para descargar a resolución completa.
+  await saveBufferWithPreview("tableimg", key, buf, file.type, { maxEdge: 640 });
+  const url = `/api/img/${key}?v=${Date.now()}`; // ?v= rompe la caché al reemplazar la foto
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },
     create: { rowId, columnId, value: url as never },
