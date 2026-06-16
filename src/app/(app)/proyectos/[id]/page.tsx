@@ -300,6 +300,7 @@ export default async function ProyectoPage({
               summary: a.summary,
               createdAt: a.createdAt.toISOString(),
               user: a.user ? { name: a.user.name, initials: a.user.initials, color: a.user.avatarColor } : null,
+              actorName: a.actorName,
             }))}
           />
         ) : null}

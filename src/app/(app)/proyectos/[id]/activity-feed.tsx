@@ -8,6 +8,7 @@ export type ActivityItem = {
   summary: string;
   createdAt: string; // ISO
   user: { name: string; initials: string | null; color: string | null } | null;
+  actorName?: string | null; // autor sin cuenta (cliente desde el portal)
 };
 
 // Icono por tipo de acción (prefijo antes del punto).
@@ -64,7 +65,7 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-snug">
-                  <span className="font-medium">{a.user?.name ?? "Alguien"}</span>{" "}
+                  <span className="font-medium">{a.user?.name ?? a.actorName ?? "Alguien"}</span>{" "}
                   <span className="text-muted-foreground">{a.summary}</span>
                 </p>
                 <p suppressHydrationWarning className="mt-0.5 text-xs text-muted-foreground" title={abs}>

@@ -106,6 +106,7 @@ model ActivityLog {
   clientId   String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId     String?
+  actorName  String? // nombre del autor sin cuenta (p. ej. el cliente desde el portal público)
   createdAt  DateTime @default(now())
 
   @@index([projectId, createdAt])

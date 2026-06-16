@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
+import { logActivity } from "@/lib/activity";
 
 // ── Crear canales y mensajes directos ──
 
@@ -114,14 +115,24 @@ export async function clearConversation(channelId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
   if (!(await userCanAccessChannel(channelId, session))) return;
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true, projectId: true } });
   const allowed = channel?.type === "DIRECT" || session.role === "admin" || (await userCanManageChannel(channelId, session));
   if (!allowed) return;
-  await db.chatMessage.updateMany({
+  const res = await db.chatMessage.updateMany({
     where: { channelId, deletedAt: null },
     data: { deletedAt: new Date(), deletedById: session.id },
   });
   publishConversationClear(channelId);
+  // Rastro de auditoría del borrado masivo (además de que el admin sigue viendo los
+  // mensajes en gris). En canales de proyecto aparece en su actividad.
+  if (res.count > 0) {
+    await logActivity({
+      action: "chat.clear",
+      summary: `borró la conversación «${channel?.name ?? "chat"}» (${res.count} mensaje${res.count === 1 ? "" : "s"})`,
+      projectId: channel?.projectId ?? null,
+      entityType: "project",
+    });
+  }
 }
 
 // Fijar / desfijar un mensaje del canal (cualquier miembro con acceso).

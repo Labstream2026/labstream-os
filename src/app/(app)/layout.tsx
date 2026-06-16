@@ -70,6 +70,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
     WHERE cm."userId" = ${session.id}
       AND m."parentId" IS NULL
+      AND m."deletedAt" IS NULL
       AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
       AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
   `;

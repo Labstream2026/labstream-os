@@ -7,6 +7,7 @@ import type { Block, Brand } from "@/lib/proposals/types";
 import { formatMoney } from "@/lib/ui";
 import { budgetTotals, sectionSubtotal, type BudgetSection } from "@/lib/proposals/budget";
 import { mesCal } from "@/lib/proposals/calendar";
+import { sanitizeProposalHtml } from "@/lib/proposals/sanitize";
 
 function str(v: unknown, d = ""): string {
   return typeof v === "string" ? v : v == null ? d : String(v);
@@ -75,7 +76,7 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
           {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
           <div
             className="prose-proposal max-w-none leading-relaxed text-muted-foreground [&_strong]:text-foreground"
-            dangerouslySetInnerHTML={{ __html: str(block.body) }}
+            dangerouslySetInnerHTML={{ __html: sanitizeProposalHtml(str(block.body)) }}
           />
         </section>
       );

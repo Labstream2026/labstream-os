@@ -13,6 +13,7 @@ export async function acceptProposal(token: string) {
   if (!p) throw new Error("Propuesta inexistente");
   if (p.status === "ACEPTADA") return;
   if (p.expiresAt && new Date(p.expiresAt).getTime() < Date.now()) throw new Error("La propuesta venció");
-  await db.proposal.update({ where: { id }, data: { status: "ACEPTADA" } });
+  // Atómico: solo pasa a ACEPTADA si aún no lo está (evita carrera de doble clic).
+  await db.proposal.updateMany({ where: { id, status: { not: "ACEPTADA" } }, data: { status: "ACEPTADA" } });
   revalidatePath(`/p/${token}`);
 }

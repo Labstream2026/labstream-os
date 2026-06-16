@@ -29,6 +29,8 @@ export async function logActivity(input: {
         entityType: input.entityType,
         entityId: input.entityId,
         userId: actorId,
+        // Guarda el nombre del autor sin cuenta (cliente) para el rastro de auditoría.
+        actorName: actorId ? null : input.actorName ?? null,
       },
     });
   } catch {
