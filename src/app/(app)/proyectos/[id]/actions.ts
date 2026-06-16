@@ -261,18 +261,24 @@ export async function setTaskDates(taskId: string, _projectId: string, formData:
   if (Object.keys(data).length === 0) return;
   await db.task.update({ where: { id: taskId }, data });
   const session = await getSession();
-  if (task!.assigneeId && task!.assigneeId !== session?.id) {
-    await notifyAndEmail(task!.assigneeId, {
-      type: "task",
-      title: `Fechas de «${task!.title}»`,
-      body: "Se actualizaron las fechas de la tarea en el cronograma.",
-      link: projectId ? `/proyectos/${projectId}?tab=cronograma` : "/mis-tareas",
-    });
-  }
+
+  // Descripción legible del cambio (qué fechas quedaron) para la notificación y el log.
   const parts: string[] = [];
   if ("startDate" in data) parts.push(data.startDate ? `inicio ${dayKey(data.startDate)}` : "sin inicio");
   if ("dueDate" in data) parts.push(data.dueDate ? `entrega ${dayKey(data.dueDate)}` : "sin entrega");
-  await logActivity({ action: "task.dates", summary: `ajustó fechas de «${task!.title}» (${parts.join(", ")})`, projectId, entityType: "task", entityId: taskId });
+  const changeDesc = parts.join(" · ");
+
+  // Avisar (app + correo) al responsable de la tarea con el detalle del cambio, salvo
+  // que el cambio lo haya hecho él mismo.
+  if (task!.assigneeId && task!.assigneeId !== session?.id) {
+    await notifyAndEmail(task!.assigneeId, {
+      type: "task",
+      title: `Cambio de fechas: ${task!.title}`,
+      body: `${session?.name ?? "Alguien"} movió tu tarea en el cronograma. Nuevas fechas: ${changeDesc || "actualizadas"}.`,
+      link: projectId ? `/proyectos/${projectId}?tab=cronograma` : "/mis-tareas",
+    });
+  }
+  await logActivity({ action: "task.dates", summary: `ajustó fechas de «${task!.title}» (${changeDesc})`, projectId, entityType: "task", entityId: taskId });
   revalidatePath("/timeline");
   refresh(projectId);
 }
