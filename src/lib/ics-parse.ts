@@ -11,6 +11,7 @@ export type ParsedEvent = {
   description: string | null;
   location: string | null;
   sequence: number;
+  rrule: string | null; // regla de repetición cruda (RFC 5545), si la trae
 };
 
 // Des-pliega líneas continuadas (RFC 5545: una línea que empieza por espacio/tab
@@ -83,6 +84,7 @@ export function parseIcs(ics: string): ParsedEvent[] {
           description: cur.description ?? null,
           location: cur.location ?? null,
           sequence: cur.sequence ?? 0,
+          rrule: cur.rrule ?? null,
         });
       }
       cur = null;
@@ -98,6 +100,7 @@ export function parseIcs(ics: string): ParsedEvent[] {
       case "DESCRIPTION": cur.description = unescape(value); break;
       case "LOCATION": cur.location = unescape(value); break;
       case "SEQUENCE": cur.sequence = Number(value) || 0; break;
+      case "RRULE": cur.rrule = value.trim(); break;
       case "DTSTART": {
         const r = parseIcsDate(value, params.VALUE === "DATE");
         if (r) { cur.start = r.date; cur.allDay = r.allDay; cur._hasStart = true; }
@@ -111,4 +114,99 @@ export function parseIcs(ics: string): ParsedEvent[] {
     }
   }
   return events;
+}
+
+// ── Expansión de repeticiones (RRULE) ────────────────────────────────────────
+type Rule = { freq: string; interval: number; count: number | null; until: Date | null; byday: number[] };
+const DOW: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+
+function parseRule(rrule: string): Rule | null {
+  const parts: Record<string, string> = {};
+  for (const kv of rrule.split(";")) {
+    const eq = kv.indexOf("=");
+    if (eq !== -1) parts[kv.slice(0, eq).toUpperCase()] = kv.slice(eq + 1);
+  }
+  if (!parts.FREQ) return null;
+  const until = parts.UNTIL ? parseIcsDate(parts.UNTIL, parts.UNTIL.length === 8)?.date ?? null : null;
+  const byday = (parts.BYDAY ?? "").split(",").map((d) => DOW[d.replace(/^[+-]?\d*/, "").toUpperCase()]).filter((n) => n !== undefined);
+  return {
+    freq: parts.FREQ.toUpperCase(),
+    interval: Math.max(1, Number(parts.INTERVAL) || 1),
+    count: parts.COUNT ? Number(parts.COUNT) : null,
+    until,
+    byday,
+  };
+}
+
+const MAX_OCCURRENCES = 366; // tope de seguridad para no generar series infinitas
+
+// Expande un evento (posiblemente recurrente) en ocurrencias concretas dentro de la
+// ventana [from, to]. Sin RRULE devuelve el propio evento. Cada ocurrencia recibe un
+// uid propio (uidBase_YYYYMMDDTHHMMSS) para guardarse como evento independiente.
+export function expandRecurrence(ev: ParsedEvent, from: Date, to: Date): ParsedEvent[] {
+  if (!ev.rrule) return [ev];
+  const rule = parseRule(ev.rrule);
+  if (!rule) return [ev];
+
+  const durationMs = ev.end ? ev.end.getTime() - ev.start.getTime() : 0;
+  const out: ParsedEvent[] = [];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
+
+  const push = (start: Date) => {
+    if (start > to) return false;
+    if (rule.until && start > rule.until) return false;
+    if (start >= from) {
+      out.push({
+        ...ev,
+        uid: `${ev.uid}_${stamp(start)}`,
+        start: new Date(start),
+        end: durationMs ? new Date(start.getTime() + durationMs) : null,
+        rrule: null,
+      });
+    }
+    return true;
+  };
+
+  let emitted = 0;
+  const cap = rule.count ?? MAX_OCCURRENCES;
+  let cursor = new Date(ev.start);
+  let iterations = 0;
+
+  while (emitted < cap && iterations < MAX_OCCURRENCES * 2) {
+    iterations++;
+    if (rule.freq === "WEEKLY" && rule.byday.length) {
+      // Semana con días concretos: emite cada día solicitado de esta semana.
+      const weekStart = new Date(cursor);
+      weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+      let stop = false;
+      for (const dow of [...rule.byday].sort((a, b) => a - b)) {
+        const day = new Date(weekStart);
+        day.setUTCDate(weekStart.getUTCDate() + dow);
+        day.setUTCHours(ev.start.getUTCHours(), ev.start.getUTCMinutes(), ev.start.getUTCSeconds(), 0);
+        if (day < ev.start) continue; // antes del inicio de la serie
+        if (emitted >= cap) { stop = true; break; }
+        const cont = push(day);
+        if (!cont) { stop = true; break; }
+        emitted++;
+      }
+      if (stop && (out.length === 0 || out[out.length - 1].start > to)) break;
+      if (rule.until && weekStart > rule.until && out.length) break;
+      cursor.setUTCDate(cursor.getUTCDate() + 7 * rule.interval);
+      if (cursor > to && (!rule.until || cursor > rule.until)) break;
+      continue;
+    }
+
+    const cont = push(cursor);
+    if (!cont) break;
+    if (cursor >= ev.start) emitted++;
+
+    if (rule.freq === "DAILY") cursor.setUTCDate(cursor.getUTCDate() + rule.interval);
+    else if (rule.freq === "WEEKLY") cursor.setUTCDate(cursor.getUTCDate() + 7 * rule.interval);
+    else if (rule.freq === "MONTHLY") cursor.setUTCMonth(cursor.getUTCMonth() + rule.interval);
+    else if (rule.freq === "YEARLY") cursor.setUTCFullYear(cursor.getUTCFullYear() + rule.interval);
+    else break; // frecuencia no soportada → solo la primera
+  }
+  // Garantiza al menos la primera aparición aunque caiga fuera de ventana hacia atrás.
+  return out.length ? out : [{ ...ev, rrule: null }];
 }

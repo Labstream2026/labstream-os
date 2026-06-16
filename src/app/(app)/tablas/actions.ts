@@ -6,8 +6,8 @@ import { getSession } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
 import { canSeeWiki } from "@/lib/wiki-access";
-import { notify } from "@/lib/notify";
-import { pushEventToSynology, deleteEventFromSynology } from "@/lib/caldav";
+import { notify, notifyAndEmail } from "@/lib/notify";
+import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers } from "@/lib/calendar-sync";
 import { logActivity } from "@/lib/activity";
 import { saveBufferWithPreview } from "@/lib/image";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
@@ -262,25 +262,31 @@ export async function setEventCell(
 
   let event;
   if (prevEventId && (await db.calendarEvent.findUnique({ where: { id: prevEventId }, select: { id: true } }))) {
+    // Asistentes previos: si cambia el responsable, hay que quitar la cita de su Synology.
+    const prevAttendees = (await db.calendarAttendee.findMany({ where: { eventId: prevEventId }, select: { userId: true } })).map((a) => a.userId);
+    const removed = prevAttendees.filter((id) => id !== attendeeId);
     await db.calendarAttendee.deleteMany({ where: { eventId: prevEventId } });
     event = await db.calendarEvent.update({
       where: { id: prevEventId },
-      data: { title, start, attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined },
+      data: { title, start, source: "app", uid: appUid(prevEventId), attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined },
     });
+    if (removed.length) await removeEventForUsers(prevEventId, removed);
   } else {
     event = await db.calendarEvent.create({
       data: {
         title,
         start,
+        source: "app",
         projectId: col.table.projectId,
         createdById: me?.id ?? null,
         attendees: attendeeId ? { create: [{ userId: attendeeId }] } : undefined,
       },
     });
+    await db.calendarEvent.update({ where: { id: event.id }, data: { uid: appUid(event.id) } });
   }
 
-  // Sincroniza la cita al Synology Calendar del equipo (auto, best-effort; idempotente por uid).
-  await pushEventToSynology({ uid: event.id, title: event.title, start: event.start });
+  // Sincroniza la cita al Synology Calendar de cada participante conectado (best-effort).
+  await pushEventToParticipants(event.id);
 
   await db.dataCell.upsert({
     where: { rowId_columnId: { rowId, columnId } },
@@ -288,8 +294,8 @@ export async function setEventCell(
     update: { value: { eventId: event.id, start: data.start, attendeeId } as never },
   });
 
-  if (attendeeId) {
-    await notify(attendeeId, {
+  if (attendeeId && attendeeId !== me?.id) {
+    await notifyAndEmail(attendeeId, {
       type: "event",
       title: `Nueva cita: ${event.title}`,
       body: new Date(data.start).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
@@ -306,8 +312,10 @@ export async function deleteEventCell(rowId: string, columnId: string) {
   const cell = await db.dataCell.findUnique({ where: { rowId_columnId: { rowId, columnId } }, select: { value: true } });
   const eventId = (cell?.value as { eventId?: string } | null)?.eventId;
   if (eventId) {
+    // Quitar primero de los Synology donde se escribió (necesita los EventSyncRef,
+    // que se borran en cascada al eliminar el evento).
+    await removeEventFromParticipants(eventId);
     await db.calendarEvent.delete({ where: { id: eventId } }).catch(() => null);
-    await deleteEventFromSynology(eventId);
     revalidatePath("/calendario");
   }
   await db.dataCell.upsert({

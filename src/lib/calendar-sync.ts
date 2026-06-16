@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { buildIcs, type IcsAttendee } from "@/lib/ics";
-import { parseIcs } from "@/lib/ics-parse";
+import { parseIcs, expandRecurrence } from "@/lib/ics-parse";
 import { putEvent, deleteEvent, queryEvents, type CalDavAuth } from "@/lib/caldav-client";
 import type { CalendarConnection } from "@prisma/client";
 
@@ -133,9 +133,14 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     const remote = await queryEvents(auth, conn.calendarUrl, from, to);
     const seenUids = new Set<string>();
 
-    for (const r of remote) {
-      const parsed = parseIcs(r.ics)[0];
-      if (!parsed) continue;
+    // Expande recurrentes a ocurrencias concretas dentro de la ventana.
+    const occurrences = remote.flatMap((r) => {
+      const base = parseIcs(r.ics)[0];
+      if (!base) return [];
+      return expandRecurrence(base, from, to).map((occ) => ({ occ, href: r.href, etag: r.etag }));
+    });
+
+    for (const { occ: parsed, href, etag } of occurrences) {
       seenUids.add(parsed.uid);
 
       const existing = await db.calendarEvent.findUnique({ where: { uid: parsed.uid }, select: { id: true, source: true } });
@@ -156,14 +161,14 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
             attendees: { create: [{ userId: conn.userId }] },
           },
         });
-        await db.eventSyncRef.create({ data: { eventId: created.id, userId: conn.userId, href: r.href, etag: r.etag } });
+        await db.eventSyncRef.create({ data: { eventId: created.id, userId: conn.userId, href, etag } });
         imported++;
       } else {
         // Mantener href/etag al día siempre.
         await db.eventSyncRef.upsert({
           where: { eventId_userId: { eventId: existing.id, userId: conn.userId } },
-          create: { eventId: existing.id, userId: conn.userId, href: r.href, etag: r.etag },
-          update: { href: r.href, etag: r.etag },
+          create: { eventId: existing.id, userId: conn.userId, href, etag },
+          update: { href, etag },
         });
         // Solo sobreescribimos contenido si el evento NACIÓ en Synology (los de la
         // app son la fuente de verdad y no se pisan, para no crear bucles).
