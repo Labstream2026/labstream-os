@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { getSession } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
+import { canAccessProject } from "@/lib/project-access";
+import { formatShortDate } from "@/lib/ui";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -41,11 +43,55 @@ export default async function HomePage() {
 
   const myTaskCount = await db.task.count({ where: { assigneeId: me.id, status: { in: OPEN as never } } });
 
+  // Conteo REAL de mensajes no leídos del usuario (igual que el badge del sidebar).
+  const unreadRows = await db.$queryRaw<{ total: bigint }[]>`
+    SELECT COUNT(*)::bigint AS total
+    FROM "ChatMessage" m
+    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
+    WHERE cm."userId" = ${me.id}
+      AND m."parentId" IS NULL
+      AND m."deletedAt" IS NULL
+      AND (m."authorId" IS NULL OR m."authorId" <> ${me.id})
+      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
+  `;
+  const unread = Number(unreadRows[0]?.total ?? 0);
+
+  // Próximos rodajes y entregas (3 semanas) en proyectos visibles para el usuario.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + 21);
+  const projAccess = { id: true, name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true } } } as const;
+  const [shootRows, deliveryRows] = await Promise.all([
+    db.task.findMany({
+      where: { shootDate: { gte: today, lte: horizon } },
+      orderBy: { shootDate: "asc" },
+      select: { id: true, title: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true, project: { select: projAccess } },
+    }),
+    db.deliverable.findMany({
+      where: { dueDate: { gte: today, lte: horizon } },
+      orderBy: { dueDate: "asc" },
+      select: { id: true, name: true, dueDate: true, project: { select: projAccess } },
+    }),
+  ]);
+  const mineTask = (t: { ownerId: string | null; assigneeId: string | null }) => t.ownerId === me.id || t.assigneeId === me.id;
+  type Upcoming = { id: string; kind: "shoot" | "delivery"; title: string; date: Date; projectId: string; projectName: string; emoji: string | null };
+  const upcoming: Upcoming[] = [
+    ...shootRows
+      .filter((t) => t.project && (!t.isPrivate || mineTask(t)) && (canAccessProject(t.project, session) || mineTask(t)))
+      .map((t) => ({ id: `s-${t.id}`, kind: "shoot" as const, title: t.title, date: t.shootDate!, projectId: t.project!.id, projectName: t.project!.name, emoji: t.project!.emoji })),
+    ...deliveryRows
+      .filter((d) => d.project && canAccessProject(d.project, session))
+      .map((d) => ({ id: `d-${d.id}`, kind: "delivery" as const, title: d.name, date: d.dueDate!, projectId: d.project!.id, projectName: d.project!.name, emoji: d.project!.emoji })),
+  ]
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .slice(0, 6);
+
   const stats = [
     { emoji: "🏢", value: clients.length, label: "Clientes", sub: "activos" },
     { emoji: "🚀", value: projects, label: "Proyectos", sub: blocked ? `${blocked} bloqueado` : "activos" },
     { emoji: "✅", value: myTaskCount, label: "Tus tareas", sub: "abiertas" },
-    { emoji: "💬", value: 8, label: "Sin leer", sub: "en Estados" },
+    { emoji: "💬", value: unread, label: "Sin leer", sub: "en el chat" },
   ];
 
   return (
@@ -63,6 +109,32 @@ export default async function HomePage() {
           </div>
         ))}
       </div>
+
+      {upcoming.length > 0 ? (
+        <section className="mt-10">
+          <h2 className="mb-3 text-lg font-semibold">Próximos rodajes y entregas</h2>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {upcoming.map((u) => (
+              <Link
+                key={u.id}
+                href={`/proyectos/${u.projectId}?tab=${u.kind === "shoot" ? "tareas" : "entregables"}`}
+                className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-lg">
+                  {u.kind === "shoot" ? "🎬" : "📦"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{u.title}</p>
+                  <p className="truncate text-xs text-muted-foreground">{u.emoji} {u.projectName}</p>
+                </div>
+                <span className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                  {formatShortDate(u.date)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
         <section>
