@@ -35,7 +35,11 @@ services:
       ONLYOFFICE_INTERNAL_URL: ${ONLYOFFICE_INTERNAL_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
-      # Correo Synology MailPlus (SMTP) — equipo @labstreamsas.com
+      # Correo por Resend (API HTTP por 443) — esquiva el bloqueo de puertos SMTP.
+      # Si está RESEND_API_KEY, se usa Resend en vez de SMTP.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      # Correo Synology MailPlus (SMTP) — alternativa si no se usa Resend
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}

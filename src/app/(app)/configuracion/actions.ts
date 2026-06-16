@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { emailEnabled, sendEmail } from "@/lib/email";
+import { emailEnabled, emailProvider, sendEmail } from "@/lib/email";
 import { testCaldav } from "@/lib/caldav";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
@@ -47,13 +47,14 @@ async function notifyRoleUsers(
 export async function sendTestEmail(): Promise<AdminActionResult> {
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
-  if (!emailEnabled) return { ok: false, error: "SMTP no configurado (faltan SMTP_HOST/USER/PASSWORD)." };
+  if (!emailEnabled) return { ok: false, error: "Correo no configurado (falta RESEND_API_KEY o SMTP_*)." };
   if (!session.email) return { ok: false, error: "Tu usuario no tiene correo." };
+  const via = emailProvider === "resend" ? "Resend (API HTTP)" : "SMTP";
   const r = await sendEmail({
     to: session.email,
     subject: "Correo de prueba · Labstream OS",
-    text: "Funciona ✅ El envío de correo desde Labstream OS (Synology MailPlus) está operativo.",
-    html: "<p>Funciona ✅</p><p>El envío de correo desde Labstream OS (Synology MailPlus) está operativo.</p>",
+    text: `Funciona ✅ El envío de correo desde Labstream OS (vía ${via}) está operativo.`,
+    html: `<p>Funciona ✅</p><p>El envío de correo desde Labstream OS (vía ${via}) está operativo.</p>`,
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
