@@ -3,8 +3,9 @@
 import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
 import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
-import { type TimelineUnit, dayKey, minutesToHours } from "@/lib/timeline";
+import { type TimelineUnit, dayKey, minutesToHours, resolveSpan, minMaxKeys } from "@/lib/timeline";
 import { tone, type LabelRow } from "@/lib/colors";
+import { cn } from "@/lib/utils";
 import { TaskDetail } from "./task-detail";
 import { type Task, type TeamMember } from "./task-shared";
 import { setTaskDates } from "./actions";
@@ -24,6 +25,8 @@ export function ProjectTimeline({
   statuses,
   priorities,
   canEdit,
+  projectStart,
+  projectEnd,
 }: {
   projectId: string;
   tasks: Task[];
@@ -34,25 +37,44 @@ export function ProjectTimeline({
   statuses: LabelRow[];
   priorities: LabelRow[];
   canEdit: boolean;
+  projectStart?: Date | string | null;
+  projectEnd?: Date | string | null;
 }) {
   const [unit, setUnit] = React.useState<TimelineUnit>("week");
+  const [group, setGroup] = React.useState<"task" | "stage">("task");
   const [selected, setSelected] = React.useState<Task | null>(null);
   const [, startTransition] = React.useTransition();
 
   React.useEffect(() => {
-    const saved = localStorage.getItem("timeline-unit");
-    if (saved === "day" || saved === "week" || saved === "month") setUnit(saved);
+    const u = localStorage.getItem("timeline-unit");
+    if (u === "day" || u === "week" || u === "month") setUnit(u);
+    const g = localStorage.getItem("timeline-group");
+    if (g === "task" || g === "stage") setGroup(g);
   }, []);
   function changeUnit(u: TimelineUnit) {
     setUnit(u);
     localStorage.setItem("timeline-unit", u);
   }
+  function changeGroup(g: "task" | "stage") {
+    setGroup(g);
+    localStorage.setItem("timeline-group", g);
+  }
 
   const doneKeys = React.useMemo(() => new Set(statuses.filter((s) => s.isDone).map((s) => s.key)), [statuses]);
-
   const effectiveStages = stages.length ? stages : ["Tareas"];
-  const stageHex = (stage: string, i: number) =>
-    tone(stageColors[stage] ?? STAGE_TONES[i % STAGE_TONES.length]).hex;
+  const stageHex = (stage: string, i: number) => tone(stageColors[stage] ?? STAGE_TONES[i % STAGE_TONES.length]).hex;
+  const stageIndex = (stage: string) => Math.max(0, effectiveStages.indexOf(stage));
+  const taskStage = (t: Task) => (t.stage && effectiveStages.includes(t.stage) ? t.stage : effectiveStages[0]);
+
+  // Rango del proyecto para rellenar barras continuas: fechas propias, o si no, el
+  // mínimo/máximo de todas las fechas de tareas y entregas.
+  const allKeys = [
+    ...tasks.flatMap((t) => [dayKey(t.startDate ?? null), dayKey(t.dueDate ?? null)]),
+    ...deliverables.map((d) => dayKey(d.dueDate ?? null)),
+  ];
+  const { min: derivedStart, max: derivedEnd } = minMaxKeys(allKeys);
+  const projStartKey = dayKey(projectStart) ?? derivedStart;
+  const projEndKey = dayKey(projectEnd) ?? derivedEnd;
 
   function onBarChange(taskId: string, dates: { startKey: string; endKey: string }) {
     const fd = new FormData();
@@ -61,7 +83,40 @@ export function ProjectTimeline({
     startTransition(() => { void setTaskDates(taskId, projectId, fd); });
   }
 
-  // Carril de hitos: rodajes (de tareas con shootDate) + entregas (deliverables con dueDate).
+  // Convierte una tarea con fechas en una barra continua del Gantt.
+  function toBar(t: Task): TLBar | null {
+    const rawStart = dayKey(t.startDate ?? null);
+    const rawEnd = dayKey(t.dueDate ?? null);
+    if (!rawStart && !rawEnd) return null;
+    const { startKey, endKey } = resolveSpan(rawStart, rawEnd, projStartKey, projEndKey);
+    const done = doneKeys.has(t.status);
+    const total = t.checklist.length;
+    const checked = t.checklist.filter((c) => c.done).length;
+    const progress = done ? 100 : total ? Math.round((checked / total) * 100) : 0;
+    const est = t.estimatedMinutes ?? 0;
+    const logged = t.loggedMinutes ?? 0;
+    const sublabel = est
+      ? `${minutesToHours(logged)}/${minutesToHours(est)}h`
+      : logged
+        ? `${minutesToHours(logged)}h`
+        : undefined;
+    const stage = taskStage(t);
+    return {
+      id: t.id,
+      label: t.title,
+      startKey,
+      endKey,
+      colorHex: stageHex(stage, stageIndex(stage)),
+      progress,
+      done,
+      sublabel,
+      editable: canEdit,
+      badge: t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" /> : undefined,
+      onClick: () => setSelected(t),
+    } satisfies TLBar;
+  }
+
+  // Carril de hitos: rodajes (tareas con shootDate) + entregas (deliverables con dueDate).
   const milestones: TLMilestone[] = [];
   for (const t of tasks) {
     const k = dayKey(t.shootDate ?? null);
@@ -72,54 +127,47 @@ export function ProjectTimeline({
     if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `Entrega · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex });
   }
 
-  // Un carril por fase, con las tareas que tienen fechas (inicio o entrega) como barras.
-  const taskStage = (t: Task) => (t.stage && effectiveStages.includes(t.stage) ? t.stage : effectiveStages[0]);
   const lanes: TLLane[] = [];
-  if (milestones.length) {
-    lanes.push({ key: "__milestones", label: "Rodajes y entregas", milestones });
-  }
-  for (let i = 0; i < effectiveStages.length; i++) {
-    const stage = effectiveStages[i];
-    const hex = stageHex(stage, i);
-    const bars: TLBar[] = tasks
-      .filter((t) => taskStage(t) === stage && (t.startDate || t.dueDate))
-      .map((t) => {
-        const done = doneKeys.has(t.status);
-        const total = t.checklist.length;
-        const checked = t.checklist.filter((c) => c.done).length;
-        const progress = done ? 100 : total ? Math.round((checked / total) * 100) : 0;
-        const est = t.estimatedMinutes ?? 0;
-        const logged = t.loggedMinutes ?? 0;
-        const sublabel = est
-          ? `${minutesToHours(logged)}/${minutesToHours(est)}h`
-          : logged
-            ? `${minutesToHours(logged)}h`
-            : undefined;
-        return {
-          id: t.id,
-          label: t.title,
-          startKey: dayKey(t.startDate ?? null),
-          endKey: dayKey(t.dueDate ?? null),
-          colorHex: hex,
-          progress,
-          done,
-          sublabel,
-          editable: canEdit,
-          badge: t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" /> : undefined,
-          onClick: () => setSelected(t),
-        } satisfies TLBar;
-      });
-    if (bars.length) lanes.push({ key: stage, label: stage, colorHex: hex, bars });
+  if (milestones.length) lanes.push({ key: "__milestones", label: "Rodajes y entregas", milestones });
+
+  if (group === "stage") {
+    // Una fila por fase de producción.
+    for (let i = 0; i < effectiveStages.length; i++) {
+      const stage = effectiveStages[i];
+      const bars = tasks.filter((t) => taskStage(t) === stage).map(toBar).filter(Boolean) as TLBar[];
+      if (bars.length) lanes.push({ key: stage, label: stage, colorHex: stageHex(stage, i), bars });
+    }
+  } else {
+    // Una fila por tarea (lista plana, estilo ClickUp).
+    const bars = tasks.map(toBar).filter(Boolean) as TLBar[];
+    if (bars.length) lanes.push({ key: "__tasks", label: "Tareas", bars });
   }
 
-  // Tareas sin ninguna fecha (ni inicio ni entrega) → se listan para poder programarlas.
+  // Tareas sin ninguna fecha → se listan para poder programarlas.
   const undated = tasks.filter((t) => !t.startDate && !t.dueDate && !t.shootDate);
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Cronograma del proyecto por fases. Arrastra una barra para mover fechas, tira de los bordes para alargarla, y haz clic para abrir la tarea.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Cronograma del proyecto. Arrastra una barra para mover fechas, tira de los bordes para alargarla y haz clic para abrir la tarea.
+        </p>
+        <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+          {([["task", "Por tarea"], ["stage", "Por fase"]] as const).map(([g, label]) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => changeGroup(g)}
+              className={cn(
+                "px-3 py-1.5 font-medium transition-colors",
+                group === g ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <TimelineGrid
         lanes={lanes}

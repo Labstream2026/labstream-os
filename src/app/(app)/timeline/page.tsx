@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { tone } from "@/lib/colors";
-import { dayKey } from "@/lib/timeline";
+import { dayKey, resolveSpan, minMaxKeys } from "@/lib/timeline";
 import { GlobalTimeline, type GTClient, type GTMilestone } from "./global-timeline";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +28,11 @@ export default async function TimelinePage() {
       ...accessSelect,
       client: { select: { id: true, name: true, emoji: true } },
       deliverables: { where: { dueDate: { not: null } }, select: { id: true, name: true, dueDate: true } },
+      // Todas las tareas con alguna fecha: para derivar el rango del proyecto (barra
+      // continua) y para los hitos de rodaje.
       tasks: {
-        where: { shootDate: { not: null } },
-        select: { id: true, title: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true },
+        where: { OR: [{ shootDate: { not: null } }, { startDate: { not: null } }, { dueDate: { not: null } }] },
+        select: { id: true, title: true, startDate: true, dueDate: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true },
       },
     },
   });
@@ -52,11 +54,19 @@ export default async function TimelinePage() {
       lane = { id: p.client.id, label: `${p.client.emoji ?? "📁"} ${p.client.name}`, projects: [] };
       clientMap.set(p.client.id, lane);
     }
+    // Barra continua del proyecto: usa sus fechas propias; el extremo que falte se
+    // deriva del mín/máx de las fechas de sus tareas y entregas.
+    const childKeys = [
+      ...p.tasks.flatMap((t) => [dayKey(t.startDate), dayKey(t.dueDate), dayKey(t.shootDate)]),
+      ...p.deliverables.map((d) => dayKey(d.dueDate)),
+    ];
+    const { min: childMin, max: childMax } = minMaxKeys(childKeys);
+    const span = resolveSpan(dayKey(p.startDate) ?? childMin, dayKey(p.dueDate) ?? childMax, childMin, childMax);
     lane.projects.push({
       id: p.id,
       name: `${p.emoji ?? "🎬"} ${p.name}`,
-      startKey: dayKey(p.startDate),
-      endKey: dayKey(p.dueDate),
+      startKey: span.startKey,
+      endKey: span.endKey,
       colorHex: hex,
       progress: p.progress,
       editable: canWriteProject(p, session),

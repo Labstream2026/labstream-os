@@ -109,6 +109,40 @@ export function computeRange(keys: (string | null | undefined)[], padDays = 3): 
   return { startNum: min, endNum: max };
 }
 
+// Resuelve los dos extremos de una barra rellenando el que falte con el rango del
+// proyecto, para barras CONTINUAS (estilo Gantt/ClickUp) en vez de píldoras de 1 día.
+// - solo fin → empieza en el inicio del proyecto (si es anterior).
+// - solo inicio → termina en la entrega del proyecto (si es posterior).
+export function resolveSpan(
+  startKey: string | null,
+  endKey: string | null,
+  fallbackStart: string | null,
+  fallbackEnd: string | null,
+): { startKey: string | null; endKey: string | null } {
+  let s = startKey;
+  let e = endKey;
+  if (s && !e) {
+    e = fallbackEnd && dayNumberOf(fallbackEnd) >= dayNumberOf(s) ? fallbackEnd : s;
+  } else if (!s && e) {
+    s = fallbackStart && dayNumberOf(fallbackStart) <= dayNumberOf(e) ? fallbackStart : e;
+  }
+  return { startKey: s, endKey: e };
+}
+
+// Mínimo y máximo de un conjunto de claves de fecha (ignora nulos). Útil para derivar
+// el rango de un proyecto a partir de sus tareas/entregables cuando no tiene fechas propias.
+export function minMaxKeys(keys: (string | null | undefined)[]): { min: string | null; max: string | null } {
+  const present = keys.filter(Boolean) as string[];
+  if (!present.length) return { min: null, max: null };
+  let min = present[0];
+  let max = present[0];
+  for (const k of present) {
+    if (dayNumberOf(k) < dayNumberOf(min)) min = k;
+    if (dayNumberOf(k) > dayNumberOf(max)) max = k;
+  }
+  return { min, max };
+}
+
 // Posición (en días desde el inicio) y duración de una barra. `end` es inclusivo.
 export function barSpan(
   startKey: string | null,
