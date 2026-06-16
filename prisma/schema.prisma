@@ -657,6 +657,9 @@ model Task {
   priority      String          @default("MEDIA")
   dueDate       DateTime?
   shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
+  // Cuándo se marcó como terminada (estado isDone). Conserva la primera marca y se
+  // borra si la tarea vuelve a un estado abierto. Permite listar "Completadas".
+  completedAt   DateTime?
   position      Int             @default(0)
   // projectId opcional: las tareas personales/sueltas (ej. "limpiar escritorio") no
   // pertenecen a un proyecto. Las de proyecto sí lo tienen.
@@ -681,6 +684,7 @@ model Task {
   @@index([projectId])
   @@index([assigneeId])
   @@index([deliverableId])
+  @@index([completedAt])
 }
 
 // Comentario/nota en una tarea (hilo de conversación de la tarea).

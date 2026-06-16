@@ -10,8 +10,8 @@ import { WeekView } from "./week-view";
 export function CalendarBoard({ items, onCreate }: { items: CalItem[]; onCreate?: (fd: FormData) => Promise<void> }) {
   const [view, setView] = React.useState<"semana" | "mes">("semana");
   return (
-    <div className="space-y-4">
-      <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+    <div className="flex h-full flex-col gap-3">
+      <div className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg bg-muted p-1">
         {(["semana", "mes"] as const).map((v) => (
           <button
             key={v}
@@ -22,7 +22,11 @@ export function CalendarBoard({ items, onCreate }: { items: CalItem[]; onCreate?
           </button>
         ))}
       </div>
-      {view === "semana" ? <WeekView items={items} /> : <MyCalendar items={items} onCreate={onCreate} />}
+      {view === "semana" ? (
+        <div className="min-h-0 flex-1"><WeekView items={items} /></div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} onCreate={onCreate} /></div>
+      )}
     </div>
   );
 }

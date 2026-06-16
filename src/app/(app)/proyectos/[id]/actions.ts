@@ -11,6 +11,7 @@ import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
+import { completionTransition } from "@/lib/task-completion";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string | null) {
@@ -192,10 +193,14 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
 export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
-  await db.task.update({ where: { id: taskId }, data: { status } });
+  const prev = await db.task.findUnique({ where: { id: taskId }, select: { completedAt: true } });
+  const { completedAt, justCompleted } = await completionTransition(status, prev?.completedAt ?? null);
+  await db.task.update({ where: { id: taskId }, data: { status, completedAt } });
   await logActivity({
-    action: "task.status",
-    summary: `cambió el estado de «${task!.title}» a ${await statusLabelOf(status)}`,
+    action: justCompleted ? "task.complete" : "task.status",
+    summary: justCompleted
+      ? `completó la tarea «${task!.title}»`
+      : `cambió el estado de «${task!.title}» a ${await statusLabelOf(status)}`,
     projectId,
     entityType: "task",
     entityId: taskId,

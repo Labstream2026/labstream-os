@@ -27,8 +27,9 @@ export default async function MisTareasPage() {
   const statusOptions = labelOptions(statuses);
   // "Abiertas" = estados que no están marcados como terminados.
   const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
+  const doneKeys = statuses.filter((s) => s.isDone).map((s) => s.key);
 
-  const [tasks, team] = await Promise.all([
+  const [tasks, doneTasks, team] = await Promise.all([
     db.task.findMany({
       where: {
         status: { in: openKeys },
@@ -39,6 +40,19 @@ export default async function MisTareasPage() {
         project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
         assignedBy: { select: { name: true, initials: true, avatarColor: true } },
         checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
+      },
+    }),
+    // Completadas recientes: terminadas mías, las más recientes primero.
+    db.task.findMany({
+      where: {
+        status: { in: doneKeys },
+        OR: [{ assigneeId: user.id }, { ownerId: user.id }],
+      },
+      orderBy: [{ completedAt: "desc" }, { updatedAt: "desc" }],
+      take: 60,
+      select: {
+        id: true, title: true, completedAt: true, isPrivate: true,
+        project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
       },
     }),
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -129,6 +143,41 @@ export default async function MisTareasPage() {
     </div>
   );
 
+  const completed = (
+    <div className="space-y-2">
+      {doneTasks.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Aún no has completado tareas.</p>
+      ) : (
+        doneTasks.map((t) => {
+          const when = t.completedAt
+            ? new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(t.completedAt)
+            : null;
+          const inner = (
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-[11px] text-white">✓</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {t.project
+                    ? `${t.project.client ? `🏢 ${t.project.client.name} · ` : ""}${t.project.emoji} ${t.project.name}`
+                    : t.isPrivate ? "🔒 Personal" : "Personal"}
+                </p>
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground" title="Fecha y hora de finalización">
+                {when ? `Completada ${when}` : "Completada"}
+              </span>
+            </div>
+          );
+          return t.project ? (
+            <Link key={t.id} href={`/proyectos/${t.project.id}?tab=tareas`} className="block">{inner}</Link>
+          ) : (
+            <div key={t.id}>{inner}</div>
+          );
+        })
+      )}
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
       <h1 className="text-3xl font-bold tracking-tight">Mis tareas</h1>
@@ -146,6 +195,7 @@ export default async function MisTareasPage() {
           views={[
             { key: "lista", label: "Lista", icon: "☰", node: list },
             { key: "calendario", label: "Calendario", icon: "📅", node: <DueCalendar items={calItems} priorities={priorities} /> },
+            { key: "completadas", label: "Completadas", icon: "✓", node: completed },
           ]}
         />
       </div>

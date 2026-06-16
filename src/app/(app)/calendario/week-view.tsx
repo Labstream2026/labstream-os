@@ -85,8 +85,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="flex h-full flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <h3 className="text-sm font-semibold capitalize">{monthLabel}</h3>
         <div className="flex items-center gap-1">
           <button onClick={() => shift(-1)} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
@@ -95,11 +95,10 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
         </div>
       </div>
 
-      <div className="relative">
-        {/* Rejilla (ancho completo; el detalle flota encima a la derecha) */}
-        <div className="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card">
+      {/* Rejilla a borde completo que llena el alto disponible (estilo Notion) */}
+      <div className="flex min-h-0 flex-1 flex-col border-t border-border/50 bg-card">
           {/* Cabecera de días */}
-          <div className="grid border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
             <div />
             {days.map((d) => {
               const isToday = sameDay(d, today);
@@ -113,7 +112,7 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
           </div>
 
           {/* Franja "todo el día" (tareas, rodajes, eventos all-day) */}
-          <div className="grid border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
             <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
               const chips = parsed.filter((p) => !p.timed && sameDay(p.start, d));
@@ -136,8 +135,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
             })}
           </div>
 
-          {/* Rejilla de horas (scroll) */}
-          <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
+          {/* Rejilla de horas (scroll, llena el alto disponible) */}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="grid" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))", height: 24 * HOUR_H }}>
               {/* Columna de horas */}
               <div className="relative">
@@ -182,9 +181,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
               })}
             </div>
           </div>
-        </div>
-        {/* El detalle de la selección se muestra en el panel derecho (dock), partido sobre el chat. */}
       </div>
+      {/* El detalle de la selección se muestra en el panel derecho (dock), partido sobre el chat. */}
     </div>
   );
 }

@@ -6,19 +6,25 @@ import { getSession } from "@/lib/auth";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { getTaskLabels } from "@/lib/workflow-labels";
+import { completionTransition } from "@/lib/task-completion";
 
 // Marcar una tarea como terminada (desde el dock o Mis tareas). Solo el responsable
-// o el dueño pueden. Usa el estado configurado como "Terminada" (isDone).
+// o el dueño pueden. Usa el estado configurado como "Terminada" (isDone) y deja la
+// marca de cuándo se completó (completedAt) + registro en actividad.
 export async function completeMyTask(taskId: string) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
-  const task = await db.task.findUnique({ where: { id: taskId }, select: { assigneeId: true, ownerId: true, projectId: true } });
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, assigneeId: true, ownerId: true, projectId: true, completedAt: true } });
   if (!task) return;
   if (task.assigneeId !== session.id && task.ownerId !== session.id) throw new Error("No autorizado");
   const { statuses } = await getTaskLabels();
   const done = statuses.find((s) => s.isDone) ?? statuses[statuses.length - 1];
   if (!done) return;
-  await db.task.update({ where: { id: taskId }, data: { status: done.key as never } });
+  const { completedAt, justCompleted } = await completionTransition(done.key, task.completedAt);
+  await db.task.update({ where: { id: taskId }, data: { status: done.key as never, completedAt } });
+  if (justCompleted) {
+    await logActivity({ action: "task.complete", summary: `completó la tarea «${task.title}»`, projectId: task.projectId, entityType: "task", entityId: taskId });
+  }
   revalidatePath("/mis-tareas");
   revalidatePath("/");
   if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);

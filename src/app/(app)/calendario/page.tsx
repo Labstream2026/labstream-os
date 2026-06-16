@@ -104,14 +104,16 @@ export default async function CalendarioPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
-      <h1 className="text-3xl font-bold tracking-tight">Calendario del equipo</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Citas y reuniones + todas las tareas del equipo (entregas y rodajes).
-        {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : ""}
-      </p>
+    <div className="flex h-full flex-col px-4 py-6 sm:px-6">
+      <div className="shrink-0">
+        <h1 className="text-3xl font-bold tracking-tight">Calendario del equipo</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Citas y reuniones + todas las tareas del equipo (entregas y rodajes).
+          {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : ""}
+        </p>
+      </div>
 
-      <div className="mt-6">
+      <div className="mt-5 min-h-0 flex-1">
         <CalendarBoard items={items} onCreate={createMyEvent} />
       </div>
     </div>
