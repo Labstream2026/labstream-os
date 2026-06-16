@@ -111,6 +111,8 @@ model User {
   credentialViews    CredentialViewer[] @relation("CredViewer")
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
+  ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
+  reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
 
   createdAt    DateTime  @default(now())
@@ -641,12 +643,25 @@ model WikiPage {
   title     String      @default("Página sin título")
   icon      String? // emoji
   content   String      @default("") // markdown / texto
+  // Organización: sección (categoría plana) y etiquetas para buscar/filtrar.
+  section   String? // "Procesos", "Equipo y técnica", "Clientes", "Administración", "Onboarding"…
+  tags      String[]    @default([])
+  // Plantilla con la que se creó (SOP, política, ficha…), para saber su tipo.
+  templateKey String?
+  // Gobernanza: dueño responsable + última revisión (para detectar contenido obsoleto).
+  owner          User?    @relation("WikiPageOwner", fields: [ownerId], references: [id])
+  ownerId        String?
+  lastReviewedBy User?    @relation("WikiPageReviewer", fields: [lastReviewedById], references: [id])
+  lastReviewedById String?
+  lastReviewedAt DateTime?
   parent    WikiPage?   @relation("WikiTree", fields: [parentId], references: [id], onDelete: SetNull)
   parentId  String?
   children  WikiPage[]  @relation("WikiTree")
   tables    DataTable[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  @@index([section])
 }
 
 model DataTable {

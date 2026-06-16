@@ -6,6 +6,8 @@ import { createTableForWiki } from "@/app/(app)/tablas/actions";
 import { updateWikiPage, deleteWikiPage } from "../actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { cellsToMap } from "@/lib/table-cells";
+import { GovernanceBar } from "./governance-bar";
+import { WIKI_SECTIONS } from "@/lib/wiki-templates";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,7 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
     db.wikiPage.findUnique({
       where: { id },
       include: {
+        lastReviewedBy: { select: { name: true } },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -39,16 +42,34 @@ export default async function WikiPageDetail({ params }: { params: Promise<{ id:
         </form>
       </div>
 
+      {/* Gobernanza: dueño + última revisión */}
+      <div className="mt-4">
+        <GovernanceBar
+          pageId={id}
+          ownerId={page.ownerId}
+          team={team.map((m) => ({ id: m.id, name: m.name }))}
+          lastReviewedAt={page.lastReviewedAt ? page.lastReviewedAt.toISOString() : null}
+          lastReviewedByName={page.lastReviewedBy?.name ?? null}
+        />
+      </div>
+
       {/* Editor de la página */}
       <form action={updateWikiPage.bind(null, id)} className="mt-4 space-y-3">
         <div className="flex items-center gap-2">
           <input name="icon" defaultValue={page.icon ?? ""} maxLength={4} placeholder="📄" className="w-12 rounded-lg border border-input bg-background px-2 py-2 text-center text-xl outline-none focus:ring-2 focus:ring-ring" />
           <input name="title" defaultValue={page.title} placeholder="Título de la página" className="flex-1 bg-transparent text-3xl font-bold tracking-tight outline-none" />
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select name="section" defaultValue={page.section ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring">
+            <option value="">— Sección —</option>
+            {WIKI_SECTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <input name="tags" defaultValue={page.tags.join(", ")} placeholder="Etiquetas (separadas por coma)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+        </div>
         <textarea
           name="content"
           defaultValue={page.content}
-          rows={8}
+          rows={12}
           placeholder="Escribe la documentación aquí… (puedes usar Markdown)"
           className="w-full resize-y rounded-lg border border-border bg-card px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
