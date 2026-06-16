@@ -7,6 +7,7 @@ import { updateWikiPage, deleteWikiPage } from "../actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { cellsToMap } from "@/lib/table-cells";
 import { GovernanceBar } from "./governance-bar";
+import { MarkdownEditor } from "./markdown-editor";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
 import { renderMarkdown } from "@/lib/markdown";
 import { Pencil } from "lucide-react";
@@ -77,13 +78,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
             </select>
             <input name="tags" defaultValue={page.tags.join(", ")} placeholder="Etiquetas (separadas por coma)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           </div>
-          <textarea
-            name="content"
-            defaultValue={page.content}
-            rows={16}
-            placeholder="Escribe la documentación aquí… (puedes usar Markdown: # títulos, - listas, - [ ] tareas, **negrita**, tablas | | y enlaces)"
-            className="w-full resize-y rounded-lg border border-border bg-card px-4 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
+          <MarkdownEditor defaultValue={page.content} />
           <div className="flex items-center gap-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar cambios</button>
             <Link href={`/wiki/${id}`} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancelar</Link>

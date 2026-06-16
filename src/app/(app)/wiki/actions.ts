@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { wikiTemplate } from "@/lib/wiki-templates";
+import { saveBuffer, extOf } from "@/lib/storage";
+import { saveBufferWithPreview } from "@/lib/image";
 
 // La wiki es del equipo interno: solo quien tiene acceso a la Wiki puede crear/
 // editar/borrar páginas. Roles externos (freelancer/cliente) e invitados quedan fuera.
@@ -72,6 +74,25 @@ export async function markWikiReviewed(id: string): Promise<void> {
   await db.wikiPage.update({ where: { id }, data: { lastReviewedAt: new Date(), lastReviewedById: session.id } });
   revalidatePath(`/wiki/${id}`);
   revalidatePath("/wiki");
+}
+
+// Sube un archivo o imagen para insertarlo en una página de la Wiki. Las imágenes se
+// optimizan (WebP). Devuelve la URL servida por /api/wiki-file y si es imagen.
+export async function uploadWikiFile(formData: FormData): Promise<{ url: string; name: string; isImage: boolean }> {
+  await requireWiki();
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) throw new Error("No se recibió ningún archivo.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("El archivo supera 25 MB.");
+  const buf = Buffer.from(await file.arrayBuffer());
+  const ext = extOf(file.name); // "pdf", "png"… (sin punto, o "")
+  const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext ? `.${ext}` : ""}`;
+  const isImage = file.type.startsWith("image/");
+  if (isImage) {
+    await saveBufferWithPreview("wikifile", key, buf, file.type, { maxEdge: 1600 });
+  } else {
+    await saveBuffer("wikifile", key, buf);
+  }
+  return { url: `/api/wiki-file/${key}`, name: file.name, isImage };
 }
 
 export async function deleteWikiPage(id: string): Promise<void> {
