@@ -3,11 +3,13 @@
 import { UserAvatar } from "@/components/user-avatar";
 import type { CalItem } from "./my-calendar";
 
-// Color por tipo (barra/acento del bloque/detalle).
+// Color por tipo. `bar` = acento sólido, `bg` = relleno tenue (franja todo-el-día
+// y detalle), `solid` = relleno saturado para los bloques cronometrados estilo
+// Notion Calendar (texto blanco encima).
 export function calTone(kind: CalItem["kind"], shoot?: boolean) {
-  if (shoot || kind === "shoot") return { bar: "#f43f5e", bg: "rgba(244,63,94,0.12)" };
-  if (kind === "event") return { bar: "#6366f1", bg: "rgba(99,102,241,0.12)" };
-  return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)" };
+  if (shoot || kind === "shoot") return { bar: "#f43f5e", bg: "rgba(244,63,94,0.12)", solid: "#f43f5e", soft: "rgba(244,63,94,0.16)" };
+  if (kind === "event") return { bar: "#6366f1", bg: "rgba(99,102,241,0.12)", solid: "#6366f1", soft: "rgba(99,102,241,0.16)" };
+  return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)", solid: "#f59e0b", soft: "rgba(245,158,11,0.18)" };
 }
 
 // Evento de selección del calendario: la vista semanal lo emite y el panel derecho

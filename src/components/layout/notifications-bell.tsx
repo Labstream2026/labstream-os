@@ -36,7 +36,9 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
 
   // Trae el estado más reciente del servidor (polling + al enfocar la pestaña).
+  const lastRun = React.useRef(0);
   const refresh = React.useCallback(async () => {
+    lastRun.current = Date.now();
     try {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (!res.ok) return;
@@ -47,18 +49,24 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
       /* sin red: reintenta en el siguiente ciclo */
     }
   }, []);
+  // Refresco "barato" para eventos de foco/visibilidad: como mucho 1 cada 4 s, para
+  // que ráfagas de focus/visibilitychange (extensiones, cambios de pestaña) no
+  // disparen una tormenta de peticiones.
+  const refreshIfStale = React.useCallback(() => {
+    if (Date.now() - lastRun.current > 4000) void refresh();
+  }, [refresh]);
 
   React.useEffect(() => {
     const id = setInterval(refresh, POLL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refreshIfStale(); };
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", refresh);
+    window.addEventListener("focus", refreshIfStale);
     return () => {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshIfStale);
     };
-  }, [refresh]);
+  }, [refresh, refreshIfStale]);
 
   function toggle() {
     const next = !open;

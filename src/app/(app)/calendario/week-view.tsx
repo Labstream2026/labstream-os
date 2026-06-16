@@ -124,8 +124,8 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                     const t = calTone(p.it.kind, p.it.kind === "shoot");
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
-                        className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-1 text-left text-[11px] font-medium", selectedId === p.it.id && "ring-2 ring-primary/60")}
-                        style={{ background: t.bg, borderLeft: `3px solid ${t.bar}` }}
+                        className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
+                        style={{ background: t.solid }}
                         title={p.it.title}>
                         <span className="truncate">{p.it.kind === "shoot" ? "🎬" : p.it.kind === "task" ? "✅" : "📅"} {p.it.title}</span>
                       </button>
@@ -166,13 +166,14 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                       const t = calTone(p.it.kind);
                       const top = (p.topMin / 60) * HOUR_H;
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
+                      const tiny = height < 30; // bloques muy cortos: una sola línea
                       return (
                         <button key={p.it.id} onClick={() => select(p.it)}
-                          className={cn("absolute overflow-hidden rounded-md px-2 py-1 text-left text-[11px] leading-tight shadow-sm transition-shadow hover:shadow", selectedId === p.it.id && "ring-2 ring-primary/60")}
-                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.bg, borderLeft: `3px solid ${t.bar}` }}
+                          className={cn("absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
+                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.solid, color: "#fff" }}
                           title={p.it.title}>
-                          <span className="block truncate font-medium">{p.it.title}</span>
-                          {p.it.time ? <span className="block truncate text-muted-foreground">{p.it.time}</span> : null}
+                          <span className="truncate font-semibold">{p.it.title}</span>
+                          {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
                         </button>
                       );
                     })}

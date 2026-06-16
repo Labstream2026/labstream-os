@@ -355,9 +355,21 @@ export function ChannelChat({
     return () => clearTimeout(t);
   }, [channelId, messages.length]);
   React.useEffect(() => {
-    const onVis = () => { if (document.visibilityState === "visible") void markChannelRead(channelId); };
+    let last = 0;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      // Throttle: ráfagas de visibilitychange/focus (extensiones, cambio de pestaña)
+      // no deben disparar más de una marca cada 5 s.
+      if (Date.now() - last < 5000) return;
+      last = Date.now();
+      void markChannelRead(channelId);
+    };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
   }, [channelId]);
 
   React.useEffect(() => {
