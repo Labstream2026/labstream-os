@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { FileText, Search } from "lucide-react";
+import { FileText, Search, ChevronRight } from "lucide-react";
 import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
 import { WikiTabs } from "./wiki-tabs";
 import { NewWikiPageButton } from "./new-page";
+import { ensureStartHerePage } from "@/lib/wiki-tables";
 import { WIKI_SECTIONS, WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +12,20 @@ export const dynamic = "force-dynamic";
 const OTHER = "Otras páginas";
 const staleMs = WIKI_REVIEW_STALE_DAYS * 86400000;
 
+// Las "pestañas fijas" (tablas globales y contraseñas) viven en rutas propias, pero
+// se listan dentro de su sección en la portada para tener UN solo índice coherente.
+const SYSTEM_ENTRIES = [
+  { section: "Equipo y técnica", href: "/wiki/inventario", icon: "📦", title: "Inventario", desc: "Equipos: cámaras, audio, iluminación…" },
+  { section: "Equipo y técnica", href: "/wiki/ubicacion", icon: "🗄️", title: "Ubicación del material", desc: "Dónde está cada archivo, disco o backup." },
+  { section: "Administración", href: "/wiki/contrasenas", icon: "🔑", title: "Usuarios y contraseñas", desc: "Credenciales del equipo (cifradas)." },
+] as const;
+
 export default async function WikiPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;
   const query = (q ?? "").trim();
+
+  // Siembra la página índice "Empieza aquí" la primera vez (idempotente).
+  await ensureStartHerePage();
 
   const pages = await db.wikiPage.findMany({
     where: query
@@ -33,7 +45,13 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
     const key = p.section && WIKI_SECTIONS.includes(p.section as never) ? p.section : OTHER;
     (bySection.get(key) ?? bySection.set(key, []).get(key)!).push(p);
   }
-  const orderedSections = [...WIKI_SECTIONS.filter((s) => bySection.has(s)), ...(bySection.has(OTHER) ? [OTHER] : [])];
+  // Entradas de sistema (Inventario/Ubicación/Contraseñas) por sección — solo sin búsqueda.
+  const sysBySection = new Map<string, typeof SYSTEM_ENTRIES[number][]>();
+  if (!query) {
+    for (const e of SYSTEM_ENTRIES) (sysBySection.get(e.section) ?? sysBySection.set(e.section, []).get(e.section)!).push(e);
+  }
+  const hasContent = (s: string) => bySection.has(s) || sysBySection.has(s);
+  const orderedSections = [...WIKI_SECTIONS.filter(hasContent), ...(bySection.has(OTHER) ? [OTHER] : [])];
   const now = Date.now();
 
   return (
@@ -71,7 +89,21 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
             <section key={section}>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h3>
               <div className="space-y-2">
-                {bySection.get(section)!.map((p) => {
+                {(sysBySection.get(section) ?? []).map((e) => (
+                  <Link
+                    key={e.href}
+                    href={e.href}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 transition-colors hover:border-primary/40"
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-lg">{e.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{e.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">{e.desc}</p>
+                    </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                  </Link>
+                ))}
+                {(bySection.get(section) ?? []).map((p) => {
                   const reviewedMs = p.lastReviewedAt ? p.lastReviewedAt.getTime() : 0;
                   const stale = now - reviewedMs > staleMs;
                   return (

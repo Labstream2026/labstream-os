@@ -1,8 +1,27 @@
 import { db } from "@/lib/db";
+import { wikiTemplate } from "@/lib/wiki-templates";
 
 // Tablas globales únicas de la Wiki (Inventario y Ubicación del material).
 // Se crean una sola vez con columnas predefinidas; luego el equipo puede añadir
 // más columnas/opciones desde la propia tabla.
+
+// Página índice "Empieza aquí" del onboarding. Se siembra una sola vez (idempotente
+// por templateKey "sys-start"); si se borra, se vuelve a crear al entrar a la Wiki.
+export async function ensureStartHerePage(): Promise<void> {
+  const existing = await db.wikiPage.findFirst({ where: { templateKey: "sys-start" }, select: { id: true } });
+  if (existing) return;
+  const tpl = wikiTemplate("onboarding");
+  await db.wikiPage.create({
+    data: {
+      title: "Empieza aquí",
+      icon: "👋",
+      section: "Empieza aquí",
+      templateKey: "sys-start",
+      tags: ["onboarding"],
+      content: tpl?.content ?? "",
+    },
+  });
+}
 
 type Opt = { id: string; label: string; color: string };
 const opt = (label: string, color: string): Opt => ({ id: label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), label, color });
