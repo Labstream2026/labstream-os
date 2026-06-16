@@ -11,7 +11,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /cotizacion: vista pública de cotización para el cliente (token firmado).
 // - /p: vista pública de una propuesta para el cliente (token firmado).
 // - /api/proposal-img: imágenes de propuesta (portada/carrusel) para el portal del cliente.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img"];
+// - /api/cron: trabajos programados del NAS (protegidos por CRON_SECRET, no por sesión).
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img", "/api/cron"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

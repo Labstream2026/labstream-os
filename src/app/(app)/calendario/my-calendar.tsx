@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 
 type Person = { name: string; initials: string | null; color: string | null };
+export type TeamMember = { id: string; name: string; initials: string | null; color: string | null };
 
 export type CalItem = {
   id: string;
@@ -38,15 +39,18 @@ function dayKey(d: string): string | null {
 export function MyCalendar({
   items,
   onCreate,
+  team = [],
 }: {
   items: CalItem[];
   onCreate?: (fd: FormData) => Promise<void>;
+  team?: TeamMember[];
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [selectedEv, setSelectedEv] = useState<CalItem | null>(null);
+  const [attendees, setAttendees] = useState<Set<string>>(new Set());
   const [pending, start] = useTransition();
 
   const byDay = useMemo(() => {
@@ -142,17 +146,45 @@ export function MyCalendar({
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
                 fd.set("date", openDay);
-                start(() => onCreate(fd).then(() => setOpenDay(null)));
+                attendees.forEach((id) => fd.append("attendees", id));
+                start(() => onCreate(fd).then(() => { setOpenDay(null); setAttendees(new Set()); }));
               }}
               className="mt-3 space-y-2"
             >
               <input name="title" required autoFocus placeholder="Título de la cita" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
               <div className="flex items-center gap-2">
-                <input name="time" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                <input name="time" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de inicio" />
+                <span className="text-muted-foreground">→</span>
+                <input name="endTime" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de fin (opcional)" />
                 <span className="text-xs text-muted-foreground">(vacío = todo el día)</span>
               </div>
+              <textarea name="description" rows={2} placeholder="Descripción / notas (opcional)" className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              {team.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">Invitar a (les llega notificación y se les agrega a su calendario):</p>
+                  <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                    {team.map((m) => {
+                      const on = attendees.has(m.id);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setAttendees((prev) => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                            on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-muted",
+                          )}
+                        >
+                          <span className="grid size-4 place-items-center rounded-full text-[9px] font-semibold text-white" style={{ background: m.color ?? "#6366f1" }}>{m.initials ?? m.name.slice(0, 1)}</span>
+                          {m.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
               <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => setOpenDay(null)} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">Cancelar</button>
+                <button type="button" onClick={() => { setOpenDay(null); setAttendees(new Set()); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">Cancelar</button>
                 <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">{pending ? "Creando…" : "Crear"}</button>
               </div>
             </form>

@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { MyCalendar, type CalItem } from "./my-calendar";
+import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
 import { WeekView } from "./week-view";
 
 // Conmutador de vistas del calendario del equipo: Semana (rejilla detallada por
 // horas con panel de detalle) o Mes (rejilla mensual con creación de citas).
-export function CalendarBoard({ items, onCreate }: { items: CalItem[]; onCreate?: (fd: FormData) => Promise<void> }) {
+export function CalendarBoard({ items, onCreate, team = [] }: { items: CalItem[]; onCreate?: (fd: FormData) => Promise<void>; team?: TeamMember[] }) {
   const [view, setView] = React.useState<"semana" | "mes">("semana");
   return (
     <div className="flex h-full flex-col gap-3">
@@ -25,7 +25,7 @@ export function CalendarBoard({ items, onCreate }: { items: CalItem[]; onCreate?
       {view === "semana" ? (
         <div className="min-h-0 flex-1"><WeekView items={items} /></div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} onCreate={onCreate} /></div>
+        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} onCreate={onCreate} team={team} /></div>
       )}
     </div>
   );

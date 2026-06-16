@@ -18,7 +18,7 @@ export default async function CalendarioPage() {
 
   const accessSelect = { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } as const;
 
-  const [allEvents, allTasks] = await Promise.all([
+  const [allEvents, allTasks, team] = await Promise.all([
     db.calendarEvent.findMany({
       where: { start: { gte: windowStart } },
       orderBy: { start: "asc" },
@@ -38,6 +38,7 @@ export default async function CalendarioPage() {
         project: { select: { id: true, name: true, emoji: true, ...accessSelect } },
       },
     }),
+    db.user.findMany({ where: { active: true, id: { not: session?.id } }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
   ]);
 
   // Privacidad de citas: las de proyecto privado solo a quien tiene acceso o es
@@ -114,7 +115,7 @@ export default async function CalendarioPage() {
       </div>
 
       <div className="mt-5 min-h-0 flex-1">
-        <CalendarBoard items={items} onCreate={createMyEvent} />
+        <CalendarBoard items={items} onCreate={createMyEvent} team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
       </div>
     </div>
   );
