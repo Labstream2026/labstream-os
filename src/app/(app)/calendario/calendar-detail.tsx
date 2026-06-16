@@ -12,6 +12,7 @@ import { deleteMyEvent } from "./actions";
 export function calTone(kind: CalItem["kind"], shoot?: boolean) {
   if (shoot || kind === "shoot") return { bar: "#f43f5e", bg: "rgba(244,63,94,0.12)", solid: "#f43f5e", soft: "rgba(244,63,94,0.16)" };
   if (kind === "event") return { bar: "#6366f1", bg: "rgba(99,102,241,0.12)", solid: "#6366f1", soft: "rgba(99,102,241,0.16)" };
+  if (kind === "milestone") return { bar: "#0ea5e9", bg: "rgba(14,165,233,0.12)", solid: "#0ea5e9", soft: "rgba(14,165,233,0.16)" };
   return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)", solid: "#f59e0b", soft: "rgba(245,158,11,0.18)" };
 }
 
@@ -34,7 +35,7 @@ export function emitCalendarCreate(date: string, time?: string) {
 // Tarjeta de detalle de una cita/tarea/rodaje. Se usa en el panel derecho del calendario.
 export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?: () => void }) {
   const isShoot = item.kind === "shoot";
-  const typeLabel = item.kind === "event" ? "Cita / reunión" : isShoot ? "Rodaje" : "Tarea";
+  const typeLabel = item.kind === "event" ? "Cita / reunión" : isShoot ? "Rodaje" : item.kind === "milestone" ? "Hito del proyecto" : "Tarea";
   const start = new Date(item.start ?? item.date);
   const dateLabel = start.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
   const t = calTone(item.kind, isShoot);

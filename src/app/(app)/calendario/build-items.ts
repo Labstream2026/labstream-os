@@ -56,6 +56,30 @@ export type TaskRow = {
   assignee?: { name: string; initials: string | null; avatarColor: string | null } | null;
 };
 
+export type ProjectSummaryRow = {
+  id: string;
+  name: string;
+  emoji: string | null;
+  startDate: Date | null;
+  dueDate: Date | null;
+  deliverables: { name: string; dueDate: Date | null }[];
+};
+
+// Resumen de un proyecto en el calendario (solo lectura): inicio ▶, entrega 🏁 y la
+// fecha de cada entregable 🎬. Se usa, p. ej., en el calendario del cliente para ver
+// de un vistazo los hitos de todos sus proyectos.
+export function projectSummaryItems(p: ProjectSummaryRow): CalItem[] {
+  const link = `/proyectos/${p.id}`;
+  const base = { kind: "milestone" as const, allDay: true, canEdit: false, projectName: p.name, projectEmoji: p.emoji ?? null, link };
+  const out: CalItem[] = [];
+  if (p.startDate) out.push({ id: `pstart-${p.id}`, title: `▶ Inicio del proyecto`, date: p.startDate.toISOString(), start: p.startDate.toISOString(), ...base });
+  if (p.dueDate) out.push({ id: `pdue-${p.id}`, title: `🏁 Entrega del proyecto`, date: p.dueDate.toISOString(), start: p.dueDate.toISOString(), ...base });
+  for (const [i, d] of p.deliverables.entries()) {
+    if (d.dueDate) out.push({ id: `pdel-${p.id}-${i}`, title: `🎬 ${d.name}`, date: d.dueDate.toISOString(), start: d.dueDate.toISOString(), ...base });
+  }
+  return out;
+}
+
 // Convierte una tarea en hasta dos chips: entrega (dueDate) y rodaje (shootDate).
 export function taskToCalItems(t: TaskRow): CalItem[] {
   const out: CalItem[] = [];

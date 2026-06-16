@@ -204,7 +204,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: t.solid }}
                         title={p.it.title}>
-                        <span className="truncate">{p.it.kind === "shoot" ? "🎬" : p.it.kind === "task" ? "✅" : "📅"} {p.it.title}</span>
+                        <span className="truncate">{p.it.kind === "milestone" ? "" : p.it.kind === "shoot" ? "🎬 " : p.it.kind === "task" ? "✅ " : "📅 "}{p.it.title}</span>
                       </button>
                     );
                   })}

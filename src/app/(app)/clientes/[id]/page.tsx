@@ -11,7 +11,7 @@ import { statusMeta, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
-import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { tone } from "@/lib/colors";
@@ -104,6 +104,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const clientCalItems = [
     ...clientEvents.map((e) => eventToCalItem(e, session?.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
     ...clientTasks.flatMap((t) => taskToCalItems(t)),
+    // Resumen de los proyectos del cliente: inicio, entrega y fechas de entregables.
+    ...projects.flatMap((p) => projectSummaryItems({ id: p.id, name: p.name, emoji: p.emoji, startDate: p.startDate, dueDate: p.dueDate, deliverables: p.deliverables })),
   ];
 
   const board = projects.length === 0 ? (

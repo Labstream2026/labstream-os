@@ -12,7 +12,7 @@ export type CalItem = {
   id: string;
   title: string;
   date: string; // ISO (inicio) — usado por la vista mensual
-  kind: "event" | "task" | "shoot";
+  kind: "event" | "task" | "shoot" | "milestone";
   time?: string | null; // "HH:mm" del inicio (eventos con hora)
   projectName?: string | null;
   // ── Campos para la vista semanal y el panel de detalle (opcionales) ──
@@ -159,7 +159,7 @@ export function MyCalendar({
                             )}
                             style={{ background: t.solid }}
                           >
-                            {ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
+                            {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
                           </button>
                         );
                       })}
@@ -176,6 +176,7 @@ export function MyCalendar({
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("event").solid }} /> Citas</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("task").solid }} /> Tareas</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("shoot").solid }} /> Rodajes</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("milestone").solid }} /> Hitos de proyecto</span>
         {canCreate ? <span className="ml-auto">Toca un día para crear · arrastra una cita para moverla.</span> : null}
       </div>
     </div>

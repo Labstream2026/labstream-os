@@ -18,7 +18,7 @@ import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
-import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
@@ -32,6 +32,7 @@ export const dynamic = "force-dynamic";
 const TABS = [
   { key: "resumen", label: "Resumen" },
   { key: "tareas", label: "Tareas" },
+  { key: "calendario", label: "Calendario" },
   { key: "cronograma", label: "Cronograma" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
@@ -152,7 +153,8 @@ export default async function ProyectoPage({
     checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
   }));
 
-  // Items del calendario del proyecto: citas del proyecto + tareas (entrega y rodaje).
+  // Items del calendario del proyecto: citas + tareas (entrega/rodaje) + hitos del
+  // propio proyecto (inicio, entrega y fechas de entregables).
   const projectCalItems = [
     ...projectEvents.map((e) => eventToCalItem(e, session?.id, `/proyectos/${id}`)),
     ...project.tasks.flatMap((t) =>
@@ -162,6 +164,11 @@ export default async function ProyectoPage({
         assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, avatarColor: t.assignee.avatarColor } : null,
       }),
     ),
+    ...projectSummaryItems({
+      id, name: project.name, emoji: project.emoji,
+      startDate: project.startDate, dueDate: project.dueDate,
+      deliverables: project.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate })),
+    }),
   ];
 
   return (
@@ -236,7 +243,7 @@ export default async function ProyectoPage({
             return (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Espacio de tareas por fases de producción. Cambia entre tablero, lista y calendario de rodajes.
+                  Espacio de tareas por fases de producción. Cambia entre tablero y lista.
                 </p>
                 <ViewTabs
                   storageKey="tareas-view"
@@ -253,26 +260,27 @@ export default async function ProyectoPage({
                       icon: "☰",
                       node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} />,
                     },
-                    {
-                      key: "calendario",
-                      label: "Calendario",
-                      icon: "📅",
-                      node: (
-                        <div className="h-[72vh]">
-                          <CalendarBoard
-                            items={projectCalItems}
-                            onCreate={canWriteProject(project, session) ? createMyEvent : undefined}
-                            projectId={id}
-                            team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
-                          />
-                        </div>
-                      ),
-                    },
                   ]}
                 />
               </div>
             );
           })()
+        ) : null}
+        {tab === "calendario" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Calendario de <span className="font-medium text-foreground">{project.name}</span>: citas y reuniones del
+              proyecto, tareas (entrega y rodaje) e hitos (inicio, entrega y entregables).
+            </p>
+            <div className="h-[74vh]">
+              <CalendarBoard
+                items={projectCalItems}
+                onCreate={canWriteProject(project, session) ? createMyEvent : undefined}
+                projectId={id}
+                team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+              />
+            </div>
+          </div>
         ) : null}
         {tab === "cronograma" ? (
           <ProjectTimeline
