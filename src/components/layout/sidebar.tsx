@@ -53,7 +53,6 @@ const NAV = [
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
-  { href: "/asistente", label: "Asistente IA", icon: Sparkles },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];
 
@@ -166,9 +165,6 @@ export function Sidebar({
       {/* Navegación principal */}
       <nav className={cn("py-1", collapsed ? "px-2" : "px-3")}>
         {NAV.map((item) => navRow(item.href, item.label, item.icon, pathname === item.href, item.href === "/chat" ? chatUnread || undefined : undefined))}
-        {canQuotes
-          ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones"))
-          : null}
       </nav>
 
       {/* Clientes + Wiki */}
@@ -288,11 +284,13 @@ export function Sidebar({
 
         {!collapsed ? (
           <div className="mt-4 px-2 pb-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted">Wiki</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-muted">Administrativo</span>
           </div>
         ) : (
           <div className="mt-4" />
         )}
+        {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
+        {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
         {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
         {navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca"))}
       </div>

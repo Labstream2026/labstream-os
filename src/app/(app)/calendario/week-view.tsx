@@ -2,18 +2,11 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { UserAvatar } from "@/components/user-avatar";
 import type { CalItem } from "./my-calendar";
+import { calTone, emitCalendarDetail } from "./calendar-detail";
 
 const HOUR_H = 44; // alto en px de cada hora
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-
-// Color por tipo (barra/acento del bloque).
-function tone(kind: CalItem["kind"], shoot?: boolean) {
-  if (shoot) return { bar: "#f43f5e", bg: "rgba(244,63,94,0.12)", text: "text-rose-700 dark:text-rose-300" };
-  if (kind === "event") return { bar: "#6366f1", bg: "rgba(99,102,241,0.12)", text: "text-indigo-700 dark:text-indigo-300" };
-  return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)", text: "text-amber-700 dark:text-amber-300" };
-}
 
 function startOfWeek(d: Date): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -73,7 +66,10 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
     if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_H - 8;
   }, []);
 
-  const select = (it: CalItem | null) => { setSelectedId(it?.id ?? null); onSelect?.(it); };
+  // Selección: marca el bloque y emite el detalle al panel derecho (dock).
+  const select = (it: CalItem | null) => { setSelectedId(it?.id ?? null); emitCalendarDetail(it); onSelect?.(it); };
+  // Al desmontar (salir del calendario o cambiar de vista), limpia el detalle del dock.
+  React.useEffect(() => () => emitCalendarDetail(null), []);
 
   // Clasifica cada item por día: cronometrado (evento con hora) vs todo-el-día (tareas, rodajes, eventos all-day).
   const parsed = items.map((it) => {
@@ -124,7 +120,7 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
               return (
                 <div key={d.toISOString()} className="min-h-7 space-y-0.5 border-r border-border p-0.5 last:border-r-0">
                   {chips.map((p) => {
-                    const t = tone(p.it.kind, p.it.kind === "shoot");
+                    const t = calTone(p.it.kind, p.it.kind === "shoot");
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[10px] font-medium", selectedId === p.it.id && "ring-1 ring-primary")}
@@ -166,7 +162,7 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                     {hours.map((h) => (<div key={h} style={{ height: HOUR_H }} className="border-b border-border/40" />))}
                     {isToday ? <NowLine /> : null}
                     {positioned.map((p) => {
-                      const t = tone(p.it.kind);
+                      const t = calTone(p.it.kind);
                       const top = (p.topMin / 60) * HOUR_H;
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       return (
@@ -185,11 +181,7 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
             </div>
           </div>
         </div>
-
-        {/* Panel de detalle: flota a la derecha cuando hay una selección */}
-        {selectedId ? (
-          <DetailPanel item={parsed.find((p) => p.it.id === selectedId)?.it ?? null} onClose={() => select(null)} />
-        ) : null}
+        {/* El detalle de la selección se muestra en el panel derecho (dock), partido sobre el chat. */}
       </div>
     </div>
   );
@@ -202,46 +194,4 @@ function NowLine() {
     return () => clearInterval(t);
   }, []);
   return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: (min / 60) * HOUR_H }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
-}
-
-function DetailPanel({ item, onClose }: { item: CalItem | null; onClose: () => void }) {
-  if (!item) return null;
-  const isShoot = item.kind === "shoot";
-  const typeLabel = item.kind === "event" ? "Cita / reunión" : isShoot ? "Rodaje" : "Tarea";
-  const start = new Date(item.start ?? item.date);
-  const dateLabel = start.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
-  const t = tone(item.kind, isShoot);
-  const people = item.attendees ?? (item.assignee ? [item.assignee] : []);
-  return (
-    <aside className="absolute right-2 top-2 z-20 max-h-[calc(100%-1rem)] w-72 max-w-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-border bg-card shadow-xl">
-      <div className="h-1.5 w-full" style={{ background: t.bar }} />
-      <div className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{typeLabel}</p>
-          <button onClick={onClose} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground">✕</button>
-        </div>
-        <h3 className="text-base font-semibold leading-snug">{item.title}</h3>
-        <p className="text-sm capitalize text-muted-foreground">
-          {dateLabel}{item.time ? ` · ${item.time}${item.endTime ? `–${item.endTime}` : ""}` : item.allDay || item.kind !== "event" ? " · todo el día" : ""}
-        </p>
-        {item.projectName ? <p className="text-sm text-muted-foreground">{item.projectEmoji ?? "🗂️"} {item.projectName}</p> : null}
-        {item.description ? <p className="whitespace-pre-wrap rounded-md bg-muted/40 p-2 text-sm text-foreground/90">{item.description}</p> : null}
-        {people.length > 0 ? (
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">{item.kind === "event" ? "Asistentes" : "Responsable"}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {people.map((u, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs">
-                  <UserAvatar initials={u.initials} color={u.color} size="sm" /> {u.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {item.link ? (
-          <a href={item.link} className="inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Abrir</a>
-        ) : null}
-      </div>
-    </aside>
-  );
 }

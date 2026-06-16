@@ -4,6 +4,8 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks, CircleCheck } from "lucide-react";
 import { completeMyTask } from "@/app/(app)/mis-tareas/actions";
+import { type CalItem } from "@/app/(app)/calendario/my-calendar";
+import { CalendarDetailCard, CAL_DETAIL_EVENT } from "@/app/(app)/calendario/calendar-detail";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
@@ -63,6 +65,7 @@ export function ChatDock({
   // En "Chat del día" el chat ya es el contenido principal → a la derecha mostramos
   // las tareas pendientes en vez de repetir el chat.
   const onEstados = pathname === "/estados";
+  const onCalendar = pathname === "/calendario";
   const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
@@ -135,6 +138,41 @@ export function ChatDock({
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
   }, [width]);
+
+  // ── Calendario: panel partido (detalle arriba / chat abajo) ──
+  // La vista del calendario emite la cita/tarea seleccionada por un evento de ventana.
+  const [calItem, setCalItem] = React.useState<CalItem | null>(null);
+  React.useEffect(() => {
+    if (!onCalendar) { setCalItem(null); return; }
+    const onDetail = (e: Event) => setCalItem((e as CustomEvent).detail as CalItem | null);
+    window.addEventListener(CAL_DETAIL_EVENT, onDetail);
+    return () => window.removeEventListener(CAL_DETAIL_EVENT, onDetail);
+  }, [onCalendar]);
+  // Alto (%) de la mitad superior (detalle); redimensionable, recordado.
+  const splitRef = React.useRef<HTMLDivElement>(null);
+  const [topPct, setTopPct] = React.useState(45);
+  React.useEffect(() => {
+    const v = Number(window.localStorage.getItem("ui:calSplit"));
+    if (v >= 20 && v <= 80) setTopPct(v);
+  }, []);
+  const vdrag = React.useRef(false);
+  React.useEffect(() => {
+    function move(e: MouseEvent) {
+      if (!vdrag.current || !splitRef.current) return;
+      const r = splitRef.current.getBoundingClientRect();
+      const pct = Math.min(80, Math.max(20, ((e.clientY - r.top) / r.height) * 100));
+      setTopPct(pct);
+    }
+    function up() {
+      if (!vdrag.current) return;
+      vdrag.current = false;
+      document.body.style.userSelect = "";
+      window.localStorage.setItem("ui:calSplit", String(Math.round(topPct)));
+    }
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [topPct]);
 
   // ── Estado a renderizar ──
   const isDM = !!dmUserId;
@@ -303,7 +341,31 @@ export function ChatDock({
     </div>
   );
 
-  const panel = onEstados ? tasksBody : body;
+  // Calendario: panel partido — detalle de la cita/tarea (arriba) + chat (abajo),
+  // con divisor redimensionable. Optimiza el espacio del lado derecho.
+  const calendarBody = (
+    <div ref={splitRef} className="flex h-full w-full flex-col">
+      <div style={{ height: `${topPct}%` }} className="min-h-0 overflow-hidden border-b border-border">
+        {calItem ? (
+          <CalendarDetailCard item={calItem} onClose={() => setCalItem(null)} />
+        ) : (
+          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
+            Selecciona una cita o tarea en el calendario para ver su detalle aquí.
+          </div>
+        )}
+      </div>
+      <div
+        onMouseDown={() => { vdrag.current = true; document.body.style.userSelect = "none"; }}
+        className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-b border-border bg-muted/30 hover:bg-primary/20"
+        title="Arrastra para repartir el espacio"
+      >
+        <span className="h-0.5 w-8 rounded-full bg-border group-hover:bg-primary" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{body}</div>
+    </div>
+  );
+
+  const panel = onCalendar ? calendarBody : onEstados ? tasksBody : body;
 
   if (variant === "mobile") {
     return <div className="h-full w-full bg-background">{panel}</div>;
