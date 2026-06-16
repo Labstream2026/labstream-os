@@ -4,9 +4,17 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
 import { calTone, emitCalendarDetail, emitCalendarCreate } from "./calendar-detail";
+import { moveMyEvent } from "./actions";
 
 const HOUR_H = 44; // alto en px de cada hora
+const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTemplateColumns)
+const SNAP = 15; // minutos de imantado al arrastrar
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function fmtMin(min: number): string {
+  const h = Math.floor(min / 60), m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function localDateStr(d: Date): string { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
@@ -51,10 +59,25 @@ function layoutDay(timed: { it: CalItem; topMin: number; endMin: number }[]): Po
   return out;
 }
 
+type Drag = {
+  id: string; eventId: string; mode: "move" | "resize";
+  startY: number; origTopMin: number; origDur: number; origDayIndex: number;
+  gridLeft: number; colW: number; moved: boolean;
+};
+type Live = { dayIndex: number; topMin: number; endMin: number; moved: boolean };
+
 export function WeekView({ items, onSelect, canCreate = false }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean }) {
   const [anchor, setAnchor] = React.useState(() => new Date());
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const gridRef = React.useRef<HTMLDivElement>(null);
+  const [, startMove] = React.useTransition();
+
+  // Estado de arrastre (mover/redimensionar) y su previsualización flotante.
+  const [drag, setDrag] = React.useState<Drag | null>(null);
+  const [preview, setPreview] = React.useState<Live | null>(null);
+  const liveRef = React.useRef<Live | null>(null);
+  const suppressClick = React.useRef(false);
 
   const weekStart = startOfWeek(anchor);
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -74,6 +97,56 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
   // Al desmontar (salir del calendario o cambiar de vista), limpia el detalle del dock.
   React.useEffect(() => () => emitCalendarDetail(null), []);
 
+  // Arranca un arrastre (mover el bloque o redimensionar por el borde inferior).
+  const beginDrag = (e: React.MouseEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize") => {
+    if (e.button !== 0 || !p.it.canEdit || !p.it.eventId || !gridRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = gridRef.current.getBoundingClientRect();
+    const colW = (rect.width - GUTTER) / 7;
+    const init: Live = { dayIndex, topMin: p.topMin, endMin: p.endMin, moved: false };
+    liveRef.current = init;
+    setPreview(init);
+    setDrag({ id: p.it.id, eventId: p.it.eventId, mode, startY: e.clientY, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false });
+  };
+
+  // Mientras hay arrastre: seguir el puntero (snap 15 min) y, al soltar, guardar.
+  React.useEffect(() => {
+    if (!drag) return;
+    const onMove = (e: MouseEvent) => {
+      const dyMin = Math.round(((e.clientY - drag.startY) / HOUR_H * 60) / SNAP) * SNAP;
+      let dayIndex = drag.origDayIndex, topMin = drag.origTopMin, endMin = drag.origTopMin + drag.origDur;
+      if (drag.mode === "move") {
+        topMin = Math.max(0, Math.min(1440 - drag.origDur, drag.origTopMin + dyMin));
+        endMin = topMin + drag.origDur;
+        dayIndex = Math.max(0, Math.min(6, Math.floor((e.clientX - drag.gridLeft) / drag.colW)));
+      } else {
+        endMin = Math.max(drag.origTopMin + SNAP, Math.min(1440, drag.origTopMin + drag.origDur + dyMin));
+      }
+      const moved = dyMin !== 0 || dayIndex !== drag.origDayIndex;
+      const live: Live = { dayIndex, topMin, endMin, moved };
+      liveRef.current = live;
+      setPreview(live);
+    };
+    const onUp = () => {
+      const live = liveRef.current;
+      const d = drag;
+      setDrag(null);
+      setPreview(null);
+      if (!live || !live.moved) return;
+      suppressClick.current = true; // evita que el click posterior re-seleccione
+      const base = days[live.dayIndex];
+      const ns = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
+      ns.setMinutes(live.topMin);
+      const ne = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
+      ne.setMinutes(live.endMin);
+      startMove(() => { void moveMyEvent(d.eventId, ns.toISOString(), ne.toISOString()); });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [drag, days, startMove]);
+
   // Clasifica cada item por día: cronometrado (evento con hora) vs todo-el-día (tareas, rodajes, eventos all-day).
   const parsed = items.map((it) => {
     const start = new Date(it.start ?? it.date);
@@ -81,6 +154,8 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
     const timed = it.kind === "event" && !it.allDay && !Number.isNaN(start.getTime());
     return { it, start, end, timed };
   });
+
+  const dragItem = drag ? parsed.find((p) => p.it.id === drag.id)?.it : null;
 
   const monthLabel = new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(weekStart);
   const shift = (weeks: number) => setAnchor((a) => { const d = new Date(a); d.setDate(d.getDate() + weeks * 7); return d; });
@@ -139,8 +214,8 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
           </div>
 
           {/* Rejilla de horas (scroll, llena el alto disponible) */}
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))", height: 24 * HOUR_H }}>
+          <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", drag && "select-none")}>
+            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))", height: 24 * HOUR_H }}>
               {/* Columna de horas */}
               <div className="relative">
                 {hours.map((h) => (
@@ -150,7 +225,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
                 ))}
               </div>
               {/* Columnas de días */}
-              {days.map((d) => {
+              {days.map((d, dayIndex) => {
                 const dayTimed = parsed
                   .filter((p) => p.timed && sameDay(p.start, d))
                   .map((p) => {
@@ -180,19 +255,63 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
                       const top = (p.topMin / 60) * HOUR_H;
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       const tiny = height < 30; // bloques muy cortos: una sola línea
+                      const draggable = Boolean(p.it.canEdit && p.it.eventId);
+                      const isDragging = drag?.id === p.it.id;
                       return (
-                        <button key={p.it.id} onClick={(e) => { e.stopPropagation(); select(p.it); }}
-                          className={cn("absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
+                        <button
+                          key={p.it.id}
+                          onMouseDown={draggable ? (e) => beginDrag(e, p, dayIndex, "move") : undefined}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (suppressClick.current) { suppressClick.current = false; return; }
+                            select(p.it);
+                          }}
+                          className={cn(
+                            "group absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md",
+                            selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "",
+                            draggable && "cursor-grab active:cursor-grabbing",
+                            isDragging && "opacity-40",
+                          )}
                           style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.solid, color: "#fff" }}
-                          title={p.it.title}>
+                          title={draggable ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : p.it.title}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
+                          {draggable ? (
+                            <span
+                              onMouseDown={(e) => beginDrag(e, p, dayIndex, "resize")}
+                              className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100"
+                              style={{ background: "rgba(255,255,255,0.35)" }}
+                            />
+                          ) : null}
                         </button>
                       );
                     })}
                   </div>
                 );
               })}
+
+              {/* Previsualización flotante mientras se arrastra/redimensiona */}
+              {drag && preview && dragItem ? (
+                (() => {
+                  const t = calTone(dragItem.kind);
+                  const top = (preview.topMin / 60) * HOUR_H;
+                  const height = Math.max(18, ((preview.endMin - preview.topMin) / 60) * HOUR_H);
+                  return (
+                    <div
+                      className="pointer-events-none absolute z-30 flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-[11px] leading-tight text-white shadow-lg ring-2 ring-white/70"
+                      style={{
+                        top, height,
+                        left: `calc(${GUTTER}px + ${preview.dayIndex} * ((100% - ${GUTTER}px) / 7) + 2px)`,
+                        width: `calc((100% - ${GUTTER}px) / 7 - 4px)`,
+                        background: t.solid,
+                      }}
+                    >
+                      <span className="truncate font-semibold">{dragItem.title}</span>
+                      <span className="truncate text-white/90">{fmtMin(preview.topMin)}–{fmtMin(preview.endMin)}</span>
+                    </div>
+                  );
+                })()
+              ) : null}
             </div>
           </div>
       </div>

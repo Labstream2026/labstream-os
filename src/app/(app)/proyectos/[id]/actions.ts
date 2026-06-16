@@ -12,6 +12,7 @@ import { notify, notifyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
+import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string | null) {
@@ -241,6 +242,126 @@ export async function setTaskShootDate(taskId: string, _projectId: string, formD
     entityType: "task",
     entityId: taskId,
   });
+  refresh(projectId);
+}
+
+// ── Cronograma (Gantt) + seguimiento de horas ──
+
+// Fija inicio y/o entrega a la vez (lo usa el arrastre/redimensionado de las barras).
+// Semántica por campo: ausente → no se toca; "" → se borra; valor → se fija.
+export async function setTaskDates(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar las fechas.");
+  const data: { startDate?: Date | null; dueDate?: Date | null } = {};
+  const sRaw = formData.get("startDate");
+  const dRaw = formData.get("dueDate");
+  if (sRaw !== null) data.startDate = String(sRaw).trim() ? noonUTC(String(sRaw).trim()) : null;
+  if (dRaw !== null) data.dueDate = String(dRaw).trim() ? noonUTC(String(dRaw).trim()) : null;
+  if (Object.keys(data).length === 0) return;
+  await db.task.update({ where: { id: taskId }, data });
+  const session = await getSession();
+  if (task!.assigneeId && task!.assigneeId !== session?.id) {
+    await notifyAndEmail(task!.assigneeId, {
+      type: "task",
+      title: `Fechas de «${task!.title}»`,
+      body: "Se actualizaron las fechas de la tarea en el cronograma.",
+      link: projectId ? `/proyectos/${projectId}?tab=cronograma` : "/mis-tareas",
+    });
+  }
+  const parts: string[] = [];
+  if ("startDate" in data) parts.push(data.startDate ? `inicio ${dayKey(data.startDate)}` : "sin inicio");
+  if ("dueDate" in data) parts.push(data.dueDate ? `entrega ${dayKey(data.dueDate)}` : "sin entrega");
+  await logActivity({ action: "task.dates", summary: `ajustó fechas de «${task!.title}» (${parts.join(", ")})`, projectId, entityType: "task", entityId: taskId });
+  revalidatePath("/timeline");
+  refresh(projectId);
+}
+
+// Fija/limpia las horas estimadas de la tarea.
+export async function setTaskEstimate(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const raw = String(formData.get("hours") ?? "").trim();
+  const estimatedMinutes = raw ? parseHoursToMinutes(raw) : null;
+  if (raw && estimatedMinutes == null) throw new Error("Horas inválidas");
+  await db.task.update({ where: { id: taskId }, data: { estimatedMinutes } });
+  await logActivity({
+    action: "task.estimate",
+    summary: estimatedMinutes ? `estimó «${task!.title}» en ${minutesToHours(estimatedMinutes)} h` : `quitó la estimación de «${task!.title}»`,
+    projectId,
+    entityType: "task",
+    entityId: taskId,
+  });
+  refresh(projectId);
+}
+
+// Registra horas reales trabajadas (parte de horas). Cualquiera con acceso imputa las suyas.
+export async function logTime(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const session = await getSession();
+  const minutes = parseHoursToMinutes(String(formData.get("hours") ?? ""));
+  if (!minutes || minutes <= 0) throw new Error("Horas inválidas");
+  const note = String(formData.get("note") ?? "").trim().slice(0, 300) || null;
+  const dayRaw = String(formData.get("spentOn") ?? "").trim();
+  const spentOn = dayRaw ? noonUTC(dayRaw) : noonUTC(todayKey());
+  await db.timeEntry.create({ data: { taskId, userId: session?.id ?? null, minutes, note, spentOn } });
+  await logActivity({ action: "task.time", summary: `registró ${minutesToHours(minutes)} h en «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+}
+
+export async function deleteTimeEntry(entryId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const entry = await db.timeEntry.findUnique({ where: { id: entryId }, select: { userId: true, task: { select: { projectId: true } } } });
+  if (!entry) return;
+  if (!(session.role === "admin" || entry.userId === session.id)) throw new Error("No autorizado");
+  await db.timeEntry.delete({ where: { id: entryId } });
+  refresh(entry.task.projectId);
+}
+
+export type TimeEntryItem = {
+  id: string;
+  minutes: number;
+  note: string | null;
+  spentOn: string;
+  user: { name: string; initials: string | null; color: string | null } | null;
+  mine: boolean;
+};
+
+export async function getTaskTimeEntries(taskId: string): Promise<TimeEntryItem[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  await ensureAccessVia(task);
+  const session = await getSession();
+  const rows = await db.timeEntry.findMany({
+    where: { taskId },
+    orderBy: { spentOn: "desc" },
+    include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    minutes: r.minutes,
+    note: r.note,
+    spentOn: r.spentOn.toISOString(),
+    user: r.user ? { name: r.user.name, initials: r.user.initials, color: r.user.avatarColor } : null,
+    mine: r.user?.id === session?.id,
+  }));
+}
+
+// Fechas del proyecto (inicio/entrega) — alimentan el cronograma global. Editable desde
+// el arrastre de la barra del proyecto en /timeline.
+export async function setProjectDates(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
+  const data: { startDate?: Date | null; dueDate?: Date | null } = {};
+  const sRaw = formData.get("startDate");
+  const dRaw = formData.get("dueDate");
+  if (sRaw !== null) data.startDate = String(sRaw).trim() ? noonUTC(String(sRaw).trim()) : null;
+  if (dRaw !== null) data.dueDate = String(dRaw).trim() ? noonUTC(String(dRaw).trim()) : null;
+  if (Object.keys(data).length === 0) return;
+  await db.project.update({ where: { id: projectId }, data });
+  await logActivity({ action: "project.dates", summary: `ajustó las fechas del proyecto`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/timeline");
+  revalidatePath("/proyectos");
   refresh(projectId);
 }
 

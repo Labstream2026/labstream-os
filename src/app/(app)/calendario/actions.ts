@@ -134,6 +134,23 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   revalidatePath("/calendario");
 }
 
+// Reubica/redimensiona una cita creada por mí (arrastrar en la vista semanal).
+// Solo cambia inicio/fin y re-sincroniza con Synology; no toca asistentes ni notifica.
+export async function moveMyEvent(eventId: string, startIso: string, endIso: string | null): Promise<void> {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true } });
+  if (!event) return;
+  if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return;
+  const end = endIso ? new Date(endIso) : null;
+  if (end && (Number.isNaN(end.getTime()) || end <= start)) return;
+  await db.calendarEvent.update({ where: { id: eventId }, data: { start, end } });
+  await pushEventToParticipants(eventId);
+  revalidatePath("/calendario");
+}
+
 // Borra una cita creada por mí (y la quita de los Synology donde se escribió).
 export async function deleteMyEvent(eventId: string): Promise<void> {
   const session = await getSession();

@@ -90,6 +90,7 @@ model User {
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
+  timeEntries        TimeEntry[]        @relation("TimeEntryUser")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -706,8 +707,14 @@ model Task {
   status        String          @default("PENDIENTE")
   stage         String? // columna del tablero (fase de producción); null = primera columna
   priority      String          @default("MEDIA")
+  // Inicio planificado: con dueDate define la barra del cronograma (Gantt). Si solo hay
+  // dueDate, la tarea se dibuja como hito de un día; si solo hay startDate, igual.
+  startDate     DateTime?
   dueDate       DateTime?
   shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
+  // Horas estimadas de trabajo (en minutos, para evitar floats). Alimenta el seguimiento
+  // estimado vs real del cronograma. El tiempo real se registra en TimeEntry.
+  estimatedMinutes Int?
   // Cuándo se marcó como terminada (estado isDone). Conserva la primera marca y se
   // borra si la tarea vuelve a un estado abierto. Permite listar "Completadas".
   completedAt   DateTime?
@@ -729,6 +736,7 @@ model Task {
   isPrivate     Boolean         @default(false)
   checklist     ChecklistItem[]
   comments      TaskComment[]
+  timeEntries   TimeEntry[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -736,6 +744,28 @@ model Task {
   @@index([assigneeId])
   @@index([deliverableId])
   @@index([completedAt])
+  // El cronograma (por proyecto y global) filtra/ordena tareas por fechas.
+  @@index([dueDate])
+  @@index([startDate])
+}
+
+// Registro de tiempo real trabajado en una tarea (parte de horas). La suma por tarea
+// y por proyecto se compara contra `Task.estimatedMinutes` en el cronograma.
+model TimeEntry {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  // Quién imputó las horas. SetNull para conservar el registro si se borra el usuario.
+  user      User?    @relation("TimeEntryUser", fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?
+  minutes   Int // duración imputada (minutos)
+  note      String? // descripción opcional de lo trabajado
+  spentOn   DateTime // día al que se imputa el tiempo (anclado a mediodía UTC)
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([spentOn])
 }
 
 // Comentario/nota en una tarea (hilo de conversación de la tarea).
