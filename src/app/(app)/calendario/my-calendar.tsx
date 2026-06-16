@@ -3,13 +3,25 @@
 import { useMemo, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 
+type Person = { name: string; initials: string | null; color: string | null };
+
 export type CalItem = {
   id: string;
   title: string;
-  date: string; // ISO
-  kind: "event" | "task";
-  time?: string | null; // "HH:mm" para eventos
+  date: string; // ISO (inicio) — usado por la vista mensual
+  kind: "event" | "task" | "shoot";
+  time?: string | null; // "HH:mm" del inicio (eventos con hora)
   projectName?: string | null;
+  // ── Campos para la vista semanal y el panel de detalle (opcionales) ──
+  start?: string; // ISO de inicio (si difiere de date)
+  end?: string | null; // ISO de fin
+  endTime?: string | null; // "HH:mm" del fin
+  allDay?: boolean;
+  projectEmoji?: string | null;
+  assignee?: Person | null;
+  attendees?: Person[];
+  link?: string | null;
+  description?: string | null;
 };
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
