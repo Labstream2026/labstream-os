@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
+import { canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { mimeFor } from "@/lib/storage";
 import { saveBufferWithPreview } from "@/lib/image";
@@ -537,7 +537,8 @@ export async function addDeliverableVersion(
 ) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canAccessProject(deliverable.project, session)) throw new Error("No autorizado");
+  // Escritura (no solo lectura): un invitado GUEST no puede subir versiones.
+  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({

@@ -27,6 +27,24 @@ export async function connectCalendar(formData: FormData): Promise<CalendarConnR
   if (!/^https?:\/\//i.test(serverUrl)) return { ok: false, error: "La URL del NAS debe empezar por http(s)://" };
   if (!username || !password) return { ok: false, error: "Faltan usuario o contraseña." };
 
+  // Anti-SSRF: el servidor hace PROPFIND/REPORT contra serverUrl. Validamos el host.
+  // Siempre se bloquea el endpoint de metadata de la nube; si CALDAV_ALLOWED_HOSTS está
+  // configurado, solo se permiten esos hosts (recomendado: el del NAS).
+  let host: string;
+  try {
+    host = new URL(serverUrl).hostname.toLowerCase();
+  } catch {
+    return { ok: false, error: "URL del servidor inválida." };
+  }
+  if (host === "169.254.169.254" || host === "metadata.google.internal") {
+    return { ok: false, error: "Host no permitido." };
+  }
+  const allowed = (process.env.CALDAV_ALLOWED_HOSTS || "")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (allowed.length && !allowed.includes(host)) {
+    return { ok: false, error: `El servidor CalDAV solo puede ser: ${allowed.join(", ")}.` };
+  }
+
   const test = await testConnection({ serverUrl, username, password });
   if (!test.ok) return { ok: false, error: test.error };
 

@@ -1,6 +1,7 @@
 "use server";
 
 import crypto from "node:crypto";
+import sanitizeHtml from "sanitize-html";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -27,13 +28,29 @@ async function nextCode(): Promise<string> {
   return `PROP-${String(count + 1).padStart(4, "0")}`;
 }
 
-// Sanea la lista de bloques que llega del editor (defensa básica de tamaño/forma).
+// Allowlist estricta para el HTML de los bloques de texto. Se sanea AL GUARDAR (no solo
+// al renderizar) porque el resultado se sirve en el portal PÚBLICO del cliente con
+// dangerouslySetInnerHTML → defensa real contra XSS almacenado.
+const HTML_OPTS: sanitizeHtml.IOptions = {
+  allowedTags: ["p", "br", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "a", "h1", "h2", "h3", "h4", "blockquote", "span"],
+  allowedAttributes: { a: ["href", "target", "rel"] },
+  allowedSchemes: ["http", "https", "mailto"],
+  transformTags: { a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer", target: "_blank" }) },
+};
+
+// Sanea la lista de bloques del editor: valida tamaño/forma y limpia el HTML de los
+// campos de texto (`body`) con una allowlist real.
 function sanitizeBlocks(raw: unknown): Block[] {
   if (!Array.isArray(raw)) throw new Error("Bloques inválidos");
   if (raw.length > 100) throw new Error("Demasiados bloques");
   const json = JSON.stringify(raw);
   if (json.length > 500_000) throw new Error("Propuesta demasiado grande");
-  return raw as Block[];
+  const blocks = raw as Block[];
+  for (const b of blocks) {
+    const rec = b as unknown as Record<string, unknown>;
+    if (typeof rec.body === "string") rec.body = sanitizeHtml(rec.body, HTML_OPTS);
+  }
+  return blocks;
 }
 
 export async function createProposal(
