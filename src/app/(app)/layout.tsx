@@ -100,6 +100,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
       canWiki={showWiki}
+      canBiblioteca={hasPermission(session, "ver_biblioteca")}
       clients={clients.map((c) => ({
         id: c.id,
         name: c.name,

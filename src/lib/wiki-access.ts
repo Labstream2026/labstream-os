@@ -11,6 +11,8 @@ export async function canSeeWiki(session: SessionUser | null): Promise<boolean> 
   if (!session) return false;
   if (session.role === "admin") return true; // el admin siempre
   if (GUEST_ROLES.includes(session.role)) return false;
+  // Permiso ver_wiki: el admin puede quitarle la Wiki a un rol/usuario concreto.
+  if (!session.perms.includes("ver_wiki")) return false;
   const u = await db.user.findUnique({ where: { id: session.id }, select: { isGuest: true } });
   return !u?.isGuest;
 }

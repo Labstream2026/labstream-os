@@ -49,8 +49,8 @@ export async function updateWikiPage(id: string, formData: FormData): Promise<vo
   const section = String(formData.get("section") ?? "").trim() || null;
   const tags = parseTags(String(formData.get("tags") ?? ""));
   await db.wikiPage.update({ where: { id }, data: { title, icon, content, section, tags } });
-  revalidatePath(`/wiki/${id}`);
   revalidatePath("/wiki");
+  redirect(`/wiki/${id}`); // tras guardar, volver al modo lectura
 }
 
 // Asigna (o quita) el dueño responsable de una página.

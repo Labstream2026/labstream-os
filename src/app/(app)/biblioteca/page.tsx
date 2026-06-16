@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getSession, hasPermission } from "@/lib/auth";
 import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
 import { ExternalLink, Trash2, Library, Server } from "lucide-react";
 import { CopyText } from "@/components/actions/copy-text";
@@ -10,6 +12,10 @@ export const dynamic = "force-dynamic";
 const CATEGORIES = ["Música", "Logos", "Stock", "Plantillas", "Fuentes", "Marca"];
 
 export default async function BibliotecaPage() {
+  // Acceso a la Biblioteca por permiso (el backfill se lo da al equipo; los clientes no).
+  const session = await getSession();
+  if (!hasPermission(session, "ver_biblioteca")) redirect("/");
+
   const assets = await db.libraryAsset.findMany({
     orderBy: [{ category: "asc" }, { createdAt: "desc" }],
     include: { uploadedBy: { select: { name: true } } },

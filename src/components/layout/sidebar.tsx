@@ -64,6 +64,7 @@ export function Sidebar({
   canAdmin,
   canQuotes,
   canWiki = true,
+  canBiblioteca = true,
   collapsed = false,
   chatUnread = 0,
   onNavigate,
@@ -74,6 +75,7 @@ export function Sidebar({
   canAdmin: boolean;
   canQuotes?: boolean;
   canWiki?: boolean;
+  canBiblioteca?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   onNavigate?: () => void;
@@ -312,7 +314,7 @@ export function Sidebar({
             {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
             {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
-            {navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca"))}
+            {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
           </>
         ) : null}
       </div>
