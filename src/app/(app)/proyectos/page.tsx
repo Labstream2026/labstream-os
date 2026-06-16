@@ -9,9 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "./[id]/view-tabs";
-import { ProjectsCalendar, type CalProject } from "./projects-calendar";
 import { ProjectColorPicker } from "./project-color-picker";
 import { ProjectsBoard, type BoardClient } from "./projects-board";
+import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { createMyEvent } from "@/app/(app)/calendario/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -40,16 +42,34 @@ export default async function ProyectosPage() {
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
   const flat = clients.flatMap((c) => c.projects.map((p) => ({ ...p, clientName: c.name, clientEmoji: c.emoji })));
 
-  const calProjects: CalProject[] = flat.map((p) => ({
-    id: p.id,
-    name: p.name,
-    emoji: p.emoji,
-    color: p.color,
-    clientName: p.clientName,
-    startDate: p.startDate ? p.startDate.toISOString() : null,
-    dueDate: p.dueDate ? p.dueDate.toISOString() : null,
-    deliverables: p.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate ? d.dueDate.toISOString() : null })),
-  }));
+  // Calendario del portafolio: citas + tareas de los proyectos visibles + reuniones
+  // del equipo (sin proyecto). Mismo board colaborativo que la pestaña Calendario.
+  const visibleProjectIds = flat.map((p) => p.id);
+  const safeIds = visibleProjectIds.length ? visibleProjectIds : ["__none__"];
+  const calWindowStart = new Date(new Date().setMonth(new Date().getMonth() - 1));
+  const [overviewEvents, overviewTasks, calTeam] = await Promise.all([
+    db.calendarEvent.findMany({
+      where: { start: { gte: calWindowStart }, OR: [{ projectId: { in: safeIds } }, { projectId: null }] },
+      include: {
+        project: { select: { name: true, emoji: true } },
+        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+        guests: { select: { email: true } },
+      },
+    }),
+    db.task.findMany({
+      where: { projectId: { in: safeIds }, OR: [{ dueDate: { gte: calWindowStart } }, { shootDate: { gte: calWindowStart } }] },
+      select: {
+        id: true, title: true, dueDate: true, shootDate: true,
+        project: { select: { id: true, name: true, emoji: true } },
+        assignee: { select: { name: true, initials: true, avatarColor: true } },
+      },
+    }),
+    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
+  ]);
+  const overviewCalItems = [
+    ...overviewEvents.map((e) => eventToCalItem(e, session?.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
+    ...overviewTasks.flatMap((t) => taskToCalItems(t)),
+  ];
 
   // Vista Tablero (cards por cliente; vertical u horizontal — ProjectsBoard)
   const boardClients: BoardClient[] = clients.map((c) => ({
@@ -135,7 +155,18 @@ export default async function ProyectosPage() {
           views={[
             { key: "tablero", label: "Tablero", icon: "🗂️", node: board },
             { key: "lista", label: "Lista", icon: "☰", node: list },
-            { key: "calendario", label: "Calendario", icon: "📅", node: <ProjectsCalendar projects={calProjects} /> },
+            {
+              key: "calendario", label: "Calendario", icon: "📅",
+              node: (
+                <div className="h-[72vh]">
+                  <CalendarBoard
+                    items={overviewCalItems}
+                    onCreate={createMyEvent}
+                    team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                  />
+                </div>
+              ),
+            },
           ]}
         />
       </div>

@@ -2,10 +2,20 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { UserAvatar } from "@/components/user-avatar";
 import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
 import { type TimelineUnit } from "@/lib/timeline";
 import { setProjectDates } from "../proyectos/[id]/actions";
 
+export type GTTask = {
+  id: string;
+  title: string;
+  startKey: string | null;
+  endKey: string | null;
+  done: boolean;
+  progress: number;
+  assignee: { initials: string | null; color: string | null } | null;
+};
 export type GTProject = {
   id: string;
   name: string;
@@ -14,6 +24,7 @@ export type GTProject = {
   colorHex: string;
   progress: number;
   editable: boolean;
+  tasks: GTTask[];
 };
 export type GTClient = { id: string; label: string; colorHex?: string; projects: GTProject[] };
 export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string };
@@ -64,7 +75,23 @@ export function GlobalTimeline({ clients, milestones }: { clients: GTClient[]; m
             progress: p.progress,
             done: p.progress >= 100,
             editable: p.editable,
+            // El clic en el nombre despliega las tareas; el clic en la barra abre el proyecto.
             onClick: () => router.push(`/proyectos/${p.id}?tab=cronograma`),
+            children: p.tasks.map(
+              (t) =>
+                ({
+                  id: `${p.id}:${t.id}`,
+                  label: t.title,
+                  startKey: t.startKey,
+                  endKey: t.endKey,
+                  colorHex: p.colorHex,
+                  progress: t.progress,
+                  done: t.done,
+                  editable: false,
+                  badge: t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.color} size="sm" /> : undefined,
+                  onClick: () => router.push(`/proyectos/${p.id}?tab=cronograma`),
+                }) satisfies TLBar,
+            ),
           }) satisfies TLBar,
       ),
     });

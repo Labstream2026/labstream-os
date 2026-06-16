@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type TimelineUnit,
@@ -30,6 +30,10 @@ export type TLBar = {
   sublabel?: string;
   editable?: boolean;
   onClick?: () => void;
+  // Filas hijas (p. ej. tareas de un proyecto). Si las hay, la fila muestra un chevron
+  // y al desplegar se ven debajo, indentadas.
+  children?: TLBar[];
+  defaultExpanded?: boolean;
 };
 
 export type TLMilestone = {
@@ -97,6 +101,20 @@ export function TimelineGrid({
   const [draft, setDraft] = React.useState<{ id: string; offsetDays: number; spanDays: number } | null>(null);
   const dragRef = React.useRef<DragState | null>(null);
 
+  // Expansión de filas con hijos (proyecto → tareas).
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const lane of lanes) for (const b of lane.bars ?? []) if (b.defaultExpanded) s.add(b.id);
+    return s;
+  });
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   const scrollRef = React.useRef<HTMLDivElement>(null);
   // Centrar en "hoy" al montar / cambiar zoom.
   React.useEffect(() => {
@@ -138,6 +156,99 @@ export function TimelineGrid({
       onBarChange(d.id, { startKey, endKey });
     }
     setDraft(null);
+  }
+
+  // Renderiza la fila de una barra y, si está expandida, sus hijas indentadas.
+  function renderBar(bar: TLBar, depth: number): React.ReactNode[] {
+    const span = barSpan(bar.startKey, bar.endKey, startNum);
+    const useDraft = draft && draft.id === bar.id ? draft : null;
+    const offsetDays = useDraft ? useDraft.offsetDays : span?.offsetDays ?? 0;
+    const spanDays = useDraft ? useDraft.spanDays : span?.spanDays ?? 1;
+    const left = offsetDays * dayWidth;
+    const width = Math.max(spanDays * dayWidth, 12);
+    const hex = bar.colorHex;
+    const hasChildren = !!(bar.children && bar.children.length);
+    const isOpen = expanded.has(bar.id);
+    const rows: React.ReactNode[] = [];
+    rows.push(
+      <div key={bar.id} className="flex border-b border-border/40" style={{ height: ROW_H }}>
+        <div
+          className="sticky left-0 z-20 flex shrink-0 items-center gap-1 border-r border-border bg-card pr-3"
+          style={{ width: LABEL_W, paddingLeft: 8 + depth * 14 }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggleExpand(bar.id)}
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+              title={isOpen ? "Contraer" : "Expandir tareas"}
+            >
+              {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          {bar.badge}
+          <button
+            type="button"
+            onClick={hasChildren ? () => toggleExpand(bar.id) : bar.onClick}
+            className="min-w-0 flex-1 truncate text-left text-xs hover:text-primary"
+            title={bar.label}
+          >
+            {bar.label}
+          </button>
+          {bar.sublabel ? <span className="shrink-0 text-[10px] text-muted-foreground">{bar.sublabel}</span> : null}
+        </div>
+        <div className="relative" style={{ width: trackW }}>
+          {span ? (
+            <div
+              onClick={(e) => { if (!dragRef.current) bar.onClick?.(); e.stopPropagation(); }}
+              onPointerDown={(e) => onPointerDown(e, bar, "move", offsetDays, spanDays)}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              className={cn(
+                "group absolute top-1/2 flex -translate-y-1/2 items-center overflow-hidden rounded-md border",
+                bar.editable && onBarChange ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+              )}
+              style={{
+                left,
+                width,
+                height: BAR_H,
+                backgroundColor: bar.done ? hex : `${hex}22`,
+                borderColor: `${hex}99`,
+                touchAction: "none",
+              }}
+            >
+              {!bar.done && bar.progress ? (
+                <div className="absolute inset-y-0 left-0" style={{ width: `${Math.min(100, bar.progress)}%`, backgroundColor: `${hex}55` }} />
+              ) : null}
+              {bar.editable && onBarChange ? (
+                <>
+                  <span
+                    onPointerDown={(e) => onPointerDown(e, bar, "resizeStart", offsetDays, spanDays)}
+                    className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100"
+                    style={{ backgroundColor: hex }}
+                  />
+                  <span
+                    onPointerDown={(e) => onPointerDown(e, bar, "resizeEnd", offsetDays, spanDays)}
+                    className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100"
+                    style={{ backgroundColor: hex }}
+                  />
+                </>
+              ) : null}
+              <span className={cn("relative z-[5] truncate px-2 text-[11px]", bar.done ? "text-white" : "text-foreground")}>
+                {bar.done ? <Check className="mr-0.5 inline size-3" /> : null}
+                {bar.label}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      </div>,
+    );
+    if (hasChildren && isOpen) {
+      for (const child of bar.children!) rows.push(...renderBar(child, depth + 1));
+    }
+    return rows;
   }
 
   const hasContent = lanes.some((l) => (l.bars?.length ?? 0) > 0 || (l.milestones?.length ?? 0) > 0);
@@ -292,81 +403,8 @@ export function TimelineGrid({
                     </div>
                   </div>
 
-                  {/* Filas de barras */}
-                  {(lane.bars ?? []).map((bar) => {
-                    const span = barSpan(bar.startKey, bar.endKey, startNum);
-                    const useDraft = draft && draft.id === bar.id ? draft : null;
-                    const offsetDays = useDraft ? useDraft.offsetDays : span?.offsetDays ?? 0;
-                    const spanDays = useDraft ? useDraft.spanDays : span?.spanDays ?? 1;
-                    const left = offsetDays * dayWidth;
-                    const width = Math.max(spanDays * dayWidth, 12);
-                    const hex = bar.colorHex;
-                    return (
-                      <div key={bar.id} className="flex border-b border-border/40" style={{ height: ROW_H }}>
-                        <div
-                          className="sticky left-0 z-20 flex shrink-0 items-center gap-1.5 border-r border-border bg-card px-3"
-                          style={{ width: LABEL_W }}
-                        >
-                          {bar.badge}
-                          <button
-                            type="button"
-                            onClick={bar.onClick}
-                            className="min-w-0 flex-1 truncate text-left text-xs hover:text-primary"
-                            title={bar.label}
-                          >
-                            {bar.label}
-                          </button>
-                          {bar.sublabel ? <span className="shrink-0 text-[10px] text-muted-foreground">{bar.sublabel}</span> : null}
-                        </div>
-                        <div className="relative" style={{ width: trackW }}>
-                          {span ? (
-                            <div
-                              onClick={(e) => { if (!dragRef.current) bar.onClick?.(); e.stopPropagation(); }}
-                              onPointerDown={(e) => onPointerDown(e, bar, "move", offsetDays, spanDays)}
-                              onPointerMove={onPointerMove}
-                              onPointerUp={onPointerUp}
-                              className={cn(
-                                "group absolute top-1/2 flex -translate-y-1/2 items-center overflow-hidden rounded-md border",
-                                bar.editable && onBarChange ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-                              )}
-                              style={{
-                                left,
-                                width,
-                                height: BAR_H,
-                                backgroundColor: bar.done ? hex : `${hex}22`,
-                                borderColor: `${hex}99`,
-                                touchAction: "none",
-                              }}
-                            >
-                              {/* Relleno de progreso */}
-                              {!bar.done && bar.progress ? (
-                                <div className="absolute inset-y-0 left-0" style={{ width: `${Math.min(100, bar.progress)}%`, backgroundColor: `${hex}55` }} />
-                              ) : null}
-                              {/* Asas de redimensionado */}
-                              {bar.editable && onBarChange ? (
-                                <>
-                                  <span
-                                    onPointerDown={(e) => onPointerDown(e, bar, "resizeStart", offsetDays, spanDays)}
-                                    className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100"
-                                    style={{ backgroundColor: hex }}
-                                  />
-                                  <span
-                                    onPointerDown={(e) => onPointerDown(e, bar, "resizeEnd", offsetDays, spanDays)}
-                                    className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100"
-                                    style={{ backgroundColor: hex }}
-                                  />
-                                </>
-                              ) : null}
-                              <span className={cn("relative z-[5] truncate px-2 text-[11px]", bar.done ? "text-white" : "text-foreground")}>
-                                {bar.done ? <Check className="mr-0.5 inline size-3" /> : null}
-                                {bar.label}
-                              </span>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {/* Filas de barras (con hijos expandibles) */}
+                  {(lane.bars ?? []).flatMap((bar) => renderBar(bar, 0))}
                 </div>
               ))}
             </div>

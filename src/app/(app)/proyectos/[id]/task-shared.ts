@@ -12,6 +12,9 @@ export type Task = {
   startDate?: Date | string | null;
   estimatedMinutes?: number | null;
   loggedMinutes?: number; // suma de TimeEntry.minutes
+  // La barra cuenta desde la creación de la tarea; completedAt marca el cierre real.
+  createdAt?: Date | string | null;
+  completedAt?: Date | string | null;
   assigneeId: string | null;
   assignee: { initials: string | null; avatarColor: string | null } | null;
   checklist: ChecklistItem[];

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
 import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
-import { type TimelineUnit, dayKey, minutesToHours, resolveSpan, minMaxKeys } from "@/lib/timeline";
+import { type TimelineUnit, dayKey, minutesToHours, taskLifeSpan, minMaxKeys } from "@/lib/timeline";
 import { tone, type LabelRow } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { TaskDetail } from "./task-detail";
@@ -26,7 +26,6 @@ export function ProjectTimeline({
   priorities,
   canEdit,
   projectStart,
-  projectEnd,
 }: {
   projectId: string;
   tasks: Task[];
@@ -72,9 +71,8 @@ export function ProjectTimeline({
     ...tasks.flatMap((t) => [dayKey(t.startDate ?? null), dayKey(t.dueDate ?? null)]),
     ...deliverables.map((d) => dayKey(d.dueDate ?? null)),
   ];
-  const { min: derivedStart, max: derivedEnd } = minMaxKeys(allKeys);
+  const { min: derivedStart } = minMaxKeys(allKeys);
   const projStartKey = dayKey(projectStart) ?? derivedStart;
-  const projEndKey = dayKey(projectEnd) ?? derivedEnd;
 
   function onBarChange(taskId: string, dates: { startKey: string; endKey: string }) {
     const fd = new FormData();
@@ -83,12 +81,17 @@ export function ProjectTimeline({
     startTransition(() => { void setTaskDates(taskId, projectId, fd); });
   }
 
-  // Convierte una tarea con fechas en una barra continua del Gantt.
+  // Convierte una tarea en una barra continua del Gantt. Cuenta desde su creación
+  // (o su inicio) hasta su entrega/finalización/hoy, así toda tarea aparece y se ve avanzar.
   function toBar(t: Task): TLBar | null {
-    const rawStart = dayKey(t.startDate ?? null);
-    const rawEnd = dayKey(t.dueDate ?? null);
-    if (!rawStart && !rawEnd) return null;
-    const { startKey, endKey } = resolveSpan(rawStart, rawEnd, projStartKey, projEndKey);
+    const { startKey, endKey } = taskLifeSpan({
+      startDate: t.startDate ?? null,
+      dueDate: t.dueDate ?? null,
+      createdAt: t.createdAt ?? null,
+      completedAt: t.completedAt ?? null,
+      fallbackStart: projStartKey,
+    });
+    if (!startKey && !endKey) return null;
     const done = doneKeys.has(t.status);
     const total = t.checklist.length;
     const checked = t.checklist.filter((c) => c.done).length;
@@ -143,9 +146,6 @@ export function ProjectTimeline({
     if (bars.length) lanes.push({ key: "__tasks", label: "Tareas", bars });
   }
 
-  // Tareas sin ninguna fecha → se listan para poder programarlas.
-  const undated = tasks.filter((t) => !t.startDate && !t.dueDate && !t.shootDate);
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -176,26 +176,6 @@ export function ProjectTimeline({
         onBarChange={canEdit ? onBarChange : undefined}
         emptyHint="Ninguna tarea o entregable tiene fechas todavía. Asigna una fecha de inicio o entrega a tus tareas para verlas aquí."
       />
-
-      {undated.length > 0 ? (
-        <div className="rounded-xl border border-border bg-card p-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            {undated.length} tarea{undated.length === 1 ? "" : "s"} sin fechas — clic para programar
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {undated.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setSelected(t)}
-                className="rounded-full border border-border bg-background px-2.5 py-1 text-xs hover:bg-muted"
-              >
-                {t.title}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       {selected ? (
         <TaskDetail

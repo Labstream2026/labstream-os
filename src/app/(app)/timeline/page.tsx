@@ -2,7 +2,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { tone } from "@/lib/colors";
-import { dayKey, resolveSpan, minMaxKeys } from "@/lib/timeline";
+import { getTaskLabels } from "@/lib/workflow-labels";
+import { dayKey, resolveSpan, minMaxKeys, taskLifeSpan } from "@/lib/timeline";
 import { GlobalTimeline, type GTClient, type GTMilestone } from "./global-timeline";
 
 export const dynamic = "force-dynamic";
@@ -15,28 +16,36 @@ const accessSelect = { isPrivate: true, leadId: true, members: { select: { userI
 export default async function TimelinePage() {
   const session = await getSession();
 
-  const projects = await db.project.findMany({
-    orderBy: [{ clientId: "asc" }, { createdAt: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      emoji: true,
-      color: true,
-      progress: true,
-      startDate: true,
-      dueDate: true,
-      ...accessSelect,
-      client: { select: { id: true, name: true, emoji: true } },
-      deliverables: { where: { dueDate: { not: null } }, select: { id: true, name: true, dueDate: true } },
-      // Todas las tareas con alguna fecha: para derivar el rango del proyecto (barra
-      // continua) y para los hitos de rodaje.
-      tasks: {
-        where: { OR: [{ shootDate: { not: null } }, { startDate: { not: null } }, { dueDate: { not: null } }] },
-        select: { id: true, title: true, startDate: true, dueDate: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true },
+  const [projects, taskLabels] = await Promise.all([
+    db.project.findMany({
+      orderBy: [{ clientId: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        emoji: true,
+        color: true,
+        progress: true,
+        startDate: true,
+        dueDate: true,
+        ...accessSelect,
+        client: { select: { id: true, name: true, emoji: true } },
+        deliverables: { where: { dueDate: { not: null } }, select: { id: true, name: true, dueDate: true } },
+        // TODAS las tareas: cada una cuenta desde su creación y se despliega bajo el proyecto.
+        tasks: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true, title: true, status: true, startDate: true, dueDate: true, shootDate: true,
+            createdAt: true, completedAt: true, isPrivate: true, ownerId: true, assigneeId: true,
+            assignee: { select: { initials: true, avatarColor: true } },
+            checklist: { select: { done: true } },
+          },
+        },
       },
-    },
-  });
+    }),
+    getTaskLabels(),
+  ]);
 
+  const doneKeys = new Set(taskLabels.statuses.filter((s) => s.isDone).map((s) => s.key));
   const accessible = projects.filter((p) => canAccessProject(p, session));
 
   // Agrupar proyectos por cliente.
@@ -54,12 +63,32 @@ export default async function TimelinePage() {
       lane = { id: p.client.id, label: `${p.client.emoji ?? "📁"} ${p.client.name}`, projects: [] };
       clientMap.set(p.client.id, lane);
     }
-    // Barra continua del proyecto: usa sus fechas propias; el extremo que falte se
-    // deriva del mín/máx de las fechas de sus tareas y entregas.
-    const childKeys = [
-      ...p.tasks.flatMap((t) => [dayKey(t.startDate), dayKey(t.dueDate), dayKey(t.shootDate)]),
-      ...p.deliverables.map((d) => dayKey(d.dueDate)),
-    ];
+
+    // Tareas visibles del proyecto (respeta privacidad) → filas hijas, cada una con su
+    // ciclo de vida (desde creación hasta entrega/finalización/hoy).
+    const childKeys: (string | null)[] = [];
+    const tasks = p.tasks
+      .filter((t) => !t.isPrivate || mine(t))
+      .map((t) => {
+        const { startKey, endKey } = taskLifeSpan(t);
+        childKeys.push(startKey, endKey);
+        const done = doneKeys.has(t.status);
+        const total = t.checklist.length;
+        const checked = t.checklist.filter((c) => c.done).length;
+        const progress = done ? 100 : total ? Math.round((checked / total) * 100) : 0;
+        return {
+          id: t.id,
+          title: t.title,
+          startKey,
+          endKey,
+          done,
+          progress,
+          assignee: t.assignee ? { initials: t.assignee.initials, color: t.assignee.avatarColor } : null,
+        };
+      });
+
+    // Barra continua del proyecto: sus fechas propias, o el rango de sus tareas/entregas.
+    for (const d of p.deliverables) childKeys.push(dayKey(d.dueDate));
     const { min: childMin, max: childMax } = minMaxKeys(childKeys);
     const span = resolveSpan(dayKey(p.startDate) ?? childMin, dayKey(p.dueDate) ?? childMax, childMin, childMax);
     lane.projects.push({
@@ -70,13 +99,14 @@ export default async function TimelinePage() {
       colorHex: hex,
       progress: p.progress,
       editable: canWriteProject(p, session),
+      tasks,
     });
-    // Entregas del proyecto.
+
+    // Entregas y rodajes como hitos del resumen superior.
     for (const d of p.deliverables) {
       const k = dayKey(d.dueDate);
       if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `${p.name} · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex });
     }
-    // Rodajes (respetando privacidad de tarea).
     for (const t of p.tasks) {
       if (t.isPrivate && !mine(t)) continue;
       const k = dayKey(t.shootDate);
