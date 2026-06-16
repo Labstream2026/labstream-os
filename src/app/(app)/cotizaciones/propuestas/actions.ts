@@ -1,5 +1,6 @@
 "use server";
 
+import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -7,6 +8,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { buildProposal } from "@/lib/proposals/templates";
 import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type BlockType } from "@/lib/proposals/types";
 import type { BudgetSection } from "@/lib/proposals/budget";
+import { saveBuffer, writeRelBuffer } from "@/lib/storage";
+import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -78,6 +81,34 @@ export async function saveProposalBlocks(id: string, blocks: unknown) {
   const clean = sanitizeBlocks(blocks);
   await db.proposal.update({ where: { id }, data: { blocks: clean as unknown as object } });
   refresh(id);
+}
+
+// Sube una imagen de la propuesta (portada, carrusel…) al NAS y devuelve una URL
+// PÚBLICA (las imágenes de una propuesta se ven en el portal del cliente sin sesión).
+const MAX_PROPOSAL_IMG = 8 * 1024 * 1024;
+export async function uploadProposalImage(proposalId: string, formData: FormData): Promise<{ url: string } | null> {
+  await requirePerm("crear_cotizaciones");
+  const file = formData.get("image");
+  if (!(file instanceof File) || file.size === 0) return null;
+  if (file.size > MAX_PROPOSAL_IMG) throw new Error("La imagen supera 8 MB");
+  if (!/^image\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(file.name)) {
+    throw new Error("El archivo no es una imagen");
+  }
+  // El proposalId solo puede ser un cuid (letras/números) para evitar rutas raras.
+  if (!/^[a-z0-9]+$/i.test(proposalId)) throw new Error("Propuesta inválida");
+  const buf = Buffer.from(await file.arrayBuffer());
+  const relDir = `proposal/${proposalId}`;
+  let filename: string;
+  // Optimiza a WebP (lado largo ≤ 1600px); si falla (p. ej. HEIC sin soporte), guarda el original.
+  const webp = isOptimizableImage(file.name, file.type) ? await optimizeToWebp(buf, { maxEdge: 1600 }) : null;
+  if (webp) {
+    filename = `${crypto.randomUUID()}.webp`;
+    await writeRelBuffer(`${relDir}/${filename}`, webp);
+  } else {
+    const rel = await saveBuffer(relDir, `${crypto.randomUUID()}-${file.name}`, buf);
+    filename = rel.split("/").pop()!;
+  }
+  return { url: `/api/proposal-img/${proposalId}/${filename}` };
 }
 
 export async function updateProposalMeta(

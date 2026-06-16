@@ -54,17 +54,21 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function BlockView({ block, brand }: { block: Block; brand: Brand }) {
   const accent = brand.accent || "#6366f1";
   switch (block.type) {
-    case "hero":
+    case "hero": {
+      const bg = str(block.bg);
+      // Con imagen de fondo: la foto + un degradado oscuro encima para legibilidad.
+      // Sin imagen: degradado del color de acento.
+      const heroStyle: React.CSSProperties = bg
+        ? { backgroundImage: `linear-gradient(135deg, ${accent}cc, rgba(15,23,42,0.78)), url("${bg}")`, backgroundSize: "cover", backgroundPosition: "center" }
+        : { background: `linear-gradient(135deg, ${accent}, ${accent}cc 55%, #0f172a)` };
       return (
-        <header
-          className="overflow-hidden rounded-2xl px-6 py-14 text-center text-white sm:px-12 sm:py-20"
-          style={{ background: `linear-gradient(135deg, ${accent}, ${accent}cc 55%, #0f172a)` }}
-        >
+        <header className="overflow-hidden rounded-2xl px-6 py-14 text-center text-white sm:px-12 sm:py-20" style={heroStyle}>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{brand.company}</p>
           <h1 className="mx-auto mt-3 max-w-2xl text-3xl font-bold leading-tight sm:text-5xl">{str(block.title, "Propuesta")}</h1>
           {str(block.subtitle) ? <p className="mx-auto mt-4 max-w-xl text-base text-white/85 sm:text-lg">{str(block.subtitle)}</p> : null}
         </header>
       );
+    }
     case "text":
       return (
         <section className="space-y-3">

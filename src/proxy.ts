@@ -10,7 +10,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /review: portal de cliente (fase 5).
 // - /cotizacion: vista pública de cotización para el cliente (token firmado).
 // - /p: vista pública de una propuesta para el cliente (token firmado).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p"];
+// - /api/proposal-img: imágenes de propuesta (portada/carrusel) para el portal del cliente.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

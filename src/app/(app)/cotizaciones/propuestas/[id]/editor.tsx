@@ -192,7 +192,7 @@ export function ProposalEditor({
 
               {editing === i ? (
                 <div className="mt-3 rounded-xl border border-border bg-muted/30 p-4">
-                  <BlockEditPanel block={b} onChange={(nb) => updateBlock(i, nb)} />
+                  <BlockEditPanel block={b} proposalId={id} onChange={(nb) => updateBlock(i, nb)} />
                 </div>
               ) : null}
             </div>

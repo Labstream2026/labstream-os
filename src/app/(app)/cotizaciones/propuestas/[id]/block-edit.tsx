@@ -1,13 +1,54 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, X } from "lucide-react";
 import type { Block } from "@/lib/proposals/types";
 import { PAISES, MESES } from "@/lib/proposals/calendar";
 import { formatMoney } from "@/lib/ui";
 import { budgetTotals, type BudgetSection } from "@/lib/proposals/budget";
+import { uploadProposalImage } from "../actions";
 
 const inputCls = "w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
+
+// Campo de imagen: subir al NAS (devuelve URL pública) o pegar una URL externa.
+function ImageField({ label, value, onChange, proposalId }: { label: string; value: string; onChange: (v: string) => void; proposalId: string }) {
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  async function upload(file: File) {
+    setErr(null);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("image", file);
+      const res = await uploadProposalImage(proposalId, fd);
+      if (res?.url) onChange(res.url);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo subir");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="block text-sm">
+      <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
+      {value ? (
+        <div className="relative mb-1.5 w-fit">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={value} alt="" className="max-h-24 rounded-md border border-border object-cover" />
+          <button type="button" onClick={() => onChange("")} className="absolute -right-2 -top-2 flex size-5 items-center justify-center rounded-full bg-background shadow ring-1 ring-border" title="Quitar"><X className="size-3" /></button>
+        </div>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />} Subir
+          <input type="file" accept="image/*" className="hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+        </label>
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="o pega una URL…" className={inputCls} />
+      </div>
+      {err ? <span className="mt-0.5 block text-[11px] text-destructive">{err}</span> : null}
+    </div>
+  );
+}
 
 function Field({ label, value, onChange, area }: { label: string; value: string; onChange: (v: string) => void; area?: boolean }) {
   return (
@@ -22,7 +63,7 @@ function Field({ label, value, onChange, area }: { label: string; value: string;
   );
 }
 
-type FieldDef = { key: string; label: string; area?: boolean; num?: boolean };
+type FieldDef = { key: string; label: string; area?: boolean; num?: boolean; image?: boolean };
 
 // Editor de una lista de objetos (tarjetas, pasos, ítems, etc.).
 function ObjList({
@@ -31,12 +72,14 @@ function ObjList({
   onChange,
   addLabel,
   blank,
+  proposalId,
 }: {
   items: Record<string, unknown>[];
   fields: FieldDef[];
   onChange: (items: Record<string, unknown>[]) => void;
   addLabel: string;
   blank: Record<string, unknown>;
+  proposalId?: string;
 }) {
   const set = (i: number, key: string, v: unknown) => onChange(items.map((it, idx) => (idx === i ? { ...it, [key]: v } : it)));
   const remove = (i: number) => onChange(items.filter((_, idx) => idx !== i));
@@ -47,13 +90,17 @@ function ObjList({
         <div key={i} className="rounded-lg border border-border bg-muted/20 p-2.5">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {fields.map((f) => (
-              <div key={f.key} className={f.area ? "sm:col-span-2" : ""}>
-                <Field
-                  label={f.label}
-                  area={f.area}
-                  value={String(it[f.key] ?? "")}
-                  onChange={(v) => set(i, f.key, f.num ? Number(v) || 0 : v)}
-                />
+              <div key={f.key} className={f.area || f.image ? "sm:col-span-2" : ""}>
+                {f.image && proposalId ? (
+                  <ImageField label={f.label} proposalId={proposalId} value={String(it[f.key] ?? "")} onChange={(v) => set(i, f.key, v)} />
+                ) : (
+                  <Field
+                    label={f.label}
+                    area={f.area}
+                    value={String(it[f.key] ?? "")}
+                    onChange={(v) => set(i, f.key, f.num ? Number(v) || 0 : v)}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -163,7 +210,7 @@ function PlanEditor({ block, patch }: { block: Block; patch: (k: string, v: unkn
 }
 
 // Panel de edición según el tipo de bloque. Muta una copia y llama onChange.
-export function BlockEditPanel({ block, onChange }: { block: Block; onChange: (b: Block) => void }) {
+export function BlockEditPanel({ block, onChange, proposalId }: { block: Block; onChange: (b: Block) => void; proposalId: string }) {
   const patch = (k: string, v: unknown) => onChange({ ...block, [k]: v });
   const items = (Array.isArray(block.items) ? block.items : []) as Record<string, unknown>[];
 
@@ -173,6 +220,7 @@ export function BlockEditPanel({ block, onChange }: { block: Block; onChange: (b
         <div className="space-y-3">
           <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
           <Field label="Subtítulo" value={String(block.subtitle || "")} onChange={(v) => patch("subtitle", v)} area />
+          <ImageField label="Imagen de fondo (opcional)" proposalId={proposalId} value={String(block.bg || "")} onChange={(v) => patch("bg", v)} />
         </div>
       );
     case "text":
@@ -276,8 +324,8 @@ export function BlockEditPanel({ block, onChange }: { block: Block; onChange: (b
         <div className="space-y-3">
           <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
           <Field label="Subtítulo" value={String(block.sub || "")} onChange={(v) => patch("sub", v)} />
-          <ObjList items={items} onChange={(it) => patch("items", it)} addLabel="Añadir slide" blank={{ img: "", t: "Slide", d: "Descripción." }}
-            fields={[{ key: "img", label: "URL de imagen" }, { key: "t", label: "Título" }, { key: "d", label: "Descripción", area: true }]} />
+          <ObjList items={items} proposalId={proposalId} onChange={(it) => patch("items", it)} addLabel="Añadir slide" blank={{ img: "", t: "Slide", d: "Descripción." }}
+            fields={[{ key: "img", label: "Imagen", image: true }, { key: "t", label: "Título" }, { key: "d", label: "Descripción", area: true }]} />
         </div>
       );
     case "acc":
