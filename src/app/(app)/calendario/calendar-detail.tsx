@@ -1,7 +1,10 @@
 "use client";
 
+import * as React from "react";
+import { Pencil, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import type { CalItem } from "./my-calendar";
+import { deleteMyEvent } from "./actions";
 
 // Color por tipo. `bar` = acento sólido, `bg` = relleno tenue (franja todo-el-día
 // y detalle), `solid` = relleno saturado para los bloques cronometrados estilo
@@ -12,11 +15,20 @@ export function calTone(kind: CalItem["kind"], shoot?: boolean) {
   return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)", solid: "#f59e0b", soft: "rgba(245,158,11,0.18)" };
 }
 
-// Evento de selección del calendario: la vista semanal lo emite y el panel derecho
-// (dock) lo escucha para mostrar el detalle arriba. Misma ventana, payload directo.
-export const CAL_DETAIL_EVENT = "calendar:detail";
+// Eventos de ventana para comunicar el calendario (rejilla) con el panel derecho
+// (dock) y con el modal de crear/editar que vive en CalendarBoard.
+export const CAL_DETAIL_EVENT = "calendar:detail"; // seleccionar → mostrar detalle
+export const CAL_EDIT_EVENT = "calendar:edit"; // pedir editar una cita
+export const CAL_CREATE_EVENT = "calendar:create"; // pedir crear en un día/hora
+
 export function emitCalendarDetail(item: CalItem | null) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CAL_DETAIL_EVENT, { detail: item }));
+}
+export function emitCalendarEdit(item: CalItem) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CAL_EDIT_EVENT, { detail: item }));
+}
+export function emitCalendarCreate(date: string, time?: string) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CAL_CREATE_EVENT, { detail: { date, time } }));
 }
 
 // Tarjeta de detalle de una cita/tarea/rodaje. Se usa en el panel derecho del calendario.
@@ -57,7 +69,40 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
         {item.link ? (
           <a href={item.link} className="inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Abrir</a>
         ) : null}
+        {item.canEdit && item.eventId ? <EventControls item={item} onClose={onClose} /> : null}
       </div>
+    </div>
+  );
+}
+
+// Botones Editar / Eliminar para citas creadas por el usuario actual (eventos app).
+function EventControls({ item, onClose }: { item: CalItem; onClose?: () => void }) {
+  const [confirming, setConfirming] = React.useState(false);
+  const [pending, start] = React.useTransition();
+  return (
+    <div className="flex items-center gap-2 border-t border-border pt-3">
+      <button
+        onClick={() => emitCalendarEdit(item)}
+        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+      >
+        <Pencil className="size-4" /> Editar
+      </button>
+      {confirming ? (
+        <button
+          onClick={() => start(async () => { await deleteMyEvent(item.eventId!); onClose?.(); })}
+          disabled={pending}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-destructive px-3 py-2 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60"
+        >
+          <Trash2 className="size-4" /> {pending ? "Borrando…" : "Confirmar"}
+        </button>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="size-4" /> Eliminar
+        </button>
+      )}
     </div>
   );
 }

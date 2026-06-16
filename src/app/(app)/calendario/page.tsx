@@ -62,6 +62,9 @@ export default async function CalendarioPage() {
   const items: CalItem[] = [
     ...events.map((e) => ({
       id: `e-${e.id}`,
+      eventId: e.id,
+      canEdit: e.createdById === session?.id && e.source === "app",
+      attendeeIds: e.attendees.map((a) => a.userId),
       title: e.title,
       date: e.start.toISOString(),
       start: e.start.toISOString(),

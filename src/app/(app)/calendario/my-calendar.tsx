@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { emitCalendarCreate, emitCalendarDetail } from "./calendar-detail";
 
 type Person = { name: string; initials: string | null; color: string | null };
 export type TeamMember = { id: string; name: string; initials: string | null; color: string | null };
@@ -23,6 +24,10 @@ export type CalItem = {
   attendees?: Person[];
   link?: string | null;
   description?: string | null;
+  // ── Edición (solo eventos creados en la app por el usuario actual) ──
+  eventId?: string; // id real del evento (sin prefijo)
+  canEdit?: boolean; // el usuario actual lo creó y es un evento de la app
+  attendeeIds?: string[]; // ids de los asistentes actuales
 };
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -38,20 +43,14 @@ function dayKey(d: string): string | null {
 // tareas con fecha de entrega. Base lista para sincronizar con Synology Calendar.
 export function MyCalendar({
   items,
-  onCreate,
-  team = [],
+  canCreate = false,
 }: {
   items: CalItem[];
-  onCreate?: (fd: FormData) => Promise<void>;
-  team?: TeamMember[];
+  canCreate?: boolean;
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [openDay, setOpenDay] = useState<string | null>(null);
-  const [selectedEv, setSelectedEv] = useState<CalItem | null>(null);
-  const [attendees, setAttendees] = useState<Set<string>>(new Set());
-  const [pending, start] = useTransition();
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalItem[]>();
@@ -98,8 +97,8 @@ export function MyCalendar({
           return (
             <div
               key={i}
-              onClick={() => { if (d && key && onCreate) setOpenDay(key); }}
-              className={cn("min-h-24 bg-card p-1.5", !d && "bg-muted/20", d && onCreate && "cursor-pointer hover:bg-muted/30")}
+              onClick={() => { if (d && key && canCreate) emitCalendarCreate(key); }}
+              className={cn("min-h-24 bg-card p-1.5", !d && "bg-muted/20", d && canCreate && "cursor-pointer hover:bg-muted/30")}
             >
               {d ? (
                 <>
@@ -109,7 +108,7 @@ export function MyCalendar({
                       <button
                         key={ev.id}
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setSelectedEv(ev); }}
+                        onClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
                         title={`${ev.title}${ev.projectName ? ` · ${ev.projectName}` : ""}`}
                         className={cn(
                           "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px]",
@@ -130,90 +129,8 @@ export function MyCalendar({
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-primary/40" /> Eventos / reuniones</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-amber-500/40" /> Tareas con entrega</span>
-        {onCreate ? <span className="ml-auto">Toca un día para crear una cita.</span> : null}
+        {canCreate ? <span className="ml-auto">Toca un día para crear una cita.</span> : null}
       </div>
-
-      {/* Crear cita al tocar un día */}
-      {openDay && onCreate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenDay(null)}>
-          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold">Nueva cita</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {new Date(`${openDay}T00:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                fd.set("date", openDay);
-                attendees.forEach((id) => fd.append("attendees", id));
-                start(() => onCreate(fd).then(() => { setOpenDay(null); setAttendees(new Set()); }));
-              }}
-              className="mt-3 space-y-2"
-            >
-              <input name="title" required autoFocus placeholder="Título de la cita" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              <div className="flex items-center gap-2">
-                <input name="time" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de inicio" />
-                <span className="text-muted-foreground">→</span>
-                <input name="endTime" type="time" className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de fin (opcional)" />
-                <span className="text-xs text-muted-foreground">(vacío = todo el día)</span>
-              </div>
-              <textarea name="description" rows={2} placeholder="Descripción / notas (opcional)" className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              {team.length > 0 ? (
-                <div>
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">Invitar a (les llega notificación y se les agrega a su calendario):</p>
-                  <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                    {team.map((m) => {
-                      const on = attendees.has(m.id);
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => setAttendees((prev) => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors",
-                            on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:bg-muted",
-                          )}
-                        >
-                          <span className="grid size-4 place-items-center rounded-full text-[9px] font-semibold text-white" style={{ background: m.color ?? "#6366f1" }}>{m.initials ?? m.name.slice(0, 1)}</span>
-                          {m.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => { setOpenDay(null); setAttendees(new Set()); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">Cancelar</button>
-                <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">{pending ? "Creando…" : "Crear"}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Resumen del evento/tarea (sin entrar), acentuado con su color */}
-      {selectedEv ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelectedEv(null)}>
-          <div className="w-full max-w-xs overflow-hidden rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <div className={cn("h-1.5 w-full", selectedEv.kind === "event" ? "bg-primary" : "bg-amber-500")} />
-            <div className="p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {selectedEv.kind === "event" ? "Cita / reunión" : "Tarea con entrega"}
-              </p>
-              <h3 className="mt-1 text-sm font-semibold">{selectedEv.kind === "event" ? "📅" : "✅"} {selectedEv.title}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(selectedEv.date).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
-                {selectedEv.time ? ` · ${selectedEv.time}` : ""}
-              </p>
-              {selectedEv.projectName ? <p className="mt-0.5 text-xs text-muted-foreground">🗂️ {selectedEv.projectName}</p> : null}
-              <div className="mt-3 flex justify-end">
-                <button type="button" onClick={() => setSelectedEv(null)} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">Cerrar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

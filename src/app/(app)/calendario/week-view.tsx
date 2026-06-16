@@ -3,10 +3,13 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { calTone, emitCalendarDetail } from "./calendar-detail";
+import { calTone, emitCalendarDetail, emitCalendarCreate } from "./calendar-detail";
 
 const HOUR_H = 44; // alto en px de cada hora
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+function localDateStr(d: Date): string { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 
 function startOfWeek(d: Date): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -48,7 +51,7 @@ function layoutDay(timed: { it: CalItem; topMin: number; endMin: number }[]): Po
   return out;
 }
 
-export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void }) {
+export function WeekView({ items, onSelect, canCreate = false }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean }) {
   const [anchor, setAnchor] = React.useState(() => new Date());
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -158,7 +161,18 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                 const positioned = layoutDay(dayTimed);
                 const isToday = sameDay(d, today);
                 return (
-                  <div key={d.toISOString()} className={cn("relative border-l border-border/40", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]")}>
+                  <div
+                    key={d.toISOString()}
+                    onClick={canCreate ? (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const y = e.clientY - rect.top;
+                      const minutes = Math.max(0, Math.min(1425, (y / HOUR_H) * 60));
+                      const hh = Math.floor(minutes / 60);
+                      const mm = (Math.round((minutes % 60) / 15) * 15) % 60;
+                      emitCalendarCreate(localDateStr(d), `${pad2(hh)}:${pad2(mm)}`);
+                    } : undefined}
+                    className={cn("relative border-l border-border/40", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
+                  >
                     {hours.map((h) => (<div key={h} style={{ height: HOUR_H }} className="border-b border-border/25" />))}
                     {isToday ? <NowLine /> : null}
                     {positioned.map((p) => {
@@ -167,7 +181,7 @@ export function WeekView({ items, onSelect }: { items: CalItem[]; onSelect?: (it
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       const tiny = height < 30; // bloques muy cortos: una sola línea
                       return (
-                        <button key={p.it.id} onClick={() => select(p.it)}
+                        <button key={p.it.id} onClick={(e) => { e.stopPropagation(); select(p.it); }}
                           className={cn("absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                           style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.solid, color: "#fff" }}
                           title={p.it.title}>

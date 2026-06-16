@@ -99,6 +99,23 @@ export async function removeEventFromParticipants(eventId: string): Promise<void
   }
 }
 
+// Quita el evento del Synology de ciertos usuarios (p. ej. asistentes retirados al
+// editar) y elimina sus referencias de sincronización.
+export async function removeEventForUsers(eventId: string, userIds: string[]): Promise<void> {
+  if (!userIds.length) return;
+  const refs = await db.eventSyncRef.findMany({
+    where: { eventId, userId: { in: userIds } },
+    include: { user: { include: { calendarConnection: true } } },
+  });
+  for (const ref of refs) {
+    const conn = ref.user.calendarConnection;
+    if (conn?.enabled) {
+      try { await deleteEvent(authOf(conn), ref.href); } catch { /* best-effort */ }
+    }
+  }
+  await db.eventSyncRef.deleteMany({ where: { eventId, userId: { in: userIds } } });
+}
+
 const WINDOW_BACK_DAYS = 31;
 const WINDOW_FWD_DAYS = 366;
 
