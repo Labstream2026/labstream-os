@@ -3,6 +3,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { buildIcs, type IcsAttendee } from "@/lib/ics";
 import { parseIcs, expandRecurrence } from "@/lib/ics-parse";
 import { putEvent, deleteEvent, queryEvents, type CalDavAuth } from "@/lib/caldav-client";
+import { emailEnabled, sendEmail } from "@/lib/email";
 import type { CalendarConnection } from "@prisma/client";
 
 // UID iCalendar estable para un evento de la app.
@@ -30,6 +31,7 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
     include: {
       attendees: { include: { user: { select: { id: true, name: true, email: true } } } },
       createdBy: { select: { id: true, name: true, email: true } },
+      guests: { select: { email: true, name: true } },
     },
   });
   if (!event) return;
@@ -41,7 +43,11 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
   for (const a of event.attendees) {
     if (a.user.email) participants.set(a.user.id, { name: a.user.name, email: a.user.email });
   }
-  const icsAttendees: IcsAttendee[] = [...participants.values()].map((p) => ({ email: p.email, name: p.name }));
+  // Lista de ATTENDEE para el .ics: internos + invitados externos (clientes).
+  const icsAttendees: IcsAttendee[] = [
+    ...[...participants.values()].map((p) => ({ email: p.email, name: p.name })),
+    ...event.guests.map((g) => ({ email: g.email, name: g.name ?? undefined })),
+  ];
   const conns = await activeConnections([...participants.keys()]);
   if (conns.size === 0) return;
 
@@ -80,6 +86,75 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
     }
   }
   await db.calendarEvent.update({ where: { id: eventId }, data: { syncedAt: new Date() } }).catch(() => {});
+}
+
+const dateLabel = (d: Date, allDay: boolean) =>
+  allDay
+    ? d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : d.toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+// Envía la invitación .ics (METHOD:REQUEST) por correo a los invitados externos
+// indicados (clientes, etc.). Si `onlyEmails` se pasa, solo a esos; si no, a todos.
+// Best-effort: nunca rompe el flujo. Devuelve cuántos correos salieron.
+export async function sendGuestInvites(eventId: string, onlyEmails?: string[]): Promise<number> {
+  if (!emailEnabled) return 0;
+  const event = await db.calendarEvent.findUnique({
+    where: { id: eventId },
+    include: {
+      createdBy: { select: { name: true, email: true } },
+      attendees: { include: { user: { select: { name: true, email: true } } } },
+      guests: { select: { email: true, name: true } },
+    },
+  });
+  if (!event) return 0;
+  const targets = onlyEmails
+    ? event.guests.filter((g) => onlyEmails.includes(g.email))
+    : event.guests;
+  if (targets.length === 0) return 0;
+
+  const uid = event.uid ?? appUid(event.id);
+  // Todos los participantes (internos + invitados) aparecen como ATTENDEE.
+  const allAttendees: IcsAttendee[] = [
+    ...event.attendees.filter((a) => a.user.email).map((a) => ({ email: a.user.email, name: a.user.name })),
+    ...event.guests.map((g) => ({ email: g.email, name: g.name ?? undefined })),
+  ];
+  const when = dateLabel(event.start, event.allDay) + (!event.allDay && event.end ? `–${event.end.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}` : "");
+  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]!));
+
+  let sent = 0;
+  for (const g of targets) {
+    const ics = buildIcs({
+      uid,
+      title: event.title,
+      start: event.start,
+      end: event.end ?? undefined,
+      allDay: event.allDay,
+      description: event.description ?? undefined,
+      location: event.location ?? undefined,
+      organizerName: event.createdBy?.name,
+      organizerEmail: event.createdBy?.email ?? undefined,
+      attendees: allAttendees,
+      method: "REQUEST",
+      sequence: 0,
+    });
+    const r = await sendEmail({
+      to: g.email,
+      from: event.createdBy?.email ? `${event.createdBy.name} <${event.createdBy.email}>` : undefined,
+      replyTo: event.createdBy?.email ?? undefined,
+      subject: `Invitación: ${event.title}`,
+      html:
+        `<p>Hola${g.name ? ` ${esc(g.name)}` : ""},</p>` +
+        `<p>Te invitamos a <b>${esc(event.title)}</b>.</p>` +
+        `<p><b>Cuándo:</b> ${esc(when)}</p>` +
+        (event.location ? `<p><b>Dónde / enlace:</b> ${esc(event.location)}</p>` : "") +
+        (event.description ? `<p>${esc(event.description)}</p>` : "") +
+        `<p>Adjuntamos la invitación de calendario (.ics) para que la agregues a tu calendario.</p>`,
+      text: `Invitación: ${event.title}\n${when}${event.location ? `\n${event.location}` : ""}\n\nAdjuntamos un .ics para tu calendario.`,
+      attachments: [{ filename: "invitacion.ics", content: ics, contentType: "text/calendar; method=REQUEST" }],
+    });
+    if (r.ok) sent++;
+  }
+  return sent;
 }
 
 // Borra el evento de la app de los calendarios Synology donde se escribió.

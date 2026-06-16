@@ -53,7 +53,24 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
           {item.time ? ` · ${item.time}${item.endTime ? `–${item.endTime}` : ""}` : item.allDay || item.kind !== "event" ? " · todo el día" : ""}
         </p>
         {item.projectName ? <p className="text-sm text-muted-foreground">{item.projectEmoji ?? "🗂️"} {item.projectName}</p> : null}
+        {item.location ? (
+          <p className="text-sm text-muted-foreground">
+            📍 {/^https?:\/\//.test(item.location)
+              ? <a href={item.location} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 break-all">{item.location}</a>
+              : item.location}
+          </p>
+        ) : null}
         {item.description ? <p className="whitespace-pre-wrap rounded-md bg-muted/40 p-2 text-sm text-foreground/90">{item.description}</p> : null}
+        {item.guests && item.guests.length > 0 ? (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Invitados externos</p>
+            <div className="flex flex-wrap gap-1.5">
+              {item.guests.map((g) => (
+                <span key={g} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">✉️ {g}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {people.length > 0 ? (
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">{item.kind === "event" ? "Asistentes" : "Responsable"}</p>

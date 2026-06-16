@@ -13,7 +13,12 @@ import {
   setTaskPriority,
   setTaskAssignee,
   setTaskDueDate,
+  setTaskDates,
   setTaskShootDate,
+  setTaskEstimate,
+  logTime,
+  deleteTimeEntry,
+  getTaskTimeEntries,
   deleteTask,
   toggleChecklistItem,
   addChecklistItem,
@@ -21,9 +26,12 @@ import {
   addTaskComment,
   deleteTaskComment,
   type TaskCommentItem,
+  type TimeEntryItem,
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { type LabelRow, labelOptions } from "@/lib/colors";
+import { formatMinutes, minutesToHours, todayKey } from "@/lib/timeline";
+import { cn } from "@/lib/utils";
 
 function timeAgo(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -131,13 +139,30 @@ export function TaskDetail({
                 ))}
               </select>
             </Field>
+            <Field label="🚦 Fecha de inicio">
+              <DateInput name="startDate" value={toDateInputValue(task.startDate ?? null)} action={setTaskDates.bind(null, task.id, projectId)} className="w-full" />
+            </Field>
             <Field label="📅 Fecha de entrega">
               <DateInput name="dueDate" value={toDateInputValue(task.dueDate)} action={setTaskDueDate.bind(null, task.id, projectId)} className="w-full" />
             </Field>
             <Field label="🎬 Fecha de rodaje">
               <DateInput name="shootDate" value={toDateInputValue(task.shootDate)} action={setTaskShootDate.bind(null, task.id, projectId)} className="w-full" />
             </Field>
+            <Field label="⏱ Horas estimadas">
+              <form action={setTaskEstimate.bind(null, task.id, projectId)}>
+                <input
+                  name="hours"
+                  defaultValue={task.estimatedMinutes ? minutesToHours(task.estimatedMinutes) : ""}
+                  placeholder="ej. 4 o 2:30"
+                  inputMode="decimal"
+                  onBlur={(e) => e.target.form?.requestSubmit()}
+                  className="w-full rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
+                />
+              </form>
+            </Field>
           </div>
+
+          <TimeTracking taskId={task.id} projectId={projectId} estimatedMinutes={task.estimatedMinutes ?? null} />
 
           {/* Checklist */}
           <div>
@@ -215,6 +240,111 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
       {children}
+    </div>
+  );
+}
+
+// Registro de horas (parte de horas) de la tarea: estimado vs real + alta/baja de partes.
+function TimeTracking({
+  taskId,
+  projectId,
+  estimatedMinutes,
+}: {
+  taskId: string;
+  projectId: string;
+  estimatedMinutes: number | null;
+}) {
+  const [entries, setEntries] = React.useState<TimeEntryItem[] | null>(null);
+  const [pending, start] = React.useTransition();
+  const formRef = React.useRef<HTMLFormElement>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    getTaskTimeEntries(taskId).then((e) => { if (alive) setEntries(e); }).catch(() => { if (alive) setEntries([]); });
+    return () => { alive = false; };
+  }, [taskId]);
+
+  const logged = (entries ?? []).reduce((n, e) => n + e.minutes, 0);
+  const pct = estimatedMinutes ? Math.min(100, Math.round((logged / estimatedMinutes) * 100)) : 0;
+  const over = estimatedMinutes != null && logged > estimatedMinutes;
+
+  function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    if (!String(fd.get("hours") ?? "").trim()) return;
+    start(async () => {
+      await logTime(taskId, projectId, fd);
+      form.reset();
+      setEntries(await getTaskTimeEntries(taskId));
+    });
+  }
+  function remove(id: string) {
+    start(async () => {
+      await deleteTimeEntry(id);
+      setEntries((prev) => (prev ?? []).filter((x) => x.id !== id));
+    });
+  }
+
+  return (
+    <div className="border-t border-border pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">⏱ Tiempo</p>
+        <p className="text-xs">
+          <span className={cn("font-semibold", over && "text-destructive")}>{formatMinutes(logged)}</span>
+          {estimatedMinutes ? <span className="text-muted-foreground"> / {formatMinutes(estimatedMinutes)}</span> : null}
+        </p>
+      </div>
+      {estimatedMinutes ? (
+        <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
+        </div>
+      ) : null}
+
+      <form ref={formRef} onSubmit={submit} className="flex flex-wrap items-end gap-2">
+        <input
+          name="hours"
+          placeholder="Horas (ej. 1.5)"
+          inputMode="decimal"
+          className="w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+        <input
+          type="date"
+          name="spentOn"
+          defaultValue={todayKey()}
+          className="rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+        <input
+          name="note"
+          placeholder="Nota (opcional)"
+          className="min-w-32 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+        />
+        <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          Registrar
+        </button>
+      </form>
+
+      <div className="mt-3 space-y-1.5">
+        {entries === null ? (
+          <p className="text-xs text-muted-foreground">Cargando…</p>
+        ) : entries.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Sin horas registradas todavía.</p>
+        ) : (
+          entries.map((e) => (
+            <div key={e.id} className="flex items-center gap-2 text-xs">
+              <UserAvatar initials={e.user?.initials ?? null} color={e.user?.color ?? null} size="sm" />
+              <span className="font-medium">{formatMinutes(e.minutes)}</span>
+              <span className="text-muted-foreground">{new Date(e.spentOn).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span>
+              {e.note ? <span className="min-w-0 flex-1 truncate text-muted-foreground">· {e.note}</span> : <span className="flex-1" />}
+              {e.mine ? (
+                <button onClick={() => remove(e.id)} title="Borrar" className="rounded p-1 text-muted-foreground hover:text-destructive">
+                  <Trash2 className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

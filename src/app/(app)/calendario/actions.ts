@@ -4,9 +4,16 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { notifyAndEmail } from "@/lib/notify";
-import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers } from "@/lib/calendar-sync";
+import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites } from "@/lib/calendar-sync";
 
 const APP_TZ_HINT = ""; // las fechas se interpretan en hora del servidor app
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Parsea el campo de invitados externos (correos separados por coma/espacio/línea).
+function parseGuestEmails(formData: FormData): string[] {
+  const raw = formData.getAll("guests").flatMap((v) => String(v).split(/[\s,;]+/)).map((s) => s.trim().toLowerCase());
+  return [...new Set(raw.filter((e) => EMAIL_RE.test(e)))];
+}
 
 // Crea una cita/reunión del equipo. Vive en la BD; si hay asistentes con Synology
 // conectado, se escribe en su calendario y se les notifica (app + correo).
@@ -18,8 +25,10 @@ export async function createMyEvent(formData: FormData): Promise<void> {
   const time = String(formData.get("time") ?? "").trim(); // HH:mm o ""
   const endTime = String(formData.get("endTime") ?? "").trim(); // HH:mm o ""
   const description = String(formData.get("description") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim(); // sala o enlace de Meet
   // Asistentes mencionados (ids de usuario), separados por coma o repetidos.
   const attendeeIds = formData.getAll("attendees").flatMap((v) => String(v).split(",")).map((s) => s.trim()).filter(Boolean);
+  const guestEmails = parseGuestEmails(formData);
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
 
   const allDay = !time;
@@ -38,12 +47,14 @@ export async function createMyEvent(formData: FormData): Promise<void> {
     data: {
       title,
       description: description || null,
+      location: location || null,
       start,
       end,
       allDay,
       source: "app",
       createdById: session.id,
       attendees: { create: [...validIds].map((userId) => ({ userId })) },
+      guests: { create: guestEmails.map((email) => ({ email })) },
     },
   });
   // UID estable para casar con Synology en ambos sentidos.
@@ -63,8 +74,9 @@ export async function createMyEvent(formData: FormData): Promise<void> {
     });
   }
 
-  // Escribir en los calendarios Synology conectados (best-effort).
+  // Escribir en los calendarios Synology conectados + enviar .ics a los externos.
   await pushEventToParticipants(event.id);
+  await sendGuestInvites(event.id);
   revalidatePath("/calendario");
 }
 
@@ -75,7 +87,7 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   if (!session) throw new Error("No autorizado");
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
-    select: { createdById: true, source: true, attendees: { select: { userId: true } } },
+    select: { createdById: true, source: true, attendees: { select: { userId: true } }, guests: { select: { email: true } } },
   });
   if (!event) return;
   if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
@@ -85,7 +97,9 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   const time = String(formData.get("time") ?? "").trim();
   const endTime = String(formData.get("endTime") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
+  const location = String(formData.get("location") ?? "").trim();
   const attendeeIds = formData.getAll("attendees").flatMap((v) => String(v).split(",")).map((s) => s.trim()).filter(Boolean);
+  const guestEmails = parseGuestEmails(formData);
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
 
   const allDay = !time;
@@ -103,13 +117,22 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   const removed = [...before].filter((id) => !desired.has(id));
   const added = [...desired].filter((id) => !before.has(id));
 
+  // Invitados externos: reconciliar (añadir nuevos, quitar los que ya no están).
+  const beforeGuests = new Set(event.guests.map((g) => g.email));
+  const addedGuests = guestEmails.filter((e) => !beforeGuests.has(e));
+  const removedGuests = [...beforeGuests].filter((e) => !guestEmails.includes(e));
+
   await db.calendarEvent.update({
     where: { id: eventId },
     data: {
-      title, description: description || null, start, end, allDay,
+      title, description: description || null, location: location || null, start, end, allDay,
       attendees: {
         deleteMany: removed.length ? { userId: { in: removed } } : undefined,
         create: added.map((userId) => ({ userId })),
+      },
+      guests: {
+        deleteMany: removedGuests.length ? { email: { in: removedGuests } } : undefined,
+        create: addedGuests.map((email) => ({ email })),
       },
     },
   });
@@ -117,6 +140,8 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   // Quitar de Synology a los retirados; re-escribir a los que quedan.
   if (removed.length) await removeEventForUsers(eventId, removed);
   await pushEventToParticipants(eventId);
+  // Enviar invitación .ics solo a los invitados externos nuevos.
+  if (addedGuests.length) await sendGuestInvites(eventId, addedGuests);
 
   // Notificar a los nuevos asistentes (no a uno mismo).
   const when = allDay

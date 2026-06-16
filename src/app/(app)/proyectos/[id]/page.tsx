@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { emailEnabled } from "@/lib/email";
 import { isEditableOffice } from "@/lib/onlyoffice";
-import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { DataTableView } from "@/components/tables/data-table";
 import { createTable } from "@/app/(app)/tablas/actions";
@@ -18,6 +18,7 @@ import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
 import { TasksCalendar } from "./tasks-calendar";
+import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
@@ -29,6 +30,7 @@ export const dynamic = "force-dynamic";
 const TABS = [
   { key: "resumen", label: "Resumen" },
   { key: "tareas", label: "Tareas" },
+  { key: "cronograma", label: "Cronograma" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
   { key: "tablas", label: "Tablas" },
@@ -57,6 +59,7 @@ export default async function ProyectoPage({
           include: {
             assignee: { select: { initials: true, avatarColor: true } },
             checklist: { orderBy: { position: "asc" } },
+            timeEntries: { select: { minutes: true } },
           },
         },
         deliverables: {
@@ -117,6 +120,24 @@ export default async function ProyectoPage({
     entregables: project.deliverables.length,
     archivos: project.folders.reduce((n, f) => n + f.files.length, 0) + project.files.length,
   };
+
+  // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
+  // de inicio, horas estimadas y reales para el seguimiento del Gantt).
+  const tasksData = project.tasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    stage: t.stage,
+    priority: t.priority,
+    shootDate: t.shootDate,
+    dueDate: t.dueDate,
+    startDate: t.startDate,
+    estimatedMinutes: t.estimatedMinutes,
+    loggedMinutes: t.timeEntries.reduce((n, e) => n + e.minutes, 0),
+    assigneeId: t.assigneeId,
+    assignee: t.assignee,
+    checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
+  }));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
@@ -187,18 +208,6 @@ export default async function ProyectoPage({
         ) : null}
         {tab === "tareas" ? (
           (() => {
-            const tasksData = project.tasks.map((t) => ({
-              id: t.id,
-              title: t.title,
-              status: t.status,
-              stage: t.stage,
-              priority: t.priority,
-              shootDate: t.shootDate,
-              dueDate: t.dueDate,
-              assigneeId: t.assigneeId,
-              assignee: t.assignee,
-              checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
-            }));
             return (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
@@ -230,6 +239,19 @@ export default async function ProyectoPage({
               </div>
             );
           })()
+        ) : null}
+        {tab === "cronograma" ? (
+          <ProjectTimeline
+            projectId={id}
+            tasks={tasksData}
+            stages={project.stages}
+            stageColors={(project.stageColors as Record<string, string> | null) ?? {}}
+            deliverables={project.deliverables.map((d) => ({ id: d.id, name: d.name, dueDate: d.dueDate, status: d.status }))}
+            team={team}
+            statuses={taskLabels.statuses}
+            priorities={taskLabels.priorities}
+            canEdit={canWriteProject(project, session)}
+          />
         ) : null}
         {tab === "entregables" ? (
           <DeliverablesPanel

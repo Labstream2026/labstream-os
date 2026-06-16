@@ -36,7 +36,9 @@ export function CalendarBoard({ items, onCreate, team = [] }: { items: CalItem[]
         time: it.allDay ? "" : localTime(start),
         endTime: end && !it.allDay ? localTime(end) : "",
         description: it.description ?? "",
+        location: it.location ?? "",
         attendeeIds: it.attendeeIds ?? [],
+        guests: it.guests ?? [],
       });
     };
     window.addEventListener(CAL_CREATE_EVENT, onCreateEv);

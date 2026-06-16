@@ -25,6 +25,7 @@ export default async function CalendarioPage() {
       include: {
         project: { select: { name: true, emoji: true, ...accessSelect } },
         attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+        guests: { select: { email: true } },
       },
     }),
     // TODAS las tareas del equipo con fecha de entrega o de rodaje (no solo las mías).
@@ -76,6 +77,8 @@ export default async function CalendarioPage() {
       projectName: e.project?.name ?? null,
       projectEmoji: e.project?.emoji ?? null,
       description: e.description,
+      location: e.location,
+      guests: e.guests.map((g) => g.email),
       attendees: e.attendees.map((a) => ({ name: a.user.name, initials: a.user.initials, color: a.user.avatarColor })),
       link: e.projectId ? `/proyectos/${e.projectId}` : null,
     })),

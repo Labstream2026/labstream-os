@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
-import { emitCalendarCreate, emitCalendarDetail } from "./calendar-detail";
+import { emitCalendarCreate, emitCalendarDetail, calTone } from "./calendar-detail";
+import { moveMyEvent } from "./actions";
 
 type Person = { name: string; initials: string | null; color: string | null };
 export type TeamMember = { id: string; name: string; initials: string | null; color: string | null };
@@ -24,6 +25,8 @@ export type CalItem = {
   attendees?: Person[];
   link?: string | null;
   description?: string | null;
+  location?: string | null; // sala o enlace de reunión (Meet/Zoom)
+  guests?: string[]; // correos de invitados externos
   // ── Edición (solo eventos creados en la app por el usuario actual) ──
   eventId?: string; // id real del evento (sin prefijo)
   canEdit?: boolean; // el usuario actual lo creó y es un evento de la app
@@ -51,6 +54,9 @@ export function MyCalendar({
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
+  const [overKey, setOverKey] = useState<string | null>(null);
+  const dragItem = useRef<CalItem | null>(null);
+  const [, startMove] = useTransition();
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalItem[]>();
@@ -75,10 +81,23 @@ export function MyCalendar({
   const prev = () => (month === 0 ? (setMonth(11), setYear((y) => y - 1)) : setMonth((m) => m - 1));
   const next = () => (month === 11 ? (setMonth(0), setYear((y) => y + 1)) : setMonth((m) => m + 1));
 
+  // Soltar una cita en otro día: conserva la hora, cambia la fecha.
+  const dropOnDay = (dayNum: number) => {
+    const it = dragItem.current;
+    dragItem.current = null;
+    setOverKey(null);
+    if (!it?.eventId || !it.canEdit) return;
+    const orig = new Date(it.start ?? it.date);
+    const ns = new Date(year, month, dayNum, orig.getHours(), orig.getMinutes(), 0, 0);
+    const dur = it.end ? new Date(it.end).getTime() - orig.getTime() : 0;
+    const ne = dur ? new Date(ns.getTime() + dur) : null;
+    startMove(() => { void moveMyEvent(it.eventId!, ns.toISOString(), ne ? ne.toISOString() : null); });
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{MONTHS[month]} {year}</h3>
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center justify-between pb-2">
+        <h3 className="text-sm font-semibold capitalize">{MONTHS[month]} {year}</h3>
         <div className="flex items-center gap-1">
           <button type="button" onClick={prev} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
           <button type="button" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
@@ -86,50 +105,78 @@ export function MyCalendar({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="bg-muted/40 px-2 py-1.5 text-center text-[11px] font-medium text-muted-foreground">{w}</div>
-        ))}
-        {cells.map((d, i) => {
-          const key = d ? `${year}-${pad(month + 1)}-${pad(d)}` : null;
-          const evs = key ? byDay.get(key) ?? [] : [];
-          const isToday = key === todayKey;
-          return (
-            <div
-              key={i}
-              onClick={() => { if (d && key && canCreate) emitCalendarCreate(key); }}
-              className={cn("min-h-24 bg-card p-1.5", !d && "bg-muted/20", d && canCreate && "cursor-pointer hover:bg-muted/30")}
-            >
-              {d ? (
-                <>
-                  <div className={cn("mb-1 inline-flex size-5 items-center justify-center rounded-full text-[11px]", isToday ? "bg-primary font-semibold text-primary-foreground" : "text-muted-foreground")}>{d}</div>
-                  <div className="space-y-1">
-                    {evs.map((ev) => (
-                      <button
-                        key={ev.id}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
-                        title={`${ev.title}${ev.projectName ? ` · ${ev.projectName}` : ""}`}
-                        className={cn(
-                          "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px]",
-                          ev.kind === "event" ? "bg-primary/15 text-foreground" : "bg-amber-500/15 text-foreground",
-                        )}
-                      >
-                        {ev.kind === "event" ? "📅" : "✅"} {ev.time ? `${ev.time} ` : ""}{ev.title}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          );
-        })}
+      {/* Rejilla a borde completo, sin tarjeta (estilo Notion) */}
+      <div className="overflow-hidden border-t border-border/50 bg-card">
+        <div className="grid grid-cols-7 border-b border-border/50">
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="py-2 text-center text-[11px] font-medium uppercase text-muted-foreground">{w}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7">
+          {cells.map((d, i) => {
+            const key = d ? `${year}-${pad(month + 1)}-${pad(d)}` : null;
+            const evs = key ? byDay.get(key) ?? [] : [];
+            const isToday = key === todayKey;
+            const isOver = key != null && overKey === key;
+            return (
+              <div
+                key={i}
+                onClick={() => { if (d && key && canCreate) emitCalendarCreate(key); }}
+                onDragOver={d ? (e) => { if (dragItem.current) { e.preventDefault(); if (key !== overKey) setOverKey(key); } } : undefined}
+                onDrop={d ? (e) => { e.preventDefault(); dropOnDay(d); } : undefined}
+                className={cn(
+                  "min-h-[104px] border-b border-l border-border/30 p-1 [&:nth-child(7n+1)]:border-l-0",
+                  !d && "bg-muted/20",
+                  isToday && "bg-rose-50/40 dark:bg-rose-500/[0.05]",
+                  isOver && "bg-primary/10 ring-1 ring-inset ring-primary/40",
+                  d && canCreate && "cursor-pointer hover:bg-muted/30",
+                )}
+              >
+                {d ? (
+                  <>
+                    <div className="mb-1 flex justify-start">
+                      <span className={cn(
+                        "inline-flex size-6 items-center justify-center rounded-md text-xs",
+                        isToday ? "bg-rose-500 font-semibold text-white" : "font-medium text-muted-foreground",
+                      )}>{d}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {evs.map((ev) => {
+                        const t = calTone(ev.kind, ev.kind === "shoot");
+                        const draggable = Boolean(ev.canEdit && ev.eventId);
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            draggable={draggable}
+                            onDragStart={draggable ? (e) => { dragItem.current = ev; e.dataTransfer.effectAllowed = "move"; } : undefined}
+                            onDragEnd={() => { dragItem.current = null; setOverKey(null); }}
+                            onClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
+                            title={`${ev.title}${ev.projectName ? ` · ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover" : ""}`}
+                            className={cn(
+                              "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",
+                              draggable && "cursor-grab active:cursor-grabbing",
+                            )}
+                            style={{ background: t.solid }}
+                          >
+                            {ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-primary/40" /> Eventos / reuniones</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-amber-500/40" /> Tareas con entrega</span>
-        {canCreate ? <span className="ml-auto">Toca un día para crear una cita.</span> : null}
+      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("event").solid }} /> Citas</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("task").solid }} /> Tareas</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("shoot").solid }} /> Rodajes</span>
+        {canCreate ? <span className="ml-auto">Toca un día para crear · arrastra una cita para moverla.</span> : null}
       </div>
     </div>
   );

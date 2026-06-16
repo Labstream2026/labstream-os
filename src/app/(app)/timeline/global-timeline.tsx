@@ -1,0 +1,82 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
+import { type TimelineUnit } from "@/lib/timeline";
+import { setProjectDates } from "../proyectos/[id]/actions";
+
+export type GTProject = {
+  id: string;
+  name: string;
+  startKey: string | null;
+  endKey: string | null;
+  colorHex: string;
+  progress: number;
+  editable: boolean;
+};
+export type GTClient = { id: string; label: string; colorHex?: string; projects: GTProject[] };
+export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string };
+
+export function GlobalTimeline({ clients, milestones }: { clients: GTClient[]; milestones: GTMilestone[] }) {
+  const router = useRouter();
+  const [unit, setUnit] = React.useState<TimelineUnit>("month");
+  const [, startTransition] = React.useTransition();
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem("timeline-unit");
+    if (saved === "day" || saved === "week" || saved === "month") setUnit(saved);
+  }, []);
+  function changeUnit(u: TimelineUnit) {
+    setUnit(u);
+    localStorage.setItem("timeline-unit", u);
+  }
+
+  function onBarChange(projectId: string, dates: { startKey: string; endKey: string }) {
+    const fd = new FormData();
+    fd.set("startDate", dates.startKey);
+    fd.set("dueDate", dates.endKey);
+    startTransition(() => { void setProjectDates(projectId, fd); });
+  }
+
+  const lanes: TLLane[] = [];
+  if (milestones.length) {
+    lanes.push({
+      key: "__milestones",
+      label: "Rodajes y entregas",
+      milestones: milestones.map((m) => ({ ...m } satisfies TLMilestone)),
+    });
+  }
+  for (const c of clients) {
+    if (!c.projects.length) continue;
+    lanes.push({
+      key: c.id,
+      label: c.label,
+      colorHex: c.colorHex,
+      bars: c.projects.map(
+        (p) =>
+          ({
+            id: p.id,
+            label: p.name,
+            startKey: p.startKey,
+            endKey: p.endKey,
+            colorHex: p.colorHex,
+            progress: p.progress,
+            done: p.progress >= 100,
+            editable: p.editable,
+            onClick: () => router.push(`/proyectos/${p.id}?tab=cronograma`),
+          }) satisfies TLBar,
+      ),
+    });
+  }
+
+  return (
+    <TimelineGrid
+      lanes={lanes}
+      unit={unit}
+      onUnitChange={changeUnit}
+      onBarChange={onBarChange}
+      emptyHint="Ningún proyecto tiene fechas de inicio o entrega. Asígnalas en cada proyecto para verlas aquí."
+    />
+  );
+}

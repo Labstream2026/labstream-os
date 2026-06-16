@@ -8,6 +8,10 @@ export type Task = {
   priority: string;
   shootDate: Date | string | null;
   dueDate: Date | string | null;
+  // Campos del cronograma (opcionales: las vistas tablero/lista/calendario no los usan).
+  startDate?: Date | string | null;
+  estimatedMinutes?: number | null;
+  loggedMinutes?: number; // suma de TimeEntry.minutes
   assigneeId: string | null;
   assignee: { initials: string | null; avatarColor: string | null } | null;
   checklist: ChecklistItem[];

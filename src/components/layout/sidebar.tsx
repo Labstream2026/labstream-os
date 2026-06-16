@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   LayoutTemplate,
   CalendarDays,
+  CalendarRange,
   FileText,
   Sparkles,
   Search,
@@ -52,6 +53,7 @@ const NAV = [
   { href: "/estados", label: "Chat del día", icon: MessageSquare },
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
+  { href: "/timeline", label: "Cronograma", icon: CalendarRange },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];

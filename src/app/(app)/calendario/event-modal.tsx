@@ -15,7 +15,9 @@ export type EventModalState =
       time: string;
       endTime: string;
       description: string;
+      location: string;
       attendeeIds: string[];
+      guests: string[];
     };
 
 // Modal único para crear o editar una cita: título, hora inicio/fin, descripción y
@@ -60,7 +62,18 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
             <input name="endTime" type="time" defaultValue={isEdit ? state.endTime : ""} className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de fin (opcional)" />
             <span className="text-xs text-muted-foreground">(vacío = todo el día)</span>
           </div>
+          <input name="location" placeholder="Lugar o enlace de reunión (Meet/Zoom)" defaultValue={isEdit ? state.location : ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <textarea name="description" rows={2} placeholder="Descripción / notas (opcional)" defaultValue={isEdit ? state.description : ""} className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Invitar por correo (clientes/externos)</label>
+            <textarea
+              name="guests" rows={2}
+              defaultValue={isEdit ? state.guests.join(", ") : ""}
+              placeholder="cliente@empresa.com, otra@correo.com"
+              className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Les llega un correo con la invitación de calendario (.ics) para añadirla a su agenda.</p>
+          </div>
           {team.length > 0 ? (
             <div>
               <p className="mb-1 text-xs font-medium text-muted-foreground">Invitar a (les llega notificación y se les agrega a su calendario):</p>

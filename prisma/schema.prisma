@@ -526,6 +526,7 @@ model CalendarEvent {
   // Última vez que se sincronizó (push o pull) — para diagnóstico.
   syncedAt    DateTime?
   externalRefs EventSyncRef[]
+  guests      EventGuest[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt @default(now())
 
@@ -557,6 +558,19 @@ model EventSyncRef {
 
   @@unique([eventId, userId])
   @@index([userId])
+}
+
+// Invitado EXTERNO a un evento (no es usuario de la app): cliente, proveedor, etc.
+// Se le envía la invitación .ics por correo y aparece como ATTENDEE en el evento.
+model EventGuest {
+  id      String        @id @default(cuid())
+  event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+  email   String
+  name    String?
+
+  @@unique([eventId, email])
+  @@index([eventId])
 }
 
 // Conexión CalDAV de un usuario con su Synology Calendar. Credenciales cifradas
