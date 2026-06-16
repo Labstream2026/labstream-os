@@ -141,6 +141,29 @@ export async function ensureRoleDefaults(): Promise<void> {
   }
 }
 
+// Concede los permisos de GESTIÓN (escritura) a los roles de producción la PRIMERA vez,
+// para que al activar los gates de escritura no se le quite la escritura a quien ya podía
+// (admin y gerente ya los tienen por el backfill). Aditivo e idempotente: si algún rol de
+// producción ya tiene un permiso de gestión, asume que ya corrió y no re-añade.
+const WRITE_GATE_PERMS = ["gestionar_biblioteca", "gestionar_calendario"];
+const PRODUCTION_ROLES = ["productor", "director", "editor", "camarografo", "disenador", "community"];
+export async function ensureWriteGateDefaults(): Promise<void> {
+  const already = await db.rolePermission.count({
+    where: { permission: { key: { in: WRITE_GATE_PERMS } }, role: { key: { in: PRODUCTION_ROLES } } },
+  });
+  if (already > 0) return;
+  const permIdByKey = new Map(
+    (await db.permission.findMany({ where: { key: { in: WRITE_GATE_PERMS } }, select: { id: true, key: true } })).map((p) => [p.key, p.id]),
+  );
+  const roles = await db.role.findMany({ where: { key: { in: PRODUCTION_ROLES } }, select: { id: true } });
+  const data: { roleId: string; permissionId: string }[] = [];
+  for (const r of roles) for (const k of WRITE_GATE_PERMS) {
+    const pid = permIdByKey.get(k);
+    if (pid) data.push({ roleId: r.id, permissionId: pid });
+  }
+  if (data.length) await db.rolePermission.createMany({ data, skipDuplicates: true });
+}
+
 // Roles creados por el seed: se marcan como del sistema (no eliminables). Idempotente.
 export const BUILTIN_ROLE_KEYS = [
   "admin", "gerente", "ventas", "productor", "director",

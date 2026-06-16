@@ -15,6 +15,8 @@ export default async function BibliotecaPage() {
   // Acceso a la Biblioteca por permiso (el backfill se lo da al equipo; los clientes no).
   const session = await getSession();
   if (!hasPermission(session, "ver_biblioteca")) redirect("/");
+  // Gestionar (añadir/borrar) requiere permiso aparte; ver es suficiente para mirar.
+  const canManage = hasPermission(session, "gestionar_biblioteca");
 
   const assets = await db.libraryAsset.findMany({
     orderBy: [{ category: "asc" }, { createdAt: "desc" }],
@@ -36,7 +38,9 @@ export default async function BibliotecaPage() {
         Recursos reutilizables del equipo: música, logos, stock, plantillas… {assets.length} elementos.
       </p>
 
-      {/* Añadir */}
+      {/* Añadir (solo gestores) */}
+      {canManage ? (
+      <>
       <form action={addLibraryAsset} className="mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">
         <input
           name="name"
@@ -79,6 +83,8 @@ export default async function BibliotecaPage() {
         </form>
         <p className="px-4 pb-3 text-xs text-muted-foreground">Pega la ruta tal cual la usas en Windows. Aparecerá con un botón &quot;Copiar&quot; para pegarla en el explorador.</p>
       </details>
+      </>
+      ) : null}
 
       {assets.length === 0 ? (
         <div className="mt-10 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
@@ -115,15 +121,17 @@ export default async function BibliotecaPage() {
                       </p>
                     </div>
                     {a.kind === "NAS" && a.url ? <CopyText text={a.url} /> : null}
-                    <form action={deleteLibraryAsset.bind(null, a.id)}>
-                      <ConfirmSubmit
-                        message={`¿Eliminar «${a.name}» de la biblioteca?`}
-                        title="Eliminar"
-                        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 className="size-4" />
-                      </ConfirmSubmit>
-                    </form>
+                    {canManage || a.uploadedById === session?.id ? (
+                      <form action={deleteLibraryAsset.bind(null, a.id)}>
+                        <ConfirmSubmit
+                          message={`¿Eliminar «${a.name}» de la biblioteca?`}
+                          title="Eliminar"
+                          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                        </ConfirmSubmit>
+                      </form>
+                    ) : null}
                   </div>
                 ))}
               </div>

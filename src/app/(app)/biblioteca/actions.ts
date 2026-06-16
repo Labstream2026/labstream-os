@@ -9,7 +9,7 @@ import { safeExternalUrl } from "@/lib/url";
 // quien lo subió o un admin (además del permiso).
 export async function addLibraryAsset(formData: FormData) {
   const session = await getSession();
-  if (!hasPermission(session, "ver_biblioteca")) throw new Error("No autorizado");
+  if (!hasPermission(session, "gestionar_biblioteca")) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim();
   const url = safeExternalUrl(String(formData.get("url") ?? ""));
   const category = String(formData.get("category") ?? "").trim() || null;
@@ -25,7 +25,7 @@ export async function addLibraryAsset(formData: FormData) {
 // No es una URL http; se valida de forma laxa (\\servidor\carpeta, smb://… o X:\…).
 export async function addLibraryNasPath(formData: FormData) {
   const session = await getSession();
-  if (!hasPermission(session, "ver_biblioteca")) throw new Error("No autorizado");
+  if (!hasPermission(session, "gestionar_biblioteca")) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim();
   const path = String(formData.get("path") ?? "").trim();
   const category = String(formData.get("category") ?? "").trim() || "NAS";
@@ -40,10 +40,11 @@ export async function addLibraryNasPath(formData: FormData) {
 
 export async function deleteLibraryAsset(id: string) {
   const session = await getSession();
-  if (!hasPermission(session, "ver_biblioteca")) throw new Error("No autorizado");
+  if (!session) throw new Error("No autorizado");
   const asset = await db.libraryAsset.findUnique({ where: { id }, select: { uploadedById: true } });
   if (!asset) return;
-  if (session!.role !== "admin" && asset.uploadedById !== session!.id) throw new Error("No autorizado");
+  // Borra quien gestiona la biblioteca, o el propio dueño del recurso.
+  if (!hasPermission(session, "gestionar_biblioteca") && asset.uploadedById !== session.id) throw new Error("No autorizado");
   await db.libraryAsset.delete({ where: { id } });
   revalidatePath("/biblioteca");
 }
