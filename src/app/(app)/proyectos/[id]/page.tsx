@@ -145,6 +145,8 @@ export default async function ProyectoPage({
     startDate: t.startDate,
     estimatedMinutes: t.estimatedMinutes,
     loggedMinutes: t.timeEntries.reduce((n, e) => n + e.minutes, 0),
+    createdAt: t.createdAt,
+    completedAt: t.completedAt,
     assigneeId: t.assigneeId,
     assignee: t.assignee,
     checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
