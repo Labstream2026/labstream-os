@@ -29,7 +29,12 @@ export async function createMyEvent(formData: FormData): Promise<void> {
   // Asistentes mencionados (ids de usuario), separados por coma o repetidos.
   const attendeeIds = formData.getAll("attendees").flatMap((v) => String(v).split(",")).map((s) => s.trim()).filter(Boolean);
   const guestEmails = parseGuestEmails(formData);
+  // Proyecto al que pertenece la cita (cuando se crea desde el calendario de un proyecto).
+  const rawProjectId = String(formData.get("projectId") ?? "").trim() || null;
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+
+  // Solo se acepta el proyecto si existe (la privacidad se aplica al mostrarlo).
+  const projectId = rawProjectId && (await db.project.findUnique({ where: { id: rawProjectId }, select: { id: true } })) ? rawProjectId : null;
 
   const allDay = !time;
   const start = new Date(`${date}T${allDay ? "09:00" : time}:00${APP_TZ_HINT}`);
@@ -52,11 +57,14 @@ export async function createMyEvent(formData: FormData): Promise<void> {
       end,
       allDay,
       source: "app",
+      projectId,
       createdById: session.id,
       attendees: { create: [...validIds].map((userId) => ({ userId })) },
       guests: { create: guestEmails.map((email) => ({ email })) },
     },
   });
+  // Si pertenece a un proyecto, lo revalidamos para que aparezca su calendario.
+  if (projectId) revalidatePath(`/proyectos/${projectId}`);
   // UID estable para casar con Synology en ambos sentidos.
   await db.calendarEvent.update({ where: { id: event.id }, data: { uid: appUid(event.id) } });
 

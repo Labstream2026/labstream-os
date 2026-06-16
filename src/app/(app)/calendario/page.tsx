@@ -121,7 +121,7 @@ export default async function CalendarioPage() {
       </div>
 
       <div className="mt-5 min-h-0 flex-1">
-        <CalendarBoard items={items} onCreate={createMyEvent} team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
+        <CalendarBoard items={items} onCreate={createMyEvent} detailMode="dock" team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
       </div>
     </div>
   );

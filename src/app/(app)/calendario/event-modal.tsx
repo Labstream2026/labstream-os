@@ -6,7 +6,7 @@ import type { TeamMember } from "./my-calendar";
 import { createMyEvent, updateMyEvent } from "./actions";
 
 export type EventModalState =
-  | { mode: "create"; date: string; time?: string }
+  | { mode: "create"; date: string; time?: string; projectId?: string | null }
   | {
       mode: "edit";
       eventId: string;
@@ -41,6 +41,7 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             fd.set("date", state.date);
+            if (state.mode === "create" && state.projectId) fd.set("projectId", state.projectId);
             attendees.forEach((id) => fd.append("attendees", id));
             start(async () => {
               if (isEdit) await updateMyEvent(state.eventId, fd);

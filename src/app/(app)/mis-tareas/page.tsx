@@ -14,8 +14,10 @@ import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
 import { MyTaskForm } from "./my-task-form";
-import { DueCalendar } from "./due-calendar";
 import { TaskDetailButton } from "./task-detail-panel";
+import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { createMyEvent } from "@/app/(app)/calendario/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,10 @@ export default async function MisTareasPage() {
   const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
   const doneKeys = statuses.filter((s) => s.isDone).map((s) => s.key);
 
-  const [tasks, doneTasks, team] = await Promise.all([
+  const calWindowStart = new Date();
+  calWindowStart.setMonth(calWindowStart.getMonth() - 1);
+
+  const [tasks, doneTasks, team, myEvents, allMyTasks] = await Promise.all([
     db.task.findMany({
       where: {
         status: { in: openKeys },
@@ -55,16 +60,38 @@ export default async function MisTareasPage() {
         project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
       },
     }),
-    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
+    // Mis citas (creadas por mí o donde soy asistente), para el calendario.
+    db.calendarEvent.findMany({
+      where: {
+        start: { gte: calWindowStart },
+        OR: [{ createdById: user.id }, { attendees: { some: { userId: user.id } } }],
+      },
+      include: {
+        project: { select: { name: true, emoji: true } },
+        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+        guests: { select: { email: true } },
+      },
+    }),
+    // Todas mis tareas con fecha (entrega o rodaje) para el calendario.
+    db.task.findMany({
+      where: {
+        OR: [{ assigneeId: user.id }, { ownerId: user.id }],
+        AND: [{ OR: [{ dueDate: { gte: calWindowStart } }, { shootDate: { gte: calWindowStart } }] }],
+      },
+      select: {
+        id: true, title: true, dueDate: true, shootDate: true,
+        project: { select: { id: true, name: true, emoji: true } },
+        assignee: { select: { name: true, initials: true, avatarColor: true } },
+      },
+    }),
   ]);
 
-  const calItems = tasks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-    priority: t.priority,
-    projectName: t.project?.name ?? null,
-  }));
+  // Items del calendario unificado: mis citas + mis tareas (entrega/rodaje).
+  const calItems = [
+    ...myEvents.map((e) => eventToCalItem(e, user.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
+    ...allMyTasks.flatMap((t) => taskToCalItems(t)),
+  ];
 
   const list = (
     <div className="space-y-2">
@@ -194,7 +221,18 @@ export default async function MisTareasPage() {
           storageKey="mis-tareas-view"
           views={[
             { key: "lista", label: "Lista", icon: "☰", node: list },
-            { key: "calendario", label: "Calendario", icon: "📅", node: <DueCalendar items={calItems} priorities={priorities} /> },
+            {
+              key: "calendario", label: "Calendario", icon: "📅",
+              node: (
+                <div className="h-[72vh]">
+                  <CalendarBoard
+                    items={calItems}
+                    onCreate={createMyEvent}
+                    team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                  />
+                </div>
+              ),
+            },
             { key: "completadas", label: "Completadas", icon: "✓", node: completed },
           ]}
         />

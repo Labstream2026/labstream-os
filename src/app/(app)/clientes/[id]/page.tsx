@@ -10,7 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
-import { ProjectsCalendar, type CalProject } from "@/app/(app)/proyectos/projects-calendar";
+import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
@@ -77,16 +79,32 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     .filter((u) => !memberIds.has(u.id))
     .map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }));
 
-  const calProjects: CalProject[] = projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    emoji: p.emoji,
-    color: p.color,
-    clientName: client.name,
-    startDate: p.startDate ? p.startDate.toISOString() : null,
-    dueDate: p.dueDate ? p.dueDate.toISOString() : null,
-    deliverables: p.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate ? d.dueDate.toISOString() : null })),
-  }));
+  // Calendario colaborativo del cliente: citas + tareas de sus proyectos visibles.
+  const calWindowStart = new Date(new Date().setMonth(new Date().getMonth() - 1));
+  const safeProjectIds = projectIds.length ? projectIds : ["__none__"];
+  const [clientEvents, clientTasks, calTeam] = await Promise.all([
+    db.calendarEvent.findMany({
+      where: { projectId: { in: safeProjectIds }, start: { gte: calWindowStart } },
+      include: {
+        project: { select: { name: true, emoji: true } },
+        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+        guests: { select: { email: true } },
+      },
+    }),
+    db.task.findMany({
+      where: { projectId: { in: safeProjectIds }, OR: [{ dueDate: { gte: calWindowStart } }, { shootDate: { gte: calWindowStart } }] },
+      select: {
+        id: true, title: true, dueDate: true, shootDate: true,
+        project: { select: { id: true, name: true, emoji: true } },
+        assignee: { select: { name: true, initials: true, avatarColor: true } },
+      },
+    }),
+    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
+  ]);
+  const clientCalItems = [
+    ...clientEvents.map((e) => eventToCalItem(e, session?.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
+    ...clientTasks.flatMap((t) => taskToCalItems(t)),
+  ];
 
   const board = projects.length === 0 ? (
     <p className="text-sm text-muted-foreground">Este cliente aún no tiene proyectos.</p>
@@ -153,7 +171,19 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
           views={[
             { key: "proyectos", label: "Proyectos", icon: "🗂️", node: board },
             { key: "lista", label: "Lista", icon: "☰", node: list },
-            { key: "calendario", label: "Calendario", icon: "📅", node: <ProjectsCalendar projects={calProjects} /> },
+            {
+              key: "calendario", label: "Calendario", icon: "📅",
+              node: (
+                <div className="h-[72vh]">
+                  <CalendarBoard
+                    items={clientCalItems}
+                    onCreate={projects.length ? createMyEvent : undefined}
+                    projectId={projects[0]?.id ?? null}
+                    team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                  />
+                </div>
+              ),
+            },
             {
               key: "propuestas",
               label: "Propuestas",

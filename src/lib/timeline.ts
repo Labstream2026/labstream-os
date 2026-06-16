@@ -129,6 +129,26 @@ export function resolveSpan(
   return { startKey: s, endKey: e };
 }
 
+// Ciclo de vida de una tarea en el cronograma: la barra EMPIEZA cuando se crea la
+// tarea (o en su fecha de inicio si la tiene) y TERMINA en su entrega; si no hay
+// entrega, hasta su finalización (completada) o hasta hoy (sigue en curso). Así, desde
+// que se crea una tarea ya cuenta y se ve crecer hacia su fecha límite.
+export function taskLifeSpan(opts: {
+  startDate?: Date | string | null;
+  dueDate?: Date | string | null;
+  createdAt?: Date | string | null;
+  completedAt?: Date | string | null;
+  fallbackStart?: string | null;
+}): { startKey: string | null; endKey: string | null } {
+  const start = dayKey(opts.startDate) ?? dayKey(opts.createdAt) ?? opts.fallbackStart ?? null;
+  const end = dayKey(opts.dueDate) ?? dayKey(opts.completedAt) ?? todayKey();
+  if (!start && !end) return { startKey: null, endKey: null };
+  const s = start ?? end;
+  const e = end ?? start;
+  if (s && e && dayNumberOf(s) > dayNumberOf(e)) return { startKey: e, endKey: s };
+  return { startKey: s, endKey: e };
+}
+
 // Mínimo y máximo de un conjunto de claves de fecha (ignora nulos). Útil para derivar
 // el rango de un proyecto a partir de sus tareas/entregables cuando no tiene fechas propias.
 export function minMaxKeys(keys: (string | null | undefined)[]): { min: string | null; max: string | null } {

@@ -17,7 +17,9 @@ import { createTable } from "@/app/(app)/tablas/actions";
 import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
-import { TasksCalendar } from "./tasks-calendar";
+import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
+import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
@@ -48,7 +50,7 @@ export default async function ProyectoPage({
   const { tab = "resumen" } = await searchParams;
 
   const session = await getSession();
-  const [project, team, taskLabels] = await Promise.all([
+  const [project, team, taskLabels, projectEvents] = await Promise.all([
     db.project.findUnique({
       where: { id },
       include: {
@@ -57,7 +59,7 @@ export default async function ProyectoPage({
         tasks: {
           orderBy: { position: "asc" },
           include: {
-            assignee: { select: { initials: true, avatarColor: true } },
+            assignee: { select: { name: true, initials: true, avatarColor: true } },
             checklist: { orderBy: { position: "asc" } },
             timeEntries: { select: { minutes: true } },
           },
@@ -94,6 +96,15 @@ export default async function ProyectoPage({
       select: { id: true, name: true, initials: true, avatarColor: true },
     }),
     getTaskLabels(),
+    // Citas/reuniones de este proyecto (para el calendario colaborativo del proyecto).
+    db.calendarEvent.findMany({
+      where: { projectId: id, start: { gte: new Date(new Date().setMonth(new Date().getMonth() - 1)) } },
+      include: {
+        project: { select: { name: true, emoji: true } },
+        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
+        guests: { select: { email: true } },
+      },
+    }),
   ]);
 
   if (!project) notFound();
@@ -138,6 +149,18 @@ export default async function ProyectoPage({
     assignee: t.assignee,
     checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
   }));
+
+  // Items del calendario del proyecto: citas del proyecto + tareas (entrega y rodaje).
+  const projectCalItems = [
+    ...projectEvents.map((e) => eventToCalItem(e, session?.id, `/proyectos/${id}`)),
+    ...project.tasks.flatMap((t) =>
+      taskToCalItems({
+        id: t.id, title: t.title, dueDate: t.dueDate, shootDate: t.shootDate,
+        project: { id, name: project.name, emoji: project.emoji },
+        assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, avatarColor: t.assignee.avatarColor } : null,
+      }),
+    ),
+  ];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
@@ -232,7 +255,16 @@ export default async function ProyectoPage({
                       key: "calendario",
                       label: "Calendario",
                       icon: "📅",
-                      node: <TasksCalendar tasks={tasksData} priorities={taskLabels.priorities} />,
+                      node: (
+                        <div className="h-[72vh]">
+                          <CalendarBoard
+                            items={projectCalItems}
+                            onCreate={canWriteProject(project, session) ? createMyEvent : undefined}
+                            projectId={id}
+                            team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                          />
+                        </div>
+                      ),
                     },
                   ]}
                 />
@@ -251,6 +283,8 @@ export default async function ProyectoPage({
             statuses={taskLabels.statuses}
             priorities={taskLabels.priorities}
             canEdit={canWriteProject(project, session)}
+            projectStart={project.startDate}
+            projectEnd={project.dueDate}
           />
         ) : null}
         {tab === "entregables" ? (
