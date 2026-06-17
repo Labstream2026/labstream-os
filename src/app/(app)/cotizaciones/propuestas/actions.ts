@@ -67,15 +67,25 @@ export async function createProposal(
   templateKey: string,
   answers: Answers,
   budgetSections?: BudgetSection[],
+  pricing?: { price: number; discountPct: number; contingencyPct: number },
 ) {
   await requirePerm("crear_cotizaciones");
   const session = (await getSession())!;
   const { brand, blocks } = buildProposal(templateKey, answers);
 
-  // Si el asistente personalizó el desglose, reemplaza las secciones del bloque budget.
+  // Costo interno (secciones del catálogo) + precio al cliente (lo que ve). Reemplaza el
+  // bloque budget con lo que armó el equipo en el wizard.
   if (budgetSections && Array.isArray(budgetSections)) {
     const bi = blocks.findIndex((b) => b.type === "budget");
-    if (bi >= 0) blocks[bi] = { ...blocks[bi], sections: budgetSections };
+    if (bi >= 0) {
+      blocks[bi] = {
+        ...blocks[bi],
+        sections: budgetSections,
+        ...(pricing
+          ? { price: Math.max(0, Math.round(pricing.price) || 0), discountPct: Math.max(0, Math.min(100, pricing.discountPct || 0)), contingencyPct: Math.max(0, Math.min(100, pricing.contingencyPct || 0)) }
+          : {}),
+      };
+    }
   }
 
   const cliente = (answers.cliente || "").trim();

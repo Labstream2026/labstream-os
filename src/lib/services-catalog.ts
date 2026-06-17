@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { CostSection } from "@/lib/proposals/budget";
 
 // Catálogo INTERNO de servicios de Labstream (lista de precios estandarizada para sacar
 // nuestros costos; NO se muestra al cliente). Aquí viven los tipos de servicio, el
@@ -112,4 +113,19 @@ export async function getServiceCatalog(): Promise<CatalogGroup[]> {
     groups.push({ key: t.key, label: t.label, icon: t.icon, sections });
   }
   return groups;
+}
+
+// Catálogo para el ARMADOR (wizard de propuestas): cada tipo de servicio → CostSection[]
+// con ítems activables (on/q/v). Conecta los precios estandarizados de la BD al wizard,
+// para que al armar la propuesta salgan los valores internos del catálogo.
+export async function getCatalogForWizard(): Promise<Record<string, CostSection[]>> {
+  const items = await db.serviceItem.findMany({ where: { active: true }, orderBy: [{ section: "asc" }, { position: "asc" }] });
+  const byType: Record<string, CostSection[]> = {};
+  for (const it of items) {
+    const list = (byType[it.serviceType] ??= []);
+    let sec = list.find((s) => s.s === it.section);
+    if (!sec) { sec = { s: it.section, items: [] }; list.push(sec); }
+    sec.items.push({ t: it.name, d: it.detail ?? "", u: it.unit, q: it.qty, v: it.unitPrice, on: true });
+  }
+  return byType;
 }

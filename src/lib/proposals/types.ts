@@ -136,11 +136,19 @@ export function newBlock(type: BlockType, brandEmail = BRAND_DEFAULT.email): Blo
     case "budget":
       return {
         type,
-        title: "Inversión detallada",
-        sub: "Desglose transparente de equipos, talento y servicios.",
+        title: "Inversión",
+        sub: "Tu inversión para este proyecto.",
         cur: "COP",
         iva: 19,
-        sections: [{ s: "Servicios", items: [{ t: "Concepto", d: "Detalle", u: "servicio", q: 1, v: 0 }] }],
+        // Precio DE CARA AL CLIENTE (lo único que ve): precio base, descuento e IVA.
+        price: 0,
+        discountPct: 0,
+        // Las secciones son el costo INTERNO (del catálogo) — NO se muestran al cliente; el
+        // % de transporte/imprevistos también es interno. showIncluded lista los servicios
+        // incluidos (solo nombres, sin precios) en la propuesta del cliente.
+        contingencyPct: 10,
+        showIncluded: true,
+        sections: [],
         note: "Valores antes de IVA. La pauta publicitaria se maneja como presupuesto aparte.",
       };
     case "video":

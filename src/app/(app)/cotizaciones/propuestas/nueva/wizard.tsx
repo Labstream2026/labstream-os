@@ -7,18 +7,34 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import { TEMPLATES } from "@/lib/proposals/templates";
 import { wizardSteps, type WizQuestion } from "@/lib/proposals/wizard";
-import { costCatalog, budgetTotals, catalogToBudgetSections, type CostSection } from "@/lib/proposals/budget";
+import { costCatalog, catalogToBudgetSections, internalCost, clientTotals, type CostSection } from "@/lib/proposals/budget";
 import { createProposal } from "../actions";
 
 type Answers = Record<string, string>;
+type Pricing = {
+  price: number; setPrice: (n: number) => void;
+  discountPct: number; setDiscountPct: (n: number) => void;
+  contingencyPct: number; iva: number;
+};
 
-export function ProposalWizard() {
+export function ProposalWizard({
+  catalogByType = {},
+  defaults,
+}: {
+  catalogByType?: Record<string, CostSection[]>;
+  defaults?: { iva: number; contingencyPct: number };
+}) {
   const [tpl, setTpl] = React.useState<string | null>(null);
   const [step, setStep] = React.useState(0); // 0 = preguntas (tras elegir plantilla)
   const [answers, setAnswers] = React.useState<Answers>({});
   const [catalog, setCatalog] = React.useState<CostSection[]>([]);
+  const [price, setPrice] = React.useState(0);
+  const [discountPct, setDiscountPct] = React.useState(0);
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  const contingencyPct = defaults?.contingencyPct ?? 10;
+  const iva = defaults?.iva ?? 19;
+  const pricing: Pricing = { price, setPrice, discountPct, setDiscountPct, contingencyPct, iva };
 
   const steps = tpl ? wizardSteps(tpl) : [];
   const total = steps.length;
@@ -26,9 +42,13 @@ export function ProposalWizard() {
 
   function pick(key: string) {
     setTpl(key);
-    setCatalog(costCatalog(key));
+    // Usa el catálogo INTERNO de la BD (estandarizado) si existe; si no, el de respaldo.
+    const fromDb = catalogByType[key];
+    setCatalog(fromDb && fromDb.length ? fromDb.map((s) => ({ s: s.s, items: s.items.map((i) => ({ ...i })) })) : costCatalog(key));
     setStep(0);
     setAnswers({});
+    setPrice(0);
+    setDiscountPct(0);
   }
 
   function setAnswer(key: string, value: string) {
@@ -51,9 +71,12 @@ export function ProposalWizard() {
   function finish() {
     if (!tpl) return;
     const budgetSections = catalogToBudgetSections(catalog);
+    // Precio al cliente: el que fijó el equipo, o el costo interno (+ contingencia) si no.
+    const cost = internalCost(budgetSections, contingencyPct);
+    const finalPrice = price > 0 ? price : cost.total;
     start(async () => {
       try {
-        await createProposal(tpl, answers, budgetSections);
+        await createProposal(tpl, answers, budgetSections, { price: finalPrice, discountPct, contingencyPct });
       } catch (e) {
         setError(e instanceof Error ? e.message : "No se pudo crear la propuesta");
       }
@@ -107,7 +130,7 @@ export function ProposalWizard() {
 
       {/* Pregunta */}
       <div className="flex-1">
-        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} onEnter={() => canAdvance && next()} /> : null}
+        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} pricing={pricing} onEnter={() => canAdvance && next()} /> : null}
       </div>
 
       {error ? <p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
@@ -136,6 +159,7 @@ function QuestionView({
   onChange,
   catalog,
   setCatalog,
+  pricing,
   onEnter,
 }: {
   q: WizQuestion;
@@ -143,6 +167,7 @@ function QuestionView({
   onChange: (v: string) => void;
   catalog: CostSection[];
   setCatalog: React.Dispatch<React.SetStateAction<CostSection[]>>;
+  pricing: Pricing;
   onEnter: () => void;
 }) {
   return (
@@ -210,15 +235,18 @@ function QuestionView({
           </div>
         ) : null}
 
-        {q.input === "budget" ? <BudgetBuilder catalog={catalog} setCatalog={setCatalog} /> : null}
+        {q.input === "budget" ? <BudgetBuilder catalog={catalog} setCatalog={setCatalog} pricing={pricing} /> : null}
       </div>
     </div>
   );
 }
 
-function BudgetBuilder({ catalog, setCatalog }: { catalog: CostSection[]; setCatalog: React.Dispatch<React.SetStateAction<CostSection[]>> }) {
+function BudgetBuilder({ catalog, setCatalog, pricing }: { catalog: CostSection[]; setCatalog: React.Dispatch<React.SetStateAction<CostSection[]>>; pricing: Pricing }) {
   const sections = catalogToBudgetSections(catalog);
-  const { total } = budgetTotals(sections, 19);
+  const cost = internalCost(sections, pricing.contingencyPct);
+  const basePrice = pricing.price > 0 ? pricing.price : cost.total;
+  const client = clientTotals({ price: basePrice, discountPct: pricing.discountPct, iva: pricing.iva });
+  const margin = basePrice - cost.total;
 
   function patch(si: number, ii: number, field: "on" | "q" | "v", value: boolean | number) {
     setCatalog((prev) =>
@@ -253,9 +281,28 @@ function BudgetBuilder({ catalog, setCatalog }: { catalog: CostSection[]; setCat
           </div>
         </div>
       ))}
-      <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
-        <span className="text-sm font-medium text-muted-foreground">Total estimado (con IVA 19%)</span>
-        <span className="text-lg font-bold tabular-nums">{formatMoney(total, "COP")}</span>
+      {/* Costo interno (no lo ve el cliente) */}
+      <div className="rounded-xl border border-dashed border-amber-300/60 bg-amber-50/50 px-4 py-2.5 text-xs text-muted-foreground dark:bg-amber-500/5">
+        🔒 <strong className="text-amber-800 dark:text-amber-300">Costo interno</strong>: servicios {formatMoney(cost.items, "COP")} + {pricing.contingencyPct}% transporte/imprevistos ({formatMoney(cost.contingency, "COP")}) = <strong className="tabular-nums text-foreground">{formatMoney(cost.total, "COP")}</strong>
+      </div>
+      {/* Precio AL CLIENTE */}
+      <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <p className="text-sm font-semibold">Precio al cliente <span className="font-normal text-muted-foreground">· esto verá el cliente</span></p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+            Precio (COP)
+            <input type="number" min={0} step={50000} value={pricing.price || ""} placeholder={`Sugerido: ${cost.total}`} onChange={(e) => pricing.setPrice(Number(e.target.value) || 0)} className="rounded-md border border-input bg-background px-2.5 py-1.5 text-sm tabular-nums" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+            Descuento (%)
+            <input type="number" min={0} max={100} value={pricing.discountPct || ""} onChange={(e) => pricing.setDiscountPct(Number(e.target.value) || 0)} className="rounded-md border border-input bg-background px-2.5 py-1.5 text-sm tabular-nums" />
+          </label>
+        </div>
+        <div className="flex items-center justify-between border-t border-border pt-2.5">
+          <span className="text-sm font-medium text-muted-foreground">Total al cliente (IVA {pricing.iva}%)</span>
+          <span className="text-lg font-bold tabular-nums">{formatMoney(client.total, "COP")}</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Margen estimado: <strong className={margin >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>{formatMoney(margin, "COP")}</strong>. Si dejas el precio en blanco, se usa el costo interno.</p>
       </div>
     </div>
   );

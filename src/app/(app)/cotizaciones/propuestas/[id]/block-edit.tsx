@@ -5,7 +5,7 @@ import { Plus, Trash2, Upload, Loader2, X } from "lucide-react";
 import type { Block } from "@/lib/proposals/types";
 import { PAISES, MESES } from "@/lib/proposals/calendar";
 import { formatMoney } from "@/lib/ui";
-import { budgetTotals, type BudgetSection } from "@/lib/proposals/budget";
+import { internalCost, clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { uploadProposalImage } from "../actions";
 
 const inputCls = "w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
@@ -136,7 +136,13 @@ function BudgetEditor({ block, patch }: { block: Block; patch: (k: string, v: un
   const sections = (Array.isArray(block.sections) ? block.sections : []) as BudgetSection[];
   const iva = Number(block.iva) || 0;
   const cur = String(block.cur || "COP");
-  const { total } = budgetTotals(sections, iva);
+  const price = Number(block.price) || 0;
+  const discountPct = Number(block.discountPct) || 0;
+  const contingencyPct = Number(block.contingencyPct) || 0;
+  const cost = internalCost(sections, contingencyPct);
+  const basePrice = price > 0 ? price : cost.total; // compat: si no hay precio, usa el costo
+  const client = clientTotals({ price: basePrice, discountPct, iva });
+  const margin = basePrice - cost.total;
   const setSections = (s: BudgetSection[]) => patch("sections", s);
 
   const setItem = (si: number, ii: number, key: string, v: unknown) =>
@@ -148,9 +154,34 @@ function BudgetEditor({ block, patch }: { block: Block; patch: (k: string, v: un
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="IVA (%)" value={String(iva)} onChange={(v) => patch("iva", Number(v) || 0)} />
-        <Field label="Moneda" value={cur} onChange={(v) => patch("cur", v)} />
+      {/* Precio AL CLIENTE — lo único que ve el cliente. */}
+      <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+        <p className="text-xs font-semibold">Precio al cliente <span className="font-normal text-muted-foreground">· esto ve el cliente</span></p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Field label="Precio" value={String(price)} onChange={(v) => patch("price", Number(v) || 0)} />
+          <Field label="Descuento (%)" value={String(discountPct)} onChange={(v) => patch("discountPct", Number(v) || 0)} />
+          <Field label="IVA (%)" value={String(iva)} onChange={(v) => patch("iva", Number(v) || 0)} />
+          <Field label="Moneda" value={cur} onChange={(v) => patch("cur", v)} />
+        </div>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={block.showIncluded !== false} onChange={(e) => patch("showIncluded", e.target.checked)} className="size-4 rounded border-input" />
+          Mostrar al cliente la lista de servicios incluidos (solo nombres, sin precios)
+        </label>
+        <p className="text-xs text-muted-foreground">Total al cliente: <strong className="tabular-nums text-foreground">{formatMoney(client.total, cur)}</strong>{price === 0 ? " · (sin precio: usa el costo interno; pon un precio arriba)" : ""}</p>
+      </div>
+
+      {/* Costo INTERNO — del catálogo, NO se muestra al cliente. */}
+      <div className="rounded-lg border border-dashed border-amber-300/60 bg-amber-50/50 p-3 text-xs dark:bg-amber-500/5">
+        <p className="font-semibold text-amber-800 dark:text-amber-300">🔒 Costo interno (no lo ve el cliente)</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+          <span>Servicios: <strong className="tabular-nums text-foreground">{formatMoney(cost.items, cur)}</strong></span>
+          <label className="inline-flex items-center gap-1">Transporte/imprevistos
+            <input type="number" value={contingencyPct} onChange={(e) => patch("contingencyPct", Number(e.target.value) || 0)} className="w-12 rounded border border-input bg-background px-1.5 py-0.5 text-right" />%
+            <span className="tabular-nums">= {formatMoney(cost.contingency, cur)}</span>
+          </label>
+          <span>Costo total: <strong className="tabular-nums text-foreground">{formatMoney(cost.total, cur)}</strong></span>
+          <span>Margen: <strong className={margin >= 0 ? "tabular-nums text-emerald-600 dark:text-emerald-400" : "tabular-nums text-destructive"}>{formatMoney(margin, cur)}</strong></span>
+        </div>
       </div>
       {sections.map((sec, si) => (
         <div key={si} className="rounded-lg border border-border p-2.5">
@@ -175,7 +206,7 @@ function BudgetEditor({ block, patch }: { block: Block; patch: (k: string, v: un
       ))}
       <div className="flex items-center justify-between">
         <button onClick={addSec} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"><Plus className="size-3.5" /> Añadir sección</button>
-        <span className="text-sm font-semibold tabular-nums">{formatMoney(total, cur)}</span>
+        <span className="text-xs text-muted-foreground">Costo interno: <strong className="text-sm font-semibold tabular-nums text-foreground">{formatMoney(cost.total, cur)}</strong></span>
       </div>
       <Field label="Nota al pie" value={String(block.note || "")} onChange={(v) => patch("note", v)} area />
     </div>

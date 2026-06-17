@@ -204,3 +204,24 @@ export function budgetTotals(sections: BudgetSection[], iva = 19) {
 export function sectionSubtotal(sec: BudgetSection) {
   return sec.items.reduce((s, it) => s + (Number(it.q) || 0) * (Number(it.v) || 0), 0);
 }
+
+// Costo INTERNO (no se muestra al cliente): suma de ítems del catálogo + % de transporte
+// e imprevistos. Sirve al equipo para fijar el precio con margen.
+export function internalCost(sections: BudgetSection[], contingencyPct = 0) {
+  const items = sections.reduce(
+    (sum, sec) => sum + sec.items.reduce((s, it) => s + (Number(it.q) || 0) * (Number(it.v) || 0), 0),
+    0,
+  );
+  const contingency = Math.round((items * (Number(contingencyPct) || 0)) / 100);
+  return { items, contingency, total: items + contingency };
+}
+
+// Totales DE CARA AL CLIENTE: precio base − descuento, + IVA. Es lo ÚNICO que ve el cliente
+// (nunca el desglose de costos internos).
+export function clientTotals(opts: { price: number; discountPct?: number; iva?: number }) {
+  const base = Math.max(0, Number(opts.price) || 0);
+  const discount = Math.round((base * (Number(opts.discountPct) || 0)) / 100);
+  const subtotal = base - discount;
+  const tax = Math.round((subtotal * (Number(opts.iva) || 0)) / 100);
+  return { base, discount, subtotal, tax, total: subtotal + tax };
+}

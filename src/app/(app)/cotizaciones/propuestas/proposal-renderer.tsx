@@ -5,7 +5,7 @@
 import * as React from "react";
 import type { Block, Brand } from "@/lib/proposals/types";
 import { formatMoney } from "@/lib/ui";
-import { budgetTotals, sectionSubtotal, type BudgetSection } from "@/lib/proposals/budget";
+import { internalCost, clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { mesCal } from "@/lib/proposals/calendar";
 import { sanitizeProposalHtml } from "@/lib/proposals/sanitize";
 
@@ -193,41 +193,49 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
       );
     }
     case "budget": {
+      // El cliente SOLO ve precio, descuento e IVA. El desglose de costos (sections) es
+      // interno y nunca se renderiza aquí. "Incluye" lista los servicios (solo nombres).
       const sections = arr<BudgetSection>(block.sections);
       const cur = str(block.cur, "COP");
       const iva = Number(block.iva) || 0;
-      const { subtotal, tax, total } = budgetTotals(sections, iva);
+      const discountPct = Number(block.discountPct) || 0;
+      const explicitPrice = Number(block.price) || 0;
+      // Compat: propuestas viejas no tienen `price` → se deriva del subtotal de las secciones.
+      const basePrice = explicitPrice > 0 ? explicitPrice : internalCost(sections, 0).items;
+      const { discount, subtotal, tax, total } = clientTotals({ price: basePrice, discountPct, iva });
+      const included = sections.flatMap((s) => s.items.map((i) => i.t)).filter(Boolean);
+      const showIncluded = block.showIncluded !== false && included.length > 0;
       return (
         <section className="space-y-4">
           {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
           {str(block.sub) ? <p className="text-sm text-muted-foreground">{str(block.sub)}</p> : null}
+          {showIncluded ? (
+            <div className="rounded-xl border border-border p-4">
+              <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Incluye</p>
+              <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {included.map((n, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <span className="mt-0.5 font-bold" style={{ color: accent }}>✓</span>
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="overflow-hidden rounded-xl border border-border">
             <table className="w-full text-sm">
               <tbody>
-                {sections.map((sec, si) => (
-                  <React.Fragment key={si}>
-                    <tr className="bg-muted/40">
-                      <td className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground" colSpan={3}>{sec.s}</td>
-                      <td className="px-4 py-2 text-right text-xs font-medium text-muted-foreground tabular-nums">{formatMoney(sectionSubtotal(sec), cur)}</td>
-                    </tr>
-                    {sec.items.map((it, ii) => (
-                      <tr key={ii} className="border-t border-border">
-                        <td className="px-4 py-2.5">
-                          <div className="font-medium">{it.t}</div>
-                          {it.d ? <div className="text-xs text-muted-foreground">{it.d}</div> : null}
-                        </td>
-                        <td className="px-2 py-2.5 text-right text-muted-foreground tabular-nums">{it.q} {it.u}</td>
-                        <td className="px-2 py-2.5 text-right text-muted-foreground tabular-nums">{formatMoney(it.v, cur)}</td>
-                        <td className="px-4 py-2.5 text-right font-medium tabular-nums">{formatMoney((Number(it.q) || 0) * (Number(it.v) || 0), cur)}</td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
+                <tr><td className="px-4 py-2.5 text-muted-foreground">Precio</td><td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(basePrice, cur)}</td></tr>
+                {discountPct > 0 ? (
+                  <>
+                    <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">Descuento ({discountPct}%)</td><td className="px-4 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400">− {formatMoney(discount, cur)}</td></tr>
+                    <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">Subtotal</td><td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(subtotal, cur)}</td></tr>
+                  </>
+                ) : null}
+                <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">IVA ({iva}%)</td><td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(tax, cur)}</td></tr>
               </tbody>
               <tfoot className="border-t-2 border-border">
-                <tr><td className="px-4 py-1.5 text-right text-muted-foreground" colSpan={3}>Subtotal</td><td className="px-4 py-1.5 text-right tabular-nums">{formatMoney(subtotal, cur)}</td></tr>
-                <tr><td className="px-4 py-1.5 text-right text-muted-foreground" colSpan={3}>IVA ({iva}%)</td><td className="px-4 py-1.5 text-right tabular-nums">{formatMoney(tax, cur)}</td></tr>
-                <tr><td className="px-4 py-2.5 text-right font-bold" colSpan={3}>Total</td><td className="px-4 py-2.5 text-right text-base font-bold tabular-nums" style={{ color: accent }}>{formatMoney(total, cur)}</td></tr>
+                <tr><td className="px-4 py-3 font-bold">Total</td><td className="px-4 py-3 text-right text-base font-bold tabular-nums" style={{ color: accent }}>{formatMoney(total, cur)}</td></tr>
               </tfoot>
             </table>
           </div>
