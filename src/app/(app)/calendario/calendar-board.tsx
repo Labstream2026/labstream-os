@@ -76,7 +76,7 @@ export function CalendarBoard({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg bg-muted p-1">
+      <div className="inline-flex shrink-0 items-center gap-1 self-end rounded-lg bg-muted p-1">
         {(["semana", "mes"] as const).map((v) => (
           <button
             key={v}

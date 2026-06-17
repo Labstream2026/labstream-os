@@ -103,16 +103,22 @@ export async function createTask(projectId: string, formData: FormData) {
   const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
+  // Inicio y descripción opcionales (crear hoy, ejecutar después + documentar).
+  const startRaw = String(formData.get("startDate") ?? "").trim();
+  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : null;
+  const description = String(formData.get("description") ?? "").trim() || null;
   const session = await getSession();
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
     data: {
       projectId,
       title,
+      description,
       assigneeId,
       priority: priority as never,
       stage,
       position: count,
+      startDate,
       dueDate,
       ownerId: session?.id ?? null,
       assignedById: assigneeId ? session?.id ?? null : null,

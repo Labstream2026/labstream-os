@@ -43,6 +43,11 @@ export async function createMyTask(formData: FormData) {
   const isPrivate = formData.get("isPrivate") === "on" || formData.get("isPrivate") === "true";
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
+  // Fecha de inicio y descripción opcionales: permiten crear hoy una tarea que se
+  // ejecuta después (agendada) y documentar qué hay que hacer.
+  const startRaw = String(formData.get("startDate") ?? "").trim();
+  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : null;
+  const description = String(formData.get("description") ?? "").trim() || null;
 
   if (assigneeId !== session.id) {
     const target = await db.user.findUnique({ where: { id: assigneeId }, select: { active: true } });
@@ -52,10 +57,12 @@ export async function createMyTask(formData: FormData) {
   const task = await db.task.create({
     data: {
       title,
+      description,
       assigneeId,
       ownerId: session.id,
       assignedById: assigneeId !== session.id ? session.id : null,
       priority: priority as never,
+      startDate,
       dueDate,
       isPrivate,
       projectId: null,

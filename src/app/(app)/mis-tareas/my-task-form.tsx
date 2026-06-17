@@ -35,6 +35,12 @@ export function MyTaskForm({ team, priorities }: { team: { id: string; name: str
             placeholder="¿Qué hay que hacer? (ej. comprar café)"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
+          <textarea
+            name="description"
+            rows={2}
+            placeholder="Descripción (opcional): detalles de la tarea…"
+            className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Para
@@ -50,6 +56,10 @@ export function MyTaskForm({ team, priorities }: { team: { id: string; name: str
                 <option key={p.key} value={p.key}>{p.label}</option>
               ))}
             </select>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Inicio
+              <input name="startDate" type="date" title="Cuándo empieza (agéndala a futuro)" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+            </label>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Entrega
               <input name="dueDate" type="date" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
