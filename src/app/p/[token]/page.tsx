@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { verifyProposalToken } from "@/lib/proposals/token";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
+import { Logo } from "@/components/brand/logo";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
 import { PrintButton } from "@/components/print-button";
@@ -55,6 +56,12 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
           <AcceptProposal token={token} accent={brand.accent} />
         </div>
       ) : null}
+
+      {/* Pie discreto de marca: "Hecho con Labstream". */}
+      <div className="mx-auto mt-8 flex max-w-3xl items-center justify-center gap-1.5 px-4 text-xs text-neutral-400 print:hidden">
+        <span>Hecho con</span>
+        <Logo className="h-3.5 opacity-70" alt="Labstream Studio" />
+      </div>
     </div>
   );
 }

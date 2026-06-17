@@ -59,9 +59,32 @@ export type SendEmailOpts = {
   attachments?: MailAttachment[];
 };
 
+// Base pública para enlaces/imagen del logo en los correos.
+const APP_URL = (process.env.NEXTAUTH_URL || process.env.ONLYOFFICE_CALLBACK_BASE || "").replace(/\/$/, "");
+
+// Envuelve el HTML del correo en una plantilla con la marca Labstream (cabecera con el
+// logo + pie). Se aplica a TODOS los correos salientes para presencia de marca uniforme.
+// Usa estilos en línea y tablas (compatibilidad con clientes de correo).
+function wrapEmailHtml(inner: string): string {
+  const logo = APP_URL ? `<img src="${APP_URL}/brand/logo.png" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
+  return `<!doctype html><html><body style="margin:0;background:#f4f4f5;padding:24px 12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ececec;border-radius:14px;overflow:hidden">
+      <tr><td style="padding:18px 28px;border-bottom:1px solid #f0f0f0">${logo}</td></tr>
+      <tr><td style="padding:24px 28px;color:#1a1a1a;font-size:14px;line-height:1.6">${inner}</td></tr>
+      <tr><td style="padding:16px 28px;border-top:1px solid #f0f0f0;color:#9a9a9a;font-size:11px;line-height:1.5">
+        Labstream Studio · Producción de contenidos · hola@labstream.co<br/>
+        Este correo se envió automáticamente desde la plataforma de Labstream.
+      </td></tr>
+    </table>
+  </td></tr></table></body></html>`;
+}
+
 export async function sendEmail(opts: SendEmailOpts): Promise<{ ok: boolean; error?: string }> {
-  if (resendEnabled) return sendViaResend(opts);
-  if (smtpEnabled) return sendViaSmtp(opts);
+  // Aplica la marca a cualquier correo con HTML (una sola vez, aquí).
+  const branded: SendEmailOpts = opts.html ? { ...opts, html: wrapEmailHtml(opts.html) } : opts;
+  if (resendEnabled) return sendViaResend(branded);
+  if (smtpEnabled) return sendViaSmtp(branded);
   return { ok: false, error: "Email no configurado (falta RESEND_API_KEY o SMTP_*)." };
 }
 
