@@ -21,6 +21,20 @@ function refresh(projectId: string | null) {
   revalidatePath("/");
 }
 
+// Recalcula el progreso del proyecto = % de sus tareas completadas (completedAt != null).
+// Se llama al completar/reabrir, crear o borrar tareas, para que la barra de progreso
+// refleje el avance real sin gestión manual.
+async function recalcProjectProgress(projectId: string | null) {
+  if (!projectId) return;
+  const [total, done] = await Promise.all([
+    db.task.count({ where: { projectId } }),
+    db.task.count({ where: { projectId, completedAt: { not: null } } }),
+  ]);
+  const progress = total ? Math.round((done / total) * 100) : 0;
+  await db.project.update({ where: { id: projectId }, data: { progress } });
+  revalidatePath("/proyectos");
+}
+
 const accessSelect = {
   isPrivate: true,
   leadId: true,
@@ -122,6 +136,7 @@ export async function createTask(projectId: string, formData: FormData) {
       link: `/proyectos/${projectId}?tab=tareas`,
     });
   }
+  await recalcProjectProgress(projectId);
   refresh(projectId);
 }
 
@@ -199,6 +214,7 @@ export async function setTaskStatus(taskId: string, _projectId: string, status: 
   const prev = await db.task.findUnique({ where: { id: taskId }, select: { completedAt: true } });
   const { completedAt, justCompleted } = await completionTransition(status, prev?.completedAt ?? null);
   await db.task.update({ where: { id: taskId }, data: { status, completedAt } });
+  await recalcProjectProgress(projectId);
   await logActivity({
     action: justCompleted ? "task.complete" : "task.status",
     summary: justCompleted
@@ -389,6 +405,7 @@ export async function deleteTask(taskId: string, _projectId: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   await db.task.delete({ where: { id: taskId } });
+  await recalcProjectProgress(projectId);
   await logActivity({
     action: "task.delete",
     summary: `eliminó la tarea «${task!.title}»`,
