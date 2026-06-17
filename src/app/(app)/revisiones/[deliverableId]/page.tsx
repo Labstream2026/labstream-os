@@ -33,6 +33,8 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   if (!canAccessProject(deliverable.project, session)) notFound();
 
   const canManage = canManageProject(deliverable.project, session);
+  // Puede pre-aprobar el responsable del proyecto/admin O el responsable de revisión asignado.
+  const canDecide = canManage || deliverable.reviewerId === session.id;
   const meta = deliverableStatusMeta(deliverable.status);
 
   // El equipo ve TODAS las versiones (incluidas las pendientes de pre-aprobación).
@@ -93,7 +95,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
             comments={comments}
             status={deliverable.status}
             meName={session.name}
-            canDecide={canManage}
+            canDecide={canDecide}
           />
 
           {/* Enlace para el cliente (revocar / modo dibujos del portal) */}

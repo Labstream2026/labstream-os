@@ -23,13 +23,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   });
   if (!deliverable) return <PublicLinkInvalid />;
 
-  // Enlace revocado: estado inválido (no se muestra el material).
-  if (deliverable.reviewRevokedAt) {
+  // Enlace revocado o caducado: estado inválido (no se muestra el material).
+  const expired = deliverable.reviewExpiresAt ? deliverable.reviewExpiresAt.getTime() < Date.now() : false;
+  if (deliverable.reviewRevokedAt || expired) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6 text-center">
         <div className="max-w-md">
           <h1 className="text-xl font-bold">Enlace no disponible</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {expired ? "Este enlace de revisión ha caducado. Pide uno nuevo a tu productor." : "Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor."}
+          </p>
         </div>
       </div>
     );

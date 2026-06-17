@@ -20,8 +20,9 @@ async function projectTeamIds(projectId: string): Promise<string[]> {
 async function resolveDeliverable(token: string) {
   const deliverableId = verifyReviewToken(token);
   if (!deliverableId) throw new Error("Enlace inválido");
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, reviewRevokedAt: true } });
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, reviewRevokedAt: true, reviewExpiresAt: true } });
   if (!d || d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
+  if (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()) throw new Error("El enlace de revisión ha caducado");
   return d;
 }
 

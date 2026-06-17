@@ -1,9 +1,11 @@
 import { signScopedToken, verifyScopedToken } from "@/lib/signed-token";
 
-// Token público (con caducidad) para el portal de revisión del cliente. Caduca a los
-// 60 días; además el equipo puede revocarlo en cualquier momento (reviewRevokedAt).
+// Token público para el portal de revisión del cliente. La caducidad REAL la controla el
+// entregable (`reviewExpiresAt`, opcional → puede NO caducar); el token se firma con vida
+// larga para no expirar por su cuenta. El equipo puede revocarlo cuando quiera
+// (reviewRevokedAt). La validación de caducidad se hace al resolver el enlace.
 export function signReviewToken(deliverableId: string): string {
-  return signScopedToken("review", deliverableId, 60);
+  return signScopedToken("review", deliverableId, 3650);
 }
 
 export function verifyReviewToken(token: string): string | null {

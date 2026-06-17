@@ -86,6 +86,7 @@ model User {
   ownedTasks       Task[]               @relation("TaskOwner")
   tasksAssignedByMe Task[]              @relation("TaskAssigner")
   ownedDeliverables Deliverable[]       @relation("DeliverableOwner")
+  reviewerDeliverables Deliverable[]    @relation("DeliverableReviewer")
   uploadedFiles    FileAsset[]          @relation("FileUploader")
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
@@ -931,6 +932,10 @@ model Deliverable {
   projectId String
   owner     User?                @relation("DeliverableOwner", fields: [ownerId], references: [id])
   ownerId   String?
+  // Responsable de la revisión interna (a quien se "taguea" al subir el material): puede
+  // pre-aprobar/solicitar cambios aunque no sea responsable del proyecto. Solo miembros.
+  reviewer   User?  @relation("DeliverableReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewerId String?
   versions  DeliverableVersion[]
   tasks     Task[]
   reviewComments ReviewComment[]
@@ -938,11 +943,14 @@ model Deliverable {
   // Enlace de revisión del cliente: único por entregable, con visitas y revocación.
   reviewVisits        Int       @default(0)
   reviewRevokedAt     DateTime? // si está puesto, el portal del cliente queda inválido
+  // Caducidad opcional del enlace del cliente. NULL = sin caducidad (no expira).
+  reviewExpiresAt     DateTime?
   reviewAllowDrawings Boolean   @default(false) // habilita el modo dibujos/anotación
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
   @@index([projectId])
+  @@index([reviewerId])
 }
 
 // ─────────────────────────────────────────────

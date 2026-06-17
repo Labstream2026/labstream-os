@@ -2,7 +2,8 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2 } from "lucide-react";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
   DELIVERABLE_TYPE,
@@ -15,7 +16,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate } from "./actions";
+import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry } from "./actions";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -38,6 +39,7 @@ type Decision = {
   note: string | null;
   createdAt: Date;
 };
+type Member = { id: string; name: string; initials: string | null; color: string | null };
 type Deliverable = {
   id: string;
   name: string;
@@ -45,6 +47,8 @@ type Deliverable = {
   status: string;
   dueDate: Date | string | null;
   owner: { initials: string | null; avatarColor: string | null } | null;
+  reviewerId: string | null;
+  reviewExpiresAt: Date | string | null;
   reviewVisits: number;
   reviewRevoked: boolean;
   reviewAllowDrawings: boolean;
@@ -75,26 +79,54 @@ export function DeliverablesPanel({
   projectId,
   canManage = false,
   deliverables,
+  members = [],
   emailEnabled = false,
 }: {
   projectId: string;
   canManage?: boolean;
   deliverables: Deliverable[];
+  members?: Member[];
   emailEnabled?: boolean;
 }) {
+  const reviewerOptions = [{ value: "", label: "Sin responsable" }, ...members.map((m) => ({ value: m.id, label: m.name }))];
   return (
     <div className="space-y-5">
-      {/* Nuevo entregable */}
+      {/* Nuevo entregable para revisión: nombre/video, link o archivo, responsable de
+          revisión (solo miembros), caducidad opcional del enlace y fecha de entrega. */}
       <form
         action={createDeliverable.bind(null, projectId)}
-        className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3"
+        className="space-y-2.5 rounded-xl border border-border bg-card p-4"
       >
-        <input name="name" required placeholder="Nuevo entregable…" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-        <select name="type" defaultValue="REEL" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
-          {Object.entries(DELIVERABLE_TYPE).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
-        </select>
-        <input name="dueDate" type="date" title="Fecha de entrega" className="rounded-md border border-input bg-background px-2 py-2 text-sm" />
-        <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</button>
+        <p className="text-sm font-semibold">Subir para revisión</p>
+        <div className="flex flex-wrap gap-2">
+          <input name="name" required placeholder="Nombre del proyecto o video…" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <select name="type" defaultValue="REEL" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
+            {Object.entries(DELIVERABLE_TYPE).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
+          </select>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input type="file" name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Responsable de la revisión
+            <select name="reviewerId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
+              <option value="">Sin responsable</option>
+              {members.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Caduca el enlace (opcional)
+            <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Fecha de entrega
+            <input name="dueDate" type="date" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+          </label>
+          <button className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
       </form>
 
       {deliverables.length === 0 ? <p className="text-sm text-muted-foreground">Aún no hay entregables.</p> : null}
@@ -123,8 +155,30 @@ export function DeliverablesPanel({
                 <span className="text-[11px] text-muted-foreground">🏁 Entrega</span>
                 <DateInput name="dueDate" value={toDateInputValue(d.dueDate)} action={setDeliverableDueDate.bind(null, d.id, projectId)} title="Fecha de entrega" />
                 <StatusSelect value={d.status} options={STATUS_OPTIONS} action={setDeliverableStatus.bind(null, d.id, projectId)} className={cn("border-0", deliverableStatusMeta(d.status).className)} />
+                {canManage ? (
+                  <form action={deleteDeliverable.bind(null, d.id, projectId)}>
+                    <ConfirmSubmit message={`¿Eliminar el entregable «${d.name}» con TODAS sus versiones, comentarios y decisiones? No se puede deshacer.`} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Borrar todo">
+                      <Trash2 className="size-4" />
+                    </ConfirmSubmit>
+                  </form>
+                ) : null}
               </div>
             </div>
+
+            {/* Responsable de la revisión + caducidad del enlace (editable por el responsable) */}
+            {canManage ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Responsable de revisión:</span>
+                  <StatusSelect value={d.reviewerId ?? ""} options={reviewerOptions} action={setDeliverableReviewer.bind(null, d.id, projectId)} />
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Caduca el enlace:</span>
+                  <DateInput name="reviewExpiresAt" value={toDateInputValue(d.reviewExpiresAt)} action={setReviewExpiry.bind(null, d.id, projectId)} title="Vacío = el enlace no caduca" />
+                  {!d.reviewExpiresAt ? <span className="text-muted-foreground">sin caducidad</span> : null}
+                </span>
+              </div>
+            ) : null}
 
             {/* Versiones */}
             <div className="mt-4 space-y-2">

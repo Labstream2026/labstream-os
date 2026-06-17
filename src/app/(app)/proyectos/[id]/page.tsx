@@ -309,6 +309,9 @@ export default async function ProyectoPage({
           <DeliverablesPanel
             projectId={id}
             canManage={canManageProject(project, session)}
+            members={team
+              .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
+              .map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
             deliverables={project.deliverables.map((d) => ({
               id: d.id,
               name: d.name,
@@ -316,6 +319,8 @@ export default async function ProyectoPage({
               status: d.status,
               dueDate: d.dueDate,
               owner: d.owner,
+              reviewerId: d.reviewerId,
+              reviewExpiresAt: d.reviewExpiresAt,
               reviewVisits: d.reviewVisits,
               reviewRevoked: !!d.reviewRevokedAt,
               reviewAllowDrawings: d.reviewAllowDrawings,
