@@ -10,7 +10,7 @@ import { APP_BASE, convertOfficeToText, officeType, onlyofficeEnabled } from "@/
 import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
-import { notify, notifyAndEmail, notifyManyAndEmail } from "@/lib/notify";
+import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
@@ -742,16 +742,21 @@ export async function internalDecision(
     entityId: deliverableId,
   });
   // Al solicitar cambios, avisa a TODO el equipo del proyecto (responsable + miembros +
-  // dueño del entregable) para que rehagan el material. Excluye a quien decidió.
+  // dueño del entregable) para que rehagan el material. Incluye cuántos cambios hay
+  // pendientes y enlaza al workspace (donde está el checklist con capturas). Excluye a
+  // quien decidió.
   if (!approved) {
+    const changeCount = await db.reviewComment.count({
+      where: { deliverableId, versionNumber, isNote: false, resolved: false },
+    });
     await notifyManyAndEmail(
       [deliverable.project.leadId, deliverable.ownerId, ...deliverable.project.members.map((m) => m.userId)]
         .filter((id) => id && id !== session!.id),
       {
         type: "review",
         title: `Cambios solicitados: ${deliverable.name}`,
-        body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}».${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
-        link: `/proyectos/${projectId}?tab=entregables`,
+        body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}»${changeCount ? ` · ${changeCount} ${changeCount === 1 ? "punto" : "puntos"} en el checklist` : ""}.${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
+        link: `/revisiones/${deliverableId}`,
       },
     );
   }
@@ -777,12 +782,35 @@ export async function setReviewDrawings(deliverableId: string, _projectId: strin
   refresh(deliverable.projectId);
 }
 
-// Marcar/desmarcar como resuelto un comentario del cliente.
+// Marcar/desmarcar un cambio del checklist como REALIZADO. Al marcarlo hecho, avisa
+// (in-app) a todo el equipo del proyecto para que el responsable sepa que ese cambio
+// puntual ya está resuelto. Desmarcar no notifica.
 export async function resolveReviewComment(commentId: string, _projectId: string, resolved: boolean) {
-  const c = await db.reviewComment.findUnique({ where: { id: commentId }, select: { deliverableId: true, deliverable: { select: { projectId: true, project: { select: accessSelect } } } } });
+  const c = await db.reviewComment.findUnique({
+    where: { id: commentId },
+    select: {
+      deliverableId: true,
+      body: true,
+      deliverable: { select: { name: true, projectId: true, project: { select: { ...accessSelect, name: true } } } },
+    },
+  });
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
   await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
+  if (resolved) {
+    const change = c.body.replace(/^\(anotación\)$/, "anotación").slice(0, 80);
+    await notifyMany(
+      [c.deliverable.project.leadId, ...c.deliverable.project.members.map((m) => m.userId)].filter(
+        (id) => id && id !== session!.id,
+      ),
+      {
+        type: "review",
+        title: `Cambio realizado: ${c.deliverable.name}`,
+        body: `${session!.name} marcó como hecho: «${change}»`,
+        link: `/revisiones/${c.deliverableId}`,
+      },
+    );
+  }
   // Sin revalidar: el cambio se refleja de forma optimista (no reinicia el video).
 }
 

@@ -270,10 +270,15 @@ export function ReviewStage({
       {/* ── Comentarios + notas ── */}
       <div className="flex min-h-0 flex-col">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Comentarios por momento ({allMoments.length})</h2>
+          <h2 className="text-sm font-semibold">
+            {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
+            <span className="font-normal text-muted-foreground">
+              ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
+            </span>
+          </h2>
           {onResolve && resolvedCount > 0 ? (
             <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-              {hideResolved ? `Ver resueltos (${resolvedCount})` : "Ocultar resueltos"}
+              {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
             </button>
           ) : null}
         </div>
@@ -282,24 +287,36 @@ export function ReviewStage({
             <p className="text-sm text-muted-foreground">Pausa el video donde quieras y escribe un comentario: se guarda el segundo y una captura del fotograma.</p>
           ) : (
             moments.map((c) => (
-              <div key={c.id} className={`rounded-lg border border-border bg-card p-3 text-sm ${c.resolved ? "opacity-60" : ""}`}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{c.authorName}</span>
-                  {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                  {c.timecode != null ? (
-                    <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
-                  ) : null}
-                  {onResolve ? (
-                    <button onClick={() => { const next = !c.resolved; setResolvedOverride((p) => ({ ...p, [c.id]: next })); start(() => onResolve(c.id, next)); }} disabled={pending} className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${c.resolved ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "border border-border text-muted-foreground hover:bg-accent"}`}>
-                      {c.resolved ? "✓ resuelto" : "marcar resuelto"}
-                    </button>
+              <div key={c.id} className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"}`}>
+                {/* Casilla del checklist: marca el cambio como realizado (avisa al equipo). */}
+                {onResolve ? (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={c.resolved}
+                    title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
+                    onClick={() => { const next = !c.resolved; setResolvedOverride((p) => ({ ...p, [c.id]: next })); start(() => onResolve(c.id, next)); }}
+                    disabled={pending}
+                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border text-[12px] font-bold transition-colors disabled:opacity-50 ${c.resolved ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground/40 text-transparent hover:border-primary"}`}
+                  >
+                    ✓
+                  </button>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{c.authorName}</span>
+                    {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                    {c.timecode != null ? (
+                      <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
+                    ) : null}
+                    {c.resolved && onResolve ? <span className="ml-auto rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                  </div>
+                  <p className={`mt-1 whitespace-pre-wrap ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
+                  {c.drawing?.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
                   ) : null}
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-foreground/90">{c.body}</p>
-                {c.drawing?.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
-                ) : null}
               </div>
             ))
           )}

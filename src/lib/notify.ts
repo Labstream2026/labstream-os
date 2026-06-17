@@ -34,6 +34,20 @@ export async function notifyAndEmail(
   }
 }
 
+// Notifica SOLO en la app (sin correo) a varios usuarios, sin duplicar. Para eventos
+// frecuentes/de bajo nivel (p. ej. «se marcó un cambio como hecho») donde mandar correo
+// a todo el equipo en cada acción sería ruido.
+export async function notifyMany(
+  userIds: Array<string | null | undefined>,
+  n: { type: string; title: string; body?: string; link?: string },
+) {
+  const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+  if (!ids.length) return;
+  await db.notification.createMany({
+    data: ids.map((userId) => ({ userId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null })),
+  });
+}
+
 // Notifica en la app Y por correo a VARIOS usuarios (sin duplicar). Best-effort.
 // Útil para avisar a todo el equipo de un proyecto (p. ej. «el cliente pidió cambios»).
 export async function notifyManyAndEmail(
