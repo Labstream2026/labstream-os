@@ -94,4 +94,24 @@ export async function saveImageAtRel(
   return rel;
 }
 
-export const IMAGE_EDGES = { MAX_EDGE, AVATAR_EDGE };
+// Guarda SOLO la versión optimizada (WebP redimensionado) — sin conservar el original
+// a resolución completa. Para imágenes DECORATIVAS (portadas/banners de cliente o
+// proyecto) donde nunca se descarga el original: ahorra disco y mantiene el archivo
+// ligero. Si la imagen no se puede optimizar (corrupta/no rasterizable), guarda el
+// original como respaldo. Devuelve la ruta guardada.
+export async function saveOptimizedImage(
+  relDir: string,
+  filename: string,
+  buf: Buffer,
+  mime?: string | null,
+  opts?: { maxEdge?: number; quality?: number },
+): Promise<string> {
+  if (isOptimizableImage(filename, mime)) {
+    const webp = await optimizeToWebp(buf, opts);
+    if (webp) return saveBuffer(relDir, filename, webp);
+  }
+  return saveBuffer(relDir, filename, buf);
+}
+
+const BANNER_EDGE = 1600; // ancho/alto máx. para portadas (banner ancho de cabecera)
+export const IMAGE_EDGES = { MAX_EDGE, AVATAR_EDGE, BANNER_EDGE };
