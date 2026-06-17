@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { verifyQuoteToken } from "@/lib/quote-token";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
+import { Logo } from "@/components/brand/logo";
 import { QuoteDocument } from "@/components/quote-document";
 import { PrintButton } from "@/components/print-button";
 import { QuoteDecision } from "./decision";
@@ -28,9 +29,10 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
       <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 print:hidden">
-        <div>
-          <p className="text-sm font-semibold text-neutral-800">Cotización de Labstream</p>
-          <p className="text-xs text-neutral-500">Revisa el detalle y apruébala o recházala al final.</p>
+        <div className="flex items-center gap-2.5">
+          <Logo className="h-7" />
+          <span className="hidden h-6 w-px bg-neutral-300 sm:block" />
+          <p className="hidden text-xs text-neutral-500 sm:block">Cotización · revisa el detalle y apruébala o recházala al final.</p>
         </div>
         <PrintButton label="Descargar PDF" />
       </div>

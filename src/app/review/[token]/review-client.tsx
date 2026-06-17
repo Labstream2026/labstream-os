@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
+import { Logo } from "@/components/brand/logo";
 import { addReviewComment, setReviewDecision } from "./actions";
 
 // Wrapper del portal PÚBLICO del cliente sobre el escenario de revisión compartido.
@@ -120,10 +121,8 @@ function Welcome({
       <div className="pointer-events-none absolute -bottom-20 -left-10 size-48 rounded-full bg-primary/10 blur-3xl" />
 
       <div className="relative mx-auto max-w-md text-center">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary text-2xl font-bold text-primary-foreground shadow-lg shadow-primary/30">
-          L
-        </div>
-        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-primary">Labstream · Revisión</p>
+        <Logo className="h-11" />
+        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">Revisión</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Tu material está listo para revisar 🎬</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Estás a punto de revisar <span className="font-medium text-foreground">{deliverableName}</span> de{" "}

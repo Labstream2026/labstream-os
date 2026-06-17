@@ -3,6 +3,7 @@ import { verifyReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
+import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     <div className="min-h-screen bg-muted/30">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">L</span>
+          <Logo className="h-6" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{deliverable.name}</p>
             <p className="truncate text-xs text-muted-foreground">

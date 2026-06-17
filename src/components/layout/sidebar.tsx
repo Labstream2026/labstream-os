@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
+import { Logo, LogoMark } from "@/components/brand/logo";
 import { logout } from "@/lib/auth-actions";
 import { deleteClient } from "@/app/(app)/clientes/actions";
 
@@ -169,15 +170,14 @@ export function Sidebar({
           collapsed ? "justify-center px-2" : "px-4",
         )}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-base font-bold text-primary-foreground">
-          L
-        </span>
-        {!collapsed ? (
+        {collapsed ? (
+          <LogoMark className="h-9 w-9 text-base" />
+        ) : (
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold leading-tight">Labstream</span>
-            <span className="block truncate text-xs text-sidebar-muted">Productora · equipo</span>
+            <Logo className="h-6" />
+            <span className="mt-1 block truncate text-xs text-sidebar-muted">Productora · equipo</span>
           </span>
-        ) : null}
+        )}
       </Link>
 
       {/* Buscador (oculto en riel) */}

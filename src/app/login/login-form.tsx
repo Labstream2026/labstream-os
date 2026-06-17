@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { login, type LoginState } from "@/lib/auth-actions";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/brand/logo";
 
 export function LoginForm({
   ssoEnabled,
@@ -21,11 +22,8 @@ export function LoginForm({
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
-            L
-          </span>
-          <h1 className="mt-4 text-xl font-semibold">Labstream OS</h1>
-          <p className="text-sm text-muted-foreground">Espacio de trabajo del equipo</p>
+          <Logo className="h-10" />
+          <p className="mt-3 text-sm text-muted-foreground">Espacio de trabajo del equipo</p>
         </div>
 
         {ssoEnabled ? (
