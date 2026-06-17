@@ -67,7 +67,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
-        <Link href="/chat" className="text-xs text-muted-foreground hover:text-foreground">← Chats</Link>
+        <Link href="/chat" className="text-xs text-muted-foreground hover:text-foreground md:hidden">← Chats</Link>
         <div className="mt-1 flex items-center gap-2">
           {isDM ? null : channel.isPublic ? <Hash className="size-5 text-muted-foreground" /> : <Lock className="size-5 text-amber-600" />}
           <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
