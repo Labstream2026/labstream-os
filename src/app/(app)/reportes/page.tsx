@@ -3,7 +3,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { getTaskLabels } from "@/lib/workflow-labels";
-import { statusMeta } from "@/lib/ui";
+import { statusMeta, quoteTotals, formatMoney } from "@/lib/ui";
 import { formatMinutes } from "@/lib/timeline";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,7 @@ export default async function ReportesPage() {
   const { statuses } = await getTaskLabels();
   const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
 
-  const [activeProjects, openTasks, hoursAgg, activeMembers, byStatus, load, timeEntries] = await Promise.all([
+  const [activeProjects, openTasks, hoursAgg, activeMembers, byStatus, load, timeEntries, invoices] = await Promise.all([
     db.project.count({ where: { status: { notIn: INACTIVE as never } } }),
     db.task.count({ where: { status: { in: openKeys } } }),
     db.timeEntry.aggregate({ _sum: { minutes: true } }),
@@ -28,7 +28,17 @@ export default async function ReportesPage() {
     db.project.groupBy({ by: ["status"], _count: { _all: true } }),
     db.task.groupBy({ by: ["assigneeId"], where: { status: { in: openKeys }, assigneeId: { not: null } }, _count: { _all: true } }),
     db.timeEntry.findMany({ select: { minutes: true, task: { select: { project: { select: { id: true, name: true, emoji: true } } } } } }),
+    db.invoice.findMany({ select: { status: true, taxRate: true, currency: true, dueDate: true, items: { select: { quantity: true, unitPrice: true } } } }),
   ]);
+
+  // Facturación: total facturado, cobrado y por cobrar (ENVIADA + vencidas).
+  const invEffective = (status: string, dueDate: Date | null) =>
+    status === "ENVIADA" && dueDate && new Date(dueDate) < new Date() ? "VENCIDA" : status;
+  const invRows = invoices.map((i) => ({ status: invEffective(i.status, i.dueDate), total: quoteTotals(i.items, i.taxRate).total }));
+  const facturado = invRows.filter((r) => r.status !== "ANULADA").reduce((n, r) => n + r.total, 0);
+  const cobrado = invRows.filter((r) => r.status === "PAGADA").reduce((n, r) => n + r.total, 0);
+  const porCobrar = invRows.filter((r) => r.status === "ENVIADA" || r.status === "VENCIDA").reduce((n, r) => n + r.total, 0);
+  const invCurrency = invoices[0]?.currency ?? "COP";
 
   // Proyectos por estado (orden por cantidad).
   const statusRows = byStatus
@@ -70,6 +80,17 @@ export default async function ReportesPage() {
         <Stat emoji="⏱" value={formatMinutes(totalMinutes)} label="Horas registradas" />
         <Stat emoji="👥" value={activeMembers} label="Miembros activos" />
       </div>
+
+      {invoices.length > 0 ? (
+        <div className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold">Facturación</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Stat emoji="🧾" value={formatMoney(facturado, invCurrency)} label="Facturado" />
+            <Stat emoji="💰" value={formatMoney(cobrado, invCurrency)} label="Cobrado" />
+            <Stat emoji="⌛" value={formatMoney(porCobrar, invCurrency)} label="Por cobrar" />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
         {/* Proyectos por estado */}

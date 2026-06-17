@@ -21,6 +21,7 @@ import {
   BookOpen,
   Library,
   BarChart3,
+  Receipt,
   LogOut,
   Trash2,
 } from "lucide-react";
@@ -323,6 +324,7 @@ export function Sidebar({
         {collapsed || showAdminItems ? (
           <>
             {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
+            {canQuotes ? navRow("/facturacion", "Facturación", Receipt, pathname.startsWith("/facturacion")) : null}
             {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
