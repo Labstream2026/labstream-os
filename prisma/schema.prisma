@@ -345,6 +345,36 @@ model QuoteItem {
   @@index([quoteId])
 }
 
+// Catálogo INTERNO de servicios de Labstream (lista de precios estandarizada). NO se
+// muestra al cliente: sirve para armar nuestros costos. Agrupado por tipo de servicio
+// (streaming, video_institucional…) y sección (Equipo, Equipo humano…).
+model ServiceItem {
+  id          String   @id @default(cuid())
+  serviceType String   // streaming | video_institucional | contenido_empresa | ...
+  section     String   // Equipo técnico | Equipo humano | Postproducción | Logística...
+  name        String   // p. ej. "Mezclador de video", "Camarógrafo"
+  detail      String?  // aclaración opcional
+  unit        String   @default("servicio") // servicio | día | hora | unidad | mes...
+  qty         Float    @default(1)   // cantidad sugerida por defecto
+  unitPrice   Float    @default(0)   // COSTO interno unitario (COP)
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([serviceType])
+}
+
+// Ajustes globales de cotización (fila única id="default"): % de transporte/imprevistos
+// e IVA por defecto que alimentan el armado interno de costos.
+model QuoteSettings {
+  id               String   @id @default("default")
+  iva              Int      @default(19)   // % IVA
+  contingencyPct   Float    @default(10)   // % transporte e imprevistos (sobre el subtotal interno)
+  contingencyLabel String   @default("Transporte e imprevistos")
+  updatedAt        DateTime @updatedAt
+}
+
 // ─────────────────────────────────────────────
 // Facturación (Factura = snapshot de una cotización aprobada + estado de cobro)
 // ─────────────────────────────────────────────

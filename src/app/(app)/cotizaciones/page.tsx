@@ -8,6 +8,9 @@ import { formatMoney, quoteStatusMeta, quoteTotals, formatShortDate } from "@/li
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
+import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib/services-catalog";
+import { ServicesCatalog } from "./services-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +37,11 @@ export default async function CotizacionesPage() {
     }),
   ]);
 
+  // Catálogo interno de servicios (lista de precios) + ajustes (% e IVA). Se siembra la
+  // primera vez. Es interno: no se muestra al cliente.
+  await ensureServiceCatalog();
+  const [catalog, qSettings] = await Promise.all([getServiceCatalog(), getQuoteSettings()]);
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-8 sm:py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -53,8 +61,14 @@ export default async function CotizacionesPage() {
         ) : null}
       </div>
 
+      <div className="mt-8">
+      <ViewTabs
+        storageKey="cotizaciones-view"
+        views={[
+          { key: "propuestas", label: "Propuestas", icon: "✨", node: (
+      <>
       {/* Propuestas interactivas */}
-      <h2 className="mb-2 mt-8 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
         <Sparkles className="size-4" /> Propuestas con asistente
       </h2>
       {proposals.length === 0 ? (
@@ -93,8 +107,12 @@ export default async function CotizacionesPage() {
         </div>
       )}
 
+      </>
+          ) },
+          { key: "cotizaciones", label: "Cotizaciones rápidas", icon: "📄", node: (
+      <>
       {/* Cotizaciones rápidas (itemizadas) */}
-      <h2 className="mb-2 mt-8 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
         <FileText className="size-4" /> Cotizaciones rápidas
       </h2>
       {quotes.length === 0 ? (
@@ -125,6 +143,14 @@ export default async function CotizacionesPage() {
           })}
         </div>
       )}
+      </>
+          ) },
+          { key: "servicios", label: "Servicios y valores", icon: "🧾", node: (
+            <ServicesCatalog groups={catalog} settings={qSettings} canEdit={canCreate} />
+          ) },
+        ]}
+      />
+      </div>
     </div>
   );
 }
