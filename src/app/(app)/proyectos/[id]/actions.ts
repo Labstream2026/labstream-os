@@ -410,6 +410,16 @@ export async function setProjectDates(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
+// Indica si el usuario actual puede ESCRIBIR en el proyecto (crear tareas, editarlo…).
+// Lo usa el botón flotante para mostrar solo las acciones que el usuario puede ejecutar
+// en ESTE proyecto, en vez de fiarse de un permiso global. No lanza.
+export async function getProjectCapabilities(projectId: string): Promise<{ canWrite: boolean }> {
+  const session = await getSession();
+  if (!session) return { canWrite: false };
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  return { canWrite: !!project && canWriteProject(project, session) };
+}
+
 // Devuelve los datos básicos de un proyecto para precargar el formulario de edición
 // rápida (botón flotante). Requiere acceso de escritura al proyecto.
 export async function getProjectBasics(projectId: string): Promise<{
@@ -773,8 +783,7 @@ export async function resolveReviewComment(commentId: string, _projectId: string
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
   await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
-  refresh(c.deliverable.projectId);
-  revalidatePath(`/revisiones/${c.deliverableId}`);
+  // Sin revalidar: el cambio se refleja de forma optimista (no reinicia el video).
 }
 
 // Respuesta del equipo a la revisión del cliente (se ve en el portal público).
@@ -831,8 +840,8 @@ export async function addInternalReviewComment(deliverableId: string, formData: 
     },
   });
   await logActivity({ action: "deliverable.internal_comment", summary: `comentó en la revisión interna de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
-  refresh(deliverable.projectId);
-  revalidatePath(`/revisiones/${deliverableId}`);
+  // Sin revalidar: el comentario aparece de forma optimista en ReviewStage para que el
+  // reproductor no se reinicie. Al recargar, el servidor ya devuelve el comentario.
 }
 
 // ── Archivos ──

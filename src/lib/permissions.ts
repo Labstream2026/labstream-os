@@ -184,7 +184,14 @@ const ASISTENTE_INTERNAL_ROLES = ["gerente", "ventas", "productor", "director", 
 export async function ensureAsistenteDefault(): Promise<void> {
   const perm = await db.permission.findUnique({ where: { key: "ver_asistente" }, select: { id: true } });
   if (!perm) return;
-  const already = await db.rolePermission.count({ where: { permissionId: perm.id } });
+  // OJO: `gerente` recibe ver_asistente vía ROLE_DEFAULTS (tiene TODOS los permisos),
+  // así que su presencia NO indica que el backfill ya corrió. Comprobamos solo los roles
+  // internos NO-gerente; si ninguno lo tiene, es la primera vez → concédelo a todos.
+  // (Independiente del orden respecto a ensureRoleDefaults.)
+  const guardKeys = ASISTENTE_INTERNAL_ROLES.filter((k) => k !== "gerente");
+  const already = await db.rolePermission.count({
+    where: { permissionId: perm.id, role: { key: { in: guardKeys } } },
+  });
   if (already > 0) return;
   const roles = await db.role.findMany({ where: { key: { in: ASISTENTE_INTERNAL_ROLES } }, select: { id: true } });
   if (roles.length) {

@@ -70,7 +70,8 @@ export async function addReviewComment(token: string, formData: FormData) {
     entityId: deliverableId,
     actorName: `${authorName} (cliente)`,
   });
-  revalidatePath(`/review/${token}`);
+  // No revalidamos la página: el comentario se muestra de forma optimista en el cliente
+  // (ReviewStage) para que el reproductor de video NO se reinicie al comentar.
 }
 
 export async function setReviewDecision(token: string, decision: string, name?: string) {

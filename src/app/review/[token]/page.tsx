@@ -76,6 +76,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             versions={versions}
             status={deliverable.status}
             allowDrawings={deliverable.reviewAllowDrawings}
+            deliverableName={deliverable.name}
+            projectName={deliverable.project.name}
+            projectEmoji={deliverable.project.emoji}
+            clientName={deliverable.project.client?.name ?? null}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,
               authorName: c.authorName,

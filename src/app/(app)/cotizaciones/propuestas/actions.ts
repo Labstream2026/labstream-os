@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 import { buildProposal } from "@/lib/proposals/templates";
 import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type BlockType } from "@/lib/proposals/types";
 import type { BudgetSection } from "@/lib/proposals/budget";
@@ -16,6 +17,15 @@ async function requirePerm(key: string) {
   const session = await getSession();
   if (!hasPermission(session, key)) throw new Error("No autorizado");
   return session!;
+}
+
+// Si la propuesta está vinculada a un cliente, el usuario debe poder acceder a ese cliente.
+// Las propuestas sin cliente vinculado quedan accesibles a cualquiera con crear_cotizaciones.
+async function ensureProposalAccess(id: string): Promise<void> {
+  const session = await getSession();
+  const p = await db.proposal.findUnique({ where: { id }, select: { clientId: true } });
+  if (!p) throw new Error("Propuesta inexistente");
+  if (p.clientId && !(await userCanAccessClient(p.clientId, session))) throw new Error("No autorizado");
 }
 
 function refresh(id?: string) {
@@ -95,6 +105,7 @@ export async function createProposal(
 
 export async function saveProposalBlocks(id: string, blocks: unknown) {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
   const clean = sanitizeBlocks(blocks);
   await db.proposal.update({ where: { id }, data: { blocks: clean as unknown as object } });
   refresh(id);
@@ -105,6 +116,7 @@ export async function saveProposalBlocks(id: string, blocks: unknown) {
 const MAX_PROPOSAL_IMG = 8 * 1024 * 1024;
 export async function uploadProposalImage(proposalId: string, formData: FormData): Promise<{ url: string } | null> {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(proposalId);
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) return null;
   if (file.size > MAX_PROPOSAL_IMG) throw new Error("La imagen supera 8 MB");
@@ -133,6 +145,7 @@ export async function updateProposalMeta(
   data: { title?: string; brand?: Brand; expiresAt?: string | null; clientId?: string | null },
 ) {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
   const patch: Record<string, unknown> = {};
   if (typeof data.title === "string" && data.title.trim()) patch.title = data.title.trim().slice(0, 160);
   if (data.brand) patch.brand = { ...BRAND_DEFAULT, ...data.brand } as unknown as object;
@@ -145,14 +158,18 @@ export async function updateProposalMeta(
 
 const STATUSES = ["BORRADOR", "ENVIADA", "ACEPTADA", "VENCIDA"];
 export async function setProposalStatus(id: string, status: string) {
-  await requirePerm("crear_cotizaciones");
   if (!STATUSES.includes(status)) throw new Error("Estado inválido");
+  // Marcar ACEPTADA (transición comercialmente sensible) exige aprobar_cotizaciones,
+  // igual que en cotizaciones; el resto basta con crear_cotizaciones.
+  await requirePerm(status === "ACEPTADA" ? "aprobar_cotizaciones" : "crear_cotizaciones");
+  await ensureProposalAccess(id);
   await db.proposal.update({ where: { id }, data: { status: status as never } });
   refresh(id);
 }
 
 export async function addProposalBlock(id: string, type: string) {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
   const p = await db.proposal.findUnique({ where: { id }, select: { blocks: true, brand: true } });
   if (!p) throw new Error("Propuesta inexistente");
   const brand = p.brand as unknown as Brand;
@@ -164,6 +181,7 @@ export async function addProposalBlock(id: string, type: string) {
 
 export async function deleteProposal(id: string) {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
   await db.proposal.delete({ where: { id } });
   revalidatePath("/cotizaciones");
   redirect("/cotizaciones");
@@ -171,6 +189,7 @@ export async function deleteProposal(id: string) {
 
 export async function duplicateProposal(id: string) {
   await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
   const session = (await getSession())!;
   const src = await db.proposal.findUnique({ where: { id } });
   if (!src) throw new Error("Propuesta inexistente");

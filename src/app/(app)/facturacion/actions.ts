@@ -4,12 +4,22 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
 
 async function requirePerm(key: string) {
   const session = await getSession();
   if (!hasPermission(session, key)) throw new Error("No autorizado");
   return session!;
+}
+
+// El usuario debe poder acceder al cliente de la factura, además del permiso global.
+async function ensureInvoiceAccess(invoiceId: string): Promise<string | null> {
+  const session = await getSession();
+  const inv = await db.invoice.findUnique({ where: { id: invoiceId }, select: { code: true, clientId: true } });
+  if (!inv) return null;
+  if (!(await userCanAccessClient(inv.clientId, session))) throw new Error("No autorizado");
+  return inv.code;
 }
 
 function refresh(invoiceId?: string) {
@@ -32,6 +42,7 @@ export async function createInvoiceFromQuote(quoteId: string) {
     include: { items: { orderBy: { position: "asc" } } },
   });
   if (!quote) throw new Error("Cotización inexistente");
+  if (!(await userCanAccessClient(quote.clientId, session))) throw new Error("No autorizado");
 
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 30);
@@ -71,6 +82,8 @@ export async function setInvoiceStatus(invoiceId: string, status: string): Promi
   if (!VALID.includes(status)) return { ok: false, error: "Estado inválido" };
   const inv = await db.invoice.findUnique({ where: { id: invoiceId }, select: { code: true, clientId: true } });
   if (!inv) return { ok: false, error: "Factura inexistente" };
+  const session = await getSession();
+  if (!(await userCanAccessClient(inv.clientId, session))) return { ok: false, error: "No autorizado" };
   await db.invoice.update({
     where: { id: invoiceId },
     data: { status: status as never, paidAt: status === "PAGADA" ? new Date() : null },
@@ -82,6 +95,7 @@ export async function setInvoiceStatus(invoiceId: string, status: string): Promi
 
 export async function updateInvoiceMeta(invoiceId: string, formData: FormData): Promise<void> {
   await requirePerm("crear_cotizaciones");
+  await ensureInvoiceAccess(invoiceId);
   const issueRaw = String(formData.get("issueDate") ?? "").trim();
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
   const taxRaw = String(formData.get("taxRate") ?? "").trim();

@@ -153,7 +153,7 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <Topbar
           team={team}
           notifications={notifications}
@@ -164,6 +164,17 @@ export function AppShell({
         />
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior */}
         <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
+
+        {/* Botón flotante de creación rápida (contextual por sección). Anclado al bloque
+            CENTRAL (no a la ventana), así no se monta sobre el panel de chat de la derecha. */}
+        <QuickCreateFab
+          me={{ id: me.id, name: me.name }}
+          team={dockTeam.map((u) => ({ id: u.id, name: u.name }))}
+          priorities={fabPriorities}
+          canCalendar={canCalendar}
+          canCreateTasks={canCreateTasks}
+          canCreateProjects={canCreateProjects}
+        />
       </div>
 
       {/* Panel de chat de escritorio (redimensionable; muestra el chat del proyecto).
@@ -184,16 +195,6 @@ export function AppShell({
 
       {/* Buscador global (⌘K) */}
       <CommandPalette clients={clients} wikiPages={wikiPages} open={searchOpen} onClose={() => setSearchOpen(false)} />
-
-      {/* Botón flotante de creación rápida (contextual por sección) */}
-      <QuickCreateFab
-        me={{ id: me.id, name: me.name }}
-        team={dockTeam.map((u) => ({ id: u.id, name: u.name }))}
-        priorities={fabPriorities}
-        canCalendar={canCalendar}
-        canCreateTasks={canCreateTasks}
-        canCreateProjects={canCreateProjects}
-      />
 
       {/* Barra de navegación inferior (móvil) */}
       <BottomNav

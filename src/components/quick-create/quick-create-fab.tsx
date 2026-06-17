@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { PROJECT_STATUS } from "@/lib/ui";
 import { createMyTask } from "@/app/(app)/mis-tareas/actions";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
-import { createTask, updateProject, getProjectBasics } from "@/app/(app)/proyectos/[id]/actions";
+import { createTask, updateProject, getProjectBasics, getProjectCapabilities } from "@/app/(app)/proyectos/[id]/actions";
 
 type Person = { id: string; name: string };
 type Opt = { value: string; label: string };
@@ -52,6 +52,18 @@ export function QuickCreateFab({
   const isCalendario = pathname === "/calendario";
   const isMisTareas = pathname === "/mis-tareas";
 
+  // ¿Puede el usuario escribir en ESTE proyecto? Se consulta al servidor para no fiarse
+  // de un permiso global (crear_tareas/proyectos) que no implica acceso a este proyecto.
+  const [projCanWrite, setProjCanWrite] = React.useState(false);
+  React.useEffect(() => {
+    if (!projectId) { setProjCanWrite(false); return; }
+    let alive = true;
+    getProjectCapabilities(projectId)
+      .then((r) => { if (alive) setProjCanWrite(!!r?.canWrite); })
+      .catch(() => { if (alive) setProjCanWrite(false); });
+    return () => { alive = false; };
+  }, [projectId]);
+
   // Cierra el speed-dial al navegar o con Escape.
   React.useEffect(() => { setDialOpen(false); }, [pathname]);
   React.useEffect(() => {
@@ -76,9 +88,12 @@ export function QuickCreateFab({
     if (canCalendar) actions.push({ key: "event", label: "Nueva cita", Icon: CalendarPlus, run: () => openModal("event") });
     if (canCreateTasks) actions.push({ key: "task", label: "Nueva tarea", Icon: ListChecks, run: () => openModal("task-personal") });
   } else if (projectId) {
-    if (canCreateTasks) actions.push({ key: "task", label: "Nueva tarea", Icon: ListChecks, run: () => openModal("task-project") });
+    // Crear tarea y editar el proyecto requieren ESCRITURA en este proyecto (no solo el
+    // permiso global). Crear una cita solo requiere ver_calendario (la cita se asocia al
+    // proyecto pero no muta el proyecto).
+    if (canCreateTasks && projCanWrite) actions.push({ key: "task", label: "Nueva tarea", Icon: ListChecks, run: () => openModal("task-project") });
     if (canCalendar) actions.push({ key: "event", label: "Nueva cita", Icon: CalendarPlus, run: () => openModal("event") });
-    if (canCreateProjects) actions.push({ key: "edit", label: "Editar proyecto", Icon: Pencil, run: () => openModal("edit-project") });
+    if (projCanWrite) actions.push({ key: "edit", label: "Editar proyecto", Icon: Pencil, run: () => openModal("edit-project") });
   } else if (isClientes) {
     if (canCreateProjects)
       actions.push({
@@ -114,9 +129,11 @@ export function QuickCreateFab({
 
   return (
     <>
-      {/* Botón flotante + speed-dial (esquina inferior derecha). En móvil queda por
-          encima de la barra inferior. Se oculta al imprimir. */}
-      <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6 md:right-6 print:hidden">
+      {/* Botón flotante + speed-dial. Posición ABSOLUTA respecto al bloque central de la
+          app (la columna de contenido tiene `relative`), para que quede abajo a la derecha
+          de ese bloque y NO se monte sobre el panel de chat de la derecha. En móvil queda
+          por encima de la barra de navegación inferior. Se oculta al imprimir. */}
+      <div className="absolute bottom-20 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6 md:right-6 print:hidden">
         {!single && dialOpen ? (
           <div className="flex flex-col items-end gap-2">
             {actions.map(({ key, label, Icon, run: act }) => (

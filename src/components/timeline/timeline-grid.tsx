@@ -95,6 +95,8 @@ export function TimelineGrid({
   const months = monthSegments(startNum, endNum);
   const todayNum = dayNumberOf(todayKey());
   const todayOffset = (todayNum - startNum) * dayWidth;
+  // Solo dibujamos el cabezal de "hoy" si la fecha de hoy cae dentro del rango visible.
+  const todayInRange = todayNum >= startNum && todayNum <= endNum;
   const showDayBand = unit !== "month";
 
   // Arrastre/redimensionado: draft local de la barra activa.
@@ -307,6 +309,15 @@ export function TimelineGrid({
                 Cronograma
               </div>
               <div className="relative" style={{ width: trackW, height: showDayBand ? 42 : 24 }}>
+                {/* Cabezal de HOY: etiqueta en la cabecera, alineada con la línea vertical
+                    del cuerpo, para ubicar de un vistazo el día actual. */}
+                {todayInRange ? (
+                  <div className="pointer-events-none absolute bottom-0 z-20 -translate-x-1/2" style={{ left: todayOffset }}>
+                    <span className="rounded-sm bg-primary px-1 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide text-primary-foreground shadow-sm">
+                      Hoy
+                    </span>
+                  </div>
+                ) : null}
                 {/* Banda de meses */}
                 {months.map((seg) => (
                   <div
@@ -361,9 +372,15 @@ export function TimelineGrid({
                     />
                   );
                 })}
-                <div className="absolute inset-y-0 z-10 w-px bg-primary" style={{ left: todayOffset }}>
-                  <div className="absolute -top-0.5 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-primary" />
-                </div>
+                {todayInRange ? (
+                  <div className="absolute inset-y-0 z-10 w-0.5 -translate-x-1/2 bg-primary text-primary" style={{ left: todayOffset }}>
+                    {/* Punta del cabezal (triángulo) apuntando hacia abajo desde la cabecera */}
+                    <div
+                      className="absolute -top-1 left-1/2 size-0 -translate-x-1/2"
+                      style={{ borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderTop: "5px solid currentColor" }}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {/* Carriles */}

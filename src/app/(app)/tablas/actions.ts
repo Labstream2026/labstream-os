@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { canAccessProject } from "@/lib/project-access";
 import { canSeeWiki } from "@/lib/wiki-access";
@@ -215,9 +215,11 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
   });
   if (!col) return;
 
-  // Las contraseñas se guardan cifradas (nunca en claro en la BD).
+  // Las contraseñas se guardan cifradas (nunca en claro en la BD). Gestionarlas exige el
+  // permiso específico ver_contrasenas (no basta con poder ver/editar la tabla).
   let stored: unknown = value;
   if (col.type === "PASSWORD" && typeof value === "string") {
+    if (!hasPermission(await getSession(), "ver_contrasenas")) throw new Error("No autorizado para gestionar contraseñas.");
     stored = value ? encryptSecret(value) : "";
   }
 
@@ -241,6 +243,9 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
 // Revela (descifra) el valor de una celda PASSWORD bajo demanda, con control de acceso.
 export async function revealCell(rowId: string, columnId: string): Promise<string> {
   await ensureRowAccess(rowId);
+  // Revelar una contraseña exige el permiso ver_contrasenas; tener acceso a la tabla
+  // (ver_wiki o el proyecto) no basta para descifrar el secreto.
+  if (!hasPermission(await getSession(), "ver_contrasenas")) throw new Error("No autorizado para ver contraseñas.");
   const cell = await db.dataCell.findUnique({ where: { rowId_columnId: { rowId, columnId } }, select: { value: true } });
   const v = cell?.value;
   if (typeof v !== "string" || !v) return "";

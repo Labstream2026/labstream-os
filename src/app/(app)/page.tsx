@@ -2,9 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { canAccessProject } from "@/lib/project-access";
+import { buildSessionTimeline } from "@/lib/timeline-data";
+import { GlobalTimeline } from "./timeline/global-timeline";
 import { formatShortDate } from "@/lib/ui";
 
 function greeting(name: string) {
@@ -87,6 +89,13 @@ export default async function HomePage() {
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .slice(0, 6);
 
+  // Resumen del cronograma (proyectos activos visibles) para el Inicio. Solo si el
+  // usuario puede ver proyectos; reutiliza el mismo armado que el Cronograma general.
+  const canSeeCronograma = hasPermission(session, "ver_proyectos");
+  const cronograma = canSeeCronograma
+    ? await buildSessionTimeline(session, { activeOnly: true })
+    : { clients: [], milestones: [], undatedCount: 0 };
+
   const stats = [
     { emoji: "🏢", value: clients.length, label: "Clientes", sub: "activos" },
     { emoji: "🚀", value: projects, label: "Proyectos", sub: blocked ? `${blocked} bloqueado` : "activos" },
@@ -109,6 +118,25 @@ export default async function HomePage() {
           </div>
         ))}
       </div>
+
+      {/* Resumen del cronograma de todos los proyectos (solo lectura; clic → editar). */}
+      {canSeeCronograma ? (
+        <section className="mt-10">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold">Cronograma</h2>
+            <Link href="/timeline" className="text-sm font-medium text-primary hover:underline">
+              Ver completo
+            </Link>
+          </div>
+          {cronograma.clients.length > 0 ? (
+            <GlobalTimeline clients={cronograma.clients} milestones={cronograma.milestones} readOnly />
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+              Aún no hay proyectos activos con fechas. Asigna fechas de inicio/entrega en tus proyectos para ver aquí el resumen del cronograma.
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {upcoming.length > 0 ? (
         <section className="mt-10">

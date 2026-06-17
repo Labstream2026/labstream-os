@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { onlyofficeEnabled, isEditableOffice, buildConfig, signConfig, DOCS_URL, APP_BASE } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "../../[id]/editor";
@@ -40,6 +40,9 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
+  // Solo abre en modo edición quien puede ESCRIBIR en el proyecto; los de solo lectura
+  // (miembro GUEST, o quien ve un proyecto público sin ser miembro) lo abren en modo vista.
+  const canEdit = canWriteProject(file.project, session);
   const fileUrl = `${APP_BASE}/api/files-asset/${id}?t=${signFileToken(id)}`;
   const callbackUrl = `${APP_BASE}/api/docs/file/${id}/callback`;
   const config = await signConfig(
@@ -49,7 +52,7 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
       version: file.version,
       fileUrl,
       callbackUrl,
-      canEdit: true,
+      canEdit,
       user: { id: session.id, name: session.name },
     }),
   );

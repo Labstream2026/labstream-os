@@ -4,11 +4,21 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 
 async function requirePerm(key: string) {
   const session = await getSession();
   if (!hasPermission(session, key)) throw new Error("No autorizado");
   return session!;
+}
+
+// Además del permiso global, el usuario debe poder acceder al CLIENTE de la cotización
+// (es miembro o participa en sus proyectos). Evita que cualquier `ventas` edite/borre
+// cotizaciones de clientes ajenos conociendo el id.
+async function ensureQuoteAccess(quoteId: string): Promise<void> {
+  const session = await getSession();
+  const q = await db.quote.findUnique({ where: { id: quoteId }, select: { clientId: true } });
+  if (!q || !(await userCanAccessClient(q.clientId, session))) throw new Error("No autorizado");
 }
 
 function refresh(id?: string) {
@@ -31,11 +41,12 @@ async function assertEditable(quoteId: string) {
 }
 
 export async function createQuote(formData: FormData) {
-  await requirePerm("crear_cotizaciones");
+  const session = await requirePerm("crear_cotizaciones");
   const title = String(formData.get("title") ?? "").trim() || "Cotización sin título";
   const clientId = String(formData.get("clientId") ?? "");
   const projectId = String(formData.get("projectId") ?? "") || null;
   if (!clientId) throw new Error("Falta el cliente");
+  if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
 
   const quote = await db.quote.create({
     data: {
@@ -43,7 +54,7 @@ export async function createQuote(formData: FormData) {
       title,
       clientId,
       projectId,
-      createdById: (await getSession())!.id,
+      createdById: session.id,
       items: { create: [{ description: "", quantity: 1, unitPrice: 0, position: 0 }] },
     },
   });
@@ -53,6 +64,7 @@ export async function createQuote(formData: FormData) {
 
 export async function updateQuoteMeta(quoteId: string, formData: FormData) {
   await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
   await assertEditable(quoteId);
   const title = String(formData.get("title") ?? "").trim();
   const taxRate = Math.max(0, Math.min(100, parseInt(String(formData.get("taxRate") ?? "0"), 10) || 0));
@@ -72,6 +84,7 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
 
 export async function addItem(quoteId: string) {
   await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
   await assertEditable(quoteId);
   const count = await db.quoteItem.count({ where: { quoteId } });
   await db.quoteItem.create({
@@ -87,6 +100,7 @@ export async function updateItem(
   await requirePerm("crear_cotizaciones");
   const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
   if (!existing) return;
+  await ensureQuoteAccess(existing.quoteId);
   await assertEditable(existing.quoteId);
   // cantidades y precios no negativos (evita totales manipulados)
   const quantity = Math.max(0, Number.isFinite(data.quantity) ? data.quantity : 0);
@@ -103,6 +117,7 @@ export async function removeItem(itemId: string) {
   await requirePerm("crear_cotizaciones");
   const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
   if (!existing) return;
+  await ensureQuoteAccess(existing.quoteId);
   await assertEditable(existing.quoteId);
   await db.quoteItem.delete({ where: { id: itemId } });
   refresh(existing.quoteId);
@@ -113,6 +128,7 @@ export async function setQuoteStatus(quoteId: string, status: string) {
   if (!QUOTE_STATUSES.includes(status)) throw new Error("Estado inválido");
   const needsApproval = status === "APROBADA" || status === "RECHAZADA";
   const session = await requirePerm(needsApproval ? "aprobar_cotizaciones" : "crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
   await db.quote.update({
     where: { id: quoteId },
     data: {

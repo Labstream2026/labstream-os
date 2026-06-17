@@ -40,6 +40,7 @@ export type StageComment = {
 type PlayerApi = {
   getTime: () => number | null;
   seek: (t: number) => void;
+  pause: () => void;
   // Captura el fotograma actual (+ caption opcional quemado) en un JPEG; null si la
   // fuente no es del mismo origen (YouTube/Vimeo/Drive sin proxy → CORS).
   capture: (caption?: string) => string | null;
@@ -56,6 +57,7 @@ export function ReviewStage({
   comments,
   status,
   allowDrawings,
+  mode,
   defaultName = "",
   fixedName = false,
   decision,
@@ -89,23 +91,44 @@ export function ReviewStage({
   const [drawing, setDrawing] = React.useState<string | null>(null); // dataURL JPEG (anotación manual)
   const [hideResolved, setHideResolved] = React.useState(false);
   const [pending, start] = React.useTransition();
+  // Comentarios añadidos en esta sesión (UI optimista): se muestran al instante SIN
+  // recargar la página, para que el reproductor de video NO se reinicie al comentar.
+  const [localComments, setLocalComments] = React.useState<StageComment[]>([]);
+  // Estado «resuelto» cambiado en esta sesión (también optimista, sin recargar).
+  const [resolvedOverride, setResolvedOverride] = React.useState<Record<string, boolean>>({});
 
   React.useEffect(() => {
     if (fixedName) return;
     setName(localStorage.getItem("review_name") || "");
   }, [fixedName]);
 
+  // Mezcla los comentarios del servidor con los añadidos en esta sesión y aplica los
+  // cambios de «resuelto» optimistas.
+  const merged = React.useMemo(() => {
+    return [...comments, ...localComments].map((c) =>
+      c.id in resolvedOverride ? { ...c, resolved: resolvedOverride[c.id] } : c,
+    );
+  }, [comments, localComments, resolvedOverride]);
+
   // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas.
-  const ofVersion = comments.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);
+  const ofVersion = merged.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);
   const allMoments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
   const resolvedCount = allMoments.filter((c) => c.resolved).length;
   const moments = hideResolved ? allMoments.filter((c) => !c.resolved) : allMoments;
   const notes = ofVersion.filter((c) => c.isNote);
 
   const seek = (t: number) => playerRef.current?.seek(t);
+  // Fija el segundo actual del video Y lo pausa, para anclar el comentario al momento
+  // exacto (si no, el video sigue corriendo mientras escribes y el segundo se mueve).
   const grabTime = () => {
     const t = playerRef.current?.getTime();
+    playerRef.current?.pause();
     if (t != null) setTc(t);
+  };
+  // Al empezar a comentar (foco en el cuadro), marca el momento automáticamente la
+  // primera vez. Si ya hay un momento marcado, respeta el que el usuario eligió.
+  const onCommentFocus = () => {
+    if (tc == null && version?.timecodeCapable) grabTime();
   };
 
   // Comentario anclado a un momento: captura automática del frame + el texto encima.
@@ -124,8 +147,21 @@ export function ReviewStage({
     if (version) fd.set("versionNumber", String(version.number));
     if (image) fd.set("drawingData", JSON.stringify({ image, timecode: at }));
     fd.set("isNote", "false");
+    const optimistic: StageComment = {
+      id: `local-${Date.now()}-${localComments.length}`,
+      authorName: name || defaultName || (mode === "client" ? "Cliente" : "Equipo"),
+      body: body.trim() || "(anotación)",
+      timecode: at,
+      versionNumber: version?.number ?? null,
+      drawing: image ? { image } : null,
+      isNote: false,
+      fromClient: mode === "client",
+      resolved: false,
+      createdAt: new Date().toISOString(),
+    };
     start(async () => {
       await onComment(fd);
+      setLocalComments((prev) => [...prev, optimistic]);
       setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
     });
   };
@@ -139,8 +175,21 @@ export function ReviewStage({
     fd.set("body", noteBody);
     if (version) fd.set("versionNumber", String(version.number));
     fd.set("isNote", "true");
+    const optimistic: StageComment = {
+      id: `local-note-${Date.now()}-${localComments.length}`,
+      authorName: name || defaultName || (mode === "client" ? "Cliente" : "Equipo"),
+      body: noteBody.trim(),
+      timecode: null,
+      versionNumber: version?.number ?? null,
+      drawing: null,
+      isNote: true,
+      fromClient: mode === "client",
+      resolved: false,
+      createdAt: new Date().toISOString(),
+    };
     start(async () => {
       await onComment(fd);
+      setLocalComments((prev) => [...prev, optimistic]);
       setNoteBody("");
     });
   };
@@ -241,7 +290,7 @@ export function ReviewStage({
                     <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
                   ) : null}
                   {onResolve ? (
-                    <button onClick={() => start(() => onResolve(c.id, !c.resolved))} disabled={pending} className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${c.resolved ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "border border-border text-muted-foreground hover:bg-accent"}`}>
+                    <button onClick={() => { const next = !c.resolved; setResolvedOverride((p) => ({ ...p, [c.id]: next })); start(() => onResolve(c.id, next)); }} disabled={pending} className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${c.resolved ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "border border-border text-muted-foreground hover:bg-accent"}`}>
                       {c.resolved ? "✓ resuelto" : "marcar resuelto"}
                     </button>
                   ) : null}
@@ -261,7 +310,7 @@ export function ReviewStage({
           {!fixedName ? (
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           ) : null}
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="Escribe sobre el video… (se captura el frame y el segundo)" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder="Escribe sobre el video… (al escribir se pausa y se fija el segundo)" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <div className="flex items-center justify-between gap-2">
             {version?.timecodeCapable ? (
               <button onClick={grabTime} type="button" title="Marca el segundo actual del video" className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent">
@@ -338,18 +387,20 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       apiRef.current = {
         getTime: () => videoRef.current?.currentTime ?? null,
         seek: (t) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.play().catch(() => {}); } },
+        pause: () => { videoRef.current?.pause(); },
         capture: cap,
       };
     } else if (version.kind === "image") {
-      apiRef.current = { getTime: () => null, seek: () => {}, capture: cap };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: cap };
     } else if (version.kind === "youtube") {
       apiRef.current = {
         getTime: () => { try { return ytPlayer.current?.getCurrentTime?.() ?? null; } catch { return null; } },
         seek: (t) => { try { ytPlayer.current?.seekTo?.(t, true); } catch { /* noop */ } },
+        pause: () => { try { ytPlayer.current?.pauseVideo?.(); } catch { /* noop */ } },
         capture: () => null,
       };
     } else {
-      apiRef.current = { getTime: () => null, seek: () => {}, capture: () => null };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: () => null };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, apiRef, usingProxy]);

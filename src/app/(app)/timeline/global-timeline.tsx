@@ -29,7 +29,17 @@ export type GTProject = {
 export type GTClient = { id: string; label: string; colorHex?: string; projects: GTProject[] };
 export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string };
 
-export function GlobalTimeline({ clients, milestones }: { clients: GTClient[]; milestones: GTMilestone[] }) {
+export function GlobalTimeline({
+  clients,
+  milestones,
+  readOnly = false,
+}: {
+  clients: GTClient[];
+  milestones: GTMilestone[];
+  // Solo lectura (p. ej. el resumen del Inicio): no se puede arrastrar para reprogramar;
+  // el clic en un proyecto lleva a su cronograma para editarlo allí.
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [unit, setUnit] = React.useState<TimelineUnit>("month");
   const [, startTransition] = React.useTransition();
@@ -102,7 +112,7 @@ export function GlobalTimeline({ clients, milestones }: { clients: GTClient[]; m
       lanes={lanes}
       unit={unit}
       onUnitChange={changeUnit}
-      onBarChange={onBarChange}
+      onBarChange={readOnly ? undefined : onBarChange}
       emptyHint="Ningún proyecto tiene fechas de inicio o entrega. Asígnalas en cada proyecto para verlas aquí."
     />
   );
