@@ -13,6 +13,7 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
   const [value, setValue] = React.useState(defaultValue);
   const [mode, setMode] = React.useState<"edit" | "preview">("edit");
   const [busy, setBusy] = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const ref = React.useRef<HTMLTextAreaElement>(null);
   const imgInput = React.useRef<HTMLInputElement>(null);
@@ -58,12 +59,31 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
     }
   };
 
+  // Sube varios archivos (al pegar o arrastrar) y los añade al final del contenido.
+  const uploadMany = async (files: File[]) => {
+    if (!files.length) return;
+    setErr(null); setBusy(true);
+    try {
+      const snippets: string[] = [];
+      for (const f of files) {
+        const fd = new FormData(); fd.set("file", f);
+        const r = await uploadWikiFile(fd);
+        snippets.push(r.isImage ? `![${r.name}](${r.url})` : `[📎 ${r.name}](${r.url})`);
+      }
+      setValue((v) => v + (v && !v.endsWith("\n") ? "\n\n" : "") + snippets.join("\n") + "\n");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "No se pudo subir el archivo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const Btn = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
     <button type="button" onClick={onClick} title={title} className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">{children}</button>
   );
 
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className={cn("rounded-lg border bg-card", dragging ? "border-primary ring-2 ring-primary/30" : "border-border")}>
       {/* Barra de herramientas */}
       <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-2 py-1.5">
         <Btn onClick={() => surround("**")} title="Negrita"><Bold className="size-4" /></Btn>
@@ -94,8 +114,18 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
         name="content"
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onPaste={(e) => {
+          const files = [...(e.clipboardData?.files ?? [])];
+          if (files.length) { e.preventDefault(); void uploadMany(files); }
+        }}
+        onDragOver={(e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          const files = [...(e.dataTransfer?.files ?? [])];
+          if (files.length) { e.preventDefault(); setDragging(false); void uploadMany(files); }
+        }}
         rows={18}
-        placeholder="Escribe aquí… Markdown: # títulos, - listas, - [ ] tareas, **negrita**, tablas | |, enlaces y ![imágenes]()."
+        placeholder="Escribe aquí… Markdown: # títulos, - listas, - [ ] tareas, **negrita**, tablas | |, enlaces y ![imágenes](). Pega o arrastra una imagen para subirla."
         className={cn("w-full resize-y bg-transparent px-4 py-3 font-mono text-sm outline-none", mode === "preview" && "hidden")}
       />
 
