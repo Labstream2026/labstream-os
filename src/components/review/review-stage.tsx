@@ -194,6 +194,11 @@ export function ReviewStage({
           ) : null}
           {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
         </div>
+        {version?.kind === "drive_file" ? (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            ℹ️ Por defecto se reproduce con el visor de Google (rápido). Para guardar el fotograma al comentar, activa «📸 Modo captura» (carga el video del mismo origen; en masters pesados tarda). Alternativa más ágil: sube un archivo liviano de revisión en «+ Versión».
+          </p>
+        ) : null}
         {version && (version.kind === "youtube" || version.kind === "vimeo" || version.kind === "drive_folder" || version.kind === "other") ? (
           <p className="mt-1.5 text-[11px] text-muted-foreground">
             ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma. Para anotar, usa ✏️ Dibujar (pega o sube una captura). Para captura automática, sube el video o usa un enlace de archivo de Drive.
@@ -310,12 +315,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   const ytRef = React.useRef<HTMLIFrameElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ytPlayer = React.useRef<any>(null);
-  // Para Drive: intenta primero el video proxiado (mismo origen → captura); si falla
-  // la carga, cae al iframe de Drive (reproduce, pero sin captura del frame).
+  // Para Drive ofrecemos DOS modos: ver con el reproductor de Google (iframe, rápido,
+  // ideal para masters pesados) y «modo captura» (video proxiado del mismo origen, que
+  // SÍ permite capturar el fotograma; en archivos grandes tarda en cargar). Por defecto
+  // se ve con Google; el revisor activa el modo captura solo cuando quiere anclar un frame.
   const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
-  React.useEffect(() => { setDriveProxyFailed(false); }, [version]);
+  const [captureMode, setCaptureMode] = React.useState(false);
+  React.useEffect(() => { setDriveProxyFailed(false); setCaptureMode(false); }, [version]);
 
-  const usingProxy = version?.kind === "drive_file" && !!version.proxySrc && !driveProxyFailed;
+  const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
+  const usingProxy = isDriveProxyable && captureMode && !driveProxyFailed;
   // Elemento del mismo origen del que SÍ se puede leer el fotograma.
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
     version?.kind === "video" || usingProxy ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
@@ -379,6 +388,17 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       <span className="text-sm font-medium text-white drop-shadow">{caption.trim()}</span>
     </div>
   ) : null;
+  // Conmutador Drive: ver con Google (rápido) ↔ modo captura (video proxiado).
+  const driveToggle = isDriveProxyable && !drawOpen ? (
+    <button
+      type="button"
+      onClick={() => setCaptureMode((m) => !m)}
+      title={captureMode ? "Volver al reproductor de Google (más rápido)" : "Cargar el video para poder capturar el fotograma"}
+      className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white shadow hover:bg-black/85"
+    >
+      {captureMode ? "▶︎ Ver con Google" : "📸 Modo captura"}
+    </button>
+  ) : null;
 
   if (version.kind === "video" || usingProxy) {
     return (
@@ -391,6 +411,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
           onError={() => { if (usingProxy) setDriveProxyFailed(true); }}
           className="w-full rounded-xl border border-border bg-black"
         />
+        {usingProxy ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 bg-black/60 px-3 py-1 text-center text-[11px] text-white">
+            Modo captura: cargando el video del mismo origen. En masters pesados puede tardar; cuando puedas reproducirlo, comenta para guardar el fotograma.
+          </div>
+        ) : null}
+        {driveToggle}
         {liveCaption}
         {overlay}
       </div>
@@ -405,10 +431,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       </div>
     );
   }
-  // YouTube / Vimeo / Drive (iframe, sin captura del frame).
+  // YouTube / Vimeo / Drive (iframe). Para Drive, el conmutador permite pasar a modo captura.
   return (
     <div className="relative">
       <iframe ref={ytRef} src={version.src} className="aspect-video w-full rounded-xl border border-border bg-black" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
+      {driveToggle}
       {liveCaption}
       {overlay}
     </div>
