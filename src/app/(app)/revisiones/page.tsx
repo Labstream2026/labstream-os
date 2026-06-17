@@ -4,7 +4,7 @@ import { ClipboardCheck, Clock, Send, RefreshCw } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
-import { deliverableStatusMeta } from "@/lib/ui";
+import { deliverableStatusMeta, formatShortDate } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +103,7 @@ function Group({ title, Icon, accent, items }: { title: string; Icon: React.Comp
                 <p className="truncate text-xs text-muted-foreground">
                   {d.project.name}
                   {d.project.client ? ` · ${d.project.client.name}` : ""}
-                  {v ? ` · v${v.number}${v.uploadedBy ? ` de ${v.uploadedBy.name}` : ""}` : ""}
+                  {v ? ` · v${v.number}${v.uploadedBy ? ` de ${v.uploadedBy.name}` : ""} · ${formatShortDate(v.createdAt)}` : ""}
                 </p>
               </div>
               {d._count.reviewComments > 0 ? (

@@ -87,6 +87,7 @@ export function ReviewStage({
   const [tc, setTc] = React.useState<number | null>(null);
   const [drawOpen, setDrawOpen] = React.useState(false);
   const [drawing, setDrawing] = React.useState<string | null>(null); // dataURL JPEG (anotación manual)
+  const [hideResolved, setHideResolved] = React.useState(false);
   const [pending, start] = React.useTransition();
 
   React.useEffect(() => {
@@ -96,7 +97,9 @@ export function ReviewStage({
 
   // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas.
   const ofVersion = comments.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);
-  const moments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
+  const allMoments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
+  const resolvedCount = allMoments.filter((c) => c.resolved).length;
+  const moments = hideResolved ? allMoments.filter((c) => !c.resolved) : allMoments;
   const notes = ofVersion.filter((c) => c.isNote);
 
   const seek = (t: number) => playerRef.current?.seek(t);
@@ -191,6 +194,11 @@ export function ReviewStage({
           ) : null}
           {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
         </div>
+        {version && (version.kind === "youtube" || version.kind === "vimeo" || version.kind === "drive_folder" || version.kind === "other") ? (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma. Para anotar, usa ✏️ Dibujar (pega o sube una captura). Para captura automática, sube el video o usa un enlace de archivo de Drive.
+          </p>
+        ) : null}
 
         {/* Decisión */}
         {decision ? (
@@ -207,13 +215,20 @@ export function ReviewStage({
 
       {/* ── Comentarios + notas ── */}
       <div className="flex min-h-0 flex-col">
-        <h2 className="mb-2 text-sm font-semibold">Comentarios por momento ({moments.length})</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Comentarios por momento ({allMoments.length})</h2>
+          {onResolve && resolvedCount > 0 ? (
+            <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+              {hideResolved ? `Ver resueltos (${resolvedCount})` : "Ocultar resueltos"}
+            </button>
+          ) : null}
+        </div>
         <div className="mb-3 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
           {moments.length === 0 ? (
             <p className="text-sm text-muted-foreground">Pausa el video donde quieras y escribe un comentario: se guarda el segundo y una captura del fotograma.</p>
           ) : (
             moments.map((c) => (
-              <div key={c.id} className="rounded-lg border border-border bg-card p-3 text-sm">
+              <div key={c.id} className={`rounded-lg border border-border bg-card p-3 text-sm ${c.resolved ? "opacity-60" : ""}`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{c.authorName}</span>
                   {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
