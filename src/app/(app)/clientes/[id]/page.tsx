@@ -152,7 +152,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex items-center gap-4">
         <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-3xl">{client.emoji ?? "🏢"}</span>
         <div>

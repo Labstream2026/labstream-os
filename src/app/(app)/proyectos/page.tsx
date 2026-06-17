@@ -138,7 +138,7 @@ export default async function ProyectosPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Proyectos</h1>

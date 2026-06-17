@@ -32,7 +32,7 @@ export default async function BibliotecaPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-10">
+    <div className="mx-auto max-w-7xl px-8 py-10">
       <h1 className="text-3xl font-bold tracking-tight">Biblioteca</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Recursos reutilizables del equipo: música, logos, stock, plantillas… {assets.length} elementos.

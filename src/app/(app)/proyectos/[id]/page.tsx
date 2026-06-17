@@ -172,7 +172,7 @@ export default async function ProyectoPage({
   ];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
         ← Proyectos
       </Link>

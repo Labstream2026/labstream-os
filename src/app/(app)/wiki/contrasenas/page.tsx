@@ -37,7 +37,7 @@ export default async function ContrasenasPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
       <p className="mt-1 mb-6 text-sm text-muted-foreground">Bóveda de usuarios y contraseñas del equipo.</p>
       <WikiTabs />

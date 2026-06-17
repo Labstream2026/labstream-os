@@ -14,7 +14,7 @@ export default async function PlantillasPage() {
   const templates = await db.projectTemplate.findMany({ orderBy: { name: "asc" } });
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-10">
+    <div className="mx-auto max-w-7xl px-8 py-10">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Plantillas</h1>

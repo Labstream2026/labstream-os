@@ -35,7 +35,7 @@ export default async function CotizacionesPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-8 sm:py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Cotizaciones</h1>
