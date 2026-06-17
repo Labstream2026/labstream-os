@@ -20,6 +20,7 @@ import {
   ChevronRight,
   BookOpen,
   Library,
+  BarChart3,
   LogOut,
   Trash2,
 } from "lucide-react";
@@ -67,6 +68,7 @@ export function Sidebar({
   canBiblioteca = true,
   canCalendar = true,
   canTimeline = true,
+  canReports = true,
   collapsed = false,
   chatUnread = 0,
   onNavigate,
@@ -80,6 +82,7 @@ export function Sidebar({
   canBiblioteca?: boolean;
   canCalendar?: boolean;
   canTimeline?: boolean;
+  canReports?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   onNavigate?: () => void;
@@ -323,6 +326,7 @@ export function Sidebar({
             {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
+            {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}
           </>
         ) : null}
       </div>

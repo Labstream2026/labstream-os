@@ -23,6 +23,7 @@ export function AppShell({
   canBiblioteca = true,
   canCalendar = true,
   canTimeline = true,
+  canReports = true,
   me,
   isAdmin = false,
   generalChannel,
@@ -40,6 +41,7 @@ export function AppShell({
   canBiblioteca?: boolean;
   canCalendar?: boolean;
   canTimeline?: boolean;
+  canReports?: boolean;
   me: ChatMe;
   isAdmin?: boolean;
   generalChannel: GeneralChannel;
@@ -101,7 +103,7 @@ export function AppShell({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} collapsed={sidebarCollapsed} chatUnread={chatUnread} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} collapsed={sidebarCollapsed} chatUnread={chatUnread} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -118,6 +120,7 @@ export function AppShell({
               canBiblioteca={canBiblioteca}
               canCalendar={canCalendar}
               canTimeline={canTimeline}
+              canReports={canReports}
               chatUnread={chatUnread}
               onSearch={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
               onNavigate={() => setMobileMenuOpen(false)}
