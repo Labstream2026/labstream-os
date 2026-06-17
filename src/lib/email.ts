@@ -66,7 +66,7 @@ const APP_URL = (process.env.NEXTAUTH_URL || process.env.ONLYOFFICE_CALLBACK_BAS
 // logo + pie). Se aplica a TODOS los correos salientes para presencia de marca uniforme.
 // Usa estilos en línea y tablas (compatibilidad con clientes de correo).
 function wrapEmailHtml(inner: string): string {
-  const logo = APP_URL ? `<img src="${APP_URL}/brand/logo.png" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
+  const logo = APP_URL ? `<img src="${APP_URL}/brand/logo-dark.png" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
   return `<!doctype html><html><body style="margin:0;background:#f4f4f5;padding:24px 12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ececec;border-radius:14px;overflow:hidden">
