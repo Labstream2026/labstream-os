@@ -97,6 +97,7 @@ model User {
   createdInvoices  Invoice[]            @relation("InvoiceCreator")
   createdProposals Proposal[]           @relation("ProposalCreator")
   deliverableDecisions DeliverableDecision[] @relation("DecisionAuthor")
+  reviewComments   ReviewComment[]      @relation("ReviewCommentAuthor")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
@@ -967,15 +968,22 @@ model ReviewComment {
   deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
   deliverableId String
   versionNumber Int? // versión del entregable a la que se refiere
-  authorName    String // nombre que escribe el cliente (sin cuenta)
+  authorName    String // nombre mostrado (cliente sin cuenta, o nombre del miembro del equipo)
+  // Si el comentario lo hizo un miembro del equipo con sesión, queda atribuido a su
+  // usuario (para auditoría y avatar); null cuando lo escribe el cliente desde el portal.
+  author        User?       @relation("ReviewCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorUserId  String?
   body          String
   timecode      Float? // segundos dentro del video, si aplica
   drawingData   Json? // anotación/dibujo sobre un fotograma (trazos + captura), modo dibujos
+  // Nota general: comentario suelto SIN captura de pantalla ni timecode (sección «Notas»).
+  isNote        Boolean     @default(false)
   resolved      Boolean     @default(false)
-  fromClient    Boolean     @default(true) // true = cliente; false = respuesta del equipo
+  fromClient    Boolean     @default(true) // true = cliente; false = comentario del equipo (revisión interna)
   createdAt     DateTime    @default(now())
 
   @@index([deliverableId, createdAt])
+  @@index([authorUserId])
 }
 
 model DeliverableVersion {

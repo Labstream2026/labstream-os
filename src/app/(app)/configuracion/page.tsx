@@ -11,7 +11,7 @@ import { UserControls } from "./user-controls";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
-import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
@@ -29,6 +29,7 @@ export default async function ConfiguracionPage() {
   await ensureBuiltinRolesFlag();
   await ensureRoleDefaults();
   await ensureWriteGateDefaults();
+  await ensureAsistenteDefault();
 
   const [roles, users, me] = await Promise.all([
     db.role.findMany({

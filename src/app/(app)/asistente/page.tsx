@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { aiEnabled } from "@/lib/ai";
 import { AssistantChat } from "./assistant-chat";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AsistentePage() {
   const session = await getSession();
+  if (!hasPermission(session, "ver_asistente")) redirect("/");
   const all = await db.project.findMany({
     orderBy: { createdAt: "desc" },
     select: { id: true, code: true, name: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } },

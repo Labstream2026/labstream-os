@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canManageProject, canWriteProject } from "@/lib/project-access";
+import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
-import { mimeFor } from "@/lib/storage";
+import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
+import { APP_BASE, convertOfficeToText, officeType, onlyofficeEnabled } from "@/lib/onlyoffice";
+import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
-import { notify, notifyAndEmail } from "@/lib/notify";
+import { notify, notifyAndEmail, notifyManyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
@@ -18,6 +20,7 @@ import type { SessionUser } from "@/lib/session";
 function refresh(projectId: string | null) {
   if (projectId) revalidatePath(`/proyectos/${projectId}`);
   revalidatePath("/mis-tareas");
+  revalidatePath("/revisiones");
   revalidatePath("/");
 }
 
@@ -407,6 +410,79 @@ export async function setProjectDates(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
+// Devuelve los datos básicos de un proyecto para precargar el formulario de edición
+// rápida (botón flotante). Requiere acceso de escritura al proyecto.
+export async function getProjectBasics(projectId: string): Promise<{
+  ok: boolean;
+  project?: {
+    name: string;
+    emoji: string | null;
+    description: string | null;
+    status: string;
+    priority: string;
+    leadId: string | null;
+    startDate: string;
+    dueDate: string;
+  };
+}> {
+  await ensureProjectAccess(projectId);
+  const p = await db.project.findUnique({
+    where: { id: projectId },
+    select: { name: true, emoji: true, description: true, status: true, priority: true, leadId: true, startDate: true, dueDate: true },
+  });
+  if (!p) return { ok: false };
+  const toInput = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+  return {
+    ok: true,
+    project: {
+      name: p.name,
+      emoji: p.emoji,
+      description: p.description,
+      status: p.status,
+      priority: p.priority,
+      leadId: p.leadId,
+      startDate: toInput(p.startDate),
+      dueDate: toInput(p.dueDate),
+    },
+  };
+}
+
+// Edita los datos básicos de un proyecto (nombre, emoji, responsable, estado, prioridad,
+// fechas y descripción) desde el botón flotante de creación rápida.
+export async function updateProject(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return;
+  const emoji = String(formData.get("emoji") ?? "").trim() || null;
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const status = String(formData.get("status") ?? "").trim();
+  const priority = String(formData.get("priority") ?? "MEDIA").trim();
+  const leadId = String(formData.get("leadId") ?? "").trim() || null;
+  const sRaw = String(formData.get("startDate") ?? "").trim();
+  const dRaw = String(formData.get("dueDate") ?? "").trim();
+  if (leadId) {
+    const u = await db.user.findUnique({ where: { id: leadId }, select: { active: true } });
+    if (!u?.active) throw new Error("Responsable inválido");
+  }
+  await db.project.update({
+    where: { id: projectId },
+    data: {
+      name,
+      emoji,
+      description,
+      priority,
+      leadId,
+      ...(status ? { status: status as never } : {}),
+      startDate: sRaw ? noonUTC(sRaw) : null,
+      dueDate: dRaw ? noonUTC(dRaw) : null,
+    },
+  });
+  await logActivity({ action: "project.update", summary: `editó el proyecto «${name}»`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/timeline");
+  revalidatePath("/proyectos");
+  refresh(projectId);
+}
+
 export async function deleteTask(taskId: string, _projectId: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
@@ -558,7 +634,7 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones.
   if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
@@ -607,6 +683,17 @@ export async function addDeliverableVersion(
   // La nueva versión pasa a revisión interna (compuerta bloqueante).
   await db.deliverable.update({ where: { id: deliverableId }, data: { status: "REVISION_INTERNA" } });
   await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  // Aviso DIRIGIDO (in-app + correo) al responsable del proyecto y al dueño del
+  // entregable: tienen una revisión pendiente. Se excluye a quien subió la versión.
+  await notifyManyAndEmail(
+    [deliverable.project.leadId, deliverable.ownerId].filter((id) => id && id !== session!.id),
+    {
+      type: "review",
+      title: `Revisión pendiente: ${deliverable.name}`,
+      body: `${session!.name} subió la v${number} en «${deliverable.project.name}». Revísala y pre-apruébala o solicita cambios.`,
+      link: `/revisiones/${deliverableId}`,
+    },
+  );
   refresh(deliverable.projectId);
 }
 
@@ -620,7 +707,7 @@ export async function internalDecision(
   result: "APROBADO" | "CAMBIOS",
   note?: string,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
   const projectId = deliverable.projectId;
@@ -644,6 +731,20 @@ export async function internalDecision(
     entityType: "deliverable",
     entityId: deliverableId,
   });
+  // Al solicitar cambios, avisa a TODO el equipo del proyecto (responsable + miembros +
+  // dueño del entregable) para que rehagan el material. Excluye a quien decidió.
+  if (!approved) {
+    await notifyManyAndEmail(
+      [deliverable.project.leadId, deliverable.ownerId, ...deliverable.project.members.map((m) => m.userId)]
+        .filter((id) => id && id !== session!.id),
+      {
+        type: "review",
+        title: `Cambios solicitados: ${deliverable.name}`,
+        body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}».${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
+        link: `/proyectos/${projectId}?tab=entregables`,
+      },
+    );
+  }
   refresh(projectId);
 }
 
@@ -668,11 +769,12 @@ export async function setReviewDrawings(deliverableId: string, _projectId: strin
 
 // Marcar/desmarcar como resuelto un comentario del cliente.
 export async function resolveReviewComment(commentId: string, _projectId: string, resolved: boolean) {
-  const c = await db.reviewComment.findUnique({ where: { id: commentId }, select: { deliverable: { select: { projectId: true, project: { select: accessSelect } } } } });
+  const c = await db.reviewComment.findUnique({ where: { id: commentId }, select: { deliverableId: true, deliverable: { select: { projectId: true, project: { select: accessSelect } } } } });
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
   await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
   refresh(c.deliverable.projectId);
+  revalidatePath(`/revisiones/${c.deliverableId}`);
 }
 
 // Respuesta del equipo a la revisión del cliente (se ve en el portal público).
@@ -688,6 +790,49 @@ export async function replyToReview(deliverableId: string, _projectId: string, f
   });
   await logActivity({ action: "deliverable.team_reply", summary: `respondió en la revisión de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   refresh(deliverable.projectId);
+}
+
+// Comentario del EQUIPO en la revisión interna (bandeja /revisiones). Igual que el del
+// cliente pero atribuido al usuario con sesión (fromClient=false). Soporta momento con
+// captura del fotograma (drawingData), timecode y notas generales (isNote).
+export async function addInternalReviewComment(deliverableId: string, formData: FormData) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
+  const isNote = formData.get("isNote") === "true";
+  const tcRaw = String(formData.get("timecode") ?? "").trim();
+  const versionRaw = String(formData.get("versionNumber") ?? "").trim();
+  const drawingRaw = String(formData.get("drawingData") ?? "").trim();
+  if (!body && !drawingRaw) return;
+
+  let drawingData: unknown = undefined;
+  if (!isNote && drawingRaw) {
+    try {
+      const parsed = JSON.parse(drawingRaw);
+      if (drawingRaw.length <= 400_000) drawingData = parsed;
+    } catch {
+      /* ignora dibujos malformados */
+    }
+  }
+
+  const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
+  await db.reviewComment.create({
+    data: {
+      deliverableId,
+      authorUserId: session!.id,
+      authorName: me?.name ?? "Equipo",
+      body: body || "(anotación)",
+      timecode: isNote ? null : tcRaw && Number.isFinite(Number(tcRaw)) ? Number(tcRaw) : null,
+      versionNumber: versionRaw ? Number(versionRaw) : null,
+      drawingData: (drawingData ?? undefined) as never,
+      isNote,
+      fromClient: false,
+    },
+  });
+  await logActivity({ action: "deliverable.internal_comment", summary: `comentó en la revisión interna de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(deliverable.projectId);
+  revalidatePath(`/revisiones/${deliverableId}`);
 }
 
 // ── Archivos ──
@@ -736,6 +881,107 @@ export async function uploadProjectFiles(projectId: string, formData: FormData) 
     await logActivity({ action: "file.upload", summary: `subió el archivo «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
   }
   refresh(projectId);
+}
+
+// ── Guiones (documentos de Word del proyecto) ──
+// Los guiones viven en una carpeta dedicada «Guiones» del proyecto, separada de Archivos,
+// para tener una pestaña enfocada con previsualización/edición en OnlyOffice y copia de texto.
+const GUIONES_FOLDER = "Guiones";
+
+async function ensureGuionesFolder(projectId: string): Promise<string> {
+  const existing = await db.projectFolder.findFirst({ where: { projectId, name: GUIONES_FOLDER }, select: { id: true } });
+  if (existing) return existing.id;
+  const count = await db.projectFolder.count({ where: { projectId } });
+  try {
+    const folder = await db.projectFolder.create({ data: { projectId, name: GUIONES_FOLDER, icon: "🎬", position: count } });
+    return folder.id;
+  } catch (e) {
+    // Carrera con otra subida: si ya existe (unique projectId+name), reúsala.
+    if ((e as { code?: string })?.code === "P2002") {
+      const f = await db.projectFolder.findFirst({ where: { projectId, name: GUIONES_FOLDER }, select: { id: true } });
+      if (f) return f.id;
+    }
+    throw e;
+  }
+}
+
+// Sube uno o varios documentos de Word como guiones del proyecto (solo formatos Word).
+export async function uploadGuiones(projectId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId);
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name))
+    .filter((f) => officeType(f.name) === "word");
+  if (!files.length) return;
+  const folderId = await ensureGuionesFolder(projectId);
+  for (const file of files) {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const asset = await db.fileAsset.create({
+      data: {
+        projectId,
+        name: file.name,
+        kind: "LOCAL",
+        path: "",
+        mime: mimeFor(file.name, file.type),
+        size: buf.length,
+        folderId,
+        uploadedById: session.id,
+      },
+    });
+    const rel = await saveBufferWithPreview(`project/${projectId}`, `${asset.id}-${file.name}`, buf, file.type);
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    await logActivity({ action: "file.upload", summary: `subió el guion «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
+  }
+  refresh(projectId);
+}
+
+// Crea un documento de Word EN BLANCO como guion del proyecto (sin subir nada): genera
+// un .docx válido y lo guarda en la carpeta «Guiones». Devuelve el id para abrirlo en
+// OnlyOffice y empezar a editar de inmediato.
+export async function createGuion(projectId: string, formData: FormData): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const session = await ensureProjectAccess(projectId);
+  let name = String(formData.get("name") ?? "").trim() || "Guion sin título";
+  if (!/\.docx$/i.test(name)) name = `${name}.docx`;
+  const folderId = await ensureGuionesFolder(projectId);
+  const buf = emptyDocx();
+  const asset = await db.fileAsset.create({
+    data: {
+      projectId,
+      name,
+      kind: "LOCAL",
+      path: "",
+      mime: mimeFor(name),
+      size: buf.length,
+      folderId,
+      uploadedById: session.id,
+    },
+  });
+  const rel = await saveBuffer(`project/${projectId}`, `${asset.id}-${name}`, buf);
+  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+  await logActivity({ action: "file.upload", summary: `creó el guion «${name}»`, projectId, entityType: "file", entityId: asset.id });
+  refresh(projectId);
+  return { ok: true, id: asset.id };
+}
+
+// Extrae el texto plano de un guion (vía conversión de OnlyOffice) para copiarlo al
+// portapapeles. Requiere acceso de LECTURA al proyecto.
+export async function copyGuionText(fileId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const file = await db.fileAsset.findUnique({
+    where: { id: fileId },
+    select: { name: true, version: true, path: true, project: { select: accessSelect } },
+  });
+  if (!file || !file.path) return { ok: false, error: "Guion no encontrado." };
+  const session = await getSession();
+  if (!file.project || !canAccessProject(file.project, session)) return { ok: false, error: "No autorizado." };
+  if (!onlyofficeEnabled) return { ok: false, error: "OnlyOffice no está configurado: no se puede extraer el texto." };
+  try {
+    const token = signFileToken(fileId);
+    const sourceUrl = `${APP_BASE}/api/files-asset/${fileId}?t=${token}`;
+    const text = await convertOfficeToText({ fileId, name: file.name, version: file.version, sourceUrl });
+    return { ok: true, text };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo extraer el texto." };
+  }
 }
 
 export async function deleteFile(fileId: string, _projectId: string) {

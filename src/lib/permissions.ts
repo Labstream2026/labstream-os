@@ -18,6 +18,7 @@ export const PERMISSION_CATEGORIES = [
   "Clientes",
   "Calendario",
   "Chat",
+  "Asistente IA",
   "Wiki",
   "Biblioteca",
   "Reportes",
@@ -60,6 +61,8 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "crear_canales", label: "Crear canales", category: "Chat" },
   { key: "moderar_chat", label: "Moderar el chat", category: "Chat" },
   { key: "comentar", label: "Comentar", category: "Chat" },
+  // Asistente IA
+  { key: "ver_asistente", label: "Ver Asistente IA", category: "Asistente IA" },
   // Wiki
   { key: "ver_wiki", label: "Ver Wiki", category: "Wiki" },
   { key: "editar_wiki", label: "Editar Wiki", category: "Wiki" },
@@ -171,6 +174,25 @@ export const BUILTIN_ROLE_KEYS = [
 ];
 export async function ensureBuiltinRolesFlag(): Promise<void> {
   await db.role.updateMany({ where: { key: { in: BUILTIN_ROLE_KEYS } }, data: { isSystem: true } });
+}
+
+// `ver_asistente` es NUEVO: el Asistente IA antes estaba abierto a cualquier usuario con
+// sesión. Para no quitarle el acceso a nadie al activar el gate, se concede UNA vez a los
+// roles internos del sistema (no a freelancer/cliente, externos; admin ya tiene todo por
+// código). Idempotente: si algún rol ya lo tiene, asume que el backfill ya corrió.
+const ASISTENTE_INTERNAL_ROLES = ["gerente", "ventas", "productor", "director", "editor", "camarografo", "disenador", "community"];
+export async function ensureAsistenteDefault(): Promise<void> {
+  const perm = await db.permission.findUnique({ where: { key: "ver_asistente" }, select: { id: true } });
+  if (!perm) return;
+  const already = await db.rolePermission.count({ where: { permissionId: perm.id } });
+  if (already > 0) return;
+  const roles = await db.role.findMany({ where: { key: { in: ASISTENTE_INTERNAL_ROLES } }, select: { id: true } });
+  if (roles.length) {
+    await db.rolePermission.createMany({
+      data: roles.map((r) => ({ roleId: r.id, permissionId: perm.id })),
+      skipDuplicates: true,
+    });
+  }
 }
 
 // Estado de autenticación EN VIVO de un usuario (rol + permisos efectivos + activo).

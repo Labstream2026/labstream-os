@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { signFileToken } from "@/lib/storage";
+import { signReviewMediaToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { detectSource } from "@/lib/media-source";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
@@ -58,14 +59,18 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     const kindMap: Record<string, ReviewVersion["kind"]> = {
       YOUTUBE: "youtube", VIMEO: "vimeo", DRIVE_FILE: "drive_file", DRIVE_FOLDER: "drive_folder", MP4: "video", IMAGE: "image", OTHER: "other",
     };
+    const kind = kindMap[s.type] ?? "other";
+    // Drive: video proxiado por el mismo origen → el cliente puede capturar el frame.
+    const proxySrc = s.type === "DRIVE_FILE" ? `/api/review-media/${v.id}?t=${signReviewMediaToken(v.id)}` : null;
     return {
       number: v.number,
       notes: v.notes,
-      kind: kindMap[s.type] ?? "other",
+      kind,
       src: s.embedUrl ?? s.url,
+      proxySrc,
       openUrl: s.url,
       fileName: null,
-      timecodeCapable: s.timecodeCapable,
+      timecodeCapable: s.timecodeCapable || kind === "drive_file",
     };
   });
 
@@ -108,7 +113,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               timecode: c.timecode,
               versionNumber: c.versionNumber,
               drawing: (c.drawingData as { image?: string } | null) ?? null,
+              isNote: c.isNote,
               fromClient: c.fromClient,
+              resolved: c.resolved,
               createdAt: c.createdAt.toISOString(),
             }))}
           />

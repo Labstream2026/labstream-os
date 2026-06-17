@@ -11,11 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function NuevoProyectoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ template?: string }>;
+  searchParams: Promise<{ template?: string; clientId?: string }>;
 }) {
   const session = await getSession();
   if (!hasPermission(session, "crear_proyectos")) redirect("/proyectos");
-  const { template = "" } = await searchParams;
+  const { template = "", clientId = "" } = await searchParams;
 
   const [clients, team, templates] = await Promise.all([
     db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -38,6 +38,7 @@ export default async function NuevoProyectoPage({
         templates={templates}
         wizards={WIZARDS}
         initialTemplate={template}
+        initialClient={clientId}
       />
     </div>
   );

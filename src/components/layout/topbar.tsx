@@ -60,12 +60,14 @@ export function Topbar({
   onTogglePanel,
   onToggleSidebar,
   onOpenMobileMenu,
+  showChatToggle = true,
 }: {
   team: TopbarAvatar[];
   notifications: NotificationItem[];
   onTogglePanel: () => void;
   onToggleSidebar: () => void;
   onOpenMobileMenu: () => void;
+  showChatToggle?: boolean;
 }) {
   const pathname = usePathname();
   const { emoji, label } = crumb(pathname);
@@ -108,16 +110,19 @@ export function Topbar({
         <ShareButton />
         <NotificationsBell items={notifications} />
         <ThemeToggle />
-        {/* Plegar chat (solo escritorio; en móvil el chat está en la barra inferior) */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hidden text-muted-foreground md:inline-flex"
-          aria-label="Panel de chat"
-          onClick={onTogglePanel}
-        >
-          <PanelRight />
-        </Button>
+        {/* Plegar chat (solo escritorio; en móvil el chat está en la barra inferior).
+            Oculto en páginas de ancho completo donde no hay panel de chat. */}
+        {showChatToggle ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden text-muted-foreground md:inline-flex"
+            aria-label="Panel de chat"
+            onClick={onTogglePanel}
+          >
+            <PanelRight />
+          </Button>
+        ) : null}
         <details data-autoclose className="relative hidden md:block">
           <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Más opciones">
             <MoreHorizontal className="size-5" />

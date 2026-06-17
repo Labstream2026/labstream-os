@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock } from "lucide-react";
+import { Check, Clock, ClipboardCheck } from "lucide-react";
 import {
   DELIVERABLE_STATUS,
   DELIVERABLE_TYPE,
@@ -114,6 +115,11 @@ export function DeliverablesPanel({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {d.versions.length > 0 ? (
+                  <Link href={`/revisiones/${d.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Abrir en la bandeja de revisión (player + comentarios)">
+                    <ClipboardCheck className="size-3.5" /> Revisar
+                  </Link>
+                ) : null}
                 <span className="text-[11px] text-muted-foreground">🏁 Entrega</span>
                 <DateInput name="dueDate" value={toDateInputValue(d.dueDate)} action={setDeliverableDueDate.bind(null, d.id, projectId)} title="Fecha de entrega" />
                 <StatusSelect value={d.status} options={STATUS_OPTIONS} action={setDeliverableStatus.bind(null, d.id, projectId)} className={cn("border-0", deliverableStatusMeta(d.status).className)} />

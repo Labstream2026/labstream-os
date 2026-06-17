@@ -12,6 +12,7 @@ import {
   LayoutTemplate,
   CalendarDays,
   CalendarRange,
+  ClipboardCheck,
   FileText,
   Sparkles,
   Search,
@@ -55,6 +56,7 @@ const NAV = [
   { href: "/estados", label: "Chat del día", icon: MessageSquare },
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
+  { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },
   { href: "/timeline", label: "Cronograma", icon: CalendarRange },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
@@ -65,6 +67,7 @@ export function Sidebar({
   clients,
   canAdmin,
   canQuotes,
+  canAsistente = true,
   canWiki = true,
   canBiblioteca = true,
   canCalendar = true,
@@ -72,6 +75,7 @@ export function Sidebar({
   canReports = true,
   collapsed = false,
   chatUnread = 0,
+  reviewPending = 0,
   onNavigate,
   onSearch,
 }: {
@@ -79,6 +83,7 @@ export function Sidebar({
   clients: SidebarClient[];
   canAdmin: boolean;
   canQuotes?: boolean;
+  canAsistente?: boolean;
   canWiki?: boolean;
   canBiblioteca?: boolean;
   canCalendar?: boolean;
@@ -86,6 +91,7 @@ export function Sidebar({
   canReports?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
+  reviewPending?: number;
   onNavigate?: () => void;
   onSearch?: () => void;
 }) {
@@ -190,7 +196,8 @@ export function Sidebar({
         {NAV.map((item) => {
           if (item.href === "/calendario" && !canCalendar) return null;
           if (item.href === "/timeline" && !canTimeline) return null;
-          return navRow(item.href, item.label, item.icon, pathname === item.href, item.href === "/chat" ? chatUnread || undefined : undefined);
+          const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
+          return navRow(item.href, item.label, item.icon, item.href === "/revisiones" ? pathname.startsWith("/revisiones") : pathname === item.href, badge);
         })}
       </nav>
 
@@ -325,7 +332,7 @@ export function Sidebar({
           <>
             {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
             {canQuotes ? navRow("/facturacion", "Facturación", Receipt, pathname.startsWith("/facturacion")) : null}
-            {navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente")}
+            {canAsistente ? navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente") : null}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
             {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}

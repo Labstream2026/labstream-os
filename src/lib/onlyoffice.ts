@@ -152,6 +152,53 @@ export function docsFetchCandidates(url: string): string[] {
 // que uno responda OK. Lanza con detalle si TODOS fallan (queda en el log del NAS,
 // para diagnosticar el "No se ha podido guardar"). Verifica res.ok para no escribir
 // una página de error como si fuera el documento (corrupción silenciosa).
+// Convierte un documento de Office (Word/celdas/diapositivas) a TEXTO PLANO usando el
+// servicio de conversión del Document Server (ConvertService.ashx). Se usa para el botón
+// «Copiar» de los guiones: extrae el texto del .docx para llevarlo al portapapeles.
+// El Document Server descarga el original desde `sourceUrl` (debe ser alcanzable por su
+// contenedor: APP_BASE + token), convierte a txt y devuelve una URL de la que bajamos el
+// resultado (reescrita a la dirección interna y validada contra SSRF como en el callback).
+export async function convertOfficeToText(opts: {
+  fileId: string;
+  name: string;
+  version: number;
+  sourceUrl: string;
+}): Promise<string> {
+  if (!onlyofficeEnabled) throw new Error("OnlyOffice no está configurado.");
+  const base = (DOCS_INTERNAL_URL || DOCS_URL).replace(/\/$/, "");
+  const payload: Record<string, unknown> = {
+    async: false,
+    filetype: extOf(opts.name) || "docx",
+    outputtype: "txt",
+    key: `txt_${opts.fileId}_${opts.version}`,
+    title: opts.name,
+    url: opts.sourceUrl,
+  };
+  // Firma JWT (token en el body y en la cabecera) si hay secreto, igual que la config.
+  const token = JWT_SECRET
+    ? await new SignJWT(payload as Record<string, unknown>)
+        .setProtectedHeader({ alg: "HS256" })
+        .sign(new TextEncoder().encode(JWT_SECRET))
+    : "";
+  const res = await fetch(`${base}/ConvertService.ashx`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(token ? { ...payload, token } : payload),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Servicio de conversión: HTTP ${res.status}.`);
+  const data = (await res.json()) as { error?: number; endConvert?: boolean; fileUrl?: string };
+  if (typeof data.error === "number") throw new Error(`No se pudo convertir el documento (código ${data.error}).`);
+  if (!data.endConvert || !data.fileUrl) throw new Error("La conversión no terminó.");
+  if (!isAllowedDocsUrl(data.fileUrl)) throw new Error("URL de conversión no permitida.");
+  const buf = await fetchSavedDoc(data.fileUrl);
+  return buf.toString("utf8").replace(/^﻿/, ""); // quita BOM inicial si lo trae
+}
+
 export async function fetchSavedDoc(url: string): Promise<Buffer> {
   const errors: string[] = [];
   for (const candidate of docsFetchCandidates(url)) {

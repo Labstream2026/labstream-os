@@ -6,6 +6,8 @@ import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
+import { getTaskLabels } from "@/lib/workflow-labels";
+import { labelOptions } from "@/lib/colors";
 import { AppShell } from "@/components/layout/app-shell";
 
 // Datos por petición desde Postgres → render dinámico (evita prerender en el build de Docker).
@@ -75,7 +77,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
   `;
   const chatUnread = Number(unreadRows[0]?.total ?? 0);
+
+  // Entregables pendientes de MI pre-aprobación (badge de «Proyectos a revisar»).
+  // El admin ve todos los pendientes; el resto, los de proyectos que lidera o cuyo
+  // entregable le pertenece.
+  const reviewPending = await db.deliverable.count({
+    where:
+      session.role === "admin"
+        ? { status: "REVISION_INTERNA" }
+        : { status: "REVISION_INTERNA", OR: [{ project: { leadId: session.id } }, { ownerId: session.id }] },
+  });
   const showWiki = await canSeeWiki(session);
+
+  // Prioridades para el botón flotante de creación rápida (tareas/proyectos).
+  const { priorities } = await getTaskLabels();
+  const fabPriorities = labelOptions(priorities);
 
   // Páginas de la Wiki para el buscador global ⌘K (solo si el usuario ve la Wiki).
   const wikiPages = showWiki
@@ -106,14 +122,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       isAdmin={session.role === "admin"}
       dockTeam={dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
+      reviewPending={reviewPending}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_cotizaciones")}
+      canAsistente={hasPermission(session, "ver_asistente")}
       canWiki={showWiki}
       canBiblioteca={hasPermission(session, "ver_biblioteca")}
       canCalendar={hasPermission(session, "ver_calendario")}
       canTimeline={hasPermission(session, "ver_proyectos")}
       wikiPages={wikiPages}
       canReports={hasPermission(session, "ver_reportes")}
+      canCreateTasks={hasPermission(session, "crear_tareas")}
+      canCreateProjects={hasPermission(session, "crear_proyectos")}
+      fabPriorities={fabPriorities}
       clients={clients.map((c) => ({
         id: c.id,
         name: c.name,

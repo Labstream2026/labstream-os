@@ -9,7 +9,7 @@ import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { emailEnabled } from "@/lib/email";
-import { isEditableOffice } from "@/lib/onlyoffice";
+import { isEditableOffice, onlyofficeEnabled } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { DataTableView } from "@/components/tables/data-table";
@@ -24,6 +24,7 @@ import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
+import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
 import { cellsToMap } from "@/lib/table-cells";
 
@@ -36,6 +37,7 @@ const TABS = [
   { key: "cronograma", label: "Cronograma" },
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
+  { key: "guiones", label: "Guiones" },
   { key: "tablas", label: "Tablas" },
   { key: "actividad", label: "Actividad" },
 ];
@@ -127,10 +129,16 @@ export default async function ProyectoPage({
   }
 
   const status = statusMeta(project.status);
+  // Los guiones viven en una carpeta dedicada «Guiones»; se separan de Archivos para
+  // tener su propia pestaña enfocada (y no contarlos dos veces).
+  const guionesFolder = project.folders.find((f) => f.name === "Guiones");
+  const guionesFiles = guionesFolder?.files ?? [];
+  const otherFolders = project.folders.filter((f) => f.name !== "Guiones");
   const counts = {
     tareas: project.tasks.length,
     entregables: project.deliverables.length,
-    archivos: project.folders.reduce((n, f) => n + f.files.length, 0) + project.files.length,
+    archivos: otherFolders.reduce((n, f) => n + f.files.length, 0) + project.files.length,
+    guiones: guionesFiles.length,
   };
 
   // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
@@ -348,7 +356,7 @@ export default async function ProyectoPage({
         {tab === "archivos" ? (
           <FilesPanel
             projectId={id}
-            folders={project.folders.map((f) => ({
+            folders={otherFolders.map((f) => ({
               id: f.id,
               name: f.name,
               icon: f.icon,
@@ -356,6 +364,14 @@ export default async function ProyectoPage({
               files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) })),
             }))}
             looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) }))}
+          />
+        ) : null}
+        {tab === "guiones" ? (
+          <GuionesPanel
+            projectId={id}
+            files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
+            canWrite={canWriteProject(project, session)}
+            onlyoffice={onlyofficeEnabled}
           />
         ) : null}
         {tab === "actividad" ? (

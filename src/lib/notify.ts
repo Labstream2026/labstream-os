@@ -33,3 +33,13 @@ export async function notifyAndEmail(
     /* el correo es secundario, no rompemos la acción */
   }
 }
+
+// Notifica en la app Y por correo a VARIOS usuarios (sin duplicar). Best-effort.
+// Útil para avisar a todo el equipo de un proyecto (p. ej. «el cliente pidió cambios»).
+export async function notifyManyAndEmail(
+  userIds: Array<string | null | undefined>,
+  n: { type: string; title: string; body?: string; link?: string },
+) {
+  const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+  await Promise.all(ids.map((id) => notifyAndEmail(id, n)));
+}

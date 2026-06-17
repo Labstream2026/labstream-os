@@ -1,12 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { SlidersHorizontal, X } from "lucide-react";
+import { SlidersHorizontal, X, LayoutGrid, Building2, CalendarDays, FileText, Sparkles, BookOpen, Library, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getUserPermissionState, setUserPermissionOverride } from "./actions";
 
 type Perm = { key: string; label: string; category: string };
 type State = "inherit" | "grant" | "revoke";
+
+// Accesos rápidos a las secciones navegables (permisos "ver_*"). Permiten conceder o
+// retirar el acceso a cada área de un vistazo: p. ej. dejar solo la Wiki encendida.
+const SECTIONS: { key: string; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: "ver_proyectos", label: "Proyectos", Icon: LayoutGrid },
+  { key: "ver_clientes", label: "Clientes", Icon: Building2 },
+  { key: "ver_calendario", label: "Calendario", Icon: CalendarDays },
+  { key: "ver_cotizaciones", label: "Cotizaciones", Icon: FileText },
+  { key: "ver_asistente", label: "Asistente IA", Icon: Sparkles },
+  { key: "ver_wiki", label: "Wiki", Icon: BookOpen },
+  { key: "ver_biblioteca", label: "Biblioteca", Icon: Library },
+  { key: "ver_reportes", label: "Reportes", Icon: BarChart3 },
+];
 
 export function UserPermissions({
   userId,
@@ -56,6 +69,22 @@ export function UserPermissions({
     start(() => { void setUserPermissionOverride(userId, key, state); });
   }
 
+  // Estado efectivo de un permiso = override si existe, si no lo que trae el rol.
+  function effectiveOf(key: string): boolean {
+    const ov = overrides[key];
+    return ov === undefined ? rolePerms.has(key) : ov;
+  }
+
+  // Interruptor simple por sección: si el destino coincide con el rol, vuelve a heredar
+  // (sin override); si no, concede/revoca explícitamente.
+  function toggleSection(key: string) {
+    const target = !effectiveOf(key);
+    const inRole = rolePerms.has(key);
+    setState(key, target === inRole ? "inherit" : target ? "grant" : "revoke");
+  }
+
+  const sections = SECTIONS.filter((s) => permissions.some((p) => p.key === s.key));
+
   return (
     <>
       <button
@@ -86,6 +115,40 @@ export function UserPermissions({
                 <p className="text-sm text-muted-foreground">Este usuario es Administrador: tiene acceso total y no necesita permisos individuales.</p>
               ) : (
                 <div className="space-y-4">
+                  {/* Accesos rápidos: enciende/apaga cada sección de un vistazo. */}
+                  {sections.length ? (
+                    <div className="rounded-lg border border-border bg-muted/30 p-3">
+                      <p className="text-xs font-semibold">Accesos a secciones</p>
+                      <p className="mb-2.5 mt-0.5 text-[11px] text-muted-foreground">
+                        Da o quita el acceso a cada área. Para «solo la Wiki», deja únicamente esa encendida.
+                      </p>
+                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                        {sections.map(({ key, label, Icon }) => {
+                          const on = effectiveOf(key);
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              disabled={pending}
+                              onClick={() => toggleSection(key)}
+                              aria-pressed={on}
+                              className={cn(
+                                "flex items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-60",
+                                on ? "border-primary/40 bg-primary/5" : "border-border bg-card hover:bg-muted",
+                              )}
+                            >
+                              <Icon className={cn("size-4 shrink-0", on ? "text-primary" : "text-muted-foreground")} />
+                              <span className="flex-1 font-medium">{label}</span>
+                              <span className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/30")}>
+                                <span className={cn("absolute top-0.5 size-3 rounded-full bg-white transition-all", on ? "left-3.5" : "left-0.5")} />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {categories.map((cat) => {
                     const perms = permissions.filter((p) => p.category === cat);
                     if (!perms.length) return null;

@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { logActivity } from "@/lib/activity";
+import { notifyManyAndEmail } from "@/lib/notify";
+
+// Equipo del proyecto a avisar (responsable + miembros) cuando el cliente actúa.
+async function projectTeamIds(projectId: string): Promise<string[]> {
+  const p = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, members: { select: { userId: true } } } });
+  if (!p) return [];
+  return [p.leadId, ...p.members.map((m) => m.userId)].filter((id): id is string => Boolean(id));
+}
 
 // Acciones del portal PÚBLICO de revisión. La autorización es el token firmado
 // (no hay sesión); el deliverableId siempre se deriva del token, nunca del cliente.
@@ -25,6 +33,8 @@ export async function addReviewComment(token: string, formData: FormData) {
   const tcRaw = String(formData.get("timecode") ?? "").trim();
   const versionRaw = String(formData.get("versionNumber") ?? "").trim();
   const drawingRaw = String(formData.get("drawingData") ?? "").trim();
+  // Nota general: comentario suelto, sin captura ni timecode (sección «Notas»).
+  const isNote = formData.get("isNote") === "true" || formData.get("isNote") === "on";
   // Un comentario debe tener texto o un dibujo (anotación).
   if (!body && !drawingRaw) return;
 
@@ -44,9 +54,10 @@ export async function addReviewComment(token: string, formData: FormData) {
       deliverableId,
       authorName,
       body: body || "(anotación)",
-      timecode: tcRaw && Number.isFinite(Number(tcRaw)) ? Number(tcRaw) : null,
+      timecode: isNote ? null : tcRaw && Number.isFinite(Number(tcRaw)) ? Number(tcRaw) : null,
       versionNumber: versionRaw ? Number(versionRaw) : null,
-      drawingData: (drawingData ?? undefined) as never,
+      drawingData: isNote ? undefined : ((drawingData ?? undefined) as never),
+      isNote,
       fromClient: true,
     },
   });
@@ -97,6 +108,13 @@ export async function setReviewDecision(token: string, decision: string, name?: 
     entityType: "deliverable",
     entityId: deliverableId,
     actorName: `${who} (cliente)`,
+  });
+  // Aviso DIRIGIDO (in-app + correo) a todo el equipo del proyecto.
+  await notifyManyAndEmail(await projectTeamIds(projectId), {
+    type: "review",
+    title: approved ? `Cliente aprobó: ${delName}` : `Cliente pidió cambios: ${delName}`,
+    body: approved ? `${who} aprobó el entregable.` : `${who} solicitó cambios. Revisa sus comentarios.`,
+    link: `/revisiones/${deliverableId}`,
   });
   revalidatePath(`/review/${token}`);
 }

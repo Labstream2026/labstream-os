@@ -13,12 +13,14 @@ export function NewProjectForm({
   templates,
   wizards,
   initialTemplate,
+  initialClient = "",
 }: {
   clients: Opt[];
   team: Opt[];
   templates: Tpl[];
   wizards: Record<string, WizardStep[]>;
   initialTemplate: string;
+  initialClient?: string;
 }) {
   const [templateKey, setTemplateKey] = React.useState(initialTemplate);
   const steps = wizards[templateKey] ?? [];
@@ -45,7 +47,7 @@ export function NewProjectForm({
       </Field>
 
       <Field label="Cliente">
-        <select name="clientId" required className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">
+        <select name="clientId" required defaultValue={initialClient} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">
           {clients.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
         </select>
       </Field>

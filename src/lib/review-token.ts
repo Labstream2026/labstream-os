@@ -9,3 +9,14 @@ export function signReviewToken(deliverableId: string): string {
 export function verifyReviewToken(token: string): string | null {
   return verifyScopedToken("review", token);
 }
+
+// Token (con caducidad) para servir el video de una VERSIÓN proxiado desde Google Drive
+// por el mismo origen, de modo que el player pueda capturar el fotograma (CORS). Sirve
+// tanto en la bandeja interna como en el portal del cliente (sin sesión).
+export function signReviewMediaToken(versionId: string): string {
+  return signScopedToken("rmedia", versionId, 60);
+}
+
+export function verifyReviewMediaToken(token: string): string | null {
+  return verifyScopedToken("rmedia", token);
+}
