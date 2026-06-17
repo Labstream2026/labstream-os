@@ -16,7 +16,7 @@ export default async function ImprimirCotizacionPage({ params }: { params: Promi
   const quote = await db.quote.findUnique({
     where: { id },
     include: {
-      client: { select: { name: true } },
+      client: { select: { name: true, company: true } },
       project: { select: { name: true } },
       items: { orderBy: { position: "asc" } },
     },
@@ -43,6 +43,7 @@ export default async function ImprimirCotizacionPage({ params }: { params: Promi
           validUntil: quote.validUntil,
           createdAt: quote.createdAt,
           clientName: quote.client.name,
+          clientCompany: quote.client.company,
           projectName: quote.project?.name ?? null,
           items: quote.items.map((i) => ({ section: i.section, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })),
         }}

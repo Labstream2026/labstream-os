@@ -140,3 +140,22 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background-color: hsl(var(--muted-foreground) / 0.4);
 }
+
+/* ── Documento de cotización (carta sobre membrete) ── */
+/* Fuerza la impresión del membrete y los colores de marca al guardar como PDF. */
+.quote-doc {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  .quote-doc {
+    width: 210mm !important;
+    min-height: 297mm;
+    margin: 0 auto;
+    box-shadow: none !important;
+  }
+}

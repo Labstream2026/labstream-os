@@ -17,7 +17,7 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
   const quote = await db.quote.findUnique({
     where: { id: quoteId },
     include: {
-      client: { select: { name: true } },
+      client: { select: { name: true, company: true } },
       project: { select: { name: true } },
       items: { orderBy: { position: "asc" } },
     },
@@ -58,6 +58,7 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
           validUntil: quote.validUntil,
           createdAt: quote.createdAt,
           clientName: quote.client.name,
+          clientCompany: quote.client.company,
           projectName: quote.project?.name ?? null,
           items: quote.items.map((i) => ({ section: i.section, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })),
         }}

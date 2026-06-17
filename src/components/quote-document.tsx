@@ -1,4 +1,4 @@
-import { formatMoney, quoteTotals, formatShortDate } from "@/lib/ui";
+import { formatMoney, formatLongDate } from "@/lib/ui";
 import { COMPANY } from "@/lib/branding";
 
 export type DocItem = { section: string | null; description: string; quantity: number; unitPrice: number };
@@ -12,149 +12,135 @@ export type QuoteDoc = {
   validUntil: Date | string | null;
   createdAt: Date | string;
   clientName: string;
+  clientCompany?: string | null;
   projectName?: string | null;
   items: DocItem[];
 };
 
-// Agrupa los ítems por sección preservando el orden de aparición.
-function groupBySection(items: DocItem[]): { name: string | null; items: DocItem[] }[] {
-  const groups: { name: string | null; items: DocItem[] }[] = [];
-  for (const it of items) {
-    const key = it.section?.trim() || null;
-    let g = groups.find((x) => x.name === key);
-    if (!g) { g = { name: key, items: [] }; groups.push(g); }
-    g.items.push(it);
-  }
-  return groups;
+// Días de validez: si hay fecha límite, los días entre creación y vencimiento; si no, 30.
+function validityDays(createdAt: Date | string, validUntil: Date | string | null): number {
+  if (!validUntil) return 30;
+  const a = new Date(createdAt).getTime();
+  const b = new Date(validUntil).getTime();
+  const days = Math.round((b - a) / 86_400_000);
+  return days > 0 ? days : 30;
 }
 
-// Documento de cotización con la marca de Labstream — usado tanto en la vista de
-// impresión (PDF) como en la vista pública del cliente. Fondo blanco, imprimible.
+// Documento de cotización con la imagen institucional de Labstream Studio: se renderiza
+// como CARTA formal sobre el membrete oficial (public/brand/membrete.png — logo arriba a la
+// izquierda y gráfico decorativo abajo), replicando el "Desglose" que se envía al cliente.
+// Sirve igual para la vista de impresión (PDF) y la vista pública del cliente. Tamaño A4.
 export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
-  const groups = groupBySection(quote.items);
-  const { subtotal, tax, total } = quoteTotals(quote.items, quote.taxRate);
   const money = (n: number) => formatMoney(n, quote.currency);
+  const showIva = quote.taxRate > 0;
+  const days = validityDays(quote.createdAt, quote.validUntil);
+
+  // Destinatario: empresa (o nombre) en primera línea; si hay empresa, el nombre del
+  // contacto va debajo. "Ciudad" cierra el bloque, como en la carta formal.
+  const recipientCompany = quote.clientCompany?.trim() || quote.clientName;
+  const recipientContact = quote.clientCompany?.trim() && quote.clientName !== quote.clientCompany ? quote.clientName : null;
 
   return (
-    <div className="quote-doc mx-auto max-w-3xl bg-white p-10 text-[13px] text-neutral-800 shadow-sm print:max-w-none print:p-0 print:shadow-none">
-      {/* Cabecera */}
-      <div className="flex items-start justify-between gap-6 border-b border-neutral-200 pb-5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/logo-dark.png" alt={COMPANY.name} className="h-12 w-auto object-contain" />
-        <div className="text-right">
-          <p className="text-lg font-bold tracking-tight text-neutral-900">COTIZACIÓN</p>
-          <p className="font-mono text-xs text-neutral-500">{quote.code}</p>
-          <p className="mt-1 text-xs text-neutral-500">Fecha: {formatShortDate(quote.createdAt)}</p>
-          {quote.validUntil ? (
-            <p className="text-xs text-neutral-500">Válida hasta: {formatShortDate(quote.validUntil)}</p>
+    <div
+      className="quote-doc relative mx-auto bg-white text-neutral-900 shadow-sm print:shadow-none"
+      style={{ width: "210mm", minHeight: "297mm" }}
+    >
+      {/* Membrete oficial de fondo (logo + gráfico decorativo) — A4 completo */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/membrete.png"
+        alt=""
+        aria-hidden
+        className="pointer-events-none absolute inset-0 h-full w-full select-none object-fill"
+      />
+
+      {/* Contenido de la carta sobre el membrete (deja libre el logo arriba y el gráfico abajo) */}
+      <div className="relative flex min-h-[297mm] flex-col px-[24mm] pb-[34mm] pt-[40mm] text-[12.5px] leading-relaxed">
+        {/* Fecha */}
+        <p>{COMPANY.city}, {formatLongDate(quote.createdAt)}.</p>
+
+        {/* Destinatario */}
+        <div className="mt-6">
+          <p>Señor (es):</p>
+          <p className="font-semibold">{recipientCompany}</p>
+          {recipientContact ? <p>{recipientContact}</p> : null}
+          <p>Ciudad</p>
+        </div>
+
+        {/* Referencia */}
+        <p className="mt-5 font-semibold">Ref. Propuesta comercial {quote.code}</p>
+
+        {/* Introducción */}
+        <p className="mt-5">
+          A continuación relacionamos el desglose de{" "}
+          <span className="font-medium">«{quote.title}»</span>
+          {quote.projectName ? <> correspondiente al proyecto {quote.projectName}</> : null}.
+        </p>
+
+        {/* Nota opcional */}
+        {quote.notes ? (
+          <p className="mt-4 whitespace-pre-wrap">
+            <span className="font-semibold">Nota: </span>
+            {quote.notes}
+          </p>
+        ) : null}
+
+        {/* Tabla Servicio | Valor */}
+        <table className="mt-5 w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr>
+              <th className="border border-neutral-800 px-3 py-1.5 text-center font-bold">Servicio</th>
+              <th className="w-[40%] border border-neutral-800 px-3 py-1.5 text-center font-bold">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {quote.items.map((it, i) => {
+              const lineTotal = it.quantity * it.unitPrice;
+              const [first, ...rest] = (it.description || "—").split("\n");
+              return (
+                <tr key={i}>
+                  <td className="border border-neutral-800 px-3 py-2 align-middle">
+                    {it.section ? (
+                      <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{it.section} · </span>
+                    ) : null}
+                    <span>{first}{it.quantity > 1 ? ` (×${it.quantity})` : ""}</span>
+                    {rest.length ? (
+                      <span className="block text-[10.5px] text-neutral-500">{rest.join(" ")}</span>
+                    ) : null}
+                  </td>
+                  <td className="border border-neutral-800 px-3 py-2 text-right align-middle tabular-nums whitespace-nowrap">
+                    {money(lineTotal)}{showIva ? " + IVA" : ""}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* Pie de página legal */}
+        <div className="mt-5 space-y-1 text-[11.5px] text-neutral-700">
+          {showIva ? (
+            <p>*El valor correspondiente al IVA es del {quote.taxRate}% del valor del servicio, de acuerdo con lo estipulado por la normatividad Colombiana.</p>
           ) : null}
+          <p>{showIva ? "**" : "*"}Los valores registrados en esta propuesta comercial tienen validez durante {days} días calendario.</p>
         </div>
-      </div>
 
-      {/* Cliente + título */}
-      <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-neutral-400">Cliente</p>
-          <p className="font-semibold text-neutral-900">{quote.clientName}</p>
-          {quote.projectName ? <p className="text-xs text-neutral-500">Proyecto: {quote.projectName}</p> : null}
-        </div>
-        <div className="text-right">
-          <p className="text-[11px] uppercase tracking-wide text-neutral-400">Concepto</p>
-          <p className="max-w-xs font-semibold text-neutral-900">{quote.title}</p>
-        </div>
-      </div>
-
-      {/* Tabla por secciones */}
-      <table className="mt-6 w-full border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b-2 border-neutral-300 text-left text-[11px] uppercase tracking-wide text-neutral-500">
-            <th className="py-2 font-semibold">Descripción</th>
-            <th className="w-16 py-2 text-right font-semibold">Cant.</th>
-            <th className="w-32 py-2 text-right font-semibold">Precio</th>
-            <th className="w-32 py-2 text-right font-semibold">Importe</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g, gi) => {
-            const groupTotal = g.items.reduce((n, i) => n + i.quantity * i.unitPrice, 0);
-            return (
-              <SectionBlock key={gi} name={g.name} items={g.items} groupTotal={groupTotal} money={money} showSubtotal={groups.length > 1} />
-            );
-          })}
-        </tbody>
-      </table>
-
-      {/* Totales */}
-      <div className="mt-4 flex justify-end">
-        <div className="w-64 space-y-1 text-[13px]">
-          <div className="flex justify-between text-neutral-500">
-            <span>Subtotal</span><span className="tabular-nums">{money(subtotal)}</span>
-          </div>
-          <div className="flex justify-between text-neutral-500">
-            <span>IVA ({quote.taxRate}%)</span><span className="tabular-nums">{money(tax)}</span>
-          </div>
-          <div className="flex justify-between border-t border-neutral-300 pt-1 text-base font-bold text-neutral-900">
-            <span>Total</span><span className="tabular-nums">{money(total)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Notas */}
-      {quote.notes ? (
-        <div className="mt-6 rounded-md bg-neutral-50 p-4 text-xs text-neutral-600">
-          <p className="mb-1 font-semibold text-neutral-700">Notas y condiciones</p>
-          <p className="whitespace-pre-wrap">{quote.notes}</p>
-        </div>
-      ) : null}
-
-      {/* Firma */}
-      <div className="mt-8 flex items-end justify-between gap-6">
-        <div>
+        {/* Cierre + firma */}
+        <p className="mt-8">Cordialmente,</p>
+        <div className="mt-2 flex items-end gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/firma.png" alt="Firma" className="h-16 w-auto object-contain" />
-          <p className="mt-1 border-t border-neutral-300 pt-1 text-xs font-medium text-neutral-700">{COMPANY.legalName}</p>
+          <div className="pb-1 text-[11.5px] leading-snug">
+            <p className="font-semibold">{COMPANY.signer}</p>
+            <p className="text-neutral-700">
+              <span className="font-semibold">T:</span> {COMPANY.phone}
+              <span className="mx-3" />
+              <span className="font-semibold">E:</span> {COMPANY.email}
+            </p>
+            <p className="text-neutral-700"><span className="font-semibold">W:</span> {COMPANY.website}</p>
+          </div>
         </div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/membrete.png" alt="" className="h-14 w-auto object-contain opacity-80" />
       </div>
     </div>
-  );
-}
-
-function SectionBlock({
-  name,
-  items,
-  groupTotal,
-  money,
-  showSubtotal,
-}: {
-  name: string | null;
-  items: DocItem[];
-  groupTotal: number;
-  money: (n: number) => string;
-  showSubtotal: boolean;
-}) {
-  return (
-    <>
-      {name ? (
-        <tr className="bg-neutral-100">
-          <td colSpan={4} className="px-1 py-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-600">{name}</td>
-        </tr>
-      ) : null}
-      {items.map((it, i) => (
-        <tr key={i} className="border-b border-neutral-100">
-          <td className="py-1.5 pr-2">{it.description || "—"}</td>
-          <td className="py-1.5 text-right tabular-nums">{it.quantity}</td>
-          <td className="py-1.5 text-right tabular-nums">{money(it.unitPrice)}</td>
-          <td className="py-1.5 text-right font-medium tabular-nums">{money(it.quantity * it.unitPrice)}</td>
-        </tr>
-      ))}
-      {showSubtotal && name ? (
-        <tr>
-          <td colSpan={3} className="py-1 pr-2 text-right text-[11px] text-neutral-400">Subtotal {name}</td>
-          <td className="py-1 text-right text-xs font-medium tabular-nums text-neutral-500">{money(groupTotal)}</td>
-        </tr>
-      ) : null}
-    </>
   );
 }

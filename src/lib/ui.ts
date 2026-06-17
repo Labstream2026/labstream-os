@@ -65,6 +65,13 @@ export function formatShortDate(date?: Date | string | null) {
   return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short" }).format(d);
 }
 
+// Fecha larga para documentos formales: "21 de noviembre de 2024".
+export function formatLongDate(date?: Date | string | null) {
+  if (!date) return null;
+  const d = typeof date === "string" ? new Date(date) : date;
+  return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "long", year: "numeric" }).format(d);
+}
+
 // ── Tareas ──
 export const TASK_STATUS: Record<string, StatusMeta> = {
   PENDIENTE: { label: "Pendiente", className: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" },
