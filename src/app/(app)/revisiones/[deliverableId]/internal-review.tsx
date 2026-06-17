@@ -1,11 +1,12 @@
 "use client";
 
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
-import { addInternalReviewComment, internalDecision, resolveReviewComment } from "@/app/(app)/proyectos/[id]/actions";
+import { addInternalReviewComment, internalDecision } from "@/app/(app)/proyectos/[id]/actions";
 
-// Workspace de revisión del responsable: el mismo escenario que ve el cliente, pero
-// atribuido al equipo, con botón «Pre-aprobado» (no «Aprobado») y la posibilidad de
-// resolver comentarios. La pre-aprobación aplica a la versión que se está viendo.
+// Workspace de revisión del responsable: reproduce el material, deja comentarios con
+// captura y decide (Pre-aprobado / Solicitar cambios). El CHECKLIST de correcciones (con
+// las casillas para marcar realizado) NO vive aquí, sino en la vista del entregable
+// (pestaña Entregables del proyecto), que es donde trabaja el editor.
 export function InternalReview({
   deliverableId,
   projectId,
@@ -38,7 +39,6 @@ export function InternalReview({
       onDecision={(result, note, _name, versionNumber) =>
         internalDecision(deliverableId, projectId, versionNumber, result, note || undefined)
       }
-      onResolve={(commentId, resolved) => resolveReviewComment(commentId, projectId, resolved)}
     />
   );
 }

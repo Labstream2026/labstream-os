@@ -349,7 +349,10 @@ export default async function ProyectoPage({
                 body: c.body,
                 timecode: c.timecode,
                 versionNumber: c.versionNumber,
-                hasDrawing: !!c.drawingData,
+                // Imagen capturada (fotograma con la anotación) para que el editor vea
+                // dónde es la corrección directamente en la vista del entregable.
+                image: (c.drawingData as { image?: string } | null)?.image ?? null,
+                isNote: c.isNote,
                 resolved: c.resolved,
                 fromClient: c.fromClient,
                 createdAt: c.createdAt,

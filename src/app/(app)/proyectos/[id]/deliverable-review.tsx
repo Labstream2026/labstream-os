@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, X, Eye, Link2Off, Link2, Pencil, Loader2, CheckCircle2, Circle, ImageIcon, Send } from "lucide-react";
+import { Check, X, Eye, Link2Off, Link2, Pencil, Loader2, CheckCircle2, Circle, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, setReviewDrawings, resolveReviewComment, replyToReview } from "./actions";
@@ -96,50 +96,89 @@ export type ReviewThreadComment = {
   body: string;
   timecode: number | null;
   versionNumber: number | null;
-  hasDrawing: boolean;
+  image: string | null; // captura del fotograma con la anotación (si la hay)
+  isNote: boolean;
   resolved: boolean;
   fromClient: boolean;
   createdAt: Date | string;
 };
 
-// Hilo de comentarios de la revisión del cliente, visto por el equipo: resolver
-// los comentarios del cliente y responder (la respuesta se ve en el portal).
+// Checklist de correcciones del entregable, en la VISTA DEL ENTREGABLE (lo trabaja el
+// editor): cada cambio pedido (interno o del cliente) muestra su CAPTURA del fotograma y
+// el comentario, con una casilla para marcarlo como realizado (avisa al equipo). Las
+// notas generales (sin captura) se listan aparte. El checklist vive aquí, no en el
+// workspace de pre-aprobación ni en el portal del cliente.
 export function ReviewThread({ deliverableId, projectId, comments }: { deliverableId: string; projectId: string; comments: ReviewThreadComment[] }) {
   const [pending, start] = React.useTransition();
   const [body, setBody] = React.useState("");
+  // Estado «realizado» optimista (resolveReviewComment no revalida la página).
+  const [override, setOverride] = React.useState<Record<string, boolean>>({});
   if (comments.length === 0) return null;
-  const pendingCount = comments.filter((c) => c.fromClient && !c.resolved).length;
+  const withRes = comments.map((c) => (c.id in override ? { ...c, resolved: override[c.id] } : c));
+  const changes = withRes.filter((c) => !c.isNote);
+  const notes = withRes.filter((c) => c.isNote);
+  const done = changes.filter((c) => c.resolved).length;
+  const toggle = (c: ReviewThreadComment) => {
+    const next = !c.resolved;
+    setOverride((p) => ({ ...p, [c.id]: next }));
+    start(() => resolveReviewComment(c.id, projectId, next));
+  };
   return (
     <div className="mt-3 border-t border-border pt-3">
-      <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-        Comentarios del cliente{pendingCount > 0 ? ` · ${pendingCount} sin resolver` : ""}
-      </p>
-      <div className="space-y-1.5">
-        {comments.map((c) => (
-          <div key={c.id} className={cn("flex items-start gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm", c.resolved && "opacity-60", !c.fromClient && "bg-secondary/40")}>
-            {c.fromClient ? (
-              <button
-                onClick={() => start(() => resolveReviewComment(c.id, projectId, !c.resolved))}
-                disabled={pending}
-                title={c.resolved ? "Marcar como pendiente" : "Marcar como resuelto"}
-                className="mt-0.5 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
-              >
-                {c.resolved ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Circle className="size-4" />}
-              </button>
-            ) : <span className="mt-0.5 w-4 shrink-0" />}
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium">{c.authorName}</span>
-                {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : null}
-                {c.versionNumber ? <span className="text-[10px] text-muted-foreground">v{c.versionNumber}</span> : null}
-                {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{fmtTime(c.timecode)}</span> : null}
-                {c.hasDrawing ? <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"><ImageIcon className="size-3" /> dibujo</span> : null}
+      {changes.length > 0 ? (
+        <>
+          <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+            Checklist de correcciones · {done}/{changes.length} hechos
+          </p>
+          <div className="space-y-2">
+            {changes.map((c) => (
+              <div key={c.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-sm", c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border")}>
+                <button
+                  onClick={() => toggle(c)}
+                  disabled={pending}
+                  title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
+                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
+                >
+                  {c.resolved ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Circle className="size-5" />}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-medium">{c.authorName}</span>
+                    {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                    {c.versionNumber ? <span className="text-[10px] text-muted-foreground">v{c.versionNumber}</span> : null}
+                    {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{fmtTime(c.timecode)}</span> : null}
+                    {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                  </div>
+                  <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
+                  {c.image ? (
+                    // Captura del fotograma: el editor ve exactamente dónde es la corrección.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.image} alt="Captura de la corrección" className="mt-1.5 w-full max-w-sm rounded-md border border-border" />
+                  ) : null}
+                </div>
               </div>
-              <p className="whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      ) : null}
+
+      {notes.length > 0 ? (
+        <div className={cn(changes.length > 0 && "mt-3")}>
+          <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Notas generales</p>
+          <div className="space-y-1.5">
+            {notes.map((c) => (
+              <div key={c.id} className="rounded-lg border border-dashed border-border px-2.5 py-1.5 text-sm">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium">{c.authorName}</span>
+                  {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                </div>
+                <p className="whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <form
         onSubmit={(e) => { e.preventDefault(); if (!body.trim()) return; const fd = new FormData(); fd.set("body", body); start(async () => { await replyToReview(deliverableId, projectId, fd); setBody(""); }); }}
         className="mt-2 flex items-center gap-2"

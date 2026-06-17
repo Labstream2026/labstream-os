@@ -60,7 +60,8 @@ type Deliverable = {
     body: string;
     timecode: number | null;
     versionNumber: number | null;
-    hasDrawing: boolean;
+    image: string | null;
+    isNote: boolean;
     resolved: boolean;
     fromClient: boolean;
     createdAt: Date;
