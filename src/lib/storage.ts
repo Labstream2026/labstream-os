@@ -34,6 +34,15 @@ export async function readBuffer(rel: string) {
   return fs.readFile(absPath(rel));
 }
 
+// Borra un archivo del storage (best-effort: si no existe, no falla). Valida traversal.
+export async function deleteRel(rel: string): Promise<void> {
+  try {
+    await fs.unlink(absPath(rel));
+  } catch {
+    /* no existe o ya borrado: nada que hacer */
+  }
+}
+
 // Escribe un buffer en una ruta relativa EXACTA (ya resuelta, p. ej. el hermano
 // «.opt.webp» de un original). Crea la carpeta si hace falta. Valida traversal.
 export async function writeRelBuffer(rel: string, buf: Buffer) {

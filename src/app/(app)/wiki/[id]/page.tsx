@@ -9,8 +9,8 @@ import { cellsToMap } from "@/lib/table-cells";
 import { GovernanceBar } from "./governance-bar";
 import { MarkdownEditor } from "./markdown-editor";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
-import { renderMarkdown } from "@/lib/markdown";
-import { Pencil } from "lucide-react";
+import { renderMarkdown, extractWikiAttachments } from "@/lib/markdown";
+import { Pencil, Paperclip } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +101,29 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Esta página está vacía. <Link href={`/wiki/${id}?edit=1`} className="text-primary hover:underline">Edítala</Link> para añadir contenido.</p>
           )}
+
+          {(() => {
+            const atts = extractWikiAttachments(page.content);
+            if (!atts.length) return null;
+            return (
+              <div className="mt-6 border-t border-border pt-4">
+                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Paperclip className="size-3.5" /> Adjuntos ({atts.length})</h3>
+                <div className="flex flex-wrap gap-2">
+                  {atts.map((a) => (
+                    <a key={a.url} href={a.url} target="_blank" rel="noreferrer" title={a.name} className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs hover:border-primary/40">
+                      {a.isImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.url} alt="" className="size-8 rounded object-cover" />
+                      ) : (
+                        <span className="grid size-8 place-items-center rounded bg-muted">📎</span>
+                      )}
+                      <span className="max-w-40 truncate">{a.name}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </article>
       )}
 

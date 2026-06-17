@@ -6,8 +6,9 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { wikiTemplate } from "@/lib/wiki-templates";
-import { saveBuffer, extOf } from "@/lib/storage";
-import { saveBufferWithPreview } from "@/lib/image";
+import { saveBuffer, extOf, deleteRel } from "@/lib/storage";
+import { saveBufferWithPreview, previewRel } from "@/lib/image";
+import { extractWikiAttachments } from "@/lib/markdown";
 
 // La wiki es del equipo interno: solo quien tiene acceso a la Wiki puede crear/
 // editar/borrar páginas. Roles externos (freelancer/cliente) e invitados quedan fuera.
@@ -97,6 +98,20 @@ export async function uploadWikiFile(formData: FormData): Promise<{ url: string;
 
 export async function deleteWikiPage(id: string): Promise<void> {
   await requireWiki();
+  // Antes de borrar la página, eliminamos del storage los archivos que solo ella
+  // referenciaba (evita basura huérfana en el NAS).
+  const page = await db.wikiPage.findUnique({ where: { id }, select: { content: true } });
+  if (page) {
+    for (const att of extractWikiAttachments(page.content)) {
+      // No borrar si OTRA página todavía referencia el mismo archivo.
+      const stillUsed = await db.wikiPage.count({ where: { id: { not: id }, content: { contains: att.url } } });
+      if (stillUsed > 0) continue;
+      const key = att.url.replace("/api/wiki-file/", "").replace(/[^a-zA-Z0-9._-]/g, "");
+      if (!key) continue;
+      await deleteRel(`wikifile/${key}`);
+      await deleteRel(previewRel(`wikifile/${key}`)); // derivado .opt.webp si era imagen
+    }
+  }
   await db.wikiPage.delete({ where: { id } });
   revalidatePath("/wiki");
   redirect("/wiki");
