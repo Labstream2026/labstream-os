@@ -159,6 +159,7 @@ export function AppShell({
         onChat={() => setMobileChatOpen((v) => !v)}
         onMenu={() => setMobileMenuOpen(true)}
         chatActive={mobileChatOpen}
+        chatUnread={chatUnread}
       />
     </div>
   );

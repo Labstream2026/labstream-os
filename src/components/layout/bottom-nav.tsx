@@ -11,10 +11,12 @@ export function BottomNav({
   onChat,
   onMenu,
   chatActive,
+  chatUnread = 0,
 }: {
   onChat: () => void;
   onMenu: () => void;
   chatActive: boolean;
+  chatUnread?: number;
 }) {
   const pathname = usePathname();
 
@@ -48,11 +50,18 @@ export function BottomNav({
         type="button"
         onClick={onChat}
         className={cn(
-          "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+          "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
           chatActive ? "text-primary" : "text-muted-foreground",
         )}
       >
-        <MessageSquare className="size-5" />
+        <span className="relative">
+          <MessageSquare className="size-5" />
+          {chatUnread > 0 ? (
+            <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          ) : null}
+        </span>
         Chat
       </button>
 

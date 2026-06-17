@@ -93,12 +93,30 @@ export default async function MisTareasPage() {
     ...allMyTasks.flatMap((t) => taskToCalItems(t)),
   ];
 
-  const list = (
-    <div className="space-y-2">
-      {tasks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
-      ) : (
-        tasks.map((t) => {
+  // Agrupar las tareas abiertas por urgencia de su fecha de entrega.
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const endToday = new Date(startToday);
+  endToday.setDate(endToday.getDate() + 1);
+  const weekEnd = new Date(startToday);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const bucketOf = (due: Date | null): string => {
+    if (!due) return "sin";
+    const d = new Date(due);
+    if (d < startToday) return "vencidas";
+    if (d < endToday) return "hoy";
+    if (d < weekEnd) return "semana";
+    return "despues";
+  };
+  const GROUPS = [
+    { key: "vencidas", label: "Vencidas", cls: "text-destructive" },
+    { key: "hoy", label: "Hoy", cls: "text-foreground" },
+    { key: "semana", label: "Esta semana", cls: "text-muted-foreground" },
+    { key: "despues", label: "Más adelante", cls: "text-muted-foreground" },
+    { key: "sin", label: "Sin fecha", cls: "text-muted-foreground" },
+  ];
+
+  const taskRow = (t: (typeof tasks)[number]) => {
           const prio = labelMeta(priorities, t.priority);
           const assignedToMeByOther = t.assigneeId === user.id && t.assignedBy;
           // Solo el dueño (quien la creó) cambia prioridad/fecha; el responsable
@@ -163,6 +181,24 @@ export default async function MisTareasPage() {
                 priorities={priorities}
                 canEditMeta={canEditMeta}
               />
+            </div>
+    );
+  };
+
+  const list = (
+    <div className="space-y-5">
+      {tasks.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
+      ) : (
+        GROUPS.map((g) => {
+          const items = tasks.filter((t) => bucketOf(t.dueDate) === g.key);
+          if (!items.length) return null;
+          return (
+            <div key={g.key}>
+              <h3 className={cn("mb-2 text-xs font-semibold uppercase tracking-wide", g.cls)}>
+                {g.label} <span className="text-muted-foreground">· {items.length}</span>
+              </h3>
+              <div className="space-y-2">{items.map(taskRow)}</div>
             </div>
           );
         })
