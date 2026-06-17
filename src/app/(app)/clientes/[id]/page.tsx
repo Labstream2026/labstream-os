@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
+import { ClientEdit } from "./client-edit";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
@@ -65,6 +66,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
   const canManage = canManageClient(client, session);
+  const canEdit = canManage || hasPermission(session, "editar_clientes");
   const memberItems = client.members.map((m) => ({
     id: m.user.id,
     name: m.user.name,
@@ -231,10 +233,20 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             },
             {
               key: "acceso",
-              label: "Acceso",
-              icon: "🔒",
+              label: "Ajustes",
+              icon: "⚙️",
               node: (
-                <div className="max-w-md">
+                <div className="max-w-md space-y-5">
+                  {canEdit ? (
+                    <ClientEdit
+                      clientId={id}
+                      name={client.name}
+                      emoji={client.emoji}
+                      company={client.company}
+                      description={client.description}
+                      notes={client.notes}
+                    />
+                  ) : null}
                   <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
                 </div>
               ),

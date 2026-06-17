@@ -9,9 +9,10 @@ import { logActivity } from "@/lib/activity";
 
 export async function createClient(formData: FormData) {
   const session = await getSession();
-  // Permiso específico de clientes (el backfill se lo concede a los roles que ya
-  // podían, p. ej. gerente/ventas; el admin pasa siempre).
-  if (!hasPermission(session, "crear_clientes")) {
+  // Crear cliente: permiso específico crear_clientes O el histórico crear_proyectos
+  // (así nadie que pudiera crear antes queda bloqueado aunque el backfill no haya
+  // concedido aún crear_clientes). El admin pasa siempre.
+  if (!hasPermission(session, "crear_clientes") && !hasPermission(session, "crear_proyectos")) {
     throw new Error("No autorizado");
   }
   const name = String(formData.get("name") ?? "").trim();
@@ -30,6 +31,35 @@ export async function createClient(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/proyectos");
   redirect(`/clientes/${client.id}`);
+}
+
+export type ClientUpdateResult = { ok: boolean; error?: string };
+
+// Edita la información del cliente (nombre, emoji, empresa, descripción, notas).
+// Permitido a quien gestiona el cliente (admin/editor con acceso) o tiene editar_clientes.
+export async function updateClient(clientId: string, formData: FormData): Promise<ClientUpdateResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const allowed = (await userCanManageClient(clientId, session)) || hasPermission(session, "editar_clientes");
+  if (!allowed) return { ok: false, error: "No autorizado" };
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { ok: false, error: "El nombre es obligatorio." };
+  await db.client.update({
+    where: { id: clientId },
+    data: {
+      name,
+      emoji: String(formData.get("emoji") ?? "").trim() || "🏢",
+      company: String(formData.get("company") ?? "").trim() || null,
+      description: String(formData.get("description") ?? "").trim() || null,
+      notes: String(formData.get("notes") ?? "").trim() || null,
+    },
+  });
+  await logActivity({ action: "client.update", summary: `editó la información del cliente «${name}»`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
+  revalidatePath("/clientes");
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 // Borra un cliente y TODO lo suyo (proyectos, cotizaciones, canal, miembros) en
