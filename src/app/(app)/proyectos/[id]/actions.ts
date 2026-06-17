@@ -770,8 +770,18 @@ export async function addDeliverableVersion(
   await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   // Aviso DIRIGIDO (in-app + correo) al responsable del proyecto y al dueño del
   // entregable: tienen una revisión pendiente. Se excluye a quien subió la versión.
+  const directRecipients = [deliverable.reviewerId, deliverable.project.leadId, deliverable.ownerId]
+    .filter((id) => id && id !== session!.id);
+  // Los administradores pre-aprueban TODOS los entregables antes de enviarlos al cliente:
+  // se les avisa de cada versión nueva aunque no sean responsables del proyecto y AUN SI
+  // ellos mismos la subieron (por eso no se les excluye como al resto). notifyManyAndEmail
+  // deduplica, así que un admin que además sea responsable recibe un solo aviso.
+  const admins = await db.user.findMany({
+    where: { active: true, role: { key: "admin" } },
+    select: { id: true },
+  });
   await notifyManyAndEmail(
-    [deliverable.reviewerId, deliverable.project.leadId, deliverable.ownerId].filter((id) => id && id !== session!.id),
+    [...directRecipients, ...admins.map((a) => a.id)],
     {
       type: "review",
       title: `Revisión pendiente: ${deliverable.name}`,
