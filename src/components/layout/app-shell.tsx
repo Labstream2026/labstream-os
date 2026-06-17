@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
-import { CommandPalette } from "@/components/layout/command-palette";
+import { CommandPalette, type WikiSearchItem } from "@/components/layout/command-palette";
 import { DetailsAutoClose } from "@/components/details-auto-close";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
@@ -16,6 +16,7 @@ export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } |
 export function AppShell({
   user,
   clients,
+  wikiPages = [],
   team,
   canAdmin,
   canQuotes,
@@ -34,6 +35,7 @@ export function AppShell({
 }: {
   user: SidebarUser;
   clients: SidebarClient[];
+  wikiPages?: WikiSearchItem[];
   team: TopbarAvatar[];
   canAdmin: boolean;
   canQuotes?: boolean;
@@ -155,7 +157,7 @@ export function AppShell({
       <DetailsAutoClose />
 
       {/* Buscador global (⌘K) */}
-      <CommandPalette clients={clients} open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <CommandPalette clients={clients} wikiPages={wikiPages} open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {/* Barra de navegación inferior (móvil) */}
       <BottomNav

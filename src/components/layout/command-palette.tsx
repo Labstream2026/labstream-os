@@ -7,6 +7,9 @@ import type { SidebarClient } from "@/components/layout/sidebar";
 
 type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string };
 
+// Páginas de la Wiki indexadas para el buscador (se cargan en el layout).
+export type WikiSearchItem = { id: string; title: string; section: string | null };
+
 const PAGES: Item[] = [
   { id: "p-home", label: "Inicio", href: "/", icon: Home, group: "Ir a" },
   { id: "p-tasks", label: "Mis tareas", href: "/mis-tareas", icon: ListChecks, group: "Ir a" },
@@ -24,7 +27,7 @@ const PAGES: Item[] = [
   { id: "p-cfg", label: "Configuración", href: "/configuracion", icon: Settings, group: "Ir a" },
 ];
 
-export function CommandPalette({ clients, open, onClose }: { clients: SidebarClient[]; open: boolean; onClose: () => void }) {
+export function CommandPalette({ clients, wikiPages = [], open, onClose }: { clients: SidebarClient[]; wikiPages?: WikiSearchItem[]; open: boolean; onClose: () => void }) {
   const router = useRouter();
   const [q, setQ] = React.useState("");
   const [active, setActive] = React.useState(0);
@@ -34,11 +37,14 @@ export function CommandPalette({ clients, open, onClose }: { clients: SidebarCli
   const items = React.useMemo(() => {
     const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: Building2, group: "Clientes" }));
     const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: Rocket, group: "Proyectos" })));
-    const all = [...PAGES, ...clientItems, ...projectItems];
+    const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: FileText, group: "Wiki" }));
     const term = q.trim().toLowerCase();
+    // Las páginas de la Wiki solo se listan al buscar (pueden ser muchas); sin
+    // término mostramos navegación, clientes y proyectos.
+    const all = term ? [...PAGES, ...clientItems, ...projectItems, ...wikiItems] : [...PAGES, ...clientItems, ...projectItems];
     if (!term) return all;
     return all.filter((i) => i.label.toLowerCase().includes(term) || (i.sub ?? "").toLowerCase().includes(term));
-  }, [clients, q]);
+  }, [clients, wikiPages, q]);
 
   React.useEffect(() => { if (active >= items.length) setActive(0); }, [items.length, active]);
 

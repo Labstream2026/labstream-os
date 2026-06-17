@@ -77,6 +77,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const chatUnread = Number(unreadRows[0]?.total ?? 0);
   const showWiki = await canSeeWiki(session);
 
+  // Páginas de la Wiki para el buscador global ⌘K (solo si el usuario ve la Wiki).
+  const wikiPages = showWiki
+    ? await db.wikiPage.findMany({
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+        select: { id: true, title: true, section: true },
+      })
+    : [];
+
   // El canal general solo se envía al cliente si el usuario puede verlo (por si se
   // marca privado): evita filtrar mensajes a quien no tiene acceso.
   const generalVisible =
@@ -103,6 +112,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canBiblioteca={hasPermission(session, "ver_biblioteca")}
       canCalendar={hasPermission(session, "ver_calendario")}
       canTimeline={hasPermission(session, "ver_proyectos")}
+      wikiPages={wikiPages}
       canReports={hasPermission(session, "ver_reportes")}
       clients={clients.map((c) => ({
         id: c.id,
