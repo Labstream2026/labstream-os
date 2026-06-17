@@ -39,6 +39,7 @@ export function CoverBanner({
   const [colorOpen, setColorOpen] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const t = tone(color);
 
   const save = (build: (fd: FormData) => void) => {
@@ -106,8 +107,9 @@ export function CoverBanner({
 
         {/* Contenido sobre la imagen (delante): emoji + nombre + subtítulo */}
         <div className="absolute inset-x-0 bottom-0 z-10 flex items-end gap-3 p-4 sm:p-5">
-          <div className="relative shrink-0">
+          <div className="shrink-0">
             <button
+              ref={emojiBtnRef}
               type="button"
               disabled={!canEdit}
               onClick={() => { if (canEdit) setEmojiOpen((o) => !o); }}
@@ -117,20 +119,18 @@ export function CoverBanner({
               {emoji || fallbackEmoji}
             </button>
             {emojiOpen ? (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setEmojiOpen(false)} />
-                <EmojiPicker
-                  onPick={pickEmoji}
-                  openUp
-                  footer={
-                    emoji ? (
-                      <button type="button" onClick={clearEmoji} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">
-                        <Trash2 className="size-3.5" /> Quitar icono
-                      </button>
-                    ) : null
-                  }
-                />
-              </>
+              <EmojiPicker
+                anchorRef={emojiBtnRef}
+                onClose={() => setEmojiOpen(false)}
+                onPick={pickEmoji}
+                footer={
+                  emoji ? (
+                    <button type="button" onClick={clearEmoji} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">
+                      <Trash2 className="size-3.5" /> Quitar icono
+                    </button>
+                  ) : null
+                }
+              />
             ) : null}
           </div>
           <div className="min-w-0 pb-1">

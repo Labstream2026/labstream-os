@@ -255,6 +255,7 @@ export function ChannelChat({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
@@ -863,8 +864,9 @@ export function ChannelChat({
             >
               <BarChart3 className="size-5" />
             </button>
-            <div className="relative shrink-0">
+            <div className="shrink-0">
               <button
+                ref={emojiBtnRef}
                 type="button"
                 onClick={() => setEmojiOpen((v) => !v)}
                 className={cn("flex size-9 items-center justify-center rounded-full hover:bg-muted hover:text-foreground", emojiOpen ? "text-primary" : "text-muted-foreground")}
@@ -874,7 +876,7 @@ export function ChannelChat({
                 <Smile className="size-5" />
               </button>
               {emojiOpen ? (
-                <EmojiPicker onPick={(e) => { setText((t) => t + e); setEmojiOpen(false); }} />
+                <EmojiPicker anchorRef={emojiBtnRef} onClose={() => setEmojiOpen(false)} onPick={(e) => { setText((t) => t + e); setEmojiOpen(false); }} />
               ) : null}
             </div>
             <textarea

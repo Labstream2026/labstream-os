@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Search } from "lucide-react";
 
 // Selector de emojis sin dependencias. Set curado y amplio, por categorías, con
-// palabras clave en español para el buscador. Lo usan el chat (reacciones/composer) y
-// las portadas de cliente/proyecto.
+// palabras clave en español para el buscador. Se renderiza en un PORTAL a document.body
+// con posición fija calculada desde el icono que lo abre → siempre AL FRENTE de todo,
+// sin que lo recorte ningún contenedor. Lo usan el chat y las portadas de cliente/proyecto.
 type Emo = { e: string; k: string };
 type Group = { label: string; emojis: Emo[] };
 
@@ -23,7 +25,7 @@ const GROUPS: Group[] = [
       { e: "😅", k: "nervioso sudor risa" }, { e: "🙃", k: "ironia al reves" }, { e: "😏", k: "picaro" },
       { e: "😬", k: "incomodo mueca" }, { e: "🤯", k: "mente explotada wow" }, { e: "🥹", k: "emocion aguantar" },
       { e: "😇", k: "angel inocente" }, { e: "🤗", k: "abrazo" }, { e: "🤫", k: "silencio secreto" },
-      { e: "🫠", k: "derretido" }, { e: "😴", k: "zzz dormir" }, { e: "🤓", k: "nerd gafas" }, { e: "🥱", k: "bostezo aburrido" },
+      { e: "🤓", k: "nerd gafas" }, { e: "🥱", k: "bostezo aburrido" },
     ],
   },
   {
@@ -86,7 +88,7 @@ const GROUPS: Group[] = [
   {
     label: "Naturaleza y comida",
     emojis: [
-      { e: "🌞", k: "sol soleado" }, { e: "🌙", k: "luna noche" }, { e: "🌈", k: "arcoiris" }, { e: "🔥", k: "fuego" },
+      { e: "🌞", k: "sol soleado" }, { e: "🌙", k: "luna noche" }, { e: "🌈", k: "arcoiris" },
       { e: "🌊", k: "ola mar agua" }, { e: "🌱", k: "planta brote crecer" }, { e: "🌳", k: "arbol" }, { e: "🌸", k: "flor primavera" },
       { e: "🍀", k: "trebol suerte" }, { e: "🐶", k: "perro mascota" }, { e: "🐱", k: "gato mascota" }, { e: "🦄", k: "unicornio" },
       { e: "🦋", k: "mariposa" }, { e: "🐝", k: "abeja" }, { e: "🍎", k: "manzana fruta" }, { e: "🍕", k: "pizza comida" },
@@ -99,7 +101,7 @@ const GROUPS: Group[] = [
     emojis: [
       { e: "🏢", k: "edificio oficina empresa" }, { e: "🏠", k: "casa hogar" }, { e: "🏬", k: "tienda almacen" },
       { e: "🏭", k: "fabrica industria" }, { e: "🏟️", k: "estadio evento" }, { e: "✈️", k: "avion viaje vuelo" },
-      { e: "🚗", k: "carro auto coche" }, { e: "🚀", k: "cohete" }, { e: "🛰️", k: "satelite" }, { e: "🗺️", k: "mapa" },
+      { e: "🚗", k: "carro auto coche" }, { e: "🛰️", k: "satelite" }, { e: "🗺️", k: "mapa" },
       { e: "🌍", k: "mundo tierra global" }, { e: "📡", k: "antena senal" }, { e: "🚦", k: "semaforo" }, { e: "🏝️", k: "isla playa" },
     ],
   },
@@ -107,20 +109,58 @@ const GROUPS: Group[] = [
 
 const ALL: Emo[] = GROUPS.flatMap((g) => g.emojis.map((it) => ({ ...it, k: `${it.k} ${g.label.toLowerCase()}` })));
 
+const PANEL_W = 288; // w-72
+const EST_H = 360; // alto estimado del panel para decidir arriba/abajo
+
 export function EmojiPicker({
+  anchorRef,
   onPick,
-  align = "left",
-  openUp = true,
+  onClose,
   footer,
 }: {
+  anchorRef: React.RefObject<HTMLElement | null>;
   onPick: (emoji: string) => void;
-  align?: "left" | "right";
-  openUp?: boolean;
+  onClose: () => void;
   footer?: React.ReactNode;
 }) {
   const [q, setQ] = React.useState("");
+  const [style, setStyle] = React.useState<React.CSSProperties | null>(null);
   const query = q.trim().toLowerCase();
-  // Resultados de búsqueda (sin duplicar emoji).
+
+  // Posiciona el panel (fijo) junto al icono que lo abrió: debajo si cabe, si no, encima.
+  React.useLayoutEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const compute = () => {
+      const el2 = anchorRef.current;
+      if (!el2) return;
+      const r = el2.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const left = Math.max(8, Math.min(r.left, vw - PANEL_W - 8));
+      const spaceBelow = vh - r.bottom;
+      if (spaceBelow >= EST_H || spaceBelow >= r.top) {
+        setStyle({ position: "fixed", left, top: r.bottom + 8 });
+      } else {
+        setStyle({ position: "fixed", left, bottom: vh - r.top + 8 });
+      }
+    };
+    compute();
+  }, [anchorRef]);
+
+  // Cierra con Escape o al hacer scroll/resize (para no quedar descolocado).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
   const results = React.useMemo(() => {
     if (!query) return null;
     const seen = new Set<string>();
@@ -131,48 +171,59 @@ export function EmojiPicker({
     });
   }, [query]);
 
-  return (
-    <div className={`absolute z-30 w-72 rounded-xl border border-border bg-popover p-2 shadow-lg ${openUp ? "bottom-10" : "top-10"} ${align === "right" ? "right-0" : "left-0"}`}>
-      <div className="relative mb-2">
-        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar emoji…"
-          className="w-full rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-        />
-      </div>
+  if (typeof document === "undefined") return null;
 
-      <div className="max-h-56 space-y-2 overflow-y-auto">
-        {results ? (
-          results.length === 0 ? (
-            <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
-          ) : (
-            <div className="grid grid-cols-8 gap-0.5">
-              {results.map((it) => (
-                <button key={it.e} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
-                  {it.e}
-                </button>
-              ))}
-            </div>
-          )
-        ) : (
-          GROUPS.map((g) => (
-            <div key={g.label}>
-              <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</p>
+  return createPortal(
+    <>
+      {/* Capa para cerrar al hacer clic fuera */}
+      <div className="fixed inset-0 z-[199]" onClick={onClose} />
+      <div
+        style={{ ...(style ?? { position: "fixed", left: -9999, top: -9999 }), maxHeight: "min(70vh, 380px)" }}
+        className="z-[200] flex w-72 flex-col overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-2xl"
+      >
+        <div className="relative mb-2 shrink-0">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar emoji…"
+            className="w-full rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          {results ? (
+            results.length === 0 ? (
+              <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
+            ) : (
               <div className="grid grid-cols-8 gap-0.5">
-                {g.emojis.map((it) => (
-                  <button key={it.e + g.label} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
+                {results.map((it) => (
+                  <button key={it.e} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
                     {it.e}
                   </button>
                 ))}
               </div>
-            </div>
-          ))
-        )}
+            )
+          ) : (
+            GROUPS.map((g) => (
+              <div key={g.label}>
+                <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</p>
+                <div className="grid grid-cols-8 gap-0.5">
+                  {g.emojis.map((it) => (
+                    <button key={it.e + g.label} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
+                      {it.e}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {footer ? <div className="mt-1 shrink-0 border-t border-border pt-1">{footer}</div> : null}
       </div>
-      {footer ? <div className="mt-1 border-t border-border pt-1">{footer}</div> : null}
-    </div>
+    </>,
+    document.body,
   );
 }
 
