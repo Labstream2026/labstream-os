@@ -45,6 +45,7 @@ export async function createQuote(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim() || "Cotización sin título";
   const clientId = String(formData.get("clientId") ?? "");
   const projectId = String(formData.get("projectId") ?? "") || null;
+  const recipientName = String(formData.get("recipientName") ?? "").trim() || null;
   if (!clientId) throw new Error("Falta el cliente");
   if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
 
@@ -54,6 +55,7 @@ export async function createQuote(formData: FormData) {
       title,
       clientId,
       projectId,
+      recipientName,
       createdById: session.id,
       items: { create: [{ description: "", quantity: 1, unitPrice: 0, position: 0 }] },
     },

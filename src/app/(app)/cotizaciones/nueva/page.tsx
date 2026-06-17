@@ -52,6 +52,16 @@ export default async function NuevaCotizacionPage() {
         </div>
 
         <div>
+          <label className="mb-1 block text-sm font-medium">Persona de contacto (opcional)</label>
+          <input
+            name="recipientName"
+            placeholder="Ej. Juliana Cancino"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">Aparece en la carta/PDF bajo el nombre de la empresa. Podrás editarla luego.</p>
+        </div>
+
+        <div>
           <label className="mb-1 block text-sm font-medium">Proyecto (opcional)</label>
           <select
             name="projectId"
