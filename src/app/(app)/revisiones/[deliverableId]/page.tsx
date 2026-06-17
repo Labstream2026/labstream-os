@@ -4,20 +4,17 @@ import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
-import { signFileToken } from "@/lib/storage";
-import { signReviewToken, signReviewMediaToken } from "@/lib/review-token";
-import { detectSource } from "@/lib/media-source";
+import { signReviewToken } from "@/lib/review-token";
+import { buildStageVersions } from "@/lib/review-version";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { InternalReview } from "./internal-review";
-import type { StageVersion, StageComment } from "@/components/review/review-stage";
+import type { StageComment } from "@/components/review/review-stage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
-const IMG = /\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i;
-const VID = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i;
 
 export default async function InternalReviewPage({ params }: { params: Promise<{ deliverableId: string }> }) {
   const { deliverableId } = await params;
@@ -39,32 +36,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const meta = deliverableStatusMeta(deliverable.status);
 
   // El equipo ve TODAS las versiones (incluidas las pendientes de pre-aprobación).
-  const versions: StageVersion[] = deliverable.versions.map((v) => {
-    if (v.fileAsset) {
-      const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}`;
-      const name = v.fileAsset.name;
-      const kind = IMG.test(name) ? "image" : VID.test(name) ? "video" : "other";
-      return { number: v.number, notes: v.notes, kind, src: url, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
-    }
-    const s = detectSource(v.fileUrl);
-    if (!s) return { number: v.number, notes: v.notes, kind: "none", src: null, openUrl: null, fileName: null, timecodeCapable: false };
-    const kindMap: Record<string, StageVersion["kind"]> = {
-      YOUTUBE: "youtube", VIMEO: "vimeo", DRIVE_FILE: "drive_file", DRIVE_FOLDER: "drive_folder", MP4: "video", IMAGE: "image", OTHER: "other",
-    };
-    const kind = kindMap[s.type] ?? "other";
-    // Drive: además del iframe, ofrecemos el video proxiado (mismo origen) para capturar.
-    const proxySrc = s.type === "DRIVE_FILE" ? `/api/review-media/${v.id}?t=${signReviewMediaToken(v.id)}` : null;
-    return {
-      number: v.number,
-      notes: v.notes,
-      kind,
-      src: s.embedUrl ?? s.url,
-      proxySrc,
-      openUrl: s.url,
-      fileName: null,
-      timecodeCapable: s.timecodeCapable || kind === "drive_file", // con proxy, Drive es capaz de timecode
-    };
-  });
+  const versions = await buildStageVersions(deliverable.versions);
 
   const comments: StageComment[] = deliverable.reviewComments.map((c) => ({
     id: c.id,

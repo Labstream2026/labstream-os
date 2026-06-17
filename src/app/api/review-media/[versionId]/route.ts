@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { verifyReviewMediaToken } from "@/lib/review-token";
-import { detectSource } from "@/lib/media-source";
+import { resolveDriveMediaFile, guessDriveMime } from "@/lib/drive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,11 +20,12 @@ export async function GET(
   if (verifyReviewMediaToken(t) !== versionId) return new Response("No autorizado", { status: 401 });
 
   const version = await db.deliverableVersion.findUnique({ where: { id: versionId }, select: { fileUrl: true } });
-  const s = detectSource(version?.fileUrl);
-  if (!s || s.type !== "DRIVE_FILE" || !s.id) return new Response("No es un archivo de Drive", { status: 404 });
+  // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
+  const media = await resolveDriveMediaFile(version?.fileUrl);
+  if (!media) return new Response("No es un archivo de Drive", { status: 404 });
 
   // Endpoint de descarga directa que evita el interstitial de análisis de virus.
-  const driveUrl = `https://drive.usercontent.google.com/download?id=${s.id}&export=download&confirm=t`;
+  const driveUrl = `https://drive.usercontent.google.com/download?id=${media.id}&export=download&confirm=t`;
   const range = req.headers.get("range") || undefined;
 
   let upstream: Response;
@@ -40,10 +41,12 @@ export async function GET(
   if (ctype.includes("text/html")) return new Response("El archivo de Drive no es público", { status: 502 });
 
   const headers = new Headers();
-  const disp = upstream.headers.get("content-disposition") || "";
+  // Nombre para adivinar el tipo: el resuelto de la carpeta, o el de content-disposition.
+  const dispName = (upstream.headers.get("content-disposition") || "").match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1];
+  const name = media.name || (dispName ? decodeURIComponent(dispName) : "");
   // Tipo de contenido reproducible: respeta el de Drive salvo octet-stream, donde
   // adivinamos por la extensión del nombre de archivo.
-  let outType = ctype && !ctype.includes("octet-stream") ? ctype : guessVideoMime(disp);
+  const outType = ctype && !ctype.includes("octet-stream") ? ctype : guessDriveMime(name);
   headers.set("content-type", outType || "video/mp4");
   for (const h of ["content-length", "content-range"]) {
     const v = upstream.headers.get(h);
@@ -53,14 +56,4 @@ export async function GET(
   headers.set("cache-control", "private, max-age=3600");
 
   return new Response(upstream.body, { status: upstream.status, headers });
-}
-
-function guessVideoMime(contentDisposition: string): string {
-  const m = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
-  const name = m ? decodeURIComponent(m[1]).toLowerCase() : "";
-  if (name.endsWith(".webm")) return "video/webm";
-  if (name.endsWith(".ogg") || name.endsWith(".ogv")) return "video/ogg";
-  if (name.endsWith(".mov")) return "video/quicktime";
-  if (name.endsWith(".m4v")) return "video/x-m4v";
-  return "video/mp4";
 }

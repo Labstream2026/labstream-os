@@ -1,17 +1,12 @@
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
-import { signFileToken } from "@/lib/storage";
-import { signReviewMediaToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
-import { detectSource } from "@/lib/media-source";
+import { buildStageVersions } from "@/lib/review-version";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
-import { ReviewClient, type ReviewVersion } from "./review-client";
+import { ReviewClient } from "./review-client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const IMG = /\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i;
-const VID = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i;
 
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -47,32 +42,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const approved = deliverable.versions.filter((v) => v.internalApproved);
   const meta = deliverableStatusMeta(deliverable.status);
 
-  const versions: ReviewVersion[] = approved.map((v) => {
-    if (v.fileAsset) {
-      const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}`;
-      const name = v.fileAsset.name;
-      const kind = IMG.test(name) ? "image" : VID.test(name) ? "video" : "other";
-      return { number: v.number, notes: v.notes, kind, src: url, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
-    }
-    const s = detectSource(v.fileUrl);
-    if (!s) return { number: v.number, notes: v.notes, kind: "none", src: null, openUrl: null, fileName: null, timecodeCapable: false };
-    const kindMap: Record<string, ReviewVersion["kind"]> = {
-      YOUTUBE: "youtube", VIMEO: "vimeo", DRIVE_FILE: "drive_file", DRIVE_FOLDER: "drive_folder", MP4: "video", IMAGE: "image", OTHER: "other",
-    };
-    const kind = kindMap[s.type] ?? "other";
-    // Drive: video proxiado por el mismo origen → el cliente puede capturar el frame.
-    const proxySrc = s.type === "DRIVE_FILE" ? `/api/review-media/${v.id}?t=${signReviewMediaToken(v.id)}` : null;
-    return {
-      number: v.number,
-      notes: v.notes,
-      kind,
-      src: s.embedUrl ?? s.url,
-      proxySrc,
-      openUrl: s.url,
-      fileName: null,
-      timecodeCapable: s.timecodeCapable || kind === "drive_file",
-    };
-  });
+  const versions = await buildStageVersions(approved);
 
   return (
     <div className="min-h-screen bg-muted/30">
