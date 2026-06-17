@@ -327,14 +327,18 @@ export function ReviewStage({
           {!fixedName ? (
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           ) : null}
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder="Escribe sobre el video… (al escribir se pausa y se fija el segundo)" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder="Escribe sobre el video… al comentar se guarda el segundo y la captura del fotograma" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <div className="flex items-center justify-between gap-2">
-            {version?.timecodeCapable ? (
-              <button onClick={grabTime} type="button" title="Marca el segundo actual del video" className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent">
-                {tc != null ? `⏱ ${fmtTime(tc)}` : "Marcar momento"}
-              </button>
-            ) : <span />}
-            <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            {/* El segundo se fija automáticamente: al enfocar el cuadro (se pausa el video)
+                o, si no, en el momento de comentar. Ya no hay botón «Marcar momento». */}
+            <span className="text-[11px] text-muted-foreground">
+              {version?.timecodeCapable
+                ? tc != null
+                  ? `⏱ Se guardará en ${fmtTime(tc)} + captura del fotograma`
+                  : "⏱ Se guardará el segundo + captura al comentar"
+                : ""}
+            </span>
+            <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {pending ? "Enviando…" : "Comentar"}
             </button>
           </div>
@@ -381,15 +385,19 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   const ytRef = React.useRef<HTMLIFrameElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ytPlayer = React.useRef<any>(null);
-  // Para Drive ofrecemos DOS modos: ver con el reproductor de Google (iframe, rápido,
-  // ideal para masters pesados) y «modo captura» (video proxiado del mismo origen, que
-  // SÍ permite capturar el fotograma; en archivos grandes tarda en cargar). Por defecto
-  // se ve con Google; el revisor activa el modo captura solo cuando quiere anclar un frame.
-  const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
-  const [captureMode, setCaptureMode] = React.useState(false);
-  React.useEffect(() => { setDriveProxyFailed(false); setCaptureMode(false); }, [version]);
-
+  // Para Drive ofrecemos DOS modos: «modo captura» (video proxiado del mismo origen, que
+  // SÍ permite capturar el fotograma) y ver con el reproductor de Google (iframe, rápido,
+  // ideal solo para ver masters pesados). Por DEFECTO arranca en modo captura, porque la
+  // captura del frame al comentar es la función central; el revisor puede pasar a Google
+  // si solo quiere ver y el master pesado tarda en cargar.
   const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
+  const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
+  const [captureMode, setCaptureMode] = React.useState(isDriveProxyable);
+  React.useEffect(() => {
+    setDriveProxyFailed(false);
+    setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
+  }, [version]);
+
   const usingProxy = isDriveProxyable && captureMode && !driveProxyFailed;
   // Elemento del mismo origen del que SÍ se puede leer el fotograma.
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
