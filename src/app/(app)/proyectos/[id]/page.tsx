@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, formatShortDate } from "@/lib/ui";
+import { CoverBanner } from "@/components/cover-banner";
+import { saveProjectAppearance, clearProjectCover } from "./appearance-actions";
 import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
@@ -185,22 +187,35 @@ export default async function ProyectoPage({
         ← Proyectos
       </Link>
 
-      <div className="mt-4 flex items-start gap-4">
-        <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-3xl">
-          {project.emoji ?? "🎬"}
-        </span>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+      <div className="mt-4">
+        <CoverBanner
+          name={project.name}
+          emoji={project.emoji}
+          fallbackEmoji="🎬"
+          color={project.color}
+          bannerUrl={project.bannerUrl}
+          canEdit={canManageProject(project, session)}
+          onSave={saveProjectAppearance.bind(null, project.id)}
+          onClearCover={clearProjectCover.bind(null, project.id)}
+          subtitle={
+            <>
+              <Link href={`/clientes/${project.clientId}`} className="hover:underline">
+                {project.client.emoji} {project.client.name}
+              </Link>{" "}
+              · {project.code} · {PROJECT_TYPE[project.type]}
+            </>
+          }
+        >
+          <div className="mt-2.5 flex flex-wrap items-center gap-3">
             <Badge className={cn(status.className)}>{status.label}</Badge>
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${project.progress}%` }} />
+              </div>
+              <span className="text-xs text-muted-foreground">{project.progress}%</span>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            <Link href={`/clientes/${project.clientId}`} className="hover:underline">
-              {project.client.emoji} {project.client.name}
-            </Link>{" "}
-            · {project.code} · {PROJECT_TYPE[project.type]}
-          </p>
-        </div>
+        </CoverBanner>
       </div>
 
       {/* Tabs */}

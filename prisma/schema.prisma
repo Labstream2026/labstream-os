@@ -154,6 +154,7 @@ model Client {
   description String? // "Productora audiovisual · 2 proyectos"
   emoji       String? // 🎬 🌐 ☀️ 🟠
   accentColor String?
+  bannerUrl   String? // portada/banner tipo Notion (imagen subida, servida por /api/banner)
   notes       String?
   projects    Project[]
   quotes      Quote[]
@@ -253,6 +254,7 @@ model Project {
   leadId      String?
   templateKey String? // plantilla de origen, si se creó desde una
   color       String? // color del proyecto (para el calendario de entregables)
+  bannerUrl   String? // portada/banner tipo Notion (imagen subida, servida por /api/banner)
   // Proyecto compartido (estilo Mattermost): público = visible a todo el equipo
   // con permiso ver_proyectos; privado = solo responsable + miembros + admin.
   // Por defecto PRIVADO: un usuario nuevo arranca sin proyectos hasta que lo

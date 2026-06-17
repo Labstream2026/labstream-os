@@ -6,6 +6,8 @@ import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientEdit } from "./client-edit";
+import { CoverBanner } from "@/components/cover-banner";
+import { saveClientAppearance, clearClientCover } from "../actions";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
@@ -153,15 +155,17 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-center gap-4">
-        <span className="flex size-14 items-center justify-center rounded-xl bg-muted text-3xl">{client.emoji ?? "🏢"}</span>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{client.name}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {client.description} · {projects.length} proyecto{projects.length === 1 ? "" : "s"}
-          </p>
-        </div>
-      </div>
+      <CoverBanner
+        name={client.name}
+        subtitle={`${client.description ? `${client.description} · ` : ""}${projects.length} proyecto${projects.length === 1 ? "" : "s"}`}
+        emoji={client.emoji}
+        fallbackEmoji="🏢"
+        color={client.accentColor}
+        bannerUrl={client.bannerUrl}
+        canEdit={canEdit}
+        onSave={saveClientAppearance.bind(null, client.id)}
+        onClearCover={clearClientCover.bind(null, client.id)}
+      />
 
       <div className="mt-8 grid grid-cols-3 gap-4">
         <Stat value={projects.length} label="Proyectos" />

@@ -6,6 +6,21 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanManageClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
+import { saveBufferWithPreview, IMAGE_EDGES } from "@/lib/image";
+import { TONE_MAP } from "@/lib/colors";
+
+// Color de acento válido = clave de la paleta (lib/colors), o null.
+function safeTone(value: string): string | null {
+  const v = value.trim();
+  return v && v in TONE_MAP ? v : null;
+}
+
+// ¿Puede el usuario personalizar este cliente (apariencia)? Igual que editar.
+async function canEditClient(clientId: string): Promise<boolean> {
+  const session = await getSession();
+  if (!session) return false;
+  return (await userCanManageClient(clientId, session)) || hasPermission(session, "editar_clientes");
+}
 
 export async function createClient(formData: FormData) {
   const session = await getSession();
@@ -53,11 +68,48 @@ export async function updateClient(clientId: string, formData: FormData): Promis
       company: String(formData.get("company") ?? "").trim() || null,
       description: String(formData.get("description") ?? "").trim() || null,
       notes: String(formData.get("notes") ?? "").trim() || null,
+      // Solo si el formulario lo envía (la portada lo edita aparte; no lo pisamos).
+      ...(formData.has("accentColor") ? { accentColor: safeTone(String(formData.get("accentColor") ?? "")) } : {}),
     },
   });
   await logActivity({ action: "client.update", summary: `editó la información del cliente «${name}»`, clientId, entityType: "client", entityId: clientId });
   revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/clientes");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Personalización rápida del cliente (portada tipo Notion + emoji + color), guardado
+// al instante desde la cabecera. Lee solo los campos presentes en el FormData.
+export async function saveClientAppearance(clientId: string, formData: FormData): Promise<ClientUpdateResult> {
+  if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
+  const data: { emoji?: string; accentColor?: string | null; bannerUrl?: string } = {};
+
+  if (formData.has("emoji")) data.emoji = String(formData.get("emoji") ?? "").trim().slice(0, 8) || "🏢";
+  if (formData.has("accentColor")) data.accentColor = safeTone(String(formData.get("accentColor") ?? ""));
+
+  const file = formData.get("banner");
+  if (file instanceof File && file.size > 0) {
+    if (!file.type.startsWith("image/")) return { ok: false, error: "El archivo debe ser una imagen" };
+    if (file.size > 8 * 1024 * 1024) return { ok: false, error: "La portada supera 8MB" };
+    const buf = Buffer.from(await file.arrayBuffer());
+    await saveBufferWithPreview("banners", clientId, buf, file.type, { maxEdge: IMAGE_EDGES.MAX_EDGE });
+    data.bannerUrl = `/api/banner/${clientId}?v=${Date.now()}`;
+  }
+
+  if (Object.keys(data).length === 0) return { ok: true };
+  await db.client.update({ where: { id: clientId }, data });
+  revalidatePath(`/clientes/${clientId}`);
+  revalidatePath("/clientes");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Quita la portada del cliente.
+export async function clearClientCover(clientId: string): Promise<ClientUpdateResult> {
+  if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
+  await db.client.update({ where: { id: clientId }, data: { bannerUrl: null } });
+  revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/", "layout");
   return { ok: true };
 }
