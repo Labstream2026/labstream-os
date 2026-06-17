@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanManageProject } from "@/lib/project-access";
-import { saveOptimizedImage, IMAGE_EDGES } from "@/lib/image";
+import { saveOptimizedImage } from "@/lib/image";
 import { TONE_MAP } from "@/lib/colors";
 
 type Result = { ok: boolean; error?: string };
@@ -29,8 +29,9 @@ export async function saveProjectAppearance(projectId: string, formData: FormDat
     if (!file.type.startsWith("image/")) return { ok: false, error: "El archivo debe ser una imagen" };
     if (file.size > 8 * 1024 * 1024) return { ok: false, error: "La portada supera 8MB" };
     const buf = Buffer.from(await file.arrayBuffer());
-    // Se optimiza al subir (WebP ≤1600px): la portada queda ligera y no guardamos el original.
-    await saveOptimizedImage("banners", projectId, buf, file.type, { maxEdge: IMAGE_EDGES.BANNER_EDGE, quality: 78 });
+    // Se optimiza al subir: se recorta (enfoque inteligente) a la proporción del banner
+    // y se convierte a WebP → portada ligera y sin guardar el original.
+    await saveOptimizedImage("banners", projectId, buf, file.type, { crop: { width: 1600, height: 500 }, quality: 78 });
     data.bannerUrl = `/api/banner/${projectId}?v=${Date.now()}`;
   }
 

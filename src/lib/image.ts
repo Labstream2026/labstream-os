@@ -41,21 +41,20 @@ export function isOptimizableImage(name: string, mime?: string | null): boolean 
 // Devuelve un WebP redimensionado (lado largo ≤ maxEdge, conserva proporción,
 // respeta EXIF). Devuelve null si no se pudo procesar (p. ej. archivo corrupto o
 // HEIC sin soporte libheif) → el llamador conserva solo el original.
-export async function optimizeToWebp(
-  buf: Buffer,
-  opts?: { maxEdge?: number; quality?: number },
-): Promise<Buffer | null> {
+// Opciones de optimización. `crop` recorta a un tamaño EXACTO (fit cover, enfoque
+// inteligente) — ideal para portadas/banners, que se muestran a una proporción fija;
+// si no, se redimensiona conservando proporción (lado largo ≤ maxEdge).
+export type OptimizeOpts = { maxEdge?: number; quality?: number; crop?: { width: number; height: number } };
+
+export async function optimizeToWebp(buf: Buffer, opts?: OptimizeOpts): Promise<Buffer | null> {
   try {
-    return await sharp(buf, { failOn: "none", animated: true })
-      .rotate()
-      .resize({
-        width: opts?.maxEdge ?? MAX_EDGE,
-        height: opts?.maxEdge ?? MAX_EDGE,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .webp({ quality: opts?.quality ?? WEBP_QUALITY })
-      .toBuffer();
+    const pipeline = sharp(buf, { failOn: "none", animated: !opts?.crop }).rotate();
+    if (opts?.crop) {
+      pipeline.resize({ width: opts.crop.width, height: opts.crop.height, fit: "cover", position: "attention" });
+    } else {
+      pipeline.resize({ width: opts?.maxEdge ?? MAX_EDGE, height: opts?.maxEdge ?? MAX_EDGE, fit: "inside", withoutEnlargement: true });
+    }
+    return await pipeline.webp({ quality: opts?.quality ?? WEBP_QUALITY }).toBuffer();
   } catch {
     return null;
   }
@@ -68,7 +67,7 @@ export async function saveBufferWithPreview(
   filename: string,
   buf: Buffer,
   mime?: string | null,
-  opts?: { maxEdge?: number; quality?: number },
+  opts?: OptimizeOpts,
 ): Promise<string> {
   const rel = await saveBuffer(relDir, filename, buf);
   if (isOptimizableImage(filename, mime)) {
@@ -84,7 +83,7 @@ export async function saveImageAtRel(
   rel: string,
   buf: Buffer,
   mime?: string | null,
-  opts?: { maxEdge?: number; quality?: number },
+  opts?: OptimizeOpts,
 ): Promise<string> {
   await writeRelBuffer(rel, buf);
   if (isOptimizableImage(rel, mime)) {
@@ -104,7 +103,7 @@ export async function saveOptimizedImage(
   filename: string,
   buf: Buffer,
   mime?: string | null,
-  opts?: { maxEdge?: number; quality?: number },
+  opts?: OptimizeOpts,
 ): Promise<string> {
   if (isOptimizableImage(filename, mime)) {
     const webp = await optimizeToWebp(buf, opts);
