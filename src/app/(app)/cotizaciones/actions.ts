@@ -69,6 +69,9 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const taxRate = Math.max(0, Math.min(100, parseInt(String(formData.get("taxRate") ?? "0"), 10) || 0));
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  const recipientName = String(formData.get("recipientName") ?? "").trim() || null;
+  const recipientCity = String(formData.get("recipientCity") ?? "").trim() || null;
+  const intro = String(formData.get("intro") ?? "").trim() || null;
   const validUntilRaw = String(formData.get("validUntil") ?? "").trim();
   await db.quote.update({
     where: { id: quoteId },
@@ -76,6 +79,9 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
       ...(title ? { title } : {}),
       taxRate,
       notes,
+      recipientName,
+      recipientCity,
+      intro,
       validUntil: validUntilRaw ? new Date(validUntilRaw) : null,
     },
   });

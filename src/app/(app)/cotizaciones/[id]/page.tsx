@@ -106,9 +106,21 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
             <span className="mb-1 block font-medium">Válida hasta</span>
             <input name="validUntil" type="date" defaultValue={validUntilValue} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Persona de contacto</span>
+            <input name="recipientName" defaultValue={quote.recipientName ?? ""} placeholder={`p. ej. ${quote.client.name}`} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Ciudad del destinatario</span>
+            <input name="recipientCity" defaultValue={quote.recipientCity ?? ""} placeholder="Ciudad" className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
           <label className="text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">Notas</span>
-            <textarea name="notes" rows={2} defaultValue={quote.notes ?? ""} placeholder="Condiciones, forma de pago, etc." className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+            <span className="mb-1 block font-medium">Texto de introducción</span>
+            <textarea name="intro" rows={2} defaultValue={quote.intro ?? ""} placeholder="A continuación relacionamos el desglose de… (si lo dejas vacío se genera automáticamente)" className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium">Nota / información adicional</span>
+            <textarea name="notes" rows={2} defaultValue={quote.notes ?? ""} placeholder="Condiciones, forma de pago, descuentos, etc." className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
           <div className="sm:col-span-2">
             <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">Guardar datos</button>

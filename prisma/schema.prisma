@@ -318,6 +318,10 @@ model Quote {
   currency     String      @default("COP")
   taxRate      Int         @default(0) // % IVA (0-100)
   notes        String?
+  // Personalización de la carta/PDF (estilo "Desglose"): destinatario y texto editables.
+  recipientName String?    // Persona de contacto (línea bajo la empresa)
+  recipientCity String?    // Ciudad del destinatario (por defecto "Ciudad")
+  intro         String?    // Texto de introducción (si vacío, se genera uno por defecto)
   validUntil   DateTime?
   client       Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId     String

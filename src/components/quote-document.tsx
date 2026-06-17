@@ -13,6 +13,9 @@ export type QuoteDoc = {
   createdAt: Date | string;
   clientName: string;
   clientCompany?: string | null;
+  recipientName?: string | null;
+  recipientCity?: string | null;
+  intro?: string | null;
   projectName?: string | null;
   items: DocItem[];
 };
@@ -35,10 +38,14 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
   const showIva = quote.taxRate > 0;
   const days = validityDays(quote.createdAt, quote.validUntil);
 
-  // Destinatario: empresa (o nombre) en primera línea; si hay empresa, el nombre del
-  // contacto va debajo. "Ciudad" cierra el bloque, como en la carta formal.
+  // Destinatario: empresa (o nombre) en primera línea; debajo, la persona de contacto
+  // (campo editable; si está vacío, el nombre del cliente cuando hay empresa distinta).
+  // La ciudad es editable y cae a "Ciudad" por defecto, como en la carta formal.
   const recipientCompany = quote.clientCompany?.trim() || quote.clientName;
-  const recipientContact = quote.clientCompany?.trim() && quote.clientName !== quote.clientCompany ? quote.clientName : null;
+  const recipientContact =
+    quote.recipientName?.trim() ||
+    (quote.clientCompany?.trim() && quote.clientName !== quote.clientCompany ? quote.clientName : null);
+  const recipientCity = quote.recipientCity?.trim() || "Ciudad";
 
   return (
     <div
@@ -64,18 +71,22 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
           <p>Señor (es):</p>
           <p className="font-semibold">{recipientCompany}</p>
           {recipientContact ? <p>{recipientContact}</p> : null}
-          <p>Ciudad</p>
+          <p>{recipientCity}</p>
         </div>
 
         {/* Referencia */}
         <p className="mt-5 font-semibold">Ref. Propuesta comercial {quote.code}</p>
 
-        {/* Introducción */}
-        <p className="mt-5">
-          A continuación relacionamos el desglose de{" "}
-          <span className="font-medium">«{quote.title}»</span>
-          {quote.projectName ? <> correspondiente al proyecto {quote.projectName}</> : null}.
-        </p>
+        {/* Introducción: texto editable; si está vacío, se genera uno por defecto */}
+        {quote.intro?.trim() ? (
+          <p className="mt-5 whitespace-pre-wrap">{quote.intro}</p>
+        ) : (
+          <p className="mt-5">
+            A continuación relacionamos el desglose de{" "}
+            <span className="font-medium">«{quote.title}»</span>
+            {quote.projectName ? <> correspondiente al proyecto {quote.projectName}</> : null}.
+          </p>
+        )}
 
         {/* Nota opcional */}
         {quote.notes ? (

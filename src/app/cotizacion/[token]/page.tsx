@@ -59,6 +59,9 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
           createdAt: quote.createdAt,
           clientName: quote.client.name,
           clientCompany: quote.client.company,
+          recipientName: quote.recipientName,
+          recipientCity: quote.recipientCity,
+          intro: quote.intro,
           projectName: quote.project?.name ?? null,
           items: quote.items.map((i) => ({ section: i.section, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })),
         }}
