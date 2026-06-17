@@ -10,9 +10,9 @@ const GROUPS: { label: string; emojis: string[] }[] = [
   { label: "Trabajo", emojis: ["✅","☑️","❌","⚠️","📌","📎","📁","📄","📷","🎬","🎥","🎙️","🎧","💡","📊","📈","🗓️","⏰","☕","💻"] },
 ];
 
-export function EmojiPicker({ onPick, align = "left" }: { onPick: (emoji: string) => void; align?: "left" | "right" }) {
+export function EmojiPicker({ onPick, align = "left", openUp = true, footer }: { onPick: (emoji: string) => void; align?: "left" | "right"; openUp?: boolean; footer?: React.ReactNode }) {
   return (
-    <div className={`absolute bottom-10 z-30 w-64 rounded-xl border border-border bg-popover p-2 shadow-lg ${align === "right" ? "right-0" : "left-0"}`}>
+    <div className={`absolute z-30 w-64 rounded-xl border border-border bg-popover p-2 shadow-lg ${openUp ? "bottom-10" : "top-10"} ${align === "right" ? "right-0" : "left-0"}`}>
       <div className="max-h-56 space-y-2 overflow-y-auto">
         {GROUPS.map((g) => (
           <div key={g.label}>
@@ -32,6 +32,7 @@ export function EmojiPicker({ onPick, align = "left" }: { onPick: (emoji: string
           </div>
         ))}
       </div>
+      {footer ? <div className="mt-1 border-t border-border pt-1">{footer}</div> : null}
     </div>
   );
 }

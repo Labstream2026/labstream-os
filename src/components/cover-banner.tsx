@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ImagePlus, Trash2, Palette, Loader2, Check } from "lucide-react";
+import { ImagePlus, Trash2, Palette, Loader2 } from "lucide-react";
 import { TONES, tone } from "@/lib/colors";
+import { EmojiPicker } from "@/components/chat/emoji-picker";
 import { cn } from "@/lib/utils";
 
 type SaveResult = { ok: boolean; error?: string };
@@ -37,7 +38,6 @@ export function CoverBanner({
   const [pending, start] = React.useTransition();
   const [colorOpen, setColorOpen] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
-  const [emojiDraft, setEmojiDraft] = React.useState(emoji ?? "");
   const fileRef = React.useRef<HTMLInputElement>(null);
   const t = tone(color);
 
@@ -48,11 +48,8 @@ export function CoverBanner({
   };
   const onFile = (f: File | null) => { if (f) save((fd) => fd.set("banner", f)); };
   const pickColor = (key: string) => { setColorOpen(false); save((fd) => fd.set("accentColor", key)); };
-  const saveEmoji = () => {
-    setEmojiOpen(false);
-    const v = emojiDraft.trim().slice(0, 8);
-    if (v !== (emoji ?? "")) save((fd) => fd.set("emoji", v));
-  };
+  const pickEmoji = (e: string) => { setEmojiOpen(false); save((fd) => fd.set("emoji", e)); };
+  const clearEmoji = () => { setEmojiOpen(false); save((fd) => fd.set("emoji", "")); };
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -102,33 +99,35 @@ export function CoverBanner({
       {/* ── Emoji + título ── */}
       <div className="px-5 pb-4">
         <div className="-mt-9 mb-2 flex items-end gap-3">
-          <button
-            type="button"
-            disabled={!canEdit}
-            onClick={() => { if (canEdit) { setEmojiDraft(emoji ?? ""); setEmojiOpen((o) => !o); } }}
-            title={canEdit ? "Cambiar icono" : undefined}
-            className="flex size-[68px] shrink-0 items-center justify-center rounded-2xl border-4 border-card bg-muted text-4xl shadow-sm transition hover:bg-muted/70 disabled:cursor-default disabled:hover:bg-muted"
-          >
-            {emoji || fallbackEmoji}
-          </button>
-        </div>
-
-        {emojiOpen ? (
-          <div className="mb-2 flex items-center gap-2">
-            <input
-              autoFocus
-              value={emojiDraft}
-              onChange={(e) => setEmojiDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") saveEmoji(); if (e.key === "Escape") setEmojiOpen(false); }}
-              maxLength={8}
-              placeholder="Pega un emoji"
-              className="w-32 rounded-md border border-input bg-background px-2 py-1.5 text-center text-lg outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button type="button" onClick={saveEmoji} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">
-              <Check className="size-3.5" /> Guardar
+          <div className="relative">
+            <button
+              type="button"
+              disabled={!canEdit}
+              onClick={() => { if (canEdit) setEmojiOpen((o) => !o); }}
+              title={canEdit ? "Cambiar icono" : undefined}
+              className="flex size-[68px] shrink-0 items-center justify-center rounded-2xl border-4 border-card bg-muted text-4xl shadow-sm transition hover:bg-muted/70 disabled:cursor-default disabled:hover:bg-muted"
+            >
+              {emoji || fallbackEmoji}
             </button>
+            {emojiOpen ? (
+              <>
+                {/* Cerrar al hacer clic fuera */}
+                <div className="fixed inset-0 z-20" onClick={() => setEmojiOpen(false)} />
+                <EmojiPicker
+                  onPick={pickEmoji}
+                  openUp={false}
+                  footer={
+                    emoji ? (
+                      <button type="button" onClick={clearEmoji} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">
+                        <Trash2 className="size-3.5" /> Quitar icono
+                      </button>
+                    ) : null
+                  }
+                />
+              </>
+            ) : null}
           </div>
-        ) : null}
+        </div>
 
         <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
         {subtitle ? <div className="mt-0.5 text-sm text-muted-foreground">{subtitle}</div> : null}
