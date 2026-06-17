@@ -3,7 +3,7 @@
 import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
 import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
-import { type TimelineUnit, dayKey, minutesToHours, taskLifeSpan, minMaxKeys } from "@/lib/timeline";
+import { type TimelineUnit, dayKey, minutesToHours, formatMinutes, taskLifeSpan, minMaxKeys } from "@/lib/timeline";
 import { tone, type LabelRow } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { TaskDetail } from "./task-detail";
@@ -146,6 +146,12 @@ export function ProjectTimeline({
     if (bars.length) lanes.push({ key: "__tasks", label: "Tareas", bars });
   }
 
+  // Resumen de horas del proyecto: estimadas vs registradas (suma de todas las tareas).
+  const totalEst = tasks.reduce((n, t) => n + (t.estimatedMinutes ?? 0), 0);
+  const totalLogged = tasks.reduce((n, t) => n + (t.loggedMinutes ?? 0), 0);
+  const hoursPct = totalEst ? Math.min(100, Math.round((totalLogged / totalEst) * 100)) : 0;
+  const overHours = totalEst > 0 && totalLogged > totalEst;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -168,6 +174,24 @@ export function ProjectTimeline({
           ))}
         </div>
       </div>
+
+      {totalEst > 0 || totalLogged > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Horas del proyecto</span>
+          <span>
+            <strong className={cn(overHours && "text-destructive")}>{formatMinutes(totalLogged)}</strong>
+            <span className="text-muted-foreground"> registradas{totalEst > 0 ? ` de ${formatMinutes(totalEst)} estimadas` : ""}</span>
+          </span>
+          {totalEst > 0 ? (
+            <div className="flex min-w-32 flex-1 items-center gap-2">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div className={cn("h-full rounded-full", overHours ? "bg-destructive" : "bg-primary")} style={{ width: `${hoursPct}%` }} />
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">{hoursPct}%</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <TimelineGrid
         lanes={lanes}
