@@ -40,6 +40,7 @@ export default async function ConfiguracionPage() {
       },
     }),
     db.user.findMany({
+      where: { isSystemBot: false }, // oculta a Marcebot (usuario de sistema)
       orderBy: [{ active: "desc" }, { name: "asc" }],
       include: { role: { select: { key: true, name: true } } },
     }),
@@ -83,6 +84,7 @@ export default async function ConfiguracionPage() {
                 roleKey={u.role.key}
                 active={u.active}
                 isGuest={u.isGuest}
+                gender={u.gender}
                 roles={roleOptions}
                 isSelf={u.email === session!.email}
               />

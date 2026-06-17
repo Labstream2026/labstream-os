@@ -7,6 +7,7 @@ import { accessibleClientWhere } from "@/lib/client-access";
 import { canAccessProject } from "@/lib/project-access";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "./timeline/global-timeline";
+import { MarcebotCard } from "./marcebot-card";
 import { formatShortDate } from "@/lib/ui";
 
 function greeting(name: string) {
@@ -118,6 +119,9 @@ export default async function HomePage() {
           </div>
         ))}
       </div>
+
+      {/* Marcebot: resumen en vivo de los pendientes del usuario (y del equipo si es admin). */}
+      <MarcebotCard userId={me.id} name={me.name} roleKey={session?.role ?? ""} />
 
       {/* Resumen del cronograma de todos los proyectos (solo lectura; clic → editar). */}
       {canSeeCronograma ? (

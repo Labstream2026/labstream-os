@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Trash2 } from "lucide-react";
-import { setUserRole, setUserActive, setUserGuest, deleteUser } from "./actions";
+import { setUserRole, setUserActive, setUserGuest, setUserGender, deleteUser } from "./actions";
 
 export function UserControls({
   userId,
@@ -10,6 +10,7 @@ export function UserControls({
   roleKey,
   active,
   isGuest,
+  gender,
   roles,
   isSelf,
 }: {
@@ -18,6 +19,7 @@ export function UserControls({
   roleKey: string;
   active: boolean;
   isGuest: boolean;
+  gender: string | null;
   roles: { key: string; name: string }[];
   isSelf: boolean;
 }) {
@@ -49,6 +51,21 @@ export function UserControls({
               {r.name}
             </option>
           ))}
+        </select>
+
+        <select
+          value={gender ?? ""}
+          disabled={pending}
+          onChange={(e) => {
+            const v = e.target.value;
+            run(() => setUserGender(userId, v || null));
+          }}
+          title="Cómo te saluda Marcebot (muchacho / muchacha)"
+          className="cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+        >
+          <option value="">🤖 Neutro</option>
+          <option value="M">👦 Muchacho</option>
+          <option value="F">👧 Muchacha</option>
         </select>
 
         <button

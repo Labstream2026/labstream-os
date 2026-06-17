@@ -205,6 +205,16 @@ export async function setUserGuest(userId: string, isGuest: boolean): Promise<Ad
   return { ok: true };
 }
 
+// Define cómo saluda Marcebot a la persona: "M" (muchacho) | "F" (muchacha) | null.
+export async function setUserGender(userId: string, gender: string | null): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const value = gender === "M" || gender === "F" ? gender : null;
+  await db.user.update({ where: { id: userId }, data: { gender: value } });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
 // ── Roles personalizables (CRUD) ──
 
 // Crea un rol nuevo. Opcionalmente copia los permisos de un rol existente (copyFromKey).

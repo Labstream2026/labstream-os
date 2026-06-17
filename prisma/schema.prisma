@@ -78,6 +78,10 @@ model User {
   // Invitado puntual: además de freelancer/cliente, marca a un usuario interno
   // como invitado sin acceso a la Wiki (ni a sus enlaces compartidos).
   isGuest      Boolean   @default(false)
+  // Género para el saludo de Marcebot: "M" (muchacho) | "F" (muchacha) | null (neutro).
+  gender       String?
+  // Usuario de sistema (Marcebot): no inicia sesión y se oculta de los listados.
+  isSystemBot  Boolean   @default(false)
   role         Role      @relation(fields: [roleId], references: [id])
   roleId       String
   ledProjects  Project[] @relation("ProjectLead")
@@ -117,9 +121,24 @@ model User {
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
+  marcebotState      MarcebotState?     @relation("MarcebotStateUser")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)
+// y recuerda si ya envió el saludo del día (personal y, para roles administrativos,
+// el resumen de equipo).
+model MarcebotState {
+  userId         String    @id
+  user           User      @relation("MarcebotStateUser", fields: [userId], references: [id], onDelete: Cascade)
+  lastDigest     String? // hash del último DM personal enviado
+  lastSentAt     DateTime?
+  lastMorningOn  String? // "YYYY-MM-DD" (Colombia) del último saludo matutino personal
+  lastTeamDigest String? // hash del último DM de resumen de equipo
+  lastTeamOn     String? // "YYYY-MM-DD" del último resumen de equipo
+  updatedAt      DateTime  @updatedAt
 }
 
 // Registro de actividad: cada cambio relevante queda con su fecha/hora y autor.
