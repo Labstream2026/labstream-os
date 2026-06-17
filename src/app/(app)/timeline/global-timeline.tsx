@@ -33,21 +33,28 @@ export function GlobalTimeline({
   clients,
   milestones,
   readOnly = false,
+  lockMonth = false,
+  maxHeight,
 }: {
   clients: GTClient[];
   milestones: GTMilestone[];
   // Solo lectura (p. ej. el resumen del Inicio): no se puede arrastrar para reprogramar;
   // el clic en un proyecto lleva a su cronograma para editarlo allí.
   readOnly?: boolean;
+  // Fija la vista en "Mes" y oculta el selector (resumen del Inicio).
+  lockMonth?: boolean;
+  // Acota la altura con scroll propio (no crece hacia abajo sin fin).
+  maxHeight?: string;
 }) {
   const router = useRouter();
   const [unit, setUnit] = React.useState<TimelineUnit>("month");
   const [, startTransition] = React.useTransition();
 
   React.useEffect(() => {
+    if (lockMonth) return; // en modo resumen siempre es mensual
     const saved = localStorage.getItem("timeline-unit");
     if (saved === "day" || saved === "week" || saved === "month") setUnit(saved);
-  }, []);
+  }, [lockMonth]);
   function changeUnit(u: TimelineUnit) {
     setUnit(u);
     localStorage.setItem("timeline-unit", u);
@@ -110,9 +117,11 @@ export function GlobalTimeline({
   return (
     <TimelineGrid
       lanes={lanes}
-      unit={unit}
+      unit={lockMonth ? "month" : unit}
       onUnitChange={changeUnit}
       onBarChange={readOnly ? undefined : onBarChange}
+      lockUnit={lockMonth}
+      maxHeight={maxHeight}
       emptyHint="Ningún proyecto tiene fechas de inicio o entrega. Asígnalas en cada proyecto para verlas aquí."
     />
   );

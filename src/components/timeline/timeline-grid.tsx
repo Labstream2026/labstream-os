@@ -72,12 +72,19 @@ export function TimelineGrid({
   onUnitChange,
   onBarChange,
   emptyHint,
+  lockUnit = false,
+  maxHeight,
 }: {
   lanes: TLLane[];
   unit: TimelineUnit;
   onUnitChange: (u: TimelineUnit) => void;
   onBarChange?: (id: string, dates: { startKey: string; endKey: string }) => void;
   emptyHint?: string;
+  // Oculta el selector Día/Semana/Mes (p. ej. el resumen del Inicio, fijo en Mes).
+  lockUnit?: boolean;
+  // Si se indica, el cronograma tiene su propio scroll (vertical + horizontal) acotado
+  // a esa altura, en vez de crecer hacia abajo indefinidamente.
+  maxHeight?: string;
 }) {
   const dayWidth = DAY_WIDTH[unit];
 
@@ -259,21 +266,25 @@ export function TimelineGrid({
     <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
-          {(["day", "week", "month"] as TimelineUnit[]).map((u) => (
-            <button
-              key={u}
-              type="button"
-              onClick={() => onUnitChange(u)}
-              className={cn(
-                "px-3 py-1.5 font-medium transition-colors",
-                unit === u ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {u === "day" ? "Día" : u === "week" ? "Semana" : "Mes"}
-            </button>
-          ))}
-        </div>
+        {lockUnit ? (
+          <span className="text-xs font-medium text-muted-foreground">Vista mensual</span>
+        ) : (
+          <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+            {(["day", "week", "month"] as TimelineUnit[]).map((u) => (
+              <button
+                key={u}
+                type="button"
+                onClick={() => onUnitChange(u)}
+                className={cn(
+                  "px-3 py-1.5 font-medium transition-colors",
+                  unit === u ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {u === "day" ? "Día" : u === "week" ? "Semana" : "Mes"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-primary/30" /> Tarea</span>
@@ -298,7 +309,11 @@ export function TimelineGrid({
           {emptyHint ?? "Aún no hay nada con fechas para mostrar en el cronograma."}
         </div>
       ) : (
-        <div ref={scrollRef} className="overflow-x-auto rounded-xl border border-border bg-card">
+        <div
+          ref={scrollRef}
+          className={cn("rounded-xl border border-border bg-card", maxHeight ? "overflow-auto" : "overflow-x-auto")}
+          style={maxHeight ? { maxHeight } : undefined}
+        >
           <div style={{ width: LABEL_W + trackW, minWidth: "100%" }}>
             {/* Cabecera: meses + días */}
             <div className="sticky top-0 z-30 flex border-b border-border bg-card">
