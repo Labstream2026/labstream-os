@@ -7,7 +7,32 @@ const CLIENT_ID = process.env.AUTHENTIK_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTHENTIK_CLIENT_SECRET;
 
 export const authentikEnabled = Boolean(ISSUER && CLIENT_ID && CLIENT_SECRET);
-export const PROVISION_DOMAIN = process.env.AUTHENTIK_PROVISION_DOMAIN || "labstreamsas.com";
+
+// Dominios permitidos para ALTA automática (JIT) de usuarios nuevos vía SSO. Acepta lista
+// separada por comas en AUTHENTIK_PROVISION_DOMAIN. Por defecto, los dos dominios del
+// equipo (el de la marca y el del NAS), para que el primer ingreso con cualquiera de los
+// dos cree el usuario tomando su correo de Authentik.
+const PROVISION_DOMAINS = (process.env.AUTHENTIK_PROVISION_DOMAIN || "labstreamsas.com,labstream.co")
+  .split(",")
+  .map((d) => d.trim().replace(/^@/, "").toLowerCase())
+  .filter(Boolean);
+
+// Compat: primer dominio (algunos sitios lo muestran como referencia).
+export const PROVISION_DOMAIN = PROVISION_DOMAINS[0] ?? "labstreamsas.com";
+
+// ¿Se puede crear automáticamente un usuario con este correo? (dominio permitido)
+export function isProvisionableEmail(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = email.slice(at + 1).toLowerCase();
+  return PROVISION_DOMAINS.includes(domain);
+}
+
+// Exigir email_verified del IdP solo si se activa explícitamente (Authentik es un IdP
+// interno de confianza y a menudo no marca el correo como verificado para cuentas creadas
+// por el admin; exigirlo rompía logins válidos). OIDC_REQUIRE_EMAIL_VERIFIED=true para
+// volver a exigirlo.
+export const REQUIRE_EMAIL_VERIFIED = process.env.OIDC_REQUIRE_EMAIL_VERIFIED === "true";
 
 function base() {
   // el issuer suele terminar en "/"; normalizamos para .well-known

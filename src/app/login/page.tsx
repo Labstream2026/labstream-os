@@ -5,6 +5,9 @@ import { LoginForm } from "./login-form";
 const ERRORS: Record<string, string> = {
   sso: "El acceso con Authentik no está disponible ahora.",
   state: "La sesión de acceso expiró. Inténtalo de nuevo.",
+  nonce: "La sesión de acceso no coincide. Inténtalo de nuevo.",
+  expirado: "El acceso tardó demasiado. Inténtalo de nuevo.",
+  email_no_verificado: "Tu correo no está verificado en Authentik. Contacta a un administrador.",
   dominio: "Ese correo no pertenece al equipo de Labstream.",
   inactivo: "Tu usuario está inactivo. Contacta a un administrador.",
   oidc: "No se pudo completar el acceso con Authentik.",

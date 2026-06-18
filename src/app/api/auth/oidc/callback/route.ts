@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, PROVISION_DOMAIN } from "@/lib/oidc";
+import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, isProvisionableEmail, REQUIRE_EMAIL_VERIFIED } from "@/lib/oidc";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
 import { safeNext } from "@/lib/safe-next";
 
@@ -47,22 +47,24 @@ export async function GET(req: NextRequest) {
 
     // Validaciones del id_token (canal directo de confianza; sin verificar firma):
     const claims = decodeIdTokenClaims(idToken);
-    // Anti-replay: si el id_token trae `nonce`, DEBE coincidir con el de esta sesión.
-    // (Si el IdP no lo incluyera —misconfig— no bloqueamos el login.)
-    if (claims?.nonce && claims.nonce !== expectedNonce) return fail("nonce");
-    // Rechazar un id_token expirado.
-    if (typeof claims?.exp === "number" && claims.exp * 1000 < Date.now()) return fail("expirado");
+    // Anti-replay: solo bloquea si TENEMOS el nonce esperado Y el id_token trae uno
+    // distinto. Si falta cualquiera (cookie perdida o IdP sin nonce) no rompemos el login.
+    if (claims?.nonce && expectedNonce && claims.nonce !== expectedNonce) return fail("nonce");
+    // Rechazar un id_token expirado, con tolerancia de reloj (5 min) entre Authentik y la
+    // app para no rechazar tokens válidos por pequeñas diferencias de hora del servidor.
+    const SKEW_MS = 5 * 60 * 1000;
+    if (typeof claims?.exp === "number" && claims.exp * 1000 + SKEW_MS < Date.now()) return fail("expirado");
 
     const info = await fetchUserinfo(accessToken);
     const email = info.email?.trim().toLowerCase();
     if (!email) return fail("email");
-    // Rechazar SOLO si el proveedor marca el email explícitamente como no verificado.
-    if (info.emailVerified === false) return fail("email_no_verificado");
+    // email_verified solo se exige si se activó explícitamente (IdP interno de confianza).
+    if (REQUIRE_EMAIL_VERIFIED && info.emailVerified === false) return fail("email_no_verificado");
 
     let user = await db.user.findUnique({ where: { email }, include: roleInclude });
 
     if (!user) {
-      if (!email.endsWith(`@${PROVISION_DOMAIN}`)) return fail("dominio");
+      if (!isProvisionableEmail(email)) return fail("dominio");
       const role = await db.role.findUnique({ where: { key: "editor" } });
       if (!role) return fail("rol");
       try {
