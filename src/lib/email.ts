@@ -108,9 +108,11 @@ export async function currentEmailProvider(): Promise<MailProvider> {
 type Cached = { sig: string; transporter: nodemailer.Transporter };
 const g = globalThis as unknown as { __mail?: Cached };
 
-// Transporter SMTP reutilizable, recreado solo si cambia la configuración.
+// Transporter SMTP reutilizable, recreado si cambia CUALQUIER dato de conexión —
+// incluida la contraseña: si no, al rotar la clave SMTP se seguiría usando la anterior
+// (cacheada) y la autenticación fallaría (535) pese a guardar la nueva.
 function transporter(c: SmtpConfig): nodemailer.Transporter {
-  const sig = `${c.host}:${c.port}:${c.secure}:${c.user}:${c.rejectUnauthorized}`;
+  const sig = `${c.host}:${c.port}:${c.secure}:${c.user}:${c.rejectUnauthorized}:${c.password}`;
   if (!g.__mail || g.__mail.sig !== sig) {
     g.__mail = {
       sig,
