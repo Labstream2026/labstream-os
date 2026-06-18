@@ -54,7 +54,9 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
 
   const dms: ChatListRow[] = myChannels
-    .filter((c) => c.type === "DIRECT")
+    // Solo DMs con un interlocutor que todavía existe. Si la otra persona fue borrada,
+    // su membresía desaparece en cascada y el DM queda huérfano (solo yo): se oculta.
+    .filter((c) => c.type === "DIRECT" && c.members.some((m) => m.user.id !== session.id))
     .map((c) => {
       const other = c.members.find((m) => m.user.id !== session.id)?.user;
       return {
