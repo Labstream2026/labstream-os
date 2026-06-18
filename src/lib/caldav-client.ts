@@ -6,14 +6,21 @@ const INSECURE = process.env.CALDAV_INSECURE_TLS === "true";
 
 // undici se carga perezosamente solo en runtime de servidor (no en bundle cliente/edge).
 let dispatcherPromise: Promise<unknown> | undefined;
-function getDispatcher(): Promise<unknown> {
-  if (!INSECURE) return Promise.resolve(undefined);
+function getInsecureDispatcher(): Promise<unknown> {
   if (!dispatcherPromise) {
     dispatcherPromise = import("undici").then(
       ({ Agent }) => new Agent({ connect: { rejectUnauthorized: false } }),
     );
   }
   return dispatcherPromise;
+}
+
+function hostOf(u: string): string {
+  try {
+    return new URL(u).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 export type CalDavAuth = { serverUrl: string; username: string; password: string };
@@ -30,15 +37,31 @@ function authHeader(a: CalDavAuth) {
 }
 
 // Resuelve un href (posiblemente relativo) contra el origen del servidor.
+// Anti-SSRF: si el servidor devolviera un href ABSOLUTO a OTRO origen, no lo seguimos a
+// ciegas (un servidor malicioso podría apuntarnos a un servicio interno y robar las
+// credenciales Basic que enviamos). Re-anclamos ese href al origen configurado usando
+// solo su ruta. Los href del mismo origen y los relativos se resuelven con normalidad.
 function absoluteUrl(serverUrl: string, href: string): string {
-  if (/^https?:\/\//i.test(href)) return href;
   const origin = new URL(serverUrl).origin;
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      return u.origin === origin ? href : origin + u.pathname + u.search;
+    } catch {
+      return origin;
+    }
+  }
   return origin + (href.startsWith("/") ? href : `/${href}`);
 }
 
 type FetchInit = RequestInit & { dispatcher?: unknown };
-async function dav(url: string, init: FetchInit, timeoutMs = 12000): Promise<Response> {
-  const dispatcher = await getDispatcher();
+// `trustedHost`: el TLS inseguro (cert autofirmado del NAS) SOLO se aplica si el host de
+// la petición coincide con el host CONFIGURADO por el usuario. Nunca se desactiva la
+// verificación de certificado para otro host (p. ej. el destino de un redirect o un href
+// a otro origen) → acota el riesgo de MITM al único host que el usuario decidió confiar.
+async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs = 12000): Promise<Response> {
+  const useInsecure = INSECURE && !!trustedHost && hostOf(url) === trustedHost;
+  const dispatcher = useInsecure ? await getInsecureDispatcher() : undefined;
   return fetch(url, {
     ...init,
     dispatcher,
@@ -68,7 +91,7 @@ async function propfind(a: CalDavAuth, url: string, depth: "0" | "1", body: stri
     method: "PROPFIND",
     headers: { Authorization: authHeader(a), Depth: depth, "Content-Type": "application/xml; charset=utf-8" },
     body,
-  });
+  }, hostOf(a.serverUrl));
   if (res.status === 401) throw new Error("Credenciales CalDAV incorrectas (401).");
   if (res.status !== 207 && !res.ok) throw new Error(`El servidor respondió ${res.status}.`);
   return res.text();
@@ -134,7 +157,7 @@ export async function putEvent(a: CalDavAuth, calendarUrl: string, uid: string, 
     method: "PUT",
     headers: { Authorization: authHeader(a), "Content-Type": "text/calendar; charset=utf-8" },
     body: ics,
-  });
+  }, hostOf(a.serverUrl));
   if (!res.ok && res.status !== 201 && res.status !== 204) {
     throw new Error(`PUT respondió ${res.status}`);
   }
@@ -143,7 +166,7 @@ export async function putEvent(a: CalDavAuth, calendarUrl: string, uid: string, 
 
 export async function deleteEvent(a: CalDavAuth, href: string): Promise<boolean> {
   const url = absoluteUrl(a.serverUrl, href);
-  const res = await dav(url, { method: "DELETE", headers: { Authorization: authHeader(a) } });
+  const res = await dav(url, { method: "DELETE", headers: { Authorization: authHeader(a) } }, hostOf(a.serverUrl));
   return res.ok || res.status === 404; // 404 = ya no existe → idempotente
 }
 
@@ -163,7 +186,7 @@ export async function queryEvents(a: CalDavAuth, calendarUrl: string, from: Date
     method: "REPORT",
     headers: { Authorization: authHeader(a), Depth: "1", "Content-Type": "application/xml; charset=utf-8" },
     body,
-  });
+  }, hostOf(a.serverUrl));
   if (res.status === 401) throw new Error("Credenciales CalDAV incorrectas (401).");
   if (res.status !== 207 && !res.ok) throw new Error(`REPORT respondió ${res.status}.`);
   const xml = await res.text();
