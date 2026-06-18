@@ -141,22 +141,39 @@ export type SendEmailOpts = {
 // Base pública para enlaces/imagen del logo en los correos.
 const APP_URL = (process.env.NEXTAUTH_URL || process.env.ONLYOFFICE_CALLBACK_BASE || "").replace(/\/$/, "");
 
+const BRAND_ORANGE = "#F47A20";
+
 // Envuelve el HTML del correo en una plantilla con la marca Labstream (cabecera con el
-// logo + pie). Se aplica a TODOS los correos salientes para presencia de marca uniforme.
-// Usa estilos en línea y tablas (compatibilidad con clientes de correo).
+// logo + franja de acento + pie con enlaces). Se aplica a TODOS los correos salientes para
+// una presencia de marca uniforme y cuidada. Estilos en línea y tablas (compatibilidad con
+// clientes de correo). `inner` es el contenido propio de cada correo.
 function wrapEmailHtml(inner: string): string {
-  const logo = APP_URL ? `<img src="${APP_URL}/brand/logo-dark.png" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
-  return `<!doctype html><html><body style="margin:0;background:#f4f4f5;padding:24px 12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  const logo = APP_URL
+    ? `<img src="${APP_URL}/brand/logo-dark.png" alt="Labstream Studio" height="30" style="height:30px;width:auto;display:block" />`
+    : `<span style="font-weight:700;font-size:20px;color:#111;letter-spacing:-0.3px">labstream</span>`;
+  const web = "www.labstream.co";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+  <body style="margin:0;background:#f1f1f3;padding:28px 12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ececec;border-radius:14px;overflow:hidden">
-      <tr><td style="padding:18px 28px;border-bottom:1px solid #f0f0f0">${logo}</td></tr>
-      <tr><td style="padding:24px 28px;color:#1a1a1a;font-size:14px;line-height:1.6">${inner}</td></tr>
-      <tr><td style="padding:16px 28px;border-top:1px solid #f0f0f0;color:#9a9a9a;font-size:11px;line-height:1.5">
-        Labstream Studio · Producción de contenidos · hola@labstream.co<br/>
-        Este correo se envió automáticamente desde la plataforma de Labstream.
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e8e8ec;border-radius:16px;overflow:hidden">
+      <tr><td style="height:4px;background:${BRAND_ORANGE};line-height:4px;font-size:0">&nbsp;</td></tr>
+      <tr><td style="padding:24px 32px 20px">${logo}</td></tr>
+      <tr><td style="padding:0 32px 28px;color:#1a1a1a;font-size:15px;line-height:1.65">${inner}</td></tr>
+      <tr><td style="padding:18px 32px;border-top:1px solid #f0f0f0;background:#fafafa;color:#9a9a9a;font-size:12px;line-height:1.6">
+        <strong style="color:#6b6b6b">Labstream Studio</strong> · Producción de contenidos innovadores<br/>
+        <a href="https://${web}" style="color:${BRAND_ORANGE};text-decoration:none">${web}</a> · <a href="mailto:hola@labstream.co" style="color:${BRAND_ORANGE};text-decoration:none">hola@labstream.co</a><br/>
+        <span style="color:#b8b8b8">Mensaje automático de la plataforma de Labstream.</span>
       </td></tr>
     </table>
   </td></tr></table></body></html>`;
+}
+
+// Botón de acción (CTA) reutilizable para los correos. Tabla para compatibilidad.
+export function emailButton(label: string, url: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 4px"><tr>
+    <td style="border-radius:10px;background:${BRAND_ORANGE}">
+      <a href="${encodeURI(url)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:10px">${label}</a>
+    </td></tr></table>`;
 }
 
 export async function sendEmail(opts: SendEmailOpts): Promise<{ ok: boolean; error?: string }> {

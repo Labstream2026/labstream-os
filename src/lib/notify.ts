@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { isEmailEnabled, sendEmail } from "@/lib/email";
+import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
 
 // Escapa texto controlado por el usuario antes de interpolarlo en HTML de correo,
 // para evitar inyección de HTML/XSS (nombre, título y cuerpo vienen del cliente).
@@ -36,9 +36,11 @@ export async function notifyAndEmail(
     const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user?.email) return;
     const url = n.link ? `${APP_URL}${n.link}` : APP_URL;
-    const html = `<p>Hola ${escapeHtml(user.name ?? "")},</p><p><strong>${escapeHtml(n.title)}</strong></p>${
-      n.body ? `<p>${escapeHtml(n.body)}</p>` : ""
-    }<p><a href="${encodeURI(url)}">Abrir en Labstream OS</a></p>`;
+    const firstName = (user.name ?? "").split(" ")[0] || "hola";
+    const html = `<p style="margin:0 0 6px;color:#6b6b6b;font-size:14px">Hola ${escapeHtml(firstName)},</p>
+      <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#111;line-height:1.35">${escapeHtml(n.title)}</h1>
+      ${n.body ? `<p style="margin:0 0 18px;color:#444;font-size:15px;line-height:1.65">${escapeHtml(n.body)}</p>` : ""}
+      ${emailButton("Abrir en Labstream OS  →", url)}`;
     await sendEmail({ to: user.email, subject: n.title, html, text: `${n.title}\n${n.body ?? ""}\n${url}` });
   } catch {
     /* el correo es secundario, no rompemos la acción */

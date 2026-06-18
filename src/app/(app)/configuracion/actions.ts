@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache } from "@/lib/email";
+import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache, emailButton } from "@/lib/email";
 import { encryptSecret } from "@/lib/crypto";
 import { testCaldav } from "@/lib/caldav";
 import { notifyAndEmail } from "@/lib/notify";
@@ -94,11 +94,14 @@ export async function sendTestEmail(): Promise<AdminActionResult> {
   if (!(await isEmailEnabled())) return { ok: false, error: "Correo no configurado (configúralo aquí en Integraciones o vía RESEND_API_KEY / SMTP_*)." };
   if (!session.email) return { ok: false, error: "Tu usuario no tiene correo." };
   const via = (await currentEmailProvider()) === "resend" ? "Resend (API HTTP)" : "SMTP";
+  const appUrl = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
   const r = await sendEmail({
     to: session.email,
-    subject: "Correo de prueba · Labstream OS",
-    text: `Funciona ✅ El envío de correo desde Labstream OS (vía ${via}) está operativo.`,
-    html: `<p>Funciona ✅</p><p>El envío de correo desde Labstream OS (vía ${via}) está operativo.</p>`,
+    subject: "✅ El correo de Labstream OS ya funciona",
+    text: `¡Funciona! El envío de correo desde Labstream OS (vía ${via}) está operativo. A partir de ahora el equipo recibirá por correo sus notificaciones de tareas, revisiones y más.\n${appUrl}`,
+    html: `<h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#111">¡Funciona! ✅</h1>
+      <p style="margin:0 0 14px;color:#444;font-size:15px;line-height:1.65">El envío de correo desde <strong>Labstream OS</strong> (vía ${via}) está operativo. A partir de ahora el equipo recibirá por correo sus notificaciones de <strong>tareas, revisiones y avisos del proyecto</strong>.</p>
+      ${appUrl ? emailButton("Abrir Labstream OS  →", appUrl) : ""}`,
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
