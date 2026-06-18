@@ -115,6 +115,16 @@ export const DELIVERABLE_TYPE: Record<string, string> = {
   OTRO: "Otro",
 };
 
+// Orientación del material según el tipo de entregable: reels y shorts son verticales
+// (9:16); el resto se asume horizontal (16:9). Define la diagramación de la pestaña de
+// revisión: vertical → video a la izquierda + comentarios a la derecha; horizontal →
+// video arriba a todo el ancho + comentarios debajo. El tipo (la casilla "Reel") es lo
+// que predefine cómo se visualiza la revisión.
+export type MediaOrientation = "vertical" | "horizontal";
+export function deliverableOrientation(type: string | null | undefined): MediaOrientation {
+  return type === "REEL" || type === "SHORT" ? "vertical" : "horizontal";
+}
+
 export const FILE_KIND_LABEL: Record<string, string> = {
   LOCAL: "Archivo",
   DRIVE: "Google Drive",

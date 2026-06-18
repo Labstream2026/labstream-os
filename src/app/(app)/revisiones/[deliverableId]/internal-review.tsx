@@ -15,6 +15,7 @@ export function InternalReview({
   status,
   meName,
   canDecide,
+  orientation = "horizontal",
 }: {
   deliverableId: string;
   projectId: string;
@@ -23,6 +24,7 @@ export function InternalReview({
   status: string;
   meName: string;
   canDecide: boolean;
+  orientation?: "vertical" | "horizontal";
 }) {
   return (
     <ReviewStage
@@ -31,6 +33,7 @@ export function InternalReview({
       comments={comments}
       status={status}
       allowDrawings
+      orientation={orientation}
       defaultName={meName}
       fixedName
       decision={{ approveLabel: "Pre-aprobado", changesLabel: "Solicitar cambios" }}

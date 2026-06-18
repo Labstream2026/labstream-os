@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
-import { deliverableStatusMeta } from "@/lib/ui";
+import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
@@ -79,7 +79,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             token={token}
             versions={versions}
             status={deliverable.status}
-            allowDrawings={deliverable.reviewAllowDrawings}
+            allowDrawings
+            orientation={deliverableOrientation(deliverable.type)}
             deliverableName={deliverable.name}
             projectName={deliverable.project.name}
             projectEmoji={deliverable.project.emoji}

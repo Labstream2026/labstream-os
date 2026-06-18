@@ -21,6 +21,7 @@ export function ReviewClient({
   comments,
   status,
   allowDrawings,
+  orientation = "horizontal",
   deliverableName,
   projectName,
   projectEmoji,
@@ -31,6 +32,7 @@ export function ReviewClient({
   comments: StageComment[];
   status: string;
   allowDrawings: boolean;
+  orientation?: "vertical" | "horizontal";
   deliverableName: string;
   projectName: string;
   projectEmoji: string | null;
@@ -84,6 +86,7 @@ export function ReviewClient({
         comments={comments}
         status={status}
         allowDrawings={allowDrawings}
+        orientation={orientation}
         defaultName={name || "Cliente"}
         fixedName
         decision={{ approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}

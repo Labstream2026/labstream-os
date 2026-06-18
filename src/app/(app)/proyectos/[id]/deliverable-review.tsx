@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Check, X, Eye, Link2Off, Link2, Pencil, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, X, Eye, Link2Off, Link2, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyLink } from "@/components/copy-link";
-import { internalDecision, setReviewRevoked, setReviewDrawings, resolveReviewComment, replyToReview } from "./actions";
+import { internalDecision, setReviewRevoked, resolveReviewComment, replyToReview } from "./actions";
 
 // Controles de pre-aprobación interna de una versión (solo equipo gestor).
 export function PreApproval({ deliverableId, projectId, versionNumber }: { deliverableId: string; projectId: string; versionNumber: number }) {
@@ -33,7 +33,6 @@ export function ReviewLinkBar({
   url,
   visits,
   revoked,
-  allowDrawings,
   hasApproved,
   children,
 }: {
@@ -42,7 +41,7 @@ export function ReviewLinkBar({
   url: string;
   visits: number;
   revoked: boolean;
-  allowDrawings: boolean;
+  allowDrawings?: boolean; // (obsoleto) el "modo dibujos" se quitó del enlace; el prop se acepta sin usar
   hasApproved: boolean;
   children?: React.ReactNode;
 }) {
@@ -60,26 +59,28 @@ export function ReviewLinkBar({
           <span className="rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">Enlace revocado</span>
         )}
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Eye className="size-3.5" /> {visits} visita{visits === 1 ? "" : "s"}</span>
+        {/* Enviar al cliente (por correo) */}
         {children}
+        {/* Revocar / reactivar — junto a "Enviar al cliente". Revocar va en ROJO porque es
+            destructivo (inutiliza el enlace); reactivar, en neutro. */}
+        <button
+          onClick={() => start(() => setReviewRevoked(deliverableId, projectId, !revoked))}
+          disabled={pending}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50",
+            revoked
+              ? "border-border hover:bg-accent"
+              : "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20",
+          )}
+        >
+          {revoked ? <><Link2 className="size-3.5" /> Reactivar enlace</> : <><Link2Off className="size-3.5" /> Revocar enlace</>}
+        </button>
       </div>
       {!hasApproved ? (
         <p className="rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
           ⚠ Ninguna versión está aprobada internamente: el cliente verá «en revisión interna» hasta que el equipo apruebe una versión.
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => start(() => setReviewRevoked(deliverableId, projectId, !revoked))}
-          disabled={pending}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
-        >
-          {revoked ? <><Link2 className="size-3.5" /> Reactivar enlace</> : <><Link2Off className="size-3.5" /> Revocar enlace</>}
-        </button>
-        <label className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium", allowDrawings && "border-primary bg-primary/10 text-primary")}>
-          <input type="checkbox" checked={allowDrawings} onChange={(e) => start(() => setReviewDrawings(deliverableId, projectId, e.target.checked))} className="size-3.5" />
-          <Pencil className="size-3.5" /> Modo dibujos
-        </label>
-      </div>
     </div>
   );
 }

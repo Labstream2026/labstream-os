@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject, canManageProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { buildStageVersions } from "@/lib/review-version";
-import { deliverableStatusMeta } from "@/lib/ui";
+import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { InternalReview } from "./internal-review";
 import type { StageComment } from "@/components/review/review-stage";
@@ -97,6 +97,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
             status={deliverable.status}
             meName={session.name}
             canDecide={canDecide}
+            orientation={deliverableOrientation(deliverable.type)}
           />
 
           {/* Enlace para el cliente (revocar / modo dibujos del portal) */}

@@ -61,6 +61,7 @@ export function ReviewStage({
   status,
   allowDrawings,
   mode,
+  orientation = "horizontal",
   defaultName = "",
   fixedName = false,
   decision,
@@ -76,6 +77,10 @@ export function ReviewStage({
   status: string;
   allowDrawings: boolean;
   mode: "internal" | "client";
+  // Diagramación según el material: "vertical" (reel/short) → video a la izquierda y
+  // comentarios a la derecha; "horizontal" → video arriba a todo el ancho, comentarios
+  // debajo en dos columnas. Por defecto horizontal.
+  orientation?: "vertical" | "horizontal";
   defaultName?: string; // nombre fijo del miembro del equipo (modo interno)
   fixedName?: boolean; // si true, no se muestra el campo de nombre
   decision: { approveLabel: string; changesLabel: string } | null; // null = sin botones
@@ -246,11 +251,13 @@ export function ReviewStage({
   };
 
   const decided = status === "APROBADO";
+  const vertical = orientation === "vertical";
 
   return (
-    <div className="space-y-5">
-      {/* ── Material + decisión (a todo el ancho, arriba) ── */}
-      <div>
+    <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
+      {/* ── Material + decisión ── vertical: columna IZQUIERDA (angosta, fija al hacer scroll);
+          horizontal: arriba a todo el ancho. */}
+      <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : undefined}>
         {versions.length > 1 ? (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Versión:</span>
@@ -305,8 +312,9 @@ export function ReviewStage({
         ) : null}
       </div>
 
-      {/* ── Comentarios + notas (debajo del player, en dos columnas) ── */}
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* ── Comentarios + notas ── vertical: columna DERECHA (momentos y notas apilados);
+          horizontal: debajo del player, en dos columnas. */}
+      <div className={vertical ? "min-w-0 flex-1 space-y-6" : "grid gap-6 md:grid-cols-2"}>
         {/* Comentarios por momento */}
         <div className="flex min-h-0 flex-col">
         <div className="mb-2 flex items-center justify-between gap-2">
