@@ -248,8 +248,8 @@ export function ReviewStage({
   const decided = status === "APROBADO";
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1.9fr_1fr]">
-      {/* ── Material + decisión ── */}
+    <div className="space-y-5">
+      {/* ── Material + decisión (a todo el ancho, arriba) ── */}
       <div>
         {versions.length > 1 ? (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -305,8 +305,10 @@ export function ReviewStage({
         ) : null}
       </div>
 
-      {/* ── Comentarios + notas ── */}
-      <div className="flex min-h-0 flex-col">
+      {/* ── Comentarios + notas (debajo del player, en dos columnas) ── */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Comentarios por momento */}
+        <div className="flex min-h-0 flex-col">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">
             {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
@@ -388,9 +390,10 @@ export function ReviewStage({
             </button>
           </div>
         </div>
+        </div>
 
-        {/* Notas generales (sin captura) */}
-        <div className="mt-4">
+        {/* Notas generales (sin captura) — segunda columna */}
+        <div>
           <h3 className="mb-2 text-sm font-semibold">Notas generales ({notes.length})</h3>
           <div className="mb-2 max-h-[22vh] space-y-1.5 overflow-y-auto pr-1">
             {notes.length === 0 ? (
