@@ -81,6 +81,8 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
               channelId={id}
               isPublic={channel.isPublic}
               canManage={canManage}
+              type={channel.type}
+              channelName={channel.name}
               members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
               team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
             />

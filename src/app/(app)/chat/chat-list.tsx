@@ -27,7 +27,7 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
           <button
             type="button"
             onClick={() => setCreating((v) => !v)}
-            title="Nuevo canal"
+            title="Nuevo grupo o canal"
             className="flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
           >
             {creating ? <X className="size-4" /> : <Plus className="size-4" />}
@@ -37,12 +37,28 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
 
       {creating ? (
         <form action={createChannel} className="space-y-2 border-b border-border bg-muted/30 p-3">
-          <input name="name" required placeholder="Nombre del canal" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <select name="isPublic" defaultValue="true" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
-            <option value="true">Público (todo el equipo)</option>
+          <input name="name" required placeholder="Nombre del grupo o canal" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <select name="isPublic" defaultValue="false" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
             <option value="false">Privado (solo invitados)</option>
+            <option value="true">Público (todo el equipo)</option>
           </select>
-          <button className="w-full rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">Crear canal</button>
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Añadir al grupo</p>
+            <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border bg-background p-1">
+              {data.team.length === 0 ? (
+                <p className="px-2 py-1 text-xs text-muted-foreground">No hay más personas en el equipo.</p>
+              ) : (
+                data.team.map((u) => (
+                  <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent">
+                    <input type="checkbox" name="members" value={u.id} className="size-3.5 rounded border-input accent-primary" />
+                    <span className="truncate">{u.name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">En un canal público puedes dejarlo vacío; un grupo privado solo lo verán los invitados.</p>
+          </div>
+          <button className="w-full rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">Crear</button>
         </form>
       ) : null}
 

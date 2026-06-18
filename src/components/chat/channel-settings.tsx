@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Globe, Lock, Plus, X, Crown } from "lucide-react";
+import { Globe, Lock, Plus, X, Crown, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole } from "@/app/(app)/chat/actions";
+import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel } from "@/app/(app)/chat/actions";
 
 type Member = { id: string; name: string; initials: string | null; color: string | null; role?: string };
 
@@ -14,12 +14,16 @@ export function ChannelSettings({
   members,
   team,
   canManage,
+  type = "GENERAL",
+  channelName = "",
 }: {
   channelId: string;
   isPublic: boolean;
   members: Member[];
   team: Member[];
   canManage: boolean;
+  type?: string;
+  channelName?: string;
 }) {
   const [pending, start] = React.useTransition();
   const [adding, setAdding] = React.useState(false);
@@ -87,6 +91,22 @@ export function ChannelSettings({
           {members.length === 0 ? "Sin invitados" : `${members.length} invitado${members.length === 1 ? "" : "s"}`}
         </span>
       </div>
+
+      {/* Borrar grupo (solo canales generales; los de proyecto/cliente se borran con su entidad) */}
+      {canManage && type === "GENERAL" ? (
+        <button
+          disabled={pending}
+          onClick={() => {
+            if (confirm(`¿Borrar el grupo «${channelName}»? Se elimina para todo el equipo junto con sus mensajes. No se puede deshacer.`)) {
+              start(() => deleteChannel(channelId));
+            }
+          }}
+          className="order-last inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
+          title="Borrar grupo"
+        >
+          <Trash2 className="size-3.5" /> Borrar grupo
+        </button>
+      ) : null}
 
       {/* Añadir miembro */}
       {canManage ? (

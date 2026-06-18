@@ -17,16 +17,45 @@ export async function createChannel(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim().slice(0, 80);
   if (!name) return;
   const isPublic = formData.get("isPublic") !== "false"; // por defecto público
+  // Miembros marcados al crear un grupo (multiselección). El creador siempre va como ADMIN.
+  const picked = [...new Set(formData.getAll("members").map(String).filter((id) => id && id !== session.id))];
+  const valid = picked.length
+    ? (await db.user.findMany({ where: { id: { in: picked }, active: true }, select: { id: true } })).map((u) => u.id)
+    : [];
   const channel = await db.chatChannel.create({
     data: {
       type: "GENERAL",
       name,
       isPublic,
-      members: { create: { userId: session.id, role: "ADMIN" } },
+      members: {
+        create: [
+          { userId: session.id, role: "ADMIN" },
+          ...valid.map((userId) => ({ userId })),
+        ],
+      },
     },
   });
   revalidatePath("/chat");
   redirect(`/chat/${channel.id}`);
+}
+
+// Borra por completo un grupo del chat (canal GENERAL). Arrastra en cascada sus mensajes,
+// miembros y encuestas. NO aplica a DMs ni a los canales de proyecto/cliente, que viven
+// con su entidad y se borran al borrar el proyecto/cliente.
+export async function deleteChannel(channelId: string) {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true } });
+  if (!channel) return;
+  if (channel.type !== "GENERAL") throw new Error("Solo se pueden borrar grupos creados en el chat.");
+  if (!(await userCanManageChannel(channelId, session))) throw new Error("No autorizado");
+  await db.chatChannel.delete({ where: { id: channelId } });
+  await logActivity({
+    action: "chat.channel.delete",
+    summary: `borró el grupo «${channel.name}»`,
+  }).catch(() => null);
+  revalidatePath("/chat");
+  redirect("/chat");
 }
 
 // Abre (o crea) un mensaje directo 1:1 con otra persona.
