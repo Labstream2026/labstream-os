@@ -25,6 +25,9 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
   if (!quote) return <PublicLinkInvalid />;
 
   const decided = quote.status === "APROBADA" || quote.status === "RECHAZADA";
+  // Vencimiento por fecha de validez: una cotización con validUntil pasado ya no
+  // se puede aprobar/rechazar (igual que las propuestas vencidas).
+  const expired = !decided && Boolean(quote.validUntil && new Date(quote.validUntil).getTime() < Date.now());
 
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
@@ -44,6 +47,10 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
       ) : quote.status === "RECHAZADA" ? (
         <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
           Esta cotización fue rechazada. Si fue un error, contáctanos.
+        </div>
+      ) : expired ? (
+        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
+          Esta cotización ya no está disponible: su fecha de validez venció. Escríbenos para actualizarla.
         </div>
       ) : null}
 
@@ -67,7 +74,7 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
         }}
       />
 
-      {!decided ? (
+      {!decided && !expired ? (
         <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">
           <QuoteDecision token={token} />
         </div>

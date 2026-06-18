@@ -19,6 +19,16 @@ async function requireAdmin() {
   return session!;
 }
 
+// Gate más estricto para la edición de roles/permisos: requiere "administrar_roles".
+// Quien solo tenga "administrar_usuarios" NO puede tocar definiciones de rol ni
+// conceder permisos por usuario (evita escalada a admin). El rol "admin" pasa siempre
+// (hasPermission lo deja pasar) y además tiene administrar_roles vía ROLE_DEFAULTS.
+async function requireRoleAdmin() {
+  const session = await getSession();
+  if (!hasPermission(session, "administrar_roles")) return null;
+  return session!;
+}
+
 // clave estable a partir del nombre del rol (slug); evita choques con un sufijo.
 function slugify(name: string): string {
   return name
@@ -73,7 +83,7 @@ export async function setRolePermission(
   permissionKey: string,
   enabled: boolean,
 ): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
 
   const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true, name: true } });
@@ -122,6 +132,15 @@ export async function setUserRole(userId: string, roleKey: string): Promise<Admi
 
   const role = await db.role.findUnique({ where: { key: roleKey }, select: { id: true, name: true } });
   if (!role) return { ok: false, error: "Rol inexistente" };
+
+  // Un actor que NO es admin pleno no puede conceder el rol admin (evita escalada).
+  if (session.role !== "admin" && roleKey === "admin") {
+    return { ok: false, error: "Solo un administrador puede asignar el rol Administrador." };
+  }
+  // Un actor que NO es admin pleno no puede cambiarse su propio rol (evita auto-escalada/abuso).
+  if (session.role !== "admin" && session.id === userId) {
+    return { ok: false, error: "No puedes cambiar tu propio rol." };
+  }
 
   // No permitir que el último admin se quite a sí mismo el rol admin (evita quedarse sin admins).
   if (session.id === userId && session.role === "admin" && roleKey !== "admin") {
@@ -241,7 +260,7 @@ export async function setMarcebotConfig(input: {
 
 // Crea un rol nuevo. Opcionalmente copia los permisos de un rol existente (copyFromKey).
 export async function createRole(formData: FormData): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return { ok: false, error: "El nombre es obligatorio." };
@@ -283,7 +302,7 @@ export async function createRole(formData: FormData): Promise<AdminActionResult>
 
 // Edita nombre, descripción, emoji y color de un rol (incl. los del sistema).
 export async function updateRole(roleId: string, formData: FormData): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   const role = await db.role.findUnique({ where: { id: roleId }, select: { name: true } });
   if (!role) return { ok: false, error: "Rol inexistente" };
@@ -301,7 +320,7 @@ export async function updateRole(roleId: string, formData: FormData): Promise<Ad
 // Elimina un rol creado por el admin. Los roles del sistema no se borran. Los usuarios
 // que tuvieran el rol se reasignan al rol indicado (reassignToKey).
 export async function deleteRole(roleId: string, reassignToKey: string): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   const role = await db.role.findUnique({ where: { id: roleId }, select: { key: true, name: true, isSystem: true } });
   if (!role) return { ok: true };
@@ -361,7 +380,7 @@ export async function setUserPermissionOverride(
   permissionKey: string,
   state: "grant" | "revoke" | "inherit",
 ): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   if (!ALL_KEYS.has(permissionKey)) return { ok: false, error: "Permiso desconocido." };
 

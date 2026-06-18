@@ -97,3 +97,19 @@ export function extOf(name: string) {
 export function mimeFor(name: string, fallback?: string | null) {
   return MIME[extOf(name)] || fallback || "application/octet-stream";
 }
+
+// Tipos seguros para servir EN LÍNEA (inline). Cualquier otro tipo (incl. SVG y
+// text/html, que el navegador ejecuta) se fuerza a descarga con octet-stream para
+// evitar XSS almacenado vía Content-Type controlado por el cliente.
+const INLINE_SAFE_MIME = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "application/pdf",
+]);
+
+export function isInlineSafeMime(mime: string): boolean {
+  return INLINE_SAFE_MIME.has(mime);
+}

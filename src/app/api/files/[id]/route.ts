@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
-import { absPath, verifyFileToken, mimeFor } from "@/lib/storage";
+import { absPath, verifyFileToken, mimeFor, isInlineSafeMime } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
 
 export const runtime = "nodejs";
@@ -64,11 +64,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     }
   }
 
-  const disposition = download ? "attachment" : "inline";
+  // Solo servimos inline con el mime real si es un tipo seguro (imágenes/PDF);
+  // cualquier otra cosa se fuerza a descarga como octet-stream para evitar que el
+  // navegador ejecute contenido (p. ej. SVG/HTML con Content-Type del cliente).
+  const wantInline = !download;
+  const inline = wantInline && isInlineSafeMime(contentType);
+  const disposition = inline ? "inline" : "attachment";
+  const outType = inline ? contentType : "application/octet-stream";
   return new NextResponse(new Uint8Array(buf), {
     headers: {
-      "Content-Type": contentType,
+      "Content-Type": outType,
       "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(att.name)}`,
+      "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, no-store",
     },
   });

@@ -71,9 +71,9 @@ export function ProposalWizard({
   function finish() {
     if (!tpl) return;
     const budgetSections = catalogToBudgetSections(catalog);
-    // Precio al cliente: el que fijó el equipo, o el costo interno (+ contingencia) si no.
-    const cost = internalCost(budgetSections, contingencyPct);
-    const finalPrice = price > 0 ? price : cost.total;
+    // Precio al cliente: SOLO el que fijó el equipo. Si no se fijó, 0 = "Por definir".
+    // NUNCA usar el costo interno como precio al cliente (se filtraría al portal público).
+    const finalPrice = price > 0 ? price : 0;
     start(async () => {
       try {
         await createProposal(tpl, answers, budgetSections, { price: finalPrice, discountPct, contingencyPct });

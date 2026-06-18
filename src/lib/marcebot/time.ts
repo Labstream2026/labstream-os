@@ -70,14 +70,22 @@ export function bogotaShortDate(d: Date): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Diferencia en DÍAS-CALENDARIO de Bogotá entre dos fechas. Comparamos las medianoches
+// locales (no milisegundos crudos): así una tarea que vence hoy a las 23:59 vista a las
+// 10:00 da 0 ("vence hoy"), no 1 ("vence mañana"). Colombia no tiene horario de verano,
+// así que la diferencia de medianoches siempre es múltiplo exacto de 24 h.
+function calendarDayDiff(from: Date, to: Date): number {
+  return Math.round((bogotaDayStart(to).getTime() - bogotaDayStart(from).getTime()) / DAY_MS);
+}
+
 // Días enteros transcurridos desde `date` hasta `now` (negativo si es futuro).
 export function daysSince(date: Date, now: Date = new Date()): number {
-  return Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+  return calendarDayDiff(date, now);
 }
 
 // Días enteros que faltan hasta `date` (negativo si ya pasó).
 export function daysUntil(date: Date, now: Date = new Date()): number {
-  return Math.ceil((date.getTime() - now.getTime()) / DAY_MS);
+  return calendarDayDiff(now, date);
 }
 
 // Texto humano de un vencimiento: "vence hoy", "vence mañana", "vence en 3 días",

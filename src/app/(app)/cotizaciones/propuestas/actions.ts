@@ -20,12 +20,18 @@ async function requirePerm(key: string) {
 }
 
 // Si la propuesta está vinculada a un cliente, el usuario debe poder acceder a ese cliente.
-// Las propuestas sin cliente vinculado quedan accesibles a cualquiera con crear_cotizaciones.
+// Las propuestas SIN cliente vinculado solo las puede ver/editar su autor o un admin
+// (de lo contrario serían un IDOR: accesibles por cualquiera con crear_cotizaciones).
 async function ensureProposalAccess(id: string): Promise<void> {
   const session = await getSession();
-  const p = await db.proposal.findUnique({ where: { id }, select: { clientId: true } });
+  const p = await db.proposal.findUnique({ where: { id }, select: { clientId: true, createdById: true } });
   if (!p) throw new Error("Propuesta inexistente");
-  if (p.clientId && !(await userCanAccessClient(p.clientId, session))) throw new Error("No autorizado");
+  if (p.clientId) {
+    if (!(await userCanAccessClient(p.clientId, session))) throw new Error("No autorizado");
+    return;
+  }
+  // Sin cliente: solo el autor o un admin.
+  if (p.createdById !== session?.id && session?.role !== "admin") throw new Error("No autorizado");
 }
 
 function refresh(id?: string) {

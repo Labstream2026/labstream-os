@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { userCanAccessProject, userCanManageProject } from "@/lib/project-access";
+import { userCanManageProject } from "@/lib/project-access";
 import { emailEnabled, sendEmail } from "@/lib/email";
 import { buildIcs } from "@/lib/ics";
 import { signReviewToken } from "@/lib/review-token";
@@ -30,13 +30,19 @@ export async function emailReviewLink(deliverableId: string, formData: FormData)
     select: { name: true, projectId: true, project: { select: { name: true, client: { select: { name: true } } } } },
   });
   if (!d) return { ok: false, error: "Entregable no encontrado." };
-  if (!(await userCanAccessProject(d.projectId, session))) return { ok: false, error: "Sin acceso al proyecto." };
+  // Generar y enviar un token de revisión externo es compartir con el cliente:
+  // exige permiso de GESTIÓN del proyecto (no basta con poder verlo), igual que la
+  // invitación de calendario de abajo.
+  if (!(await userCanManageProject(d.projectId, session))) {
+    return { ok: false, error: "Necesitas permiso de gestión del proyecto para compartir con el cliente." };
+  }
 
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const url = `${baseUrl()}/review/${signReviewToken(deliverableId)}`;
   const html = `
     <p>Hola,</p>
-    <p>${session?.name ?? "El equipo de Labstream"} te comparte <b>${d.name}</b>${
-      d.project?.name ? ` del proyecto <b>${d.project.name}</b>` : ""
+    <p>${esc(session?.name ?? "El equipo de Labstream")} te comparte <b>${esc(d.name)}</b>${
+      d.project?.name ? ` del proyecto <b>${esc(d.project.name)}</b>` : ""
     } para tu revisión.</p>
     ${note ? `<p>${note.replace(/</g, "&lt;")}</p>` : ""}
     <p><a href="${url}" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block">Ver y comentar</a></p>

@@ -10,10 +10,12 @@ export async function respondQuote(token: string, decision: string) {
   const quoteId = verifyQuoteToken(token);
   if (!quoteId) throw new Error("Enlace inválido");
 
-  const quote = await db.quote.findUnique({ where: { id: quoteId }, select: { status: true } });
+  const quote = await db.quote.findUnique({ where: { id: quoteId }, select: { status: true, validUntil: true } });
   if (!quote) throw new Error("Cotización inexistente");
   // Solo se puede responder una cotización aún no decidida.
   if (quote.status === "APROBADA" || quote.status === "RECHAZADA") return;
+  // Una cotización con fecha de validez pasada ya no se puede aprobar ni rechazar.
+  if (quote.validUntil && new Date(quote.validUntil).getTime() < Date.now()) throw new Error("La cotización venció");
 
   const status = decision === "APROBADA" ? "APROBADA" : "RECHAZADA";
   await db.quote.update({

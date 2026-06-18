@@ -11,6 +11,26 @@ const nextConfig: NextConfig = {
     // la subida de documentos/vídeo. Se sube a 100MB.
     serverActions: { bodySizeLimit: "100mb" },
   },
+  // Cabeceras de seguridad aplicadas a todas las rutas.
+  // X-Frame-Options: SAMEORIGIN controla quién puede enmarcarnos A NOSOTROS (clickjacking),
+  // no a quién enmarcamos nosotros; el editor OnlyOffice (iframe en mismo origen) sigue OK.
+  // TODO: añadir una Content-Security-Policy en una pasada aparte y cuidadosa, con nonces.
+  // El App Router de Next necesita scripts/estilos inline, así que una CSP mal puesta
+  // rompería toda la app. No se añade aquí a propósito.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

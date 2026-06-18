@@ -81,6 +81,13 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   const status = approved ? "APROBADO" : "CORRECCIONES";
   const who = (name ?? "").trim().slice(0, 80) || "Cliente";
 
+  // Solo se decide sobre un entregable abierto a revisión del cliente. Si ya está
+  // APROBADO o ENTREGADO, el cliente no puede reabrirlo pidiendo cambios.
+  const current = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true } });
+  if (!current || (current.status !== "ENVIADO_CLIENTE" && current.status !== "CORRECCIONES")) {
+    throw new Error("Este entregable ya no está disponible para decidir");
+  }
+
   // Solo se decide sobre material que el equipo ya aprobó internamente.
   const latestApproved = await db.deliverableVersion.findFirst({
     where: { deliverableId, internalApproved: true },
