@@ -89,6 +89,52 @@ export type TeamEscalation = {
   invoicesOverdue: number; // facturas vencidas
 };
 
+// ── Escalación al líder del proyecto ──
+// Si alguien de TU proyecto (tú eres el lead) va atrasado, te llega para que aprietes.
+const INACTIVE_PROJECT = ["CERRADO", "CANCELADO"];
+export type LeadEscalation = { project: string; total: number; byPerson: { name: string; count: number }[] };
+
+export async function getLeadEscalations(userId: string, openKeys: string[], now: Date = new Date()): Promise<LeadEscalation[]> {
+  const todayStart = bogotaDayStart(now);
+  const projects = await db.project.findMany({
+    where: { leadId: userId, status: { notIn: INACTIVE_PROJECT as never } },
+    select: { id: true, name: true },
+  });
+  if (!projects.length) return [];
+  const nameById = new Map(projects.map((p) => [p.id, p.name] as const));
+
+  // Tareas atrasadas de OTROS (no las mías, que ya veo en mi propio resumen).
+  const tasks = await db.task.findMany({
+    where: {
+      projectId: { in: projects.map((p) => p.id) },
+      status: { in: openKeys },
+      dueDate: { lt: todayStart },
+      NOT: { assigneeId: userId },
+    },
+    select: { projectId: true, assignee: { select: { name: true } } },
+  });
+
+  const byProject = new Map<string, Map<string, number>>();
+  for (const t of tasks) {
+    if (!t.projectId) continue;
+    const people = byProject.get(t.projectId) ?? new Map<string, number>();
+    const who = t.assignee?.name ?? "Sin responsable";
+    people.set(who, (people.get(who) ?? 0) + 1);
+    byProject.set(t.projectId, people);
+  }
+
+  const out: LeadEscalation[] = [];
+  for (const [pid, people] of byProject) {
+    const byPerson = [...people.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+    out.push({ project: nameById.get(pid) ?? "Proyecto", total: byPerson.reduce((s, p) => s + p.count, 0), byPerson });
+  }
+  return out.sort((a, b) => b.total - a.total);
+}
+
+export function leadEscalationKeys(list: LeadEscalation[]): string[] {
+  return list.flatMap((e) => e.byPerson.map((p) => `${e.project}:${p.name}:${p.count}`)).sort();
+}
+
 export async function getTeamEscalation(openKeys: string[], now: Date = new Date()): Promise<TeamEscalation> {
   const todayStart = bogotaDayStart(now);
   const staleCut = new Date(now.getTime() - 7 * DAY);

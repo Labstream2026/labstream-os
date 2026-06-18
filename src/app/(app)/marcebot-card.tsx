@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getUserPendientes, getTeamSummary, getUserChases, getTeamEscalation, chaseCount, openStatusKeys, hasActionable, vocativo, type Gender, type UserChases } from "@/lib/marcebot";
+import { getUserPendientes, getTeamSummary, getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, openStatusKeys, hasActionable, vocativo, type Gender, type UserChases } from "@/lib/marcebot";
 import { bogotaTime, bogotaShortDate } from "@/lib/marcebot/time";
 
 const ADMIN_ROLES = ["admin", "gerente", "productor"];
@@ -10,10 +10,11 @@ const ADMIN_ROLES = ["admin", "gerente", "productor"];
 export async function MarcebotCard({ userId, name, roleKey }: { userId: string; name: string; roleKey: string }) {
   const openKeys = await openStatusKeys();
   const isAdmin = ADMIN_ROLES.includes(roleKey);
-  const [u, p, chases, team, esc] = await Promise.all([
+  const [u, p, chases, leadEsc, team, esc] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { gender: true } }),
     getUserPendientes(userId, openKeys),
     getUserChases(userId),
+    getLeadEscalations(userId, openKeys),
     isAdmin ? getTeamSummary(openKeys) : Promise.resolve(null),
     isAdmin ? getTeamEscalation(openKeys) : Promise.resolve(null),
   ]);
@@ -26,7 +27,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     { label: "💼 Comercial por cerrar", items: chases.proposals },
     { label: "🧾 Por cobrar", items: chases.invoices },
   ].filter((g) => g.items.length > 0);
-  const showActionable = hasActionable(p) || chaseCount(chases) > 0;
+  const showActionable = hasActionable(p) || chaseCount(chases) > 0 || leadEsc.length > 0;
 
   const pills: { label: string; tone: string; href: string }[] = [];
   if (p.overdue.length) pills.push({ label: `🔴 ${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"}`, tone: "text-rose-700 bg-rose-50 dark:bg-rose-500/10 dark:text-rose-300", href: "/mis-tareas" });
@@ -89,6 +90,19 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
                         </div>
                       ))}
                     </div>
+                  </div>
+                ) : null}
+
+                {leadEsc.length ? (
+                  <div className="mt-3 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 dark:border-rose-500/20 dark:bg-rose-500/5">
+                    <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">🚨 Atrasos en {leadEsc.length === 1 ? "tu proyecto" : "tus proyectos"} — a empujar</p>
+                    <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                      {leadEsc.slice(0, 3).map((e) => (
+                        <li key={e.project} className="truncate">
+                          • {e.project}: {e.byPerson.slice(0, 3).map((bp) => `${bp.name} (${bp.count})`).join(" · ")}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : null}
               </>

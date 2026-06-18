@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { ensureMarcebot, sendBotDM, type BotUser } from "./bot";
 import { getUserPendientes, getTeamSummary, openStatusKeys, type TeamSummary } from "./data";
-import { getUserChases, getTeamEscalation, chaseCount, type TeamEscalation } from "./chase";
+import { getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, type TeamEscalation } from "./chase";
 import { getUserWeekStats, getTeamWeekStats, type TeamWeek } from "./weekly";
 import {
   composePersonal,
@@ -95,8 +95,12 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
       } = {};
 
       const isAdmin = ADMIN_ROLES.includes(u.role.key);
-      const [p, chases] = await Promise.all([getUserPendientes(u.id, openKeys, now), getUserChases(u.id, now)]);
-      const sig = personalSignature(p, chases);
+      const [p, chases, leadEsc] = await Promise.all([
+        getUserPendientes(u.id, openKeys, now),
+        getUserChases(u.id, now),
+        getLeadEscalations(u.id, openKeys, now),
+      ]);
+      const sig = personalSignature(p, chases, leadEsc);
       const doWeekly = isFridayClose && state?.lastWeeklyOn !== dk;
 
       if (doWeekly) {
@@ -128,12 +132,12 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
           morning = true;
         } else if (p.imminent.length && changed) {
           sendPersonal = true;
-        } else if ((p.overdue.length || p.today.length || chaseCount(chases) > 0) && changed) {
+        } else if ((p.overdue.length || p.today.length || chaseCount(chases) > 0 || leadEsc.length > 0) && changed) {
           sendPersonal = true;
         }
 
         if (sendPersonal) {
-          const body = composePersonal({ name: u.name, gender: u.gender as Gender, p, chases, morning, welcome, now });
+          const body = composePersonal({ name: u.name, gender: u.gender as Gender, p, chases, leadEsc, morning, welcome, now });
           await sendBotDM(bot, u.id, u.name, body);
           personalSent += 1;
           update.lastDigest = sig;

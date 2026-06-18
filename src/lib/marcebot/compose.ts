@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import type { UserPendientes, TeamSummary, TaskLite, EventLite } from "./data";
-import type { UserChases, TeamEscalation } from "./chase";
+import type { UserChases, TeamEscalation, LeadEscalation } from "./chase";
 import type { UserWeek, TeamWeek } from "./weekly";
-import { chaseCount, chaseIds } from "./chase";
+import { chaseCount, chaseIds, leadEscalationKeys } from "./chase";
 import { bogotaLongDate, bogotaTime, bogotaShortDate, duePhrase } from "./time";
 
 function hoursText(minutes: number): string {
@@ -50,7 +50,7 @@ function clip<T>(arr: T[], n: number): { shown: T[]; rest: number } {
 
 // Firma estable del contenido accionable: si cambia, hay algo nuevo que avisar.
 // Incluye las citas inminentes y lo que hay por perseguir para disparar avisos nuevos.
-export function personalSignature(p: UserPendientes, chases?: UserChases): string {
+export function personalSignature(p: UserPendientes, chases?: UserChases, leadEsc?: LeadEscalation[]): string {
   const payload = JSON.stringify({
     o: p.overdue.map((t) => t.id).sort(),
     t: p.today.map((t) => t.id).sort(),
@@ -58,6 +58,7 @@ export function personalSignature(p: UserPendientes, chases?: UserChases): strin
     e: p.eventsToday.map((e) => e.id).sort(),
     im: p.imminent.map((e) => e.id).sort(),
     c: chases ? chaseIds(chases) : [],
+    le: leadEsc ? leadEscalationKeys(leadEsc) : [],
   });
   return crypto.createHash("sha1").update(payload).digest("hex");
 }
@@ -102,14 +103,15 @@ export function composePersonal(opts: {
   gender: Gender;
   p: UserPendientes;
   chases: UserChases;
+  leadEsc?: LeadEscalation[];
   morning: boolean;
   welcome: boolean;
   now: Date;
 }): string {
-  const { name, gender, p, chases, morning, welcome, now } = opts;
+  const { name, gender, p, chases, leadEsc = [], morning, welcome, now } = opts;
   const voc = vocativo(gender);
   const firstName = name.split(" ")[0];
-  const actionable = hasActionable(p) || chaseCount(chases) > 0;
+  const actionable = hasActionable(p) || chaseCount(chases) > 0 || leadEsc.length > 0;
   const lines: string[] = [];
 
   if (welcome) {
@@ -163,10 +165,20 @@ export function composePersonal(opts: {
   // Lo que hay que perseguir (revisiones, comercial, cobros…).
   lines.push(...chaseLines(chases));
 
+  // Atrasos del equipo en TUS proyectos (eres el líder) → a empujar.
+  if (leadEsc.length) {
+    lines.push(`🚨 Atrasos en ${leadEsc.length === 1 ? "tu proyecto" : "tus proyectos"} — empújalos, ${voc}:`);
+    leadEsc.slice(0, 4).forEach((e) => {
+      const who = e.byPerson.slice(0, 4).map((p2) => `${p2.name} (${p2.count})`).join(" · ");
+      lines.push(`   • ${e.project}: ${who}`);
+    });
+    lines.push("");
+  }
+
   // Cierre con empuje de productor.
   if (!actionable) {
     lines.push(`✅ ¡Vas al día, ${voc}! No tienes pendientes urgentes. A disfrutarlo. 🎉`);
-  } else if (p.overdue.length || chases.invoices.length || chases.clientWaiting.length) {
+  } else if (p.overdue.length || chases.invoices.length || chases.clientWaiting.length || leadEsc.length) {
     lines.push(`No aflojes, ${voc} 🔥 Saca esto adelante y me cuentas. Aquí estaré pendiente.`);
   } else {
     lines.push(`¡A darle, ${voc}! Cuando cierres algo, lo voy viendo. 💪`);
