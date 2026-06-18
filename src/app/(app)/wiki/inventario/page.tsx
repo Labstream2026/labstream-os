@@ -2,12 +2,15 @@ import { db } from "@/lib/db";
 import { DataTableView } from "@/components/tables/data-table";
 import { cellsToMap } from "@/lib/table-cells";
 import { getInventoryTableId } from "@/lib/wiki-tables";
+import { getSession } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
+import { ImportInventoryButton } from "./import-button";
 
 export const dynamic = "force-dynamic";
 
 export default async function InventarioPage() {
   const tableId = await getInventoryTableId();
+  const session = await getSession();
   const [table, team] = await Promise.all([
     db.dataTable.findUnique({
       where: { id: tableId },
@@ -25,11 +28,14 @@ export default async function InventarioPage() {
       <p className="mt-1 mb-6 text-sm text-muted-foreground">Inventario de equipos: cámaras, streaming, audio, iluminación…</p>
       <WikiTabs />
 
-      <div className="mb-3">
-        <h2 className="text-lg font-semibold">Inventario</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Usa el buscador para encontrar un serial o equipo. Filtra por categoría, marca o tags. Puedes añadir columnas y opciones.
-        </p>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Inventario</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Usa el buscador para encontrar un serial o equipo. Filtra por categoría, marca o tags. Puedes añadir columnas y opciones.
+          </p>
+        </div>
+        {session?.role === "admin" ? <ImportInventoryButton /> : null}
       </div>
 
       {table ? (
