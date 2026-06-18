@@ -80,8 +80,11 @@ export async function GET(req: Request) {
   // ── Mensaje directo ──────────────────────────────────────────────
   if (dmUserId) {
     if (dmUserId === session.id) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
-    const other = await db.user.findUnique({ where: { id: dmUserId }, select: { id: true, name: true, active: true } });
+    const other = await db.user.findUnique({ where: { id: dmUserId }, select: { id: true, name: true, active: true, isSystemBot: true } });
     if (!other?.active) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
+    // Los bots del sistema (p. ej. Marcebot) no son destinos de DM válidos: no se
+    // abre ni se crea un canal hacia ellos desde un GET.
+    if (other.isSystemBot) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
 
     let channel = await db.chatChannel.findFirst({
       where: {

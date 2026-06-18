@@ -43,12 +43,14 @@ export function noonUTC(key: string): Date {
   return new Date(`${key}T12:00:00.000Z`);
 }
 
-// Día de HOY en hora LOCAL como clave (para la línea de "hoy"). Colombia es UTC-5,
-// así que el día local y el anclado a mediodía UTC coinciden.
+// Día de HOY en hora de Colombia (UTC-5, sin horario de verano) como clave (para la
+// línea de "hoy"). Se calcula desplazando -5h y leyendo los campos UTC, de modo que en
+// un contenedor en UTC la clave no salte al día siguiente por la tarde hora Colombia.
 export function todayKey(): string {
-  const n = new Date();
+  const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
+  const w = new Date(Date.now() - BOGOTA_OFFSET_MS);
   const pad = (x: number) => String(x).padStart(2, "0");
-  return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+  return `${w.getUTCFullYear()}-${pad(w.getUTCMonth() + 1)}-${pad(w.getUTCDate())}`;
 }
 
 export function isWeekend(dayNumber: number): boolean {

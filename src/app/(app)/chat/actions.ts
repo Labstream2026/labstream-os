@@ -34,8 +34,11 @@ export async function openDirectMessage(otherUserId: string) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
   if (otherUserId === session.id) return;
-  const other = await db.user.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, active: true } });
+  const other = await db.user.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, active: true, isSystemBot: true } });
   if (!other?.active) throw new Error("Usuario inválido");
+  // No se permite abrir/sembrar un DM hacia un bot del sistema (p. ej. Marcebot):
+  // su DM de auditoría no debe ser escribible por el usuario.
+  if (other.isSystemBot) throw new Error("Usuario inválido");
 
   const existing = await db.chatChannel.findFirst({
     where: {
@@ -115,7 +118,23 @@ export async function clearConversation(channelId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
   if (!(await userCanAccessChannel(channelId, session))) return;
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true, projectId: true } });
+  const channel = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: {
+      type: true,
+      name: true,
+      projectId: true,
+      members: { select: { userId: true, user: { select: { isSystemBot: true } } } },
+    },
+  });
+  // No se puede vaciar un DM cuyo otro miembro es un bot del sistema (Marcebot):
+  // el rastro de auditoría no debe poder borrarlo el usuario.
+  if (
+    channel?.type === "DIRECT" &&
+    channel.members.some((m) => m.userId !== session.id && m.user?.isSystemBot)
+  ) {
+    return;
+  }
   const allowed = channel?.type === "DIRECT" || session.role === "admin" || (await userCanManageChannel(channelId, session));
   if (!allowed) return;
   const res = await db.chatMessage.updateMany({

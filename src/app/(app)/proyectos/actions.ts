@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
@@ -18,6 +19,8 @@ export async function createProject(formData: FormData) {
   const leadId = String(formData.get("leadId") ?? "") || null;
   const templateKey = String(formData.get("templateKey") ?? "");
   if (!name || !clientId) return;
+  // No confiar en el clientId del formulario: exigir que el usuario pueda acceder a ese cliente.
+  if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
 
   const project = await instantiateTemplate(db, {
     templateKey,

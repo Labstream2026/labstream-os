@@ -131,12 +131,27 @@ export async function removeItem(itemId: string) {
   refresh(existing.quoteId);
 }
 
-// Cambiar estado. BORRADOR/ENVIADA → crear_cotizaciones. APROBADA/RECHAZADA → aprobar_cotizaciones.
+// Cambiar estado. BORRADOR → crear_cotizaciones. ENVIADA → enviar_cotizaciones.
+// APROBADA/RECHAZADA → aprobar_cotizaciones.
 export async function setQuoteStatus(quoteId: string, status: string) {
   if (!QUOTE_STATUSES.includes(status)) throw new Error("Estado inválido");
   const needsApproval = status === "APROBADA" || status === "RECHAZADA";
-  const session = await requirePerm(needsApproval ? "aprobar_cotizaciones" : "crear_cotizaciones");
+  // Enviar al cliente exige enviar_cotizaciones (concedido a los mismos roles que tienen
+  // crear_cotizaciones —gerente y ventas— por ROLE_DEFAULTS, así que no rompe el envío).
+  const permKey = needsApproval
+    ? "aprobar_cotizaciones"
+    : status === "ENVIADA"
+      ? "enviar_cotizaciones"
+      : "crear_cotizaciones";
+  const session = await requirePerm(permKey);
   await ensureQuoteAccess(quoteId);
+  // Inmutabilidad: una cotización APROBADA no puede revertirse a otro estado salvo que el
+  // actor tenga aprobar_cotizaciones; si no, un usuario sin permiso de aprobación podría
+  // revertirla silenciosamente y borrar approvedBy/approvedAt.
+  const current = await db.quote.findUnique({ where: { id: quoteId }, select: { status: true } });
+  if (current?.status === "APROBADA" && status !== "APROBADA" && !needsApproval) {
+    await requirePerm("aprobar_cotizaciones");
+  }
   await db.quote.update({
     where: { id: quoteId },
     data: {

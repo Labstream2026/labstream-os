@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
+import { userCanAccessProject } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
 import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites } from "@/lib/calendar-sync";
 
@@ -34,8 +35,9 @@ export async function createMyEvent(formData: FormData): Promise<void> {
   const rawProjectId = String(formData.get("projectId") ?? "").trim() || null;
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
 
-  // Solo se acepta el proyecto si existe (la privacidad se aplica al mostrarlo).
-  const projectId = rawProjectId && (await db.project.findUnique({ where: { id: rawProjectId }, select: { id: true } })) ? rawProjectId : null;
+  // Solo se acepta el proyecto si existe Y el usuario tiene acceso a él; si no, se
+  // ignora y la cita queda como evento personal (no se confía en el projectId del cliente).
+  const projectId = rawProjectId && (await userCanAccessProject(rawProjectId, session)) ? rawProjectId : null;
 
   const allDay = !time;
   const start = new Date(`${date}T${allDay ? "09:00" : time}:00${APP_TZ_HINT}`);

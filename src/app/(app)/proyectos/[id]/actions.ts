@@ -706,7 +706,21 @@ export async function deleteDeliverable(deliverableId: string, _projectId: strin
   refresh(deliverable.projectId);
 }
 
+// Estados válidos del entregable (enum DeliverableStatus). Se valida la entrada para
+// no permitir saltos directos a APROBADO/ENTREGADO con strings arbitrarios.
+const DELIVERABLE_STATUSES = new Set([
+  "PENDIENTE",
+  "EN_PRODUCCION",
+  "EN_EDICION",
+  "REVISION_INTERNA",
+  "ENVIADO_CLIENTE",
+  "CORRECCIONES",
+  "APROBADO",
+  "ENTREGADO",
+]);
+
 export async function setDeliverableStatus(id: string, _projectId: string, status: string) {
+  if (!DELIVERABLE_STATUSES.has(status)) throw new Error("Estado inválido");
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(deliverable);
   await db.deliverable.update({ where: { id }, data: { status: status as never } });

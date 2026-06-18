@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
+import { getSession } from "@/lib/auth";
 
 // Sirve la portada/banner de un cliente o proyecto (storage/banners/<id>).
 // Pública (solo imágenes de portada); detecta el tipo por los primeros bytes.
@@ -13,6 +14,13 @@ function sniff(buf: Buffer): string {
 }
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Los banners solo se muestran dentro de la UI autenticada (app) vía CoverBanner; no se
+  // usan en ninguna página pública (/p, /review, /cotizacion). Gateamos tras la sesión para
+  // que no sirvan portadas a quien no ha iniciado sesión. Devolvemos 404 (no 401) para no
+  // revelar la existencia del recurso a un no autenticado.
+  const session = await getSession();
+  if (!session) return new NextResponse("No encontrado", { status: 404 });
+
   const { id } = await ctx.params;
   const safe = id.replace(/[^a-zA-Z0-9]/g, "");
   if (!safe) return new NextResponse("No encontrado", { status: 404 });

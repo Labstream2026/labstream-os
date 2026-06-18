@@ -1,10 +1,26 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { logActivity } from "@/lib/activity";
 import { notifyManyAndEmail } from "@/lib/notify";
+import { rateLimit } from "@/lib/rate-limit";
+
+// Construye una clave de rate-limit a partir del token (autorización del portal) y, si está
+// disponible, la IP del cliente. Así un token filtrado no puede usarse para inundar la BD
+// ni spamear al equipo.
+async function rlKey(token: string): Promise<string> {
+  let ip = "";
+  try {
+    const h = await headers();
+    ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? "";
+  } catch {
+    /* headers() no disponible: usamos solo el token */
+  }
+  return `${token}:${ip}`;
+}
 
 // Equipo del proyecto a avisar (responsable + miembros) cuando el cliente actúa.
 async function projectTeamIds(projectId: string): Promise<string[]> {
@@ -27,6 +43,10 @@ async function resolveDeliverable(token: string) {
 }
 
 export async function addReviewComment(token: string, formData: FormData) {
+  // Comentar es lo más abusable (escribe en BD + avisa al equipo): límite más estricto.
+  if (!rateLimit(`review-comment:${await rlKey(token)}`, 10, 60_000)) {
+    throw new Error("Demasiados comentarios seguidos. Espera un momento e inténtalo de nuevo.");
+  }
   const { id: deliverableId, name, projectId } = await resolveDeliverable(token);
 
   const authorName = String(formData.get("authorName") ?? "").trim().slice(0, 80) || "Cliente";
@@ -44,7 +64,18 @@ export async function addReviewComment(token: string, formData: FormData) {
     try {
       const parsed = JSON.parse(drawingRaw);
       // Límite de tamaño defensivo (captura + trazos) para no abusar de la BD.
-      if (drawingRaw.length <= 400_000) drawingData = parsed;
+      if (drawingRaw.length <= 400_000) {
+        // El dibujo se renderiza luego como <img src={drawingData.image}> en la sesión
+        // del equipo. Solo aceptamos imágenes data: (png/jpeg/webp); cualquier otro
+        // esquema (http(s):, javascript:, …) se descarta para evitar balizas de rastreo
+        // o cargas externas que se disparen en la sesión interna del staff.
+        if (parsed && typeof parsed === "object" && "image" in parsed) {
+          const img = (parsed as { image?: unknown }).image;
+          const okImage = typeof img === "string" && /^data:image\/(png|jpeg|webp);base64,/.test(img);
+          if (!okImage) delete (parsed as { image?: unknown }).image;
+        }
+        drawingData = parsed;
+      }
     } catch {
       /* ignora dibujos malformados */
     }
@@ -76,6 +107,9 @@ export async function addReviewComment(token: string, formData: FormData) {
 }
 
 export async function setReviewDecision(token: string, decision: string, name?: string) {
+  if (!rateLimit(`review-decision:${await rlKey(token)}`, 20, 60_000)) {
+    throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
+  }
   const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
   const approved = decision === "APROBADO";
   const status = approved ? "APROBADO" : "CORRECCIONES";

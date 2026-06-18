@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { wikiTemplate } from "@/lib/wiki-templates";
 import { saveBuffer, extOf, deleteRel } from "@/lib/storage";
@@ -18,6 +18,14 @@ async function requireWiki() {
   return session;
 }
 
+// Para crear/editar/borrar páginas hace falta acceso de lectura a la Wiki Y el
+// permiso explícito "editar_wiki" (no basta con poder verla).
+async function requireWikiEdit() {
+  const session = await requireWiki();
+  if (!hasPermission(session, "editar_wiki")) throw new Error("No autorizado");
+  return session;
+}
+
 // Convierte "4k, kit rodaje , portátil" → ["4k","kit rodaje","portátil"] (sin vacíos ni duplicados).
 function parseTags(raw: string): string[] {
   return [...new Set(raw.split(",").map((t) => t.trim()).filter(Boolean))].slice(0, 20);
@@ -26,7 +34,7 @@ function parseTags(raw: string): string[] {
 // Crea una página, opcionalmente desde una plantilla (pre-rellena contenido, icono,
 // sección y etiquetas). El dueño por defecto es quien la crea.
 export async function createWikiPage(formData: FormData): Promise<void> {
-  const session = await requireWiki();
+  const session = await requireWikiEdit();
   const title = String(formData.get("title") ?? "").trim();
   const tpl = wikiTemplate(String(formData.get("templateKey") ?? "") || undefined);
   const page = await db.wikiPage.create({
@@ -45,7 +53,7 @@ export async function createWikiPage(formData: FormData): Promise<void> {
 }
 
 export async function updateWikiPage(id: string, formData: FormData): Promise<void> {
-  await requireWiki();
+  await requireWikiEdit();
   const title = String(formData.get("title") ?? "").trim() || "Página sin título";
   const icon = String(formData.get("icon") ?? "").trim() || null;
   const content = String(formData.get("content") ?? "");
@@ -58,7 +66,7 @@ export async function updateWikiPage(id: string, formData: FormData): Promise<vo
 
 // Asigna (o quita) el dueño responsable de una página.
 export async function setWikiOwner(id: string, formData: FormData): Promise<void> {
-  await requireWiki();
+  await requireWikiEdit();
   const ownerId = String(formData.get("ownerId") ?? "").trim() || null;
   if (ownerId) {
     const u = await db.user.findUnique({ where: { id: ownerId }, select: { active: true } });
@@ -71,7 +79,7 @@ export async function setWikiOwner(id: string, formData: FormData): Promise<void
 
 // Marca la página como revisada hoy (gobernanza: contra contenido obsoleto).
 export async function markWikiReviewed(id: string): Promise<void> {
-  const session = await requireWiki();
+  const session = await requireWikiEdit();
   await db.wikiPage.update({ where: { id }, data: { lastReviewedAt: new Date(), lastReviewedById: session.id } });
   revalidatePath(`/wiki/${id}`);
   revalidatePath("/wiki");
@@ -97,7 +105,7 @@ export async function uploadWikiFile(formData: FormData): Promise<{ url: string;
 }
 
 export async function deleteWikiPage(id: string): Promise<void> {
-  await requireWiki();
+  await requireWikiEdit();
   // Antes de borrar la página, eliminamos del storage los archivos que solo ella
   // referenciaba (evita basura huérfana en el NAS).
   const page = await db.wikiPage.findUnique({ where: { id }, select: { content: true } });

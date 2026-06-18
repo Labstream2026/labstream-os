@@ -160,13 +160,18 @@ export async function updateProposalMeta(
   id: string,
   data: { title?: string; brand?: Brand; expiresAt?: string | null; clientId?: string | null },
 ) {
-  await requirePerm("crear_cotizaciones");
+  const session = await requirePerm("crear_cotizaciones");
   await ensureProposalAccess(id);
   const patch: Record<string, unknown> = {};
   if (typeof data.title === "string" && data.title.trim()) patch.title = data.title.trim().slice(0, 160);
   if (data.brand) patch.brand = { ...BRAND_DEFAULT, ...data.brand } as unknown as object;
   if (data.expiresAt !== undefined) patch.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
-  if (data.clientId !== undefined) patch.clientId = data.clientId || null;
+  if (data.clientId !== undefined) {
+    // Reasignar a un cliente exige poder acceder a ESE cliente (si no, sería reasignar
+    // la propuesta a un cliente ajeno conociendo el id). Desvincular (null) sí se permite.
+    if (data.clientId && !(await userCanAccessClient(data.clientId, session))) throw new Error("No autorizado");
+    patch.clientId = data.clientId || null;
+  }
   await db.proposal.update({ where: { id }, data: patch });
   refresh(id);
   if (data.clientId) revalidatePath(`/clientes/${data.clientId}`);
@@ -179,6 +184,13 @@ export async function setProposalStatus(id: string, status: string) {
   // igual que en cotizaciones; el resto basta con crear_cotizaciones.
   await requirePerm(status === "ACEPTADA" ? "aprobar_cotizaciones" : "crear_cotizaciones");
   await ensureProposalAccess(id);
+  // Inmutabilidad: una propuesta ACEPTADA no puede salir de ese estado salvo que el actor
+  // tenga aprobar_cotizaciones (si no, un usuario sin permiso de aprobación podría revertir
+  // silenciosamente una propuesta ya aceptada).
+  const current = await db.proposal.findUnique({ where: { id }, select: { status: true } });
+  if (current?.status === "ACEPTADA" && status !== "ACEPTADA") {
+    await requirePerm("aprobar_cotizaciones");
+  }
   await db.proposal.update({ where: { id }, data: { status: status as never } });
   refresh(id);
 }
