@@ -136,6 +136,24 @@ export async function discoverCalendars(a: CalDavAuth): Promise<CalendarCollecti
   return out;
 }
 
+// El "fetch failed" de Node es críptico: el motivo real va en e.cause (código TLS/red).
+// Lo traducimos a algo accionable, distinguiendo cert autofirmado (→ CALDAV_INSECURE_TLS)
+// de problemas de conexión (host/puerto/IP).
+function describeFetchError(e: unknown): string {
+  const err = e instanceof Error ? e : null;
+  const msg = err?.message ?? "error de conexión";
+  const cause = err && "cause" in err ? (err.cause as { code?: string; message?: string } | undefined) : undefined;
+  const code = cause?.code ?? "";
+  if (/CERT|SELF_SIGNED|SSL|TLS/i.test(code) || /certificate|self-signed|TLS|SSL/i.test(msg)) {
+    return `Certificado del NAS no confiable${code ? ` (${code})` : ""}. Activa CALDAV_INSECURE_TLS=true en el .env del NAS y vuelve a desplegar.`;
+  }
+  if (/ECONNREFUSED/i.test(code)) return `El NAS rechazó la conexión (${code}). Revisa el puerto (5001) y que el paquete Calendar esté activo.`;
+  if (/ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|TIMEOUT/i.test(code)) return `Tiempo de espera agotado contra el NAS (${code}). Revisa la IP local y que el contenedor alcance el :5001.`;
+  if (/ENOTFOUND|EAI_AGAIN/i.test(code)) return `No se resolvió el host del NAS (${code}). Usa la IP local del NAS.`;
+  if (msg === "fetch failed") return `No se pudo conectar al NAS${code ? ` (${code})` : cause?.message ? `: ${cause.message}` : ""}.`;
+  return msg;
+}
+
 // Prueba de conexión: si descubre al menos un calendario, está OK.
 export async function testConnection(a: CalDavAuth): Promise<{ ok: boolean; error?: string; calendars?: CalendarCollection[] }> {
   try {
@@ -143,8 +161,7 @@ export async function testConnection(a: CalDavAuth): Promise<{ ok: boolean; erro
     if (!calendars.length) return { ok: false, error: "Conectó, pero no se encontró ningún calendario con eventos." };
     return { ok: true, calendars };
   } catch (e) {
-    const m = e instanceof Error ? e.message : "error de conexión";
-    return { ok: false, error: /certificate|self-signed|TLS/i.test(m) ? `${m} (prueba CALDAV_INSECURE_TLS=true)` : m };
+    return { ok: false, error: describeFetchError(e) };
   }
 }
 
