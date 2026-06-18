@@ -8,8 +8,11 @@ import { EventModal, type EventModalState } from "./event-modal";
 import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard } from "./calendar-detail";
 
 const pad = (n: number) => String(n).padStart(2, "0");
-function localDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function localTime(d: Date) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+// Los campos UTC del Date guardado SON la hora de pared (la app guarda en UTC sin convertir,
+// el contenedor corre en UTC). Por eso al precargar el formulario de edición se leen en UTC:
+// si se usara getHours() del navegador, en Colombia (UTC-5) saldría 5 horas antes.
+function wallDate(d: Date) { return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; }
+function wallTime(d: Date) { return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; }
 
 // Conmutador de vistas del calendario: Semana (rejilla por horas) o Mes (rejilla
 // mensual). Aloja el modal de crear/editar citas. El detalle de la cita se muestra
@@ -51,9 +54,9 @@ export function CalendarBoard({
         mode: "edit",
         eventId: it.eventId,
         title: it.title,
-        date: localDate(start),
-        time: it.allDay ? "" : localTime(start),
-        endTime: end && !it.allDay ? localTime(end) : "",
+        date: wallDate(start),
+        time: it.allDay ? "" : wallTime(start),
+        endTime: end && !it.allDay ? wallTime(end) : "",
         description: it.description ?? "",
         location: it.location ?? "",
         attendeeIds: it.attendeeIds ?? [],

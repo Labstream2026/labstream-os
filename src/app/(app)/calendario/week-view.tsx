@@ -27,8 +27,22 @@ function startOfWeek(d: Date): Date {
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
+// La app guarda las fechas en UTC SIN convertir (el contenedor corre en UTC), de modo que
+// los CAMPOS UTC de un evento son su hora de pared (lo que el usuario tecleó). Por eso para
+// ubicarlo en la rejilla se leen en UTC; si se usara getHours()/getDate() del navegador, en
+// Colombia (UTC-5) el bloque saldría 5 horas antes (un evento de 4:00 p. m. caía a las 11).
 function minutesOf(d: Date) {
-  return d.getHours() * 60 + d.getMinutes();
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+function evDayKey(d: Date) {
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+}
+function colDayKey(d: Date) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+// ¿El evento (hora de pared en UTC) cae en la columna (fecha local del navegador)?
+function evOnDay(ev: Date, col: Date) {
+  return evDayKey(ev) === colDayKey(col);
 }
 
 type Positioned = { it: CalItem; topMin: number; endMin: number; left: number; width: number };
@@ -135,11 +149,13 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
       setPreview(null);
       if (!live || !live.moved) return;
       suppressClick.current = true; // evita que el click posterior re-seleccione
+      // Se escribe en UTC (campos UTC = hora de pared) para conservar la convención de la
+      // app: así el ISO guardado coincide con lo que muestran el detalle y la rejilla.
       const base = days[live.dayIndex];
-      const ns = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-      ns.setMinutes(live.topMin);
-      const ne = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-      ne.setMinutes(live.endMin);
+      const ns = new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0));
+      ns.setUTCMinutes(live.topMin);
+      const ne = new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0));
+      ne.setUTCMinutes(live.endMin);
       startMove(() => { void moveMyEvent(d.eventId, ns.toISOString(), ne.toISOString()); });
     };
     window.addEventListener("mousemove", onMove);
@@ -193,7 +209,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
           <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
             <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
-              const chips = parsed.filter((p) => !p.timed && sameDay(p.start, d));
+              const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d));
               const isToday = sameDay(d, today);
               return (
                 <div key={d.toISOString()} className={cn("min-h-8 space-y-1 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
@@ -227,7 +243,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
               {/* Columnas de días */}
               {days.map((d, dayIndex) => {
                 const dayTimed = parsed
-                  .filter((p) => p.timed && sameDay(p.start, d))
+                  .filter((p) => p.timed && evOnDay(p.start, d))
                   .map((p) => {
                     const topMin = Math.max(0, Math.min(1439, minutesOf(p.start)));
                     const endMin = p.end ? Math.max(topMin + 20, Math.min(1440, minutesOf(p.end) || topMin + 60)) : topMin + 60;
