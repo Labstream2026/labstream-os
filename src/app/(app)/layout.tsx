@@ -9,6 +9,7 @@ import { isEditableOffice } from "@/lib/onlyoffice";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { labelOptions } from "@/lib/colors";
 import { AppShell } from "@/components/layout/app-shell";
+import { MarcebotPopup } from "./marcebot-popup";
 
 // Datos por petición desde Postgres → render dinámico (evita prerender en el build de Docker).
 export const dynamic = "force-dynamic";
@@ -188,6 +189,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }
     >
       {children}
+      <MarcebotPopup />
     </AppShell>
   );
 }
