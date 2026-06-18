@@ -234,21 +234,25 @@ function detectMentionIds(body: string, users: { id: string; name: string }[]): 
 
 // Notifica (app + correo) a los usuarios mencionados con @ que tengan acceso al canal.
 // Recalcula las menciones EN EL SERVIDOR a partir del texto (el cliente no es de fiar).
-async function notifyMentions(channelId: string, authorId: string, body: string) {
+// El correo solo sale si el SMTP está configurado (Configuración → Integraciones); si no,
+// queda solo el aviso in-app. El título dice QUIÉN te mencionó y DÓNDE para que se note.
+async function notifyMentions(channelId: string, authorId: string, authorName: string, body: string) {
   if (!body.includes("@")) return;
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { name: true, isPublic: true, members: { select: { userId: true } } },
+    select: { name: true, isPublic: true, type: true, members: { select: { userId: true } } },
   });
   if (!channel) return;
   const users = await db.user.findMany({ where: { active: true }, select: { id: true, name: true } });
   const memberIds = new Set(channel.members.map((m) => m.userId));
   const ids = detectMentionIds(body, users).filter((id) => id !== authorId);
+  // En un DM el "nombre del canal" es interno; el contexto es la conversación directa.
+  const where = channel.type === "DIRECT" ? "en un mensaje directo" : `en ${channel.name}`;
   for (const userId of ids) {
     if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros del canal
     await notifyAndEmail(userId, {
       type: "mention",
-      title: `Te mencionaron en ${channel.name}`,
+      title: `${authorName} te mencionó ${where}`,
       body: body.slice(0, 140),
       link: `/chat/${channelId}`,
     });
@@ -317,7 +321,7 @@ export async function sendMessage(
     data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
     include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
   });
-  await notifyMentions(channelId, session!.id, text);
+  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   const payload: ChatMessagePayload = {
@@ -375,7 +379,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
     attachments: created,
   };
   publishMessage(payload);
-  await notifyMentions(channelId, session!.id, body);
+  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
