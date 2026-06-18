@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
 import { UserAvatar } from "@/components/user-avatar";
-import { emailEnabled } from "@/lib/email";
+import { isEmailEnabled } from "@/lib/email";
 import { caldavEnabled } from "@/lib/caldav";
 import { aiEnabled } from "@/lib/ai";
 import { onlyofficeEnabled } from "@/lib/onlyoffice";
@@ -54,6 +54,19 @@ export default async function ConfiguracionPage() {
   const categories = [...PERMISSION_CATEGORIES];
 
   const marcebotConfig = await getMarcebotConfig();
+  // Config SMTP guardada (sin exponer la contraseña al cliente: solo si está puesta).
+  const mailRow = await db.mailSettings.findUnique({ where: { id: "default" } });
+  const mailSettings = {
+    enabled: mailRow?.enabled ?? false,
+    host: mailRow?.host ?? "",
+    port: mailRow?.port ?? 587,
+    secure: mailRow?.secure ?? false,
+    username: mailRow?.username ?? "",
+    fromName: mailRow?.fromName ?? "Labstream OS",
+    fromEmail: mailRow?.fromEmail ?? "",
+    rejectUnauthorized: mailRow?.rejectUnauthorized ?? false,
+    hasPassword: Boolean(mailRow?.passwordEnc),
+  };
   const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
   const statusRows = taskLabels.filter((l) => l.kind === "TASK_STATUS").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
   const priorityRows = taskLabels.filter((l) => l.kind === "TASK_PRIORITY").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
@@ -133,8 +146,9 @@ export default async function ConfiguracionPage() {
   );
 
   // ── Sección Integraciones ──
+  const emailOn = await isEmailEnabled();
   const integracionesNode = (
-    <IntegrationsPanel email={emailEnabled} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} />
+    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} />
   );
 
   // ── Sección Marcebot ──

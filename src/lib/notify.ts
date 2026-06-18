@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { emailEnabled, sendEmail } from "@/lib/email";
+import { isEmailEnabled, sendEmail } from "@/lib/email";
 
 // Escapa texto controlado por el usuario antes de interpolarlo en HTML de correo,
 // para evitar inyección de HTML/XSS (nombre, título y cuerpo vienen del cliente).
@@ -31,7 +31,7 @@ export async function notifyAndEmail(
 ) {
   if (!userId) return;
   await notify(userId, n);
-  if (!emailEnabled) return;
+  if (!(await isEmailEnabled())) return;
   try {
     const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user?.email) return;

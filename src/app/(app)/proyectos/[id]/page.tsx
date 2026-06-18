@@ -10,7 +10,7 @@ import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
-import { emailEnabled } from "@/lib/email";
+import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeEnabled } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
@@ -373,7 +373,7 @@ export default async function ProyectoPage({
                 createdAt: c.createdAt,
               })),
             }))}
-            emailEnabled={emailEnabled}
+            emailEnabled={await isEmailEnabled()}
           />
         ) : null}
         {tab === "archivos" ? (

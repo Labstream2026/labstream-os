@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanManageProject } from "@/lib/project-access";
-import { emailEnabled, sendEmail } from "@/lib/email";
+import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { buildIcs } from "@/lib/ics";
 import { signReviewToken } from "@/lib/review-token";
 
@@ -19,7 +19,7 @@ function isEmail(s: string) {
 
 // Envía al cliente (por correo Synology) el enlace del portal de revisión de un entregable.
 export async function emailReviewLink(deliverableId: string, formData: FormData): Promise<ActionResult> {
-  if (!emailEnabled) return { ok: false, error: "Correo no configurado (SMTP)." };
+  if (!(await isEmailEnabled())) return { ok: false, error: "Correo no configurado (SMTP)." };
   const session = await getSession();
   const to = String(formData.get("to") ?? "").trim();
   const note = String(formData.get("note") ?? "").trim();
@@ -63,7 +63,7 @@ export async function emailReviewLink(deliverableId: string, formData: FormData)
 // Envía al cliente una INVITACIÓN de calendario (.ics) por correo. Solo acción explícita;
 // nunca se crea automáticamente en el calendario del cliente.
 export async function emailClientInvite(projectId: string, formData: FormData): Promise<ActionResult> {
-  if (!emailEnabled) return { ok: false, error: "Correo no configurado (SMTP)." };
+  if (!(await isEmailEnabled())) return { ok: false, error: "Correo no configurado (SMTP)." };
   const session = await getSession();
   if (!(await userCanManageProject(projectId, session))) return { ok: false, error: "Sin permiso." };
 

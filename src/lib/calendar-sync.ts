@@ -3,7 +3,7 @@ import { decryptSecret } from "@/lib/crypto";
 import { buildIcs, type IcsAttendee } from "@/lib/ics";
 import { parseIcs, expandRecurrence } from "@/lib/ics-parse";
 import { putEvent, deleteEvent, queryEvents, type CalDavAuth } from "@/lib/caldav-client";
-import { emailEnabled, sendEmail } from "@/lib/email";
+import { isEmailEnabled, sendEmail } from "@/lib/email";
 import type { CalendarConnection } from "@prisma/client";
 
 // UID iCalendar estable para un evento de la app.
@@ -97,7 +97,7 @@ const dateLabel = (d: Date, allDay: boolean) =>
 // indicados (clientes, etc.). Si `onlyEmails` se pasa, solo a esos; si no, a todos.
 // Best-effort: nunca rompe el flujo. Devuelve cuántos correos salieron.
 export async function sendGuestInvites(eventId: string, onlyEmails?: string[]): Promise<number> {
-  if (!emailEnabled) return 0;
+  if (!(await isEmailEnabled())) return 0;
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
     include: {

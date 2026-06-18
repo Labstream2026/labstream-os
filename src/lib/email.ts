@@ -1,46 +1,125 @@
 import nodemailer from "nodemailer";
+import { db } from "@/lib/db";
+import { decryptSecret } from "@/lib/crypto";
 
-// Envío de correo con DOS vías, elegidas por env:
-//  1) Resend (API HTTP por el puerto 443) — recomendado: esquiva el bloqueo de los
-//     puertos SMTP de salida del NAS/ISP. Se activa con RESEND_API_KEY.
-//  2) SMTP (nodemailer) — Synology MailPlus o cualquier relay. Se activa con SMTP_*.
-// Si está RESEND_API_KEY, se usa Resend; si no, SMTP. Sin ninguna config, el envío
-// queda deshabilitado (no rompe nada).
+// Envío de correo con TRES orígenes de configuración, por prioridad:
+//  1) BD (MailSettings, fila "default") — SMTP editable desde Configuración → Integraciones,
+//     sin tocar el .env ni redesplegar. Pensado para Synology MailPlus.
+//  2) Resend (API HTTP por 443) por env RESEND_API_KEY — esquiva el bloqueo de puertos SMTP.
+//  3) SMTP por env (SMTP_*) — relay externo o MailPlus.
+// Sin ninguna config, el envío queda deshabilitado (no rompe nada).
 
-// ── SMTP (Synology MailPlus o relay externo) ──
-const HOST = process.env.SMTP_HOST;
-const USER = process.env.SMTP_USER;
-const PASSWORD = process.env.SMTP_PASSWORD;
-const PORT = parseInt(process.env.SMTP_PORT || "587", 10);
-const SECURE = process.env.SMTP_SECURE === "true" || PORT === 465;
-// Solo para el NAS con cert auto-firmado; con un relay externo debe ser true (default).
-const REJECT_UNAUTHORIZED = process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false";
+// ── SMTP por entorno (respaldo) ──
+const ENV_HOST = process.env.SMTP_HOST;
+const ENV_USER = process.env.SMTP_USER;
+const ENV_PASSWORD = process.env.SMTP_PASSWORD;
+const ENV_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
+const ENV_SECURE = process.env.SMTP_SECURE === "true" || ENV_PORT === 465;
+const ENV_REJECT_UNAUTHORIZED = process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== "false";
 
 // ── Resend (API HTTP por 443) ──
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+// Remitente Resend (EXIGE dominio verificado). Orden: RESEND_FROM → SMTP_FROM → SMTP_USER.
+const ENV_FROM = process.env.RESEND_FROM || process.env.SMTP_FROM || (ENV_USER ? `Labstream <${ENV_USER}>` : "");
 
-// Remitente. Resend EXIGE un dominio verificado (ej. no-reply@labstreamsas.com).
-// Orden: RESEND_FROM → SMTP_FROM → SMTP_USER.
-const FROM = process.env.RESEND_FROM || process.env.SMTP_FROM || (USER ? `Labstream <${USER}>` : "");
+export type MailProvider = "smtp" | "resend" | "none";
 
-const smtpEnabled = Boolean(HOST && USER && PASSWORD);
-const resendEnabled = Boolean(RESEND_API_KEY);
-export const emailEnabled = resendEnabled || smtpEnabled;
-// Útil para los paneles de estado / mensajes de prueba.
-export const emailProvider: "resend" | "smtp" | "none" = resendEnabled ? "resend" : smtpEnabled ? "smtp" : "none";
+type SmtpConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  from: string;
+  rejectUnauthorized: boolean;
+};
 
-type Cached = { transporter: nodemailer.Transporter } | null;
+export type MailConfig =
+  | { provider: "smtp"; enabled: true; smtp: SmtpConfig }
+  | { provider: "resend"; enabled: true; from: string }
+  | { provider: "none"; enabled: false };
+
+// Cache breve de la config (evita leer la BD en cada correo de un envío masivo).
+let cfgCache: { at: number; cfg: MailConfig } | null = null;
+const CFG_TTL_MS = 15_000;
+
+// Resuelve la configuración efectiva: BD primero, luego env. Cacheada ~15s.
+export async function getMailConfig(force = false): Promise<MailConfig> {
+  if (!force && cfgCache && Date.now() - cfgCache.at < CFG_TTL_MS) return cfgCache.cfg;
+  let cfg: MailConfig = { provider: "none", enabled: false };
+
+  // 1) BD (tiene prioridad si está activa y completa).
+  try {
+    const row = await db.mailSettings.findUnique({ where: { id: "default" } });
+    if (row?.enabled && row.host && row.username && row.passwordEnc) {
+      const from = row.fromEmail
+        ? `${row.fromName || "Labstream OS"} <${row.fromEmail}>`
+        : `${row.fromName || "Labstream OS"} <${row.username}>`;
+      cfg = {
+        provider: "smtp",
+        enabled: true,
+        smtp: {
+          host: row.host,
+          port: row.port,
+          secure: row.secure,
+          user: row.username,
+          password: decryptSecret(row.passwordEnc),
+          from,
+          rejectUnauthorized: row.rejectUnauthorized,
+        },
+      };
+    }
+  } catch {
+    /* sin BD disponible → cae a env */
+  }
+
+  // 2) Env: Resend.
+  if (cfg.provider === "none" && RESEND_API_KEY) {
+    cfg = { provider: "resend", enabled: true, from: ENV_FROM };
+  }
+  // 3) Env: SMTP.
+  if (cfg.provider === "none" && ENV_HOST && ENV_USER && ENV_PASSWORD) {
+    cfg = {
+      provider: "smtp",
+      enabled: true,
+      smtp: { host: ENV_HOST, port: ENV_PORT, secure: ENV_SECURE, user: ENV_USER, password: ENV_PASSWORD, from: ENV_FROM, rejectUnauthorized: ENV_REJECT_UNAUTHORIZED },
+    };
+  }
+
+  cfgCache = { at: Date.now(), cfg };
+  return cfg;
+}
+
+// Invalida la cache (tras guardar la config desde la UI).
+export function clearMailConfigCache() {
+  cfgCache = null;
+}
+
+// ¿Está el correo configurado y activo? (BD o env). Para gating de UI/acciones.
+export async function isEmailEnabled(): Promise<boolean> {
+  return (await getMailConfig()).enabled;
+}
+
+// Proveedor activo (para mensajes de estado / prueba).
+export async function currentEmailProvider(): Promise<MailProvider> {
+  return (await getMailConfig()).provider;
+}
+
+type Cached = { sig: string; transporter: nodemailer.Transporter };
 const g = globalThis as unknown as { __mail?: Cached };
 
-function transporter(): nodemailer.Transporter {
-  if (!g.__mail) {
+// Transporter SMTP reutilizable, recreado solo si cambia la configuración.
+function transporter(c: SmtpConfig): nodemailer.Transporter {
+  const sig = `${c.host}:${c.port}:${c.secure}:${c.user}:${c.rejectUnauthorized}`;
+  if (!g.__mail || g.__mail.sig !== sig) {
     g.__mail = {
+      sig,
       transporter: nodemailer.createTransport({
-        host: HOST,
-        port: PORT,
-        secure: SECURE,
-        auth: { user: USER, pass: PASSWORD },
-        tls: { rejectUnauthorized: REJECT_UNAUTHORIZED },
+        host: c.host,
+        port: c.port,
+        secure: c.secure,
+        auth: { user: c.user, pass: c.password },
+        tls: { rejectUnauthorized: c.rejectUnauthorized },
       }),
     };
   }
@@ -66,7 +145,7 @@ const APP_URL = (process.env.NEXTAUTH_URL || process.env.ONLYOFFICE_CALLBACK_BAS
 // logo + pie). Se aplica a TODOS los correos salientes para presencia de marca uniforme.
 // Usa estilos en línea y tablas (compatibilidad con clientes de correo).
 function wrapEmailHtml(inner: string): string {
-  const logo = APP_URL ? `<img src="${encodeURI(`${APP_URL}/brand/logo-dark.png`)}" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
+  const logo = APP_URL ? `<img src="${APP_URL}/brand/logo-dark.png" alt="Labstream Studio" height="26" style="height:26px;width:auto;display:block" />` : `<span style="font-weight:700;font-size:18px;color:#111">labstream</span>`;
   return `<!doctype html><html><body style="margin:0;background:#f4f4f5;padding:24px 12px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ececec;border-radius:14px;overflow:hidden">
@@ -81,16 +160,17 @@ function wrapEmailHtml(inner: string): string {
 }
 
 export async function sendEmail(opts: SendEmailOpts): Promise<{ ok: boolean; error?: string }> {
+  const cfg = await getMailConfig();
+  if (!cfg.enabled) return { ok: false, error: "Correo no configurado (configúralo en Integraciones o vía RESEND_API_KEY / SMTP_*)." };
   // Aplica la marca a cualquier correo con HTML (una sola vez, aquí).
   const branded: SendEmailOpts = opts.html ? { ...opts, html: wrapEmailHtml(opts.html) } : opts;
-  if (resendEnabled) return sendViaResend(branded);
-  if (smtpEnabled) return sendViaSmtp(branded);
-  return { ok: false, error: "Email no configurado (falta RESEND_API_KEY o SMTP_*)." };
+  if (cfg.provider === "resend") return sendViaResend(branded, cfg.from);
+  return sendViaSmtp(branded, cfg.smtp);
 }
 
 // ── Resend: API HTTP por 443 (no usa puertos SMTP) ──
-async function sendViaResend(opts: SendEmailOpts): Promise<{ ok: boolean; error?: string }> {
-  const from = opts.from || FROM;
+async function sendViaResend(opts: SendEmailOpts, defaultFrom: string): Promise<{ ok: boolean; error?: string }> {
+  const from = opts.from || defaultFrom;
   if (!from) return { ok: false, error: "Falta el remitente (RESEND_FROM con un dominio verificado en Resend)." };
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -120,10 +200,10 @@ async function sendViaResend(opts: SendEmailOpts): Promise<{ ok: boolean; error?
 }
 
 // ── SMTP: nodemailer (Synology MailPlus o relay externo) ──
-async function sendViaSmtp(opts: SendEmailOpts): Promise<{ ok: boolean; error?: string }> {
+async function sendViaSmtp(opts: SendEmailOpts, c: SmtpConfig): Promise<{ ok: boolean; error?: string }> {
   try {
-    await transporter().sendMail({
-      from: opts.from || FROM,
+    await transporter(c).sendMail({
+      from: opts.from || c.from,
       to: Array.isArray(opts.to) ? opts.to.join(", ") : opts.to,
       subject: opts.subject,
       text: opts.text,

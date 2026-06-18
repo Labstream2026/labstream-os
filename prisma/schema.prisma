@@ -138,6 +138,24 @@ model MarcebotConfig {
   updatedAt DateTime @updatedAt
 }
 
+// Configuración SMTP del envío de correo (fila única "default"), editable por el admin
+// desde Configuración → Integraciones. Tiene PRIORIDAD sobre las variables de entorno:
+// permite configurar el correo (p. ej. Synology MailPlus) desde la propia app sin tocar
+// el .env ni redesplegar. La contraseña se guarda CIFRADA (lib/crypto).
+model MailSettings {
+  id                 String   @id @default("default")
+  enabled            Boolean  @default(false)
+  host               String?
+  port               Int      @default(587)
+  secure             Boolean  @default(false) // true = SSL (465); false = STARTTLS (587)
+  username           String?
+  passwordEnc        String? // contraseña cifrada (v1:...)
+  fromName           String?  @default("Labstream OS")
+  fromEmail          String?
+  rejectUnauthorized Boolean  @default(false) // MailPlus suele usar certificado autofirmado
+  updatedAt          DateTime @updatedAt
+}
+
 // Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)
 // y recuerda si ya envió el saludo del día (personal y, para roles administrativos,
 // el resumen de equipo).

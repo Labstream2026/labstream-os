@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { emailEnabled, emailProvider, sendEmail } from "@/lib/email";
+import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache } from "@/lib/email";
+import { encryptSecret } from "@/lib/crypto";
 import { testCaldav } from "@/lib/caldav";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
@@ -53,13 +54,46 @@ async function notifyRoleUsers(
   }
 }
 
+// Guarda la configuración SMTP (Synology MailPlus) desde la UI. La contraseña se cifra;
+// si el campo llega vacío se conserva la existente. Tiene prioridad sobre el .env.
+export async function saveMailSettings(formData: FormData): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+
+  const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
+  const host = String(formData.get("host") ?? "").trim() || null;
+  const port = Math.max(1, Math.min(65535, parseInt(String(formData.get("port") ?? "587"), 10) || 587));
+  const secure = formData.get("secure") === "on" || formData.get("secure") === "true";
+  const username = String(formData.get("username") ?? "").trim() || null;
+  const fromName = String(formData.get("fromName") ?? "").trim() || "Labstream OS";
+  const fromEmail = String(formData.get("fromEmail") ?? "").trim() || null;
+  const rejectUnauthorized = formData.get("rejectUnauthorized") === "on" || formData.get("rejectUnauthorized") === "true";
+  const rawPassword = String(formData.get("password") ?? "");
+  // Solo se reescribe la contraseña si el admin escribió una nueva (campo no vacío).
+  const passwordEnc = rawPassword ? encryptSecret(rawPassword) : undefined;
+
+  if (enabled && (!host || !username)) {
+    return { ok: false, error: "Para activarlo necesitas al menos servidor (host) y usuario." };
+  }
+
+  await db.mailSettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", enabled, host, port, secure, username, fromName, fromEmail, rejectUnauthorized, ...(passwordEnc ? { passwordEnc } : {}) },
+    update: { enabled, host, port, secure, username, fromName, fromEmail, rejectUnauthorized, ...(passwordEnc ? { passwordEnc } : {}) },
+  });
+  clearMailConfigCache();
+  await logActivity({ action: "settings.mail", summary: "actualizó la configuración de correo (SMTP)" });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.
 export async function sendTestEmail(): Promise<AdminActionResult> {
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
-  if (!emailEnabled) return { ok: false, error: "Correo no configurado (falta RESEND_API_KEY o SMTP_*)." };
+  if (!(await isEmailEnabled())) return { ok: false, error: "Correo no configurado (configúralo aquí en Integraciones o vía RESEND_API_KEY / SMTP_*)." };
   if (!session.email) return { ok: false, error: "Tu usuario no tiene correo." };
-  const via = emailProvider === "resend" ? "Resend (API HTTP)" : "SMTP";
+  const via = (await currentEmailProvider()) === "resend" ? "Resend (API HTTP)" : "SMTP";
   const r = await sendEmail({
     to: session.email,
     subject: "Correo de prueba · Labstream OS",
