@@ -9,13 +9,18 @@ import {
   getFilteredRowModel,
   type ColumnDef,
   type SortingState,
+  type Table as RTable,
 } from "@tanstack/react-table";
-import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil } from "lucide-react";
+import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil, GripVertical } from "lucide-react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import {
   addColumn,
   renameColumn,
+  reorderColumns,
   deleteColumn,
   deleteTable,
   addRow,
@@ -92,15 +97,32 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
   const [filter, setFilter] = React.useState("");
   const run = (fn: () => Promise<unknown>) => start(() => void fn());
 
+  // Orden local de columnas: permite reordenar arrastrando con respuesta inmediata, y se
+  // re-sincroniza cuando llegan datos frescos del servidor (tras guardar).
+  const [cols, setCols] = React.useState<Column[]>(table.columns);
+  React.useEffect(() => { setCols(table.columns); }, [table.columns]);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = cols.findIndex((c) => c.id === active.id);
+    const to = cols.findIndex((c) => c.id === over.id);
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(cols, from, to);
+    setCols(next); // optimista
+    run(() => reorderColumns(table.id, next.map((c) => c.id)));
+  };
+
   const columnDefs = React.useMemo<ColumnDef<Row>[]>(
     () =>
-      table.columns.map((c) => ({
+      cols.map((c) => ({
         id: c.id,
         accessorFn: (row) => displayText(c, row.cells[c.id], team),
         enableSorting: true,
         sortingFn: "alphanumeric",
       })),
-    [table.columns, team],
+    [cols, team],
   );
 
   const rt = useReactTable({
@@ -135,68 +157,89 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              {table.columns.map((c) => {
-                const tc = rt.getColumn(c.id);
-                const sorted = tc?.getIsSorted();
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <SortableContext items={cols.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
+                  {cols.map((c) => (
+                    <SortableHeader key={c.id} col={c} rt={rt} run={run} />
+                  ))}
+                </SortableContext>
+                <th className="w-10 px-2">
+                  {adding ? (
+                    <form onSubmit={(e) => { e.preventDefault(); run(() => addColumn(table.id, newCol, newType)); setNewCol(""); setAdding(false); }} className="flex items-center gap-1">
+                      <input autoFocus value={newCol} onChange={(e) => setNewCol(e.target.value)} placeholder="Nombre" className="w-24 rounded border border-input bg-background px-1.5 py-1 text-xs outline-none" />
+                      <select value={newType} onChange={(e) => setNewType(e.target.value)} className="rounded border border-input bg-background px-1 py-1 text-xs">
+                        {TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                      </select>
+                      <button className="rounded bg-primary px-1.5 py-1 text-xs text-primary-foreground">OK</button>
+                    </form>
+                  ) : (
+                    <button onClick={() => setAdding(true)} className="text-muted-foreground hover:text-foreground" title="Añadir columna"><Plus className="size-4" /></button>
+                  )}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((r) => {
+                const row = r.original;
                 return (
-                  <th key={c.id} className="group min-w-28 px-3 py-2 text-left font-medium text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <input
-                        defaultValue={c.name}
-                        onBlur={(e) => e.target.value !== c.name && run(() => renameColumn(c.id, e.target.value))}
-                        className="w-full bg-transparent outline-none focus:text-foreground"
-                      />
-                      <button onClick={() => tc?.toggleSorting()} className="text-muted-foreground hover:text-foreground" title="Ordenar">
-                        {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-40 group-hover:opacity-100" />}
-                      </button>
-                      <button onClick={() => run(() => deleteColumn(c.id))} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar columna">
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  </th>
+                  <tr key={row.id} className="group border-b border-border last:border-0">
+                    {cols.map((c) => (
+                      <td key={c.id} className="border-r border-border/50 px-2 py-1 align-top last:border-0">
+                        <Cell column={c} row={row} team={team} run={run} />
+                      </td>
+                    ))}
+                    <td className="px-2 text-center">
+                      <button onClick={() => run(() => deleteRow(row.id))} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar fila"><Trash2 className="size-3.5" /></button>
+                    </td>
+                  </tr>
                 );
               })}
-              <th className="w-10 px-2">
-                {adding ? (
-                  <form onSubmit={(e) => { e.preventDefault(); run(() => addColumn(table.id, newCol, newType)); setNewCol(""); setAdding(false); }} className="flex items-center gap-1">
-                    <input autoFocus value={newCol} onChange={(e) => setNewCol(e.target.value)} placeholder="Nombre" className="w-24 rounded border border-input bg-background px-1.5 py-1 text-xs outline-none" />
-                    <select value={newType} onChange={(e) => setNewType(e.target.value)} className="rounded border border-input bg-background px-1 py-1 text-xs">
-                      {TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
-                    </select>
-                    <button className="rounded bg-primary px-1.5 py-1 text-xs text-primary-foreground">OK</button>
-                  </form>
-                ) : (
-                  <button onClick={() => setAdding(true)} className="text-muted-foreground hover:text-foreground" title="Añadir columna"><Plus className="size-4" /></button>
-                )}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRows.map((r) => {
-              const row = r.original;
-              return (
-                <tr key={row.id} className="group border-b border-border last:border-0">
-                  {table.columns.map((c) => (
-                    <td key={c.id} className="border-r border-border/50 px-2 py-1 align-top last:border-0">
-                      <Cell column={c} row={row} team={team} run={run} />
-                    </td>
-                  ))}
-                  <td className="px-2 text-center">
-                    <button onClick={() => run(() => deleteRow(row.id))} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar fila"><Trash2 className="size-3.5" /></button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </DndContext>
       </div>
       <button onClick={() => run(() => addRow(table.id))} className="flex w-full items-center gap-1.5 px-4 py-2 text-sm text-muted-foreground hover:bg-accent">
         <Plus className="size-4" /> Nueva fila
       </button>
     </div>
+  );
+}
+
+// Encabezado de columna arrastrable (dnd-kit). El asa (grip) lleva los listeners de
+// arrastre; el resto (renombrar, ordenar, eliminar) sigue funcionando con clic normal.
+function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (fn: () => Promise<unknown>) => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.id });
+  const tc = rt.getColumn(col.id);
+  const sorted = tc?.getIsSorted();
+  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  return (
+    <th ref={setNodeRef} style={style} className={cn("group min-w-28 bg-card px-3 py-2 text-left font-medium text-muted-foreground", isDragging && "z-10")}>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="cursor-grab touch-none text-muted-foreground/30 hover:text-muted-foreground active:cursor-grabbing"
+          title="Arrastra para mover la columna"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+        <input
+          defaultValue={col.name}
+          onBlur={(e) => e.target.value !== col.name && run(() => renameColumn(col.id, e.target.value))}
+          className="w-full bg-transparent outline-none focus:text-foreground"
+        />
+        <button onClick={() => tc?.toggleSorting()} className="text-muted-foreground hover:text-foreground" title="Ordenar">
+          {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-40 group-hover:opacity-100" />}
+        </button>
+        <button onClick={() => run(() => deleteColumn(col.id))} className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" title="Eliminar columna">
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    </th>
   );
 }
 

@@ -140,6 +140,18 @@ export async function renameColumn(columnId: string, name: string) {
   await revalidateForTable(col.tableId);
 }
 
+// Reordena las columnas de una tabla (arrastrar y soltar el encabezado). Recibe los ids
+// en el nuevo orden y reescribe su `position`. Solo toca columnas de ESA tabla.
+export async function reorderColumns(tableId: string, orderedIds: string[]) {
+  await ensureTableAccess(tableId);
+  const cols = await db.dataColumn.findMany({ where: { tableId }, select: { id: true } });
+  const valid = new Set(cols.map((c) => c.id));
+  const ids = orderedIds.filter((id) => valid.has(id));
+  if (ids.length < 2) return;
+  await db.$transaction(ids.map((id, i) => db.dataColumn.update({ where: { id }, data: { position: i } })));
+  await revalidateForTable(tableId);
+}
+
 export async function deleteColumn(columnId: string) {
   await ensureColumnAccess(columnId);
   const before = await db.dataColumn.findUnique({ where: { id: columnId }, select: { name: true, tableId: true } });
