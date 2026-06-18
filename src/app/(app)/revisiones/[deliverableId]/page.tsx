@@ -50,6 +50,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     isNote: c.isNote,
     fromClient: c.fromClient,
     resolved: c.resolved,
+    locked: c.lockedAt != null,
     createdAt: c.createdAt.toISOString(),
   }));
 

@@ -818,6 +818,12 @@ export async function internalDecision(
     await db.deliverable.update({ where: { id: deliverableId }, data: { status: "ENVIADO_CLIENTE" } });
   } else {
     await db.deliverable.update({ where: { id: deliverableId }, data: { status: "CORRECCIONES" } });
+    // Sella los comentarios internos (borradores) de esta versión: pasan a ser el checklist
+    // inmutable que trabaja el editor en Entregables. Ya no se pueden editar ni borrar.
+    await db.reviewComment.updateMany({
+      where: { deliverableId, versionNumber, fromClient: false, lockedAt: null },
+      data: { lockedAt: new Date() },
+    });
   }
   await logActivity({
     action: "deliverable.preapproval",
@@ -899,6 +905,46 @@ export async function resolveReviewComment(commentId: string, _projectId: string
     );
   }
   // Sin revalidar: el cambio se refleja de forma optimista (no reinicia el video).
+}
+
+// Datos mínimos para autorizar editar/borrar un comentario de revisión.
+async function reviewCommentForMutation(commentId: string) {
+  return db.reviewComment.findUnique({
+    where: { id: commentId },
+    select: {
+      fromClient: true,
+      lockedAt: true,
+      authorUserId: true,
+      deliverable: { select: { project: { select: accessSelect } } },
+    },
+  });
+}
+
+// Edita el texto de un comentario interno de revisión. SOLO mientras es borrador
+// (lockedAt == null), por su autor o quien gestiona el proyecto. Tras «Solicitar cambios»
+// el comentario queda sellado e inmutable (es lo que trabaja el editor en Entregables).
+export async function editReviewComment(commentId: string, _projectId: string, body: string) {
+  const c = await reviewCommentForMutation(commentId);
+  const session = await getSession();
+  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  const mine = c.authorUserId === session!.id;
+  if (!mine && !canManageProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede editar.");
+  const next = body.trim().slice(0, 4000);
+  if (!next) throw new Error("El comentario no puede quedar vacío.");
+  await db.reviewComment.update({ where: { id: commentId }, data: { body: next } });
+  // Sin revalidar: el workspace lo refleja de forma optimista (no reinicia el video).
+}
+
+// Borra un comentario interno de revisión, con las mismas reglas que editar.
+export async function deleteReviewComment(commentId: string, _projectId: string) {
+  const c = await reviewCommentForMutation(commentId);
+  const session = await getSession();
+  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  const mine = c.authorUserId === session!.id;
+  if (!mine && !canManageProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede borrar.");
+  await db.reviewComment.delete({ where: { id: commentId } });
 }
 
 // Respuesta del equipo a la revisión del cliente (se ve en el portal público).

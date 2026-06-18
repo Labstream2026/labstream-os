@@ -1,7 +1,7 @@
 "use client";
 
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
-import { addInternalReviewComment, internalDecision } from "@/app/(app)/proyectos/[id]/actions";
+import { addInternalReviewComment, internalDecision, editReviewComment, deleteReviewComment } from "@/app/(app)/proyectos/[id]/actions";
 
 // Workspace de revisión del responsable: reproduce el material, deja comentarios con
 // captura y decide (Pre-aprobado / Solicitar cambios). El CHECKLIST de correcciones (con
@@ -39,6 +39,8 @@ export function InternalReview({
       onDecision={(result, note, _name, versionNumber) =>
         internalDecision(deliverableId, projectId, versionNumber, result, note || undefined)
       }
+      onEdit={(id, body) => editReviewComment(id, projectId, body)}
+      onDelete={(id) => deleteReviewComment(id, projectId)}
     />
   );
 }

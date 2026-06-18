@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, X, Eye, Link2Off, Link2, Pencil, Loader2, CheckCircle2, Circle, Send } from "lucide-react";
+import { Check, X, Eye, Link2Off, Link2, Pencil, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, setReviewDrawings, resolveReviewComment, replyToReview } from "./actions";
@@ -113,6 +113,8 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
   const [body, setBody] = React.useState("");
   // Estado «realizado» optimista (resolveReviewComment no revalida la página).
   const [override, setOverride] = React.useState<Record<string, boolean>>({});
+  // Acordeón por versión: null = aún sin tocar (abre solo la última); luego, conjunto explícito.
+  const [openVersions, setOpenVersions] = React.useState<Set<number | "none"> | null>(null);
   if (comments.length === 0) return null;
   const withRes = comments.map((c) => (c.id in override ? { ...c, resolved: override[c.id] } : c));
   const changes = withRes.filter((c) => !c.isNote);
@@ -123,6 +125,31 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
     setOverride((p) => ({ ...p, [c.id]: next }));
     start(() => resolveReviewComment(c.id, projectId, next));
   };
+
+  // Agrupa las correcciones por versión (más nueva arriba; las sin versión, al final) para
+  // que cada bloque sea un acordeón: con muchas versiones ocupa poco y NO se pierden las
+  // capturas de las versiones ya enviadas — solo quedan plegadas.
+  const groups = (() => {
+    const map = new Map<number | "none", ReviewThreadComment[]>();
+    for (const c of changes) {
+      const k = c.versionNumber ?? "none";
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(c);
+    }
+    return [...map.keys()]
+      .sort((a, b) => (a === "none" ? 1 : b === "none" ? -1 : (b as number) - (a as number)))
+      .map((k) => ({ key: k, items: map.get(k)! }));
+  })();
+  const latestKey = groups[0]?.key;
+  // Por defecto, solo la versión más nueva queda abierta; el resto, plegado.
+  const openSet = openVersions ?? new Set(latestKey != null ? [latestKey] : []);
+  const toggleVersion = (k: number | "none") => {
+    const base = openVersions ?? new Set(latestKey != null ? [latestKey] : []);
+    const next = new Set(base);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setOpenVersions(next);
+  };
+
   return (
     <div className="mt-3 border-t border-border pt-3">
       {changes.length > 0 ? (
@@ -131,33 +158,55 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
             Checklist de correcciones · {done}/{changes.length} hechos
           </p>
           <div className="space-y-2">
-            {changes.map((c) => (
-              <div key={c.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-sm", c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border")}>
-                <button
-                  onClick={() => toggle(c)}
-                  disabled={pending}
-                  title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
-                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
-                >
-                  {c.resolved ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Circle className="size-5" />}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-medium">{c.authorName}</span>
-                    {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                    {c.versionNumber ? <span className="text-[10px] text-muted-foreground">v{c.versionNumber}</span> : null}
-                    {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{fmtTime(c.timecode)}</span> : null}
-                    {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
-                  </div>
-                  <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
-                  {c.image ? (
-                    // Captura del fotograma: el editor ve exactamente dónde es la corrección.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.image} alt="Captura de la corrección" className="mt-1.5 w-full max-w-sm rounded-md border border-border" />
+            {groups.map(({ key, items }) => {
+              const gDone = items.filter((c) => c.resolved).length;
+              const open = openSet.has(key);
+              return (
+                <div key={String(key)} className="overflow-hidden rounded-lg border border-border">
+                  <button
+                    type="button"
+                    onClick={() => toggleVersion(key)}
+                    className="flex w-full items-center gap-2 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-muted/70"
+                  >
+                    {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+                    <span>{key === "none" ? "Sin versión" : `Versión ${key}`}</span>
+                    <span className={cn("ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium", gDone === items.length ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-background text-muted-foreground")}>
+                      {gDone}/{items.length} hechos
+                    </span>
+                  </button>
+                  {open ? (
+                    <div className="space-y-2 p-2">
+                      {items.map((c) => (
+                        <div key={c.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-sm", c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border")}>
+                          <button
+                            onClick={() => toggle(c)}
+                            disabled={pending}
+                            title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
+                            className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
+                          >
+                            {c.resolved ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Circle className="size-5" />}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs font-medium">{c.authorName}</span>
+                              {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                              {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{fmtTime(c.timecode)}</span> : null}
+                              {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                            </div>
+                            <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
+                            {c.image ? (
+                              // Captura del fotograma: el editor ve exactamente dónde es la corrección.
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={c.image} alt="Captura de la corrección" className="mt-1.5 w-full max-w-sm rounded-md border border-border" />
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       ) : null}

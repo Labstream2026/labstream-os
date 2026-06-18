@@ -34,6 +34,9 @@ export type StageComment = {
   isNote: boolean;
   fromClient: boolean;
   resolved?: boolean;
+  // Sellado: si está en true, el comentario ya se envió («Solicitar cambios») y no se
+  // puede editar ni borrar. Los borradores (false/undefined) sí, en el modo interno.
+  locked?: boolean;
   createdAt: string;
 };
 
@@ -65,6 +68,8 @@ export function ReviewStage({
   onComment,
   onDecision,
   onResolve,
+  onEdit,
+  onDelete,
 }: {
   versions: StageVersion[];
   comments: StageComment[];
@@ -78,6 +83,10 @@ export function ReviewStage({
   onComment: (fd: FormData) => Promise<void>;
   onDecision?: (result: "APROBADO" | "CAMBIOS", note: string, name: string, versionNumber: number) => Promise<void>;
   onResolve?: (commentId: string, resolved: boolean) => Promise<void>;
+  // Editar/borrar comentarios propios mientras son borradores (modo interno). Si no se
+  // pasan, no se muestran los controles.
+  onEdit?: (commentId: string, body: string) => Promise<void>;
+  onDelete?: (commentId: string) => Promise<void>;
 }) {
   const [vIdx, setVIdx] = React.useState(0);
   const version = versions[vIdx] ?? versions[0];
@@ -96,6 +105,30 @@ export function ReviewStage({
   const [localComments, setLocalComments] = React.useState<StageComment[]>([]);
   // Estado «resuelto» cambiado en esta sesión (también optimista, sin recargar).
   const [resolvedOverride, setResolvedOverride] = React.useState<Record<string, boolean>>({});
+  // Ediciones/borrados de comentarios en esta sesión (optimista, sin recargar el video).
+  const [bodyOverride, setBodyOverride] = React.useState<Record<string, string>>({});
+  const [deletedIds, setDeletedIds] = React.useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editText, setEditText] = React.useState("");
+
+  const startEdit = (c: StageComment) => { setEditingId(c.id); setEditText(c.body); };
+  const saveEdit = (id: string) => {
+    if (!onEdit) return;
+    const next = editText.trim();
+    if (!next) return;
+    setBodyOverride((p) => ({ ...p, [id]: next }));
+    setEditingId(null);
+    start(async () => { await onEdit(id, next); });
+  };
+  const removeComment = (id: string) => {
+    if (!onDelete) return;
+    if (!window.confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+    setDeletedIds((p) => new Set(p).add(id));
+    start(async () => { await onDelete(id); });
+  };
+  // ¿Se puede editar/borrar este comentario? Solo borradores internos (no del cliente,
+  // no sellados) y en modo interno con los callbacks disponibles.
+  const canMutate = (c: StageComment) => mode === "internal" && !c.fromClient && !c.locked && (!!onEdit || !!onDelete);
 
   React.useEffect(() => {
     if (fixedName) return;
@@ -105,10 +138,15 @@ export function ReviewStage({
   // Mezcla los comentarios del servidor con los añadidos en esta sesión y aplica los
   // cambios de «resuelto» optimistas.
   const merged = React.useMemo(() => {
-    return [...comments, ...localComments].map((c) =>
-      c.id in resolvedOverride ? { ...c, resolved: resolvedOverride[c.id] } : c,
-    );
-  }, [comments, localComments, resolvedOverride]);
+    return [...comments, ...localComments]
+      .filter((c) => !deletedIds.has(c.id))
+      .map((c) => {
+        let next = c;
+        if (c.id in resolvedOverride) next = { ...next, resolved: resolvedOverride[c.id] };
+        if (c.id in bodyOverride) next = { ...next, body: bodyOverride[c.id] };
+        return next;
+      });
+  }, [comments, localComments, resolvedOverride, bodyOverride, deletedIds]);
 
   // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas.
   const ofVersion = merged.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);
@@ -309,9 +347,16 @@ export function ReviewStage({
                     {c.timecode != null ? (
                       <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
                     ) : null}
-                    {c.resolved && onResolve ? <span className="ml-auto rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                    <span className="ml-auto flex items-center gap-1.5">
+                      {c.resolved && onResolve ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                      {canMutate(c) ? <CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /> : null}
+                    </span>
                   </div>
-                  <p className={`mt-1 whitespace-pre-wrap ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
+                  {editingId === c.id ? (
+                    <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                  ) : (
+                    <p className={`mt-1 whitespace-pre-wrap ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
+                  )}
                   {c.drawing?.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
@@ -356,8 +401,13 @@ export function ReviewStage({
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium">{c.authorName}</span>
                     {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                    {canMutate(c) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /></span> : null}
                   </div>
-                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
+                  {editingId === c.id ? (
+                    <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                  ) : (
+                    <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
+                  )}
                 </div>
               ))
             )}
@@ -367,6 +417,40 @@ export function ReviewStage({
             <button onClick={submitNote} disabled={pending || !noteBody.trim()} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">Añadir nota</button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Botones compactos de editar/borrar un comentario (borrador, modo interno).
+function CommentActions({ onEdit, onDelete, disabled }: { onEdit?: () => void; onDelete?: () => void; disabled?: boolean }) {
+  return (
+    <span className="flex items-center gap-1">
+      {onEdit ? (
+        <button type="button" onClick={onEdit} disabled={disabled} title="Editar" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">Editar</button>
+      ) : null}
+      {onDelete ? (
+        <button type="button" onClick={onDelete} disabled={disabled} title="Borrar" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">Borrar</button>
+      ) : null}
+    </span>
+  );
+}
+
+// Edición en línea del texto de un comentario.
+function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: string; onChange: (v: string) => void; onSave: () => void; onCancel: () => void; disabled?: boolean }) {
+  return (
+    <div className="mt-1 space-y-1.5">
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={2}
+        autoFocus
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSave(); } if (e.key === "Escape") onCancel(); }}
+      />
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onSave} disabled={disabled || !value.trim()} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Guardar</button>
+        <button type="button" onClick={onCancel} disabled={disabled} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">Cancelar</button>
       </div>
     </div>
   );
