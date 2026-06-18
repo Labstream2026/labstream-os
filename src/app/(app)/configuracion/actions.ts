@@ -75,6 +75,15 @@ export async function saveMailSettings(formData: FormData): Promise<AdminActionR
   if (enabled && (!host || !username)) {
     return { ok: false, error: "Para activarlo necesitas al menos servidor (host) y usuario." };
   }
+  // Para activar el envío hace falta una contraseña: o la escribes ahora, o ya había una
+  // guardada. Si no, el correo quedaría "activado" pero `getMailConfig` lo descartaría por
+  // falta de clave (apagado en silencio). Mejor avisar aquí.
+  if (enabled && !passwordEnc) {
+    const existing = await db.mailSettings.findUnique({ where: { id: "default" }, select: { passwordEnc: true } });
+    if (!existing?.passwordEnc) {
+      return { ok: false, error: "Para activarlo escribe la contraseña del buzón." };
+    }
+  }
 
   await db.mailSettings.upsert({
     where: { id: "default" },

@@ -122,6 +122,13 @@ function transporter(c: SmtpConfig): nodemailer.Transporter {
         secure: c.secure,
         auth: { user: c.user, pass: c.password },
         tls: { rejectUnauthorized: c.rejectUnauthorized },
+        // Timeouts cortos: si el SMTP está mal configurado o el NAS no responde, el envío
+        // falla en segundos en vez de colgarse ~2 min. Importante porque el correo de
+        // @mención se espera (await) antes de devolver el mensaje del chat: sin esto, un
+        // SMTP caído congelaría el envío de cualquier mensaje con mención.
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
       }),
     };
   }
