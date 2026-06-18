@@ -125,41 +125,51 @@ export function EmojiPicker({
 }) {
   const [q, setQ] = React.useState("");
   const [style, setStyle] = React.useState<React.CSSProperties | null>(null);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
   const query = q.trim().toLowerCase();
 
-  // Posiciona el panel (fijo) junto al icono que lo abrió: debajo si cabe, si no, encima.
-  React.useLayoutEffect(() => {
+  // Recalcula la posición del panel (fijo) junto al icono que lo abrió: debajo si cabe,
+  // si no, encima. Se reutiliza al abrir y al hacer scroll/resize para que SIGA al icono
+  // en lugar de cerrarse.
+  const reposition = React.useCallback(() => {
     const el = anchorRef.current;
     if (!el) return;
-    const compute = () => {
-      const el2 = anchorRef.current;
-      if (!el2) return;
-      const r = el2.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const left = Math.max(8, Math.min(r.left, vw - PANEL_W - 8));
-      const spaceBelow = vh - r.bottom;
-      if (spaceBelow >= EST_H || spaceBelow >= r.top) {
-        setStyle({ position: "fixed", left, top: r.bottom + 8 });
-      } else {
-        setStyle({ position: "fixed", left, bottom: vh - r.top + 8 });
-      }
-    };
-    compute();
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = Math.max(8, Math.min(r.left, vw - PANEL_W - 8));
+    const spaceBelow = vh - r.bottom;
+    if (spaceBelow >= EST_H || spaceBelow >= r.top) {
+      setStyle({ position: "fixed", left, top: r.bottom + 8 });
+    } else {
+      setStyle({ position: "fixed", left, bottom: vh - r.top + 8 });
+    }
   }, [anchorRef]);
 
-  // Cierra con Escape o al hacer scroll/resize (para no quedar descolocado).
+  // Posiciona al abrir.
+  React.useLayoutEffect(() => {
+    reposition();
+  }, [reposition]);
+
+  // Escape cierra. En scroll/resize NO cerramos: reubicamos el panel para que siga al
+  // icono. Además, ignoramos el scroll que ocurre DENTRO del propio panel (al desplazar
+  // la lista de emojis, sobre todo en móvil) — antes ese scroll lo cerraba.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onScroll = (e: Event) => {
+      const target = e.target as Node | null;
+      if (target && panelRef.current?.contains(target)) return; // scroll interno → ignorar
+      reposition();
+    };
     window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", onScroll, true);
     };
-  }, [onClose]);
+  }, [onClose, reposition]);
 
   const results = React.useMemo(() => {
     if (!query) return null;
@@ -178,6 +188,7 @@ export function EmojiPicker({
       {/* Capa para cerrar al hacer clic fuera */}
       <div className="fixed inset-0 z-[199]" onClick={onClose} />
       <div
+        ref={panelRef}
         style={{ ...(style ?? { position: "fixed", left: -9999, top: -9999 }), maxHeight: "min(70vh, 380px)" }}
         className="z-[200] flex w-72 flex-col overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-2xl"
       >
@@ -192,7 +203,7 @@ export function EmojiPicker({
           />
         </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
           {results ? (
             results.length === 0 ? (
               <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
