@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { authentikEnabled, exchangeCode, fetchUserinfo, PROVISION_DOMAIN } from "@/lib/oidc";
+import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, PROVISION_DOMAIN } from "@/lib/oidc";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
 import { safeNext } from "@/lib/safe-next";
 
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
   const fail = (e: string) => {
     const r = NextResponse.redirect(new URL(`/login?error=${e}`, base));
     r.cookies.delete("oidc_state");
+    r.cookies.delete("oidc_nonce");
     r.cookies.delete("oidc_next");
     return r;
   };
@@ -37,14 +38,26 @@ export async function GET(req: NextRequest) {
   const expected = req.cookies.get("oidc_state")?.value;
   if (!code || !state || !expected || state !== expected) return fail("state");
 
+  const expectedNonce = req.cookies.get("oidc_nonce")?.value;
   const next = safeNext(req.cookies.get("oidc_next")?.value);
 
   try {
     const redirectUri = `${base}/api/auth/oidc/callback`;
-    const accessToken = await exchangeCode(code, redirectUri);
+    const { accessToken, idToken } = await exchangeCode(code, redirectUri);
+
+    // Validaciones del id_token (canal directo de confianza; sin verificar firma):
+    const claims = decodeIdTokenClaims(idToken);
+    // Anti-replay: si el id_token trae `nonce`, DEBE coincidir con el de esta sesión.
+    // (Si el IdP no lo incluyera —misconfig— no bloqueamos el login.)
+    if (claims?.nonce && claims.nonce !== expectedNonce) return fail("nonce");
+    // Rechazar un id_token expirado.
+    if (typeof claims?.exp === "number" && claims.exp * 1000 < Date.now()) return fail("expirado");
+
     const info = await fetchUserinfo(accessToken);
     const email = info.email?.trim().toLowerCase();
     if (!email) return fail("email");
+    // Rechazar SOLO si el proveedor marca el email explícitamente como no verificado.
+    if (info.emailVerified === false) return fail("email_no_verificado");
 
     let user = await db.user.findUnique({ where: { email }, include: roleInclude });
 
@@ -85,6 +98,7 @@ export async function GET(req: NextRequest) {
 
     const res = NextResponse.redirect(new URL(next, base));
     res.cookies.delete("oidc_state");
+    res.cookies.delete("oidc_nonce");
     res.cookies.delete("oidc_next");
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,

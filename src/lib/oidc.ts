@@ -29,7 +29,7 @@ async function discovery(): Promise<Discovery> {
   return cached;
 }
 
-export async function authorizeUrl(redirectUri: string, state: string): Promise<string> {
+export async function authorizeUrl(redirectUri: string, state: string, nonce: string): Promise<string> {
   const d = await discovery();
   const u = new URL(d.authorization_endpoint);
   u.searchParams.set("client_id", CLIENT_ID!);
@@ -37,10 +37,11 @@ export async function authorizeUrl(redirectUri: string, state: string): Promise<
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", "openid email profile");
   u.searchParams.set("state", state);
+  u.searchParams.set("nonce", nonce); // anti-replay: el IdP lo devuelve dentro del id_token
   return u.toString();
 }
 
-export async function exchangeCode(code: string, redirectUri: string): Promise<string> {
+export async function exchangeCode(code: string, redirectUri: string): Promise<{ accessToken: string; idToken: string | null }> {
   const d = await discovery();
   const res = await fetch(d.token_endpoint, {
     method: "POST",
@@ -55,11 +56,28 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<s
     cache: "no-store",
   });
   if (!res.ok) throw new Error("OIDC token exchange falló");
-  const json = (await res.json()) as { access_token: string };
-  return json.access_token;
+  const json = (await res.json()) as { access_token: string; id_token?: string };
+  return { accessToken: json.access_token, idToken: json.id_token ?? null };
 }
 
-export type OidcUser = { email: string; name: string; sub: string };
+// Decodifica los claims del id_token (payload del JWT) SIN verificar la firma. El id_token
+// llega por canal DIRECTO servidor→servidor (TLS) desde el token endpoint con cliente
+// confidencial (client_secret), así que el canal ya es de confianza; aquí solo leemos
+// `nonce` (ligar el token a ESTE login → anti-replay) y `exp` (rechazar expirados). La
+// verificación de firma por JWKS queda como endurecimiento futuro (requiere probar el SSO).
+export function decodeIdTokenClaims(idToken: string | null): { nonce?: string; exp?: number; email_verified?: boolean } | null {
+  if (!idToken) return null;
+  const parts = idToken.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return JSON.parse(json) as { nonce?: string; exp?: number; email_verified?: boolean };
+  } catch {
+    return null;
+  }
+}
+
+export type OidcUser = { email: string; name: string; sub: string; emailVerified: boolean | null };
 
 export async function fetchUserinfo(accessToken: string): Promise<OidcUser> {
   const d = await discovery();
@@ -68,6 +86,11 @@ export async function fetchUserinfo(accessToken: string): Promise<OidcUser> {
     cache: "no-store",
   });
   if (!res.ok) throw new Error("OIDC userinfo falló");
-  const u = (await res.json()) as { email: string; name?: string; preferred_username?: string; sub: string };
-  return { email: u.email, name: u.name || u.preferred_username || u.email, sub: u.sub };
+  const u = (await res.json()) as { email: string; name?: string; preferred_username?: string; sub: string; email_verified?: boolean };
+  return {
+    email: u.email,
+    name: u.name || u.preferred_username || u.email,
+    sub: u.sub,
+    emailVerified: typeof u.email_verified === "boolean" ? u.email_verified : null,
+  };
 }

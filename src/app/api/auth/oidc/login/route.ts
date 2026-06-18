@@ -13,9 +13,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=sso", base));
   }
   const state = globalThis.crypto.randomUUID();
+  const nonce = globalThis.crypto.randomUUID();
   const next = safeNext(new URL(req.url).searchParams.get("next"));
   const redirectUri = `${base}/api/auth/oidc/callback`;
-  const url = await authorizeUrl(redirectUri, state);
+  const url = await authorizeUrl(redirectUri, state, nonce);
 
   const cookieOpts = {
     httpOnly: true,
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   };
   const res = NextResponse.redirect(url);
   res.cookies.set("oidc_state", state, cookieOpts);
+  res.cookies.set("oidc_nonce", nonce, cookieOpts); // anti-replay (se valida en el callback)
   // Guardamos el destino para retomarlo tras el callback (sin confiar en el query del proveedor).
   res.cookies.set("oidc_next", next, cookieOpts);
   return res;
