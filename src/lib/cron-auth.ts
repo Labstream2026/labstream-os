@@ -7,10 +7,12 @@ import type { NextRequest } from "next/server";
 //   1. Llamada LOCAL del propio NAS: el Programador de tareas hace
 //      `curl http://localhost:3200/api/cron/...`. Esa petición llega DIRECTO al
 //      contenedor (Host: localhost) y NO pasa por el reverse proxy de DSM, que es quien
-//      añade X-Forwarded-For / X-Real-IP y reescribe el Host al dominio público. Como el
-//      puerto del contenedor solo escucha en 127.0.0.1, una petición con Host local y sin
-//      cabeceras de proxy únicamente puede originarse en el propio NAS → de confianza. Así
-//      la tarea del NAS no tiene que guardar el secreto.
+//      añade X-Forwarded-For / X-Real-IP y reescribe el Host al dominio público.
+//      LA FRONTERA DE SEGURIDAD REAL es el binding del puerto a loopback en docker-compose
+//      (`127.0.0.1:3200:3000`): el contenedor solo escucha en 127.0.0.1, así que una
+//      petición sólo puede originarse en el propio host del NAS. La comprobación de
+//      cabeceras de abajo es DEFENSA SECUNDARIA: exige Host local y rechaza cualquier
+//      cabecera típica de proxy. Así la tarea del NAS no tiene que guardar el secreto.
 //   2. Llamada EXTERNA (vía dominio público / reverse proxy): se exige el header
 //      `Authorization: Bearer $CRON_SECRET`, igual que antes.
 
@@ -24,7 +26,12 @@ function safeEqual(a: string, b: string): boolean {
 function isLocalNas(req: NextRequest): boolean {
   const host = (req.headers.get("host") || "").split(":")[0].toLowerCase();
   const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-  const proxied = !!req.headers.get("x-forwarded-for") || !!req.headers.get("x-real-ip");
+  const proxied =
+    !!req.headers.get("x-forwarded-for") ||
+    !!req.headers.get("x-real-ip") ||
+    !!req.headers.get("x-forwarded-host") ||
+    !!req.headers.get("x-forwarded-proto") ||
+    !!req.headers.get("forwarded");
   return local && !proxied;
 }
 

@@ -48,8 +48,12 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
   const inHours = hour >= cfg.startHour && hour <= cfg.lastHour;
   const morningWindow = isWorkday && hour >= cfg.startHour && hour < cfg.startHour + MORNING_HOURS;
   // El cierre de semana cae el último día laboral configurado (por defecto viernes).
+  // Usamos una VENTANA (>= lastHour-1) en vez de la hora exacta: el cron corre cada 2 h y
+  // sus ticks pueden no caer justo en `lastHour`, así que con `=== lastHour` el cierre no
+  // se enviaría nunca si la cadencia está desfasada. El dedup por `lastWeeklyOn` (más abajo)
+  // garantiza que solo se mande una vez ese día.
   const lastWorkday = cfg.workDays.length ? Math.max(...cfg.workDays) : 5;
-  const isFridayClose = wd === lastWorkday && hour === cfg.lastHour;
+  const isFridayClose = wd === lastWorkday && hour >= cfg.lastHour - 1;
 
   const bot = await ensureMarcebot();
   const recipients = await db.user.findMany({

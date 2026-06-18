@@ -194,9 +194,20 @@ export async function removeEventForUsers(eventId: string, userIds: string[]): P
 const WINDOW_BACK_DAYS = 31;
 const WINDOW_FWD_DAYS = 366;
 
+// expandRecurrence (ics-parse) reescribe el UID de cada ocurrencia como
+// `${baseUid}_YYYYMMDDTHHMMSS`. Para reconciliar borrados NO podemos comparar esos
+// UID sintéticos contra una ventana deslizante (una ocurrencia fuera de ventana
+// parecería "borrada en el servidor" y se eliminaría/recrearía en bucle). Por eso
+// reconciliamos por UID BASE: derivamos el UID base quitando el sufijo de stamp.
+// El stamp solo se añade a series recurrentes; un evento simple conserva su UID.
+const OCCURRENCE_SUFFIX = /_\d{8}T\d{6}$/;
+function baseUidOf(uid: string): string {
+  return uid.replace(OCCURRENCE_SUFFIX, "");
+}
+
 // Trae a la app los eventos creados/editados/borrados en el Synology Calendar de un
 // usuario (pull). Devuelve un resumen para diagnóstico.
-export async function syncUserCalendar(conn: CalendarConnection): Promise<{ imported: number; updated: number; deleted: number; error?: string }> {
+export async function syncUserCalendar(conn: CalendarConnection): Promise<{ imported: number; updated: number; deleted: number; error?: string; skippedDeletes?: boolean; skipReason?: string }> {
   if (!conn.enabled || !conn.calendarUrl) return { imported: 0, updated: 0, deleted: 0 };
   const now = new Date();
   const from = new Date(now.getTime() - WINDOW_BACK_DAYS * 86400000);
@@ -206,10 +217,15 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
   try {
     const auth = authOf(conn);
     const remote = await queryEvents(auth, conn.calendarUrl, from, to);
+    // UID exactos (incluidos los sintéticos de ocurrencias) que el servidor reporta:
+    // se usa para upsert/import, no para borrar.
     const seenUids = new Set<string>();
+    // UID BASE que el servidor reporta: la única base fiable para reconciliar
+    // borrados (ver baseUidOf y la nota de B2 arriba).
+    const seenBaseUids = new Set<string>();
 
     // Expande recurrentes a ocurrencias concretas dentro de la ventana.
-    const occurrences = remote.flatMap((r) => {
+    const occurrences = remote.events.flatMap((r) => {
       const base = parseIcs(r.ics)[0];
       if (!base) return [];
       return expandRecurrence(base, from, to).map((occ) => ({ occ, href: r.href, etag: r.etag }));
@@ -217,6 +233,7 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
 
     for (const { occ: parsed, href, etag } of occurrences) {
       seenUids.add(parsed.uid);
+      seenBaseUids.add(baseUidOf(parsed.uid));
 
       const existing = await db.calendarEvent.findUnique({ where: { uid: parsed.uid }, select: { id: true, source: true } });
       if (!existing) {
@@ -262,6 +279,15 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
 
     // Borrados: eventos de origen Synology de este usuario, dentro de la ventana,
     // que ya no están en el servidor → se eliminaron allá, los quitamos aquí.
+    //
+    // GUARDA B1 (no borrar ante respuesta incompleta/vacía/fallida):
+    // Solo reconciliamos borrados si el REPORT fue un multistatus completo y bien
+    // formado (`remote.complete`). Si el servidor respondió de forma rara, vacía o
+    // parcial NO podemos afirmar qué eventos desaparecieron, así que NO borramos
+    // nada en esta corrida. Además, como salvaguarda extra, si tenemos eventos
+    // locales pero el servidor no devolvió NINGUNO, nos negamos a borrar en masa:
+    // ese patrón "todo desaparece de golpe" es casi siempre un fallo de lectura,
+    // no que el usuario haya vaciado su calendario entre dos sondeos.
     const localSyno = await db.calendarEvent.findMany({
       where: {
         source: "synology",
@@ -271,7 +297,32 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
       },
       select: { id: true, uid: true },
     });
-    const toDelete = localSyno.filter((e) => e.uid && !seenUids.has(e.uid)).map((e) => e.id);
+
+    const reportComplete = remote.complete;
+    const serverReturnedNothing = seenBaseUids.size === 0;
+    const haveLocalEvents = localSyno.length > 0;
+    // Negativa al borrado masivo sobre listado vacío (B1).
+    const suspiciousEmptyWipe = serverReturnedNothing && haveLocalEvents;
+
+    if (!reportComplete || suspiciousEmptyWipe) {
+      // No tocamos nada: preferimos NUNCA borrar a borrar por error. Se registra
+      // como skip para diagnóstico; los borrados reales se propagarán cuando el
+      // servidor devuelva un listado completo.
+      const reason = !reportComplete ? "respuesta REPORT incompleta" : "listado vacío con eventos locales";
+      await db.calendarConnection.update({
+        where: { id: conn.id },
+        data: { lastSyncAt: now, lastError: null },
+      });
+      return { imported, updated, deleted, skippedDeletes: true, skipReason: reason };
+    }
+
+    // GUARDA B2 (reconciliar por UID BASE, no por UID de ocurrencia):
+    // Un evento local solo se borra si su UID BASE está completamente ausente del
+    // conjunto que reportó el servidor. Así, las ocurrencias de una serie recurrente
+    // que caen fuera de la ventana deslizante NO se interpretan como "borradas".
+    const toDelete = localSyno
+      .filter((e) => e.uid && !seenBaseUids.has(baseUidOf(e.uid)))
+      .map((e) => e.id);
     if (toDelete.length) {
       await db.calendarEvent.deleteMany({ where: { id: { in: toDelete } } });
       deleted = toDelete.length;

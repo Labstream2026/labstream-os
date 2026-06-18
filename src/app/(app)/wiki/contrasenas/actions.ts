@@ -2,14 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
 import type { SessionUser } from "@/lib/session";
 
+// La bóveda de credenciales es de alta sensibilidad: además de ver la Wiki, exige el
+// permiso dedicado `ver_contrasenas` para CUALQUIER operación (incluido revelar el
+// secreto en claro). Sin esto, cualquier usuario con acceso a la Wiki que sea creador o
+// esté en la lista de "viewers" podría descifrar contraseñas saltándose el permiso.
 async function ensureInternal(): Promise<SessionUser> {
   const session = await getSession();
-  if (!(await canSeeWiki(session))) throw new Error("No autorizado");
+  if (!(await canSeeWiki(session)) || !hasPermission(session, "ver_contrasenas")) throw new Error("No autorizado");
   return session!;
 }
 

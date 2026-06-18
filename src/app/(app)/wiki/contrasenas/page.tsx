@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
 import { CredentialsClient, type Cred } from "./credentials-client";
 
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ContrasenasPage() {
   const session = (await getSession())!; // el layout ya bloquea a invitados
+  // La bóveda de contraseñas exige el permiso dedicado (no basta con ver la Wiki).
+  if (!hasPermission(session, "ver_contrasenas")) redirect("/wiki");
   const isAdmin = session.role === "admin";
 
   const [creds, team] = await Promise.all([

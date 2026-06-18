@@ -19,6 +19,11 @@ function getDispatcher(): Promise<unknown> {
 export type CalDavAuth = { serverUrl: string; username: string; password: string };
 export type CalendarCollection = { url: string; name: string };
 export type RemoteEvent = { href: string; etag: string | null; ics: string };
+// Resultado del pull: además de los eventos, indica si el REPORT fue un éxito
+// completo y bien formado. `complete=false` significa que NO podemos confiar en
+// que `events` sea el listado íntegro del servidor (respuesta vacía/rara/parcial),
+// y por tanto NO se debe reconciliar borrados a partir de él.
+export type QueryResult = { events: RemoteEvent[]; complete: boolean };
 
 function authHeader(a: CalDavAuth) {
   return "Basic " + Buffer.from(`${a.username}:${a.password}`).toString("base64");
@@ -145,7 +150,7 @@ export async function deleteEvent(a: CalDavAuth, href: string): Promise<boolean>
 // ── Lectura (pull) ────────────────────────────────────────────────────────────
 // calendar-query: trae los VEVENT del calendario en una ventana de tiempo, con su
 // etag y datos. Suficiente y robusto para un equipo pequeño (sondeo cada pocos min).
-export async function queryEvents(a: CalDavAuth, calendarUrl: string, from: Date, to: Date): Promise<RemoteEvent[]> {
+export async function queryEvents(a: CalDavAuth, calendarUrl: string, from: Date, to: Date): Promise<QueryResult> {
   const fmt = (d: Date) =>
     `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}T000000Z`;
   const body =
@@ -170,5 +175,12 @@ export async function queryEvents(a: CalDavAuth, calendarUrl: string, from: Date
     const etag = tagContent(r, "getetag")?.trim() ?? null;
     out.push({ href: absoluteUrl(a.serverUrl, href), etag, ics: decodeEntities(data) });
   }
-  return out;
+  // Distinguimos "el servidor confirma que no hay eventos" de "no pudimos leer el
+  // listado". Solo consideramos el pull COMPLETO si la respuesta es un multistatus
+  // 207 bien formado (contiene <multistatus>). Un 200 sin multistatus, un cuerpo
+  // vacío o un XML que no pudimos parsear → complete=false: el llamador NO debe
+  // borrar nada a partir de este resultado. Un 207 multistatus legítimamente vacío
+  // (cero <response>) SÍ es completo: el servidor afirma que no hay eventos.
+  const looksLikeMultistatus = res.status === 207 && /<[a-z0-9]*:?multistatus[\s>]/i.test(xml);
+  return { events: out, complete: looksLikeMultistatus };
 }

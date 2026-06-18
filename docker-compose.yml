@@ -9,7 +9,11 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "3200:3000" # reverse proxy de DSM → os.labstreamsas.com
+      # Solo loopback del host: el contenedor escucha en 127.0.0.1:3200, no en 0.0.0.0.
+      # El reverse proxy de DSM corre en el host y reenvía a localhost:3200 → os.labstreamsas.com.
+      # Así un dispositivo de la LAN NO puede llegar directo al contenedor (saltándose el proxy)
+      # y falsificar cabeceras para disparar los crons sin secreto. Es la frontera de seguridad real.
+      - "127.0.0.1:3200:3000"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://labstream:${POSTGRES_PASSWORD:-changeme}@postgres:5432/labstream_os?schema=public
