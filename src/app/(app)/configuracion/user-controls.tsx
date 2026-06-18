@@ -29,8 +29,15 @@ export function UserControls({
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
     start(async () => {
-      const res = await fn();
-      if (!res.ok) setError(res.error ?? "No se pudo aplicar el cambio.");
+      try {
+        const res = await fn();
+        if (!res.ok) setError(res.error ?? "No se pudo aplicar el cambio.");
+      } catch {
+        // Si la acción del servidor lanza (p. ej. tras un despliegue, el id de la
+        // Server Action de esta pestaña ya no existe → UnrecognizedActionError, o un
+        // 503 transitorio), lo mostramos inline en vez de dejar que tumbe toda la página.
+        setError("No se pudo aplicar el cambio. Recarga la página e inténtalo de nuevo.");
+      }
     });
   };
 
