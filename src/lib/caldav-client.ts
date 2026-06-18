@@ -2,7 +2,13 @@
 // lista calendarios, y permite escribir/borrar/leer eventos en la colección elegida.
 // Acepta certificados auto-firmados del NAS si CALDAV_INSECURE_TLS=true.
 
-const INSECURE = process.env.CALDAV_INSECURE_TLS === "true";
+// Synology DSM usa un certificado AUTOFIRMADO por defecto, así que aceptarlo es lo normal
+// en este producto (NAS autohospedado). Por eso el valor por defecto es PERMITIRLO; para
+// exigir verificación estricta hay que poner CALDAV_INSECURE_TLS=false. OJO: esto NO abre
+// la puerta a cualquier host — en `dav()` el TLS relajado se aplica SOLO cuando el host de
+// la petición coincide con el host que el propio usuario configuró (su NAS), nunca a un
+// redirect o a otro origen.
+const INSECURE = process.env.CALDAV_INSECURE_TLS !== "false";
 
 // undici se carga perezosamente solo en runtime de servidor (no en bundle cliente/edge).
 let dispatcherPromise: Promise<unknown> | undefined;
