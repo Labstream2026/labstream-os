@@ -3,6 +3,7 @@ import { ensureMarcebot, sendBotDM, type BotUser } from "./bot";
 import { getUserPendientes, getTeamSummary, openStatusKeys, type TeamSummary } from "./data";
 import { getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, type TeamEscalation } from "./chase";
 import { getUserWeekStats, getTeamWeekStats, type TeamWeek } from "./weekly";
+import { getMarcebotConfig } from "./config";
 import {
   composePersonal,
   composeTeam,
@@ -15,25 +16,22 @@ import {
 import { bogotaHour, bogotaDateKey, bogotaWeekday } from "./time";
 
 // Orquestador horario de Marcebot. Lo invoca /api/cron/marcebot cada hora.
-// Reglas:
-//   • Solo escribe en horario laboral de Colombia (7:00 a 16:00; la última a las 4 p. m.,
-//     porque el equipo cierra a las 5).
-//   • Saludo matutino una vez al día (primera corrida 7–10 h).
+// Reglas (todas configurables desde Configuración → Marcebot):
+//   • Solo escribe los días laborales y dentro de la franja horaria (por defecto
+//     lun–vie, 7:00 a 16:00; la última a las 4 p. m., porque el equipo cierra a las 5).
+//   • Saludo matutino una vez al día (primeras 3 horas de la franja).
 //   • Fuera de la mañana, solo avisa si algo cambió (tarea/cita nueva o atrasada) o
 //     hay una cita inminente — nunca repite el mismo resumen.
 //   • Roles administrativos reciben, además, un DM aparte con el resumen del equipo.
-//   • El VIERNES a las 4 p. m. manda el "cierre de semana" (recap personal + del equipo)
-//     como última notificación de la semana.
+//   • El ÚLTIMO día laboral, a la última hora, manda el "cierre de semana" (recap
+//     personal + del equipo) como última notificación de la semana.
 
-const WORK_START = 7;
-const LAST_HOUR = 16; // última corrida que envía (4 p. m., una hora antes del cierre)
-const MORNING_END = 10; // ventana del saludo matutino: [7, 10)
-const FRIDAY = 5;
+const MORNING_HOURS = 3; // ventana del saludo matutino: [startHour, startHour + 3)
 const ADMIN_ROLES = ["admin", "gerente", "productor"];
 
 export type MarcebotRunSummary = {
   ok: true;
-  skipped?: "fuera-de-horario";
+  skipped?: "desactivado" | "dia-no-laboral" | "fuera-de-horario";
   hour: number;
   recipients: number;
   personalSent: number;
@@ -42,11 +40,16 @@ export type MarcebotRunSummary = {
 };
 
 export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSummary> {
+  const cfg = await getMarcebotConfig();
   const hour = bogotaHour(now);
   const dk = bogotaDateKey(now);
-  const inWorkHours = hour >= WORK_START && hour <= LAST_HOUR;
-  const morningWindow = hour >= WORK_START && hour < MORNING_END;
-  const isFridayClose = bogotaWeekday(now) === FRIDAY && hour === LAST_HOUR;
+  const wd = bogotaWeekday(now);
+  const isWorkday = cfg.workDays.includes(wd);
+  const inHours = hour >= cfg.startHour && hour <= cfg.lastHour;
+  const morningWindow = isWorkday && hour >= cfg.startHour && hour < cfg.startHour + MORNING_HOURS;
+  // El cierre de semana cae el último día laboral configurado (por defecto viernes).
+  const lastWorkday = cfg.workDays.length ? Math.max(...cfg.workDays) : 5;
+  const isFridayClose = wd === lastWorkday && hour === cfg.lastHour;
 
   const bot = await ensureMarcebot();
   const recipients = await db.user.findMany({
@@ -60,8 +63,11 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
     },
   });
 
-  if (!inWorkHours) {
-    return { ok: true, skipped: "fuera-de-horario", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0 };
+  if (!cfg.enabled) {
+    return { ok: true, skipped: "desactivado", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0 };
+  }
+  if (!isWorkday || !inHours) {
+    return { ok: true, skipped: isWorkday ? "fuera-de-horario" : "dia-no-laboral", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0 };
   }
 
   const openKeys = await openStatusKeys();

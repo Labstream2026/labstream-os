@@ -13,6 +13,8 @@ import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
 import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
+import { MarcebotSettings } from "./marcebot-settings";
+import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
 import { Mail } from "lucide-react";
@@ -51,6 +53,7 @@ export default async function ConfiguracionPage() {
   const catalog = PERMISSION_CATALOG.map((p) => ({ key: p.key, label: p.label, category: p.category }));
   const categories = [...PERMISSION_CATEGORIES];
 
+  const marcebotConfig = await getMarcebotConfig();
   const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
   const statusRows = taskLabels.filter((l) => l.kind === "TASK_STATUS").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
   const priorityRows = taskLabels.filter((l) => l.kind === "TASK_PRIORITY").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
@@ -134,6 +137,9 @@ export default async function ConfiguracionPage() {
     <IntegrationsPanel email={emailEnabled} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} />
   );
 
+  // ── Sección Marcebot ──
+  const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
+
   // ── Sección Personalización (perfil propio) ──
   const personalizacionNode = me ? (
     <div className="space-y-4">
@@ -166,6 +172,7 @@ export default async function ConfiguracionPage() {
           { key: "usuarios", label: "Usuarios", icon: "👥", node: usuariosNode },
           { key: "labels", label: "Estados y prioridades", icon: "🏷️", node: labelsNode },
           { key: "roles", label: "Roles y permisos", icon: "🔐", node: rolesNode },
+          { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
           { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
         ]}

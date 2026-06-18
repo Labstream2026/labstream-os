@@ -5,3 +5,4 @@ export { getUserChases, getTeamEscalation, getLeadEscalations, chaseCount } from
 export type { UserChases, ChaseItem, TeamEscalation, LeadEscalation } from "./chase";
 export { composePersonal, composeTeam, vocativo, hasActionable, type Gender } from "./compose";
 export { ensureMarcebot, MARCEBOT_EMAIL } from "./bot";
+export { getMarcebotConfig, MARCEBOT_DEFAULTS, type MarcebotConfig } from "./config";

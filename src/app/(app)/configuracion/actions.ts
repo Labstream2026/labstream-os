@@ -215,6 +215,28 @@ export async function setUserGender(userId: string, gender: string | null): Prom
   return { ok: true };
 }
 
+// Configuración de Marcebot: encendido, días laborales (0=Dom … 6=Sáb) y franja horaria.
+export async function setMarcebotConfig(input: {
+  enabled: boolean;
+  workDays: number[];
+  startHour: number;
+  lastHour: number;
+}): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const days = [...new Set((input.workDays ?? []).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+  if (!days.length) return { ok: false, error: "Elige al menos un día laboral." };
+  const clamp = (n: number) => Math.max(0, Math.min(23, Math.round(Number(n) || 0)));
+  const startHour = clamp(input.startHour);
+  const lastHour = clamp(input.lastHour);
+  if (lastHour < startHour) return { ok: false, error: "La última hora debe ser igual o mayor que la de inicio." };
+  const data = { enabled: !!input.enabled, workDays: days.join(","), startHour, lastHour };
+  await db.marcebotConfig.upsert({ where: { id: "default" }, create: { id: "default", ...data }, update: data });
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // ── Roles personalizables (CRUD) ──
 
 // Crea un rol nuevo. Opcionalmente copia los permisos de un rol existente (copyFromKey).

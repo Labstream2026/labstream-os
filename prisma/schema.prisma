@@ -127,6 +127,17 @@ model User {
   updatedAt    DateTime  @updatedAt
 }
 
+// Configuración de Marcebot (fila única "default"), editable por el admin desde
+// Configuración → Marcebot: encender/apagar, días laborales y franja horaria.
+model MarcebotConfig {
+  id        String   @id @default("default")
+  enabled   Boolean  @default(true)
+  workDays  String   @default("1,2,3,4,5") // días laborales (0=Dom … 6=Sáb)
+  startHour Int      @default(7) // primera hora que puede escribir
+  lastHour  Int      @default(16) // última hora que escribe (cierre del equipo a las 5)
+  updatedAt DateTime @updatedAt
+}
+
 // Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)
 // y recuerda si ya envió el saludo del día (personal y, para roles administrativos,
 // el resumen de equipo).
