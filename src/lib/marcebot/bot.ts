@@ -1,6 +1,13 @@
 import { db } from "@/lib/db";
 import { publishMessage } from "@/lib/chat-bus";
 import { notify } from "@/lib/notify";
+import { sendEmail, emailButton } from "@/lib/email";
+
+const APP_URL = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 // Usuario de sistema que encarna a Marcebot en el chat. No inicia sesión nunca
 // (sin passwordHash y con el dominio .local que el SSO no aprovisiona) y se marca
@@ -82,4 +89,21 @@ export async function sendBotDM(bot: BotUser, userId: string, userName: string, 
   });
   const firstLine = body.split("\n").find((l) => l.trim())?.replace(/\*/g, "") ?? "Tienes un mensaje";
   await notify(userId, { type: "marcebot", title: "Marcebot", body: firstLine.slice(0, 140), link: `/chat/${channelId}` });
+}
+
+// Manda el mismo resumen por CORREO (además del DM). Best-effort: solo sale si el SMTP
+// está configurado (lo gestiona sendEmail) y el usuario tiene correo. Conserva los saltos
+// de línea y la sangría del texto (white-space:pre-wrap) y agrega un botón a la app.
+// Se usa solo para los resúmenes "grandes" (plan de la mañana y cierre del día/semana),
+// no para los avisos sueltos de cada hora, para no saturar la bandeja.
+export async function sendBotEmail(email: string | null | undefined, subject: string, body: string): Promise<void> {
+  if (!email) return;
+  const html =
+    `<div style="white-space:pre-wrap;font-size:15px;line-height:1.6;color:#1a1a1a">${escHtml(body)}</div>` +
+    (APP_URL ? `<div style="margin-top:18px">${emailButton("Abrir mis tareas  →", `${APP_URL}/mis-tareas`)}</div>` : "");
+  try {
+    await sendEmail({ to: email, subject, html, text: `${body}${APP_URL ? `\n\n${APP_URL}/mis-tareas` : ""}` });
+  } catch {
+    /* el correo es secundario: el DM ya se envió */
+  }
 }

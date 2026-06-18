@@ -1,12 +1,13 @@
 import { db } from "@/lib/db";
-import { ensureMarcebot, sendBotDM, type BotUser } from "./bot";
-import { getUserPendientes, getTeamSummary, openStatusKeys, type TeamSummary } from "./data";
+import { ensureMarcebot, sendBotDM, sendBotEmail, type BotUser } from "./bot";
+import { getUserPendientes, getUserDoneToday, getTeamSummary, openStatusKeys, type TeamSummary } from "./data";
 import { getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, type TeamEscalation } from "./chase";
 import { getUserWeekStats, getTeamWeekStats, type TeamWeek } from "./weekly";
 import { getMarcebotConfig } from "./config";
 import {
   composePersonal,
   composeTeam,
+  composeDailyClose,
   composeWeeklyPersonal,
   composeWeeklyTeam,
   personalSignature,
@@ -37,6 +38,7 @@ export type MarcebotRunSummary = {
   personalSent: number;
   teamSent: number;
   weeklySent: number;
+  closeSent: number;
 };
 
 export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSummary> {
@@ -53,7 +55,12 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
   // se enviaría nunca si la cadencia está desfasada. El dedup por `lastWeeklyOn` (más abajo)
   // garantiza que solo se mande una vez ese día.
   const lastWorkday = cfg.workDays.length ? Math.max(...cfg.workDays) : 5;
-  const isFridayClose = wd === lastWorkday && hour >= cfg.lastHour - 1;
+  const isFinalWorkday = wd === lastWorkday;
+  // Ventana de cierre del día: la última hora de la franja (p. ej. 16:00). El cierre del
+  // día se manda todos los días laborales; el último día laboral lo sustituye el cierre
+  // de semana (más completo).
+  const inCloseWindow = hour >= cfg.lastHour - 1;
+  const isFridayClose = isFinalWorkday && inCloseWindow;
 
   const bot = await ensureMarcebot();
   const recipients = await db.user.findMany({
@@ -61,6 +68,7 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
     select: {
       id: true,
       name: true,
+      email: true,
       gender: true,
       role: { select: { key: true } },
       marcebotState: true,
@@ -68,10 +76,10 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
   });
 
   if (!cfg.enabled) {
-    return { ok: true, skipped: "desactivado", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0 };
+    return { ok: true, skipped: "desactivado", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0, closeSent: 0 };
   }
   if (!isWorkday || !inHours) {
-    return { ok: true, skipped: isWorkday ? "fuera-de-horario" : "dia-no-laboral", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0 };
+    return { ok: true, skipped: isWorkday ? "fuera-de-horario" : "dia-no-laboral", hour, recipients: recipients.length, personalSent: 0, teamSent: 0, weeklySent: 0, closeSent: 0 };
   }
 
   const openKeys = await openStatusKeys();
@@ -91,6 +99,7 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
   let personalSent = 0;
   let teamSent = 0;
   let weeklySent = 0;
+  let closeSent = 0;
 
   await Promise.allSettled(
     recipients.map(async (u) => {
@@ -112,11 +121,18 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
       ]);
       const sig = personalSignature(p, chases, leadEsc);
       const doWeekly = isFridayClose && state?.lastWeeklyOn !== dk;
+      // Cierre del DÍA (días laborales que no son el último). Reutiliza `lastWeeklyOn`
+      // como marcador genérico de "último cierre enviado" (su valor es la fecha del día),
+      // así no hace falta una columna nueva: el último día laboral lo cubre el cierre de
+      // semana y los demás días el cierre diario; ambos dedupean por la fecha de hoy.
+      const doDailyClose = inCloseWindow && !isFinalWorkday && state?.lastWeeklyOn !== dk;
 
       if (doWeekly) {
-        // ── Cierre de semana (viernes 4 p. m.) ──
+        // ── Cierre de semana (último día laboral, ~4 p. m.) — DM + correo ──
         const week = await getUserWeekStats(u.id, now);
-        await sendBotDM(bot, u.id, u.name, composeWeeklyPersonal({ name: u.name, gender: u.gender as Gender, week, p, now }));
+        const wkBody = composeWeeklyPersonal({ name: u.name, gender: u.gender as Gender, week, p, now });
+        await sendBotDM(bot, u.id, u.name, wkBody);
+        await sendBotEmail(u.email, "🎉 Cierre de semana — Labstream OS", wkBody);
         weeklySent += 1;
         update.lastWeeklyOn = dk;
         update.lastSentAt = now;
@@ -127,6 +143,16 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
           update.lastTeamDigest = teamSig;
           update.lastTeamOn = dk;
         }
+      } else if (doDailyClose) {
+        // ── Cierre del día (~4 p. m.) — DM + correo: qué cerró hoy y qué le queda ──
+        const done = await getUserDoneToday(u.id, now);
+        const body = composeDailyClose({ name: u.name, gender: u.gender as Gender, done, p, now });
+        await sendBotDM(bot, u.id, u.name, body);
+        await sendBotEmail(u.email, "🌇 Cierre del día — Labstream OS", body);
+        closeSent += 1;
+        update.lastWeeklyOn = dk; // marca "cierre enviado hoy"
+        update.lastSentAt = now;
+        update.lastDigest = sig;
       } else {
         // ── DM personal ──
         const welcome = !state;
@@ -149,6 +175,9 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
         if (sendPersonal) {
           const body = composePersonal({ name: u.name, gender: u.gender as Gender, p, chases, leadEsc, morning, welcome, now });
           await sendBotDM(bot, u.id, u.name, body);
+          // El plan de la mañana (y la bienvenida) van también por correo; los avisos
+          // sueltos del resto del día se quedan solo en el DM para no saturar la bandeja.
+          if (morning) await sendBotEmail(u.email, "☀️ Tu plan de hoy — Labstream OS", body);
           personalSent += 1;
           update.lastDigest = sig;
           update.lastSentAt = now;
@@ -186,5 +215,5 @@ export async function runMarcebot(now: Date = new Date()): Promise<MarcebotRunSu
     }),
   );
 
-  return { ok: true, hour, recipients: recipients.length, personalSent, teamSent, weeklySent };
+  return { ok: true, hour, recipients: recipients.length, personalSent, teamSent, weeklySent, closeSent };
 }

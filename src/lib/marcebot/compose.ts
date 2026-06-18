@@ -240,6 +240,47 @@ export function composeTeam(opts: { s: TeamSummary; esc?: TeamEscalation; mornin
   return lines.join("\n").trim();
 }
 
+// Cierre del DÍA (~4 p. m., días laborales que no son el último de la semana): qué cerró
+// hoy la persona y qué le queda pendiente, para que termine el día al tanto.
+export function composeDailyClose(opts: {
+  name: string;
+  gender: Gender;
+  done: TaskLite[];
+  p: UserPendientes;
+  now: Date;
+}): string {
+  const { name, gender, done, p, now } = opts;
+  const voc = vocativo(gender);
+  const firstName = name.split(" ")[0];
+  const lines: string[] = [`🌇 Cierre del día, ${firstName}.`, ""];
+
+  if (done.length) {
+    lines.push(`✅ Hoy cerraste ${done.length} ${done.length === 1 ? "tarea" : "tareas"}. ¡Bien ahí, ${voc}! 🙌`);
+    const { shown, rest } = clip(done, 5);
+    shown.forEach((t) => lines.push(bullet(t)));
+    if (rest) lines.push(`   … y ${rest} más`);
+    lines.push("");
+  } else {
+    lines.push(`Hoy no marcaste tareas como cerradas. Mañana las sacamos, ${voc} 💪`);
+    lines.push("");
+  }
+
+  const pending = [...p.overdue, ...p.today];
+  if (pending.length) {
+    const od = p.overdue.length ? ` (${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"})` : "";
+    lines.push(`📌 Te ${pending.length === 1 ? "queda" : "quedan"} ${pending.length} ${pending.length === 1 ? "pendiente" : "pendientes"}${od}:`);
+    const { shown, rest } = clip(pending, 5);
+    shown.forEach((t, i) => lines.push(bullet(t, i < p.overdue.length ? { overdue: true, now } : undefined)));
+    if (rest) lines.push(`   … y ${rest} más`);
+    lines.push("");
+    lines.push(`Déjalas listas o pásalas para mañana. Nos vemos temprano, ${voc} 🌙`);
+  } else {
+    lines.push(`🎉 ¡Quedaste al día, ${voc}! Sin pendientes. Desconéctate tranquilo. 🌙`);
+  }
+
+  return lines.join("\n").trim();
+}
+
 // Cierre de semana (viernes ~4 p. m.): recap personal de lo cerrado y lo que queda.
 export function composeWeeklyPersonal(opts: {
   name: string;

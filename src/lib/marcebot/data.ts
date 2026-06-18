@@ -85,6 +85,17 @@ export async function getUserPendientes(
   };
 }
 
+// Tareas que la persona marcó como cerradas HOY (Bogotá). Para el cierre del día.
+export async function getUserDoneToday(userId: string, now: Date = new Date()): Promise<TaskLite[]> {
+  const todayStart = bogotaDayStart(now);
+  const rows = await db.task.findMany({
+    where: { completedAt: { gte: todayStart, lte: now }, OR: [{ assigneeId: userId }, { ownerId: userId }] },
+    orderBy: { completedAt: "asc" },
+    select: { id: true, title: true, completedAt: true, project: { select: { name: true } } },
+  });
+  return rows.map((t) => ({ id: t.id, title: t.title, due: t.completedAt, project: projectName(t.project) }));
+}
+
 export type PersonOverdue = { name: string; count: number };
 export type TeamSummary = {
   overdueTotal: number;
