@@ -162,8 +162,9 @@ export function AppShell({
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           showChatToggle={!hideChatDock}
         />
-        {/* Padding inferior en móvil para no tapar contenido con la barra inferior */}
-        <main className="flex-1 overflow-y-auto pb-16 md:pb-0">{children}</main>
+        {/* Padding inferior en móvil para no tapar contenido con la barra inferior
+            (incluye el área segura de la barra de inicio en iPhone). */}
+        <main className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
 
         {/* Botón flotante de creación rápida (contextual por sección). Anclado al bloque
             CENTRAL (no a la ventana), así no se monta sobre el panel de chat de la derecha. */}

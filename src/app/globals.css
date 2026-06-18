@@ -120,10 +120,30 @@
   border-color: hsl(var(--border));
 }
 
+html {
+  /* Evita que iOS infle el texto en horizontal y respeta nuestros tamaños. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
+  /* Quita el flash gris al tocar en móvil (lo gestionamos con estados :active). */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* En móvil, iOS Safari hace ZOOM automático al enfocar un campo con tipografía < 16px.
+   Forzamos 16px en los controles dentro de pantallas pequeñas para que no salte el zoom
+   (es la causa #1 de que un formulario "se sienta roto" en iPhone). En escritorio se
+   mantienen los tamaños originales del diseño. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 /* scrollbars discretos */

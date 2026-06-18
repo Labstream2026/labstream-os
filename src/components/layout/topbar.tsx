@@ -73,7 +73,7 @@ export function Topbar({
   const { emoji, label } = crumb(pathname);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
+    <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
       {/* Abrir cajón de menú (solo móvil) */}
       <Button
         variant="ghost"

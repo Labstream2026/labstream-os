@@ -26,6 +26,11 @@ export function BottomNav({
     { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
   ];
 
+  // Clases compartidas por cada celda (mismo alto/feedback táctil para que se sienta nativo).
+  const cell = "relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors active:bg-muted/60 select-none";
+  // Barrita superior que marca la pestaña activa.
+  const indicator = "absolute inset-x-5 top-0 h-0.5 rounded-full bg-primary";
+
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-stretch border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       {links.map((l) => {
@@ -35,11 +40,10 @@ export function BottomNav({
           <Link
             key={l.href}
             href={l.href}
-            className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
-              active ? "text-primary" : "text-muted-foreground",
-            )}
+            aria-current={active ? "page" : undefined}
+            className={cn(cell, active ? "text-primary" : "text-muted-foreground")}
           >
+            {active ? <span className={indicator} /> : null}
             <Icon className={cn("size-5", active && "fill-primary/10")} />
             {l.label}
           </Link>
@@ -49,11 +53,11 @@ export function BottomNav({
       <button
         type="button"
         onClick={onChat}
-        className={cn(
-          "relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
-          chatActive ? "text-primary" : "text-muted-foreground",
-        )}
+        aria-label="Abrir chat"
+        aria-pressed={chatActive}
+        className={cn(cell, chatActive ? "text-primary" : "text-muted-foreground")}
       >
+        {chatActive ? <span className={indicator} /> : null}
         <span className="relative">
           <MessageSquare className="size-5" />
           {chatUnread > 0 ? (
@@ -68,7 +72,8 @@ export function BottomNav({
       <button
         type="button"
         onClick={onMenu}
-        className="flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors"
+        aria-label="Abrir menú"
+        className={cn(cell, "text-muted-foreground")}
       >
         <Menu className="size-5" />
         Más
