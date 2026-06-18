@@ -33,8 +33,14 @@ function unescape(s: string): string {
   return s.replace(/\\n/gi, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
 }
 
-// Parsea una fecha iCal. Soporta: 20260616T130000Z (UTC), 20260616T130000
-// (hora local/flotante → la tratamos como local) y 20260616 (solo fecha).
+// La app guarda las fechas como "hora de pared en UTC" (los campos UTC del Date son la hora
+// de Bogotá). El .ics entrante trae el INSTANTE real (UTC, con Z), así que al guardarlo se le
+// restan 5 h para dejar la hora de pared en los campos UTC. Una hora "flotante" (sin Z) ya ES
+// hora de pared, se guarda tal cual. Colombia = UTC-5 sin horario de verano.
+const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+// Parsea una fecha iCal. Soporta: 20260616T130000Z (UTC real → hora de pared),
+// 20260616T130000 (flotante = ya es hora de pared) y 20260616 (solo fecha).
 function parseIcsDate(value: string, isDateOnly: boolean): { date: Date; allDay: boolean } | null {
   const v = value.trim();
   if (isDateOnly || /^\d{8}$/.test(v)) {
@@ -45,9 +51,9 @@ function parseIcsDate(value: string, isDateOnly: boolean): { date: Date; allDay:
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/.exec(v);
   if (!m) return null;
   const [, y, mo, d, h, mi, s, z] = m;
-  if (z) return { date: new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s)), allDay: false };
-  // Sin Z: hora "flotante" → la interpretamos como hora local del servidor app.
-  return { date: new Date(+y, +mo - 1, +d, +h, +mi, +s), allDay: false };
+  // Con Z = instante real → a hora de pared (resta 5 h). Sin Z = ya es hora de pared.
+  const utcMs = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s);
+  return { date: new Date(z ? utcMs - BOGOTA_OFFSET_MS : utcMs), allDay: false };
 }
 
 // Separa "NAME;PARAM=x:VALUE" en { name, params, value }.

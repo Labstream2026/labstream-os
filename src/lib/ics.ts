@@ -7,6 +7,15 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
+// La app guarda las fechas como "hora de pared en UTC": los campos UTC del Date SON la hora
+// local de Bogotá (el contenedor corre en UTC y nada se convierte al crear). Para el .ics se
+// necesita el INSTANTE real (UTC verdadero) = hora de pared + 5 h (Colombia = UTC-5, sin
+// horario de verano). Sin esto, un evento de 4:00 p. m. saldría a las 11:00 en Synology/correo.
+const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
+function toInstant(d: Date): Date {
+  return new Date(d.getTime() + BOGOTA_OFFSET_MS);
+}
+
 // Fecha-hora en UTC formato iCal: YYYYMMDDTHHMMSSZ
 export function icsDate(d: Date): string {
   return (
@@ -67,8 +76,9 @@ export function buildIcs(e: IcsEvent): string {
     lines.push(`DTEND;VALUE=DATE:${icsDateOnly(endDay)}`);
   } else {
     const end = e.end ?? new Date(e.start.getTime() + 60 * 60 * 1000); // +1h por defecto
-    lines.push(`DTSTART:${icsDate(e.start)}`);
-    lines.push(`DTEND:${icsDate(end)}`);
+    // toInstant: la hora guardada es "de pared en UTC"; el .ics necesita el instante real.
+    lines.push(`DTSTART:${icsDate(toInstant(e.start))}`);
+    lines.push(`DTEND:${icsDate(toInstant(end))}`);
   }
 
   lines.push(`SUMMARY:${esc(e.title)}`);
