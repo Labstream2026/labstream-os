@@ -20,15 +20,15 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
   return (
     <div className="flex h-full flex-col">
       {/* Cabecera + acciones rápidas */}
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-3">
-        <h1 className="text-base font-bold tracking-tight">Chats</h1>
-        <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-3">
+        <h1 className="shrink-0 text-base font-bold tracking-tight">Chats</h1>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <DmStarter team={data.team} />
           <button
             type="button"
             onClick={() => setCreating((v) => !v)}
             title="Nuevo grupo o canal"
-            className="flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
           >
             {creating ? <X className="size-4" /> : <Plus className="size-4" />}
           </button>
@@ -50,8 +50,8 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
               ) : (
                 data.team.map((u) => (
                   <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent">
-                    <input type="checkbox" name="members" value={u.id} className="size-3.5 rounded border-input accent-primary" />
-                    <span className="truncate">{u.name}</span>
+                    <input type="checkbox" name="members" value={u.id} className="size-3.5 shrink-0 rounded border-input accent-primary" />
+                    <span className="min-w-0 truncate">{u.name}</span>
                   </label>
                 ))
               )}

@@ -11,7 +11,7 @@ export function DmStarter({ team }: { team: { id: string; name: string }[] }) {
       defaultValue=""
       disabled={pending}
       onChange={(e) => { if (e.target.value) start(() => openDirectMessage(e.target.value)); }}
-      className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+      className="min-w-0 max-w-[200px] truncate rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
     >
       <option value="">+ Mensaje directo a…</option>
       {team.map((u) => (<option key={u.id} value={u.id}>{u.name}</option>))}
