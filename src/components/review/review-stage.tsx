@@ -248,7 +248,7 @@ export function ReviewStage({
   const decided = status === "APROBADO";
 
   return (
-    <div className="grid gap-6 md:grid-cols-[1.6fr_1fr]">
+    <div className="grid gap-6 md:grid-cols-[1.9fr_1fr]">
       {/* ── Material + decisión ── */}
       <div>
         {versions.length > 1 ? (
@@ -562,20 +562,15 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
 
   if (version.kind === "video" || usingProxy) {
     return (
-      <div className="relative">
+      <div className="relative mx-auto w-fit max-w-full">
         <video
           ref={videoRef}
           src={usingProxy ? version.proxySrc! : version.src}
           controls
           crossOrigin={usingProxy ? undefined : "anonymous"}
           onError={() => { if (usingProxy) setDriveProxyFailed(true); }}
-          className="w-full rounded-xl border border-border bg-black"
+          className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
         />
-        {usingProxy ? (
-          <div className="pointer-events-none absolute inset-x-0 top-0 bg-black/60 px-3 py-1 text-center text-[11px] text-white">
-            Modo captura: cargando el video del mismo origen. En masters pesados puede tardar; cuando puedas reproducirlo, comenta para guardar el fotograma.
-          </div>
-        ) : null}
         {driveToggle}
         {liveCaption}
         {overlay}
@@ -584,9 +579,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   }
   if (version.kind === "image") {
     return (
-      <div className="relative">
+      <div className="relative mx-auto w-fit max-w-full">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img ref={imgRef} src={version.src} crossOrigin="anonymous" alt="Material" className="w-full rounded-xl border border-border" />
+        <img ref={imgRef} src={version.src} crossOrigin="anonymous" alt="Material" className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border" />
         {overlay}
       </div>
     );
