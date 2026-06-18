@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { PwaRegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,6 +19,10 @@ export const metadata: Metadata = {
   description: "Sistema operativo colaborativo para producción audiovisual de Labstream Studio.",
   // Permite "Añadir a pantalla de inicio" con aspecto de app en iOS.
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Labstream OS" },
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 // `viewport-fit=cover` hace que funcionen las áreas seguras (notch / barra de inicio) que
@@ -48,6 +53,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
           {children}
         </ThemeProvider>
+        <PwaRegister />
       </body>
     </html>
   );
