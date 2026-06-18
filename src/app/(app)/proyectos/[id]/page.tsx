@@ -14,8 +14,6 @@ import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeEnabled } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
-import { DataTableView } from "@/components/tables/data-table";
-import { createTable } from "@/app/(app)/tablas/actions";
 import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
@@ -28,7 +26,8 @@ import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
-import { cellsToMap } from "@/lib/table-cells";
+import { EquiposPanel } from "./equipos-panel";
+import { loadInventory, conflictsByDate } from "@/lib/equipos";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +39,7 @@ const TABS = [
   { key: "entregables", label: "Entregables" },
   { key: "archivos", label: "Archivos" },
   { key: "guiones", label: "Guiones" },
-  { key: "tablas", label: "Tablas" },
+  { key: "equipos", label: "Equipos" },
   { key: "actividad", label: "Actividad" },
 ];
 
@@ -128,6 +127,45 @@ export default async function ProyectoPage({
         </Link>
       </div>
     );
+  }
+
+  // ── Datos de la pestaña Equipos (solo si está activa, para no cargarlos siempre) ──
+  let equiposData: {
+    plans: import("./equipos-panel").EqPlan[];
+    inventory: import("@/lib/equipos").InventoryItem[];
+    tags: { id: string; label: string; color: string }[];
+    kits: import("./equipos-panel").EqKit[];
+  } | null = null;
+  if (tab === "equipos") {
+    const [inv, plans, kits] = await Promise.all([
+      loadInventory(),
+      db.equipmentPlan.findMany({
+        where: { projectId: id },
+        orderBy: { shootDate: "asc" },
+        include: { items: { select: { id: true, rowId: true, quantity: true, packed: true } } },
+      }),
+      db.equipmentKit.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { items: true } } } }),
+    ]);
+    const plansOut = await Promise.all(
+      plans.map(async (p) => {
+        const reservedMap = await conflictsByDate(p.shootDate, p.id);
+        return {
+          id: p.id,
+          title: p.title,
+          shootDate: p.shootDate.toISOString(),
+          status: p.status,
+          assigneeId: p.assigneeId,
+          reservations: p.items.map((r) => ({ id: r.id, rowId: r.rowId, quantity: r.quantity, packed: r.packed })),
+          reserved: Object.fromEntries([...reservedMap.entries()].map(([k, v]) => [k, v])),
+        };
+      }),
+    );
+    equiposData = {
+      plans: plansOut,
+      inventory: inv.items,
+      tags: inv.tags,
+      kits: kits.map((k) => ({ id: k.id, name: k.name, emoji: k.emoji, itemCount: k._count.items })),
+    };
   }
 
   const status = statusMeta(project.status);
@@ -410,44 +448,16 @@ export default async function ProyectoPage({
           />
         ) : null}
 
-        {tab === "tablas" ? (
-          <div className="space-y-5">
-            <form action={createTable.bind(null, id)} className="flex items-center gap-2">
-              <input
-                name="name"
-                placeholder="Nombre de la tabla (ej. Plan de rodaje)"
-                className="min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                Nueva tabla
-              </button>
-            </form>
-            {project.tables.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Crea una tabla tipo Notion: columnas de texto, estado, fecha, persona y citas de calendario.
-              </p>
-            ) : null}
-            {project.tables.map((t) => (
-              <DataTableView
-                key={t.id}
-                team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
-                table={{
-                  id: t.id,
-                  name: t.name,
-                  columns: t.columns.map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    type: c.type,
-                    options: (c.options as { id: string; label: string; color: string }[] | null) ?? null,
-                  })),
-                  rows: t.rows.map((r) => ({
-                    id: r.id,
-                    cells: cellsToMap(t.columns, r.cells),
-                  })),
-                }}
-              />
-            ))}
-          </div>
+        {tab === "equipos" && equiposData ? (
+          <EquiposPanel
+            projectId={id}
+            plans={equiposData.plans}
+            inventory={equiposData.inventory}
+            tags={equiposData.tags}
+            kits={equiposData.kits}
+            team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
+            canWrite={canWriteProject(project, session)}
+          />
         ) : null}
       </div>
     </div>

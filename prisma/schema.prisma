@@ -122,6 +122,9 @@ model User {
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
   marcebotState      MarcebotState?     @relation("MarcebotStateUser")
+  equipPlansAssigned EquipmentPlan[]    @relation("EquipPlanAssignee")
+  equipPlansCreated  EquipmentPlan[]    @relation("EquipPlanCreator")
+  kitsCreated        EquipmentKit[]     @relation("KitCreator")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -324,6 +327,7 @@ model Project {
   quotes       Quote[]
   invoices     Invoice[]
   activity     ActivityLog[]
+  equipmentPlans EquipmentPlan[]
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -835,6 +839,10 @@ model DataRow {
   tableId  String
   position Int        @default(0)
   cells    DataCell[]
+  // Cuando esta fila es un equipo del inventario (tabla sys:inventario), puede pertenecer
+  // a kits guardados y estar reservada en planes de equipo de proyectos.
+  kitItems     EquipmentKitItem[]
+  reservations EquipmentReservation[]
   createdAt DateTime  @default(now())
 
   @@index([tableId, position])
@@ -928,6 +936,8 @@ model Task {
   checklist     ChecklistItem[]
   comments      TaskComment[]
   timeEntries   TimeEntry[]
+  // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
+  equipmentPlan EquipmentPlan?  @relation("EquipPlanTask")
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -1190,4 +1200,81 @@ model ProjectTemplate {
   content     Json // { stages, folders, tasks[], deliverables[] }
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Equipos: kits y planes de equipo por proyecto
+// Conectado al inventario de la Wiki (tabla sys:inventario): cada "equipo" es una fila
+// (DataRow) de esa tabla. Aquí vive lo que el inventario genérico no resuelve: kits
+// guardados, reservas por fecha de grabación y disponibilidad por cantidad.
+// ─────────────────────────────────────────────
+
+// Kit guardado = conjunto con nombre de equipos del inventario (ej. "Kit Reels").
+// Se puede soltar en un proyecto de un clic para precargar el checklist.
+model EquipmentKit {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  emoji       String?
+  description String?
+  items       EquipmentKitItem[]
+  createdBy   User?              @relation("KitCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+model EquipmentKitItem {
+  id       String       @id @default(cuid())
+  kit      EquipmentKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  kitId    String
+  // Equipo = fila del inventario (sys:inventario).
+  row      DataRow      @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  rowId    String
+  quantity Int          @default(1)
+
+  @@unique([kitId, rowId])
+  @@index([rowId])
+}
+
+// Plan de equipo para una grabación: proyecto + fecha. Lleva un responsable opcional y,
+// si se asigna, una tarea espejo (aparece en "Mis tareas" de esa persona).
+model EquipmentPlan {
+  id          String                 @id @default(cuid())
+  project     Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  title       String? // ej. "Grabación reels — locación norte"
+  shootDate   DateTime // día de la grabación (se guarda a las 12:00 UTC, granularidad de día)
+  status      String                 @default("planeando") // planeando | listo | entregado | devuelto
+  assignee    User?                  @relation("EquipPlanAssignee", fields: [assigneeId], references: [id])
+  assigneeId  String?
+  // Tarea espejo opcional (responsable la ve en "Mis tareas"); se borra el vínculo si se elimina la tarea.
+  task        Task?                  @relation("EquipPlanTask", fields: [taskId], references: [id], onDelete: SetNull)
+  taskId      String?                @unique
+  createdBy   User?                  @relation("EquipPlanCreator", fields: [createdById], references: [id])
+  createdById String?
+  items       EquipmentReservation[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@index([projectId])
+  @@index([shootDate])
+  @@index([assigneeId])
+}
+
+// Reserva de un equipo (fila del inventario) dentro de un plan, con cantidad y estado.
+model EquipmentReservation {
+  id        String        @id @default(cuid())
+  plan      EquipmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  planId    String
+  row       DataRow       @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  rowId     String
+  quantity  Int           @default(1)
+  packed    Boolean       @default(false) // marcado en el checklist como listo/empacado
+  note      String?
+  createdAt DateTime      @default(now())
+
+  @@unique([planId, rowId])
+  @@index([rowId])
+  // Disponibilidad por fecha: se cruza con shootDate del plan.
+  @@index([planId])
 }
