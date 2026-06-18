@@ -1,8 +1,15 @@
 import crypto from "node:crypto";
 import type { UserPendientes, TeamSummary, TaskLite, EventLite } from "./data";
 import type { UserChases, TeamEscalation } from "./chase";
+import type { UserWeek, TeamWeek } from "./weekly";
 import { chaseCount, chaseIds } from "./chase";
 import { bogotaLongDate, bogotaTime, bogotaShortDate, duePhrase } from "./time";
+
+function hoursText(minutes: number): string {
+  if (minutes <= 0) return "";
+  const h = Math.round((minutes / 60) * 10) / 10;
+  return `${h} h`;
+}
 
 // Redacción de los mensajes de Marcebot. Tono cercano y motivador; trato por género
 // ("muchacho" / "muchacha", o "equipo" si no está definido).
@@ -218,5 +225,63 @@ export function composeTeam(opts: { s: TeamSummary; esc?: TeamEscalation; mornin
   }
 
   lines.push(morning ? "Que tengan un gran día. El equipo te necesita al frente. 🙌" : "Échale un ojo cuando puedas. 🙌");
+  return lines.join("\n").trim();
+}
+
+// Cierre de semana (viernes ~4 p. m.): recap personal de lo cerrado y lo que queda.
+export function composeWeeklyPersonal(opts: {
+  name: string;
+  gender: Gender;
+  week: UserWeek;
+  p: UserPendientes;
+  now: Date;
+}): string {
+  const { name, gender, week, p, now } = opts;
+  const voc = vocativo(gender);
+  const firstName = name.split(" ")[0];
+  const hrs = hoursText(week.minutes);
+  const lines: string[] = [`🎉 ¡Cierre de semana, ${firstName}!`, ""];
+
+  if (week.completed > 0) {
+    lines.push(`✅ Cerraste ${week.completed} ${week.completed === 1 ? "tarea" : "tareas"} esta semana${hrs ? ` y registraste ${hrs}` : ""}. ¡Crack! 🙌`);
+  } else {
+    lines.push(`Esta semana no marcaste tareas cerradas${hrs ? ` (registraste ${hrs})` : ""}. La próxima la sacamos, ${voc} 💪`);
+  }
+
+  const remaining = p.overdue.length + p.today.length + p.soon.length;
+  if (remaining > 0) {
+    const od = p.overdue.length ? ` (${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"})` : "";
+    lines.push(`📌 Para el lunes te quedan ${remaining} pendiente${remaining === 1 ? "" : "s"}${od}.`);
+  }
+  lines.push("");
+  lines.push(`¡Buen trabajo, ${voc}! Desconéctate el finde, que el lunes seguimos con todo. 🚀`);
+  return lines.join("\n").trim();
+}
+
+// Cierre de semana del equipo (para roles administrativos).
+export function composeWeeklyTeam(opts: { week: TeamWeek; s: TeamSummary; esc?: TeamEscalation; now: Date }): string {
+  const { week, s, esc, now } = opts;
+  const lines: string[] = [`👔 Cierre de semana del equipo · ${bogotaLongDate(now)}`, ""];
+  lines.push(`✅ ${week.completedTotal} ${week.completedTotal === 1 ? "tarea cerrada" : "tareas cerradas"} esta semana.`);
+  if (week.topClosers.length) {
+    lines.push(`🏆 ${week.topClosers.slice(0, 3).map((c) => `${c.name} (${c.count})`).join(" · ")}`);
+  }
+  if (s.overdueTotal) {
+    lines.push(`🔴 ${s.overdueTotal} ${s.overdueTotal === 1 ? "tarea atrasada arrastra" : "tareas atrasadas arrastran"} al lunes.`);
+  }
+  if (esc) {
+    const flags: string[] = [];
+    if (esc.awaitingInternal) flags.push(`✅ ${esc.awaitingInternal} por pre-aprobar`);
+    if (esc.awaitingClient) flags.push(`📨 ${esc.awaitingClient} sin respuesta del cliente`);
+    if (esc.proposalsOpen) flags.push(`💼 ${esc.proposalsOpen} propuestas sin cerrar`);
+    if (esc.invoicesOverdue) flags.push(`🧾 ${esc.invoicesOverdue} facturas por cobrar`);
+    if (flags.length) {
+      lines.push("");
+      lines.push("Para no dejar cabos sueltos:");
+      flags.forEach((f) => lines.push(`   • ${f}`));
+    }
+  }
+  lines.push("");
+  lines.push("Gran semana, equipo. A descansar y recargar. 🙌");
   return lines.join("\n").trim();
 }

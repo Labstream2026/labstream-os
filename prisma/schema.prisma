@@ -138,6 +138,7 @@ model MarcebotState {
   lastMorningOn  String? // "YYYY-MM-DD" (Colombia) del último saludo matutino personal
   lastTeamDigest String? // hash del último DM de resumen de equipo
   lastTeamOn     String? // "YYYY-MM-DD" del último resumen de equipo
+  lastWeeklyOn   String? // "YYYY-MM-DD" del último cierre de semana (viernes)
   updatedAt      DateTime  @updatedAt
 }
 

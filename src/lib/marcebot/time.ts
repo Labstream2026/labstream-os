@@ -24,6 +24,18 @@ export function bogotaHour(now: Date = new Date()): number {
   return bogotaWall(now).getUTCHours();
 }
 
+// Día de la semana en Bogotá: 0=domingo … 5=viernes … 6=sábado.
+export function bogotaWeekday(now: Date = new Date()): number {
+  return bogotaWall(now).getUTCDay();
+}
+
+// Lunes 00:00 de la semana actual en Bogotá, como instante real (UTC).
+export function bogotaWeekStart(now: Date = new Date()): Date {
+  const start = bogotaDayStart(now);
+  const back = (bogotaWeekday(now) + 6) % 7; // días transcurridos desde el lunes
+  return new Date(start.getTime() - back * 24 * 60 * 60 * 1000);
+}
+
 // Clave de día "YYYY-MM-DD" en Bogotá (para deduplicar el saludo diario).
 export function bogotaDateKey(now: Date = new Date()): string {
   const w = bogotaWall(now);
