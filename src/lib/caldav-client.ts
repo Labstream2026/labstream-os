@@ -73,7 +73,12 @@ async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs 
     // Usar el fetch de undici (no el global de Next) para que respete el `dispatcher` con
     // el Agent que acepta el cert autofirmado/por-IP del NAS. Acotado al host de confianza.
     const { fetch: undiciFetch, Agent } = await loadUndici();
-    if (!insecureAgent) insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
+    if (!insecureAgent) {
+      // rejectUnauthorized:false desactiva la validación de la cadena; checkServerIdentity
+      // (devolver undefined = "ok") desactiva además el chequeo de NOMBRE del cert, que es
+      // exactamente el ERR_TLS_CERT_ALTNAME_INVALID al conectar por IP a un cert de dominio.
+      insecureAgent = new Agent({ connect: { rejectUnauthorized: false, checkServerIdentity: () => undefined } });
+    }
     return undiciFetch(url, { ...init, dispatcher: insecureAgent, signal } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
   }
   return fetch(url, { ...init, signal } as RequestInit);
