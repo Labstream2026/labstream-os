@@ -27,6 +27,12 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
     if (r.ok) { setMsg(okMsg); setErr(null); }
     else { setErr(r.error ?? "Error"); setMsg(null); }
   };
+  // Envuelve una acción para que un rechazo del servidor NUNCA tumbe la ruta (error boundary):
+  // se muestra el error en el panel y la página sigue viva.
+  const runSafe = (fn: () => Promise<void>) =>
+    start(async () => {
+      try { await fn(); } catch { setErr("Algo falló en la solicitud. Revisa la conexión e inténtalo de nuevo."); setMsg(null); }
+    });
 
   return (
     <section className="mt-8">
@@ -63,7 +69,7 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
                   onChange={(e) => {
                     const url = e.target.value;
                     const name = calendars.find((c) => c.url === url)?.name ?? "";
-                    start(async () => { const r = await selectCalendar(url, name); flash(r, "Calendario actualizado"); if (r.ok) setCalName(name); });
+                    runSafe(async () => { const r = await selectCalendar(url, name); flash(r, "Calendario actualizado"); if (r.ok) setCalName(name); });
                   }}
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
@@ -74,7 +80,7 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
 
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => start(async () => {
+                onClick={() => runSafe(async () => {
                   const r = await syncCalendarNow();
                   if (r.ok) { setMsg(`Sincronizado · ${r.imported ?? 0} nuevos, ${r.updated ?? 0} actualizados, ${r.deleted ?? 0} borrados`); setErr(null); }
                   else { setErr(r.error ?? "Error"); setMsg(null); }
@@ -99,9 +105,14 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
               start(async () => {
-                const r = await connectCalendar(fd);
-                flash(r, "¡Conectado!");
-                if (r.ok) { setConnected(true); setCalendars(r.calendars ?? []); setCalName((r.calendars ?? []).find((c) => c.url === r.selected)?.name ?? null); }
+                try {
+                  const r = await connectCalendar(fd);
+                  flash(r, "¡Conectado!");
+                  if (r.ok) { setConnected(true); setCalendars(r.calendars ?? []); setCalName((r.calendars ?? []).find((c) => c.url === r.selected)?.name ?? null); }
+                } catch {
+                  setErr("No se pudo conectar (la solicitud falló o tardó demasiado). Revisa la URL del NAS y que sea alcanzable.");
+                  setMsg(null);
+                }
               });
             }}
             className="space-y-3"
@@ -109,7 +120,8 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
             <div className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-muted-foreground" /> Conectar mi Synology Calendar</div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">URL del NAS (CalDAV)</label>
-              <input name="serverUrl" required placeholder="https://tu-nas:5001" defaultValue="https://" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              <input name="serverUrl" required placeholder="https://192.168.0.22/caldav/" defaultValue="https://" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Usa la <strong>IP local</strong> del NAS y la ruta <code>/caldav/</code> (ej. <code>https://192.168.0.22/caldav/</code>). El dominio público no funciona desde dentro del NAS.</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>

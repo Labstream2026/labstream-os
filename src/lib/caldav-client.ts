@@ -65,7 +65,7 @@ type FetchInit = RequestInit & { dispatcher?: unknown };
 // la petición coincide con el host CONFIGURADO por el usuario. Nunca se desactiva la
 // verificación de certificado para otro host (p. ej. el destino de un redirect o un href
 // a otro origen) → acota el riesgo de MITM al único host que el usuario decidió confiar.
-async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs = 12000): Promise<Response> {
+async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs = 8000): Promise<Response> {
   const useInsecure = INSECURE && !!trustedHost && hostOf(url) === trustedHost;
   const dispatcher = useInsecure ? await getInsecureDispatcher() : undefined;
   return fetch(url, {
