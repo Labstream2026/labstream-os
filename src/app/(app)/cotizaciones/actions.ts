@@ -64,7 +64,7 @@ export async function createQuote(formData: FormData) {
       taxRate: settings.iva,
       contingencyPct: settings.contingencyPct,
       createdById: session.id,
-      items: { create: [{ description: "", quantity: 1, unitPrice: 0, position: 0 }] },
+      // Sin línea vacía por defecto: se compone desde el catálogo o se añade a mano.
     },
   });
   refresh(quote.id);
@@ -248,6 +248,20 @@ export async function updateItem(
     data: { section, description: data.description, unit, quantity, unitPrice },
   });
   refresh(existing.quoteId);
+}
+
+// Reordena las líneas de una cotización (arrastrar y soltar). Recibe los ids en el nuevo
+// orden y reescribe su `position`. Solo toca líneas de ESA cotización.
+export async function reorderQuoteItems(quoteId: string, orderedIds: string[]) {
+  await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  await assertEditable(quoteId);
+  const items = await db.quoteItem.findMany({ where: { quoteId }, select: { id: true } });
+  const valid = new Set(items.map((i) => i.id));
+  const ids = orderedIds.filter((id) => valid.has(id));
+  if (ids.length < 2) return;
+  await db.$transaction(ids.map((id, i) => db.quoteItem.update({ where: { id }, data: { position: i } })));
+  refresh(quoteId);
 }
 
 export async function removeItem(itemId: string) {
