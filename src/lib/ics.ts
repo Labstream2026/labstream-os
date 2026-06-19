@@ -33,7 +33,9 @@ function esc(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
-export type IcsAttendee = { email: string; name?: string };
+// status: estado de respuesta del asistente (RSVP) → PARTSTAT del .ics.
+//   NEEDS-ACTION (sin responder) · ACCEPTED · DECLINED · TENTATIVE.
+export type IcsAttendee = { email: string; name?: string; status?: string };
 
 export type IcsEvent = {
   uid: string;
@@ -92,9 +94,19 @@ export function buildIcs(e: IcsEvent): string {
     ...(e.attendees ?? []),
   ];
   for (const a of attendees) {
+    const partstat = a.status || "NEEDS-ACTION";
     lines.push(
-      `ATTENDEE;CN=${esc(a.name ?? a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${a.email}`,
+      `ATTENDEE;CN=${esc(a.name ?? a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=${partstat};RSVP=TRUE:mailto:${a.email}`,
     );
+  }
+
+  // Estado del evento: cancelado (al borrar/cancelar) o confirmado.
+  lines.push(`STATUS:${e.method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`);
+
+  // Recordatorio 15 min antes en eventos con hora (citas/reuniones): mejora la
+  // experiencia en Synology/móvil sin que el usuario configure nada.
+  if (!e.allDay) {
+    lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(e.title)}`, "TRIGGER:-PT15M", "END:VALARM");
   }
 
   lines.push("END:VEVENT", "END:VCALENDAR");
