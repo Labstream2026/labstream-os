@@ -36,8 +36,24 @@ export function CalendarBoard({
 }) {
   const [view, setView] = React.useState<"semana" | "mes">(defaultView);
   const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
+  const [personFilter, setPersonFilter] = React.useState<string>("");
   const [modal, setModal] = React.useState<EventModalState | null>(null);
   const [detail, setDetail] = React.useState<CalItem | null>(null);
+
+  // Personas presentes en los items (responsables + asistentes), para el filtro.
+  const people = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) {
+      if (it.assignee) set.add(it.assignee.name);
+      for (const a of it.attendees ?? []) set.add(a.name);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [items]);
+  // Items a mostrar: si hay filtro de persona, solo donde participa esa persona.
+  const shownItems = React.useMemo(() => {
+    if (!personFilter) return items;
+    return items.filter((it) => it.assignee?.name === personFilter || (it.attendees ?? []).some((a) => a.name === personFilter));
+  }, [items, personFilter]);
 
   React.useEffect(() => {
     const onCreateEv = (e: Event) => {
@@ -81,6 +97,18 @@ export function CalendarBoard({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {/* Filtro por persona: ver el calendario de un colaborador */}
+        {people.length > 1 ? (
+          <select
+            value={personFilter}
+            onChange={(e) => setPersonFilter(e.target.value)}
+            className="max-w-[160px] truncate rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+            title="Filtrar por persona"
+          >
+            <option value="">👥 Todo el equipo</option>
+            {people.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        ) : null}
         {/* Color por: tipo de evento o persona responsable */}
         <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1 text-xs">
           <span className="px-1.5 text-muted-foreground">Color:</span>
@@ -107,9 +135,9 @@ export function CalendarBoard({
         </div>
       </div>
       {view === "semana" ? (
-        <div className="min-h-0 flex-1"><WeekView items={items} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
+        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
+        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
       )}
 
       {modal && onCreate ? <EventModal state={modal} team={team} onClose={() => setModal(null)} /> : null}
