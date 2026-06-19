@@ -194,6 +194,71 @@ export async function removeEventForUsers(eventId: string, userIds: string[]): P
 const WINDOW_BACK_DAYS = 31;
 const WINDOW_FWD_DAYS = 366;
 
+// ── Sincronización de TAREAS/RODAJES del usuario hacia su Synology ─────────────
+// Cada tarea abierta del usuario (responsable o dueño) con fecha de entrega o de
+// rodaje se escribe como un evento de todo el día en SU calendario de Synology, para
+// que vea sus pendientes ahí. UID determinista (task-/shoot-<id>) → no necesita tabla
+// de refs: se reconcilia contra lo que el servidor ya reporta (PUT lo que cambió,
+// DELETE lo que ya no corresponde: tarea completada, sin fecha o reasignada).
+const TASK_UID_PREFIX = "task-";
+const SHOOT_UID_PREFIX = "shoot-";
+function isAppTaskUid(uid: string): boolean {
+  return uid.startsWith(TASK_UID_PREFIX) || uid.startsWith(SHOOT_UID_PREFIX);
+}
+function sameUTCDate(a: Date, b: Date): boolean {
+  return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth() && a.getUTCDate() === b.getUTCDate();
+}
+function taskDescription(t: { project: { name: string } | null; priority: string | null; description: string | null }): string {
+  const bits: string[] = [];
+  if (t.project?.name) bits.push(`Proyecto: ${t.project.name}`);
+  if (t.priority) bits.push(`Prioridad: ${t.priority}`);
+  const head = bits.join(" · ");
+  return [head, t.description?.trim()].filter(Boolean).join("\n\n");
+}
+
+async function reconcileUserTasks(
+  auth: CalDavAuth,
+  conn: CalendarConnection,
+  from: Date,
+  to: Date,
+  remoteTasks: Map<string, { start: Date; href: string }>,
+): Promise<void> {
+  const tasks = await db.task.findMany({
+    where: {
+      completedAt: null,
+      AND: [
+        { OR: [{ assigneeId: conn.userId }, { ownerId: conn.userId }] },
+        { OR: [{ dueDate: { gte: from, lte: to } }, { shootDate: { gte: from, lte: to } }] },
+      ],
+    },
+    select: { id: true, title: true, description: true, dueDate: true, shootDate: true, priority: true, project: { select: { name: true } } },
+  });
+
+  const desired = new Set<string>();
+  const calUrl = conn.calendarUrl!;
+  for (const t of tasks) {
+    const desc = taskDescription(t);
+    const proj = t.project?.name ? ` · ${t.project.name}` : "";
+    const entries: { uid: string; title: string; date: Date }[] = [];
+    if (t.dueDate) entries.push({ uid: `${TASK_UID_PREFIX}${t.id}@labstreamsas.com`, title: `✅ ${t.title}${proj}`, date: t.dueDate });
+    if (t.shootDate) entries.push({ uid: `${SHOOT_UID_PREFIX}${t.id}@labstreamsas.com`, title: `🎬 Rodaje: ${t.title}${proj}`, date: t.shootDate });
+    for (const e of entries) {
+      desired.add(e.uid);
+      const remote = remoteTasks.get(e.uid);
+      // Solo se reescribe si no existe o cambió la fecha (evita PUTs redundantes cada 5 min).
+      if (remote && sameUTCDate(remote.start, e.date)) continue;
+      const ics = buildIcs({ uid: e.uid, title: e.title, start: e.date, allDay: true, description: desc || undefined, method: "PUBLISH" });
+      try { await putEvent(auth, calUrl, e.uid, ics); } catch { /* best-effort por tarea */ }
+    }
+  }
+
+  // Borra del Synology las entradas de tarea/rodaje que ya no corresponden.
+  for (const [uid, info] of remoteTasks) {
+    if (desired.has(uid)) continue;
+    try { await deleteEvent(auth, info.href); } catch { /* best-effort */ }
+  }
+}
+
 // expandRecurrence (ics-parse) reescribe el UID de cada ocurrencia como
 // `${baseUid}_YYYYMMDDTHHMMSS`. Para reconciliar borrados NO podemos comparar esos
 // UID sintéticos contra una ventana deslizante (una ocurrencia fuera de ventana
@@ -223,6 +288,9 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     // UID BASE que el servidor reporta: la única base fiable para reconciliar
     // borrados (ver baseUidOf y la nota de B2 arriba).
     const seenBaseUids = new Set<string>();
+    // Entradas de TAREAS/RODAJES que la app ya escribió (uid task-/shoot-): se separan
+    // del import (no son CalendarEvent) y se reconcilian aparte (reconcileUserTasks).
+    const remoteTasks = new Map<string, { start: Date; href: string }>();
 
     // Expande recurrentes a ocurrencias concretas dentro de la ventana.
     const occurrences = remote.events.flatMap((r) => {
@@ -232,6 +300,12 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     });
 
     for (const { occ: parsed, href, etag } of occurrences) {
+      // Entradas de tarea/rodaje empujadas por la app: NO se reimportan como eventos
+      // (evita duplicados y bucles); se guardan para reconciliar más abajo.
+      if (isAppTaskUid(parsed.uid)) {
+        remoteTasks.set(parsed.uid, { start: parsed.start, href });
+        continue;
+      }
       seenUids.add(parsed.uid);
       seenBaseUids.add(baseUidOf(parsed.uid));
 
@@ -276,6 +350,9 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
         }
       }
     }
+
+    // Empuja/actualiza/borra las TAREAS y RODAJES del usuario en su Synology (idempotente).
+    await reconcileUserTasks(auth, conn, from, to, remoteTasks).catch(() => {});
 
     // Borrados: eventos de origen Synology de este usuario, dentro de la ventana,
     // que ya no están en el servidor → se eliminaron allá, los quitamos aquí.
