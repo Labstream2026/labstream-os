@@ -39,7 +39,10 @@ export default async function ImprimirCotizacionPage({ params }: { params: Promi
           status: quote.status,
           currency: quote.currency,
           taxRate: quote.taxRate,
+          contingencyPct: quote.contingencyPct,
           notes: quote.notes,
+          scope: quote.scope,
+          deliverables: quote.deliverables,
           validUntil: quote.validUntil,
           createdAt: quote.createdAt,
           clientName: quote.client.name,
@@ -48,7 +51,7 @@ export default async function ImprimirCotizacionPage({ params }: { params: Promi
           recipientCity: quote.recipientCity,
           intro: quote.intro,
           projectName: quote.project?.name ?? null,
-          items: quote.items.map((i) => ({ section: i.section, description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })),
+          items: quote.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice })),
         }}
       />
     </div>

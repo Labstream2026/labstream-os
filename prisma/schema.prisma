@@ -315,6 +315,10 @@ model Project {
   // Columnas del tablero de tareas = fases de producción audiovisual (personalizables).
   stages      String[]      @default(["Preproducción", "Producción", "Postproducción", "Revisión cliente", "Entregado"])
   stageColors Json? // mapa fase → tono de color (opcional), para colorear columnas
+  // Brief de la PROPUESTA para el equipo (lo que se va a hacer + entregables/compromisos).
+  // Visible para todo el equipo del proyecto; NO incluye valores ni equipos. Editable.
+  briefScope        String?
+  briefDeliverables String?
 
   tasks        Task[]
   deliverables Deliverable[]
@@ -375,6 +379,13 @@ model Quote {
   recipientName String?    // Persona de contacto (línea bajo la empresa)
   recipientCity String?    // Ciudad del destinatario (por defecto "Ciudad")
   intro         String?    // Texto de introducción (si vacío, se genera uno por defecto)
+  // Alcance ("qué se va a hacer") y entregables ("qué recibe el cliente"): se muestran en
+  // la carta para que el cliente entienda el servicio. También alimentan el brief del proyecto.
+  scope         String?
+  deliverables  String?
+  // Imprevisto OCULTO al cliente (% sobre el subtotal). Se inicializa desde QuoteSettings al
+  // crear; el cliente nunca ve esta línea, solo los valores ya ajustados + IVA + total.
+  contingencyPct Float     @default(0)
   validUntil   DateTime?
   client       Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId     String
@@ -397,8 +408,11 @@ model QuoteItem {
   quoteId     String
   section     String? // agrupa el ítem en una sección del desglose (Preproducción, Rodaje…)
   description String
+  unit        String? // unidad de cobro: día | hora | minuto | unidad | evento | servicio…
   quantity    Float   @default(1)
   unitPrice   Float   @default(0)
+  // Ítem del catálogo del que salió (trazabilidad; no es relación dura para no acoplar).
+  catalogItemId String?
   position    Int     @default(0)
 
   @@index([quoteId])

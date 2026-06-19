@@ -160,6 +160,17 @@ export async function renameTask(taskId: string, _projectId: string, formData: F
   refresh(projectId);
 }
 
+// Brief de la propuesta del proyecto (qué se hará + entregables/compromisos). Visible a
+// todo el equipo del proyecto; lo edita quien puede escribir el proyecto. Sin valores.
+export async function updateProjectBrief(projectId: string, formData: FormData) {
+  await ensureProjectAccess(projectId);
+  const briefScope = String(formData.get("briefScope") ?? "").trim() || null;
+  const briefDeliverables = String(formData.get("briefDeliverables") ?? "").trim() || null;
+  await db.project.update({ where: { id: projectId }, data: { briefScope, briefDeliverables } });
+  await logActivity({ action: "project.brief", summary: "actualizó la propuesta del proyecto (alcance/entregables)", projectId, entityType: "project", entityId: projectId });
+  refresh(projectId);
+}
+
 // Cambiar la prioridad de la tarea.
 export async function setTaskPriority(taskId: string, _projectId: string, priority: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });

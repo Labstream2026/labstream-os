@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
+import { getQuoteSettings } from "@/lib/services-catalog";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -49,6 +50,10 @@ export async function createQuote(formData: FormData) {
   if (!clientId) throw new Error("Falta el cliente");
   if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
 
+  // El imprevisto por defecto sale de los ajustes globales (oculto al cliente). El IVA
+  // también, para que una cotización nueva ya traiga los porcentajes de la empresa.
+  const settings = await getQuoteSettings();
+
   const quote = await db.quote.create({
     data: {
       code: await nextCode(),
@@ -56,6 +61,8 @@ export async function createQuote(formData: FormData) {
       clientId,
       projectId,
       recipientName,
+      taxRate: settings.iva,
+      contingencyPct: settings.contingencyPct,
       createdById: session.id,
       items: { create: [{ description: "", quantity: 1, unitPrice: 0, position: 0 }] },
     },
@@ -74,19 +81,63 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
   const recipientName = String(formData.get("recipientName") ?? "").trim() || null;
   const recipientCity = String(formData.get("recipientCity") ?? "").trim() || null;
   const intro = String(formData.get("intro") ?? "").trim() || null;
+  const scope = String(formData.get("scope") ?? "").trim() || null;
+  const deliverables = String(formData.get("deliverables") ?? "").trim() || null;
+  const contingencyPct = Math.max(0, Math.min(100, parseFloat(String(formData.get("contingencyPct") ?? "0")) || 0));
   const validUntilRaw = String(formData.get("validUntil") ?? "").trim();
   await db.quote.update({
     where: { id: quoteId },
     data: {
       ...(title ? { title } : {}),
       taxRate,
+      contingencyPct,
       notes,
       recipientName,
       recipientCity,
       intro,
+      scope,
+      deliverables,
       validUntil: validUntilRaw ? new Date(validUntilRaw) : null,
     },
   });
+  refresh(quoteId);
+}
+
+// Agrega varias líneas a la cotización tomadas del CATÁLOGO interno (componer servicio).
+// Cada selección lleva el id del ServiceItem y la cantidad elegida.
+export async function addCatalogItems(quoteId: string, selections: { catalogItemId: string; quantity: number }[]) {
+  await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  await assertEditable(quoteId);
+  const ids = selections.map((s) => s.catalogItemId);
+  if (!ids.length) return;
+  const cat = await db.serviceItem.findMany({ where: { id: { in: ids } } });
+  const byId = new Map(cat.map((c) => [c.id, c]));
+  let pos = await db.quoteItem.count({ where: { quoteId } });
+  const data = selections
+    .map((sel) => {
+      const ci = byId.get(sel.catalogItemId);
+      if (!ci) return null;
+      const quantity = Math.max(0, Number.isFinite(sel.quantity) ? sel.quantity : ci.qty);
+      return { quoteId, section: ci.section, description: ci.name, unit: ci.unit, quantity, unitPrice: ci.unitPrice, catalogItemId: ci.id, position: pos++ };
+    })
+    .filter((d): d is NonNullable<typeof d> => d !== null);
+  if (data.length) await db.quoteItem.createMany({ data });
+  refresh(quoteId);
+}
+
+// Copia el alcance y los entregables de la cotización al BRIEF del proyecto vinculado
+// (lo que ve el equipo, sin valores ni equipos). Solo si la cotización tiene proyecto.
+export async function copyQuoteBriefToProject(quoteId: string) {
+  await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  const q = await db.quote.findUnique({ where: { id: quoteId }, select: { projectId: true, scope: true, deliverables: true } });
+  if (!q?.projectId) throw new Error("La cotización no está vinculada a un proyecto.");
+  await db.project.update({
+    where: { id: q.projectId },
+    data: { briefScope: q.scope, briefDeliverables: q.deliverables },
+  });
+  revalidatePath(`/proyectos/${q.projectId}`);
   refresh(quoteId);
 }
 
@@ -103,7 +154,7 @@ export async function addItem(quoteId: string) {
 
 export async function updateItem(
   itemId: string,
-  data: { section?: string; description: string; quantity: number; unitPrice: number },
+  data: { section?: string; description: string; unit?: string; quantity: number; unitPrice: number },
 ) {
   await requirePerm("crear_cotizaciones");
   const existing = await db.quoteItem.findUnique({ where: { id: itemId }, select: { quoteId: true } });
@@ -114,9 +165,10 @@ export async function updateItem(
   const quantity = Math.max(0, Number.isFinite(data.quantity) ? data.quantity : 0);
   const unitPrice = Math.max(0, Number.isFinite(data.unitPrice) ? data.unitPrice : 0);
   const section = (data.section ?? "").trim().slice(0, 60) || null;
+  const unit = (data.unit ?? "").trim().slice(0, 24) || null;
   await db.quoteItem.update({
     where: { id: itemId },
-    data: { section, description: data.description, quantity, unitPrice },
+    data: { section, description: data.description, unit, quantity, unitPrice },
   });
   refresh(existing.quoteId);
 }

@@ -1,14 +1,18 @@
 import { formatMoney, formatLongDate } from "@/lib/ui";
 import { COMPANY } from "@/lib/branding";
+import { composeQuoteTotals, clientLineValue } from "@/lib/quote-compose";
 
-export type DocItem = { section: string | null; description: string; quantity: number; unitPrice: number };
+export type DocItem = { section: string | null; description: string; unit?: string | null; quantity: number; unitPrice: number };
 export type QuoteDoc = {
   code: string;
   title: string;
   status: string;
   currency: string;
   taxRate: number;
+  contingencyPct?: number; // imprevisto OCULTO: ya viene incluido en los valores que ve el cliente
   notes: string | null;
+  scope?: string | null;        // qué se va a hacer (lo entiende el cliente)
+  deliverables?: string | null; // qué recibe el cliente
   validUntil: Date | string | null;
   createdAt: Date | string;
   clientName: string;
@@ -37,6 +41,9 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
   const money = (n: number) => formatMoney(n, quote.currency);
   const showIva = quote.taxRate > 0;
   const days = validityDays(quote.createdAt, quote.validUntil);
+  const contingencyPct = quote.contingencyPct ?? 0;
+  // El cliente ve los valores YA AJUSTADOS por el imprevisto (oculto); nunca la línea del 10%.
+  const totals = composeQuoteTotals(quote.items, { taxRate: quote.taxRate, contingencyPct });
 
   // Destinatario: empresa (o nombre) en primera línea; debajo, la persona de contacto
   // (campo editable; si está vacío, el nombre del cliente cuando hay empresa distinta).
@@ -88,6 +95,14 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
           </p>
         )}
 
+        {/* Qué se va a hacer (alcance) — para que el cliente entienda el servicio */}
+        {quote.scope?.trim() ? (
+          <div className="mt-4">
+            <p className="font-semibold">El servicio incluye:</p>
+            <p className="mt-1 whitespace-pre-wrap">{quote.scope}</p>
+          </div>
+        ) : null}
+
         {/* Nota opcional */}
         {quote.notes ? (
           <p className="mt-4 whitespace-pre-wrap">
@@ -106,32 +121,57 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
           </thead>
           <tbody>
             {quote.items.map((it, i) => {
-              const lineTotal = it.quantity * it.unitPrice;
+              // Valor discriminado que ve el cliente: línea ya ajustada por el imprevisto.
+              const lineValue = clientLineValue(it, contingencyPct);
               const [first, ...rest] = (it.description || "—").split("\n");
+              const qtyNote = it.quantity > 1 ? ` (×${it.quantity}${it.unit ? ` ${it.unit}` : ""})` : "";
               return (
                 <tr key={i}>
                   <td className="border border-neutral-800 px-3 py-2 align-middle">
                     {it.section ? (
                       <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{it.section} · </span>
                     ) : null}
-                    <span>{first}{it.quantity > 1 ? ` (×${it.quantity})` : ""}</span>
+                    <span>{first}{qtyNote}</span>
                     {rest.length ? (
                       <span className="block text-[10.5px] text-neutral-500">{rest.join(" ")}</span>
                     ) : null}
                   </td>
                   <td className="border border-neutral-800 px-3 py-2 text-right align-middle tabular-nums whitespace-nowrap">
-                    {money(lineTotal)}{showIva ? " + IVA" : ""}
+                    {money(lineValue)}
                   </td>
                 </tr>
               );
             })}
+            {/* Totales: subtotal (ya con imprevisto incluido), IVA y total */}
+            <tr>
+              <td className="border border-neutral-800 px-3 py-1.5 text-right font-medium">Subtotal</td>
+              <td className="border border-neutral-800 px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{money(totals.clientSubtotal)}</td>
+            </tr>
+            {showIva ? (
+              <tr>
+                <td className="border border-neutral-800 px-3 py-1.5 text-right font-medium">IVA ({quote.taxRate}%)</td>
+                <td className="border border-neutral-800 px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{money(totals.tax)}</td>
+              </tr>
+            ) : null}
+            <tr>
+              <td className="border border-neutral-800 px-3 py-2 text-right font-bold">Total{showIva ? " + IVA" : ""}</td>
+              <td className="border border-neutral-800 px-3 py-2 text-right font-bold tabular-nums whitespace-nowrap">{money(totals.total)}</td>
+            </tr>
           </tbody>
         </table>
+
+        {/* Entregables — qué recibe el cliente */}
+        {quote.deliverables?.trim() ? (
+          <div className="mt-5">
+            <p className="font-semibold">Entregables:</p>
+            <p className="mt-1 whitespace-pre-wrap">{quote.deliverables}</p>
+          </div>
+        ) : null}
 
         {/* Pie de página legal */}
         <div className="mt-5 space-y-1 text-[11.5px] text-neutral-700">
           {showIva ? (
-            <p>*El valor correspondiente al IVA es del {quote.taxRate}% del valor del servicio, de acuerdo con lo estipulado por la normatividad Colombiana.</p>
+            <p>*El IVA corresponde al {quote.taxRate}% del valor del servicio, de acuerdo con la normatividad colombiana.</p>
           ) : null}
           <p>{showIva ? "**" : "*"}Los valores registrados en esta propuesta comercial tienen validez durante {days} días calendario.</p>
         </div>

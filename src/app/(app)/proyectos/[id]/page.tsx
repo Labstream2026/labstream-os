@@ -26,6 +26,7 @@ import { DeliverablesPanel } from "./deliverables-panel";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
+import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
 import { loadInventory, conflictsByDate } from "@/lib/equipos";
 
@@ -33,6 +34,7 @@ export const dynamic = "force-dynamic";
 
 const TABS = [
   { key: "resumen", label: "Resumen" },
+  { key: "propuesta", label: "Propuesta" },
   { key: "tareas", label: "Tareas" },
   { key: "calendario", label: "Calendario" },
   { key: "cronograma", label: "Cronograma" },
@@ -297,6 +299,20 @@ export default async function ProyectoPage({
               />
             ) : null}
             <Resumen project={project} priorities={taskLabels.priorities} />
+          </div>
+        ) : null}
+        {tab === "propuesta" ? (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Propuesta del proyecto</h2>
+              <p className="text-xs text-muted-foreground">Qué vamos a hacer y qué entregaremos — para todo el equipo. No incluye valores ni equipos.</p>
+            </div>
+            <BriefPanel
+              projectId={id}
+              scope={project.briefScope}
+              deliverables={project.briefDeliverables}
+              canWrite={canWriteProject(project, session)}
+            />
           </div>
         ) : null}
         {tab === "tareas" ? (

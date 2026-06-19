@@ -7,7 +7,8 @@ import { userCanAccessClient } from "@/lib/client-access";
 import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
 import { signQuoteToken } from "@/lib/quote-token";
 import { Printer } from "lucide-react";
-import { updateQuoteMeta } from "../actions";
+import { updateQuoteMeta, copyQuoteBriefToProject } from "../actions";
+import { getServiceCatalog } from "@/lib/services-catalog";
 import { createInvoiceFromQuote } from "../../facturacion/actions";
 import { QuoteEditor } from "./quote-editor";
 import { QuoteStatusActions } from "./quote-status";
@@ -40,6 +41,8 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
   const meta = quoteStatusMeta(quote.status);
   const validUntilValue = quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "";
   const publicPath = `/cotizacion/${signQuoteToken(quote.id)}`;
+  // Catálogo interno para "componer" el servicio (solo si puede editar).
+  const catalog = canEdit ? await getServiceCatalog() : [];
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
@@ -103,8 +106,20 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
             <input name="taxRate" type="number" min={0} max={100} defaultValue={quote.taxRate} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
           <label className="text-sm">
+            <span className="mb-1 block font-medium">Imprevisto (%) <span className="font-normal text-muted-foreground">· oculto al cliente</span></span>
+            <input name="contingencyPct" type="number" min={0} max={100} step="0.5" defaultValue={quote.contingencyPct} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm">
             <span className="mb-1 block font-medium">Válida hasta</span>
             <input name="validUntil" type="date" defaultValue={validUntilValue} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium">Qué se va a hacer <span className="font-normal text-muted-foreground">· lo ve el cliente y el equipo</span></span>
+            <textarea name="scope" rows={3} defaultValue={quote.scope ?? ""} placeholder="Describe el servicio: cómo se ejecutará, fechas, locaciones, alcance…" className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium">Entregables <span className="font-normal text-muted-foreground">· qué recibe el cliente</span></span>
+            <textarea name="deliverables" rows={3} defaultValue={quote.deliverables ?? ""} placeholder="p. ej. 1 video de 60s en 4K, 20 fotos editadas, 3 reels verticales, galería online…" className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
           <label className="text-sm">
             <span className="mb-1 block font-medium">Persona de contacto</span>
@@ -122,8 +137,17 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
             <span className="mb-1 block font-medium">Nota / información adicional</span>
             <textarea name="notes" rows={2} defaultValue={quote.notes ?? ""} placeholder="Condiciones, forma de pago, descuentos, etc." className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
-          <div className="sm:col-span-2">
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
             <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">Guardar datos</button>
+            {quote.project ? (
+              <button
+                formAction={copyQuoteBriefToProject.bind(null, quote.id)}
+                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent"
+                title="Copia el alcance y los entregables al proyecto, para que el equipo los vea (sin valores)"
+              >
+                Enviar alcance/entregables al proyecto →
+              </button>
+            ) : null}
           </div>
         </form>
       ) : quote.notes ? (
@@ -134,10 +158,12 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
       <h2 className="mb-2 mt-6 text-sm font-semibold">Conceptos</h2>
       <QuoteEditor
         quoteId={quote.id}
-        initialItems={quote.items.map((i) => ({ id: i.id, section: i.section ?? "", description: i.description, quantity: i.quantity, unitPrice: i.unitPrice }))}
+        initialItems={quote.items.map((i) => ({ id: i.id, section: i.section ?? "", description: i.description, unit: i.unit ?? "", quantity: i.quantity, unitPrice: i.unitPrice }))}
         taxRate={quote.taxRate}
+        contingencyPct={quote.contingencyPct}
         currency={quote.currency}
         canEdit={canEdit}
+        catalog={catalog.map((g) => ({ key: g.key, label: g.label, icon: g.icon, sections: g.sections.map((s) => ({ name: s.name, items: s.items.map((it) => ({ id: it.id, name: it.name, detail: it.detail, unit: it.unit, qty: it.qty, unitPrice: it.unitPrice })) })) }))}
       />
     </div>
   );
