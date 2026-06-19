@@ -8,8 +8,10 @@ import { formatMoney } from "@/lib/ui";
 import { TEMPLATES } from "@/lib/proposals/templates";
 import { wizardSteps, type WizQuestion } from "@/lib/proposals/wizard";
 import { costCatalog, catalogToBudgetSections, internalCost, clientTotals, applyAnswersToCatalog, type CostSection } from "@/lib/proposals/budget";
+import { suggestEquipment, matchesNeed } from "@/lib/proposals/equipment-suggest";
 import { createProposal } from "../actions";
 
+export type WizInvItem = { name: string; category: string | null; tags: string[]; quantity: number };
 type Answers = Record<string, string>;
 type Pricing = {
   price: number; setPrice: (n: number) => void;
@@ -21,10 +23,12 @@ export function ProposalWizard({
   catalogByType = {},
   defaults,
   clientNames = [],
+  inventory = [],
 }: {
   catalogByType?: Record<string, CostSection[]>;
   defaults?: { iva: number; contingencyPct: number };
   clientNames?: string[];
+  inventory?: WizInvItem[];
 }) {
   const [tpl, setTpl] = React.useState<string | null>(null);
   const [step, setStep] = React.useState(0); // 0 = preguntas (tras elegir plantilla)
@@ -141,7 +145,7 @@ export function ProposalWizard({
 
       {/* Pregunta */}
       <div className="flex-1">
-        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} pricing={pricing} clientNames={clientNames} onEnter={() => canAdvance && next()} /> : null}
+        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} pricing={pricing} clientNames={clientNames} tpl={tpl} answers={answers} inventory={inventory} onEnter={() => canAdvance && next()} /> : null}
       </div>
 
       {error ? <p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
@@ -172,6 +176,9 @@ function QuestionView({
   setCatalog,
   pricing,
   clientNames,
+  tpl,
+  answers,
+  inventory,
   onEnter,
 }: {
   q: WizQuestion;
@@ -181,6 +188,9 @@ function QuestionView({
   setCatalog: React.Dispatch<React.SetStateAction<CostSection[]>>;
   pricing: Pricing;
   clientNames: string[];
+  tpl: string | null;
+  answers: Answers;
+  inventory: WizInvItem[];
   onEnter: () => void;
 }) {
   // En la pregunta de cliente, sugerimos los clientes existentes (vincula la propuesta al
@@ -253,8 +263,43 @@ function QuestionView({
           </div>
         ) : null}
 
+        {q.input === "equipos" ? <EquiposSuggest tpl={tpl} answers={answers} inventory={inventory} /> : null}
+
         {q.input === "budget" ? <BudgetBuilder catalog={catalog} setCatalog={setCatalog} pricing={pricing} /> : null}
       </div>
+    </div>
+  );
+}
+
+// Sugerencia de equipos del inventario según las respuestas. Para cada necesidad, busca en
+// el inventario por categoría/tags y muestra cuánto hay vs. lo que se necesita.
+function EquiposSuggest({ tpl, answers, inventory }: { tpl: string | null; answers: Answers; inventory: WizInvItem[] }) {
+  const needs = tpl ? suggestEquipment(tpl, answers) : [];
+  if (!needs.length) return <p className="text-sm text-muted-foreground">Sin sugerencias para esta plantilla.</p>;
+  return (
+    <div className="space-y-2.5">
+      {needs.map((need, i) => {
+        const matches = inventory.filter((it) => matchesNeed(it, need));
+        const disponible = matches.reduce((n, it) => n + it.quantity, 0);
+        const falta = disponible < need.qty;
+        return (
+          <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{need.label} <span className="text-muted-foreground">· {need.qty} necesario(s)</span></p>
+              <p className="truncate text-xs text-muted-foreground">
+                {matches.length ? matches.slice(0, 4).map((m) => m.name).join(" · ") : "No hay equipos de este tipo en el inventario"}
+                {matches.length > 4 ? ` +${matches.length - 4}` : ""}
+              </p>
+            </div>
+            <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-medium", falta ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300")}>
+              {falta ? `Tienes ${disponible} de ${need.qty}` : `✓ ${disponible} en inventario`}
+            </span>
+          </div>
+        );
+      })}
+      <p className="text-xs text-muted-foreground">
+        Guía interna para preparar el rodaje (no se muestra al cliente). Reserva los equipos por fecha en la pestaña <strong>Equipos</strong> del proyecto.
+      </p>
     </div>
   );
 }

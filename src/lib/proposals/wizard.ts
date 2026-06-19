@@ -4,7 +4,7 @@
 
 import { PAISES, MESES } from "./calendar";
 
-export type WizInput = "text" | "textarea" | "options" | "select" | "budget";
+export type WizInput = "text" | "textarea" | "options" | "select" | "budget" | "equipos";
 export type WizOption = { v: string; t?: string; d?: string; i?: string };
 export type WizQuestion = {
   key: string;
@@ -90,6 +90,14 @@ const Q_MES: WizQuestion = {
   help: "El plan y el calendario se arman con las fechas clave de ese mes en el país elegido.",
   input: "select",
   opts: MESES.map((m) => ({ v: m, t: m })),
+};
+
+export const Q_EQUIPOS: WizQuestion = {
+  key: "equipos",
+  label: "Equipos que harán falta",
+  help: "Según tus respuestas, estos son los equipos del inventario que necesita el trabajo. Es una guía para el equipo (no se muestra al cliente).",
+  input: "equipos",
+  optional: true,
 };
 
 export const Q_BUDGET: WizQuestion = {
@@ -391,5 +399,5 @@ export const WIZ_EXTRA: Record<string, WizQuestion[]> = {
 
 // Lista de pasos del asistente para una plantilla (sin el paso de selección).
 export function wizardSteps(templateKey: string): WizQuestion[] {
-  return [...WIZ_COMMON, ...(WIZ_EXTRA[templateKey] ?? []), Q_BUDGET];
+  return [...WIZ_COMMON, ...(WIZ_EXTRA[templateKey] ?? []), Q_EQUIPOS, Q_BUDGET];
 }
