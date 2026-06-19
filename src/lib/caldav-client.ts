@@ -11,15 +11,16 @@
 const INSECURE = process.env.CALDAV_INSECURE_TLS !== "false";
 
 // undici se carga perezosamente solo en runtime de servidor (no en bundle cliente/edge).
-let dispatcherPromise: Promise<unknown> | undefined;
-function getInsecureDispatcher(): Promise<unknown> {
-  if (!dispatcherPromise) {
-    dispatcherPromise = import("undici").then(
-      ({ Agent }) => new Agent({ connect: { rejectUnauthorized: false } }),
-    );
-  }
-  return dispatcherPromise;
+// IMPORTANTE: el `fetch` GLOBAL de Next.js está parcheado e IGNORA la opción `dispatcher`,
+// así que para aplicar el Agent que acepta el cert del NAS hay que usar el `fetch` de undici
+// DIRECTAMENTE (no el global). Cacheamos el módulo y el Agent inseguro.
+type UndiciMod = typeof import("undici");
+let undiciPromise: Promise<UndiciMod> | undefined;
+function loadUndici(): Promise<UndiciMod> {
+  if (!undiciPromise) undiciPromise = import("undici");
+  return undiciPromise;
 }
+let insecureAgent: unknown;
 
 function hostOf(u: string): string {
   try {
@@ -67,12 +68,15 @@ type FetchInit = RequestInit & { dispatcher?: unknown };
 // a otro origen) → acota el riesgo de MITM al único host que el usuario decidió confiar.
 async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs = 8000): Promise<Response> {
   const useInsecure = INSECURE && !!trustedHost && hostOf(url) === trustedHost;
-  const dispatcher = useInsecure ? await getInsecureDispatcher() : undefined;
-  return fetch(url, {
-    ...init,
-    dispatcher,
-    signal: AbortSignal.timeout(timeoutMs),
-  } as RequestInit);
+  const signal = AbortSignal.timeout(timeoutMs);
+  if (useInsecure) {
+    // Usar el fetch de undici (no el global de Next) para que respete el `dispatcher` con
+    // el Agent que acepta el cert autofirmado/por-IP del NAS. Acotado al host de confianza.
+    const { fetch: undiciFetch, Agent } = await loadUndici();
+    if (!insecureAgent) insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
+    return undiciFetch(url, { ...init, dispatcher: insecureAgent, signal } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
+  }
+  return fetch(url, { ...init, signal } as RequestInit);
 }
 
 // ── Parseo ligero de multistatus (sin librería XML) ──────────────────────────
