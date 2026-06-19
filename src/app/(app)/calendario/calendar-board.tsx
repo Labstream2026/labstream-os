@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
 import { WeekView } from "./week-view";
 import { EventModal, type EventModalState } from "./event-modal";
-import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard } from "./calendar-detail";
+import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard, type ColorBy } from "./calendar-detail";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 // Los campos UTC del Date guardado SON la hora de pared (la app guarda en UTC sin convertir,
@@ -35,6 +35,7 @@ export function CalendarBoard({
   defaultView?: "semana" | "mes";
 }) {
   const [view, setView] = React.useState<"semana" | "mes">(defaultView);
+  const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
   const [modal, setModal] = React.useState<EventModalState | null>(null);
   const [detail, setDetail] = React.useState<CalItem | null>(null);
 
@@ -79,21 +80,36 @@ export function CalendarBoard({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="inline-flex shrink-0 items-center gap-1 self-end rounded-lg bg-muted p-1">
-        {(["semana", "mes"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={cn("rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors", view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-          >
-            {v === "semana" ? "🗓️ Semana" : "📅 Mes"}
-          </button>
-        ))}
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {/* Color por: tipo de evento o persona responsable */}
+        <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1 text-xs">
+          <span className="px-1.5 text-muted-foreground">Color:</span>
+          {(["tipo", "persona"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setColorBy(c)}
+              className={cn("rounded-md px-2 py-1 font-medium capitalize transition-colors", colorBy === c ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+            >
+              {c === "tipo" ? "Tipo" : "Persona"}
+            </button>
+          ))}
+        </div>
+        <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+          {(["semana", "mes"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={cn("rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors", view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+            >
+              {v === "semana" ? "🗓️ Semana" : "📅 Mes"}
+            </button>
+          ))}
+        </div>
       </div>
       {view === "semana" ? (
-        <div className="min-h-0 flex-1"><WeekView items={items} canCreate={Boolean(onCreate)} /></div>
+        <div className="min-h-0 flex-1"><WeekView items={items} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} canCreate={Boolean(onCreate)} /></div>
+        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={items} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
       )}
 
       {modal && onCreate ? <EventModal state={modal} team={team} onClose={() => setModal(null)} /> : null}

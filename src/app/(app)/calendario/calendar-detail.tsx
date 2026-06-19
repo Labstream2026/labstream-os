@@ -3,8 +3,19 @@
 import * as React from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { avatarHex } from "@/lib/ui";
 import type { CalItem } from "./my-calendar";
 import { deleteMyEvent } from "./actions";
+
+// Modo de color del calendario: por tipo (cita/tarea/rodaje) o por persona responsable.
+export type ColorBy = "tipo" | "persona";
+
+// Color del bloque según la persona responsable (asignado, o primer asistente de la cita).
+// Devuelve null si no hay persona/color → el llamador cae al color por tipo.
+export function personColor(item: CalItem): string | null {
+  const c = item.assignee?.color ?? item.attendees?.[0]?.color ?? null;
+  return c ? avatarHex(c) : null;
+}
 
 // Color por tipo. `bar` = acento sólido, `bg` = relleno tenue (franja todo-el-día
 // y detalle), `solid` = relleno saturado para los bloques cronometrados estilo

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { calTone, emitCalendarDetail, emitCalendarCreate } from "./calendar-detail";
+import { calTone, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 
 const HOUR_H = 44; // alto en px de cada hora
@@ -80,7 +80,9 @@ type Drag = {
 };
 type Live = { dayIndex: number; topMin: number; endMin: number; moved: boolean };
 
-export function WeekView({ items, onSelect, canCreate = false }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean }) {
+export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy }) {
+  // Color efectivo de un bloque: por persona (responsable) o por tipo (fallback).
+  const blockColor = (it: CalItem, solid: string) => (colorBy === "persona" ? personColor(it) ?? solid : solid);
   const [anchor, setAnchor] = React.useState(() => new Date());
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -218,7 +220,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
-                        style={{ background: t.solid }}
+                        style={{ background: blockColor(p.it, t.solid) }}
                         title={p.it.title}>
                         <span className="truncate">{p.it.kind === "milestone" ? "" : p.it.kind === "shoot" ? "🎬 " : p.it.kind === "task" ? "✅ " : "📅 "}{p.it.title}</span>
                       </button>
@@ -288,7 +290,7 @@ export function WeekView({ items, onSelect, canCreate = false }: { items: CalIte
                             draggable && "cursor-grab active:cursor-grabbing",
                             isDragging && "opacity-40",
                           )}
-                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: t.solid, color: "#fff" }}
+                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff" }}
                           title={draggable ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : p.it.title}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}

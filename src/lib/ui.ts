@@ -16,6 +16,23 @@ export function avatarColor(key?: string | null) {
   return AVATAR_COLORS[key ?? "slate"] ?? AVATAR_COLORS.slate;
 }
 
+// Hex de cada color de avatar (Tailwind 500), para fondos en línea (p. ej. colorear los
+// bloques del calendario por persona, donde se usa style={{ background }} y no clases).
+export const AVATAR_HEX: Record<string, string> = {
+  indigo: "#6366f1",
+  emerald: "#10b981",
+  violet: "#8b5cf6",
+  cyan: "#06b6d4",
+  amber: "#f59e0b",
+  rose: "#f43f5e",
+  orange: "#f97316",
+  slate: "#64748b",
+};
+
+export function avatarHex(key?: string | null): string {
+  return AVATAR_HEX[key ?? ""] ?? AVATAR_HEX.slate;
+}
+
 type StatusMeta = { label: string; className: string };
 
 export const PROJECT_STATUS: Record<string, StatusMeta> = {

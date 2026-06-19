@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
-import { emitCalendarCreate, emitCalendarDetail, calTone } from "./calendar-detail";
+import { emitCalendarCreate, emitCalendarDetail, calTone, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 
 type Person = { name: string; initials: string | null; color: string | null };
@@ -47,9 +47,11 @@ function dayKey(d: string): string | null {
 export function MyCalendar({
   items,
   canCreate = false,
+  colorBy = "tipo",
 }: {
   items: CalItem[];
   canCreate?: boolean;
+  colorBy?: ColorBy;
 }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -157,7 +159,7 @@ export function MyCalendar({
                               "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",
                               draggable && "cursor-grab active:cursor-grabbing",
                             )}
-                            style={{ background: t.solid }}
+                            style={{ background: colorBy === "persona" ? personColor(ev) ?? t.solid : t.solid }}
                           >
                             {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
                           </button>
