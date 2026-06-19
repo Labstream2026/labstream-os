@@ -212,5 +212,18 @@ export async function setQuoteStatus(quoteId: string, status: string) {
       approvedAt: status === "APROBADA" ? new Date() : null,
     },
   });
+
+  // Al APROBAR, si la cotización está ligada a un proyecto, llevamos el alcance y los
+  // entregables al brief del proyecto para que el equipo arranque con la info (sin valores).
+  if (status === "APROBADA") {
+    const q = await db.quote.findUnique({ where: { id: quoteId }, select: { projectId: true, scope: true, deliverables: true } });
+    if (q?.projectId && (q.scope || q.deliverables)) {
+      await db.project.update({
+        where: { id: q.projectId },
+        data: { briefScope: q.scope, briefDeliverables: q.deliverables },
+      });
+      revalidatePath(`/proyectos/${q.projectId}`);
+    }
+  }
   refresh(quoteId);
 }
