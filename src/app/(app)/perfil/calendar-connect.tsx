@@ -109,8 +109,8 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
                   const r = await connectCalendar(fd);
                   flash(r, "¡Conectado!");
                   if (r.ok) { setConnected(true); setCalendars(r.calendars ?? []); setCalName((r.calendars ?? []).find((c) => c.url === r.selected)?.name ?? null); }
-                } catch {
-                  setErr("No se pudo conectar (la solicitud falló o tardó demasiado). Revisa la URL del NAS y que sea alcanzable.");
+                } catch (e) {
+                  setErr(`No se pudo conectar: ${e instanceof Error ? e.message : "la solicitud falló o tardó demasiado"}. Revisa la URL del NAS y que sea alcanzable.`);
                   setMsg(null);
                 }
               });

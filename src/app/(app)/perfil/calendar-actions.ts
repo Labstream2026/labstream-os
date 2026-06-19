@@ -21,6 +21,9 @@ export async function connectCalendar(formData: FormData): Promise<CalendarConnR
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
 
+  // Todo el cuerpo va en try/catch: NUNCA lanzar al cliente (si no, la ruta cae al error
+  // boundary y se pierde el motivo real). Cualquier fallo se devuelve como {ok:false, error}.
+  try {
   const serverUrl = String(formData.get("serverUrl") ?? "").trim().replace(/\/$/, "");
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -68,6 +71,9 @@ export async function connectCalendar(formData: FormData): Promise<CalendarConnR
   });
   revalidatePath("/perfil");
   return { ok: true, calendars, selected };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error al conectar con el NAS" };
+  }
 }
 
 // Cambia el calendario destino (cuando el usuario tiene varios en Synology).
