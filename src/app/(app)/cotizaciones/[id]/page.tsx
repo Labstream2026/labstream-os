@@ -6,8 +6,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
 import { signQuoteToken } from "@/lib/quote-token";
-import { Printer } from "lucide-react";
-import { updateQuoteMeta, copyQuoteBriefToProject } from "../actions";
+import { Printer, Copy } from "lucide-react";
+import { updateQuoteMeta, copyQuoteBriefToProject, duplicateQuote } from "../actions";
 import { getServiceCatalog, getServicePackages } from "@/lib/services-catalog";
 import { createInvoiceFromQuote } from "../../facturacion/actions";
 import { QuoteEditor } from "./quote-editor";
@@ -78,6 +78,13 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
           <Printer className="size-4" /> Imprimir / PDF
         </Link>
         {canEdit ? <ShareQuote path={publicPath} /> : null}
+        {canEdit ? (
+          <form action={duplicateQuote.bind(null, quote.id)}>
+            <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent" title="Crear una copia editable de esta cotización">
+              <Copy className="size-4" /> Duplicar
+            </button>
+          </form>
+        ) : null}
         {canEdit && quote.status === "APROBADA" ? (
           <form action={createInvoiceFromQuote.bind(null, quote.id)}>
             <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
+import { clientLineValue } from "@/lib/quote-compose";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -60,13 +61,20 @@ export async function createInvoiceFromQuote(quoteId: string) {
       quoteId: quote.id,
       createdById: session.id,
       items: {
-        create: quote.items.map((i) => ({
-          section: i.section,
-          description: i.description,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          position: i.position,
-        })),
+        // Se factura el PRECIO AL CLIENTE (con el imprevisto ya incluido), igual que la
+        // cotización aprobada. Cada concepto va como una línea con su valor final exacto;
+        // la cantidad/unidad original queda en la descripción para que se lea claro.
+        create: quote.items.map((i) => {
+          const value = clientLineValue({ quantity: i.quantity, unitPrice: i.unitPrice }, quote.contingencyPct);
+          const qtyNote = i.quantity !== 1 ? ` (×${i.quantity}${i.unit ? ` ${i.unit}` : ""})` : "";
+          return {
+            section: i.section,
+            description: `${i.description}${qtyNote}`,
+            quantity: 1,
+            unitPrice: value,
+            position: i.position,
+          };
+        }),
       },
     },
   });

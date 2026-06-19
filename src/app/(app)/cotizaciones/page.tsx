@@ -4,7 +4,8 @@ import { Plus, FileText, Sparkles, Eye } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
-import { formatMoney, quoteStatusMeta, quoteTotals, formatShortDate } from "@/lib/ui";
+import { formatMoney, quoteStatusMeta, formatShortDate } from "@/lib/ui";
+import { composeQuoteTotals } from "@/lib/quote-compose";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
@@ -125,7 +126,8 @@ export default async function CotizacionesPage() {
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {quotes.map((q) => {
             const meta = quoteStatusMeta(q.status);
-            const { total } = quoteTotals(q.items, q.taxRate);
+            // Total que ve el cliente: incluye el imprevisto oculto, igual que el documento.
+            const { total } = composeQuoteTotals(q.items, { taxRate: q.taxRate, contingencyPct: q.contingencyPct });
             return (
               <Link key={q.id} href={`/cotizaciones/${q.id}`} className="flex items-center gap-4 p-4 transition-colors hover:bg-accent/50">
                 <span className="font-mono text-xs text-muted-foreground">{q.code}</span>

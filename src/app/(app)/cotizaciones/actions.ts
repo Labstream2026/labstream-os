@@ -71,6 +71,36 @@ export async function createQuote(formData: FormData) {
   redirect(`/cotizaciones/${quote.id}`);
 }
 
+// Duplica una cotización (para un trabajo similar): copia metadatos, alcance/entregables,
+// imprevisto y todas las líneas; arranca en BORRADOR, sin aprobación ni vencimiento.
+export async function duplicateQuote(quoteId: string) {
+  const session = await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  const q = await db.quote.findUnique({ where: { id: quoteId }, include: { items: { orderBy: { position: "asc" } } } });
+  if (!q) throw new Error("Cotización inexistente");
+  const copy = await db.quote.create({
+    data: {
+      code: await nextCode(),
+      title: `${q.title} (copia)`,
+      currency: q.currency,
+      taxRate: q.taxRate,
+      contingencyPct: q.contingencyPct,
+      notes: q.notes,
+      scope: q.scope,
+      deliverables: q.deliverables,
+      recipientName: q.recipientName,
+      recipientCity: q.recipientCity,
+      intro: q.intro,
+      clientId: q.clientId,
+      projectId: q.projectId,
+      createdById: session.id,
+      items: { create: q.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice, catalogItemId: i.catalogItemId, position: i.position })) },
+    },
+  });
+  refresh(copy.id);
+  redirect(`/cotizaciones/${copy.id}`);
+}
+
 export async function updateQuoteMeta(quoteId: string, formData: FormData) {
   await requirePerm("crear_cotizaciones");
   await ensureQuoteAccess(quoteId);
