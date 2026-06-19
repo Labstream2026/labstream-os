@@ -157,6 +157,48 @@ export async function sendGuestInvites(eventId: string, onlyEmails?: string[]): 
   return sent;
 }
 
+// Envía un .ics de CANCELACIÓN (METHOD:CANCEL) por correo a los invitados externos de un
+// evento que se va a borrar. Debe llamarse ANTES de eliminar el evento de la BD.
+export async function sendEventCancellations(eventId: string): Promise<number> {
+  if (!(await isEmailEnabled())) return 0;
+  const event = await db.calendarEvent.findUnique({
+    where: { id: eventId },
+    include: {
+      createdBy: { select: { name: true, email: true } },
+      attendees: { include: { user: { select: { name: true, email: true } } } },
+      guests: { select: { email: true, name: true } },
+    },
+  });
+  if (!event || event.guests.length === 0) return 0;
+  const uid = event.uid ?? appUid(event.id);
+  const allAttendees: IcsAttendee[] = [
+    ...event.attendees.filter((a) => a.user.email).map((a) => ({ email: a.user.email, name: a.user.name })),
+    ...event.guests.map((g) => ({ email: g.email, name: g.name ?? undefined })),
+  ];
+  const when = dateLabel(event.start, event.allDay);
+  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]!));
+  let sent = 0;
+  for (const g of event.guests) {
+    const ics = buildIcs({
+      uid, title: event.title, start: event.start, end: event.end ?? undefined, allDay: event.allDay,
+      description: event.description ?? undefined, location: event.location ?? undefined,
+      organizerName: event.createdBy?.name, organizerEmail: event.createdBy?.email ?? undefined,
+      attendees: allAttendees, method: "CANCEL", sequence: 1,
+    });
+    const r = await sendEmail({
+      to: g.email,
+      from: event.createdBy?.email ? `${event.createdBy.name} <${event.createdBy.email}>` : undefined,
+      replyTo: event.createdBy?.email ?? undefined,
+      subject: `Cancelada: ${event.title}`,
+      html: `<p>Hola${g.name ? ` ${esc(g.name)}` : ""},</p><p>Se <b>canceló</b> la cita <b>${esc(event.title)}</b> que estaba para ${esc(when)}.</p><p>Adjuntamos la cancelación para que se quite de tu calendario.</p>`,
+      text: `Cancelada: ${event.title}\n${when}`,
+      attachments: [{ filename: "cancelacion.ics", content: ics, contentType: "text/calendar; method=CANCEL" }],
+    });
+    if (r.ok) sent++;
+  }
+  return sent;
+}
+
 // Borra el evento de la app de los calendarios Synology donde se escribió.
 export async function removeEventFromParticipants(eventId: string): Promise<void> {
   const refs = await db.eventSyncRef.findMany({

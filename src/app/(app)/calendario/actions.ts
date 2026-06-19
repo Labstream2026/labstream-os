@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
-import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites } from "@/lib/calendar-sync";
+import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
 
 const APP_TZ_HINT = ""; // las fechas se interpretan en hora del servidor app
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -99,7 +99,7 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
-    select: { createdById: true, source: true, attendees: { select: { userId: true } }, guests: { select: { email: true } } },
+    select: { createdById: true, source: true, title: true, start: true, end: true, location: true, allDay: true, attendees: { select: { userId: true } }, guests: { select: { email: true } } },
   });
   if (!event) return;
   if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
@@ -168,6 +168,35 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
       link: "/calendario",
     });
   }
+
+  // Avisar a quienes SIGUEN en la cita si cambió algo relevante (fecha/hora/lugar/título).
+  const changed =
+    event.title !== title ||
+    event.start.getTime() !== start.getTime() ||
+    (event.end?.getTime() ?? null) !== (end?.getTime() ?? null) ||
+    (event.location ?? "") !== (location || "") ||
+    event.allDay !== allDay;
+  if (changed) {
+    const staying = [...desired].filter((id) => before.has(id) && id !== session.id);
+    for (const userId of staying) {
+      await notifyAndEmail(userId, {
+        type: "event",
+        title: `Se actualizó la cita: ${title}`,
+        body: `${session.name} hizo cambios · ${when}${location ? ` · ${location}` : ""}`,
+        link: "/calendario",
+      });
+    }
+  }
+  // Avisar a los retirados que ya no están en la cita.
+  for (const userId of removed) {
+    if (userId === session.id) continue;
+    await notifyAndEmail(userId, {
+      type: "event",
+      title: `Te quitaron de la cita: ${event.title}`,
+      body: `${session.name} actualizó los asistentes.`,
+      link: "/calendario",
+    });
+  }
   revalidatePath("/calendario");
 }
 
@@ -177,7 +206,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
   if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
-  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true } });
+  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true, title: true, attendees: { select: { userId: true } } } });
   if (!event) return;
   if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
   const start = new Date(startIso);
@@ -186,6 +215,14 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   if (end && (Number.isNaN(end.getTime()) || end <= start)) return;
   await db.calendarEvent.update({ where: { id: eventId }, data: { start, end } });
   await pushEventToParticipants(eventId);
+  // Avisar a los asistentes (menos a mí) que la cita se movió.
+  const when = event.allDay
+    ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
+    : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  for (const a of event.attendees) {
+    if (a.userId === session.id) continue;
+    await notifyAndEmail(a.userId, { type: "event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario" });
+  }
   revalidatePath("/calendario");
 }
 
@@ -194,10 +231,23 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
   if (!hasPermission(session, "ver_calendario")) throw new Error("No autorizado");
-  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true } });
+  const event = await db.calendarEvent.findUnique({
+    where: { id: eventId },
+    select: { createdById: true, title: true, start: true, allDay: true, attendees: { select: { userId: true } } },
+  });
   if (!event) return;
   if (event.createdById !== session.id) throw new Error("No autorizado");
-  // Primero quitarlo de Synology (necesita los EventSyncRef, que se borran en cascada).
+  // Avisar (app + correo) a los asistentes que se canceló, y mandar el .ics de
+  // cancelación a los invitados externos — ANTES de borrar (necesitan los datos).
+  const when = event.allDay
+    ? new Date(event.start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
+    : new Date(event.start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  for (const a of event.attendees) {
+    if (a.userId === session.id) continue;
+    await notifyAndEmail(a.userId, { type: "event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario" });
+  }
+  await sendEventCancellations(eventId).catch(() => 0);
+  // Quitarlo de Synology (necesita los EventSyncRef, que se borran en cascada).
   await removeEventFromParticipants(eventId);
   await db.calendarEvent.delete({ where: { id: eventId } });
   revalidatePath("/calendario");
