@@ -147,8 +147,23 @@ export default async function ConfiguracionPage() {
 
   // ── Sección Integraciones ──
   const emailOn = await isEmailEnabled();
+  // Estado de las conexiones de calendario del equipo (para el panel de Integraciones).
+  const [calConns, calTotal] = await Promise.all([
+    db.calendarConnection.findMany({
+      where: { enabled: true, NOT: { calendarUrl: null } },
+      include: { user: { select: { name: true } } },
+      orderBy: { user: { name: "asc" } },
+    }),
+    db.user.count({ where: { active: true, isSystemBot: false, isGuest: false } }),
+  ]);
+  const calendarTeam = calConns.map((c) => ({
+    name: c.user.name,
+    calendarName: c.calendarName,
+    lastSyncAt: c.lastSyncAt ? c.lastSyncAt.toISOString() : null,
+    lastError: c.lastError,
+  }));
   const integracionesNode = (
-    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} />
+    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} />
   );
 
   // ── Sección Marcebot ──

@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache, emailButton } from "@/lib/email";
 import { encryptSecret } from "@/lib/crypto";
 import { testCaldav } from "@/lib/caldav";
+import { syncAllCalendars } from "@/lib/calendar-sync";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { permissionLabel, ALL_PERMISSION_KEYS } from "@/lib/permissions";
@@ -120,6 +121,20 @@ export async function testCalendar(): Promise<AdminActionResult> {
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   return testCaldav();
+}
+
+// Fuerza el sondeo de TODOS los calendarios conectados del equipo (lo que normalmente
+// hace el cron cada pocos minutos). Para el panel de Integraciones del admin.
+export async function syncAllCalendarsNow(): Promise<{ ok: boolean; error?: string; users?: number; imported?: number; updated?: number; deleted?: number }> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  try {
+    const r = await syncAllCalendars();
+    revalidatePath("/configuracion");
+    return { ok: true, ...r };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "error de sincronización" };
+  }
 }
 
 // Activar/desactivar un permiso para un rol. El rol "admin" es todopoderoso por

@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2 } from "lucide-react";
-import { sendTestEmail, testCalendar, saveMailSettings } from "./actions";
+import { sendTestEmail, saveMailSettings, syncAllCalendarsNow } from "./actions";
+
+export type CalTeamRow = { name: string; calendarName: string | null; lastSyncAt: string | null; lastError: string | null };
 
 export type MailSettingsView = {
   enabled: boolean;
@@ -57,12 +59,16 @@ export function IntegrationsPanel({
   ai,
   onlyoffice,
   mailSettings,
+  calendarTeam = [],
+  calendarTotal = 0,
 }: {
   email: boolean;
   caldav: boolean;
   ai: boolean;
   onlyoffice: boolean;
   mailSettings: MailSettingsView;
+  calendarTeam?: CalTeamRow[];
+  calendarTotal?: number;
 }) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
@@ -96,23 +102,38 @@ export function IntegrationsPanel({
       </StatusRow>
       {msg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{msg}</p> : null}
       {showForm ? <MailSettingsForm initial={mailSettings} onSaved={(m) => setMsg(m)} /> : null}
-      <StatusRow icon={<CalendarDays className="size-4" />} label="Calendario (Synology CalDAV)" on={caldav} detail="Sincroniza las citas internas del equipo al Synology Calendar.">
-        {caldav ? (
-          <button
-            onClick={() => {
-              setCalMsg(null);
-              start(async () => {
-                const r = await testCalendar();
-                setCalMsg(r.ok ? "✓ Conexión CalDAV correcta" : `⚠️ ${r.error}`);
-              });
-            }}
-            disabled={pending}
-            className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
-          >
-            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarDays className="size-3.5" />} Probar
-          </button>
-        ) : null}
+      <StatusRow icon={<CalendarDays className="size-4" />} label="Calendario (Synology CalDAV)" on={calendarTeam.length > 0} detail={`${calendarTeam.length} de ${calendarTotal} del equipo con su calendario conectado. Cada quien conecta el suyo en «Mi perfil».`}>
+        <button
+          onClick={() => {
+            setCalMsg(null);
+            start(async () => {
+              const r = await syncAllCalendarsNow();
+              setCalMsg(r.ok ? `✓ Sincronizado · ${r.users ?? 0} usuarios · ${r.imported ?? 0} nuevos, ${r.updated ?? 0} actualizados, ${r.deleted ?? 0} borrados` : `⚠️ ${r.error}`);
+            });
+          }}
+          disabled={pending}
+          className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarDays className="size-3.5" />} Sincronizar todo
+        </button>
       </StatusRow>
+      {calendarTeam.length > 0 ? (
+        <div className="px-4 pb-3">
+          <div className="overflow-hidden rounded-lg border border-border">
+            {calendarTeam.map((c, i) => (
+              <div key={c.name} className={"flex items-center gap-2 px-3 py-1.5 text-xs " + (i ? "border-t border-border" : "")}>
+                <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                {c.calendarName ? <span className="truncate text-muted-foreground">{c.calendarName}</span> : null}
+                <span className="shrink-0 text-muted-foreground">
+                  {c.lastError ? <span className="text-rose-600 dark:text-rose-400">⚠ {c.lastError.slice(0, 40)}</span>
+                    : c.lastSyncAt ? `sync ${new Date(c.lastSyncAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}`
+                    : "sin sincronizar aún"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {calMsg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{calMsg}</p> : null}
       <StatusRow icon={<Sparkles className="size-4" />} label="Asistente IA (Claude)" on={ai} detail="Copiloto para correos, resúmenes e ideas." />
       <StatusRow icon={<FileEdit className="size-4" />} label="Edición de documentos (OnlyOffice)" on={onlyoffice} detail="Editar Word/Excel/PPT del chat y los proyectos." />
