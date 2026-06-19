@@ -14,6 +14,9 @@ export type WizQuestion = {
   ph?: string;
   opts?: WizOption[];
   optional?: boolean;
+  // Pregunta condicional: solo se muestra si `when(answers)` es true. Permite ocultar
+  // preguntas que no aplican y hacer preguntas de seguimiento según respuestas previas.
+  when?: (a: Record<string, string>) => boolean;
 };
 
 export const WIZ_COMMON: WizQuestion[] = [
@@ -220,6 +223,18 @@ export const WIZ_EXTRA: Record<string, WizQuestion[]> = {
       ],
     },
     {
+      // Seguimiento: solo si hay casting de actores/modelos.
+      key: "num-talento",
+      label: "¿Cuántos actores o modelos?",
+      input: "options",
+      when: (a) => a.talento === "actores / modelos",
+      opts: [
+        { v: "1", i: "1️⃣", t: "1", d: "Un protagonista" },
+        { v: "2-3", i: "👥", t: "2–3", d: "Reparto pequeño" },
+        { v: "4+", i: "👨‍👩‍👧‍👦", t: "4+", d: "Reparto amplio / extras" },
+      ],
+    },
+    {
       key: "post",
       label: "¿Nivel de postproducción?",
       input: "options",
@@ -291,6 +306,18 @@ export const WIZ_EXTRA: Record<string, WizQuestion[]> = {
         { v: "retrato", i: "🧑", t: "Retrato / marca personal", d: "Personas y branding" },
         { v: "lifestyle", i: "🌿", t: "Lifestyle / social", d: "Ambiente, estilo de vida" },
         { v: "cubrimiento", i: "🎥", t: "Cubrimiento", d: "Jornada o evento" },
+      ],
+    },
+    {
+      // Seguimiento: solo en fotografía de producto.
+      key: "num-productos",
+      label: "¿Cuántos productos / SKUs aprox.?",
+      input: "options",
+      when: (a) => a["tipo-sesion"] === "producto",
+      opts: [
+        { v: "hasta 10", i: "📦", t: "Hasta 10", d: "Catálogo pequeño" },
+        { v: "10 a 30", i: "📦", t: "10–30", d: "Catálogo mediano" },
+        { v: "30+", i: "🏬", t: "30+", d: "Catálogo extenso" },
       ],
     },
     {
@@ -369,6 +396,7 @@ export const WIZ_EXTRA: Record<string, WizQuestion[]> = {
       key: "camaras",
       label: "¿Con cuántas cámaras?",
       input: "options",
+      when: (a) => a.cobertura !== "solo fotografía", // sin video no hay cámaras
       opts: [
         { v: "1", i: "🎥", t: "1 cámara", d: "Cobertura ágil" },
         { v: "2", i: "🎬", t: "2 cámaras", d: "Más ángulos — recomendado" },

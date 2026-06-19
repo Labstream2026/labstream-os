@@ -43,7 +43,11 @@ export function ProposalWizard({
   const pricing: Pricing = { price, setPrice, discountPct, setDiscountPct, contingencyPct, iva };
 
   const steps = tpl ? wizardSteps(tpl) : [];
-  const total = steps.length;
+  // Pasos VISIBLES según las respuestas (preguntas condicionales). `step` sigue siendo el
+  // índice en la lista completa; navegamos por los índices visibles.
+  const visible = steps.map((_, i) => i).filter((i) => { const w = steps[i].when; return !w || w(answers); });
+  const total = visible.length;
+  const pos = Math.max(0, visible.indexOf(step));
   const q: WizQuestion | undefined = steps[step];
 
   function pick(key: string) {
@@ -65,8 +69,8 @@ export function ProposalWizard({
 
   function next() {
     setError(null);
-    if (step < total - 1) {
-      const goingTo = step + 1;
+    if (pos < visible.length - 1) {
+      const goingTo = visible[pos + 1];
       // Al entrar al paso de presupuesto, sembramos las cantidades desde las respuestas
       // (días de rodaje, cámaras, sesiones, jornadas…). El equipo afina luego.
       if (tpl && steps[goingTo]?.input === "budget") {
@@ -79,7 +83,7 @@ export function ProposalWizard({
   }
   function back() {
     setError(null);
-    if (step > 0) setStep((s) => s - 1);
+    if (pos > 0) setStep(visible[pos - 1]);
     else setTpl(null);
   }
 
@@ -126,7 +130,8 @@ export function ProposalWizard({
   }
 
   const tplDef = TEMPLATES.find((t) => t.key === tpl)!;
-  const progress = Math.round(((step + 1) / total) * 100);
+  const progress = Math.round(((pos + 1) / total) * 100);
+  const isLast = pos === total - 1;
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-2xl flex-col px-4 py-8 sm:px-8 sm:py-10">
@@ -134,7 +139,7 @@ export function ProposalWizard({
       <div className="mb-6">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="font-medium uppercase tracking-wider">
-            Paso {step + 1} de {total} · {tplDef.icon} {tplDef.name}
+            Paso {pos + 1} de {total} · {tplDef.icon} {tplDef.name}
           </span>
           <span>{progress}%</span>
         </div>
@@ -160,8 +165,8 @@ export function ProposalWizard({
           disabled={!canAdvance || pending}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
-          {pending ? <Loader2 className="size-4 animate-spin" /> : step === total - 1 ? <Check className="size-4" /> : <ArrowRight className="size-4" />}
-          {step === total - 1 ? "Finalizar" : "Siguiente"}
+          {pending ? <Loader2 className="size-4 animate-spin" /> : isLast ? <Check className="size-4" /> : <ArrowRight className="size-4" />}
+          {isLast ? "Finalizar" : "Siguiente"}
         </button>
       </div>
     </div>
