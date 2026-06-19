@@ -9,7 +9,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { buildProposal } from "@/lib/proposals/templates";
 import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type BlockType } from "@/lib/proposals/types";
-import type { BudgetSection } from "@/lib/proposals/budget";
+import { catalogToBudgetSections, type BudgetSection } from "@/lib/proposals/budget";
+import { getCatalogForWizard } from "@/lib/services-catalog";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
 import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
@@ -79,19 +80,25 @@ export async function createProposal(
   const session = (await getSession())!;
   const { brand, blocks } = buildProposal(templateKey, answers);
 
-  // Costo interno (secciones del catálogo) + precio al cliente (lo que ve). Reemplaza el
-  // bloque budget con lo que armó el equipo en el wizard.
-  if (budgetSections && Array.isArray(budgetSections)) {
-    const bi = blocks.findIndex((b) => b.type === "budget");
-    if (bi >= 0) {
-      blocks[bi] = {
-        ...blocks[bi],
-        sections: budgetSections,
-        ...(pricing
-          ? { price: Math.max(0, Math.round(pricing.price) || 0), discountPct: Math.max(0, Math.min(100, pricing.discountPct || 0)), contingencyPct: Math.max(0, Math.min(100, pricing.contingencyPct || 0)) }
-          : {}),
-      };
+  // Secciones de inversión del bloque budget. Orden de preferencia:
+  //  1) Las que armó el equipo en el wizard (ya salen del catálogo vivo de la BD).
+  //  2) El catálogo VIVO de la BD para esta plantilla (precios que el equipo mantiene en
+  //     "Servicios y valores") — así las plantillas no usan precios hardcodeados viejos.
+  //  3) El bloque por defecto del template (COSTOS de budget.ts), solo como respaldo si la BD está vacía.
+  const bi = blocks.findIndex((b) => b.type === "budget");
+  if (bi >= 0) {
+    let sections: BudgetSection[] | undefined = budgetSections && budgetSections.length ? budgetSections : undefined;
+    if (!sections) {
+      const dbCat = (await getCatalogForWizard())[templateKey];
+      if (dbCat && dbCat.length) sections = catalogToBudgetSections(dbCat);
     }
+    blocks[bi] = {
+      ...blocks[bi],
+      ...(sections ? { sections } : {}),
+      ...(pricing
+        ? { price: Math.max(0, Math.round(pricing.price) || 0), discountPct: Math.max(0, Math.min(100, pricing.discountPct || 0)), contingencyPct: Math.max(0, Math.min(100, pricing.contingencyPct || 0)) }
+        : {}),
+    };
   }
 
   const cliente = (answers.cliente || "").trim();

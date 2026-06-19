@@ -614,7 +614,10 @@ model ChatMessage {
   channelId   String
   author      User?               @relation("MessageAuthor", fields: [authorId], references: [id])
   authorId    String?
-  parent      ChatMessage?        @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
+  // SetNull (no Cascade): si un mensaje padre se elimina en duro, sus respuestas se
+  // conservan (se vuelven de nivel superior) en vez de borrarse, acorde al borrado suave
+  // y la auditoría del chat.
+  parent      ChatMessage?        @relation("Thread", fields: [parentId], references: [id], onDelete: SetNull)
   parentId    String? // si está, es respuesta dentro de un hilo
   replies     ChatMessage[]       @relation("Thread")
   attachments MessageAttachment[]
