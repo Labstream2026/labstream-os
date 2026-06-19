@@ -8,7 +8,7 @@ import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
 import { signQuoteToken } from "@/lib/quote-token";
 import { Printer } from "lucide-react";
 import { updateQuoteMeta, copyQuoteBriefToProject } from "../actions";
-import { getServiceCatalog } from "@/lib/services-catalog";
+import { getServiceCatalog, getServicePackages } from "@/lib/services-catalog";
 import { createInvoiceFromQuote } from "../../facturacion/actions";
 import { QuoteEditor } from "./quote-editor";
 import { QuoteStatusActions } from "./quote-status";
@@ -41,8 +41,8 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
   const meta = quoteStatusMeta(quote.status);
   const validUntilValue = quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "";
   const publicPath = `/cotizacion/${signQuoteToken(quote.id)}`;
-  // Catálogo interno para "componer" el servicio (solo si puede editar).
-  const catalog = canEdit ? await getServiceCatalog() : [];
+  // Catálogo interno + paquetes para "componer" el servicio (solo si puede editar).
+  const [catalog, packages] = canEdit ? await Promise.all([getServiceCatalog(), getServicePackages()]) : [[], []];
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
@@ -164,6 +164,7 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
         currency={quote.currency}
         canEdit={canEdit}
         catalog={catalog.map((g) => ({ key: g.key, label: g.label, icon: g.icon, sections: g.sections.map((s) => ({ name: s.name, items: s.items.map((it) => ({ id: it.id, name: it.name, detail: it.detail, unit: it.unit, qty: it.qty, unitPrice: it.unitPrice })) })) }))}
+        packages={packages.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, serviceType: p.serviceType, itemCount: p.itemCount }))}
       />
     </div>
   );

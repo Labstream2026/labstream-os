@@ -1,23 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Check, Plus } from "lucide-react";
+import { Check, Plus, Package, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import { unitLabel } from "@/lib/quote-compose";
-import { addCatalogItems } from "../actions";
+import { addCatalogItems, applyPackageToQuote, saveServicePackage, deleteServicePackage } from "../actions";
 
 export type ComposerItem = { id: string; name: string; detail: string | null; unit: string; qty: number; unitPrice: number };
 export type ComposerType = { key: string; label: string; icon: string; sections: { name: string; items: ComposerItem[] }[] };
+export type ComposerPackage = { id: string; name: string; emoji: string | null; serviceType: string | null; itemCount: number };
 
 // Arma un servicio tildando ítems del catálogo (con su cantidad) y los agrega como líneas
 // a la cotización, sumando con el precio interno. Pensado para "1 vs 3 flashes", "día
 // completo", "nº de comidas", "minutos de edición", etc.
 export function ServiceComposer({
-  quoteId, catalog, currency, onDone,
+  quoteId, catalog, packages, currency, onDone,
 }: {
   quoteId: string;
   catalog: ComposerType[];
+  packages: ComposerPackage[];
   currency: string;
   onDone: () => void;
 }) {
@@ -25,6 +27,8 @@ export function ServiceComposer({
   // id → cantidad seleccionada (presente = incluido).
   const [sel, setSel] = React.useState<Record<string, number>>({});
   const [pending, start] = React.useTransition();
+  const [savingPkg, setSavingPkg] = React.useState(false);
+  const [pkgName, setPkgName] = React.useState("");
 
   const type = catalog.find((t) => t.key === typeKey);
   const itemsById = React.useMemo(() => {
@@ -74,6 +78,23 @@ export function ServiceComposer({
         ))}
       </div>
 
+      {/* Paquetes guardados: aplican su composición a la cotización de un clic */}
+      {packages.length ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-2">
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"><Package className="size-3.5" /> Paquetes:</span>
+          {packages.map((p) => (
+            <span key={p.id} className="group inline-flex items-center gap-1 rounded-full border border-border bg-background py-0.5 pl-2 pr-1 text-xs">
+              <button onClick={() => start(async () => { await applyPackageToQuote(quoteId, p.id); onDone(); })} disabled={pending} className="font-medium hover:text-primary disabled:opacity-50" title="Aplicar este paquete a la cotización">
+                {p.emoji ?? "📦"} {p.name} <span className="text-muted-foreground">({p.itemCount})</span>
+              </button>
+              <button onClick={() => { if (confirm(`¿Borrar el paquete «${p.name}»?`)) start(() => deleteServicePackage(quoteId, p.id)); }} className="rounded-full p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100" title="Borrar paquete">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {/* Ítems del tipo seleccionado */}
       <div className="max-h-[26rem] overflow-y-auto overscroll-contain p-2">
         {type?.sections.map((s) => (
@@ -114,12 +135,39 @@ export function ServiceComposer({
         ))}
       </div>
 
+      {/* Guardar la selección como paquete reutilizable */}
+      {savingPkg ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/30 px-3 py-2.5">
+          <input
+            autoFocus value={pkgName} onChange={(e) => setPkgName(e.target.value)}
+            placeholder="Nombre del paquete (ej. Cubrimiento fotográfico día completo)"
+            className="min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            onClick={() => start(async () => {
+              const r = await saveServicePackage(quoteId, pkgName, typeKey, selectedIds.map((id) => ({ catalogItemId: id, quantity: sel[id] })));
+              if (r.ok) { setSavingPkg(false); setPkgName(""); } else alert(r.error);
+            })}
+            disabled={!pkgName.trim() || !selectedIds.length || pending}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Guardar paquete
+          </button>
+          <button onClick={() => setSavingPkg(false)} className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent">Cancelar</button>
+        </div>
+      ) : null}
+
       {/* Pie: resumen + agregar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2.5">
         <span className="text-xs text-muted-foreground">
           {selectedIds.length ? <>{selectedIds.length} ítem(s) · costo {formatMoney(costSubtotal, currency)}</> : "Tilda los servicios que incluye este trabajo."}
         </span>
         <div className="flex items-center gap-2">
+          {selectedIds.length && !savingPkg ? (
+            <button onClick={() => setSavingPkg(true)} className="inline-flex items-center gap-1 rounded-md border border-input px-3 py-1.5 text-xs font-medium hover:bg-accent" title="Guardar esta selección como paquete reutilizable">
+              <Save className="size-3.5" /> Guardar como paquete
+            </button>
+          ) : null}
           <button onClick={onDone} className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">Cerrar</button>
           <button onClick={add} disabled={!selectedIds.length || pending} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
             {pending ? "Agregando…" : `Agregar ${selectedIds.length || ""} a la cotización`}

@@ -125,6 +125,7 @@ model User {
   equipPlansAssigned EquipmentPlan[]    @relation("EquipPlanAssignee")
   equipPlansCreated  EquipmentPlan[]    @relation("EquipPlanCreator")
   kitsCreated        EquipmentKit[]     @relation("KitCreator")
+  servicePackages    ServicePackage[]   @relation("ServicePackageCreator")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -432,10 +433,39 @@ model ServiceItem {
   unitPrice   Float    @default(0)   // COSTO interno unitario (COP)
   position    Int      @default(0)
   active      Boolean  @default(true)
+  packageItems ServicePackageItem[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([serviceType])
+}
+
+// Paquete/preset reutilizable: una composición con nombre (ej. "Cubrimiento fotográfico
+// día completo") = conjunto de ítems del catálogo con su cantidad. Se aplica de un clic
+// en una cotización para precargar las líneas.
+model ServicePackage {
+  id          String               @id @default(cuid())
+  name        String               @unique
+  emoji       String?
+  serviceType String? // tipo de servicio asociado (para filtrar/sugerir)
+  description String?
+  items       ServicePackageItem[]
+  createdBy   User?                @relation("ServicePackageCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model ServicePackageItem {
+  id          String         @id @default(cuid())
+  package     ServicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  packageId   String
+  serviceItem ServiceItem    @relation(fields: [serviceItemId], references: [id], onDelete: Cascade)
+  serviceItemId String
+  quantity    Float          @default(1)
+
+  @@unique([packageId, serviceItemId])
+  @@index([serviceItemId])
 }
 
 // Ajustes globales de cotización (fila única id="default"): % de transporte/imprevistos

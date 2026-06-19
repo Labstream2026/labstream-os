@@ -126,6 +126,53 @@ export async function addCatalogItems(quoteId: string, selections: { catalogItem
   refresh(quoteId);
 }
 
+// ── Paquetes de servicios (presets reutilizables) ──
+// Guarda la selección actual del armador como un paquete con nombre.
+export async function saveServicePackage(
+  quoteId: string,
+  name: string,
+  serviceType: string | null,
+  selections: { catalogItemId: string; quantity: number }[],
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requirePerm("crear_cotizaciones");
+  const nm = name.trim();
+  if (!nm) return { ok: false, error: "Ponle un nombre al paquete." };
+  if (!selections.length) return { ok: false, error: "Selecciona servicios primero." };
+  if (await db.servicePackage.findUnique({ where: { name: nm }, select: { id: true } })) {
+    return { ok: false, error: "Ya existe un paquete con ese nombre." };
+  }
+  const byId = new Map<string, number>();
+  for (const s of selections) byId.set(s.catalogItemId, Math.max(0, s.quantity));
+  await db.servicePackage.create({
+    data: {
+      name: nm, serviceType: serviceType || null, emoji: "📦", createdById: session.id,
+      items: { create: [...byId].map(([serviceItemId, quantity]) => ({ serviceItemId, quantity })) },
+    },
+  });
+  revalidatePath(`/cotizaciones/${quoteId}`);
+  return { ok: true };
+}
+
+// Aplica un paquete a la cotización: agrega sus ítems como líneas (reusa addCatalogItems).
+export async function applyPackageToQuote(quoteId: string, packageId: string) {
+  await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  await assertEditable(quoteId);
+  const pkg = await db.servicePackage.findUnique({ where: { id: packageId }, select: { items: { select: { serviceItemId: true, quantity: true } } } });
+  if (!pkg) return;
+  await addCatalogItems(quoteId, pkg.items.map((i) => ({ catalogItemId: i.serviceItemId, quantity: i.quantity })));
+}
+
+export async function deleteServicePackage(quoteId: string, packageId: string) {
+  const session = await getSession();
+  if (!hasPermission(session, "crear_cotizaciones")) throw new Error("No autorizado");
+  const pkg = await db.servicePackage.findUnique({ where: { id: packageId }, select: { createdById: true } });
+  if (!pkg) return;
+  if (session!.role !== "admin" && pkg.createdById !== session!.id) throw new Error("Solo el creador o un admin puede borrar el paquete.");
+  await db.servicePackage.delete({ where: { id: packageId } });
+  revalidatePath(`/cotizaciones/${quoteId}`);
+}
+
 // Copia el alcance y los entregables de la cotización al BRIEF del proyecto vinculado
 // (lo que ve el equipo, sin valores ni equipos). Solo si la cotización tiene proyecto.
 export async function copyQuoteBriefToProject(quoteId: string) {

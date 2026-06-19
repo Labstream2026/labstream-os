@@ -5,7 +5,7 @@ import { Plus, Trash2, Sparkles } from "lucide-react";
 import { formatMoney } from "@/lib/ui";
 import { composeQuoteTotals, clientLineValue } from "@/lib/quote-compose";
 import { addItem, removeItem, updateItem } from "../actions";
-import { ServiceComposer, type ComposerType } from "./service-composer";
+import { ServiceComposer, type ComposerType, type ComposerPackage } from "./service-composer";
 
 type Item = { id: string; section: string; description: string; unit: string; quantity: number; unitPrice: number };
 
@@ -19,6 +19,7 @@ export function QuoteEditor({
   currency,
   canEdit,
   catalog,
+  packages,
 }: {
   quoteId: string;
   initialItems: Item[];
@@ -27,6 +28,7 @@ export function QuoteEditor({
   currency: string;
   canEdit: boolean;
   catalog: ComposerType[];
+  packages: ComposerPackage[];
 }) {
   const [items, setItems] = React.useState<Item[]>(initialItems);
   const [pending, start] = React.useTransition();
@@ -66,7 +68,7 @@ export function QuoteEditor({
       ) : null}
 
       {composing ? (
-        <ServiceComposer quoteId={quoteId} catalog={catalog} currency={currency} onDone={() => setComposing(false)} />
+        <ServiceComposer quoteId={quoteId} catalog={catalog} packages={packages} currency={currency} onDone={() => setComposing(false)} />
       ) : null}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

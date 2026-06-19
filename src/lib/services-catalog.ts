@@ -115,6 +115,20 @@ export async function getServiceCatalog(): Promise<CatalogGroup[]> {
   return groups;
 }
 
+export type ServicePackageView = {
+  id: string; name: string; emoji: string | null; serviceType: string | null;
+  itemCount: number; items: { serviceItemId: string; quantity: number }[];
+};
+
+// Paquetes/presets guardados (composiciones reutilizables de servicios).
+export async function getServicePackages(): Promise<ServicePackageView[]> {
+  const pkgs = await db.servicePackage.findMany({
+    orderBy: { name: "asc" },
+    include: { items: { select: { serviceItemId: true, quantity: true } } },
+  });
+  return pkgs.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, serviceType: p.serviceType, itemCount: p.items.length, items: p.items }));
+}
+
 // Catálogo para el ARMADOR (wizard de propuestas): cada tipo de servicio → CostSection[]
 // con ítems activables (on/q/v). Conecta los precios estandarizados de la BD al wizard,
 // para que al armar la propuesta salgan los valores internos del catálogo.
