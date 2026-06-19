@@ -97,6 +97,12 @@ export const TEMPLATES: TemplateDef[] = [
     desc: "Sesión o jornada de fotografía profesional: producto, marca, retrato o cubrimiento.",
     build: (a) => {
       const cliente = plain(a.cliente, "tu marca");
+      const sesiones = plain(a.sesiones, "1");
+      const sesTxt = sesiones === "1" ? "una sesión" : `${sesiones} sesiones`;
+      const loc = plain(a.locacion, "en locación o estudio");
+      const fotos = plain(a.fotos);
+      const retoque = plain(a.retoque, "profesional");
+      const especifico = `Contemplamos ${S(sesTxt)} ${loc}${fotos ? `, con entrega de ${S(`${fotos} fotos`)} editadas (retoque ${retoque})` : ""}.`;
       return {
         brand: { ...BRAND_DEFAULT },
         blocks: [
@@ -107,15 +113,15 @@ export const TEMPLATES: TemplateDef[] = [
           {
             type: "text",
             title: "La propuesta",
-            body: `Diseñamos una sesión fotográfica para ${S(a.cliente, "tu marca")} en el sector ${S(a.sector, "de tu industria")}, pensada para ${S(a.publico, "tu público")}. El estilo será ${TONO_COPY[plain(a.tono)] ?? "cuidado y profesional"}, alineado con lo que te hace único: ${plain(a.diferencial, "tu sello propio")}.`,
+            body: `Diseñamos ${sesTxt} de fotografía para ${S(a.cliente, "tu marca")} en el sector ${S(a.sector, "de tu industria")}, pensada para ${S(a.publico, "tu público")}. El estilo será ${TONO_COPY[plain(a.tono)] ?? "cuidado y profesional"}, alineado con lo que te hace único: ${plain(a.diferencial, "tu sello propio")}. ${especifico}`,
           },
           {
             type: "cards",
             title: "Qué incluye",
             items: [
-              { icon: "📸", t: "Dirección de fotografía", d: "Concepto, encuadres y dirección en set." },
-              { icon: "💡", t: "Iluminación profesional", d: "Esquemas de luz para producto o retrato." },
-              { icon: "🎨", t: "Retoque y entrega", d: "Selección y posproducción de las mejores tomas." },
+              { icon: "📸", t: "Dirección de fotografía", d: `Concepto, encuadres y dirección ${loc}.` },
+              { icon: "💡", t: "Iluminación profesional", d: plain(a.locacion) === "en estudio" ? "Set de estudio con fondos e iluminación controlada." : "Esquemas de luz para producto, retrato o exteriores." },
+              { icon: "🎨", t: "Retoque y entrega", d: fotos ? `${fotos} fotos editadas (retoque ${retoque}) en galería online.` : "Selección y posproducción de las mejores tomas." },
             ],
           },
           {
@@ -140,6 +146,22 @@ export const TEMPLATES: TemplateDef[] = [
     desc: "Cobertura audiovisual de eventos: foto, video, highlights y entrega ágil.",
     build: (a) => {
       const cliente = plain(a.cliente, "tu evento");
+      const cobertura = plain(a.cobertura, "foto y video");
+      const dur = plain(a["duracion-cobertura"], "");
+      const camaras = plain(a.camaras, "");
+      const dron = plain(a.dron) === "sí";
+      const tecnico = [
+        cobertura ? `cobertura de ${cobertura}` : "",
+        camaras ? `${camaras} cámara(s)` : "",
+        dur ? dur : "",
+        dron ? "tomas con dron" : "",
+      ].filter(Boolean).join(" · ");
+      const items = [
+        cobertura !== "solo fotografía" ? { icon: "🎥", t: "Video del evento", d: `Cobertura de los momentos clave${camaras ? ` con ${camaras} cámara(s)` : ""}.` } : null,
+        cobertura !== "solo video" ? { icon: "📷", t: "Fotografía", d: "Galería editada del evento." } : null,
+        dron ? { icon: "🚁", t: "Tomas aéreas", d: "Plano del lugar y la asistencia con dron." } : null,
+        { icon: "⚡", t: "Highlights ágiles", d: plain(a["entrega-rapida"]) === "sí" ? "Teaser corto el mismo día del evento." : "Piezas cortas para redes." },
+      ].filter(Boolean) as { icon: string; t: string; d: string }[];
       return {
         brand: { ...BRAND_DEFAULT },
         blocks: [
@@ -147,16 +169,12 @@ export const TEMPLATES: TemplateDef[] = [
           {
             type: "text",
             title: "La propuesta",
-            body: `Acompañamos a ${S(a.cliente, "tu organización")} en el cubrimiento audiovisual del evento, con un enfoque ${TONO_COPY[plain(a.tono)] ?? "ágil y profesional"} para ${S(a.publico, "tu audiencia")}. Entregamos material listo para redes y un resumen que revive la experiencia.`,
+            body: `Acompañamos a ${S(a.cliente, "tu organización")} en el cubrimiento audiovisual del evento, con un enfoque ${TONO_COPY[plain(a.tono)] ?? "ágil y profesional"} para ${S(a.publico, "tu audiencia")}.${tecnico ? ` Incluye ${S(tecnico)}.` : ""} Entregamos material listo para redes y un resumen que revive la experiencia.`,
           },
           {
             type: "cards",
             title: "Qué incluye",
-            items: [
-              { icon: "🎥", t: "Video del evento", d: "Cobertura de los momentos clave." },
-              { icon: "📷", t: "Fotografía", d: "Galería editada del evento." },
-              { icon: "⚡", t: "Highlights ágiles", d: "Piezas cortas para publicar el mismo día." },
-            ],
+            items,
           },
           {
             type: "timeline",
@@ -307,9 +325,9 @@ export const TEMPLATES: TemplateDef[] = [
             type: "cards",
             title: "Qué incluye",
             items: [
-              { icon: "✍️", t: "Concepto y guion", d: "Idea, guion y storyboard." },
-              { icon: "🎥", t: "Rodaje", d: `${plain(a.dias, "1–2")} día(s) de producción.` },
-              { icon: "🎞️", t: "Postproducción", d: "Edición, color, sonido y motion." },
+              { icon: "✍️", t: "Concepto y guion", d: plain(a.guion) === "lo entrega el cliente" ? "Partimos del guion que ya tienes." : plain(a.guion) === "co-creado" ? "Guion y storyboard co-creados contigo." : "Idea, guion y storyboard de nuestra parte." },
+              { icon: "🎥", t: "Rodaje", d: `${plain(a.dias, "1–2")} día(s) de producción${plain(a.talento) ? `, con ${plain(a.talento)}` : ""}.` },
+              { icon: "🎞️", t: "Postproducción", d: plain(a.post) === "cine (color + motion + sonido)" ? "Edición, colorización, motion graphics y diseño sonoro." : plain(a.post) === "con motion graphics" ? "Edición, música, color y motion graphics." : "Edición, música y corrección de color." },
             ],
           },
           {
@@ -335,6 +353,11 @@ export const TEMPLATES: TemplateDef[] = [
     build: (a) => {
       const cliente = plain(a.cliente, "tu evento");
       const evento = plain(a.evento, "tu transmisión");
+      const camaras = plain(a.camaras, "");
+      const horas = plain(a.horas, "");
+      const plataformas = plain(a.plataformas, "");
+      const realiz = camaras === "1" ? "realización a una cámara" : "realización multicámara";
+      const tecnico = [camaras ? `${camaras} cámara(s)` : "", horas || "", plataformas || ""].filter(Boolean).join(" · ");
       return {
         brand: { ...BRAND_DEFAULT },
         blocks: [
@@ -342,14 +365,14 @@ export const TEMPLATES: TemplateDef[] = [
           {
             type: "text",
             title: "La propuesta",
-            body: `Montamos la transmisión en vivo de ${S(evento)} para ${S(a.cliente, "tu marca")}, con realización multicámara y un tono ${TONO_COPY[plain(a.tono)] ?? "dinámico y profesional"} para ${S(a.publico, "tu audiencia en línea")}.`,
+            body: `Montamos la transmisión en vivo de ${S(evento)} para ${S(a.cliente, "tu marca")}, con ${realiz} y un tono ${TONO_COPY[plain(a.tono)] ?? "dinámico y profesional"} para ${S(a.publico, "tu audiencia en línea")}.${tecnico ? ` Plan técnico: ${S(tecnico)}.` : ""}`,
           },
           {
             type: "cards",
             title: "Qué incluye",
             items: [
-              { icon: "🎛️", t: "Realización multicámara", d: "Switcher en vivo y gráficas." },
-              { icon: "📶", t: "Streaming estable", d: "Salida a YouTube, Meta o RTMP." },
+              { icon: "🎛️", t: realiz === "realización a una cámara" ? "Realización 1 cámara" : "Realización multicámara", d: `Switcher en vivo y gráficas${camaras ? ` (${camaras} cámaras)` : ""}.` },
+              { icon: "📶", t: "Streaming estable", d: plataformas === "multistreaming" ? "Salida simultánea a YouTube, Meta y más." : plataformas === "privada / pago por evento" ? "Enlace privado o pago por evento (PPV)." : "Salida a YouTube, Meta o RTMP." },
               { icon: "🎙️", t: "Audio e iluminación", d: "Set técnico completo." },
             ],
           },
