@@ -20,9 +20,11 @@ type Pricing = {
 export function ProposalWizard({
   catalogByType = {},
   defaults,
+  clientNames = [],
 }: {
   catalogByType?: Record<string, CostSection[]>;
   defaults?: { iva: number; contingencyPct: number };
+  clientNames?: string[];
 }) {
   const [tpl, setTpl] = React.useState<string | null>(null);
   const [step, setStep] = React.useState(0); // 0 = preguntas (tras elegir plantilla)
@@ -139,7 +141,7 @@ export function ProposalWizard({
 
       {/* Pregunta */}
       <div className="flex-1">
-        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} pricing={pricing} onEnter={() => canAdvance && next()} /> : null}
+        {q ? <QuestionView q={q} value={answers[q.key] ?? ""} onChange={(v) => setAnswer(q.key, v)} catalog={catalog} setCatalog={setCatalog} pricing={pricing} clientNames={clientNames} onEnter={() => canAdvance && next()} /> : null}
       </div>
 
       {error ? <p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
@@ -169,6 +171,7 @@ function QuestionView({
   catalog,
   setCatalog,
   pricing,
+  clientNames,
   onEnter,
 }: {
   q: WizQuestion;
@@ -177,8 +180,12 @@ function QuestionView({
   catalog: CostSection[];
   setCatalog: React.Dispatch<React.SetStateAction<CostSection[]>>;
   pricing: Pricing;
+  clientNames: string[];
   onEnter: () => void;
 }) {
+  // En la pregunta de cliente, sugerimos los clientes existentes (vincula la propuesta al
+  // cliente al crearla). Sigue siendo texto libre para clientes nuevos.
+  const suggestClients = q.key === "cliente" && clientNames.length > 0;
   return (
     <div>
       <h2 className="text-xl font-bold tracking-tight sm:text-2xl">{q.label}</h2>
@@ -186,6 +193,7 @@ function QuestionView({
       {q.optional && q.input !== "budget" ? <p className="mt-1 text-xs text-muted-foreground">Opcional — puedes dejarlo vacío.</p> : null}
 
       <div className="mt-5">
+        {suggestClients ? <datalist id="wiz-clients">{clientNames.map((n) => <option key={n} value={n} />)}</datalist> : null}
         {q.input === "text" ? (
           <input
             autoFocus
@@ -193,6 +201,7 @@ function QuestionView({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") onEnter(); }}
             placeholder={q.ph}
+            list={suggestClients ? "wiz-clients" : undefined}
             className="w-full rounded-lg border border-input bg-background px-4 py-3 text-base outline-none focus:ring-2 focus:ring-ring"
           />
         ) : null}
