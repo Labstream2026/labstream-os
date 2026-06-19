@@ -178,6 +178,53 @@ export function costCatalog(tpl: string): CostSection[] {
   return base.map((sec) => ({ s: sec.s, items: sec.items.map((it) => ({ ...it })) }));
 }
 
+// Interpreta una respuesta numérica del asistente ("1", "2-3", "4+", "12") tomando la cota
+// superior cuando es un rango (más realista para cámaras/sesiones). Defecto si no aplica.
+function answerNum(v: string | undefined, fallback = 1): number {
+  if (!v) return fallback;
+  const c = v.replace("+", "");
+  if (c.includes("-")) {
+    const parts = c.split("-").map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n));
+    return parts.length ? Math.max(...parts) : fallback;
+  }
+  const n = parseInt(c, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// Ajusta el catálogo de costos según las respuestas concretas del asistente: cantidades
+// (días de rodaje, nº de cámaras, sesiones, jornadas) y activación de ítems (motion graphics,
+// guion, iluminación de estudio, segundo operador). Es un PRE-LLENADO no destructivo: el
+// equipo siempre puede afinarlo después. Si los nombres del catálogo no coinciden, no toca nada.
+export function applyAnswersToCatalog(tpl: string, a: Record<string, string>, sections: CostSection[]): CostSection[] {
+  const out = sections.map((sec) => ({ s: sec.s, items: sec.items.map((it) => ({ ...it })) }));
+  const each = (fn: (it: CostItem) => void) => out.forEach((sec) => sec.items.forEach(fn));
+  const has = (it: CostItem, kw: string) => it.t.toLowerCase().includes(kw);
+
+  if (tpl === "video_institucional") {
+    const dias = answerNum(a.dias, 2);
+    each((it) => { if (it.u === "día") it.q = dias; }); // equipo de rodaje por día
+    const post = a.post ?? "";
+    each((it) => { if (has(it, "motion")) it.on = post.includes("motion") || post.includes("cine"); });
+    each((it) => { if (has(it, "guion")) it.on = a.guion !== "lo entrega el cliente"; });
+  } else if (tpl === "streaming") {
+    const cam = answerNum(a.camaras, 1);
+    // Solo la línea de cámaras (no el switcher "multicámara"): nombre que empieza por "cámara".
+    each((it) => { const n = it.t.toLowerCase(); if (n.startsWith("cámara") || n.startsWith("camara")) it.q = cam; });
+    if ((a.plataformas ?? "") === "multistreaming") each((it) => { if (has(it, "gráfica") || has(it, "grafica")) it.on = true; });
+  } else if (tpl === "cubrimiento_fotografico") {
+    const ses = answerNum(a.sesiones, 1);
+    each((it) => { if (has(it, "jornada") || has(it, "retoque")) it.q = ses; });
+    if ((a.locacion ?? "").includes("estudio")) each((it) => { if (has(it, "iluminación de estudio") || has(it, "iluminacion de estudio")) it.on = true; });
+  } else if (tpl === "cubrimiento_evento") {
+    if (answerNum(a.camaras, 1) > 1) each((it) => { if (has(it, "segundo operador")) it.on = true; });
+    if ((a["duracion-cobertura"] ?? "") === "varios días") each((it) => { if (has(it, "foto y video")) it.q = 2; });
+  } else if (tpl === "marca_personal" || tpl === "contenido_empresa" || tpl === "contenido_medico") {
+    const jornadas = answerNum(a.jornadas, 1);
+    each((it) => { if (has(it, "jornada de rodaje")) it.q = jornadas; });
+  }
+  return out;
+}
+
 // Convierte el catálogo (con on/off) en las secciones que guarda el bloque budget.
 export function catalogToBudgetSections(catalog: CostSection[]) {
   return catalog

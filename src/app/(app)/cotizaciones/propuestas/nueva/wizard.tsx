@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import { TEMPLATES } from "@/lib/proposals/templates";
 import { wizardSteps, type WizQuestion } from "@/lib/proposals/wizard";
-import { costCatalog, catalogToBudgetSections, internalCost, clientTotals, type CostSection } from "@/lib/proposals/budget";
+import { costCatalog, catalogToBudgetSections, internalCost, clientTotals, applyAnswersToCatalog, type CostSection } from "@/lib/proposals/budget";
 import { createProposal } from "../actions";
 
 type Answers = Record<string, string>;
@@ -59,8 +59,17 @@ export function ProposalWizard({
 
   function next() {
     setError(null);
-    if (step < total - 1) setStep((s) => s + 1);
-    else finish();
+    if (step < total - 1) {
+      const goingTo = step + 1;
+      // Al entrar al paso de presupuesto, sembramos las cantidades desde las respuestas
+      // (días de rodaje, cámaras, sesiones, jornadas…). El equipo afina luego.
+      if (tpl && steps[goingTo]?.input === "budget") {
+        const fromDb = catalogByType[tpl];
+        const base = fromDb && fromDb.length ? fromDb.map((s) => ({ s: s.s, items: s.items.map((i) => ({ ...i })) })) : costCatalog(tpl);
+        setCatalog(applyAnswersToCatalog(tpl, answers, base));
+      }
+      setStep(goingTo);
+    } else finish();
   }
   function back() {
     setError(null);
@@ -258,6 +267,9 @@ function BudgetBuilder({ catalog, setCatalog, pricing }: { catalog: CostSection[
 
   return (
     <div className="space-y-4">
+      <p className="rounded-lg bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+        ✨ Pre-llenamos las cantidades según tus respuestas (días de rodaje, cámaras, sesiones, jornadas…). Activa, desactiva y ajusta lo que necesites.
+      </p>
       {catalog.map((sec, si) => (
         <div key={si} className="overflow-hidden rounded-xl border border-border">
           <div className="bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{sec.s}</div>
