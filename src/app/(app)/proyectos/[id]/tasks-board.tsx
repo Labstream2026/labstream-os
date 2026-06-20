@@ -6,6 +6,7 @@ import {
   DragOverlay,
   PointerSensor,
   TouchSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   useDraggable,
@@ -78,6 +79,8 @@ export function TasksBoard({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    // Accesibilidad: mover tarjetas con teclado (Espacio para tomar, flechas para mover).
+    useSensor(KeyboardSensor),
   );
 
   function onDragStart(e: DragStartEvent) {

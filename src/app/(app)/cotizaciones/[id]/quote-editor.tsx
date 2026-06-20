@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { Plus, Trash2, Sparkles, GripVertical } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { formatMoney } from "@/lib/ui";
 import { composeQuoteTotals, clientLineValue } from "@/lib/quote-compose";
@@ -50,7 +50,11 @@ export function QuoteEditor({
     updateItem(it.id, { section: it.section, description: it.description, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice });
   };
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // Accesibilidad: reordenar con teclado (Espacio para tomar, flechas para mover, Espacio para soltar).
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const onDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
