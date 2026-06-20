@@ -344,7 +344,7 @@ export function Sidebar({
       <div className={cn("border-t border-sidebar-border", collapsed ? "p-2" : "p-3")}>
         {canAdmin
           ? navRow("/configuracion", "Configuración", Settings, pathname.startsWith("/configuracion"))
-          : null}
+          : navRow("/configuracion", "Integraciones", Settings, pathname.startsWith("/configuracion"))}
         <div className={cn("flex items-center gap-2.5 rounded-md", collapsed ? "flex-col px-0 py-1" : "px-2.5 py-1.5")}>
           <Link
             href="/perfil"

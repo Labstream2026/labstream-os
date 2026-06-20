@@ -17,13 +17,32 @@ import { MarcebotSettings } from "./marcebot-settings";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
+import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 import { Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
   const session = await getSession();
-  if (!hasPermission(session, "administrar_usuarios")) redirect("/");
+  if (!session) redirect("/login");
+  const isAdmin = hasPermission(session, "administrar_usuarios");
+
+  // Colaboradores NO admin: solo ven lo que pueden gestionar ellos mismos — conectar su
+  // calendario de Synology. Las secciones sensibles (usuarios, roles, correo) son solo admin.
+  if (!isAdmin) {
+    const myCalRow = await db.calendarConnection.findUnique({
+      where: { userId: session.id },
+      select: { serverUrl: true, username: true, calendarUrl: true, calendarName: true, lastSyncAt: true, lastError: true },
+    });
+    const myCal = myCalRow ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null } : null;
+    return (
+      <div className="mx-auto max-w-2xl px-8 py-10">
+        <h1 className="text-3xl font-bold tracking-tight">Integraciones</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Conecta tu calendario de Synology para sincronizar tus citas en ambos sentidos.</p>
+        <CalendarConnect email={session.email ?? ""} connection={myCal} />
+      </div>
+    );
+  }
 
   // Sincroniza el catálogo de permisos y marca los roles del sistema (idempotente):
   // así producción recibe los permisos nuevos sin necesidad de reseed.
