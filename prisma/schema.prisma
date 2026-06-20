@@ -1003,6 +1003,10 @@ model Task {
   // El cronograma (por proyecto y global) filtra/ordena tareas por fechas.
   @@index([dueDate])
   @@index([startDate])
+  // Rutas calientes: home, mis-tareas y conteos del layout filtran por estado;
+  // marcebot/producción filtran por fecha de rodaje.
+  @@index([status])
+  @@index([shootDate])
 }
 
 // Registro de tiempo real trabajado en una tarea (parte de horas). La suma por tarea
@@ -1101,6 +1105,8 @@ model Deliverable {
 
   @@index([projectId])
   @@index([reviewerId])
+  // El conteo del layout y marcebot filtran entregables por estado.
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────
