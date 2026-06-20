@@ -46,4 +46,7 @@ RUN mkdir -p /app/storage && chown -R nextjs:nodejs /app/storage
 
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Al arrancar, aplica las migraciones pendientes (idempotente) y luego levanta el server.
+# Así cada deploy crea las columnas/tablas nuevas sin paso manual. Se usa ';' (no '&&') para
+# que, si el migrate fallara, la app ARRANQUE igual y no se caiga todo el servicio.
+CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
