@@ -228,13 +228,14 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
           <a href={file.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir</a>
         ) : null}
         <form action={deleteFile.bind(null, file.id, projectId)}>
-          <button
-            onClick={(e) => { if (!confirm(`¿Eliminar «${file.name}»?`)) e.preventDefault(); }}
+          <ConfirmSubmit
+            message={`¿Eliminar «${file.name}»?`}
+            confirmLabel="Eliminar"
             className="text-muted-foreground hover:text-destructive"
             title="Eliminar"
           >
             <Trash2 className="size-3.5" />
-          </button>
+          </ConfirmSubmit>
         </form>
       </div>
     </div>

@@ -3,20 +3,23 @@
 import * as React from "react";
 import { Download } from "lucide-react";
 import { runInventoryImport } from "./actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // Botón solo-admin para cargar el inventario inicial (desde la hoja del equipo).
 // Idempotente: omite los equipos que ya existan (por serial o nombre).
 export function ImportInventoryButton() {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
 
   return (
     <div className="flex items-center gap-3">
+      {dialog}
       <button
         type="button"
         disabled={pending}
-        onClick={() => {
-          if (!confirm("Importar el inventario inicial de equipos. No duplica los que ya estén. ¿Continuar?")) return;
+        onClick={async () => {
+          if (!(await confirm({ title: "Importar inventario", message: "Importar el inventario inicial de equipos. No duplica los que ya estén. ¿Continuar?", confirmLabel: "Importar" }))) return;
           setMsg(null);
           start(async () => {
             const r = await runInventoryImport();

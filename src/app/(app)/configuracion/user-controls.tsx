@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Trash2 } from "lucide-react";
 import { setUserRole, setUserActive, setUserGuest, setUserGender, deleteUser } from "./actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export function UserControls({
   userId,
@@ -25,6 +26,7 @@ export function UserControls({
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
@@ -43,6 +45,7 @@ export function UserControls({
 
   return (
     <div className="flex flex-col items-end gap-1.5">
+      {dialog}
       <div className="flex items-center gap-2">
         <select
           value={roleKey}
@@ -109,7 +112,7 @@ export function UserControls({
           <button
             type="button"
             disabled={pending}
-            onClick={() => { if (confirm(`¿Eliminar a ${userName}? Se borra su cuenta y sus pertenencias; el contenido en propiedad queda sin autor. No se puede deshacer.`)) run(() => deleteUser(userId)); }}
+            onClick={async () => { if (await confirm({ title: "Eliminar usuario", message: `¿Eliminar a ${userName}? Se borra su cuenta y sus pertenencias; el contenido en propiedad queda sin autor. No se puede deshacer.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteUser(userId)); }}
             title="Eliminar usuario"
             className="rounded-md border border-border bg-card p-1.5 text-muted-foreground hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
           >

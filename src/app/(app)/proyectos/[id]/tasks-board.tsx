@@ -23,6 +23,7 @@ import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   createTask,
   setTaskStatus,
@@ -358,11 +359,12 @@ function CardContent({
               title="Fecha de rodaje"
             />
             <form action={deleteTask.bind(null, t.id, projectId)}>
-              <button
+              <ConfirmSubmit
+                message={`¿Eliminar la tarea «${t.title}»?`}
+                confirmLabel="Eliminar"
                 className="px-1 text-xs text-muted-foreground hover:text-destructive"
                 title="Eliminar"
-                onClick={(e) => { if (!confirm(`¿Eliminar la tarea «${t.title}»?`)) e.preventDefault(); }}
-              >✕</button>
+              >✕</ConfirmSubmit>
             </form>
           </div>
         </>

@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import { Check, X } from "lucide-react";
 import { respondQuote } from "./actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // Botones de aprobar / rechazar para el cliente (vista pública).
 export function QuoteDecision({ token }: { token: string }) {
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
   // Responde sin tumbar la página pública: startTransition no atrapa los rechazos, así que
   // envolvemos en try/catch (p. ej. enlace caducado, cotización vencida o acción obsoleta
   // tras un deploy) y mostramos el motivo al cliente.
@@ -18,6 +20,7 @@ export function QuoteDecision({ token }: { token: string }) {
     });
   return (
     <div className="space-y-2">
+      {dialog}
       <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={() => respond("APROBADA")}
@@ -27,7 +30,7 @@ export function QuoteDecision({ token }: { token: string }) {
           <Check className="size-4" /> Aprobar cotización
         </button>
         <button
-          onClick={() => { if (confirm("¿Rechazar esta cotización?")) respond("RECHAZADA"); }}
+          onClick={async () => { if (await confirm({ title: "Rechazar cotización", message: "¿Rechazar esta cotización?", confirmLabel: "Rechazar", danger: true })) respond("RECHAZADA"); }}
           disabled={pending}
           className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
         >
