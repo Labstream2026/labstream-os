@@ -55,5 +55,14 @@ docker compose -p "$PROJECT" up -d --build
 #    -u root = evita EACCES al leer /app/package.json con el usuario del contenedor.
 docker compose -p "$PROJECT" exec -T -u root app npx prisma migrate deploy
 
+# 6) Limpieza: cada rebuild deja la imagen anterior como <none> y capas de caché
+#    sin usar. Sin esto se acumulan gigas con cada deploy. Se purga aquí.
+#    • "|| true": la limpieza nunca debe tumbar el deploy (set -e).
+#    • NO se usa --volumes: los datos persistentes (Postgres, Redis, subidas) están
+#      en bind mounts (./data) y quedan intactos.
+log "limpieza docker"
+docker image prune -f >> "$LOG" 2>&1 || true
+docker builder prune -f >> "$LOG" 2>&1 || true
+
 log "deploy OK"
 echo "Deploy completado."

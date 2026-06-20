@@ -23,6 +23,9 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+# El calendario asume hora de pared en UTC; se fija aquí también para que la imagen
+# sea correcta aunque se ejecute fuera de docker-compose.
+ENV TZ=UTC
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
 COPY --from=builder /app/public ./public

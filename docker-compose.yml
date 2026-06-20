@@ -16,6 +16,10 @@ services:
       - "127.0.0.1:3200:3000"
     environment:
       NODE_ENV: production
+      # Todo el manejo de fechas del calendario asume hora de pared en UTC. Se fija
+      # explícitamente para que NUNCA dependa del default del entorno: sin esto, correr
+      # con otra TZ desplaza todas las horas de eventos (p.ej. -5h en Colombia).
+      TZ: UTC
       DATABASE_URL: postgresql://labstream:${POSTGRES_PASSWORD:-changeme}@postgres:5432/labstream_os?schema=public
       REDIS_URL: redis://redis:6379
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-cambia-esto}
