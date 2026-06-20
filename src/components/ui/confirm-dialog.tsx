@@ -70,7 +70,10 @@ function ConfirmDialog({
         <p className={cn("text-sm text-muted-foreground", title && "mt-1")}>{message}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
-            // En acciones destructivas, el foco arranca en Cancelar (opción segura).
+            // type="button" es CRÍTICO: el diálogo puede renderizarse DENTRO de un <form>
+            // (p. ej. ConfirmSubmit); sin él, el botón haría submit del form y dispararía la
+            // acción aunque se cancele. En acciones destructivas el foco arranca en Cancelar.
+            type="button"
             autoFocus={danger}
             onClick={onCancel}
             className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-accent"
@@ -78,6 +81,7 @@ function ConfirmDialog({
             {cancelLabel}
           </button>
           <button
+            type="button"
             autoFocus={!danger}
             onClick={onConfirm}
             className={cn(
