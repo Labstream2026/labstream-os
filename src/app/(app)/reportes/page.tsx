@@ -20,14 +20,17 @@ export default async function ReportesPage() {
   const { statuses } = await getTaskLabels();
   const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
 
-  const [activeProjects, openTasks, hoursAgg, activeMembers, byStatus, load, timeEntries, invoices] = await Promise.all([
+  const [activeProjects, openTasks, hoursAgg, activeMembers, byStatus, load, timeByTask, invoices] = await Promise.all([
     db.project.count({ where: { status: { notIn: INACTIVE as never } } }),
     db.task.count({ where: { status: { in: openKeys } } }),
     db.timeEntry.aggregate({ _sum: { minutes: true } }),
     db.user.count({ where: { active: true } }),
     db.project.groupBy({ by: ["status"], _count: { _all: true } }),
     db.task.groupBy({ by: ["assigneeId"], where: { status: { in: openKeys }, assigneeId: { not: null } }, _count: { _all: true } }),
-    db.timeEntry.findMany({ select: { minutes: true, task: { select: { project: { select: { id: true, name: true, emoji: true } } } } } }),
+    // Horas por proyecto: agregamos en BD por TAREA (una fila por tarea, no por cada
+    // imputación) en vez de traer todas las imputaciones a memoria. TimeEntry es la tabla
+    // que más crece; antes esta página la leía entera en cada carga.
+    db.timeEntry.groupBy({ by: ["taskId"], _sum: { minutes: true } }),
     db.invoice.findMany({ select: { status: true, taxRate: true, currency: true, dueDate: true, items: { select: { quantity: true, unitPrice: true } } } }),
   ]);
 
@@ -46,13 +49,19 @@ export default async function ReportesPage() {
     .sort((a, b) => b.count - a.count);
   const maxStatus = Math.max(1, ...statusRows.map((r) => r.count));
 
-  // Horas registradas por proyecto (suma de TimeEntry → proyecto).
+  // Horas registradas por proyecto: resolvemos el proyecto de cada tarea con horas en UNA
+  // consulta acotada (solo esas tareas) y sumamos los minutos ya agregados por tarea.
+  const taskIds = timeByTask.map((t) => t.taskId);
+  const tasksForHours = taskIds.length
+    ? await db.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, project: { select: { id: true, name: true, emoji: true } } } })
+    : [];
+  const projByTask = new Map(tasksForHours.map((t) => [t.id, t.project]));
   const byProject = new Map<string, { name: string; emoji: string | null; minutes: number }>();
-  for (const e of timeEntries) {
-    const p = e.task.project;
+  for (const row of timeByTask) {
+    const p = projByTask.get(row.taskId);
     if (!p) continue;
     const cur = byProject.get(p.id) ?? { name: p.name, emoji: p.emoji, minutes: 0 };
-    cur.minutes += e.minutes;
+    cur.minutes += row._sum.minutes ?? 0;
     byProject.set(p.id, cur);
   }
   const hoursByProject = [...byProject.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 8);
