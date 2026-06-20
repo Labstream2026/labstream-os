@@ -11,6 +11,7 @@ import { buildProposal } from "@/lib/proposals/templates";
 import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type BlockType } from "@/lib/proposals/types";
 import { catalogToBudgetSections, type BudgetSection } from "@/lib/proposals/budget";
 import { getCatalogForWizard } from "@/lib/services-catalog";
+import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
 import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
@@ -40,10 +41,8 @@ function refresh(id?: string) {
   if (id) revalidatePath(`/cotizaciones/propuestas/${id}`);
 }
 
-async function nextCode(): Promise<string> {
-  const count = await db.proposal.count();
-  return `PROP-${String(count + 1).padStart(4, "0")}`;
-}
+// Código PROP-#### a prueba de colisiones (deriva del máximo + reintento ante P2002).
+const nextProposalMax = () => maxCodeFrom((args) => db.proposal.findMany(args));
 
 // Allowlist estricta para el HTML de los bloques de texto. Se sanea AL GUARDAR (no solo
 // al renderizar) porque el resultado se sirve en el portal PÚBLICO del cliente con
@@ -110,17 +109,22 @@ export async function createProposal(
     ? await db.client.findFirst({ where: { name: { equals: cliente, mode: "insensitive" } }, select: { id: true } })
     : null;
 
-  const proposal = await db.proposal.create({
-    data: {
-      code: await nextCode(),
-      templateKey: tpl,
-      title,
-      brand: brand as unknown as object,
-      blocks: blocks as unknown as object,
-      answers: answers as unknown as object,
-      clientId: matched?.id ?? null,
-      createdById: session.id,
-    },
+  const proposal = await createWithSequentialCode({
+    prefix: "PROP",
+    findMaxCode: nextProposalMax,
+    create: (code) =>
+      db.proposal.create({
+        data: {
+          code,
+          templateKey: tpl,
+          title,
+          brand: brand as unknown as object,
+          blocks: blocks as unknown as object,
+          answers: answers as unknown as object,
+          clientId: matched?.id ?? null,
+          createdById: session.id,
+        },
+      }),
   });
   refresh(proposal.id);
   redirect(`/cotizaciones/propuestas/${proposal.id}`);
@@ -228,17 +232,22 @@ export async function duplicateProposal(id: string) {
   const session = (await getSession())!;
   const src = await db.proposal.findUnique({ where: { id } });
   if (!src) throw new Error("Propuesta inexistente");
-  const copy = await db.proposal.create({
-    data: {
-      code: await nextCode(),
-      templateKey: src.templateKey,
-      title: `${src.title} (copia)`,
-      brand: src.brand as object,
-      blocks: src.blocks as object,
-      answers: src.answers as object,
-      clientId: src.clientId,
-      createdById: session.id,
-    },
+  const copy = await createWithSequentialCode({
+    prefix: "PROP",
+    findMaxCode: nextProposalMax,
+    create: (code) =>
+      db.proposal.create({
+        data: {
+          code,
+          templateKey: src.templateKey,
+          title: `${src.title} (copia)`,
+          brand: src.brand as object,
+          blocks: src.blocks as object,
+          answers: src.answers as object,
+          clientId: src.clientId,
+          createdById: session.id,
+        },
+      }),
   });
   refresh(copy.id);
   redirect(`/cotizaciones/propuestas/${copy.id}`);

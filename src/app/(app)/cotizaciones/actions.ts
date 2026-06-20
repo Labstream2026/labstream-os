@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { getQuoteSettings } from "@/lib/services-catalog";
+import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -27,10 +28,8 @@ function refresh(id?: string) {
   if (id) revalidatePath(`/cotizaciones/${id}`);
 }
 
-async function nextCode(): Promise<string> {
-  const count = await db.quote.count();
-  return `COT-${String(count + 1).padStart(4, "0")}`;
-}
+// Código COT-#### a prueba de colisiones (deriva del máximo + reintento ante P2002).
+const nextQuoteMax = () => maxCodeFrom((args) => db.quote.findMany(args));
 
 const QUOTE_STATUSES = ["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"];
 
@@ -54,18 +53,23 @@ export async function createQuote(formData: FormData) {
   // también, para que una cotización nueva ya traiga los porcentajes de la empresa.
   const settings = await getQuoteSettings();
 
-  const quote = await db.quote.create({
-    data: {
-      code: await nextCode(),
-      title,
-      clientId,
-      projectId,
-      recipientName,
-      taxRate: settings.iva,
-      contingencyPct: settings.contingencyPct,
-      createdById: session.id,
-      // Sin línea vacía por defecto: se compone desde el catálogo o se añade a mano.
-    },
+  const quote = await createWithSequentialCode({
+    prefix: "COT",
+    findMaxCode: nextQuoteMax,
+    create: (code) =>
+      db.quote.create({
+        data: {
+          code,
+          title,
+          clientId,
+          projectId,
+          recipientName,
+          taxRate: settings.iva,
+          contingencyPct: settings.contingencyPct,
+          createdById: session.id,
+          // Sin línea vacía por defecto: se compone desde el catálogo o se añade a mano.
+        },
+      }),
   });
   refresh(quote.id);
   redirect(`/cotizaciones/${quote.id}`);
@@ -78,24 +82,29 @@ export async function duplicateQuote(quoteId: string) {
   await ensureQuoteAccess(quoteId);
   const q = await db.quote.findUnique({ where: { id: quoteId }, include: { items: { orderBy: { position: "asc" } } } });
   if (!q) throw new Error("Cotización inexistente");
-  const copy = await db.quote.create({
-    data: {
-      code: await nextCode(),
-      title: `${q.title} (copia)`,
-      currency: q.currency,
-      taxRate: q.taxRate,
-      contingencyPct: q.contingencyPct,
-      notes: q.notes,
-      scope: q.scope,
-      deliverables: q.deliverables,
-      recipientName: q.recipientName,
-      recipientCity: q.recipientCity,
-      intro: q.intro,
-      clientId: q.clientId,
-      projectId: q.projectId,
-      createdById: session.id,
-      items: { create: q.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice, catalogItemId: i.catalogItemId, position: i.position })) },
-    },
+  const copy = await createWithSequentialCode({
+    prefix: "COT",
+    findMaxCode: nextQuoteMax,
+    create: (code) =>
+      db.quote.create({
+        data: {
+          code,
+          title: `${q.title} (copia)`,
+          currency: q.currency,
+          taxRate: q.taxRate,
+          contingencyPct: q.contingencyPct,
+          notes: q.notes,
+          scope: q.scope,
+          deliverables: q.deliverables,
+          recipientName: q.recipientName,
+          recipientCity: q.recipientCity,
+          intro: q.intro,
+          clientId: q.clientId,
+          projectId: q.projectId,
+          createdById: session.id,
+          items: { create: q.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice, catalogItemId: i.catalogItemId, position: i.position })) },
+        },
+      }),
   });
   refresh(copy.id);
   redirect(`/cotizaciones/${copy.id}`);

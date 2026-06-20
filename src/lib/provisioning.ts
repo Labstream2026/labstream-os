@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { DEFAULT_FOLDERS, TEMPLATES, type TemplateContent } from "./templates";
+import { createWithSequentialCode, maxCodeFrom } from "./sequential-code";
 
 // Resuelve la definición de una plantilla por su `key`: primero la versión
 // editable de la BD (ProjectTemplate), y si no existe cae a la del código.
@@ -16,14 +17,9 @@ async function resolveTemplate(
   return tpl ? { type: tpl.type, emoji: tpl.emoji, content: tpl.content } : null;
 }
 
-// Siguiente código correlativo LS-XXXX.
-export async function nextProjectCode(db: PrismaClient): Promise<string> {
-  const last = await db.project.findFirst({
-    orderBy: { code: "desc" },
-    select: { code: true },
-  });
-  const n = last ? parseInt(last.code.replace(/\D/g, ""), 10) + 1 : 1;
-  return `LS-${String(n).padStart(4, "0")}`;
+// Código más alto de proyecto (para derivar el siguiente LS-XXXX sin colisiones).
+function projectMaxCode(db: PrismaClient): Promise<string | null> {
+  return maxCodeFrom((args) => db.project.findMany(args));
 }
 
 // Crea la estructura de carpetas sugerida del proyecto.
@@ -45,21 +41,25 @@ export async function instantiateTemplate(
   opts: { templateKey: string; name: string; clientId: string; leadId?: string | null },
 ) {
   const tpl = await resolveTemplate(db, opts.templateKey);
-  const code = await nextProjectCode(db);
 
   const stages = tpl?.content?.stages?.length ? tpl.content.stages : undefined;
-  const project = await db.project.create({
-    data: {
-      code,
-      name: opts.name,
-      clientId: opts.clientId,
-      leadId: opts.leadId ?? null,
-      type: (tpl?.type ?? "REEL") as never,
-      emoji: tpl?.emoji ?? "🎬",
-      templateKey: opts.templateKey || null,
-      status: "EN_PLANEACION",
-      ...(stages ? { stages } : {}),
-    },
+  const project = await createWithSequentialCode({
+    prefix: "LS",
+    findMaxCode: () => projectMaxCode(db),
+    create: (code) =>
+      db.project.create({
+        data: {
+          code,
+          name: opts.name,
+          clientId: opts.clientId,
+          leadId: opts.leadId ?? null,
+          type: (tpl?.type ?? "REEL") as never,
+          emoji: tpl?.emoji ?? "🎬",
+          templateKey: opts.templateKey || null,
+          status: "EN_PLANEACION",
+          ...(stages ? { stages } : {}),
+        },
+      }),
   });
 
   // Canal de chat del proyecto: PRIVADO (por invitación). El responsable entra
