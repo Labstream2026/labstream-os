@@ -28,7 +28,7 @@ import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
 import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
-import { loadInventory, conflictsByDate } from "@/lib/equipos";
+import { loadInventory, conflictsForPlans } from "@/lib/equipos";
 
 export const dynamic = "force-dynamic";
 
@@ -148,20 +148,20 @@ export default async function ProyectoPage({
       }),
       db.equipmentKit.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { items: true } } } }),
     ]);
-    const plansOut = await Promise.all(
-      plans.map(async (p) => {
-        const reservedMap = await conflictsByDate(p.shootDate, p.id);
-        return {
-          id: p.id,
-          title: p.title,
-          shootDate: p.shootDate.toISOString(),
-          status: p.status,
-          assigneeId: p.assigneeId,
-          reservations: p.items.map((r) => ({ id: r.id, rowId: r.rowId, quantity: r.quantity, packed: r.packed })),
-          reserved: Object.fromEntries([...reservedMap.entries()].map(([k, v]) => [k, v])),
-        };
-      }),
-    );
+    // Conflictos de TODOS los planes en UNA sola consulta (antes: una por plan, N+1).
+    const conflicts = await conflictsForPlans(plans.map((p) => ({ id: p.id, shootDate: p.shootDate })));
+    const plansOut = plans.map((p) => {
+      const reservedMap = conflicts.get(p.id) ?? new Map();
+      return {
+        id: p.id,
+        title: p.title,
+        shootDate: p.shootDate.toISOString(),
+        status: p.status,
+        assigneeId: p.assigneeId,
+        reservations: p.items.map((r) => ({ id: r.id, rowId: r.rowId, quantity: r.quantity, packed: r.packed })),
+        reserved: Object.fromEntries([...reservedMap.entries()].map(([k, v]) => [k, v])),
+      };
+    });
     equiposData = {
       plans: plansOut,
       inventory: inv.items,

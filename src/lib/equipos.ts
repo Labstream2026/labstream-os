@@ -122,27 +122,52 @@ export async function reservedElsewhereByDate(
   return map;
 }
 
-// Igual que arriba pero conservando QUIÉN reserva (para el aviso "ocupado en la grabación X").
-export async function conflictsByDate(
-  shootDate: Date,
-  excludePlanId?: string,
-): Promise<Map<string, { qty: number; where: string[] }>> {
-  const { gte, lt } = dayRangeUTC(shootDate);
+// Clave de día UTC (shootDate va anclada a mediodía UTC → el ISO YYYY-MM-DD es su día).
+function dayKeyUTC(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Versión EN LOTE de conflictsByDate para VARIOS planes: una sola consulta cubre todos los
+// días de los planes (en vez de N consultas, una por plan). Devuelve planId → (rowId →
+// {qty, where}) con los conflictos de CADA plan (reservas del mismo día en OTROS planes).
+export async function conflictsForPlans(
+  plans: { id: string; shootDate: Date }[],
+): Promise<Map<string, Map<string, { qty: number; where: string[] }>>> {
+  const result = new Map<string, Map<string, { qty: number; where: string[] }>>();
+  if (!plans.length) return result;
+  // Rango por día ÚNICO (varios planes pueden caer el mismo día) → OR de rangos = 1 consulta.
+  const dayRanges = new Map<string, { gte: Date; lt: Date }>();
+  for (const p of plans) {
+    const key = dayKeyUTC(p.shootDate);
+    if (!dayRanges.has(key)) dayRanges.set(key, dayRangeUTC(p.shootDate));
+  }
   const rows = await db.equipmentReservation.findMany({
-    where: {
-      plan: { shootDate: { gte, lt }, ...(excludePlanId ? { id: { not: excludePlanId } } : {}) },
-    },
+    where: { plan: { OR: [...dayRanges.values()].map((d) => ({ shootDate: { gte: d.gte, lt: d.lt } })) } },
     select: {
       rowId: true,
       quantity: true,
-      plan: { select: { title: true, project: { select: { name: true } } } },
+      plan: { select: { id: true, shootDate: true, title: true, project: { select: { name: true } } } },
     },
   });
-  const map = new Map<string, { qty: number; where: string[] }>();
+  // Agrupa reservas por día.
+  const byDay = new Map<string, typeof rows>();
   for (const r of rows) {
-    const prev = map.get(r.rowId) ?? { qty: 0, where: [] };
-    const label = r.plan.title || r.plan.project?.name || "otra grabación";
-    map.set(r.rowId, { qty: prev.qty + r.quantity, where: prev.where.includes(label) ? prev.where : [...prev.where, label] });
+    const k = dayKeyUTC(r.plan.shootDate);
+    const arr = byDay.get(k);
+    if (arr) arr.push(r);
+    else byDay.set(k, [r]);
   }
-  return map;
+  // Para cada plan, suma las reservas de SU día EXCLUYÉNDOSE a sí mismo (por planId, no por día).
+  for (const p of plans) {
+    const dayRows = byDay.get(dayKeyUTC(p.shootDate)) ?? [];
+    const map = new Map<string, { qty: number; where: string[] }>();
+    for (const r of dayRows) {
+      if (r.plan.id === p.id) continue;
+      const prev = map.get(r.rowId) ?? { qty: 0, where: [] };
+      const label = r.plan.title || r.plan.project?.name || "otra grabación";
+      map.set(r.rowId, { qty: prev.qty + r.quantity, where: prev.where.includes(label) ? prev.where : [...prev.where, label] });
+    }
+    result.set(p.id, map);
+  }
+  return result;
 }
