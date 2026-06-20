@@ -222,8 +222,14 @@ model Client {
   activity    ActivityLog[]
   channel     ChatChannel?
   members     ClientMember[]
+  // Archivado (borrado suave): en vez de BORRAR un cliente —lo que arrastraría sus
+  // facturas/cotizaciones/proyectos— se archiva. Sale de las listas pero se puede
+  // RESTAURAR; nada de su información se elimina. Solo admins archivan/restauran.
+  archivedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  @@index([archivedAt])
 }
 
 // Quién puede VER un cliente. Los admin ven todos; el resto solo los clientes

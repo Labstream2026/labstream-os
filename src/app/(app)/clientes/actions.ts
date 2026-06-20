@@ -139,6 +139,44 @@ export async function deleteClient(clientId: string): Promise<{ ok: boolean; err
   return { ok: true };
 }
 
+// Archiva un cliente (borrado SUAVE): sale de las listas pero se conserva TODO su contenido
+// —facturas, cotizaciones, proyectos, chat— y se puede RESTAURAR. Es la vía recomendada en
+// lugar de deleteClient (que borra en cascada). Solo administradores.
+export async function archiveClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede archivar clientes." };
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true, archivedAt: true } });
+  if (!client) return { ok: false, error: "El cliente no existe." };
+  if (client.archivedAt) return { ok: true }; // ya archivado (idempotente)
+  await db.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } });
+  await logActivity({ action: "client.archive", summary: `archivó el cliente ${client.name}`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath("/clientes");
+  revalidatePath("/");
+  revalidatePath("/proyectos");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Restaura un cliente archivado (vuelve a las listas). Solo administradores.
+export async function restoreClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede restaurar clientes." };
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  if (!client) return { ok: false, error: "El cliente no existe." };
+  await db.client.update({ where: { id: clientId }, data: { archivedAt: null } });
+  await logActivity({ action: "client.restore", summary: `restauró el cliente ${client.name}`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath("/clientes");
+  revalidatePath("/");
+  revalidatePath("/proyectos");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Wrapper para usar restoreClient como `action` de un <form> (debe devolver void).
+export async function restoreClientForm(clientId: string): Promise<void> {
+  await restoreClient(clientId);
+}
+
 export type ClientMemberResult = { ok: boolean; error?: string };
 
 // Añade un miembro al cliente (quién puede verlo). Solo admin o miembro actual.

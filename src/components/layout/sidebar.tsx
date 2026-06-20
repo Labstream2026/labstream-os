@@ -24,13 +24,14 @@ import {
   BarChart3,
   Receipt,
   LogOut,
-  Trash2,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { Logo, LogoMark } from "@/components/brand/logo";
 import { logout } from "@/lib/auth-actions";
-import { deleteClient } from "@/app/(app)/clientes/actions";
+import { archiveClient } from "@/app/(app)/clientes/actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export type SidebarUser = {
   name: string;
@@ -99,11 +100,13 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [, startDelete] = useTransition();
+  const { confirm, dialog } = useConfirmDialog();
 
-  // Borrar un cliente (solo admin). Confirma porque arrastra proyectos/cotizaciones/chat.
-  function removeClient(id: string, name: string) {
-    if (!confirm(`¿Eliminar el cliente «${name}» y TODOS sus proyectos, cotizaciones y chat? No se puede deshacer.`)) return;
-    startDelete(async () => { await deleteClient(id); router.refresh(); });
+  // Archivar un cliente (solo admin): borrado SUAVE. Sale de las listas pero se conserva
+  // todo (facturas, cotizaciones, proyectos) y se puede restaurar desde /clientes.
+  async function removeClient(id: string, name: string) {
+    if (!(await confirm({ title: "Archivar cliente", message: `¿Archivar el cliente «${name}»? Saldrá de las listas pero NO se borra nada: sus facturas, cotizaciones y proyectos se conservan y podrás restaurarlo.`, confirmLabel: "Archivar" }))) return;
+    startDelete(async () => { await archiveClient(id); router.refresh(); });
   }
 
   // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si
@@ -160,6 +163,7 @@ export function Sidebar({
         collapsed ? "w-16 items-stretch" : "w-64",
       )}
     >
+      {dialog}
       {/* Marca (enlace a Inicio) */}
       <Link
         href="/"
@@ -278,11 +282,11 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={() => removeClient(c.id, c.name)}
-                    title="Eliminar cliente"
-                    aria-label={`Eliminar ${c.name}`}
+                    title="Archivar cliente"
+                    aria-label={`Archivar ${c.name}`}
                     className="mr-1 hidden size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive group-hover/cli:flex"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Archive className="size-3.5" />
                   </button>
                 ) : null}
               </div>
