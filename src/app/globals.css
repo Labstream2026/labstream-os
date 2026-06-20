@@ -120,6 +120,16 @@
   border-color: hsl(var(--border));
 }
 
+/* Accesibilidad: foco visible por TECLADO en cualquier control interactivo. :focus-visible
+   solo se activa con navegación por teclado (no al hacer clic con el ratón), así que no
+   ensucia la UI al clicar. Da un aro consistente a elementos que no traen su propio estilo
+   de foco (los que ya usan focus:ring-* de Tailwind simplemente lo mantienen). */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
 html {
   /* Evita que iOS infle el texto en horizontal y respeta nuestros tamaños. */
   -webkit-text-size-adjust: 100%;

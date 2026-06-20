@@ -246,7 +246,7 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
       type: "mention",
       title: `Te asignaron en "${col.table.name}"`,
       body: `Columna ${col.name}`,
-      link: col.table.projectId ? `/proyectos/${col.table.projectId}?tab=tablas` : undefined,
+      link: col.table.projectId ? `/proyectos/${col.table.projectId}` : undefined,
     });
   }
   await revalidateForTable(col.tableId);
