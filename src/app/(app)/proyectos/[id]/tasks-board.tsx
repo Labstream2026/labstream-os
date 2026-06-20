@@ -22,6 +22,7 @@ import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   createTask,
   setTaskStatus,
@@ -174,10 +175,12 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const t = color ? tone(color) : null;
+  const { confirm, dialog } = useConfirmDialog();
   // Lanza la server action sin tumbar el tablero si falla (acción caducada, permiso…).
   const safe = (p: Promise<unknown>) => p.catch((e) => onError(e instanceof Error ? e.message : "No se pudo completar la acción."));
   return (
     <div className="flex w-72 shrink-0 flex-col gap-2.5">
+      {dialog}
       <div className="group flex items-center gap-1.5 px-1">
         <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: t ? t.hex : "#cbd5e1" }} />
         <input
@@ -200,7 +203,7 @@ function Column({
             </select>
             {canDelete ? (
               <button
-                onClick={() => { if (confirm(`¿Eliminar la fase «${stage}»? Sus tareas pasan a la primera fase.`)) safe(deleteStage(projectId, stage)); }}
+                onClick={async () => { if (await confirm({ title: "Eliminar fase", message: `¿Eliminar la fase «${stage}»? Sus tareas pasan a la primera fase.`, confirmLabel: "Eliminar fase", danger: true })) safe(deleteStage(projectId, stage)); }}
                 className="mt-2 w-full rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-muted"
               >
                 Eliminar fase

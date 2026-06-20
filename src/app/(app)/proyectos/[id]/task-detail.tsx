@@ -30,6 +30,7 @@ import {
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { type LabelRow, labelOptions } from "@/lib/colors";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatMinutes, minutesToHours, todayKey } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +68,7 @@ export function TaskDetail({
   const [body, setBody] = React.useState("");
   const [pending, start] = React.useTransition();
   const [actionErr, setActionErr] = React.useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
   // Ejecuta una server action sin tumbar el panel (startTransition no atrapa rechazos).
   const runSafe = (fn: () => Promise<unknown>) =>
     start(async () => {
@@ -111,6 +113,7 @@ export function TaskDetail({
         </div>
 
         <div className="space-y-5 p-4">
+          {dialog}
           {actionErr ? (
             <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <span>{actionErr}</span>
@@ -236,8 +239,13 @@ export function TaskDetail({
           {/* Eliminar */}
           <form action={deleteTask.bind(null, task.id, projectId)} className="border-t border-border pt-4">
             <button
+              type="button"
               className="text-sm text-destructive hover:underline"
-              onClick={(e) => { if (!confirm("¿Eliminar esta tarea? No se puede deshacer.")) e.preventDefault(); }}
+              onClick={async (e) => {
+                // Capturamos el form ANTES del await (el evento se recicla tras el await).
+                const form = e.currentTarget.form;
+                if (await confirm({ title: "Eliminar tarea", message: "¿Eliminar esta tarea? No se puede deshacer.", confirmLabel: "Eliminar", danger: true })) form?.requestSubmit();
+              }}
             >
               Eliminar tarea
             </button>

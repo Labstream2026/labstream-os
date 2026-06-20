@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Plus, Trash2, Search, Package, AlertTriangle, Check, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   createPlan, updatePlan, deletePlan, setPlanStatus, setPlanAssignee,
   addReservation, setReservationQuantity, removeReservation, togglePacked,
@@ -129,6 +130,7 @@ function PlanCard({
 }) {
   const [adding, setAdding] = React.useState(false);
   const [savingKit, setSavingKit] = React.useState(false);
+  const { confirm, dialog } = useConfirmDialog();
   const status = STATUSES.find((s) => s.key === plan.status) ?? STATUSES[0];
   const reservedRows = new Set(plan.reservations.map((r) => r.rowId));
   const packedCount = plan.reservations.filter((r) => r.packed).length;
@@ -138,6 +140,7 @@ function PlanCard({
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {dialog}
       {/* Cabecera del plan */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
         <div className="min-w-0 flex-1">
@@ -191,7 +194,7 @@ function PlanCard({
         {canWrite ? (
           <button
             type="button"
-            onClick={() => { if (confirm("¿Eliminar esta grabación y su checklist de equipos?")) run(() => deletePlan(plan.id)); }}
+            onClick={async () => { if (await confirm({ title: "Eliminar grabación", message: "¿Eliminar esta grabación y su checklist de equipos?", confirmLabel: "Eliminar", danger: true })) run(() => deletePlan(plan.id)); }}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             title="Eliminar grabación"
           >
