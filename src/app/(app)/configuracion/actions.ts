@@ -151,6 +151,16 @@ export async function setRolePermission(
   if (!role) return { ok: false, error: "Rol inexistente" };
   if (role.key === "admin") return { ok: false, error: "El rol Administrador no se edita (acceso total)." };
 
+  // Anti-escalada: un actor que no es admin pleno NO puede editar los permisos de su
+  // propio rol (se daría poderes a sí mismo) ni conceder a otro rol un permiso que él
+  // mismo no posee (escalada por proxy: crear un rol-títere con más poder del que tiene).
+  if (session.role !== "admin") {
+    if (role.key === session.role) return { ok: false, error: "No puedes editar los permisos de tu propio rol." };
+    if (enabled && !hasPermission(session, permissionKey)) {
+      return { ok: false, error: "No puedes conceder un permiso que tú no tienes." };
+    }
+  }
+
   const perm = await db.permission.findUnique({ where: { key: permissionKey }, select: { id: true } });
   if (!perm) return { ok: false, error: "Permiso inexistente" };
 
@@ -444,6 +454,15 @@ export async function setUserPermissionOverride(
   const session = await requireRoleAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   if (!ALL_KEYS.has(permissionKey)) return { ok: false, error: "Permiso desconocido." };
+
+  // Anti-escalada: un actor que no es admin pleno NO puede modificar sus propios permisos
+  // (se concedería extras a sí mismo) ni conceder a otro un permiso que él mismo no posee.
+  if (session.role !== "admin") {
+    if (userId === session.id) return { ok: false, error: "No puedes modificar tus propios permisos." };
+    if (state === "grant" && !hasPermission(session, permissionKey)) {
+      return { ok: false, error: "No puedes conceder un permiso que tú no tienes." };
+    }
+  }
 
   if (state === "inherit") {
     await db.userPermission
