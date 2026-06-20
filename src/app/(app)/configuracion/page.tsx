@@ -162,8 +162,17 @@ export default async function ConfiguracionPage() {
     lastSyncAt: c.lastSyncAt ? c.lastSyncAt.toISOString() : null,
     lastError: c.lastError,
   }));
+  // Conexión de calendario del PROPIO admin, para poder conectarla/gestionarla aquí mismo
+  // (además de Mi perfil, que sigue siendo el autoservicio para todo el equipo).
+  const myCalRow = await db.calendarConnection.findUnique({
+    where: { userId: session!.id },
+    select: { serverUrl: true, username: true, calendarUrl: true, calendarName: true, lastSyncAt: true, lastError: true },
+  });
+  const myCalendarConnection = myCalRow
+    ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null }
+    : null;
   const integracionesNode = (
-    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} />
+    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
   );
 
   // ── Sección Marcebot ──

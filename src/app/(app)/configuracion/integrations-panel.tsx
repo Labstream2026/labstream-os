@@ -3,8 +3,10 @@
 import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2 } from "lucide-react";
 import { sendTestEmail, saveMailSettings, syncAllCalendarsNow } from "./actions";
+import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 
 export type CalTeamRow = { name: string; calendarName: string | null; lastSyncAt: string | null; lastError: string | null };
+type MyCalConn = { serverUrl: string; username: string; calendarUrl: string | null; calendarName: string | null; lastSyncAt: string | null; lastError: string | null } | null;
 
 export type MailSettingsView = {
   enabled: boolean;
@@ -61,6 +63,8 @@ export function IntegrationsPanel({
   mailSettings,
   calendarTeam = [],
   calendarTotal = 0,
+  myEmail = "",
+  myCalendarConnection = null,
 }: {
   email: boolean;
   caldav: boolean;
@@ -69,6 +73,8 @@ export function IntegrationsPanel({
   mailSettings: MailSettingsView;
   calendarTeam?: CalTeamRow[];
   calendarTotal?: number;
+  myEmail?: string;
+  myCalendarConnection?: MyCalConn;
 }) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
@@ -76,6 +82,7 @@ export function IntegrationsPanel({
   const [showForm, setShowForm] = React.useState(false);
 
   return (
+    <>
     <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <StatusRow icon={<Mail className="size-4" />} label="Correo (Synology MailPlus)" on={email} detail="Envío de correos a clientes y notificaciones del equipo.">
         <button
@@ -138,6 +145,9 @@ export function IntegrationsPanel({
       <StatusRow icon={<Sparkles className="size-4" />} label="Asistente IA (Claude)" on={ai} detail="Copiloto para correos, resúmenes e ideas." />
       <StatusRow icon={<FileEdit className="size-4" />} label="Edición de documentos (OnlyOffice)" on={onlyoffice} detail="Editar Word/Excel/PPT del chat y los proyectos." />
     </div>
+    {/* Conexión personal del calendario (cada quien la suya; también disponible en Mi perfil). */}
+    <CalendarConnect email={myEmail} connection={myCalendarConnection} />
+    </>
   );
 }
 
