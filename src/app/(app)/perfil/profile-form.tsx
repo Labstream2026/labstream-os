@@ -56,16 +56,20 @@ export function ProfileForm({
     });
   }
 
+  const inputCls = "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition focus:ring-2 focus:ring-ring";
+  const labelCls = "mb-1 block text-xs font-medium text-muted-foreground";
+
   return (
-    <>
-      {/* Foto de perfil */}
-      <div className="mt-6 max-w-md rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center gap-4">
-          <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} url={avatarUrl} size="lg" className="size-16" />
+    <form action={submit} className="mt-6 space-y-4">
+      {/* Encabezado: avatar + identidad + foto (todo en una franja compacta) */}
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-5">
+          <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} url={avatarUrl} size="lg" className="size-20 text-2xl ring-4 ring-background" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Foto de perfil</p>
-            <p className="text-xs text-muted-foreground">JPG, PNG o WebP · máx 5MB</p>
-            <div className="mt-2 flex items-center gap-2">
+            <p className="truncate text-lg font-semibold leading-tight">{name}</p>
+            <p className="truncate text-sm text-muted-foreground">{email}</p>
+            {title ? <p className="mt-0.5 text-xs text-muted-foreground">{title}{age != null ? ` · ${age} años` : ""}</p> : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
                 {photoPending ? "Subiendo…" : "Cambiar foto"}
                 <input
@@ -90,7 +94,7 @@ export function ProfileForm({
                 <button
                   type="button"
                   onClick={() => startPhoto(async () => { await removeMyAvatar(); setPhotoMsg("✓ Foto eliminada"); })}
-                  className="text-xs text-muted-foreground hover:text-destructive"
+                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-destructive"
                 >
                   Quitar
                 </button>
@@ -101,101 +105,78 @@ export function ProfileForm({
         </div>
       </div>
 
-    <form action={submit} className="mt-4 max-w-md space-y-4">
-      <div className="flex items-center gap-3">
-        <UserAvatar initials={(ini || name).slice(0, 2)} color={sel} url={avatarUrl} size="lg" />
-        <div className="min-w-0">
-          <p className="truncate font-medium">{name}</p>
-          <p className="truncate text-xs text-muted-foreground">{email}</p>
+      {/* Identidad y datos, en una sola tarjeta con grilla de 2 columnas */}
+      <div className="space-y-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div>
+          <p className="mb-3 text-sm font-semibold">Cómo te ve el equipo</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className={labelCls}>Nombre</span>
+              <input name="name" defaultValue={name} placeholder="Tu nombre" className={inputCls} />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Cargo</span>
+              <input name="title" defaultValue={title ?? ""} placeholder="Ej. Editora, Productora…" className={inputCls} />
+            </label>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className={labelCls}>Iniciales</span>
+              <input name="initials" value={ini} onChange={(e) => setIni(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} placeholder="MR" className={`${inputCls} w-24 uppercase`} />
+            </label>
+            <div>
+              <span className={labelCls}>Color de avatar</span>
+              <div className="flex flex-wrap gap-2">
+                {COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setSel(c)}
+                    className={"rounded-full ring-offset-2 ring-offset-background transition " + (sel === c ? "ring-2 ring-ring" : "hover:scale-110")}
+                    aria-label={c}
+                  >
+                    <UserAvatar initials="" color={c} size="md" className="size-7" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Nombre</span>
-        <input
-          name="name"
-          defaultValue={name}
-          placeholder="Tu nombre como lo verá el equipo"
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
-        />
-        <span className="mt-1 block text-[11px] text-muted-foreground">Puedes acortarlo o ajustarlo (al entrar se toma de Authentik, pero aquí mandas tú).</span>
-      </label>
-
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Cargo</span>
-        <input
-          name="title"
-          defaultValue={title ?? ""}
-          placeholder="Ej. Editora, Productora, Director…"
-          className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
-        />
-      </label>
-
-      <label className="block text-sm">
-        <span className="mb-1 block font-medium">Iniciales</span>
-        <input
-          name="initials"
-          value={ini}
-          onChange={(e) => setIni(e.target.value.toUpperCase().slice(0, 2))}
-          maxLength={2}
-          placeholder="MR"
-          className="w-24 rounded-lg border border-input bg-background px-3 py-2 uppercase outline-none focus:ring-2 focus:ring-ring"
-        />
-      </label>
-
-      <div className="text-sm">
-        <span className="mb-1.5 block font-medium">Color de avatar</span>
-        <div className="flex flex-wrap gap-2">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setSel(c)}
-              className={
-                "size-8 rounded-full ring-offset-2 ring-offset-background transition " +
-                (sel === c ? "ring-2 ring-ring" : "")
-              }
-              aria-label={c}
-            >
-              <UserAvatar initials="" color={c} size="md" className="size-8" />
-            </button>
-          ))}
+        {/* Datos del colaborador */}
+        <div className="border-t border-border pt-4">
+          <p className="mb-3 text-sm font-semibold">Mis datos</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className={labelCls}>Cédula</span>
+              <input name="cedula" defaultValue={cedula ?? ""} inputMode="numeric" placeholder="N.º de documento" className={inputCls} />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Fecha de nacimiento{age != null ? ` · ${age} años` : ""}</span>
+              <input name="birthDate" type="date" value={birth} onChange={(e) => setBirth(e.target.value)} className={inputCls} />
+            </label>
+            <label className="block">
+              <span className={labelCls}>EPS</span>
+              <input name="eps" defaultValue={eps ?? ""} placeholder="Tu EPS" className={inputCls} />
+            </label>
+            <label className="block">
+              <span className={labelCls}>ARL</span>
+              <input name="arl" defaultValue={arl ?? ""} placeholder="Tu ARL" className={inputCls} />
+            </label>
+          </div>
         </div>
-      </div>
 
-      {/* Datos del colaborador */}
-      <div className="border-t border-border pt-4">
-        <p className="mb-2 text-sm font-semibold">Mis datos</p>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Cédula</span>
-            <input name="cedula" defaultValue={cedula ?? ""} inputMode="numeric" placeholder="N.º de documento" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Fecha de nacimiento{age != null ? ` · ${age} años` : ""}</span>
-            <input name="birthDate" type="date" value={birth} onChange={(e) => setBirth(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">EPS</span>
-            <input name="eps" defaultValue={eps ?? ""} placeholder="Tu EPS" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">ARL</span>
-            <input name="arl" defaultValue={arl ?? ""} placeholder="Tu ARL" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
-          </label>
+        {/* Guardar */}
+        <div className="flex items-center gap-3 border-t border-border pt-4">
+          <button
+            disabled={pending}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {pending ? "Guardando…" : "Guardar perfil"}
+          </button>
+          {msg ? <span className="text-sm text-muted-foreground">{msg}</span> : null}
         </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          disabled={pending}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {pending ? "Guardando…" : "Guardar perfil"}
-        </button>
-        {msg ? <span className="text-sm text-muted-foreground">{msg}</span> : null}
       </div>
     </form>
-    </>
   );
 }
