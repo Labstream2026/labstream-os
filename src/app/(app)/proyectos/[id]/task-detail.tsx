@@ -66,6 +66,13 @@ export function TaskDetail({
   const [comments, setComments] = React.useState<TaskCommentItem[] | null>(null);
   const [body, setBody] = React.useState("");
   const [pending, start] = React.useTransition();
+  const [actionErr, setActionErr] = React.useState<string | null>(null);
+  // Ejecuta una server action sin tumbar el panel (startTransition no atrapa rechazos).
+  const runSafe = (fn: () => Promise<unknown>) =>
+    start(async () => {
+      try { setActionErr(null); await fn(); }
+      catch (e) { setActionErr(e instanceof Error ? e.message : "No se pudo guardar el cambio."); }
+    });
 
   React.useEffect(() => {
     let alive = true;
@@ -104,6 +111,12 @@ export function TaskDetail({
         </div>
 
         <div className="space-y-5 p-4">
+          {actionErr ? (
+            <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{actionErr}</span>
+              <button onClick={() => setActionErr(null)} className="shrink-0 font-medium hover:underline">Cerrar</button>
+            </div>
+          ) : null}
           {/* Nombre editable */}
           <form action={renameTask.bind(null, task.id, projectId)}>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Nombre</label>
@@ -130,7 +143,7 @@ export function TaskDetail({
             <Field label="Responsable">
               <select
                 defaultValue={task.assigneeId ?? ""}
-                onChange={(e) => setTaskAssignee(task.id, projectId, e.target.value)}
+                onChange={(e) => runSafe(() => setTaskAssignee(task.id, projectId, e.target.value))}
                 className="w-full cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">Sin asignar</option>

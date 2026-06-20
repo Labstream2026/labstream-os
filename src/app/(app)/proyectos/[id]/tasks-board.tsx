@@ -57,6 +57,8 @@ export function TasksBoard({
   stageColors?: Record<string, string>;
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
+  // Errores de acciones de fase (color/renombrar/eliminar) sin tumbar el tablero.
+  const [boardErr, setBoardErr] = React.useState<string | null>(null);
   const colFor = React.useCallback(
     (t: Task) => (t.stage && cols.includes(t.stage) ? t.stage : cols[0]),
     [cols],
@@ -98,6 +100,12 @@ export function TasksBoard({
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      {boardErr ? (
+        <div className="mb-2 flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{boardErr}</span>
+          <button onClick={() => setBoardErr(null)} className="shrink-0 font-medium hover:underline">Cerrar</button>
+        </div>
+      ) : null}
       <div className="flex gap-4 overflow-x-auto pb-2">
         {cols.map((col) => (
           <Column
@@ -109,6 +117,7 @@ export function TasksBoard({
             team={team}
             priorities={priorities}
             canDelete={cols.length > 1}
+            onError={setBoardErr}
           >
             {items
               .filter((t) => colFor(t) === col)
@@ -147,6 +156,7 @@ function Column({
   team,
   priorities,
   canDelete,
+  onError,
   children,
 }: {
   stage: string;
@@ -156,17 +166,20 @@ function Column({
   team: TeamMember[];
   priorities: LabelRow[];
   canDelete: boolean;
+  onError: (msg: string) => void;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   const t = color ? tone(color) : null;
+  // Lanza la server action sin tumbar el tablero si falla (acción caducada, permiso…).
+  const safe = (p: Promise<unknown>) => p.catch((e) => onError(e instanceof Error ? e.message : "No se pudo completar la acción."));
   return (
     <div className="flex w-72 shrink-0 flex-col gap-2.5">
       <div className="group flex items-center gap-1.5 px-1">
         <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: t ? t.hex : "#cbd5e1" }} />
         <input
           defaultValue={stage}
-          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== stage) renameStage(projectId, stage, v); }}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== stage) safe(renameStage(projectId, stage, v)); }}
           className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none focus:rounded focus:bg-background focus:px-1"
         />
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{count}</span>
@@ -176,7 +189,7 @@ function Column({
             <p className="mb-1 text-[11px] font-medium text-muted-foreground">Color de la fase</p>
             <select
               defaultValue={color ?? ""}
-              onChange={(e) => setStageColor(projectId, stage, e.target.value)}
+              onChange={(e) => safe(setStageColor(projectId, stage, e.target.value))}
               className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
             >
               <option value="">Sin color</option>
@@ -184,7 +197,7 @@ function Column({
             </select>
             {canDelete ? (
               <button
-                onClick={() => { if (confirm(`¿Eliminar la fase «${stage}»? Sus tareas pasan a la primera fase.`)) deleteStage(projectId, stage); }}
+                onClick={() => { if (confirm(`¿Eliminar la fase «${stage}»? Sus tareas pasan a la primera fase.`)) safe(deleteStage(projectId, stage)); }}
                 className="mt-2 w-full rounded-md px-2 py-1 text-left text-xs text-destructive hover:bg-muted"
               >
                 Eliminar fase

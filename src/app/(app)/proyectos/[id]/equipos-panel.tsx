@@ -51,11 +51,25 @@ export function EquiposPanel({
   canWrite: boolean;
 }) {
   const [pending, startTransition] = React.useTransition();
-  const run = (fn: () => Promise<unknown>) => startTransition(async () => { await fn(); });
+  const [err, setErr] = React.useState<string | null>(null);
+  // Ejecuta una server action sin tumbar la página: startTransition NO atrapa los rechazos,
+  // así que envolvemos en try/catch y mostramos el error en un aviso (p. ej. acción caducada
+  // tras un deploy, o falta de permiso).
+  const run = (fn: () => Promise<unknown>) =>
+    startTransition(async () => {
+      try { setErr(null); await fn(); }
+      catch (e) { setErr(e instanceof Error ? e.message : "No se pudo completar la acción."); }
+    });
   const itemsByRow = React.useMemo(() => Object.fromEntries(inventory.map((i) => [i.rowId, i])), [inventory]);
 
   return (
     <div className="space-y-5">
+      {err ? (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{err}</span>
+          <button onClick={() => setErr(null)} className="shrink-0 font-medium hover:underline">Cerrar</button>
+        </div>
+      ) : null}
       <div>
         <p className="text-sm text-muted-foreground">
           Arma las <strong>grabaciones</strong> del proyecto con su fecha y elige del{" "}
