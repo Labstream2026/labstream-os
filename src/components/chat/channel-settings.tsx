@@ -4,6 +4,7 @@ import * as React from "react";
 import { Globe, Lock, Plus, X, Crown, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel } from "@/app/(app)/chat/actions";
 
 type Member = { id: string; name: string; initials: string | null; color: string | null; role?: string };
@@ -27,11 +28,13 @@ export function ChannelSettings({
 }) {
   const [pending, start] = React.useTransition();
   const [adding, setAdding] = React.useState(false);
+  const { confirm, dialog } = useConfirmDialog();
   const memberIds = new Set(members.map((m) => m.id));
   const candidates = team.filter((u) => !memberIds.has(u.id));
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5">
+      {dialog}
       {/* Visibilidad */}
       <button
         disabled={!canManage || pending}
@@ -96,8 +99,8 @@ export function ChannelSettings({
       {canManage && type === "GENERAL" ? (
         <button
           disabled={pending}
-          onClick={() => {
-            if (confirm(`¿Borrar el grupo «${channelName}»? Se elimina para todo el equipo junto con sus mensajes. No se puede deshacer.`)) {
+          onClick={async () => {
+            if (await confirm({ title: "Borrar grupo", message: `¿Borrar el grupo «${channelName}»? Se elimina para todo el equipo junto con sus mensajes. No se puede deshacer.`, confirmLabel: "Borrar grupo", danger: true })) {
               start(() => deleteChannel(channelId));
             }
           }}
