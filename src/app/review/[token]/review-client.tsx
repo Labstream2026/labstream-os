@@ -14,6 +14,15 @@ export type ReviewVersion = StageVersion;
 export type { StageComment };
 
 const NAME_KEY = "review_name";
+// A dónde se envía al cliente al cerrar el flujo cuando no hay descarga (sitio público).
+const SITE_URL = "https://labstreamsas.com";
+
+type Outcome = "APROBADO" | "CAMBIOS";
+type ModalState =
+  | { phase: "confirm"; result: Outcome }
+  | { phase: "sending"; result: Outcome }
+  | { phase: "done"; result: Outcome }
+  | { phase: "error"; result: Outcome; message: string };
 
 export function ReviewClient({
   token,
@@ -26,6 +35,7 @@ export function ReviewClient({
   projectName,
   projectEmoji,
   clientName,
+  downloadUrl,
 }: {
   token: string;
   versions: StageVersion[];
@@ -37,10 +47,13 @@ export function ReviewClient({
   projectName: string;
   projectEmoji: string | null;
   clientName: string | null;
+  downloadUrl: string | null;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
   const [entered, setEntered] = React.useState(false);
   const [draft, setDraft] = React.useState("");
+  const [modal, setModal] = React.useState<ModalState | null>(null);
+  const [pending, start] = React.useTransition();
 
   React.useEffect(() => {
     const saved = (localStorage.getItem(NAME_KEY) || "").trim();
@@ -60,6 +73,26 @@ export function ReviewClient({
   function changeName() {
     setEntered(false);
     setDraft(name ?? "");
+  }
+
+  // El cliente pulsó «Aprobar» / «Solicitar cambios»: abrimos el modal de confirmación
+  // de marca (en vez de los diálogos nativos del escenario).
+  function onDecisionIntent(result: Outcome) {
+    setModal({ phase: "confirm", result });
+  }
+
+  // Confirmó en el modal → ejecuta la decisión y muestra el mensaje de cierre. El correo
+  // y la notificación a TODO el equipo los dispara la propia server action.
+  function confirmDecision(result: Outcome) {
+    setModal({ phase: "sending", result });
+    start(async () => {
+      try {
+        await setReviewDecision(token, result === "APROBADO" ? "APROBADO" : "CORRECCIONES", name || "Cliente");
+        setModal({ phase: "done", result });
+      } catch (e) {
+        setModal({ phase: "error", result, message: e instanceof Error ? e.message : "No pudimos registrar tu decisión. Inténtalo de nuevo." });
+      }
+    });
   }
 
   // Mientras leemos el nombre del navegador, no parpadees el recibimiento.
@@ -91,10 +124,141 @@ export function ReviewClient({
         fixedName
         decision={{ approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
         onComment={(fd) => addReviewComment(token, fd)}
-        onDecision={(result, _note, _name) =>
-          setReviewDecision(token, result === "APROBADO" ? "APROBADO" : "CORRECCIONES", name || "Cliente")
-        }
+        onDecisionIntent={onDecisionIntent}
       />
+      {modal ? (
+        <DecisionModal
+          state={modal}
+          pending={pending}
+          downloadUrl={downloadUrl}
+          onConfirm={() => confirmDecision(modal.result)}
+          onCancel={() => setModal(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ── Modal de marca para la decisión del cliente ──
+// Tres copys distintos según el momento: confirmación, agradecimiento (cambios) y
+// celebración (aprobado). Al terminar redirige: aprobado → enlace de descarga en Drive;
+// cambios → sitio público de Labstream.
+function DecisionModal({
+  state,
+  pending,
+  downloadUrl,
+  onConfirm,
+  onCancel,
+}: {
+  state: ModalState;
+  pending: boolean;
+  downloadUrl: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const approved = state.result === "APROBADO";
+  // Destino final al cerrar: descarga (si aprobó y hay enlace) o el sitio público.
+  const target = approved && downloadUrl ? downloadUrl : SITE_URL;
+
+  // Al mostrar el mensaje de cierre, redirige solo tras unos segundos (deja leer el
+  // mensaje y, si aprobó, ver el botón de descarga).
+  React.useEffect(() => {
+    if (state.phase !== "done") return;
+    const t = setTimeout(() => { window.location.href = target; }, approved ? 6000 : 4500);
+    return () => clearTimeout(t);
+  }, [state.phase, target, approved]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/10 via-card to-card p-7 text-center shadow-2xl sm:p-9">
+        <div className="pointer-events-none absolute -right-12 -top-12 size-44 rounded-full bg-primary/15 blur-3xl" />
+        <div className="relative">
+          <Logo className="mx-auto h-9" />
+
+          {state.phase === "confirm" || state.phase === "sending" ? (
+            approved ? (
+              <>
+                <div className="mt-5 text-4xl">🎬</div>
+                <h2 className="mt-3 text-xl font-bold tracking-tight">¿Confirmas la aprobación?</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Al aprobar le confirmas al equipo que el material está listo. Te llevaremos al enlace de descarga.
+                </p>
+                <div className="mt-6 flex flex-col gap-2">
+                  <button onClick={onConfirm} disabled={pending} className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60">
+                    {pending ? "Aprobando…" : "Sí, aprobar entregable"}
+                  </button>
+                  <button onClick={onCancel} disabled={pending} className="w-full rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-60">
+                    Seguir revisando
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-5 text-4xl">✏️</div>
+                <h2 className="mt-3 text-xl font-bold tracking-tight">¿Enviar tus ajustes al equipo?</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Notificaremos a tu equipo con los comentarios que dejaste para que apliquen los cambios.
+                </p>
+                <div className="mt-6 flex flex-col gap-2">
+                  <button onClick={onConfirm} disabled={pending} className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:bg-primary/90 active:scale-[0.99] disabled:opacity-60">
+                    {pending ? "Enviando…" : "Enviar mis ajustes"}
+                  </button>
+                  <button onClick={onCancel} disabled={pending} className="w-full rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-60">
+                    Seguir revisando
+                  </button>
+                </div>
+              </>
+            )
+          ) : null}
+
+          {state.phase === "done" ? (
+            approved ? (
+              <>
+                <div className="mt-5 text-4xl">🎉</div>
+                <h2 className="mt-3 text-xl font-bold tracking-tight">¡Excelente!</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Nos alegra muchísimo que tu video haya quedado aprobado. Gracias por confiar en Labstream.
+                  {downloadUrl ? " Aquí tienes el enlace para descargarlo." : ""}
+                </p>
+                {downloadUrl ? (
+                  <a href={downloadUrl} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 active:scale-[0.99]">
+                    ⬇️ Descargar de Google Drive
+                  </a>
+                ) : (
+                  <a href={SITE_URL} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                    Ir a labstreamsas.com →
+                  </a>
+                )}
+                <p className="mt-3 text-[11px] text-muted-foreground">Te redirigiremos en unos segundos…</p>
+              </>
+            ) : (
+              <>
+                <div className="mt-5 text-4xl">🙏</div>
+                <h2 className="mt-3 text-xl font-bold tracking-tight">¡Muchas gracias!</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  En Labstream estamos comprometidos con que tu video quede perfecto. Ya notificamos a tu equipo con tus
+                  ajustes y nos pondremos a trabajar en ellos.
+                </p>
+                <a href={SITE_URL} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                  Ir a labstreamsas.com →
+                </a>
+                <p className="mt-3 text-[11px] text-muted-foreground">Te redirigiremos en unos segundos…</p>
+              </>
+            )
+          ) : null}
+
+          {state.phase === "error" ? (
+            <>
+              <div className="mt-5 text-4xl">⚠️</div>
+              <h2 className="mt-3 text-xl font-bold tracking-tight">No pudimos completar la acción</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{state.message}</p>
+              <button onClick={onCancel} className="mt-6 w-full rounded-xl border border-border px-4 py-3 text-sm font-medium hover:bg-accent">
+                Cerrar
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

@@ -68,6 +68,7 @@ export function ReviewStage({
   canDecide = true,
   onComment,
   onDecision,
+  onDecisionIntent,
   onResolve,
   onEdit,
   onDelete,
@@ -87,6 +88,10 @@ export function ReviewStage({
   canDecide?: boolean;
   onComment: (fd: FormData) => Promise<void>;
   onDecision?: (result: "APROBADO" | "CAMBIOS", note: string, name: string, versionNumber: number) => Promise<void>;
+  // Portal del cliente: en vez de decidir con diálogos nativos (confirm/prompt), avisa al
+  // contenedor de la INTENCIÓN para que muestre su propio flujo de marca (modal de
+  // confirmación + mensaje de cierre). Si se pasa, los botones llaman a esto y NO a onDecision.
+  onDecisionIntent?: (result: "APROBADO" | "CAMBIOS") => void;
   onResolve?: (commentId: string, resolved: boolean) => Promise<void>;
   // Editar/borrar comentarios propios mientras son borradores (modo interno). Si no se
   // pasan, no se muestran los controles.
@@ -305,8 +310,8 @@ export function ReviewStage({
             <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">✅ Entregable aprobado.</p>
           ) : canDecide ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={() => decide("APROBADO")} disabled={pending} className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">{decision.approveLabel}</button>
-              <button onClick={() => decide("CAMBIOS")} disabled={pending} className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-500/10 dark:text-amber-300">{decision.changesLabel}</button>
+              <button onClick={() => (onDecisionIntent ? onDecisionIntent("APROBADO") : decide("APROBADO"))} disabled={pending} className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">{decision.approveLabel}</button>
+              <button onClick={() => (onDecisionIntent ? onDecisionIntent("CAMBIOS") : decide("CAMBIOS"))} disabled={pending} className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-500/10 dark:text-amber-300">{decision.changesLabel}</button>
             </div>
           ) : null
         ) : null}

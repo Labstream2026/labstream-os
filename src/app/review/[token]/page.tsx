@@ -47,6 +47,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const meta = deliverableStatusMeta(deliverable.status);
 
   const versions = await buildStageVersions(approved);
+  // Enlace de descarga al aprobar: la fuente de la última versión aprobada (Drive o archivo).
+  const downloadUrl = versions[0]?.openUrl ?? null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -85,6 +87,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             projectName={deliverable.project.name}
             projectEmoji={deliverable.project.emoji}
             clientName={deliverable.project.client?.name ?? null}
+            downloadUrl={downloadUrl}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,
               authorName: c.authorName,
