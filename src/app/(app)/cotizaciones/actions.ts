@@ -7,6 +7,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { getQuoteSettings } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
+import { isQuoteStatus } from "@/lib/enum-guards";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -31,7 +32,6 @@ function refresh(id?: string) {
 // Código COT-#### a prueba de colisiones (deriva del máximo + reintento ante P2002).
 const nextQuoteMax = () => maxCodeFrom((args) => db.quote.findMany(args));
 
-const QUOTE_STATUSES = ["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"];
 
 // Una cotización APROBADA no se edita (el total firmado debe quedar fijo).
 async function assertEditable(quoteId: string) {
@@ -286,7 +286,7 @@ export async function removeItem(itemId: string) {
 // Cambiar estado. BORRADOR → crear_cotizaciones. ENVIADA → enviar_cotizaciones.
 // APROBADA/RECHAZADA → aprobar_cotizaciones.
 export async function setQuoteStatus(quoteId: string, status: string) {
-  if (!QUOTE_STATUSES.includes(status)) throw new Error("Estado inválido");
+  if (!isQuoteStatus(status)) throw new Error("Estado inválido");
   const needsApproval = status === "APROBADA" || status === "RECHAZADA";
   // Enviar al cliente exige enviar_cotizaciones (concedido a los mismos roles que tienen
   // crear_cotizaciones —gerente y ventas— por ROLE_DEFAULTS, así que no rompe el envío).
@@ -307,7 +307,7 @@ export async function setQuoteStatus(quoteId: string, status: string) {
   await db.quote.update({
     where: { id: quoteId },
     data: {
-      status: status as never,
+      status,
       approvedById: status === "APROBADA" ? session.id : null,
       approvedAt: status === "APROBADA" ? new Date() : null,
     },

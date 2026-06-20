@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { isDeliverableStatus } from "@/lib/enum-guards";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
@@ -717,24 +718,13 @@ export async function deleteDeliverable(deliverableId: string, _projectId: strin
   refresh(deliverable.projectId);
 }
 
-// Estados válidos del entregable (enum DeliverableStatus). Se valida la entrada para
-// no permitir saltos directos a APROBADO/ENTREGADO con strings arbitrarios.
-const DELIVERABLE_STATUSES = new Set([
-  "PENDIENTE",
-  "EN_PRODUCCION",
-  "EN_EDICION",
-  "REVISION_INTERNA",
-  "ENVIADO_CLIENTE",
-  "CORRECCIONES",
-  "APROBADO",
-  "ENTREGADO",
-]);
-
 export async function setDeliverableStatus(id: string, _projectId: string, status: string) {
-  if (!DELIVERABLE_STATUSES.has(status)) throw new Error("Estado inválido");
+  // Se valida la entrada (enum DeliverableStatus) para no permitir saltos directos a
+  // APROBADO/ENTREGADO con strings arbitrarios; el guard además estrecha el tipo.
+  if (!isDeliverableStatus(status)) throw new Error("Estado inválido");
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(deliverable);
-  await db.deliverable.update({ where: { id }, data: { status: status as never } });
+  await db.deliverable.update({ where: { id }, data: { status } });
   await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${deliverableStatusMeta(status).label}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
 }

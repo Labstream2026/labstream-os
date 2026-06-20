@@ -8,6 +8,7 @@ import { userCanAccessClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
 import { clientLineValue } from "@/lib/quote-compose";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
+import { isInvoiceStatus } from "@/lib/enum-guards";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -43,6 +44,13 @@ export async function createInvoiceFromQuote(quoteId: string) {
   });
   if (!quote) throw new Error("Cotización inexistente");
   if (!(await userCanAccessClient(quote.clientId, session))) throw new Error("No autorizado");
+  // Solo se factura una cotización APROBADA (no basta con que el botón esté oculto:
+  // la acción puede invocarse directamente).
+  if (quote.status !== "APROBADA") throw new Error("Solo se puede facturar una cotización aprobada.");
+  // Evita facturas duplicadas: si ya existe una para esta cotización (p. ej. doble clic
+  // o re-render), abre la existente en lugar de crear otra con código FAC distinto.
+  const existing = await db.invoice.findFirst({ where: { quoteId: quote.id }, select: { id: true } });
+  if (existing) redirect(`/facturacion/${existing.id}`);
 
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 30);
@@ -87,18 +95,16 @@ export async function createInvoiceFromQuote(quoteId: string) {
   redirect(`/facturacion/${invoice.id}`);
 }
 
-const VALID = ["BORRADOR", "ENVIADA", "PAGADA", "VENCIDA", "ANULADA"];
-
 export async function setInvoiceStatus(invoiceId: string, status: string): Promise<{ ok: boolean; error?: string }> {
   await requirePerm("aprobar_cotizaciones");
-  if (!VALID.includes(status)) return { ok: false, error: "Estado inválido" };
+  if (!isInvoiceStatus(status)) return { ok: false, error: "Estado inválido" };
   const inv = await db.invoice.findUnique({ where: { id: invoiceId }, select: { code: true, clientId: true } });
   if (!inv) return { ok: false, error: "Factura inexistente" };
   const session = await getSession();
   if (!(await userCanAccessClient(inv.clientId, session))) return { ok: false, error: "No autorizado" };
   await db.invoice.update({
     where: { id: invoiceId },
-    data: { status: status as never, paidAt: status === "PAGADA" ? new Date() : null },
+    data: { status, paidAt: status === "PAGADA" ? new Date() : null },
   });
   await logActivity({ action: "invoice.status", summary: `marcó la factura ${inv.code} como ${status.toLowerCase()}`, clientId: inv.clientId, entityType: "invoice", entityId: invoiceId });
   refresh(invoiceId);

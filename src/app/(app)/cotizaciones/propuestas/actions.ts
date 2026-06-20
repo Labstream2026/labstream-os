@@ -12,6 +12,7 @@ import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type Blo
 import { catalogToBudgetSections, type BudgetSection } from "@/lib/proposals/budget";
 import { getCatalogForWizard } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
+import { isProposalStatus } from "@/lib/enum-guards";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
 import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
@@ -188,9 +189,8 @@ export async function updateProposalMeta(
   if (data.clientId) revalidatePath(`/clientes/${data.clientId}`);
 }
 
-const STATUSES = ["BORRADOR", "ENVIADA", "ACEPTADA", "VENCIDA"];
 export async function setProposalStatus(id: string, status: string) {
-  if (!STATUSES.includes(status)) throw new Error("Estado inválido");
+  if (!isProposalStatus(status)) throw new Error("Estado inválido");
   // Marcar ACEPTADA (transición comercialmente sensible) exige aprobar_cotizaciones,
   // igual que en cotizaciones; el resto basta con crear_cotizaciones.
   await requirePerm(status === "ACEPTADA" ? "aprobar_cotizaciones" : "crear_cotizaciones");
@@ -202,7 +202,7 @@ export async function setProposalStatus(id: string, status: string) {
   if (current?.status === "ACEPTADA" && status !== "ACEPTADA") {
     await requirePerm("aprobar_cotizaciones");
   }
-  await db.proposal.update({ where: { id }, data: { status: status as never } });
+  await db.proposal.update({ where: { id }, data: { status } });
   refresh(id);
 }
 
