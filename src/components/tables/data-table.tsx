@@ -18,6 +18,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePromptDialog } from "@/components/ui/prompt-dialog";
 import {
   addColumn,
   renameColumn,
@@ -86,6 +88,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [filter, setFilter] = React.useState("");
   const run = (fn: () => Promise<unknown>) => start(() => void fn());
+  const { confirm, dialog } = useConfirmDialog();
 
   // Orden local de columnas: permite reordenar arrastrando con respuesta inmediata, y se
   // re-sincroniza cuando llegan datos frescos del servidor (tras guardar).
@@ -130,6 +133,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
+      {dialog}
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
         <span className="text-sm font-semibold">📊 {table.name}</span>
         <div className="flex items-center gap-2">
@@ -138,7 +142,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar…" className="w-32 bg-transparent text-xs outline-none" />
           </div>
           <button
-            onClick={() => { if (confirm(`¿Eliminar la tabla «${table.name}»? Esto no se puede deshacer.`)) run(() => deleteTable(table.id)); }}
+            onClick={async () => { if (await confirm({ title: "Eliminar tabla", message: `¿Eliminar la tabla «${table.name}»? Esto no se puede deshacer.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteTable(table.id)); }}
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             title="Eliminar tabla"
           >
@@ -202,6 +206,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
 // arrastre; el resto (renombrar, ordenar, eliminar) sigue funcionando con clic normal.
 function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (fn: () => Promise<unknown>) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.id });
+  const { confirm, dialog } = useConfirmDialog();
   const tc = rt.getColumn(col.id);
   const sorted = tc?.getIsSorted();
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
@@ -225,16 +230,18 @@ function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (
         <button onClick={() => tc?.toggleSorting()} className="text-muted-foreground hover:text-foreground" title="Ordenar">
           {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-40 group-hover:opacity-100" />}
         </button>
-        <button onClick={() => run(() => deleteColumn(col.id))} className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" title="Eliminar columna">
+        <button onClick={async () => { if (await confirm({ title: "Eliminar columna", message: `¿Eliminar la columna «${col.name}»? Se borran sus datos en todas las filas.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteColumn(col.id)); }} className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" title="Eliminar columna">
           <Trash2 className="size-3.5" />
         </button>
       </div>
+      {dialog}
     </th>
   );
 }
 
 function Cell({ column, row, team, run }: { column: Column; row: Row; team: Member[]; run: (fn: () => Promise<unknown>) => void }) {
   const value = row.cells[column.id];
+  const { prompt, dialog } = usePromptDialog();
 
   if (column.type === "TEXT" || column.type === "NUMBER") {
     return (
@@ -297,15 +304,27 @@ function Cell({ column, row, team, run }: { column: Column; row: Row; team: Memb
     const opts = column.options ?? [];
     const sel = opts.find((o) => o.id === value);
     return (
+      <>
+      {dialog}
       <select
         value={(value as string) ?? ""}
-        onChange={(e) => { if (e.target.value === "__add") { const l = prompt("Nueva opción"); if (l) run(() => addSelectOption(column.id, l)); return; } run(() => setCell(row.id, column.id, e.target.value)); }}
+        onChange={async (e) => {
+          const v = e.currentTarget.value;
+          if (v === "__add") {
+            e.currentTarget.value = (value as string) ?? ""; // revertir el select (no dejar «+ Nueva opción» marcado)
+            const l = await prompt({ title: "Nueva opción", placeholder: "Nombre de la opción", required: true });
+            if (l) run(() => addSelectOption(column.id, l));
+            return;
+          }
+          run(() => setCell(row.id, column.id, v));
+        }}
         className={cn("cursor-pointer rounded-full border-0 px-2 py-0.5 text-xs font-medium outline-none", sel ? tone(sel.color).chip : "bg-muted text-muted-foreground")}
       >
         <option value="">—</option>
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         <option value="__add">+ Nueva opción…</option>
       </select>
+      </>
     );
   }
 
@@ -488,8 +507,11 @@ function CellPopover({ summary, children }: { summary: React.ReactNode; children
 
 function MultiSelectCell({ column, value, onSave }: { column: Column; value: string[]; onSave: (v: string[]) => void }) {
   const opts = column.options ?? [];
+  const { prompt, dialog } = usePromptDialog();
   const toggle = (id: string) => onSave(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   return (
+    <>
+    {dialog}
     <CellPopover
       summary={
         <>
@@ -512,7 +534,7 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
           ))}
           <button
             type="button"
-            onClick={() => { const l = prompt("Nueva opción"); if (l) addSelectOption(column.id, l); }}
+            onClick={async () => { const l = await prompt({ title: "Nueva opción", placeholder: "Nombre de la opción", required: true }); if (l) addSelectOption(column.id, l); }}
             className="w-full rounded px-2 py-1 text-left text-xs text-primary hover:bg-muted"
           >
             + Nueva opción…
@@ -520,6 +542,7 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
         </>
       )}
     </CellPopover>
+    </>
   );
 }
 

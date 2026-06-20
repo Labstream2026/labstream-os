@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
 
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
@@ -456,6 +457,7 @@ export function ChannelChat({
       fd.set("body", text.trim());
       files.forEach((f) => fd.append("files", f));
       setUploading(true);
+      setAttachErr(null);
       setText("");
       setFiles([]);
       try {
@@ -464,7 +466,7 @@ export function ChannelChat({
         const saved = await sendMessageWithAttachments(fd);
         if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
       } catch {
-        alert("No se pudo enviar el archivo. Revisa el tamaño o tu conexión.");
+        setAttachErr("No se pudo enviar el archivo. Revisa el tamaño o tu conexión.");
       } finally {
         setUploading(false);
         scrollToBottom();
@@ -495,6 +497,9 @@ export function ChannelChat({
     ? members.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
     : [];
 
+  const { confirm, dialog } = useConfirmDialog();
+  const [attachErr, setAttachErr] = React.useState<string | null>(null);
+
   async function saveEdit(id: string) {
     const body = editText.trim();
     setEditing(null);
@@ -503,13 +508,14 @@ export function ChannelChat({
     await editMessage(id, body);
   }
   async function removeMsg(id: string) {
+    if (!(await confirm({ message: "¿Borrar este mensaje?", confirmLabel: "Borrar", danger: true }))) return;
     // El admin lo conserva en gris (auditoría); los demás lo quitan de su vista.
     setMessages((prev) => (isAdmin ? prev.map((m) => (m.id === id ? { ...m, deleted: true } : m)) : prev.filter((m) => m.id !== id)));
     await deleteMessage(id);
   }
   const [clearing, setClearing] = React.useState(false);
   async function clearAll() {
-    if (!confirm("¿Borrar toda la conversación? Los mensajes desaparecerán para los participantes.")) return;
+    if (!(await confirm({ title: "Borrar conversación", message: "¿Borrar toda la conversación? Los mensajes desaparecerán para los participantes.", confirmLabel: "Borrar", danger: true }))) return;
     setClearing(true);
     setMessages((prev) => (isAdmin ? prev.map((m) => ({ ...m, deleted: true })) : []));
     try { await clearConversation(channelId); } finally { setClearing(false); }
@@ -565,6 +571,7 @@ export function ChannelChat({
 
   return (
     <div className="flex h-full flex-col">
+      {dialog}
       {/* Barra: buscar + mensajes fijados */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {searchOpen ? (
@@ -824,6 +831,12 @@ export function ChannelChat({
           </form>
         ) : null}
         <form onSubmit={submitMain} className="mx-auto w-full max-w-3xl p-3">
+          {attachErr ? (
+            <div className="mb-2 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <span>{attachErr}</span>
+              <button type="button" onClick={() => setAttachErr(null)} className="shrink-0 font-medium hover:underline">Cerrar</button>
+            </div>
+          ) : null}
           {files.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {files.map((f, i) => (
