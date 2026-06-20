@@ -47,17 +47,23 @@ export default async function HomePage() {
   const myTaskCount = await db.task.count({ where: { assigneeId: me.id, status: { in: OPEN as never } } });
 
   // Conteo REAL de mensajes no leídos del usuario (igual que el badge del sidebar).
-  const unreadRows = await db.$queryRaw<{ total: bigint }[]>`
-    SELECT COUNT(*)::bigint AS total
-    FROM "ChatMessage" m
-    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
-    WHERE cm."userId" = ${me.id}
-      AND m."parentId" IS NULL
-      AND m."deletedAt" IS NULL
-      AND (m."authorId" IS NULL OR m."authorId" <> ${me.id})
-      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
-  `;
-  const unread = Number(unreadRows[0]?.total ?? 0);
+  // En try/catch: si la query raw falla, el conteo NO debe tumbar toda la portada.
+  let unread = 0;
+  try {
+    const unreadRows = await db.$queryRaw<{ total: bigint }[]>`
+      SELECT COUNT(*)::bigint AS total
+      FROM "ChatMessage" m
+      JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
+      WHERE cm."userId" = ${me.id}
+        AND m."parentId" IS NULL
+        AND m."deletedAt" IS NULL
+        AND (m."authorId" IS NULL OR m."authorId" <> ${me.id})
+        AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
+    `;
+    unread = Number(unreadRows[0]?.total ?? 0);
+  } catch {
+    unread = 0;
+  }
 
   // Próximos rodajes y entregas (3 semanas) en proyectos visibles para el usuario.
   const today = new Date();

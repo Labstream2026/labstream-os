@@ -124,9 +124,10 @@ function Attachments({ items }: { items?: Attachment[] }) {
     <div className="mt-1.5 space-y-1.5">
       {items.map((a) => {
         if (isImage(a)) {
-          // Vista previa de imagen (la descarga va con cookie de sesión → /api/files valida acceso)
+          // Vista previa de imagen → abre en el visor (misma página, cierra con Escape/×).
+          // Mantiene href para abrir/descargar con Cmd/Ctrl+clic o si no hay JS.
           return (
-            <a key={a.id} href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="block">
+            <a key={a.id} href={`/api/files/${a.id}`} data-lightbox data-lightbox-name={a.name} rel="noreferrer" className="block cursor-zoom-in">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`/api/files/${a.id}`}

@@ -4,6 +4,8 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
+import { TabsBar } from "@/components/layout/tabs-bar";
+import { Lightbox } from "@/components/lightbox";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
 import { CommandPalette, type WikiSearchItem } from "@/components/layout/command-palette";
 import { DetailsAutoClose } from "@/components/details-auto-close";
@@ -162,6 +164,8 @@ export function AppShell({
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           showChatToggle={!hideChatDock}
         />
+        {/* Barra de pestañas estilo Notion (solo escritorio). */}
+        <TabsBar />
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior
             (incluye el área segura de la barra de inicio en iPhone). */}
         <main className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
@@ -196,6 +200,9 @@ export function AppShell({
 
       {/* Buscador global (⌘K) */}
       <CommandPalette clients={clients} wikiPages={wikiPages} open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Visor de imágenes (abre en la misma página, cierra con Escape/×) */}
+      <Lightbox />
 
       {/* Barra de navegación inferior (móvil) */}
       <BottomNav

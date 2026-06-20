@@ -9,28 +9,9 @@ import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
 import { logout } from "@/lib/auth-actions";
+import { routeMeta } from "@/lib/nav-meta";
 
 export type TopbarAvatar = { initials: string | null; color: string | null };
-
-function crumb(pathname: string): { emoji: string; label: string } {
-  if (pathname === "/") return { emoji: "🏠", label: "Inicio" };
-  if (pathname.startsWith("/mis-tareas")) return { emoji: "✅", label: "Mis tareas" };
-  if (pathname.startsWith("/estados")) return { emoji: "💬", label: "Chat del día" };
-  if (pathname.startsWith("/chat")) return { emoji: "💬", label: "Chats" };
-  if (pathname.startsWith("/proyectos/nuevo")) return { emoji: "✨", label: "Nuevo proyecto" };
-  if (pathname.startsWith("/proyectos")) return { emoji: "🗂️", label: "Proyectos" };
-  if (pathname.startsWith("/plantillas")) return { emoji: "🧩", label: "Plantillas" };
-  if (pathname.startsWith("/calendario")) return { emoji: "📅", label: "Calendario" };
-  if (pathname.startsWith("/wiki")) return { emoji: "📚", label: "Wiki del equipo" };
-  if (pathname.startsWith("/clientes/nuevo")) return { emoji: "✨", label: "Nuevo cliente" };
-  if (pathname.startsWith("/clientes")) return { emoji: "🏢", label: "Cliente" };
-  if (pathname.startsWith("/configuracion")) return { emoji: "⚙️", label: "Configuración" };
-  if (pathname.startsWith("/cotizaciones")) return { emoji: "📄", label: "Cotizaciones" };
-  if (pathname.startsWith("/biblioteca")) return { emoji: "📁", label: "Biblioteca" };
-  if (pathname.startsWith("/asistente")) return { emoji: "✨", label: "Asistente IA" };
-  if (pathname.startsWith("/perfil")) return { emoji: "🙂", label: "Mi perfil" };
-  return { emoji: "•", label: "Labstream" };
-}
 
 // Copia el enlace de la página actual (para compartir con el equipo).
 function ShareButton() {
@@ -70,7 +51,7 @@ export function Topbar({
   showChatToggle?: boolean;
 }) {
   const pathname = usePathname();
-  const { emoji, label } = crumb(pathname);
+  const { emoji, label } = routeMeta(pathname);
 
   return (
     <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
@@ -96,7 +77,9 @@ export function Topbar({
         <PanelLeft />
       </Button>
 
-      <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+      {/* Migaja: en escritorio mandan las pestañas, así que aquí solo se muestra
+          en móvil (donde no hay barra de pestañas). */}
+      <div className="flex min-w-0 items-center gap-2 text-sm font-medium md:hidden">
         <span className="text-base leading-none">{emoji}</span>
         <span className="truncate">{label}</span>
       </div>

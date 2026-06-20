@@ -17,6 +17,7 @@ import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable 
 import { CSS } from "@dnd-kit/utilities";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
+import { tone } from "@/lib/colors";
 import {
   addColumn,
   renameColumn,
@@ -38,17 +39,6 @@ type Option = { id: string; label: string; color: string };
 type Column = { id: string; name: string; type: string; options: Option[] | null };
 type Row = { id: string; cells: Record<string, unknown> };
 type Member = { id: string; name: string; initials: string | null; color: string | null };
-
-const COLOR: Record<string, string> = {
-  slate: "bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300",
-  blue: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
-  emerald: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
-  amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
-  violet: "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
-  rose: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
-  cyan: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
-  orange: "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
-};
 
 const TYPES = [
   { v: "TEXT", l: "Texto" },
@@ -310,7 +300,7 @@ function Cell({ column, row, team, run }: { column: Column; row: Row; team: Memb
       <select
         value={(value as string) ?? ""}
         onChange={(e) => { if (e.target.value === "__add") { const l = prompt("Nueva opción"); if (l) run(() => addSelectOption(column.id, l)); return; } run(() => setCell(row.id, column.id, e.target.value)); }}
-        className={cn("cursor-pointer rounded-full border-0 px-2 py-0.5 text-xs font-medium outline-none", sel ? COLOR[sel.color] : "bg-muted text-muted-foreground")}
+        className={cn("cursor-pointer rounded-full border-0 px-2 py-0.5 text-xs font-medium outline-none", sel ? tone(sel.color).chip : "bg-muted text-muted-foreground")}
       >
         <option value="">—</option>
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -507,7 +497,7 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
           {value.map((id) => {
             const o = opts.find((x) => x.id === id);
             if (!o) return null;
-            return <span key={id} className={cn("rounded-full px-2 py-0.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>;
+            return <span key={id} className={cn("rounded-full px-2 py-0.5 text-[11px]", tone(o.color).chip)}>{o.label}</span>;
           })}
         </>
       }
@@ -517,7 +507,7 @@ function MultiSelectCell({ column, value, onSave }: { column: Column; value: str
           {opts.map((o) => (
             <button key={o.id} type="button" onClick={() => toggle(o.id)} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted">
               <input type="checkbox" readOnly checked={value.includes(o.id)} className="size-3" />
-              <span className={cn("rounded-full px-1.5 text-[11px]", COLOR[o.color] ?? "bg-muted")}>{o.label}</span>
+              <span className={cn("rounded-full px-1.5 text-[11px]", tone(o.color).chip)}>{o.label}</span>
             </button>
           ))}
           <button
@@ -542,7 +532,7 @@ function ImageCell({ url, rowId, columnId, onClear }: { url: string; rowId: stri
     <div className="flex items-center gap-2">
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <a href={url} target="_blank" rel="noreferrer" title="Abrir en grande">
+        <a href={url} data-lightbox rel="noreferrer" title="Ampliar imagen" className="cursor-zoom-in">
           <img src={url} alt="" className="size-14 rounded-md border border-border object-cover" />
         </a>
       ) : null}
