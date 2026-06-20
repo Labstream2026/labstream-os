@@ -9,7 +9,7 @@ export default async function PerfilPage() {
   if (!me) redirect("/login");
 
   return (
-    <div className="mx-auto max-w-2xl px-8 py-10">
+    <div className="px-6 py-8 lg:px-10">
       <h1 className="text-3xl font-bold tracking-tight">Mi perfil</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Personaliza cómo te ve el equipo. Se guarda en el servidor del NAS.

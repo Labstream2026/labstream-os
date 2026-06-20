@@ -80,7 +80,7 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
   if (!Object.keys(AVATAR_COLORS).includes(color)) color = session.color ?? "slate";
 
   // Datos del colaborador (vacío = se limpia el campo).
-  const cedula = String(formData.get("cedula") ?? "").trim().slice(0, 30) || null;
+  const cedula = String(formData.get("cedula") ?? "").replace(/\D/g, "").slice(0, 15) || null; // solo dígitos; se formatea con puntos al mostrar
   const eps = String(formData.get("eps") ?? "").trim().slice(0, 60) || null;
   const arl = String(formData.get("arl") ?? "").trim().slice(0, 60) || null;
   const birthRaw = String(formData.get("birthDate") ?? "").trim();

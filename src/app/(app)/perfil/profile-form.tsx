@@ -6,6 +6,12 @@ import { updateMyProfile, updateMyAvatar, removeMyAvatar } from "./actions";
 
 const COLORS = ["indigo", "emerald", "violet", "cyan", "amber", "rose", "orange", "slate"];
 
+// Formatea una cédula con separador de miles en punto (estilo Colombia): "1000" → "1.000".
+function formatCedula(v: string): string {
+  const digits = v.replace(/\D/g, "").slice(0, 15);
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
 export function ProfileForm({
   name,
   email,
@@ -44,6 +50,7 @@ export function ProfileForm({
   const [msg, setMsg] = React.useState<string | null>(null);
   const [sel, setSel] = React.useState(color ?? "slate");
   const [ini, setIni] = React.useState(initials ?? "");
+  const [cedulaVal, setCedulaVal] = React.useState(formatCedula(cedula ?? ""));
   const [photoMsg, setPhotoMsg] = React.useState<string | null>(null);
   const [photoPending, startPhoto] = React.useTransition();
 
@@ -93,7 +100,7 @@ export function ProfileForm({
               {avatarUrl ? (
                 <button
                   type="button"
-                  onClick={() => startPhoto(async () => { await removeMyAvatar(); setPhotoMsg("✓ Foto eliminada"); })}
+                  onClick={() => startPhoto(async () => { const r = await removeMyAvatar(); setPhotoMsg(r.ok ? "✓ Foto eliminada" : `⚠️ ${r.error ?? "Error"}`); })}
                   className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-destructive"
                 >
                   Quitar
@@ -109,7 +116,7 @@ export function ProfileForm({
       <div className="space-y-5 rounded-2xl border border-border bg-card p-5 shadow-sm">
         <div>
           <p className="mb-3 text-sm font-semibold">Cómo te ve el equipo</p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
             <label className="block">
               <span className={labelCls}>Nombre</span>
               <input name="name" defaultValue={name} placeholder="Tu nombre" className={inputCls} />
@@ -119,7 +126,7 @@ export function ProfileForm({
               <input name="title" defaultValue={title ?? ""} placeholder="Ej. Editora, Productora…" className={inputCls} />
             </label>
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
             <label className="block">
               <span className={labelCls}>Iniciales</span>
               <input name="initials" value={ini} onChange={(e) => setIni(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} placeholder="MR" className={`${inputCls} w-24 uppercase`} />
@@ -146,10 +153,10 @@ export function ProfileForm({
         {/* Datos del colaborador */}
         <div className="border-t border-border pt-4">
           <p className="mb-3 text-sm font-semibold">Mis datos</p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
             <label className="block">
               <span className={labelCls}>Cédula</span>
-              <input name="cedula" defaultValue={cedula ?? ""} inputMode="numeric" placeholder="N.º de documento" className={inputCls} />
+              <input name="cedula" value={cedulaVal} onChange={(e) => setCedulaVal(formatCedula(e.target.value))} inputMode="numeric" placeholder="N.º de documento" className={inputCls} />
             </label>
             <label className="block">
               <span className={labelCls}>Fecha de nacimiento{age != null ? ` · ${age} años` : ""}</span>
