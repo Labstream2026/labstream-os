@@ -20,7 +20,36 @@ function loadUndici(): Promise<UndiciMod> {
   if (!undiciPromise) undiciPromise = import("undici");
   return undiciPromise;
 }
-let insecureAgent: unknown;
+
+// Mapa dominio→IP para alcanzar el NAS desde DENTRO del contenedor. El dominio público no
+// hace "hairpin" (no se alcanza a sí mismo), pero el reverse proxy SOLO sirve /caldav/ para
+// ese dominio (por la IP responde "Resource Not Found"). Solución: conectar a la IP local
+// MANTENIENDO Host/SNI = dominio → el proxy enruta al vhost de CalDAV y el cert corresponde
+// al nombre. Configurable por env CALDAV_RESOLVE ("host=ip,host2=ip2"); con el del NAS de
+// Labstream por defecto para que funcione sin tocar el .env.
+function resolveMap(): Record<string, string> {
+  const out: Record<string, string> = { "nas.labstreamsas.com": "192.168.0.22" };
+  for (const pair of (process.env.CALDAV_RESOLVE || "").split(",")) {
+    const [h, ip] = pair.split("=").map((s) => s.trim());
+    if (h && ip) out[h.toLowerCase()] = ip;
+  }
+  return out;
+}
+
+// Agent de undici por host de confianza: acepta el cert (autofirmado/por-nombre) del NAS y,
+// si hay mapeo, resuelve el dominio a su IP local (Host/SNI siguen siendo el dominio).
+const agentCache = new Map<string, unknown>();
+async function insecureAgentFor(trustedHost: string): Promise<unknown> {
+  const cached = agentCache.get(trustedHost);
+  if (cached) return cached;
+  const { Agent } = await loadUndici();
+  const mappedIp = resolveMap()[trustedHost];
+  const connect: Record<string, unknown> = { rejectUnauthorized: false, checkServerIdentity: () => undefined };
+  if (mappedIp) connect.lookup = (_h: string, _o: unknown, cb: (e: null, a: string, f: number) => void) => cb(null, mappedIp, 4);
+  const agent = new Agent({ connect });
+  agentCache.set(trustedHost, agent);
+  return agent;
+}
 
 function hostOf(u: string): string {
   try {
@@ -70,16 +99,12 @@ async function dav(url: string, init: FetchInit, trustedHost: string, timeoutMs 
   const useInsecure = INSECURE && !!trustedHost && hostOf(url) === trustedHost;
   const signal = AbortSignal.timeout(timeoutMs);
   if (useInsecure) {
-    // Usar el fetch de undici (no el global de Next) para que respete el `dispatcher` con
-    // el Agent que acepta el cert autofirmado/por-IP del NAS. Acotado al host de confianza.
-    const { fetch: undiciFetch, Agent } = await loadUndici();
-    if (!insecureAgent) {
-      // rejectUnauthorized:false desactiva la validación de la cadena; checkServerIdentity
-      // (devolver undefined = "ok") desactiva además el chequeo de NOMBRE del cert, que es
-      // exactamente el ERR_TLS_CERT_ALTNAME_INVALID al conectar por IP a un cert de dominio.
-      insecureAgent = new Agent({ connect: { rejectUnauthorized: false, checkServerIdentity: () => undefined } });
-    }
-    return undiciFetch(url, { ...init, dispatcher: insecureAgent, signal } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
+    // Usar el fetch de undici (no el global de Next, que ignora el dispatcher) con el Agent
+    // del host de confianza: acepta el cert del NAS y, si hay mapeo, resuelve el dominio a
+    // su IP local (manteniendo Host/SNI = dominio).
+    const { fetch: undiciFetch } = await loadUndici();
+    const agent = await insecureAgentFor(trustedHost);
+    return undiciFetch(url, { ...init, dispatcher: agent, signal } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
   }
   return fetch(url, { ...init, signal } as RequestInit);
 }

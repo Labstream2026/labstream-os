@@ -120,8 +120,8 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
             <div className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-muted-foreground" /> Conectar mi Synology Calendar</div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">URL del NAS (CalDAV)</label>
-              <input name="serverUrl" required placeholder="https://192.168.0.22/caldav/" defaultValue="https://" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Usa la <strong>IP local</strong> del NAS y la ruta <code>/caldav/</code> (ej. <code>https://192.168.0.22/caldav/</code>). El dominio público no funciona desde dentro del NAS.</p>
+              <input name="serverUrl" required placeholder="https://nas.labstreamsas.com/caldav/" defaultValue="https://nas.labstreamsas.com/caldav/" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Usa el dominio del NAS con la ruta <code>/caldav/</code>: <code>https://nas.labstreamsas.com/caldav/</code>. La app lo resuelve a la red local automáticamente.</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
