@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { buildIcs, type IcsAttendee } from "@/lib/ics";
 import { parseIcs, expandRecurrence } from "@/lib/ics-parse";
-import { putEvent, deleteEvent, queryEvents, type CalDavAuth } from "@/lib/caldav-client";
+import { putEvent, deleteEvent, queryEvents, discoverCalendars, type CalDavAuth, type RemoteEvent } from "@/lib/caldav-client";
 import { isEmailEnabled, sendEmail } from "@/lib/email";
 import type { CalendarConnection } from "@prisma/client";
 
@@ -323,7 +323,30 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
 
   try {
     const auth = authOf(conn);
-    const remote = await queryEvents(auth, conn.calendarUrl, from, to);
+    // Sincroniza TODOS los calendarios del usuario en Synology (no solo el primario): así
+    // cualquier calendario nuevo que cree allá también entra a la app. Si el descubrimiento
+    // falla, cae al calendario configurado. Los eventos de todos se fusionan y la lógica de
+    // import/borrado sigue igual (reconcilia por UID base sobre el conjunto completo).
+    let calUrls: string[];
+    try {
+      const cals = await discoverCalendars(auth);
+      calUrls = cals.length ? cals.map((c) => c.url) : [conn.calendarUrl];
+    } catch {
+      calUrls = [conn.calendarUrl];
+    }
+    const mergedEvents: RemoteEvent[] = [];
+    let mergedComplete = true;
+    for (const url of calUrls) {
+      try {
+        const r = await queryEvents(auth, url, from, to);
+        mergedEvents.push(...r.events);
+        mergedComplete = mergedComplete && r.complete;
+      } catch {
+        // Si un calendario falla, no marcamos el pull como completo (no borrar por error).
+        mergedComplete = false;
+      }
+    }
+    const remote = { events: mergedEvents, complete: mergedComplete };
     // UID exactos (incluidos los sintéticos de ocurrencias) que el servidor reporta:
     // se usa para upsert/import, no para borrar.
     const seenUids = new Set<string>();
