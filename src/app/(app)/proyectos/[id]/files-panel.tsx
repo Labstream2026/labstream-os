@@ -22,6 +22,7 @@ import {
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { addFile, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 
 type FileAsset = { id: string; name: string; kind: string; url: string | null; editable: boolean };
 type FolderItem = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
@@ -185,12 +186,13 @@ function FolderMenu({ folder, projectId }: { folder: FolderItem; projectId: stri
           <button className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Guardar</button>
         </form>
         <form action={deleteFolder.bind(null, folder.id, projectId)} className="mt-2 border-t border-border pt-2">
-          <button
-            onClick={(e) => { if (!confirm(`¿Eliminar la carpeta «${folder.name}»? Sus archivos quedan sin carpeta.`)) e.preventDefault(); }}
+          <ConfirmSubmit
+            message={`¿Eliminar la carpeta «${folder.name}»? Sus archivos quedan sin carpeta.`}
+            confirmLabel="Eliminar carpeta"
             className="text-xs text-destructive hover:underline"
           >
             Eliminar carpeta
-          </button>
+          </ConfirmSubmit>
         </form>
       </div>
     </details>

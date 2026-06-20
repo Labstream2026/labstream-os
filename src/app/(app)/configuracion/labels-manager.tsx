@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Trash2, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TONES, tone } from "@/lib/colors";
 import {
   addLabel,
@@ -24,6 +25,7 @@ export function LabelsManager({ kind, title, hint, rows }: { kind: Kind; title: 
   const [pending, start] = React.useTransition();
   const [newLabel, setNewLabel] = React.useState("");
   const [newColor, setNewColor] = React.useState("slate");
+  const { confirm, dialog } = useConfirmDialog();
 
   // Ejecuta una acción y refresca la página para reflejar el cambio al instante.
   function run(fn: () => Promise<unknown>) {
@@ -35,6 +37,7 @@ export function LabelsManager({ kind, title, hint, rows }: { kind: Kind; title: 
 
   return (
     <div className={cn("rounded-xl border border-border bg-card p-5 shadow-sm", pending && "opacity-80")}>
+      {dialog}
       <h3 className="font-semibold">{title}</h3>
       <p className="mb-3 mt-0.5 text-xs text-muted-foreground">{hint}</p>
 
@@ -107,7 +110,7 @@ export function LabelsManager({ kind, title, hint, rows }: { kind: Kind; title: 
             <button
               type="button"
               disabled={pending || rows.length <= 1}
-              onClick={() => { if (confirm(`¿Eliminar «${r.label}»? Las tareas que lo usaban pasan al valor por defecto.`)) run(() => deleteLabel(r.id)); }}
+              onClick={async () => { if (await confirm({ message: `¿Eliminar «${r.label}»? Las tareas que lo usaban pasan al valor por defecto.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteLabel(r.id)); }}
               className="rounded-md p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-30"
               title="Eliminar"
             >

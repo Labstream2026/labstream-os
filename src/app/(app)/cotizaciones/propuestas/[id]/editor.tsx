@@ -13,6 +13,7 @@ import { ProposalRenderer } from "../proposal-renderer";
 import { BlockEditPanel } from "./block-edit";
 import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
 import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal } from "../actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
@@ -43,6 +44,7 @@ export function ProposalEditor({
   const [copied, setCopied] = React.useState(false);
   const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
   const dirtyRef = React.useRef(false);
+  const { confirm, dialog } = useConfirmDialog();
 
   // Autoguardado de bloques (debounce). Solo tras la primera edición real.
   React.useEffect(() => {
@@ -100,6 +102,7 @@ export function ProposalEditor({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      {dialog}
       {/* Toolbar */}
       <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6">
         <Link href="/cotizaciones" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
@@ -185,7 +188,7 @@ export function ProposalEditor({
                 <IconBtn title="Bajar" onClick={() => move(i, 1)} disabled={i === blocks.length - 1}><ChevronDown className="size-3.5" /></IconBtn>
                 <IconBtn title="Editar" onClick={() => setEditing(editing === i ? null : i)} active={editing === i}><Pencil className="size-3.5" /></IconBtn>
                 <IconBtn title="Duplicar" onClick={() => dup(i)}><Copy className="size-3.5" /></IconBtn>
-                <IconBtn title="Eliminar" onClick={() => { if (confirm("¿Eliminar este bloque?")) del(i); }} danger><Trash2 className="size-3.5" /></IconBtn>
+                <IconBtn title="Eliminar" onClick={async () => { if (await confirm({ message: "¿Eliminar este bloque?", confirmLabel: "Eliminar", danger: true })) del(i); }} danger><Trash2 className="size-3.5" /></IconBtn>
               </div>
 
               <ProposalRenderer blocks={[b]} brand={brand} />
@@ -212,7 +215,7 @@ export function ProposalEditor({
 
           <div className="pt-4">
             <button
-              onClick={() => { if (confirm("¿Eliminar esta propuesta? No se puede deshacer.")) deleteProposal(id); }}
+              onClick={async () => { if (await confirm({ title: "Eliminar propuesta", message: "¿Eliminar esta propuesta? No se puede deshacer.", confirmLabel: "Eliminar", danger: true })) deleteProposal(id); }}
               className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-3.5" /> Eliminar propuesta

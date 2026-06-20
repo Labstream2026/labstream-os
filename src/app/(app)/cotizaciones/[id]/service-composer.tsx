@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import { unitLabel } from "@/lib/quote-compose";
 import { addCatalogItems, applyPackageToQuote, saveServicePackage, deleteServicePackage } from "../actions";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export type ComposerItem = { id: string; name: string; detail: string | null; unit: string; qty: number; unitPrice: number };
 export type ComposerType = { key: string; label: string; icon: string; sections: { name: string; items: ComposerItem[] }[] };
@@ -29,6 +30,7 @@ export function ServiceComposer({
   const [pending, start] = React.useTransition();
   const [savingPkg, setSavingPkg] = React.useState(false);
   const [pkgName, setPkgName] = React.useState("");
+  const { confirm, dialog } = useConfirmDialog();
 
   const type = catalog.find((t) => t.key === typeKey);
   const itemsById = React.useMemo(() => {
@@ -65,6 +67,7 @@ export function ServiceComposer({
 
   return (
     <div className="overflow-hidden rounded-xl border border-primary/30 bg-card shadow-sm">
+      {dialog}
       {/* Tipo de servicio */}
       <div className="flex flex-wrap gap-1.5 border-b border-border bg-muted/30 p-2.5">
         {catalog.map((t) => (
@@ -87,7 +90,7 @@ export function ServiceComposer({
               <button onClick={() => start(async () => { await applyPackageToQuote(quoteId, p.id); onDone(); })} disabled={pending} className="font-medium hover:text-primary disabled:opacity-50" title="Aplicar este paquete a la cotización">
                 {p.emoji ?? "📦"} {p.name} <span className="text-muted-foreground">({p.itemCount})</span>
               </button>
-              <button onClick={() => { if (confirm(`¿Borrar el paquete «${p.name}»?`)) start(() => deleteServicePackage(quoteId, p.id)); }} className="rounded-full p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100" title="Borrar paquete">
+              <button onClick={async () => { if (await confirm({ message: `¿Borrar el paquete «${p.name}»?`, confirmLabel: "Borrar", danger: true })) start(() => deleteServicePackage(quoteId, p.id)); }} className="rounded-full p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100" title="Borrar paquete">
                 <X className="size-3" />
               </button>
             </span>
