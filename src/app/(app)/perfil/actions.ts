@@ -73,6 +73,7 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
   if (!session) return { ok: false, error: "No autorizado" };
 
   const title = String(formData.get("title") ?? "").trim().slice(0, 60) || null;
+  const name = String(formData.get("name") ?? "").trim().slice(0, 80);
   let initials = String(formData.get("initials") ?? "").trim().toUpperCase().slice(0, 2) || null;
   if (initials && !/^[A-ZÑ0-9]{1,2}$/.test(initials)) initials = session.initials;
   let color = String(formData.get("color") ?? "").trim();
@@ -80,7 +81,8 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
 
   await db.user.update({
     where: { id: session.id },
-    data: { title, initials, avatarColor: color },
+    // El nombre solo se actualiza si vino no vacío (el usuario puede ajustarlo/acortarlo).
+    data: { title, initials, avatarColor: color, ...(name ? { name } : {}) },
   });
   await resignSession(session.id);
 

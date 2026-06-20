@@ -92,6 +92,17 @@ export function ProfileForm({
       </div>
 
       <label className="block text-sm">
+        <span className="mb-1 block font-medium">Nombre</span>
+        <input
+          name="name"
+          defaultValue={name}
+          placeholder="Tu nombre como lo verá el equipo"
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
+        />
+        <span className="mt-1 block text-[11px] text-muted-foreground">Puedes acortarlo o ajustarlo (al entrar se toma de Authentik, pero aquí mandas tú).</span>
+      </label>
+
+      <label className="block text-sm">
         <span className="mb-1 block font-medium">Cargo</span>
         <input
           name="title"
