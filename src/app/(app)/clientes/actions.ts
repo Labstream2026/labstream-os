@@ -121,7 +121,18 @@ export async function clearClientCover(clientId: string): Promise<ClientUpdateRe
 export async function deleteClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede borrar clientes." };
-  await db.client.delete({ where: { id: clientId } }).catch(() => null);
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  if (!client) return { ok: false, error: "El cliente no existe." };
+  // No tragar el error: si el borrado falla (FK/datos vinculados), avisar de verdad
+  // en lugar de reportar éxito y dejar el cliente en la lista.
+  try {
+    await db.client.delete({ where: { id: clientId } });
+  } catch {
+    return { ok: false, error: "No se pudo borrar el cliente." };
+  }
+  // Sin clientId (la fila ya no existe): el rastro de auditoría se conserva igual.
+  await logActivity({ action: "client.delete", summary: `eliminó el cliente ${client.name}` });
+  revalidatePath("/clientes");
   revalidatePath("/");
   revalidatePath("/proyectos");
   revalidatePath("/", "layout");
