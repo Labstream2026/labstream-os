@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePromptDialog } from "@/components/ui/prompt-dialog";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -106,6 +108,8 @@ export function ReviewStage({
   const [body, setBody] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
   const [tc, setTc] = React.useState<number | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
   const [drawOpen, setDrawOpen] = React.useState(false);
   const [drawing, setDrawing] = React.useState<string | null>(null); // dataURL JPEG (anotación manual)
   const [hideResolved, setHideResolved] = React.useState(false);
@@ -130,9 +134,9 @@ export function ReviewStage({
     setEditingId(null);
     start(async () => { await onEdit(id, next); });
   };
-  const removeComment = (id: string) => {
+  const removeComment = async (id: string) => {
     if (!onDelete) return;
-    if (!window.confirm("¿Borrar este comentario? No se puede deshacer.")) return;
+    if (!(await confirm({ message: "¿Borrar este comentario? No se puede deshacer.", confirmLabel: "Borrar", danger: true }))) return;
     setDeletedIds((p) => new Set(p).add(id));
     start(async () => { await onDelete(id); });
   };
@@ -242,15 +246,15 @@ export function ReviewStage({
     });
   };
 
-  const decide = (result: "APROBADO" | "CAMBIOS") => {
+  const decide = async (result: "APROBADO" | "CAMBIOS") => {
     if (!onDecision) return;
     const verb = result === "APROBADO" ? decision?.approveLabel : decision?.changesLabel;
     let note = "";
     if (result === "CAMBIOS") {
-      const r = window.prompt("¿Qué cambios se solicitan? (opcional)");
+      const r = await promptInput({ title: verb, message: "¿Qué cambios se solicitan? (opcional)" });
       if (r === null) return; // canceló
       note = r;
-    } else if (!window.confirm(`¿${verb}?`)) return;
+    } else if (!(await confirm({ title: verb, message: `¿${verb}?`, confirmLabel: verb }))) return;
     if (!fixedName) localStorage.setItem("review_name", name);
     start(() => onDecision(result, note, name || defaultName, version?.number ?? 0));
   };
@@ -260,6 +264,8 @@ export function ReviewStage({
 
   return (
     <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
+      {confirmDialog}
+      {promptDialog}
       {/* ── Material + decisión ── vertical: columna IZQUIERDA (angosta, fija al hacer scroll);
           horizontal: arriba a todo el ancho. */}
       <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : undefined}>

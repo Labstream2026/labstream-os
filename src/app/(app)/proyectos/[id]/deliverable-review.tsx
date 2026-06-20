@@ -5,17 +5,24 @@ import { Check, X, Eye, Link2Off, Link2, Loader2, CheckCircle2, Circle, Send, Ch
 import { cn } from "@/lib/utils";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, resolveReviewComment, replyToReview } from "./actions";
+import { usePromptDialog } from "@/components/ui/prompt-dialog";
 
 // Controles de pre-aprobación interna de una versión (solo equipo gestor).
 export function PreApproval({ deliverableId, projectId, versionNumber }: { deliverableId: string; projectId: string; versionNumber: number }) {
   const [pending, start] = React.useTransition();
-  function decide(result: "APROBADO" | "CAMBIOS") {
-    const note = result === "CAMBIOS" ? window.prompt("¿Qué cambios pides al equipo? (opcional)") ?? undefined : undefined;
-    if (result === "CAMBIOS" && note === undefined) return; // canceló el prompt
+  const { prompt, dialog } = usePromptDialog();
+  async function decide(result: "APROBADO" | "CAMBIOS") {
+    let note: string | undefined = undefined;
+    if (result === "CAMBIOS") {
+      const r = await prompt({ title: "Pedir cambios", message: "¿Qué cambios pides al equipo? (opcional)" });
+      if (r === null) return; // canceló el diálogo
+      note = r;
+    }
     start(() => internalDecision(deliverableId, projectId, versionNumber, result, note));
   }
   return (
     <div className="flex items-center gap-1.5">
+      {dialog}
       <button onClick={() => decide("APROBADO")} disabled={pending} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
         {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Aprobar interna
       </button>

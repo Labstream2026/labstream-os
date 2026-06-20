@@ -30,6 +30,7 @@ export function ServiceComposer({
   const [pending, start] = React.useTransition();
   const [savingPkg, setSavingPkg] = React.useState(false);
   const [pkgName, setPkgName] = React.useState("");
+  const [pkgErr, setPkgErr] = React.useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
 
   const type = catalog.find((t) => t.key === typeKey);
@@ -147,16 +148,17 @@ export function ServiceComposer({
             className="min-w-56 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
           <button
-            onClick={() => start(async () => {
+            onClick={() => { setPkgErr(null); start(async () => {
               const r = await saveServicePackage(quoteId, pkgName, typeKey, selectedIds.map((id) => ({ catalogItemId: id, quantity: sel[id] })));
-              if (r.ok) { setSavingPkg(false); setPkgName(""); } else alert(r.error);
-            })}
+              if (r.ok) { setSavingPkg(false); setPkgName(""); } else setPkgErr(r.error ?? "No se pudo guardar el paquete.");
+            }); }}
             disabled={!pkgName.trim() || !selectedIds.length || pending}
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             Guardar paquete
           </button>
-          <button onClick={() => setSavingPkg(false)} className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent">Cancelar</button>
+          <button onClick={() => { setSavingPkg(false); setPkgErr(null); }} className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent">Cancelar</button>
+          {pkgErr ? <span className="w-full text-xs text-destructive">{pkgErr}</span> : null}
         </div>
       ) : null}
 

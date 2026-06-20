@@ -46,18 +46,20 @@ function CopyButton({ getValue, label = "Copiar" }: { getValue: () => Promise<st
 
 function CredentialCard({ cred, team }: { cred: Cred; team: TeamMember[] }) {
   const [revealed, setRevealed] = React.useState<string | null>(null);
+  const [revealErr, setRevealErr] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
   const [share, setShare] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
 
   const reveal = () => {
     if (revealed) { setRevealed(null); return; }
+    setRevealErr(null);
     start(async () => {
       try {
         const v = await revealCredential(cred.id);
         setRevealed(v);
         setTimeout(() => setRevealed(null), 30000); // se oculta sola a los 30s
-      } catch { alert("No tienes permiso para ver esta contraseña."); }
+      } catch { setRevealErr("No tienes permiso para ver esta contraseña."); }
     });
   };
 
@@ -108,6 +110,7 @@ function CredentialCard({ cred, team }: { cred: Cred; team: TeamMember[] }) {
           </button>
           <CopyButton getValue={() => revealCredential(cred.id)} label="Copiar contraseña" />
         </div>
+        {revealErr ? <p className="pl-[5.5rem] text-xs text-destructive">{revealErr}</p> : null}
         {cred.url ? (
           <div className="flex items-center gap-2">
             <span className="w-20 shrink-0 text-xs text-muted-foreground">Enlace</span>
