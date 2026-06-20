@@ -79,10 +79,17 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
   let color = String(formData.get("color") ?? "").trim();
   if (!Object.keys(AVATAR_COLORS).includes(color)) color = session.color ?? "slate";
 
+  // Datos del colaborador (vacío = se limpia el campo).
+  const cedula = String(formData.get("cedula") ?? "").trim().slice(0, 30) || null;
+  const eps = String(formData.get("eps") ?? "").trim().slice(0, 60) || null;
+  const arl = String(formData.get("arl") ?? "").trim().slice(0, 60) || null;
+  const birthRaw = String(formData.get("birthDate") ?? "").trim();
+  const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(birthRaw) ? new Date(`${birthRaw}T12:00:00.000Z`) : null;
+
   await db.user.update({
     where: { id: session.id },
     // El nombre solo se actualiza si vino no vacío (el usuario puede ajustarlo/acortarlo).
-    data: { title, initials, avatarColor: color, ...(name ? { name } : {}) },
+    data: { title, initials, avatarColor: color, cedula, eps, arl, birthDate, ...(name ? { name } : {}) },
   });
   await resignSession(session.id);
 

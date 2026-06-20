@@ -80,6 +80,12 @@ model User {
   isGuest      Boolean   @default(false)
   // Género para el saludo de Marcebot: "M" (muchacho) | "F" (muchacha) | null (neutro).
   gender       String?
+  // Datos del colaborador (editables por la persona en su perfil): documento, seguridad
+  // social y fecha de nacimiento (la edad se calcula a partir de ella).
+  cedula       String?
+  eps          String?
+  arl          String?
+  birthDate    DateTime?
   // Usuario de sistema (Marcebot): no inicia sesión y se oculta de los listados.
   isSystemBot  Boolean   @default(false)
   role         Role      @relation(fields: [roleId], references: [id])
@@ -754,6 +760,8 @@ model CalendarAttendee {
   eventId String
   user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId  String
+  // Respuesta a la invitación (RSVP): PENDING | ACCEPTED | DECLINED | TENTATIVE.
+  status  String        @default("PENDING")
 
   @@id([eventId, userId])
   @@index([userId])

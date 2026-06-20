@@ -13,6 +13,10 @@ export function ProfileForm({
   initials,
   color,
   avatarUrl,
+  cedula,
+  eps,
+  arl,
+  birthDate,
 }: {
   name: string;
   email: string;
@@ -20,7 +24,22 @@ export function ProfileForm({
   initials: string | null;
   color: string | null;
   avatarUrl?: string | null;
+  cedula?: string | null;
+  eps?: string | null;
+  arl?: string | null;
+  birthDate?: string | null; // ISO o ""
 }) {
+  // Fecha de nacimiento en formato YYYY-MM-DD para el input + edad calculada.
+  const birthInput = birthDate ? birthDate.slice(0, 10) : "";
+  const [birth, setBirth] = React.useState(birthInput);
+  const age = React.useMemo(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birth)) return null;
+    const [y, m, d] = birth.split("-").map(Number);
+    const now = new Date();
+    let a = now.getUTCFullYear() - y;
+    if (now.getUTCMonth() + 1 < m || (now.getUTCMonth() + 1 === m && now.getUTCDate() < d)) a--;
+    return a >= 0 && a < 120 ? a : null;
+  }, [birth]);
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
   const [sel, setSel] = React.useState(color ?? "slate");
@@ -141,6 +160,29 @@ export function ProfileForm({
               <UserAvatar initials="" color={c} size="md" className="size-8" />
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Datos del colaborador */}
+      <div className="border-t border-border pt-4">
+        <p className="mb-2 text-sm font-semibold">Mis datos</p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Cédula</span>
+            <input name="cedula" defaultValue={cedula ?? ""} inputMode="numeric" placeholder="N.º de documento" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Fecha de nacimiento{age != null ? ` · ${age} años` : ""}</span>
+            <input name="birthDate" type="date" value={birth} onChange={(e) => setBirth(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">EPS</span>
+            <input name="eps" defaultValue={eps ?? ""} placeholder="Tu EPS" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">ARL</span>
+            <input name="arl" defaultValue={arl ?? ""} placeholder="Tu ARL" className="w-full rounded-lg border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
         </div>
       </div>
 

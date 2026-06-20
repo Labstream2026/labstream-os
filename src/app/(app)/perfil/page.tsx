@@ -28,6 +28,10 @@ export default async function PerfilPage() {
         initials={me.initials}
         color={me.avatarColor}
         avatarUrl={me.avatarUrl}
+        cedula={me.cedula}
+        eps={me.eps}
+        arl={me.arl}
+        birthDate={me.birthDate ? me.birthDate.toISOString() : null}
       />
       <CalendarConnect
         email={me.email}
