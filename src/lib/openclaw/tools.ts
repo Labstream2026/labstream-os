@@ -4,6 +4,7 @@ import { getLiveAuthState } from "@/lib/permissions";
 import { hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere, canWriteProject } from "@/lib/project-access";
 import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
+import { composeQuoteTotals } from "@/lib/quote-compose";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
@@ -38,6 +39,8 @@ export async function buildAgentSession(userId: string): Promise<SessionUser | n
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+// Fecha + hora en la convención de la app (hora de pared en UTC): "YYYY-MM-DD HH:mm".
+const ymdhm = (d: Date): string => d.toISOString().slice(0, 16).replace("T", " ");
 
 // "YYYY-MM-DD" → Date a mediodía UTC (convención de fechas de la app). null si vacío/ inválido.
 function parseDate(v: unknown): Date | null {
@@ -261,6 +264,48 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_quotes",
+      description: "Lista las cotizaciones que la persona puede ver (REQUIERE permiso para ver cotizaciones; si no lo tiene, la herramienta lo niega). Filtra por cliente o estado.",
+      parameters: {
+        type: "object",
+        properties: {
+          client: { type: "string", description: "Id o nombre del cliente (opcional)." },
+          status: { type: "string", enum: ["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"], description: "Estado (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_invoices",
+      description: "Lista las facturas que la persona puede ver (REQUIERE permiso para ver cotizaciones/facturación; si no lo tiene, la herramienta lo niega). Filtra por cliente o estado.",
+      parameters: {
+        type: "object",
+        properties: {
+          client: { type: "string", description: "Id o nombre del cliente (opcional)." },
+          status: { type: "string", enum: ["BORRADOR", "ENVIADA", "PAGADA", "VENCIDA", "ANULADA"], description: "Estado (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_events",
+      description: "Lista los próximos eventos del calendario del equipo (REQUIERE permiso para ver el calendario). Por defecto los próximos 14 días.",
+      parameters: {
+        type: "object",
+        properties: {
+          withinDays: { type: "number", description: "Ventana hacia adelante en días (opcional; def. 14, máx. 120)." },
+          project: { type: "string", description: "Id o nombre del proyecto para filtrar (opcional)." },
+        },
+      },
+    },
+  },
 ];
 
 // ── Ejecución de cada herramienta (con los permisos de `session`) ──
@@ -470,6 +515,79 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const project = await instantiateTemplate(db, { templateKey: "", name, clientId: client.id, leadId });
       await logActivity({ action: "project.create", summary: `creó el proyecto «${name}» (vía @Marcebot)`, projectId: project.id, entityType: "project", entityId: project.id }).catch(() => null);
       return JSON.stringify({ ok: true, projectId: project.id, code: project.code, mensaje: `Proyecto «${name}» (${project.code}) creado para el cliente ${client.name}.` });
+    }
+
+    case "list_quotes": {
+      // Candado: mismo permiso que la sección. Un rol sin él (p. ej. editor) recibe la
+      // negativa y el agente la traslada al usuario.
+      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver cotizaciones.";
+      const filters: Record<string, unknown>[] = [{ client: accessibleClientWhere(session) }];
+      if (str(args.client)) {
+        const c = await resolveClient(session, args.client);
+        if (!c) return `No encontré el cliente "${str(args.client)}" (o no tienes acceso).`;
+        filters.push({ clientId: c.id });
+      }
+      const st = str(args.status).toUpperCase();
+      if (["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"].includes(st)) filters.push({ status: st });
+      const rows = await db.quote.findMany({
+        where: { AND: filters }, take: 30, orderBy: { updatedAt: "desc" },
+        select: { code: true, title: true, status: true, currency: true, taxRate: true, contingencyPct: true, validUntil: true, client: { select: { name: true } }, items: { select: { quantity: true, unitPrice: true } } },
+      });
+      if (!rows.length) return "No hay cotizaciones que coincidan (o no tienes acceso).";
+      return JSON.stringify(rows.map((q) => ({
+        code: q.code, titulo: q.title, cliente: q.client?.name ?? null, estado: q.status,
+        total: composeQuoteTotals(q.items, { taxRate: q.taxRate, contingencyPct: q.contingencyPct }).total,
+        moneda: q.currency, valida_hasta: q.validUntil ? ymd(q.validUntil) : null,
+      })));
+    }
+
+    case "list_invoices": {
+      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver facturas.";
+      const filters: Record<string, unknown>[] = [{ client: accessibleClientWhere(session) }];
+      if (str(args.client)) {
+        const c = await resolveClient(session, args.client);
+        if (!c) return `No encontré el cliente "${str(args.client)}" (o no tienes acceso).`;
+        filters.push({ clientId: c.id });
+      }
+      const st = str(args.status).toUpperCase();
+      if (["BORRADOR", "ENVIADA", "PAGADA", "VENCIDA", "ANULADA"].includes(st)) filters.push({ status: st });
+      const rows = await db.invoice.findMany({
+        where: { AND: filters }, take: 30, orderBy: { issueDate: "desc" },
+        select: { code: true, status: true, currency: true, taxRate: true, issueDate: true, dueDate: true, paidAt: true, client: { select: { name: true } }, items: { select: { quantity: true, unitPrice: true } } },
+      });
+      if (!rows.length) return "No hay facturas que coincidan (o no tienes acceso).";
+      return JSON.stringify(rows.map((f) => {
+        const sub = f.items.reduce((n, i) => n + i.quantity * i.unitPrice, 0);
+        return {
+          code: f.code, cliente: f.client?.name ?? null, estado: f.status,
+          total: Math.round(sub * (1 + Math.max(0, f.taxRate) / 100)), moneda: f.currency,
+          emitida: ymd(f.issueDate), vence: f.dueDate ? ymd(f.dueDate) : null, pagada: f.paidAt ? ymd(f.paidAt) : null,
+        };
+      }));
+    }
+
+    case "list_events": {
+      if (!hasPermission(session, "ver_calendario")) return "No tienes permiso para ver el calendario.";
+      const now = new Date();
+      const within = num(args.withinDays);
+      const days = within !== null && within > 0 ? Math.min(120, within) : 14;
+      const until = new Date(now.getTime() + days * 86400000);
+      const filters: Record<string, unknown>[] = [{ start: { gte: now, lte: until } }];
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        filters.push({ projectId: p.id });
+      }
+      const rows = await db.calendarEvent.findMany({
+        where: { AND: filters }, take: 40, orderBy: { start: "asc" },
+        select: { title: true, start: true, end: true, allDay: true, location: true, project: { select: { name: true } }, attendees: { select: { user: { select: { name: true } } } } },
+      });
+      if (!rows.length) return `No hay eventos en los próximos ${days} días.`;
+      return JSON.stringify(rows.map((e) => ({
+        titulo: e.title, inicio: e.allDay ? ymd(e.start) : ymdhm(e.start), fin: e.end ? (e.allDay ? ymd(e.end) : ymdhm(e.end)) : null,
+        todoElDia: e.allDay, lugar: e.location ?? null, proyecto: e.project?.name ?? null,
+        asistentes: e.attendees.map((a) => a.user?.name).filter(Boolean),
+      })));
     }
 
     default:
