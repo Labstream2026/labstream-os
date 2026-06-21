@@ -15,17 +15,18 @@ export type ChatRaw = { ok: true; content: string | null; toolCalls: ToolCall[] 
 
 type Choice = { message?: { content?: string | null; tool_calls?: ToolCall[] } };
 
-// Con herramientas el agente puede dar varias vueltas; damos margen amplio (corre en 2.º plano).
-const TIMEOUT_MS = 120_000;
+// Análisis pesados (consultar varios proyectos, crear varias tareas) pueden tardar; damos un
+// margen amplio. El bucle de herramientas (agent.ts) impone además un tope GLOBAL de 4 min.
+export const DEFAULT_TIMEOUT_MS = 240_000; // 4 minutos
 
 // POST de bajo nivel al endpoint compatible con OpenAI del gateway. Devuelve el primer choice.
-// Best-effort: nunca lanza.
-async function post(body: Record<string, unknown>): Promise<{ ok: true; choice: Choice } | { ok: false; error: string }> {
+// Best-effort: nunca lanza. `timeoutMs` permite acotar por el presupuesto de tiempo que quede.
+async function post(body: Record<string, unknown>, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<{ ok: true; choice: Choice } | { ok: false; error: string }> {
   const cfg = await getOpenClawConfig();
   if (!cfg) return { ok: false, error: "La integración con OpenClaw no está configurada o está desactivada." };
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), Math.max(5_000, timeoutMs));
   try {
     const res = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
       method: "POST",
@@ -47,7 +48,7 @@ async function post(body: Record<string, unknown>): Promise<{ ok: true; choice: 
     return { ok: true, choice };
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
-      return { ok: false, error: `El agente no respondió en ${Math.round(TIMEOUT_MS / 1000)}s.` };
+      return { ok: false, error: "El agente tardó demasiado y se canceló." };
     }
     return {
       ok: false,
@@ -59,8 +60,8 @@ async function post(body: Record<string, unknown>): Promise<{ ok: true; choice: 
 }
 
 // Respuesta simple de texto (sin herramientas). La usa el modo conversación y el "Probar".
-export async function askOpenClaw(messages: ChatTurn[]): Promise<AskResult> {
-  const r = await post({ messages });
+export async function askOpenClaw(messages: ChatTurn[], timeoutMs?: number): Promise<AskResult> {
+  const r = await post({ messages }, timeoutMs);
   if (!r.ok) return r;
   const reply = r.choice.message?.content?.trim();
   if (!reply) return { ok: false, error: "El agente respondió vacío." };
@@ -68,8 +69,8 @@ export async function askOpenClaw(messages: ChatTurn[]): Promise<AskResult> {
 }
 
 // Una vuelta CON herramientas: devuelve el texto y/o las tool_calls que pidió el agente.
-export async function chatWithTools(messages: AgentMessage[], tools: ToolDef[]): Promise<ChatRaw> {
-  const r = await post(tools.length ? { messages, tools, tool_choice: "auto" } : { messages });
+export async function chatWithTools(messages: AgentMessage[], tools: ToolDef[], timeoutMs?: number): Promise<ChatRaw> {
+  const r = await post(tools.length ? { messages, tools, tool_choice: "auto" } : { messages }, timeoutMs);
   if (!r.ok) return r;
   const msg = r.choice.message;
   return { ok: true, content: msg?.content ?? null, toolCalls: msg?.tool_calls ?? [] };

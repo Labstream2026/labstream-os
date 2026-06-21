@@ -9,15 +9,20 @@ export type AgentResult = { ok: true; reply: string; steps: number } | { ok: fal
 
 // Tope de vueltas para no quedar en bucle infinito de herramientas.
 const MAX_STEPS = 6;
+// Tope GLOBAL de tiempo para TODA la interacción (incluye varias vueltas de herramientas).
+const OVERALL_DEADLINE_MS = 240_000; // 4 minutos
 
 // Bucle de function-calling: manda contexto + herramientas al agente; si pide tool_calls, las
 // ejecuta y reinyecta los resultados (role:"tool"); repite hasta una respuesta final de texto.
 // Best-effort: nunca lanza; cualquier error de una herramienta se le devuelve al agente como texto.
 export async function runAgent(messages: AgentMessage[], tools: ToolDef[], execute: ToolExecutor): Promise<AgentResult> {
   const convo: AgentMessage[] = [...messages];
+  const deadline = Date.now() + OVERALL_DEADLINE_MS;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const r = await chatWithTools(convo, tools);
+    const remaining = deadline - Date.now();
+    if (remaining < 3_000) return { ok: false, error: "El agente tardó más de 4 minutos y se canceló." };
+    const r = await chatWithTools(convo, tools, remaining);
     if (!r.ok) return r;
 
     if (!r.toolCalls.length) {
@@ -44,10 +49,11 @@ export async function runAgent(messages: AgentMessage[], tools: ToolDef[], execu
     }
   }
 
-  // Se agotaron los pasos: pedir el cierre sin más herramientas.
+  // Se agotaron los pasos: pedir el cierre sin más herramientas (con el tiempo que quede).
   const fin = await chatWithTools(
     [...convo, { role: "user", content: "Cierra y responde ya con lo que tengas, sin usar más herramientas." }],
     [],
+    Math.max(10_000, deadline - Date.now()),
   );
   if (fin.ok && fin.content?.trim()) return { ok: true, reply: fin.content.trim(), steps: MAX_STEPS };
   return { ok: false, error: "El agente no llegó a una respuesta final tras varias vueltas." };

@@ -793,8 +793,13 @@ export function ChannelChat({
       ) : null}
 
       {Object.keys(typingNames).length > 0 ? (
-        <p className="px-4 py-0.5 text-[11px] italic text-muted-foreground">
-          {Object.keys(typingNames).join(", ")} {Object.keys(typingNames).length === 1 ? "está" : "están"} escribiendo…
+        <p className="flex items-center gap-1.5 px-4 py-0.5 text-[11px] italic text-muted-foreground">
+          <span>{Object.keys(typingNames).join(", ")} {Object.keys(typingNames).length === 1 ? "está" : "están"} escribiendo</span>
+          <span className="inline-flex items-end gap-0.5" aria-hidden>
+            <span className="size-1 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.3s]" />
+            <span className="size-1 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.15s]" />
+            <span className="size-1 animate-bounce rounded-full bg-muted-foreground/60" />
+          </span>
         </p>
       ) : null}
 

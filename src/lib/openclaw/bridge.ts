@@ -90,13 +90,22 @@ export async function handleBotMention(channelId: string, userId: string, parent
       ...turns,
     ];
 
-    // Con sesión → bucle de herramientas (consultas/creación con sus permisos). Sin sesión
-    // (caso raro) → respuesta simple de texto.
-    const r = session
-      ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session))
-      : await askOpenClaw(messages);
+    // Mantiene viva la animación de "escribiendo…" de Marcebot mientras procesa (re-emite cada
+    // 3s, antes de que el indicador caduque a los 4s), aunque el análisis tarde varios minutos.
+    const keepTyping = setInterval(() => publishTyping(channelId, bot.id, MARCEBOT_NAME), 3000);
+    let reply: string;
+    try {
+      // Con sesión → bucle de herramientas (consultas/creación con sus permisos). Sin sesión
+      // (caso raro) → respuesta simple de texto.
+      const r = session
+        ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session))
+        : await askOpenClaw(messages);
+      reply = r.ok ? r.reply : `⚠️ ${r.error}`;
+    } finally {
+      clearInterval(keepTyping);
+    }
 
-    await postBotMessage(bot, channelId, r.ok ? r.reply : `⚠️ ${r.error}`, parentId);
+    await postBotMessage(bot, channelId, reply, parentId);
   } catch {
     /* best-effort: nunca romper el envío del usuario */
   }
