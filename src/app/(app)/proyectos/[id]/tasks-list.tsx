@@ -1,11 +1,11 @@
-import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
+import { PriorityPill } from "@/components/priority-pill";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "@/lib/ui";
 import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
-import { type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
+import { type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
@@ -58,10 +58,10 @@ export function TasksList({
             </tr>
           ) : null}
           {sorted.map((t) => {
-            const prio = labelMeta(priorities, t.priority);
+            const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null });
             const done = t.checklist.filter((c) => c.done).length;
             return (
-              <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+              <tr key={t.id} className={cn("border-b border-border last:border-0", URGENCY_META[u.state].row)}>
                 <td className="px-3 py-2">
                   <span className="font-medium">{t.title}</span>
                   {t.checklist.length > 0 ? (
@@ -83,7 +83,7 @@ export function TasksList({
                   />
                 </td>
                 <td className="px-3 py-2">
-                  <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
+                  <PriorityPill priorities={priorities} value={t.priority} />
                 </td>
                 <td className="px-3 py-2">
                   {t.assignee ? (
@@ -93,17 +93,14 @@ export function TasksList({
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  {t.dueDate ? (() => {
-                    const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null });
-                    return (
-                      <span
-                        className={cn("inline-block rounded px-1.5 py-0.5 text-[11px] font-medium", URGENCY_META[u.state].className)}
-                        title={urgencyLabel(u.state, u.days)}
-                      >
-                        {formatShortDate(t.dueDate)}
-                      </span>
-                    );
-                  })() : (
+                  {t.dueDate ? (
+                    <span
+                      className={cn("text-[13px] font-medium", URGENCY_META[u.state].text)}
+                      title={urgencyLabel(u.state, u.days)}
+                    >
+                      {formatShortDate(t.dueDate)}
+                    </span>
+                  ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </td>

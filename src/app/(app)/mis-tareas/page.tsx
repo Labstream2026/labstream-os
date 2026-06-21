@@ -2,15 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
-import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
+import { PriorityPill } from "@/components/priority-pill";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { setTaskStatus, setTaskDueDate } from "@/app/(app)/proyectos/[id]/actions";
 import { formatShortDate } from "@/lib/ui";
 import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
 import { userComplianceSummary } from "@/lib/compliance";
-import { labelOptions, labelMeta } from "@/lib/colors";
+import { labelOptions } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
@@ -122,13 +122,13 @@ export default async function MisTareasPage() {
   ];
 
   const taskRow = (t: (typeof tasks)[number]) => {
-          const prio = labelMeta(priorities, t.priority);
+          const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
           const assignedToMeByOther = t.assigneeId === user.id && t.assignedBy;
           // Solo el dueño (quien la creó) cambia prioridad/fecha; el responsable
           // que la recibió no (se la asignaron con esos datos).
           const canEditMeta = t.ownerId === user.id;
           return (
-            <div key={t.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+            <div key={t.id} className={cn("flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3", URGENCY_META[u.state].row)}>
               <div className="min-w-0 flex-1">
                 {t.project ? (
                   <Link href={`/proyectos/${t.project.id}?tab=tareas`} className="block min-w-0">
@@ -153,7 +153,7 @@ export default async function MisTareasPage() {
                   </p>
                 ) : null}
               </div>
-              <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
+              <PriorityPill priorities={priorities} value={t.priority} />
               {canEditMeta ? (
                 <DateInput
                   name="dueDate"
@@ -166,15 +166,11 @@ export default async function MisTareasPage() {
                   📅 {formatShortDate(t.dueDate) ?? "Sin fecha"}
                 </span>
               )}
-              {(() => {
-                const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
-                if (u.state === "sin") return null;
-                return (
-                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", URGENCY_META[u.state].className)}>
-                    {urgencyLabel(u.state, u.days)}
-                  </span>
-                );
-              })()}
+              {u.state === "sin" ? null : (
+                <span className={cn("text-xs font-medium", URGENCY_META[u.state].text)}>
+                  {urgencyLabel(u.state, u.days)}
+                </span>
+              )}
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
               <TaskDetailButton
                 task={{
