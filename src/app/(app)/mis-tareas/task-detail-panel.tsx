@@ -194,6 +194,13 @@ function TaskDetailPanel({
             </Field>
           </div>
 
+          {!canEditMeta ? (
+            <p className="-mt-2 flex items-start gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <span aria-hidden>🔒</span>
+              <span>Las fechas y la prioridad las fija quien te asignó la tarea. Así tu cumplimiento se mantiene confiable.</span>
+            </p>
+          ) : null}
+
           {/* Descripción */}
           <form action={setTaskDescription.bind(null, task.id, projectId)}>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Descripción</label>
