@@ -2,9 +2,11 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { getLiveAuthState } from "@/lib/permissions";
 import { hasPermission } from "@/lib/auth";
-import { accessibleProjectWhere, canWriteProject } from "@/lib/project-access";
+import { accessibleProjectWhere, canWriteProject, canAccessProject } from "@/lib/project-access";
 import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
 import { composeQuoteTotals } from "@/lib/quote-compose";
+import { readBuffer } from "@/lib/storage";
+import { postBotFileMessage } from "@/lib/marcebot/bot";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
@@ -306,10 +308,43 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "find_files",
+      description: "Busca archivos de proyecto que la persona puede ver (REQUIERE permiso ver_archivos). Devuelve id y nombre para luego enviarlos con send_file.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Texto a buscar en el nombre (opcional)." },
+          project: { type: "string", description: "Id o nombre del proyecto (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_file",
+      description: "Envía al usuario, en este chat, un archivo de proyecto existente (por id o nombre). Requiere ver_archivos y acceso al proyecto. Si el archivo es un enlace externo (Drive/NAS), te devuelve el enlace para que lo compartas en tu respuesta.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Id o nombre del archivo (usa find_files para ubicarlo)." },
+          note: { type: "string", description: "Mensaje breve que acompaña al archivo (opcional)." },
+        },
+        required: ["file"],
+      },
+    },
+  },
 ];
 
+// Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
+// algunas herramientas con efecto (p. ej. send_file) puedan PUBLICAR en la conversación.
+export type ToolContext = { channelId: string; botId: string };
+
 // ── Ejecución de cada herramienta (con los permisos de `session`) ──
-export async function executeAgentTool(name: string, args: Record<string, unknown>, session: SessionUser): Promise<string> {
+export async function executeAgentTool(name: string, args: Record<string, unknown>, session: SessionUser, ctx?: ToolContext): Promise<string> {
   switch (name) {
     case "find_projects": {
       const q = str(args.query);
@@ -588,6 +623,47 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         todoElDia: e.allDay, lugar: e.location ?? null, proyecto: e.project?.name ?? null,
         asistentes: e.attendees.map((a) => a.user?.name).filter(Boolean),
       })));
+    }
+
+    case "find_files": {
+      if (!hasPermission(session, "ver_archivos")) return "No tienes permiso para ver archivos.";
+      const filters: Record<string, unknown>[] = [{ project: accessibleProjectWhere(session) }];
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        filters.push({ projectId: p.id });
+      }
+      if (str(args.query)) filters.push({ name: { contains: str(args.query), mode: "insensitive" } });
+      const rows = await db.fileAsset.findMany({
+        where: { AND: filters }, take: 25, orderBy: { createdAt: "desc" },
+        select: { id: true, name: true, kind: true, mime: true, size: true, project: { select: { name: true } } },
+      });
+      if (!rows.length) return "No hay archivos que coincidan (o no tienes acceso).";
+      return JSON.stringify(rows.map((f) => ({ id: f.id, nombre: f.name, tipo: f.kind, mime: f.mime ?? null, proyecto: f.project?.name ?? null })));
+    }
+
+    case "send_file": {
+      if (!ctx) return "No puedo enviar archivos en este contexto.";
+      if (!hasPermission(session, "ver_archivos")) return "No tienes permiso para enviar archivos.";
+      const ref = str(args.file);
+      if (!ref) return "Falta el archivo a enviar (id o nombre).";
+      const where = accessibleProjectWhere(session);
+      const sel = { id: true, name: true, kind: true, url: true, path: true, mime: true, project: { select: { leadId: true, isPrivate: true, members: { select: { userId: true } } } } } as const;
+      let file = await db.fileAsset.findFirst({ where: { AND: [{ project: where }, { id: ref }] }, select: sel });
+      if (!file) file = await db.fileAsset.findFirst({ where: { AND: [{ project: where }, { name: { contains: ref, mode: "insensitive" } }] }, select: sel });
+      if (!file) return `No encontré el archivo "${ref}" (o no tienes acceso).`;
+      if (!canAccessProject(file.project, session)) return "No tienes acceso al proyecto de ese archivo.";
+      const note = str(args.note);
+      if (file.kind === "LOCAL" && file.path) {
+        let buf: Buffer;
+        try { buf = await readBuffer(file.path); } catch { return "El archivo no está disponible en el almacenamiento."; }
+        await postBotFileMessage(ctx.botId, ctx.channelId, note || `📎 ${file.name}`, [{ name: file.name, mime: file.mime, buf }]);
+        return JSON.stringify({ ok: true, mensaje: `Archivo «${file.name}» enviado al usuario en el chat.` });
+      }
+      if (file.url) {
+        return JSON.stringify({ ok: true, tipo: "enlace", mensaje: `Es un archivo externo. Comparte este enlace con el usuario: ${file.url}` });
+      }
+      return "Ese archivo no tiene contenido local ni enlace para enviar.";
     }
 
     default:

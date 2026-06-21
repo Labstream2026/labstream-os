@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { publishMessage } from "@/lib/chat-bus";
 import { notify } from "@/lib/notify";
 import { sendEmail, emailButton } from "@/lib/email";
+import { saveBufferWithPreview } from "@/lib/image";
+import { isEditableOffice } from "@/lib/onlyoffice";
 
 const APP_URL = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
 
@@ -108,6 +110,39 @@ export async function sendBotDM(bot: BotUser, userId: string, userName: string, 
   });
   const firstLine = body.split("\n").find((l) => l.trim())?.replace(/\*/g, "") ?? "Tienes un mensaje";
   await notify(userId, { type: "marcebot", title: "Marcebot", body: firstLine.slice(0, 140), link: `/chat/${channelId}` });
+}
+
+// Publica un mensaje del bot CON archivos adjuntos en un canal y lo emite en tiempo real.
+// Mismo guardado que los adjuntos del chat (storage + preview). Permite que Marcebot ENVÍE
+// imágenes/archivos al usuario (p. ej. un archivo de proyecto que tiene permiso de ver).
+export async function postBotFileMessage(
+  botId: string,
+  channelId: string,
+  body: string,
+  files: { name: string; mime: string | null; buf: Buffer }[],
+): Promise<void> {
+  const msg = await db.chatMessage.create({
+    data: { channelId, body, authorId: botId },
+    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+  const created: { id: string; name: string; mime: string | null; editable: boolean }[] = [];
+  for (const f of files) {
+    const att = await db.messageAttachment.create({
+      data: { messageId: msg.id, name: f.name, path: "", mime: f.mime, size: f.buf.length },
+    });
+    const rel = await saveBufferWithPreview(`chat/${att.id}`, f.name, f.buf, f.mime);
+    await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
+    created.push({ id: att.id, name: f.name, mime: f.mime, editable: isEditableOffice(f.name) });
+  }
+  publishMessage({
+    id: msg.id,
+    channelId,
+    body: msg.body,
+    parentId: null,
+    createdAt: msg.createdAt.toISOString(),
+    author: msg.author ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor } : null,
+    attachments: created,
+  });
 }
 
 // Manda el mismo resumen por CORREO (además del DM). Best-effort: solo sale si el SMTP

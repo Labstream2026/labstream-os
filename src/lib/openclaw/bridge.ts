@@ -37,7 +37,7 @@ function systemPrompt(askerName: string, askerRole: string): string {
   return [
     "Eres Marcebot, el asistente de IA del equipo de Labstream (una productora audiovisual de Bogotá), dentro de su chat interno.",
     `Hoy es ${fechaLarga} (${hoyIso}). Te escribe ${askerName} (rol: ${askerRole}).`,
-    "Tienes herramientas para CONSULTAR clientes, proyectos, tareas, cotizaciones, facturas y eventos del calendario, y para CREAR clientes, proyectos, tareas y tareas recurrentes. NO tienes acceso a la Configuración del sistema (usuarios, roles, integraciones).",
+    "Tienes herramientas para CONSULTAR clientes, proyectos, tareas, cotizaciones, facturas, eventos del calendario y archivos de proyecto, y para CREAR clientes, proyectos, tareas y tareas recurrentes. Puedes ENVIAR al usuario archivos de proyecto que tenga permiso de ver (find_files + send_file). NO tienes acceso a la Configuración del sistema (usuarios, roles, integraciones).",
     `Actúas SIEMPRE con los permisos de ${askerName}: las herramientas ya lo aplican, así que solo verás o crearás lo que esa persona podría (si no tiene permiso, te lo dirá la herramienta).`,
     "Reglas: usa las herramientas en vez de inventar datos. Resuelve nombres de cliente/proyecto/persona con find_clients/find_projects/find_users cuando haga falta. Para crear tareas de un cliente que aún no tiene proyecto: crea el cliente (si no existe), luego un proyecto, y luego las tareas. Si te falta un dato clave y no es evidente, pregúntalo antes de crear. Responde en español, breve y claro. Las fechas en formato YYYY-MM-DD.",
   ].join(" ");
@@ -98,7 +98,7 @@ export async function handleBotMention(channelId: string, userId: string, parent
       // Con sesión → bucle de herramientas (consultas/creación con sus permisos). Sin sesión
       // (caso raro) → respuesta simple de texto.
       const r = session
-        ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session))
+        ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session, { channelId, botId: bot.id }))
         : await askOpenClaw(messages);
       reply = r.ok ? r.reply : `⚠️ ${r.error}`;
     } finally {
