@@ -3,6 +3,8 @@ import { publishMessage, publishTyping } from "@/lib/chat-bus";
 import { ensureMarcebot, MARCEBOT_NAME, type BotUser } from "@/lib/marcebot/bot";
 import { askOpenClaw, type ChatTurn } from "./client";
 import { getOpenClawConfig } from "./config";
+import { runAgent } from "./agent";
+import { buildAgentSession, AGENT_TOOLS, executeAgentTool } from "./tools";
 
 // Alias por los que se puede etiquetar al agente en el chat (además del nombre del bot).
 const ALIASES = [MARCEBOT_NAME, "IA", "Asistente"];
@@ -25,14 +27,23 @@ function stripMention(body: string): string {
     .trim();
 }
 
-const CONTEXT_LIMIT = 14; // últimos mensajes del canal que se le pasan como contexto
+const CONTEXT_LIMIT = 14; // últimos mensajes del canal que se pasan como contexto
 
-const SYSTEM_PROMPT =
-  "Eres el asistente de IA del equipo de Labstream (una productora audiovisual), integrado en su chat interno. " +
-  "Te escriben etiquetándote con @Marcebot. Responde SIEMPRE en español, de forma breve, clara y útil. " +
-  "Si te piden algo que no puedes hacer desde el chat, dilo con franqueza. No inventes datos del equipo.";
+// Instrucciones del sistema: identidad, fecha (zona Colombia), quién pregunta y reglas.
+function systemPrompt(askerName: string, askerRole: string): string {
+  const now = new Date();
+  const fechaLarga = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "America/Bogota" }).format(now);
+  const hoyIso = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(now);
+  return [
+    "Eres Marcebot, el asistente de IA del equipo de Labstream (una productora audiovisual de Bogotá), dentro de su chat interno.",
+    `Hoy es ${fechaLarga} (${hoyIso}). Te escribe ${askerName} (rol: ${askerRole}).`,
+    "Tienes herramientas para CONSULTAR proyectos y tareas, y para CREAR tareas y tareas recurrentes.",
+    `Actúas SIEMPRE con los permisos de ${askerName}: las herramientas ya lo aplican, así que solo verás o crearás lo que esa persona podría.`,
+    "Reglas: usa las herramientas en vez de inventar datos. Resuelve nombres de proyecto o persona con find_projects/find_users cuando haga falta. Si te falta un dato clave para crear algo (proyecto, responsable o fecha) y no es evidente, pregúntalo antes de crearlo. Responde en español, breve y claro. Las fechas en formato YYYY-MM-DD.",
+  ].join(" ");
+}
 
-// Publica un mensaje del bot en un canal cualquiera (no solo DMs) y lo emite en tiempo real.
+// Publica un mensaje del bot en un canal cualquiera y lo emite en tiempo real.
 async function postBotMessage(bot: BotUser, channelId: string, body: string, parentId: string | null): Promise<void> {
   const msg = await db.chatMessage.create({
     data: { channelId, body, authorId: bot.id, parentId: parentId ?? null },
@@ -49,16 +60,13 @@ async function postBotMessage(bot: BotUser, channelId: string, body: string, par
   });
 }
 
-// Maneja una mención al bot en un canal: arma el contexto reciente, consulta a OpenClaw y
-// publica la respuesta como mensaje del bot. Pensado para ejecutarse en segundo plano
-// (after()) porque el agente puede tardar. Es best-effort y nunca lanza.
-export async function handleBotMention(channelId: string, parentId: string | null = null): Promise<void> {
+// Maneja una mención al bot: arma el contexto reciente del canal, deja que el agente razone
+// con herramientas (ejecutadas con los permisos de quien etiqueta) y publica la respuesta.
+// Pensado para ejecutarse en segundo plano (after()). Best-effort: nunca lanza.
+export async function handleBotMention(channelId: string, userId: string, parentId: string | null = null): Promise<void> {
   try {
-    // Si la integración no está activa/configurada, silencio (no se publica nada).
-    if (!(await getOpenClawConfig())) return;
+    if (!(await getOpenClawConfig())) return; // integración apagada → silencio
     const bot = await ensureMarcebot();
-
-    // Señal de "escribiendo…" mientras el agente piensa.
     publishTyping(channelId, bot.id, MARCEBOT_NAME);
 
     const recent = await db.chatMessage.findMany({
@@ -75,9 +83,19 @@ export async function handleBotMention(channelId: string, parentId: string | nul
           ? { role: "assistant", content: m.body }
           : { role: "user", content: `${m.author?.name ?? "Alguien"}: ${stripMention(m.body) || m.body}` },
       );
-    const messages: ChatTurn[] = [{ role: "system", content: SYSTEM_PROMPT }, ...turns];
 
-    const r = await askOpenClaw(messages);
+    const session = await buildAgentSession(userId);
+    const messages: ChatTurn[] = [
+      { role: "system", content: session ? systemPrompt(session.name, session.role) : "Eres Marcebot, asistente del equipo de Labstream. Responde en español, breve y claro." },
+      ...turns,
+    ];
+
+    // Con sesión → bucle de herramientas (consultas/creación con sus permisos). Sin sesión
+    // (caso raro) → respuesta simple de texto.
+    const r = session
+      ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session))
+      : await askOpenClaw(messages);
+
     await postBotMessage(bot, channelId, r.ok ? r.reply : `⚠️ ${r.error}`, parentId);
   } catch {
     /* best-effort: nunca romper el envío del usuario */

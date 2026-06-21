@@ -327,8 +327,9 @@ export async function sendMessage(
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   // Si etiquetaron al asistente de IA (@Marcebot/@IA), responde en segundo plano (puede
-  // tardar; no bloquea el envío del usuario). Se ejecuta tras enviar la respuesta.
-  if (mentionsBot(text)) after(() => handleBotMention(channelId, msg.parentId));
+  // tardar; no bloquea el envío del usuario). Se ejecuta tras enviar la respuesta y actúa
+  // con los permisos de quien lo etiquetó (session.id).
+  if (mentionsBot(text)) after(() => handleBotMention(channelId, session!.id, msg.parentId));
 
   const payload: ChatMessagePayload = {
     id: msg.id,
@@ -387,7 +388,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   publishMessage(payload);
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
-  if (mentionsBot(body)) after(() => handleBotMention(channelId, msg.parentId));
+  if (mentionsBot(body)) after(() => handleBotMention(channelId, session!.id, msg.parentId));
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
 }
