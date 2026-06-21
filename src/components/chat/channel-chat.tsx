@@ -41,8 +41,10 @@ function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 }
 
-// Resalta @menciones conocidas y convierte URLs en enlaces clicables.
-function highlightMentions(text: string, members: Member[], keyBase: string): React.ReactNode[] {
+// Resalta @menciones conocidas y convierte URLs en enlaces clicables. `mine` indica si el
+// mensaje es propio (burbuja primaria): el chip cambia de color para seguir siendo legible
+// (antes usaba text-primary → azul sobre azul = invisible en la burbuja propia).
+function highlightMentions(text: string, members: Member[], keyBase: string, mine = false): React.ReactNode[] {
   if (!members.length || !text.includes("@")) return [text];
   const names = members.map((m) => m.name).sort((a, b) => b.length - a.length);
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -53,13 +55,21 @@ function highlightMentions(text: string, members: Member[], keyBase: string): Re
   let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<span key={`${keyBase}m${i++}`} className="rounded bg-primary/15 px-1 font-medium text-primary" title={`@${m[1]}`}>@{mentionLabel(m[1])}</span>);
+    out.push(
+      <span
+        key={`${keyBase}m${i++}`}
+        className={cn("rounded px-1 font-semibold", mine ? "bg-primary-foreground/25 text-primary-foreground" : "bg-primary/15 text-primary")}
+        title={`@${m[1]}`}
+      >
+        @{mentionLabel(m[1])}
+      </span>,
+    );
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
-function renderBody(text: string, members: Member[]): React.ReactNode {
+function renderBody(text: string, members: Member[], mine = false): React.ReactNode {
   const urlRe = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRe);
   return parts.map((part, idx) => {
@@ -70,7 +80,7 @@ function renderBody(text: string, members: Member[]): React.ReactNode {
         </a>
       );
     }
-    return <React.Fragment key={`t${idx}`}>{highlightMentions(part, members, `${idx}`)}</React.Fragment>;
+    return <React.Fragment key={`t${idx}`}>{highlightMentions(part, members, `${idx}`, mine)}</React.Fragment>;
   });
 }
 
@@ -728,7 +738,7 @@ export function ChannelChat({
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, mentionPool)}</p>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, mentionPool, mine)}</p>
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
