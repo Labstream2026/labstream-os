@@ -14,6 +14,11 @@ import type { PollData, ReactionItem } from "@/lib/chat-bus";
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
 export type Member = { id: string; name: string; initials?: string | null; color?: string | null };
 
+// Marcebot se etiqueta por TEXTO (@Marcebot dispara al bot por regex en el servidor, sin
+// depender de su ID de usuario). Por eso garantizamos que SIEMPRE esté en el autocompletado
+// desde el cliente, aunque la consulta del servidor no lo traiga (registro sin isSystemBot, etc.).
+const MENTION_BOT: Member = { id: "marcebot-mention", name: "Marcebot", initials: "🤖", color: "orange" };
+
 export type ChatMsg = {
   id: string;
   body: string;
@@ -513,8 +518,13 @@ export function ChannelChat({
     setMentionQuery(null);
     composerRef.current?.focus();
   }
+  // Lista para mencionar: el equipo del servidor + Marcebot garantizado (si no vino ya).
+  const mentionPool = React.useMemo(
+    () => (members.some((m) => /^\s*marcebot\s*$/i.test(m.name)) ? members : [MENTION_BOT, ...members]),
+    [members],
+  );
   const mentionMatches = mentionQuery != null
-    ? members.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+    ? mentionPool.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
     : [];
   // Reinicia el resaltado al primer resultado cada vez que cambia lo que se teclea tras la "@".
   React.useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
@@ -718,7 +728,7 @@ export function ChannelChat({
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, members)}</p>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, mentionPool)}</p>
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
