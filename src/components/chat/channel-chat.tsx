@@ -88,6 +88,14 @@ function detectMentions(text: string, members: Member[]): string[] {
   return members.filter((mem) => text.includes(`@${mem.name}`)).map((mem) => mem.id);
 }
 
+// Nombre corto para el autocompletado de @menciones: quita el sufijo de cargo (" - Rol") y, si
+// aún es largo, deja solo nombre y primer apellido (las 2 primeras palabras). Solo cambia lo MOSTRADO.
+function mentionLabel(name: string): string {
+  const base = name.split(/\s+[-–—]\s+/)[0].trim();
+  const words = base.split(/\s+/).filter(Boolean);
+  return words.length > 2 ? words.slice(0, 2).join(" ") : base || name;
+}
+
 // Imágenes previsualizables. Incluye HEIC/HEIF/TIFF (fotos de iPhone, etc.): el
 // servidor las convierte a WebP al subir y /api/files las sirve ya convertidas.
 function isImage(a: Attachment) {
@@ -806,11 +814,12 @@ export function ChannelChat({
       {!readOnly ? (
        <div className="relative border-t border-border pb-[env(safe-area-inset-bottom)]">
         {mentionMatches.length > 0 ? (
-          <div className="absolute bottom-full left-3 z-30 mb-1 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+          <div className="absolute bottom-full left-3 z-30 mb-2 w-72 max-w-[80vw] overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
+            <p className="border-b border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
             {mentionMatches.map((mem) => (
-              <button key={mem.id} type="button" onClick={() => insertMention(mem.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted">
+              <button key={mem.id} type="button" onClick={() => insertMention(mem.name)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted">
                 <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
-                <span className="truncate">{mem.name}</span>
+                <span className="truncate">{mentionLabel(mem.name)}</span>
               </button>
             ))}
           </div>

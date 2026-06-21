@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
+import { MARCEBOT_EMAIL } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { Hash, Lock } from "lucide-react";
@@ -66,7 +67,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   // Bots del sistema (Marcebot): excluidos de los listados de equipo (active:false), pero SÍ se
   // ofrecen en el autocompletado de @menciones del chat para poder etiquetarlos fácil. Van de
   // primeros para que aparezcan arriba al teclear "@".
-  const bots = await db.user.findMany({ where: { isSystemBot: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
+  const bots = await db.user.findMany({ where: { OR: [{ isSystemBot: true }, { email: MARCEBOT_EMAIL }] }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
   return (
     <div className="flex h-full flex-col">
