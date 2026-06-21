@@ -116,7 +116,7 @@ export function QuoteEditor({
                 {canEdit ? <th className="w-10" /> : null}
               </tr>
             </thead>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <DndContext id="quote-items" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
               <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                 <tbody>
                   {items.length === 0 ? (

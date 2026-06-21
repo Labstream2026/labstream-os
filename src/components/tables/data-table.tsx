@@ -151,7 +151,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
         </div>
       </div>
       <div className="overflow-x-auto">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext id="data-table-cols" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border">
