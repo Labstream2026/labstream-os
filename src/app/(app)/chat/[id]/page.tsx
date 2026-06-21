@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
-import { MARCEBOT_EMAIL } from "@/lib/marcebot/bot";
+import { MARCEBOT_EMAIL, MARCEBOT_NAME } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { Hash, Lock } from "lucide-react";
@@ -67,7 +67,9 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   // Bots del sistema (Marcebot): excluidos de los listados de equipo (active:false), pero SÍ se
   // ofrecen en el autocompletado de @menciones del chat para poder etiquetarlos fácil. Van de
   // primeros para que aparezcan arriba al teclear "@".
-  const bots = await db.user.findMany({ where: { OR: [{ isSystemBot: true }, { email: MARCEBOT_EMAIL }] }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
+  // Match robusto: por bandera de sistema, por email canónico o por nombre, para que aparezca
+  // aunque el registro de prod no tenga `isSystemBot` puesto o use otro email.
+  const bots = await db.user.findMany({ where: { OR: [{ isSystemBot: true }, { email: MARCEBOT_EMAIL }, { name: MARCEBOT_NAME }] }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
   return (
     <div className="flex h-full flex-col">
@@ -100,7 +102,11 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           channelId={id}
           isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
-          members={[...bots, ...team].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+          members={(() => {
+            // Bots primero (Marcebot arriba en el @), sin repetir si también saliera en el equipo.
+            const botIds = new Set(bots.map((b) => b.id));
+            return [...bots, ...team.filter((t) => !botIds.has(t.id))].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
+          })()}
           initialMessages={channel.messages.map((m) => ({
             id: m.id,
             body: m.body,

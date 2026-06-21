@@ -816,34 +816,7 @@ export function ChannelChat({
       ) : null}
 
       {!readOnly ? (
-       <div className="relative border-t border-border pb-[env(safe-area-inset-bottom)]">
-        {mentionMatches.length > 0 ? (
-          <div className="absolute bottom-full left-3 right-3 z-40 mb-2 max-w-sm overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
-            <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
-            <div className="max-h-64 overflow-y-auto py-1">
-              {mentionMatches.map((mem, idx) => {
-                const isBot = mem.initials === "🤖" || /marcebot/i.test(mem.name);
-                return (
-                  <button
-                    key={mem.id}
-                    type="button"
-                    onMouseEnter={() => setMentionIndex(idx)}
-                    onClick={() => insertMention(mem.name)}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
-                      idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted",
-                    )}
-                  >
-                    <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
-                    <span className="truncate font-medium">{mentionLabel(mem.name)}</span>
-                    {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="border-t border-border px-3 py-1 text-[10px] text-muted-foreground">↑↓ moverse · Enter elegir · Esc cerrar</p>
-          </div>
-        ) : null}
+       <div className="border-t border-border pb-[env(safe-area-inset-bottom)]">
         {pollMode ? (
           <form onSubmit={submitPoll} className="space-y-2 border-b border-border p-3">
             <input
@@ -875,7 +848,35 @@ export function ChannelChat({
             </div>
           </form>
         ) : null}
-        <form onSubmit={submitMain} className="mx-auto w-full max-w-3xl p-3">
+        <div className="relative mx-auto w-full max-w-3xl">
+        {mentionMatches.length > 0 ? (
+          <div className="absolute bottom-full left-3 z-40 mb-1 w-72 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
+            <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
+            <div className="max-h-56 overflow-y-auto py-1">
+              {mentionMatches.map((mem, idx) => {
+                const isBot = mem.initials === "🤖" || /marcebot/i.test(mem.name);
+                return (
+                  <button
+                    key={mem.id}
+                    type="button"
+                    onMouseEnter={() => setMentionIndex(idx)}
+                    onClick={() => insertMention(mem.name)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                      idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted",
+                    )}
+                  >
+                    <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
+                    <span className="truncate font-medium">{mentionLabel(mem.name)}</span>
+                    {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="border-t border-border px-3 py-1 text-[10px] text-muted-foreground">↑↓ moverse · Enter elegir · Esc cerrar</p>
+          </div>
+        ) : null}
+        <form onSubmit={submitMain} className="p-3">
           {attachErr ? (
             <div className="mb-2 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <span>{attachErr}</span>
@@ -971,6 +972,7 @@ export function ChannelChat({
             </button>
           </div>
         </form>
+        </div>
        </div>
       ) : null}
     </div>
