@@ -258,6 +258,7 @@ export function ChannelChat({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
+  const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
@@ -284,6 +285,15 @@ export function ChannelChat({
     }, 1500);
     return () => clearInterval(t);
   }, []);
+
+  // Auto-crecimiento del cuadro de escritura: crece con el texto (hasta un máximo) para
+  // verlo como un párrafo mientras se escribe; al pasar el máximo, hace scroll interno.
+  React.useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -894,6 +904,7 @@ export function ChannelChat({
               ) : null}
             </div>
             <textarea
+              ref={composerRef}
               value={text}
               onChange={(e) => onComposerChange(e.target.value)}
               onKeyDown={(e) => {
@@ -906,7 +917,7 @@ export function ChannelChat({
               placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…  (@ menciona · Enter envía · Shift+Enter salto)"}
               disabled={uploading}
               enterKeyHint="send"
-              className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
+              className="max-h-48 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             />
             <button
               type="submit"
