@@ -7,6 +7,7 @@ import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access"
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { readBuffer } from "@/lib/storage";
 import { postBotFileMessage } from "@/lib/marcebot/bot";
+import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
@@ -337,6 +338,21 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "send_quote",
+      description: "Genera el PDF de una cotización y se lo ENVÍA al usuario en este chat (REQUIERE permiso ver_cotizaciones y acceso al cliente). Identifica la cotización por su código (COT-XXXX), id o nombre.",
+      parameters: {
+        type: "object",
+        properties: {
+          quote: { type: "string", description: "Código (ej. COT-0007), id o nombre de la cotización." },
+          note: { type: "string", description: "Mensaje breve que acompaña al PDF (opcional)." },
+        },
+        required: ["quote"],
+      },
+    },
+  },
 ];
 
 // Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
@@ -664,6 +680,39 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         return JSON.stringify({ ok: true, tipo: "enlace", mensaje: `Es un archivo externo. Comparte este enlace con el usuario: ${file.url}` });
       }
       return "Ese archivo no tiene contenido local ni enlace para enviar.";
+    }
+
+    case "send_quote": {
+      if (!ctx) return "No puedo enviar archivos en este contexto.";
+      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver cotizaciones.";
+      const ref = str(args.quote);
+      if (!ref) return "Falta la cotización (código, id o nombre).";
+      const base = { client: accessibleClientWhere(session) };
+      const sel = {
+        id: true, code: true, title: true, currency: true, taxRate: true, contingencyPct: true, notes: true,
+        scope: true, deliverables: true, validUntil: true, createdAt: true, recipientName: true, recipientCity: true, intro: true,
+        client: { select: { name: true, company: true } }, project: { select: { name: true } },
+        items: { orderBy: { position: "asc" as const }, select: { section: true, description: true, unit: true, quantity: true, unitPrice: true } },
+      } as const;
+      let q = await db.quote.findFirst({ where: { AND: [base, { OR: [{ id: ref }, { code: { equals: ref, mode: "insensitive" } }] }] }, select: sel });
+      if (!q) q = await db.quote.findFirst({ where: { AND: [base, { title: { contains: ref, mode: "insensitive" } }] }, select: sel });
+      if (!q) return `No encontré la cotización "${ref}" (o no tienes acceso).`;
+      let bytes: Uint8Array;
+      try {
+        bytes = await renderQuotePdf({
+          code: q.code, title: q.title, currency: q.currency, taxRate: q.taxRate, contingencyPct: q.contingencyPct,
+          notes: q.notes, scope: q.scope, deliverables: q.deliverables, validUntil: q.validUntil, createdAt: q.createdAt,
+          clientName: q.client.name, clientCompany: q.client.company, recipientName: q.recipientName, recipientCity: q.recipientCity,
+          intro: q.intro, projectName: q.project?.name ?? null,
+          items: q.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice })),
+        });
+      } catch (e) {
+        return `No pude generar el PDF: ${e instanceof Error ? e.message : "error"}.`;
+      }
+      await postBotFileMessage(ctx.botId, ctx.channelId, str(args.note) || `📄 Cotización ${q.code}`, [
+        { name: `Cotizacion-${q.code}.pdf`, mime: "application/pdf", buf: Buffer.from(bytes) },
+      ]);
+      return JSON.stringify({ ok: true, mensaje: `Cotización ${q.code} enviada como PDF al usuario.` });
     }
 
     default:
