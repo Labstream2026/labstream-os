@@ -1,7 +1,10 @@
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { getLiveAuthState } from "@/lib/permissions";
+import { hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere, canWriteProject } from "@/lib/project-access";
+import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
+import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import type { ToolDef } from "./client";
@@ -86,6 +89,17 @@ async function resolveUser(session: SessionUser, ref: unknown) {
   const exact = await db.user.findFirst({ where: { ...base, name: { equals: s, mode: "insensitive" } }, select: { id: true, name: true } });
   if (exact) return exact;
   return db.user.findFirst({ where: { ...base, name: { contains: s, mode: "insensitive" } }, select: { id: true, name: true } });
+}
+
+// Resuelve un cliente por id o por nombre, SOLO entre los que el usuario puede ver (no archivados).
+async function resolveClient(session: SessionUser, ref: unknown) {
+  const s = str(ref);
+  if (!s) return null;
+  const where = accessibleClientWhere(session);
+  const sel = { id: true, name: true } as const;
+  const byId = await db.client.findFirst({ where: { AND: [where, { id: s, archivedAt: null }] }, select: sel });
+  if (byId) return byId;
+  return db.client.findFirst({ where: { AND: [where, { name: { contains: s, mode: "insensitive" }, archivedAt: null }] }, select: sel });
 }
 
 // Claves de estado "terminado" y prioridades válidas (definidas en WorkflowLabel).
@@ -205,6 +219,46 @@ export const AGENT_TOOLS: ToolDef[] = [
       name: "list_recurring_tasks",
       description: "Lista las tareas recurrentes activas que la persona puede ver.",
       parameters: { type: "object", properties: { project: { type: "string", description: "Id o nombre del proyecto (opcional)." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "find_clients",
+      description: "Busca o lista los clientes a los que la persona tiene acceso. Útil para encontrar el cliente antes de crear un proyecto.",
+      parameters: { type: "object", properties: { query: { type: "string", description: "Texto a buscar en el nombre (opcional)." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_client",
+      description: "Crea un cliente nuevo. Requiere permiso para crear clientes o proyectos.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nombre del cliente." },
+          company: { type: "string", description: "Empresa (opcional)." },
+          description: { type: "string", description: "Descripción corta (opcional)." },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_project",
+      description: "Crea un proyecto bajo un cliente existente. Requiere permiso para crear proyectos. Si el cliente no existe, créalo antes con create_client.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nombre del proyecto." },
+          client: { type: "string", description: "Id o nombre del cliente dueño del proyecto." },
+          lead: { type: "string", description: "'yo' o nombre del responsable del proyecto (opcional)." },
+        },
+        required: ["name", "client"],
+      },
     },
   },
 ];
@@ -372,6 +426,50 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const rows = await db.recurringTask.findMany({ where: { AND: where }, take: 30, orderBy: { createdAt: "desc" }, select: { title: true, frequency: true, interval: true, weekdays: true, dayOfMonth: true, startDate: true, project: { select: { name: true } }, assignee: { select: { name: true } } } });
       if (!rows.length) return "No hay tareas recurrentes activas que puedas ver.";
       return JSON.stringify(rows.map((r) => ({ titulo: r.title, frecuencia: r.frequency, cada: r.interval, dias: r.weekdays, diaDelMes: r.dayOfMonth, desde: ymd(r.startDate), proyecto: r.project?.name ?? "(personal)", responsable: r.assignee?.name ?? null })));
+    }
+
+    case "find_clients": {
+      const q = str(args.query);
+      const base = accessibleClientWhere(session);
+      const where = q ? { AND: [base, { name: { contains: q, mode: "insensitive" as const }, archivedAt: null }] } : { AND: [base, { archivedAt: null }] };
+      const rows = await db.client.findMany({ where, take: 25, orderBy: { name: "asc" }, select: { id: true, name: true, company: true, _count: { select: { projects: true } } } });
+      if (!rows.length) return "No hay clientes que coincidan (o no tienes acceso).";
+      return JSON.stringify(rows.map((c) => ({ id: c.id, nombre: c.name, empresa: c.company ?? null, proyectos: c._count.projects })));
+    }
+
+    case "create_client": {
+      if (!hasPermission(session, "crear_clientes") && !hasPermission(session, "crear_proyectos")) return "No tienes permiso para crear clientes.";
+      const name = str(args.name);
+      if (!name) return "Falta el nombre del cliente.";
+      const client = await db.client.create({
+        data: {
+          name,
+          company: str(args.company) || null,
+          description: str(args.description) || null,
+          emoji: "🏢",
+          members: { create: { userId: session.id } },
+        },
+        select: { id: true },
+      });
+      await logActivity({ action: "client.create", summary: `creó el cliente «${name}» (vía @Marcebot)`, clientId: client.id, entityType: "client", entityId: client.id }).catch(() => null);
+      return JSON.stringify({ ok: true, clientId: client.id, mensaje: `Cliente «${name}» creado.` });
+    }
+
+    case "create_project": {
+      if (!hasPermission(session, "crear_proyectos")) return "No tienes permiso para crear proyectos.";
+      const name = str(args.name);
+      if (!name) return "Falta el nombre del proyecto.";
+      const client = await resolveClient(session, args.client);
+      if (!client) return `No encontré el cliente "${str(args.client)}". Créalo primero con create_client (o revisa el nombre con find_clients).`;
+      if (!(await userCanAccessClient(client.id, session))) return "No tienes acceso a ese cliente.";
+      let leadId: string | null = null;
+      if (str(args.lead)) {
+        const u = await resolveUser(session, args.lead);
+        if (u) leadId = u.id;
+      }
+      const project = await instantiateTemplate(db, { templateKey: "", name, clientId: client.id, leadId });
+      await logActivity({ action: "project.create", summary: `creó el proyecto «${name}» (vía @Marcebot)`, projectId: project.id, entityType: "project", entityId: project.id }).catch(() => null);
+      return JSON.stringify({ ok: true, projectId: project.id, code: project.code, mensaje: `Proyecto «${name}» (${project.code}) creado para el cliente ${client.name}.` });
     }
 
     default:
