@@ -16,7 +16,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { PriorityPill } from "@/components/priority-pill";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
@@ -40,7 +40,8 @@ import {
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { TaskDetail } from "./task-detail";
 import { formatShortDate } from "@/lib/ui";
-import { TONES, tone, type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
+import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
+import { TONES, tone, type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
 
 export function TasksBoard({
   projectId,
@@ -287,10 +288,10 @@ function CardContent({
   overlay?: boolean;
   onOpen?: () => void;
 }) {
-  const prio = labelMeta(priorities, t.priority);
+  const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null });
   const done = t.checklist.filter((c) => c.done).length;
   return (
-    <div className={cn("rounded-lg border border-border bg-card p-3 shadow-sm", overlay && "w-72 rotate-2 shadow-lg")}>
+    <div className={cn("rounded-lg border p-3 shadow-sm", URGENCY_META[u.state].row, overlay && "w-72 rotate-2 shadow-lg")}>
       <div className="flex items-start gap-2">
         {/* Asa de arrastre: solo aquí se inicia el drag (el resto sigue interactivo) */}
         <button
@@ -313,9 +314,11 @@ function CardContent({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
-        <Badge className={cn("text-[10px]", prio.chip)}>{prio.label}</Badge>
+        <PriorityPill priorities={priorities} value={t.priority} />
         {t.dueDate ? (
-          <span className="text-[11px] text-muted-foreground">📅 {formatShortDate(t.dueDate)}</span>
+          <span className={cn("text-[11px] font-medium", URGENCY_META[u.state].text)} title={urgencyLabel(u.state, u.days)}>
+            📅 {formatShortDate(t.dueDate)}
+          </span>
         ) : null}
         {t.checklist.length > 0 ? (
           <span className="text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
