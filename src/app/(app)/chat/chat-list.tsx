@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
 import { Hash, Lock, Users, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createChannel } from "./actions";
+import { createChannel, openMarcebotChat } from "./actions";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
 
@@ -16,6 +16,8 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
   const pathname = usePathname();
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
   const [creating, setCreating] = React.useState(false);
+  const [openingBot, startOpenBot] = React.useTransition();
+  const marcebotActive = !!data.marcebot.channelId && data.marcebot.channelId === activeId;
 
   return (
     <div className="flex h-full flex-col">
@@ -63,6 +65,28 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
+        {/* Chat directo con Marcebot: fijo arriba. Cada mensaje le habla al asistente sin @. */}
+        <div className="px-2 pb-2">
+          <button
+            type="button"
+            disabled={openingBot}
+            onClick={() => startOpenBot(() => openMarcebotChat())}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors disabled:opacity-60",
+              marcebotActive ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "hover:bg-muted/50",
+            )}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-base">🤖</span>
+            <span className="flex min-w-0 flex-1 flex-col leading-tight">
+              <span className="font-medium">Marcebot</span>
+              <span className="truncate text-[11px] text-muted-foreground">Tu asistente · chat directo</span>
+            </span>
+            {data.marcebot.unread > 0 ? (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{data.marcebot.unread}</span>
+            ) : null}
+          </button>
+        </div>
+
         <Section title="Mensajes directos" icon={<Users className="size-3.5" />}>
           {data.dms.length === 0 ? <Empty>Sin mensajes directos.</Empty> : data.dms.map((c) => (
             <Row key={c.id} row={c} active={c.id === activeId} onNavigate={onNavigate} />

@@ -17,6 +17,7 @@ export type ChatListRow = {
 };
 
 export type ChatListData = {
+  marcebot: { channelId: string | null; unread: number }; // chat directo con el asistente (aparte)
   dms: ChatListRow[];
   channels: ChatListRow[];
   explore: { id: string; name: string }[];
@@ -29,7 +30,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
       where: { members: { some: { userId: session.id } } },
       orderBy: { createdAt: "desc" },
       include: {
-        members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+        members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
         _count: { select: { messages: true } },
       },
     }),
@@ -53,10 +54,23 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   `;
   const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
 
+  // El chat con Marcebot (DM con el bot del sistema) se muestra aparte, fijo arriba, no
+  // mezclado con los DMs de personas.
+  const marcebotDM = myChannels.find(
+    (c) => c.type === "DIRECT" && c.members.some((m) => m.user.id !== session.id && m.user.isSystemBot),
+  );
+  const marcebot = { channelId: marcebotDM?.id ?? null, unread: marcebotDM ? unread.get(marcebotDM.id) ?? 0 : 0 };
+
   const dms: ChatListRow[] = myChannels
-    // Solo DMs con un interlocutor que todavía existe. Si la otra persona fue borrada,
-    // su membresía desaparece en cascada y el DM queda huérfano (solo yo): se oculta.
-    .filter((c) => c.type === "DIRECT" && c.members.some((m) => m.user.id !== session.id))
+    // Solo DMs con un interlocutor que todavía existe (y que no sea un bot del sistema:
+    // Marcebot va aparte). Si la otra persona fue borrada, su membresía desaparece en
+    // cascada y el DM queda huérfano (solo yo): se oculta.
+    .filter(
+      (c) =>
+        c.type === "DIRECT" &&
+        c.members.some((m) => m.user.id !== session.id) &&
+        !c.members.some((m) => m.user.isSystemBot),
+    )
     .map((c) => {
       const other = c.members.find((m) => m.user.id !== session.id)?.user;
       return {
@@ -87,5 +101,5 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const myChannelIds = new Set(myChannels.map((c) => c.id));
   const explore = publicChannels.filter((c) => !myChannelIds.has(c.id)).map((c) => ({ id: c.id, name: c.name }));
 
-  return { dms, channels, explore, team };
+  return { marcebot, dms, channels, explore, team };
 }

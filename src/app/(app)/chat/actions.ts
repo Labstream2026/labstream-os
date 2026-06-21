@@ -8,6 +8,7 @@ import { getSession } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
 import { mentionsBot, handleBotMention } from "@/lib/openclaw/bridge";
+import { getOrCreateMarcebotDM, isBotDirectChannel } from "@/lib/marcebot/bot";
 
 // ── Crear canales y mensajes directos ──
 
@@ -90,6 +91,17 @@ export async function openDirectMessage(otherUserId: string) {
   });
   revalidatePath("/chat");
   redirect(`/chat/${channel.id}`);
+}
+
+// Abre (o crea) el chat directo con Marcebot y navega a él. A diferencia de
+// openDirectMessage, aquí SÍ se permite el bot: es el chat del asistente, escribible,
+// donde cada mensaje le habla a Marcebot sin necesidad de @mencionarlo.
+export async function openMarcebotChat() {
+  const session = await getSession();
+  if (!session) throw new Error("No autorizado");
+  const channelId = await getOrCreateMarcebotDM(session.id, session.name);
+  revalidatePath("/chat");
+  redirect(`/chat/${channelId}`);
 }
 
 // Unirse / salir de un canal público (para que aparezca en "mis chats").
@@ -268,7 +280,7 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
 async function notifyChannelMessage(channelId: string, authorId: string, authorName: string, body: string) {
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { type: true, name: true, slug: true, members: { select: { userId: true } } },
+    select: { type: true, name: true, slug: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } },
   });
   if (!channel) return;
   const isBroadcast = channel.type === "GENERAL" && !!channel.slug; // general / estados-equipo
@@ -280,6 +292,7 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
 
   for (const m of channel.members) {
     if (m.userId === authorId) continue;
+    if (m.user?.isSystemBot) continue; // no notificar/emailar a bots del sistema (Marcebot)
     // En app (sin email para no saturar). Los DMs sí van también por correo.
     if (isDM) {
       await notifyAndEmail(m.userId, { type: "dm", title, body: body.slice(0, 140), link });
@@ -321,15 +334,20 @@ export async function sendMessage(
 
   const msg = await db.chatMessage.create({
     data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
-    include: { author: { select: { name: true, initials: true, avatarColor: true }, }, channel: { select: { name: true } } },
+    include: {
+      author: { select: { name: true, initials: true, avatarColor: true } },
+      channel: { select: { name: true, type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
+    },
   });
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
-  // Si etiquetaron al asistente de IA (@Marcebot/@IA), responde en segundo plano (puede
-  // tardar; no bloquea el envío del usuario). Se ejecuta tras enviar la respuesta y actúa
-  // con los permisos de quien lo etiquetó (session.id).
-  if (mentionsBot(text)) after(() => handleBotMention(channelId, session!.id, msg.parentId));
+  // El asistente responde en segundo plano si lo @etiquetan (@Marcebot/@IA) en cualquier
+  // canal, O si el mensaje va en su chat directo (ahí responde a TODO sin necesidad de @).
+  // No bloquea el envío y actúa con los permisos de quien escribe (session.id).
+  if (mentionsBot(text) || isBotDirectChannel(msg.channel, session!.id)) {
+    after(() => handleBotMention(channelId, session!.id, msg.parentId));
+  }
 
   const payload: ChatMessagePayload = {
     id: msg.id,
@@ -360,7 +378,10 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
 
   const msg = await db.chatMessage.create({
     data: { channelId, body, parentId, authorId: session!.id },
-    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+    include: {
+      author: { select: { name: true, initials: true, avatarColor: true } },
+      channel: { select: { type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
+    },
   });
 
   const created: { id: string; name: string; mime: string | null; editable: boolean }[] = [];
@@ -388,7 +409,9 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   publishMessage(payload);
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
-  if (mentionsBot(body)) after(() => handleBotMention(channelId, session!.id, msg.parentId));
+  if (mentionsBot(body) || isBotDirectChannel(msg.channel, session!.id)) {
+    after(() => handleBotMention(channelId, session!.id, msg.parentId));
+  }
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
 }
