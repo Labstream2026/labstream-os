@@ -337,6 +337,29 @@ export async function setUserGuest(userId: string, isGuest: boolean): Promise<Ad
   return { ok: true };
 }
 
+// Limpia nombres con sufijo de cargo ("Nombre Apellido - Cargo"): deja solo el nombre y mueve el
+// cargo al campo «título» (solo si estaba vacío, para no pisar títulos existentes). Solo admin,
+// idempotente (no hace nada si el nombre ya está limpio).
+export async function cleanupUserNames(): Promise<AdminActionResult & { updated?: number }> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const users = await db.user.findMany({ where: { isSystemBot: false }, select: { id: true, name: true, title: true } });
+  let updated = 0;
+  for (const u of users) {
+    const m = u.name.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+    if (!m) continue;
+    const name = m[1].trim();
+    const role = m[2].trim();
+    if (!name || name === u.name) continue;
+    await db.user.update({ where: { id: u.id }, data: { name, ...(u.title?.trim() ? {} : { title: role }) } });
+    updated++;
+  }
+  revalidatePath("/configuracion");
+  revalidatePath("/", "layout");
+  await logActivity({ action: "users.cleanup", summary: `limpió ${updated} nombre(s) de usuario (movió el cargo al título)` }).catch(() => null);
+  return { ok: true, updated };
+}
+
 // Define cómo saluda Marcebot a la persona: "M" (muchacho) | "F" (muchacha) | null.
 export async function setUserGender(userId: string, gender: string | null): Promise<AdminActionResult> {
   const session = await requireAdmin();

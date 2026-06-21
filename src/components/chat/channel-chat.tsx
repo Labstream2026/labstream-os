@@ -48,7 +48,7 @@ function highlightMentions(text: string, members: Member[], keyBase: string): Re
   let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<span key={`${keyBase}m${i++}`} className="rounded bg-primary/15 px-1 font-medium text-primary">@{m[1]}</span>);
+    out.push(<span key={`${keyBase}m${i++}`} className="rounded bg-primary/15 px-1 font-medium text-primary" title={`@${m[1]}`}>@{mentionLabel(m[1])}</span>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));

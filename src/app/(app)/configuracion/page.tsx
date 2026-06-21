@@ -8,6 +8,7 @@ import { caldavEnabled } from "@/lib/caldav";
 import { aiEnabled } from "@/lib/ai";
 import { onlyofficeEnabled } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
+import { CleanupNamesButton } from "./cleanup-names-button";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
@@ -108,6 +109,7 @@ export default async function ConfiguracionPage() {
         Los miembros del equipo entran con Authentik y se crean automáticamente. Aquí ajustas su rol,
         das/quitas acceso a la Wiki, desactivas cuentas (no pueden iniciar sesión) o las eliminas.
       </p>
+      <CleanupNamesButton />
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {users.map((u) => (
           <div key={u.id} className="flex items-center justify-between gap-4 p-4">
