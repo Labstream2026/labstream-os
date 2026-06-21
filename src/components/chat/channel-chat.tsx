@@ -263,6 +263,7 @@ export function ChannelChat({
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [typingNames, setTypingNames] = React.useState<Record<string, number>>({}); // name → expiry ts
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = React.useState(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -510,10 +511,13 @@ export function ChannelChat({
   function insertMention(name: string) {
     setText((t) => t.replace(/(^|\s)@([\p{L}0-9]*)$/u, `$1@${name} `));
     setMentionQuery(null);
+    composerRef.current?.focus();
   }
   const mentionMatches = mentionQuery != null
     ? members.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
     : [];
+  // Reinicia el resaltado al primer resultado cada vez que cambia lo que se teclea tras la "@".
+  React.useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
 
   const { confirm, dialog } = useConfirmDialog();
   const [attachErr, setAttachErr] = React.useState<string | null>(null);
@@ -814,14 +818,30 @@ export function ChannelChat({
       {!readOnly ? (
        <div className="relative border-t border-border pb-[env(safe-area-inset-bottom)]">
         {mentionMatches.length > 0 ? (
-          <div className="absolute bottom-full left-3 z-30 mb-2 w-72 max-w-[80vw] overflow-hidden rounded-xl border border-border bg-popover shadow-xl">
-            <p className="border-b border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
-            {mentionMatches.map((mem) => (
-              <button key={mem.id} type="button" onClick={() => insertMention(mem.name)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted">
-                <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
-                <span className="truncate">{mentionLabel(mem.name)}</span>
-              </button>
-            ))}
+          <div className="absolute bottom-full left-3 right-3 z-40 mb-2 max-w-sm overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
+            <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
+            <div className="max-h-64 overflow-y-auto py-1">
+              {mentionMatches.map((mem, idx) => {
+                const isBot = mem.initials === "🤖" || /marcebot/i.test(mem.name);
+                return (
+                  <button
+                    key={mem.id}
+                    type="button"
+                    onMouseEnter={() => setMentionIndex(idx)}
+                    onClick={() => insertMention(mem.name)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                      idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted",
+                    )}
+                  >
+                    <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
+                    <span className="truncate font-medium">{mentionLabel(mem.name)}</span>
+                    {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="border-t border-border px-3 py-1 text-[10px] text-muted-foreground">↑↓ moverse · Enter elegir · Esc cerrar</p>
           </div>
         ) : null}
         {pollMode ? (
@@ -874,7 +894,7 @@ export function ChannelChat({
               ))}
             </div>
           ) : null}
-          <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
+          <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
             <input
               ref={fileRef}
               type="file"
@@ -923,6 +943,13 @@ export function ChannelChat({
               value={text}
               onChange={(e) => onComposerChange(e.target.value)}
               onKeyDown={(e) => {
+                // Con el menú de @menciones abierto, el teclado navega/elige (no envía).
+                if (mentionMatches.length > 0) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return; }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
+                  if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(mentionMatches[Math.min(mentionIndex, mentionMatches.length - 1)].name); return; }
+                  if (e.key === "Escape") { e.preventDefault(); setMentionQuery(null); return; }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
