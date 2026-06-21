@@ -16,6 +16,8 @@ import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, e
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
+import { CalendarSyncSettings } from "./calendar-sync-settings";
+import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
@@ -75,6 +77,7 @@ export default async function ConfiguracionPage() {
   const categories = [...PERMISSION_CATEGORIES];
 
   const marcebotConfig = await getMarcebotConfig();
+  const calSyncConfig = await getCalendarSyncConfig();
   // Config SMTP guardada (sin exponer la contraseña al cliente: solo si está puesta).
   const mailRow = await db.mailSettings.findUnique({ where: { id: "default" } });
   const mailSettings = {
@@ -202,7 +205,10 @@ export default async function ConfiguracionPage() {
     ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null }
     : null;
   const integracionesNode = (
-    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
+    <div className="space-y-4">
+      <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
+      <CalendarSyncSettings initial={calSyncConfig} />
+    </div>
   );
 
   // ── Sección Marcebot ──

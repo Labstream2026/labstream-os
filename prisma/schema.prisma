@@ -151,6 +151,21 @@ model MarcebotConfig {
   updatedAt DateTime @updatedAt
 }
 
+// Programación del sondeo de calendarios Synology (fila única "default"), controlada desde
+// la app (Configuración → Integraciones). Un planificador en-proceso la lee y sincroniza
+// según frecuencia/franja/días — así la app es la fuente principal, sin depender del NAS.
+// La hora/días se evalúan en zona horaria de Bogotá (el contenedor corre en UTC).
+model CalendarSyncSettings {
+  id           String    @id @default("default")
+  enabled      Boolean   @default(true)
+  everyMinutes Int       @default(15) // cada cuántos minutos sondear
+  startHour    Int       @default(8)  // primera hora (inclusive) de la franja activa
+  endHour      Int       @default(18) // última hora (exclusiva) de la franja activa
+  workDays     String    @default("0,1,2,3,4,5,6") // días activos (0=Dom … 6=Sáb)
+  lastRunAt    DateTime? // último sondeo lanzado por el planificador
+  updatedAt    DateTime  @updatedAt
+}
+
 // Configuración SMTP del envío de correo (fila única "default"), editable por el admin
 // desde Configuración → Integraciones. Tiene PRIORIDAD sobre las variables de entorno:
 // permite configurar el correo (p. ej. Synology MailPlus) desde la propia app sin tocar

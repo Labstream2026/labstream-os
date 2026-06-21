@@ -33,6 +33,38 @@ async function requireRoleAdmin() {
   return session!;
 }
 
+// ── Programación del sondeo de calendarios Synology (planificador en-proceso) ──
+// El admin define frecuencia, franja horaria (Bogotá) y días desde Configuración →
+// Integraciones; el planificador (calendar-scheduler) lo lee en cada tick.
+export async function saveCalendarSyncSettings(input: {
+  enabled: boolean;
+  everyMinutes: number;
+  startHour: number;
+  endHour: number;
+  workDays: number[];
+}): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const everyMinutes = Math.min(720, Math.max(1, Math.round(input.everyMinutes || 15)));
+  const startHour = Math.min(23, Math.max(0, Math.round(input.startHour)));
+  const endHour = Math.min(24, Math.max(startHour + 1, Math.round(input.endHour)));
+  const days = [...new Set(input.workDays.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+  const workDays = (days.length ? days : [0, 1, 2, 3, 4, 5, 6]).join(",");
+  await db.calendarSyncSettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", enabled: input.enabled, everyMinutes, startHour, endHour, workDays },
+    update: { enabled: input.enabled, everyMinutes, startHour, endHour, workDays },
+  });
+  revalidatePath("/configuracion");
+  await logActivity({
+    action: "calendar.sync_settings",
+    summary: input.enabled
+      ? `programó el sondeo de calendarios cada ${everyMinutes} min (${startHour}:00–${endHour}:00)`
+      : "apagó el sondeo automático de calendarios",
+  }).catch(() => null);
+  return { ok: true };
+}
+
 // clave estable a partir del nombre del rol (slug); evita choques con un sufijo.
 function slugify(name: string): string {
   return name
