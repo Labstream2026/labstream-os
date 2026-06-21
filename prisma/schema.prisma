@@ -113,6 +113,7 @@ model User {
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
   notifications    Notification[]
+  pushSubscriptions PushSubscription[]
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
   eventSyncRefs    EventSyncRef[]
@@ -726,6 +727,21 @@ model Notification {
 
   @@index([userId, read])
   @@index([userId, createdAt])
+}
+
+// Suscripción de Web Push (navegador) de un usuario, por dispositivo/navegador.
+// Permite enviarle notificaciones nativas aunque la pestaña esté en segundo plano.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
+import { sendPushToUser } from "@/lib/web-push";
 
 // Escapa texto controlado por el usuario antes de interpolarlo en HTML de correo,
 // para evitar inyección de HTML/XSS (nombre, título y cuerpo vienen del cliente).
@@ -21,6 +22,8 @@ export async function notify(
   await db.notification.create({
     data: { userId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null },
   });
+  // Web Push al navegador (best-effort; sin claves VAPID es no-op).
+  await sendPushToUser(userId, { title: n.title, body: n.body, url: n.link });
 }
 
 // Notifica en la app Y por correo (si SMTP está configurado). Best-effort.
@@ -59,6 +62,10 @@ export async function notifyMany(
   await db.notification.createMany({
     data: ids.map((userId) => ({ userId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null })),
   });
+  // Web Push a cada uno (best-effort).
+  await Promise.all(
+    ids.map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link })),
+  );
 }
 
 // Notifica en la app Y por correo a VARIOS usuarios (sin duplicar). Best-effort.

@@ -11,6 +11,7 @@ import {
   ensureNotifyPermission,
   notifyPermission,
   notificationsSupported,
+  subscribeBrowserPush,
 } from "@/lib/native-notify";
 
 export type NotificationItem = {
@@ -133,6 +134,8 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                   onClick={async () => {
                     const ok = await ensureNotifyPermission();
                     setPerm(ok ? "granted" : notifyPermission());
+                    // En navegador, además suscribe al Web Push (avisos en segundo plano).
+                    if (ok) void subscribeBrowserPush();
                   }}
                 >
                   Activar avisos

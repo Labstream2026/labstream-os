@@ -88,3 +88,51 @@ export async function showNative(n: {
     /* best-effort */
   }
 }
+
+// ─── Web Push del navegador (segundo plano; NO aplica dentro de Tauri) ────────
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const buffer = new ArrayBuffer(raw.length);
+  const arr = new Uint8Array(buffer);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+/**
+ * Suscribe este navegador al Web Push (recibe avisos con la pestaña cerrada).
+ * En Tauri no aplica (usa la notificación nativa). Devuelve true si quedó suscrito.
+ */
+export async function subscribeBrowserPush(): Promise<boolean> {
+  if (isTauri()) return false;
+  if (
+    typeof navigator === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    typeof window === "undefined" ||
+    !("PushManager" in window)
+  ) {
+    return false;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const res = await fetch("/api/push/key");
+    const { key } = (await res.json()) as { key: string | null };
+    if (!key) return false; // sin VAPID configurado en el server
+    const existing = await reg.pushManager.getSubscription();
+    const sub =
+      existing ??
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      }));
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON() }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

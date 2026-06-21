@@ -25,6 +25,12 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-cambia-esto}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-https://os.labstreamsas.com}
       STORAGE_DIR: /app/storage
+      # Web Push (notificaciones del navegador en segundo plano). Genera tus claves con
+      # `npx web-push generate-vapid-keys` y ponlas en el .env del NAS; si faltan, el
+      # push del navegador simplemente queda desactivado (no rompe nada).
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:hola@labstream.co}
       AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
       AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
       AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
