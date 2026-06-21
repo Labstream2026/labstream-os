@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache, emailButton } from "@/lib/email";
 import { encryptSecret } from "@/lib/crypto";
+import { clearOpenClawCache } from "@/lib/openclaw/config";
+import { askOpenClaw } from "@/lib/openclaw/client";
 import { testCaldav } from "@/lib/caldav";
 import { syncAllCalendars } from "@/lib/calendar-sync";
 import { notifyAndEmail } from "@/lib/notify";
@@ -95,6 +97,46 @@ export async function saveMailSettings(formData: FormData): Promise<AdminActionR
   await logActivity({ action: "settings.mail", summary: "actualizó la configuración de correo (SMTP)" });
   revalidatePath("/configuracion");
   return { ok: true };
+}
+
+// Guarda la conexión con el agente OpenClaw (gateway compatible con OpenAI). El token se
+// cifra; si el campo llega vacío se conserva el existente. Limpia la caché al guardar.
+export async function saveOpenClawSettings(formData: FormData): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+
+  const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
+  const baseUrl = String(formData.get("baseUrl") ?? "").trim().replace(/\/+$/, "") || null;
+  const agentModel = String(formData.get("agentModel") ?? "").trim() || "openclaw";
+  const rawToken = String(formData.get("token") ?? "");
+  // Solo se reescribe el token si el admin escribió uno nuevo (campo no vacío).
+  const tokenEnc = rawToken ? encryptSecret(rawToken) : undefined;
+
+  if (enabled && !baseUrl) {
+    return { ok: false, error: "Para activarlo necesitas la URL del gateway (ej. http://192.168.0.4:18789)." };
+  }
+
+  await db.openClawSettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", enabled, baseUrl, agentModel, ...(tokenEnc ? { tokenEnc } : {}) },
+    update: { enabled, baseUrl, agentModel, ...(tokenEnc ? { tokenEnc } : {}) },
+  });
+  clearOpenClawCache();
+  await logActivity({ action: "settings.openclaw", summary: "actualizó la conexión con el agente OpenClaw" });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// Envía un "ping" al agente para verificar la conexión y devuelve su respuesta.
+export async function testOpenClaw(): Promise<AdminActionResult & { reply?: string }> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  clearOpenClawCache(); // leer la config recién guardada
+  const r = await askOpenClaw([
+    { role: "system", content: "Eres el asistente del equipo de Labstream. Responde en una sola frase." },
+    { role: "user", content: "Hola, ¿estás conectado? Confírmalo brevemente." },
+  ]);
+  return r.ok ? { ok: true, reply: r.reply } : { ok: false, error: r.error };
 }
 
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.

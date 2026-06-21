@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
+import { mentionsBot, handleBotMention } from "@/lib/openclaw/bridge";
 
 // ── Crear canales y mensajes directos ──
 
@@ -324,6 +326,10 @@ export async function sendMessage(
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
+  // Si etiquetaron al asistente de IA (@Marcebot/@IA), responde en segundo plano (puede
+  // tardar; no bloquea el envío del usuario). Se ejecuta tras enviar la respuesta.
+  if (mentionsBot(text)) after(() => handleBotMention(channelId, msg.parentId));
+
   const payload: ChatMessagePayload = {
     id: msg.id,
     channelId,
@@ -381,6 +387,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   publishMessage(payload);
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
+  if (mentionsBot(body)) after(() => handleBotMention(channelId, msg.parentId));
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
 }

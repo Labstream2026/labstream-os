@@ -87,6 +87,14 @@ export default async function ConfiguracionPage() {
     rejectUnauthorized: mailRow?.rejectUnauthorized ?? false,
     hasPassword: Boolean(mailRow?.passwordEnc),
   };
+  // Conexión con el agente OpenClaw (sin exponer el token al cliente: solo si está puesto).
+  const openClawRow = await db.openClawSettings.findUnique({ where: { id: "default" } });
+  const openClawSettings = {
+    enabled: openClawRow?.enabled ?? false,
+    baseUrl: openClawRow?.baseUrl ?? "",
+    agentModel: openClawRow?.agentModel ?? "openclaw",
+    hasToken: Boolean(openClawRow?.tokenEnc),
+  };
   const taskLabels = await db.workflowLabel.findMany({ orderBy: { position: "asc" } });
   const statusRows = taskLabels.filter((l) => l.kind === "TASK_STATUS").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
   const priorityRows = taskLabels.filter((l) => l.kind === "TASK_PRIORITY").map((l) => ({ id: l.id, key: l.key, label: l.label, color: l.color, isDefault: l.isDefault, isDone: l.isDone }));
@@ -192,7 +200,7 @@ export default async function ConfiguracionPage() {
     ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null }
     : null;
   const integracionesNode = (
-    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
+    <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
   );
 
   // ── Sección Marcebot ──
