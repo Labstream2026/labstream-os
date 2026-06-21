@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runMarcebot } from "@/lib/marcebot";
 import { syncAllCalendars } from "@/lib/calendar-sync";
+import { runRecurringTasks } from "@/lib/recurring";
 import { cronAuthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
@@ -18,7 +19,10 @@ async function run(req: NextRequest) {
   try {
     const summary = await runMarcebot();
     const calendars = await syncAllCalendars().catch((e) => ({ error: e instanceof Error ? e.message : "error" }));
-    return NextResponse.json({ ...summary, calendars });
+    // Materializa las tareas recurrentes que tocan hoy (idempotente por día). Se engancha
+    // aquí para no exigir programar un cron aparte; también existe /api/cron/recurring-tasks.
+    const recurring = await runRecurringTasks().catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "error" }));
+    return NextResponse.json({ ...summary, calendars, recurring });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }
