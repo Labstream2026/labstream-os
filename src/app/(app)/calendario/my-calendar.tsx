@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
-import { emitCalendarCreate, emitCalendarDetail, calTone, personColor, type ColorBy } from "./calendar-detail";
+import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 
 type Person = { name: string; initials: string | null; color: string | null };
@@ -13,6 +13,7 @@ export type CalItem = {
   title: string;
   date: string; // ISO (inicio) — usado por la vista mensual
   kind: "event" | "task" | "shoot" | "milestone";
+  urgencyHex?: string | null; // color por urgencia (solo entregas/tareas con fecha)
   time?: string | null; // "HH:mm" del inicio (eventos con hora)
   projectName?: string | null;
   // ── Campos para la vista semanal y el panel de detalle (opcionales) ──
@@ -144,7 +145,6 @@ export function MyCalendar({
                     </div>
                     <div className="space-y-1">
                       {evs.map((ev) => {
-                        const t = calTone(ev.kind, ev.kind === "shoot");
                         const draggable = Boolean(ev.canEdit && ev.eventId);
                         return (
                           <button
@@ -159,7 +159,7 @@ export function MyCalendar({
                               "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",
                               draggable && "cursor-grab active:cursor-grabbing",
                             )}
-                            style={{ background: colorBy === "persona" ? personColor(ev) ?? t.solid : t.solid }}
+                            style={{ background: colorBy === "persona" ? personColor(ev) ?? itemSolid(ev) : itemSolid(ev) }}
                           >
                             {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
                           </button>
@@ -176,7 +176,14 @@ export function MyCalendar({
 
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("event").solid }} /> Citas</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("task").solid }} /> Tareas</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="flex overflow-hidden rounded">
+            <span className="size-2.5" style={{ background: "#f43f5e" }} />
+            <span className="size-2.5" style={{ background: "#f59e0b" }} />
+            <span className="size-2.5" style={{ background: "#22c55e" }} />
+          </span>
+          Entregas (urgencia)
+        </span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("shoot").solid }} /> Rodajes</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("milestone").solid }} /> Hitos de proyecto</span>
         {canCreate ? <span className="ml-auto">Toca un día para crear · arrastra una cita para moverla.</span> : null}

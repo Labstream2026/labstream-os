@@ -1,4 +1,5 @@
 import type { CalItem } from "./my-calendar";
+import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 
 // Constructores compartidos: convierten filas de CalendarEvent / Task en CalItem,
 // para que TODOS los calendarios de la app (equipo, proyecto, cliente, mis tareas)
@@ -86,7 +87,7 @@ export function taskToCalItems(t: TaskRow): CalItem[] {
   const assignee = t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null;
   const link = t.project ? `/proyectos/${t.project.id}?tab=tareas` : "/mis-tareas";
   const base = { projectName: t.project?.name ?? null, projectEmoji: t.project?.emoji ?? null, assignee, link, allDay: true as const };
-  if (t.dueDate) out.push({ id: `t-${t.id}`, title: t.title, date: t.dueDate.toISOString(), start: t.dueDate.toISOString(), kind: "task", ...base });
+  if (t.dueDate) out.push({ id: `t-${t.id}`, title: t.title, date: t.dueDate.toISOString(), start: t.dueDate.toISOString(), kind: "task", urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state), ...base });
   if (t.shootDate) out.push({ id: `s-${t.id}`, title: t.title, date: t.shootDate.toISOString(), start: t.shootDate.toISOString(), kind: "shoot", ...base });
   return out;
 }

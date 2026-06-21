@@ -27,6 +27,13 @@ export function calTone(kind: CalItem["kind"], shoot?: boolean) {
   return { bar: "#f59e0b", bg: "rgba(245,158,11,0.14)", solid: "#f59e0b", soft: "rgba(245,158,11,0.18)" };
 }
 
+// Color sólido base de un item en modo "tipo": las ENTREGAS (tareas con fecha) se pintan por
+// URGENCIA (termómetro vencida→lejana, coherente con el resto de la app); el resto, por su tipo.
+export function itemSolid(it: CalItem): string {
+  if (it.kind === "task" && it.urgencyHex) return it.urgencyHex;
+  return calTone(it.kind, it.kind === "shoot").solid;
+}
+
 // Eventos de ventana para comunicar el calendario (rejilla) con el panel derecho
 // (dock) y con el modal de crear/editar que vive en CalendarBoard.
 export const CAL_DETAIL_EVENT = "calendar:detail"; // seleccionar → mostrar detalle

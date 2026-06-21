@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { calTone, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
+import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 
@@ -217,11 +217,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
               return (
                 <div key={d.toISOString()} className={cn("min-h-8 space-y-1 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
                   {chips.map((p) => {
-                    const t = calTone(p.it.kind, p.it.kind === "shoot");
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
-                        style={{ background: blockColor(p.it, t.solid) }}
+                        style={{ background: blockColor(p.it, itemSolid(p.it)) }}
                         title={p.it.title}>
                         <span className="truncate">{p.it.kind === "milestone" ? "" : p.it.kind === "shoot" ? "🎬 " : p.it.kind === "task" ? "✅ " : "📅 "}{p.it.title}</span>
                       </button>

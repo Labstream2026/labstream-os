@@ -151,3 +151,20 @@ export const URGENCY_META: Record<
 export function urgencyRow(state: UrgencyState): string {
   return URGENCY_META[state].row;
 }
+
+// HEX por estado, para superficies que usan color inline (calendario, barras del cronograma).
+// Mismo termómetro: vencida rojo → hoy naranja → pronto ámbar → proximo verde → lejano turquesa.
+const URGENCY_HEX: Record<UrgencyState, string> = {
+  sin: "#94a3b8",
+  a_tiempo: "#14b8a6",
+  lejano: "#14b8a6",
+  proximo: "#22c55e",
+  pronto: "#f59e0b",
+  hoy: "#f97316",
+  vencida: "#f43f5e",
+  hecha: "#10b981",
+  hecha_tarde: "#f59e0b",
+};
+export function urgencyHex(state: UrgencyState): string {
+  return URGENCY_HEX[state];
+}
