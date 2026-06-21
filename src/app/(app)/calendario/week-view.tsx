@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
 import { calTone, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
+import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 
 const HOUR_H = 44; // alto en px de cada hora
 const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTemplateColumns)
@@ -339,9 +340,12 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
 }
 
 function NowLine() {
-  const [min, setMin] = React.useState(() => new Date().getHours() * 60 + new Date().getMinutes());
+  // Hora de pared de Bogotá (igual en SSR y cliente, sin importar la zona del navegador):
+  // coherente con los eventos, que se ubican por su hora de pared. Antes usaba
+  // new Date().getHours() → en el servidor (UTC) la línea salía 5 h adelante (a las 11 PM).
+  const [min, setMin] = React.useState(() => bogotaMinutesOfDay());
   React.useEffect(() => {
-    const t = setInterval(() => setMin(new Date().getHours() * 60 + new Date().getMinutes()), 60000);
+    const t = setInterval(() => setMin(bogotaMinutesOfDay()), 60000);
     return () => clearInterval(t);
   }, []);
   return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: (min / 60) * HOUR_H }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
