@@ -6,6 +6,12 @@ import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { markAllNotificationsRead } from "@/lib/notify-actions";
+import {
+  showNative,
+  ensureNotifyPermission,
+  notifyPermission,
+  notificationsSupported,
+} from "@/lib/native-notify";
 
 export type NotificationItem = {
   id: string;
@@ -34,6 +40,15 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const [open, setOpen] = React.useState(false);
   const [list, setList] = React.useState<NotificationItem[]>(items);
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
+  const [perm, setPerm] = React.useState<ReturnType<typeof notifyPermission>>("default");
+
+  // Ids ya conocidos: se siembran con el histórico inicial para NO notificar lo
+  // viejo al cargar; solo avisamos de lo que llega después.
+  const seen = React.useRef<Set<string>>(new Set(items.map((n) => n.id)));
+
+  React.useEffect(() => {
+    setPerm(notifyPermission());
+  }, []);
 
   // Trae el estado más reciente del servidor (polling + al enfocar la pestaña).
   const lastRun = React.useRef(0);
@@ -43,6 +58,16 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as { items: NotificationItem[]; unread: number };
+      // Notificación de escritorio para lo NUEVO sin leer, solo si la ventana no
+      // está enfocada (si la estás viendo, no tiene sentido el toast).
+      const focused = typeof document !== "undefined" && document.hasFocus();
+      const fresh = data.items.filter((n) => !n.read && !seen.current.has(n.id));
+      if (!focused) {
+        for (const n of fresh.slice(0, 3)) {
+          void showNative({ title: n.title, body: n.body, link: n.link });
+        }
+      }
+      for (const n of data.items) seen.current.add(n.id);
       setList(data.items);
       setUnread(data.unread);
     } catch {
@@ -99,7 +124,21 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
-            <div className="border-b border-border px-4 py-2.5 text-sm font-semibold">Notificaciones</div>
+            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <span className="text-sm font-semibold">Notificaciones</span>
+              {notificationsSupported() && perm === "default" ? (
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={async () => {
+                    const ok = await ensureNotifyPermission();
+                    setPerm(ok ? "granted" : notifyPermission());
+                  }}
+                >
+                  Activar avisos
+                </button>
+              ) : null}
+            </div>
             <div className="max-h-96 overflow-y-auto">
               {list.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin notificaciones</p>

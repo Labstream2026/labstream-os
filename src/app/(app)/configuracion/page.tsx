@@ -11,7 +11,7 @@ import { UserControls } from "./user-controls";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
-import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
@@ -51,6 +51,7 @@ export default async function ConfiguracionPage() {
   await ensureRoleDefaults();
   await ensureWriteGateDefaults();
   await ensureAsistenteDefault();
+  await ensureCumplimientoDefault();
 
   const [roles, users, me] = await Promise.all([
     db.role.findMany({

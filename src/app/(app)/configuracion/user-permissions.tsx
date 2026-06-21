@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { SlidersHorizontal, X, LayoutGrid, Building2, CalendarDays, FileText, Sparkles, BookOpen, Library, BarChart3 } from "lucide-react";
+import { SlidersHorizontal, X, LayoutGrid, Building2, CalendarDays, FileText, Sparkles, BookOpen, Library, BarChart3, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getUserPermissionState, setUserPermissionOverride } from "./actions";
 
@@ -19,6 +19,7 @@ const SECTIONS: { key: string; label: string; Icon: React.ComponentType<{ classN
   { key: "ver_wiki", label: "Wiki", Icon: BookOpen },
   { key: "ver_biblioteca", label: "Biblioteca", Icon: Library },
   { key: "ver_reportes", label: "Reportes", Icon: BarChart3 },
+  { key: "ver_cumplimiento", label: "Cumplimiento", Icon: Target },
 ];
 
 export function UserPermissions({

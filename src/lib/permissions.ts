@@ -72,6 +72,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "gestionar_biblioteca", label: "Gestionar biblioteca", category: "Biblioteca" },
   // Reportes
   { key: "ver_reportes", label: "Ver reportes", category: "Reportes" },
+  { key: "ver_cumplimiento", label: "Ver cumplimiento del equipo", category: "Reportes" },
   // Administración
   { key: "administrar_usuarios", label: "Administrar usuarios", category: "Administración" },
   { key: "administrar_roles", label: "Administrar roles y permisos", category: "Administración" },
@@ -200,6 +201,20 @@ export async function ensureAsistenteDefault(): Promise<void> {
       skipDuplicates: true,
     });
   }
+}
+
+// El reporte de "Cumplimiento del equipo" es sensible (mide a cada persona). Por
+// defecto solo lo ve la GERENCIA (y el admin por bypass); el admin lo concede a quien
+// quiera persona por persona desde Configuración. Backfill idempotente: concede
+// ver_cumplimiento a `gerente` la primera vez si aún no lo tiene.
+export async function ensureCumplimientoDefault(): Promise<void> {
+  const perm = await db.permission.findUnique({ where: { key: "ver_cumplimiento" }, select: { id: true } });
+  if (!perm) return;
+  const role = await db.role.findUnique({ where: { key: "gerente" }, select: { id: true } });
+  if (!role) return;
+  const already = await db.rolePermission.count({ where: { permissionId: perm.id, roleId: role.id } });
+  if (already > 0) return;
+  await db.rolePermission.create({ data: { roleId: role.id, permissionId: perm.id } });
 }
 
 // Estado de autenticación EN VIVO de un usuario (rol + permisos efectivos + activo).

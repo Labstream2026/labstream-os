@@ -3,6 +3,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { getTaskLabels } from "@/lib/workflow-labels";
+import { personCompliance } from "@/lib/compliance";
 import { statusMeta, quoteTotals, formatMoney } from "@/lib/ui";
 import { formatMinutes } from "@/lib/timeline";
 import { UserAvatar } from "@/components/user-avatar";
@@ -77,6 +78,11 @@ export default async function ReportesPage() {
 
   const totalMinutes = hoursAgg._sum.minutes ?? 0;
 
+  // Cumplimiento del equipo: solo con el permiso dedicado (ver_cumplimiento).
+  // Cada persona ve SU propio cumplimiento como insignia en "Mis tareas".
+  const canCumplimiento = hasPermission(session, "ver_cumplimiento");
+  const compliance = canCumplimiento ? await personCompliance() : [];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
@@ -102,6 +108,43 @@ export default async function ReportesPage() {
       ) : null}
 
       <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        {/* Cumplimiento del equipo */}
+        {canCumplimiento ? (
+          <Section
+            title="Cumplimiento del equipo"
+            hint="Tareas con fecha entregadas a tiempo vs. tarde o vencidas"
+            full
+          >
+            {compliance.length === 0 ? (
+              <Empty text="Aún no hay tareas con fecha de entrega asignadas." />
+            ) : (
+              <div className="space-y-2.5">
+                {compliance.map((r) => (
+                  <div key={r.user.id} className="flex items-center gap-3">
+                    <span className="flex w-44 shrink-0 items-center gap-2">
+                      <UserAvatar initials={r.user.initials} color={r.user.avatarColor} size="sm" />
+                      <span className="truncate text-sm">{r.user.name}</span>
+                    </span>
+                    <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-muted" title={`${r.onTime} a tiempo · ${r.late} tarde · ${r.overdueOpen} vencidas`}>
+                      <div className="h-full bg-emerald-500/80" style={{ width: `${(r.onTime / Math.max(1, r.judged)) * 100}%` }} />
+                      <div className="h-full bg-amber-500/80" style={{ width: `${(r.late / Math.max(1, r.judged)) * 100}%` }} />
+                      <div className="h-full bg-rose-500/80" style={{ width: `${(r.overdueOpen / Math.max(1, r.judged)) * 100}%` }} />
+                    </div>
+                    <span className="hidden w-40 shrink-0 gap-2 text-right text-[11px] text-muted-foreground sm:flex sm:justify-end">
+                      <span className="text-emerald-600 dark:text-emerald-400">{r.onTime}✓</span>
+                      <span className="text-amber-600 dark:text-amber-400">{r.late} tarde</span>
+                      <span className="text-rose-600 dark:text-rose-400">{r.overdueOpen} venc.</span>
+                    </span>
+                    <span className={cn("w-12 shrink-0 text-right text-sm font-bold", pctTone(r.pct))}>
+                      {r.pct === null ? "—" : `${r.pct}%`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        ) : null}
+
         {/* Proyectos por estado */}
         <Section title="Proyectos por estado">
           {statusRows.length === 0 ? (
@@ -192,4 +235,12 @@ function Section({ title, hint, full, children }: { title: string; hint?: string
 
 function Empty({ text = "Sin datos todavía." }: { text?: string }) {
   return <p className="text-sm text-muted-foreground">{text}</p>;
+}
+
+// Color del % de cumplimiento: verde ≥85, ámbar ≥60, rojo por debajo.
+function pctTone(pct: number | null): string {
+  if (pct === null) return "text-muted-foreground";
+  if (pct >= 85) return "text-emerald-600 dark:text-emerald-400";
+  if (pct >= 60) return "text-amber-600 dark:text-amber-400";
+  return "text-rose-600 dark:text-rose-400";
 }

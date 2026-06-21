@@ -8,6 +8,8 @@ import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { setTaskStatus, setTaskDueDate } from "@/app/(app)/proyectos/[id]/actions";
 import { formatShortDate } from "@/lib/ui";
+import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
+import { userComplianceSummary } from "@/lib/compliance";
 import { labelOptions, labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
@@ -56,7 +58,7 @@ export default async function MisTareasPage() {
       orderBy: [{ completedAt: "desc" }, { updatedAt: "desc" }],
       take: 60,
       select: {
-        id: true, title: true, completedAt: true, isPrivate: true,
+        id: true, title: true, completedAt: true, dueDate: true, isPrivate: true,
         project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
       },
     }),
@@ -86,6 +88,9 @@ export default async function MisTareasPage() {
       },
     }),
   ]);
+
+  // Cumplimiento personal (cada quien ve el suyo, sin permiso especial).
+  const sla = await userComplianceSummary(user.id);
 
   // Items del calendario unificado: mis citas + mis tareas (entrega/rodaje).
   const calItems = [
@@ -161,6 +166,15 @@ export default async function MisTareasPage() {
                   📅 {formatShortDate(t.dueDate) ?? "Sin fecha"}
                 </span>
               )}
+              {(() => {
+                const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
+                if (u.state === "sin") return null;
+                return (
+                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", URGENCY_META[u.state].className)}>
+                    {urgencyLabel(u.state, u.days)}
+                  </span>
+                );
+              })()}
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
               <TaskDetailButton
                 task={{
@@ -215,9 +229,11 @@ export default async function MisTareasPage() {
           const when = t.completedAt
             ? new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(t.completedAt)
             : null;
+          const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt, isDone: true });
+          const late = u.state === "hecha_tarde";
           const inner = (
             <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-[11px] text-white">✓</span>
+              <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-[11px] text-white", late ? "bg-amber-500" : "bg-emerald-500")}>✓</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
                 <p className="truncate text-xs text-muted-foreground">
@@ -226,6 +242,11 @@ export default async function MisTareasPage() {
                     : t.isPrivate ? "🔒 Personal" : "Personal"}
                 </p>
               </div>
+              {t.dueDate ? (
+                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", URGENCY_META[u.state].className)}>
+                  {late ? "Tarde" : "A tiempo"}
+                </span>
+              ) : null}
               <span className="shrink-0 text-xs text-muted-foreground" title="Fecha y hora de finalización">
                 {when ? `Completada ${when}` : "Completada"}
               </span>
@@ -243,7 +264,24 @@ export default async function MisTareasPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Mis tareas</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Mis tareas</h1>
+        {sla && sla.pct !== null ? (
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-semibold",
+              sla.pct >= 85
+                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                : sla.pct >= 60
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  : "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+            )}
+            title={`${sla.onTime} a tiempo · ${sla.late} tarde · ${sla.overdueOpen} vencidas`}
+          >
+            Cumples {sla.pct}% a tiempo
+          </span>
+        ) : null}
+      </div>
       <p className="mt-1 text-sm text-muted-foreground">
         {tasks.length} tarea{tasks.length === 1 ? "" : "s"} abierta{tasks.length === 1 ? "" : "s"} · {user.name}
       </p>

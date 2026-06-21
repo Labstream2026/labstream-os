@@ -3,6 +3,8 @@ import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { cn } from "@/lib/utils";
+import { formatShortDate } from "@/lib/ui";
+import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
 import { type LabelRow, labelOptions, labelMeta, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
@@ -42,6 +44,7 @@ export function TasksList({
             <th className="px-3 py-2 font-medium">Estado</th>
             <th className="px-3 py-2 font-medium">Prioridad</th>
             <th className="px-3 py-2 font-medium">Responsable</th>
+            <th className="px-3 py-2 font-medium">📅 Entrega</th>
             <th className="px-3 py-2 font-medium">🎬 Rodaje</th>
             <th className="px-3 py-2" />
           </tr>
@@ -49,7 +52,7 @@ export function TasksList({
         <tbody>
           {sorted.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+              <td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">
                 Aún no hay tareas. Añade la primera abajo.
               </td>
             </tr>
@@ -86,6 +89,21 @@ export function TasksList({
                   {t.assignee ? (
                     <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" />
                   ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {t.dueDate ? (() => {
+                    const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null });
+                    return (
+                      <span
+                        className={cn("inline-block rounded px-1.5 py-0.5 text-[11px] font-medium", URGENCY_META[u.state].className)}
+                        title={urgencyLabel(u.state, u.days)}
+                      >
+                        {formatShortDate(t.dueDate)}
+                      </span>
+                    );
+                  })() : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </td>
