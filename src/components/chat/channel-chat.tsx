@@ -12,7 +12,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
 
 export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
-export type Member = { id: string; name: string };
+export type Member = { id: string; name: string; initials?: string | null; color?: string | null };
 
 export type ChatMsg = {
   id: string;
@@ -809,7 +809,8 @@ export function ChannelChat({
           <div className="absolute bottom-full left-3 z-30 mb-1 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
             {mentionMatches.map((mem) => (
               <button key={mem.id} type="button" onClick={() => insertMention(mem.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted">
-                <span className="text-primary">@</span> {mem.name}
+                <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
+                <span className="truncate">{mem.name}</span>
               </button>
             ))}
           </div>

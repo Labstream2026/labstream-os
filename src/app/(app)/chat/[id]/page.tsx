@@ -63,6 +63,10 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const isMember = channel.members.some((m) => m.user.id === session.id);
 
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
+  // Bots del sistema (Marcebot): excluidos de los listados de equipo (active:false), pero SÍ se
+  // ofrecen en el autocompletado de @menciones del chat para poder etiquetarlos fácil. Van de
+  // primeros para que aparezcan arriba al teclear "@".
+  const bots = await db.user.findMany({ where: { isSystemBot: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
   return (
     <div className="flex h-full flex-col">
@@ -95,7 +99,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           channelId={id}
           isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
-          members={team.map((t) => ({ id: t.id, name: t.name }))}
+          members={[...bots, ...team].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
           initialMessages={channel.messages.map((m) => ({
             id: m.id,
             body: m.body,
