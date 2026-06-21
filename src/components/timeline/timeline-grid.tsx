@@ -176,6 +176,9 @@ export function TimelineGrid({
     const left = offsetDays * dayWidth;
     const width = Math.max(spanDays * dayWidth, 12);
     const hex = bar.colorHex;
+    // Señal de urgencia (no pisa el color de fase): barra VENCIDA = sin terminar y su fecha
+    // de fin ya pasó. Se resalta con un anillo rojo.
+    const overdue = !bar.done && bar.endKey ? dayNumberOf(bar.endKey) < todayNum : false;
     const hasChildren = !!(bar.children && bar.children.length);
     const isOpen = expanded.has(bar.id);
     const rows: React.ReactNode[] = [];
@@ -218,6 +221,7 @@ export function TimelineGrid({
               className={cn(
                 "group absolute top-1/2 flex -translate-y-1/2 items-center overflow-hidden rounded-md border",
                 bar.editable && onBarChange ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                overdue && "ring-2 ring-rose-500",
               )}
               style={{
                 left,
