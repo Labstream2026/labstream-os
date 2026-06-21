@@ -283,6 +283,7 @@ export function ChannelChat({
   const fileRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const composerWrapRef = React.useRef<HTMLDivElement>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
@@ -538,6 +539,15 @@ export function ChannelChat({
     : [];
   // Reinicia el resaltado al primer resultado cada vez que cambia lo que se teclea tras la "@".
   React.useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
+  // Cierra el menú de @menciones al hacer clic fuera del cuadro de escritura.
+  React.useEffect(() => {
+    if (mentionQuery == null) return;
+    const onDown = (e: MouseEvent) => {
+      if (composerWrapRef.current && !composerWrapRef.current.contains(e.target as Node)) setMentionQuery(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [mentionQuery]);
 
   const { confirm, dialog } = useConfirmDialog();
   const [attachErr, setAttachErr] = React.useState<string | null>(null);
@@ -680,7 +690,7 @@ export function ChannelChat({
             ) : null}
             {m.deleted ? (
               <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
-                <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
+                <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
                 <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                   <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
                     <span className="text-sm font-semibold text-muted-foreground">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
@@ -694,7 +704,7 @@ export function ChannelChat({
               </div>
             ) : (
             <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
-              <UserAvatar initials={m.author?.initials} color={m.author?.color} size="md" />
+              <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                 <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
                   <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
@@ -772,7 +782,7 @@ export function ChannelChat({
                   <div className="mt-2 w-full space-y-2 self-stretch border-l-2 border-border pl-3 text-left">
                     {replies.map((r) => (
                       <div key={r.id} className="flex gap-2">
-                        <UserAvatar initials={r.author?.initials} color={r.author?.color} size="sm" />
+                        <UserAvatar initials={r.author?.initials} name={r.author?.name} color={r.author?.color} size="sm" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
                             <span className="text-xs font-semibold">{isMine(r.author) ? "Tú" : r.author?.name ?? "Sistema"}</span>
@@ -868,7 +878,7 @@ export function ChannelChat({
             </div>
           </form>
         ) : null}
-        <div className="relative mx-auto w-full max-w-3xl">
+        <div ref={composerWrapRef} className="relative mx-auto w-full max-w-3xl">
         {mentionMatches.length > 0 ? (
           <div className="absolute bottom-full left-3 z-40 mb-1 w-72 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
             <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
@@ -886,7 +896,7 @@ export function ChannelChat({
                       idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted",
                     )}
                   >
-                    <UserAvatar initials={mem.initials} color={mem.color} size="sm" />
+                    <UserAvatar initials={mem.initials} name={mem.name} color={mem.color} size="sm" />
                     <span className="truncate font-medium">{mentionLabel(mem.name)}</span>
                     {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
                   </button>

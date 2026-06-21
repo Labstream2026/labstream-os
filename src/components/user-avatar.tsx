@@ -7,8 +7,18 @@ const SIZES: Record<string, string> = {
   lg: "h-10 w-10 text-sm",
 };
 
+// Abreviatura a partir del nombre cuando el usuario no fijó sus iniciales: quita el sufijo de
+// cargo (" - Rol") y toma la inicial del nombre + la del apellido (p. ej. "Alejandra Hereira" → "AH").
+function initialsFromName(name: string): string {
+  const words = name.split(/\s+[-–—]\s+/)[0].trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 export function UserAvatar({
   initials,
+  name,
   color,
   url,
   size = "md",
@@ -16,18 +26,20 @@ export function UserAvatar({
   ring,
 }: {
   initials?: string | null;
+  name?: string | null;
   color?: string | null;
   url?: string | null;
   size?: "sm" | "md" | "lg";
   className?: string;
   ring?: boolean;
 }) {
+  const label = (initials && initials.trim()) || (name ? initialsFromName(name) : "?");
   if (url) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
         src={url}
-        alt={(initials ?? "").slice(0, 2)}
+        alt={label.slice(0, 2)}
         className={cn(
           "inline-block shrink-0 rounded-full object-cover",
           SIZES[size],
@@ -47,7 +59,7 @@ export function UserAvatar({
         className,
       )}
     >
-      {(initials ?? "?").slice(0, 2)}
+      {label.slice(0, 2)}
     </span>
   );
 }
