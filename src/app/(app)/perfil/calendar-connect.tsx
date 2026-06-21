@@ -110,7 +110,7 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
                   flash(r, "¡Conectado!");
                   if (r.ok) { setConnected(true); setCalendars(r.calendars ?? []); setCalName((r.calendars ?? []).find((c) => c.url === r.selected)?.name ?? null); }
                 } catch (e) {
-                  setErr(`No se pudo conectar: ${e instanceof Error ? e.message : "la solicitud falló o tardó demasiado"}. Revisa la URL del NAS y que sea alcanzable.`);
+                  setErr(`No se pudo conectar: ${e instanceof Error ? e.message : "la solicitud falló o tardó demasiado"}. Revisa tu usuario y contraseña del NAS.`);
                   setMsg(null);
                 }
               });
@@ -118,25 +118,29 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
             className="space-y-3"
           >
             <div className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-muted-foreground" /> Conectar mi Synology Calendar</div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">URL del NAS (CalDAV)</label>
-              <input name="serverUrl" required placeholder="https://nas.labstreamsas.com/caldav/" defaultValue="https://nas.labstreamsas.com/caldav/" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Usa el dominio del NAS con la ruta <code>/caldav/</code>: <code>https://nas.labstreamsas.com/caldav/</code>. La app lo resuelve a la red local automáticamente.</p>
-            </div>
+            <p className="text-[11px] text-muted-foreground">Solo pon tu <strong>usuario y contraseña</strong> del NAS — lo demás ya está configurado.</p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Usuario DSM</label>
-                <input name="username" required defaultValue={email.split("@")[0]} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                <label className="text-xs font-medium text-muted-foreground">Usuario</label>
+                <input name="username" required defaultValue={email.split("@")[0]} placeholder="usuario del NAS" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Contraseña de aplicación</label>
+                <label className="text-xs font-medium text-muted-foreground">Contraseña</label>
                 <input name="password" type="password" required autoComplete="off" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Usa una <strong>contraseña de aplicación</strong> de DSM (Panel de control → Usuario → Cuenta → contraseñas de aplicación),
-              no tu contraseña principal. Se guarda <strong>cifrada</strong> en el servidor.
+              Se guarda <strong>cifrada</strong> en el servidor. Si tu cuenta del NAS tiene <strong>verificación en 2 pasos</strong>,
+              crea una <strong>contraseña de aplicación</strong> (DSM → Panel de control → Usuario → Cuenta) y usa esa.
             </p>
+            <details className="text-[11px]">
+              <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">Opciones avanzadas</summary>
+              <div className="mt-2">
+                <label className="text-xs font-medium text-muted-foreground">URL del NAS (CalDAV)</label>
+                <input name="serverUrl" placeholder="https://nas.labstreamsas.com/caldav/" className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                <p className="mt-1 text-muted-foreground">Déjalo vacío para usar el predeterminado del equipo.</p>
+              </div>
+            </details>
             <button type="submit" disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarDays className="size-4" />} Conectar
             </button>

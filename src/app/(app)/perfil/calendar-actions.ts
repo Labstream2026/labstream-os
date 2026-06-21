@@ -14,6 +14,11 @@ export type CalendarConnResult = {
   selected?: string | null;
 };
 
+// URL del NAS preconfigurada: el servidor CalDAV es el mismo para todo el equipo, así que el
+// colaborador NO la escribe (solo usuario + contraseña). Se puede sobrescribir desde el form
+// (campo "serverUrl" en Opciones avanzadas) o con la env CALDAV_DEFAULT_URL si el NAS cambia.
+const DEFAULT_CALDAV_BASE = process.env.CALDAV_DEFAULT_URL || "https://nas.labstreamsas.com/caldav/";
+
 // Conecta (o reconecta) el Synology Calendar del usuario: prueba credenciales,
 // descubre sus calendarios y guarda la conexión cifrada. Elige por defecto el
 // primer calendario si aún no hay uno seleccionado.
@@ -24,7 +29,10 @@ export async function connectCalendar(formData: FormData): Promise<CalendarConnR
   // Todo el cuerpo va en try/catch: NUNCA lanzar al cliente (si no, la ruta cae al error
   // boundary y se pierde el motivo real). Cualquier fallo se devuelve como {ok:false, error}.
   try {
-  const serverUrl = String(formData.get("serverUrl") ?? "").trim().replace(/\/$/, "");
+  // Si el colaborador no pone URL (flujo normal: solo usuario+contraseña), usamos la del NAS
+  // preconfigurada. El campo solo aparece en "Opciones avanzadas" para sobrescribirla.
+  const rawUrl = String(formData.get("serverUrl") ?? "").trim() || DEFAULT_CALDAV_BASE;
+  const serverUrl = rawUrl.replace(/\/$/, "");
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   if (!/^https?:\/\//i.test(serverUrl)) return { ok: false, error: "La URL del NAS debe empezar por http(s)://" };
