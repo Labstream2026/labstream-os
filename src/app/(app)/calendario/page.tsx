@@ -6,6 +6,10 @@ import { caldavEnabled } from "@/lib/caldav";
 import { CalendarBoard } from "./calendar-board";
 import { type CalItem } from "./my-calendar";
 import { createMyEvent } from "./actions";
+import { buildSessionTimeline } from "@/lib/timeline-data";
+import { GlobalTimeline } from "@/app/(app)/timeline/global-timeline";
+import { CalendarTimelineTabs } from "./calendar-timeline-tabs";
+import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +19,8 @@ export default async function CalendarioPage() {
   const session = await getSession();
   // Acceso al calendario por permiso (el backfill lo da al equipo; los clientes no).
   if (!hasPermission(session, "ver_calendario")) redirect("/");
+  // El cronograma (vista interna) es cross-proyecto: solo si puede ver proyectos.
+  const canTimeline = hasPermission(session, "ver_proyectos");
   // Ventana acotada: desde el inicio del mes anterior en adelante.
   const now = new Date();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -44,6 +50,8 @@ export default async function CalendarioPage() {
     }),
     db.user.findMany({ where: { active: true, id: { not: session?.id } }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
   ]);
+
+  const timeline = canTimeline ? await buildSessionTimeline(session) : null;
 
   // Privacidad de citas: las de proyecto privado solo a quien tiene acceso o es
   // invitado/creador. Las citas sin proyecto son del equipo.
@@ -92,6 +100,7 @@ export default async function CalendarioPage() {
       date: t.dueDate!.toISOString(),
       start: t.dueDate!.toISOString(),
       kind: "task" as const,
+      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state),
       allDay: true,
       projectName: t.project?.name ?? null,
       projectEmoji: t.project?.emoji ?? null,
@@ -113,18 +122,33 @@ export default async function CalendarioPage() {
     })),
   ];
 
+  const calendarNode = (
+    <div className="flex h-full flex-col">
+      <p className="mb-3 shrink-0 text-sm text-muted-foreground">
+        Citas y reuniones + todas las tareas del equipo (entregas y rodajes).
+        {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : ""}
+      </p>
+      <div className="min-h-0 flex-1">
+        <CalendarBoard items={items} onCreate={createMyEvent} detailMode="dock" team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
+      </div>
+    </div>
+  );
+
+  const timelineNode = timeline ? (
+    <div>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Línea de tiempo de todos los proyectos del estudio, con rodajes y entregas. Arrastra la barra de un proyecto para reprogramarlo o haz clic para abrirlo.
+        {timeline.undatedCount > 0 ? ` · ${timeline.undatedCount} proyecto${timeline.undatedCount === 1 ? "" : "s"} sin fechas.` : ""}
+      </p>
+      <GlobalTimeline clients={timeline.clients} milestones={timeline.milestones} />
+    </div>
+  ) : null;
+
   return (
     <div className="flex h-full flex-col px-4 py-6 sm:px-6">
-      <div className="shrink-0">
-        <h1 className="text-3xl font-bold tracking-tight">Calendario del equipo</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Citas y reuniones + todas las tareas del equipo (entregas y rodajes).
-          {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : ""}
-        </p>
-      </div>
-
-      <div className="mt-5 min-h-0 flex-1">
-        <CalendarBoard items={items} onCreate={createMyEvent} detailMode="dock" team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
+      <h1 className="shrink-0 text-3xl font-bold tracking-tight">Calendario del equipo</h1>
+      <div className="mt-4 min-h-0 flex-1">
+        <CalendarTimelineTabs calendarNode={calendarNode} timelineNode={timelineNode} />
       </div>
     </div>
   );

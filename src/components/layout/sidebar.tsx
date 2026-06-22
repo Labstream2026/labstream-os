@@ -10,7 +10,6 @@ import {
   LayoutGrid,
   LayoutTemplate,
   CalendarDays,
-  CalendarRange,
   ClipboardCheck,
   FileText,
   Sparkles,
@@ -57,7 +56,6 @@ const NAV = [
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },
-  { href: "/timeline", label: "Cronograma", icon: CalendarRange },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];
