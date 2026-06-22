@@ -88,6 +88,14 @@ const MIME: Record<string, string> = {
   jpeg: "image/jpeg",
   txt: "text/plain",
   csv: "text/csv",
+  // Audio (notas de voz y adjuntos de audio).
+  weba: "audio/webm",
+  webm: "audio/webm",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
 };
 
 export function extOf(name: string) {
@@ -108,6 +116,12 @@ const INLINE_SAFE_MIME = new Set([
   "image/webp",
   "image/avif",
   "application/pdf",
+  // Audio: seguro de servir en línea (no ejecuta como SVG/HTML) → notas de voz reproducibles.
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
 ]);
 
 export function isInlineSafeMime(mime: string): boolean {

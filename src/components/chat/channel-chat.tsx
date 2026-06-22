@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
@@ -120,6 +120,10 @@ function isImage(a: Attachment) {
 function isPdf(a: Attachment) {
   return a.mime === "application/pdf" || /\.pdf$/i.test(a.name);
 }
+// Audio (notas de voz y adjuntos de audio) → se reproduce en línea con un <audio>.
+function isAudio(a: Attachment) {
+  return (a.mime ?? "").toLowerCase().startsWith("audio/") || /\.(weba|webm|ogg|oga|m4a|mp3|wav)$/i.test(a.name);
+}
 // Icono y color según el tipo de archivo (Word/Excel/PPT/PDF/genérico).
 function fileIcon(name: string) {
   if (/\.(docx?|odt|rtf)$/i.test(name)) return { Icon: FileText, color: "text-blue-600" };
@@ -162,6 +166,16 @@ function Attachments({ items }: { items?: Attachment[] }) {
               />
               <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{a.name}</span>
             </a>
+          );
+        }
+        if (isAudio(a)) {
+          // Nota de voz / audio: reproductor en línea.
+          return (
+            <div key={a.id} className="flex w-64 max-w-full items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5">
+              <Mic className="size-4 shrink-0 text-primary" />
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <audio controls preload="metadata" src={`/api/files/${a.id}`} className="h-8 min-w-0 flex-1" />
+            </div>
           );
         }
         const { Icon, color } = fileIcon(a.name);
@@ -284,6 +298,13 @@ export function ChannelChat({
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const composerWrapRef = React.useRef<HTMLDivElement>(null);
+  // Grabación de nota de voz (en vivo, estilo WhatsApp).
+  const [recording, setRecording] = React.useState(false);
+  const [recSecs, setRecSecs] = React.useState(0);
+  const recRef = React.useRef<MediaRecorder | null>(null);
+  const recChunks = React.useRef<Blob[]>([]);
+  const recStream = React.useRef<MediaStream | null>(null);
+  const recTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
 
@@ -513,6 +534,65 @@ export function ChannelChat({
     setMentionQuery(null);
   }
 
+  // ── Notas de voz: grabar en vivo y enviar (MediaRecorder + adjunto de audio) ──
+  function stopRecCleanup() {
+    if (recTimer.current) { clearInterval(recTimer.current); recTimer.current = null; }
+    recStream.current?.getTracks().forEach((t) => t.stop());
+    recStream.current = null;
+  }
+  async function startRecording() {
+    if (recording || uploading) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recStream.current = stream;
+      const pref = ["audio/webm", "audio/mp4", "audio/ogg"];
+      const mimeType = (typeof MediaRecorder !== "undefined" && pref.find((m) => MediaRecorder.isTypeSupported?.(m))) || undefined;
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recChunks.current = [];
+      mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) recChunks.current.push(e.data); };
+      mr.start();
+      recRef.current = mr;
+      setRecSecs(0);
+      setRecording(true);
+      recTimer.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch {
+      setAttachErr("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
+      stopRecCleanup();
+    }
+  }
+  function finishRecording(send: boolean) {
+    const mr = recRef.current;
+    setRecording(false);
+    if (!mr) { stopRecCleanup(); return; }
+    mr.onstop = async () => {
+      const type = mr.mimeType || "audio/webm";
+      const blob = new Blob(recChunks.current, { type });
+      recChunks.current = [];
+      recRef.current = null;
+      stopRecCleanup();
+      if (!send || blob.size === 0) return;
+      const ext = type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("ogg") ? "ogg" : "weba";
+      const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type });
+      const fd = new FormData();
+      fd.set("channelId", channelId);
+      fd.set("body", "");
+      fd.append("files", file);
+      setUploading(true);
+      setAttachErr(null);
+      try {
+        const saved = await sendMessageWithAttachments(fd);
+        if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+      } catch {
+        setAttachErr("No se pudo enviar la nota de voz.");
+      } finally {
+        setUploading(false);
+        scrollToBottom();
+      }
+    };
+    try { mr.stop(); } catch { stopRecCleanup(); }
+  }
+  React.useEffect(() => () => stopRecCleanup(), []);
+
   // Cambio del texto del composer: dispara "escribiendo…" (throttle) y detecta @menciones.
   function onComposerChange(v: string) {
     setText(v);
@@ -714,11 +794,9 @@ export function ChannelChat({
             <div className={cn("group relative flex gap-2.5", mine && "flex-row-reverse")}>
               {cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
-                {!cont || m.editedAt || m.pinned || m.status ? (
+                {!cont || m.pinned || m.status ? (
                   <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
                     {!cont ? <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span> : null}
-                    {!cont ? <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span> : null}
-                    {m.editedAt ? <span className="text-[10px] text-muted-foreground">(editado)</span> : null}
                     {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
                     {statusTag(m.status)}
                   </div>
@@ -755,17 +833,21 @@ export function ChannelChat({
                 ) : m.body && m.body !== ATTACH_PLACEHOLDER ? (
                   <div
                     className={cn(
-                      "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-2 text-sm",
+                      "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-1.5 text-sm",
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
                     <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, mentionPool, mine)}</p>
+                    <span suppressHydrationWarning className={cn("mt-0.5 block text-right text-[10px] leading-none", mine ? "text-primary-foreground/70" : "text-muted-foreground/80")}>{hhmm(m.createdAt)}{m.editedAt ? " · editado" : ""}</span>
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
                   <Attachments items={m.attachments} />
                   {m.poll ? (
                     <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                  ) : null}
+                  {!(m.body && m.body !== ATTACH_PLACEHOLDER) && ((m.attachments?.length ?? 0) > 0 || m.poll) ? (
+                    <span suppressHydrationWarning className="mt-0.5 block text-[10px] leading-none text-muted-foreground/80">{hhmm(m.createdAt)}{m.editedAt ? " · editado" : ""}</span>
                   ) : null}
                 </div>
 
@@ -939,6 +1021,21 @@ export function ChannelChat({
             </div>
           ) : null}
           <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
+            {recording ? (
+              <div className="flex w-full items-center gap-3 px-1 py-1.5">
+                <button type="button" onClick={() => finishRecording(false)} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" aria-label="Cancelar grabación" title="Cancelar">
+                  <Trash2 className="size-5" />
+                </button>
+                <span className="flex flex-1 items-center gap-2 text-sm text-muted-foreground">
+                  <span className="size-2.5 animate-pulse rounded-full bg-rose-500" />
+                  Grabando… {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
+                </span>
+                <button type="button" onClick={() => finishRecording(true)} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Enviar nota de voz" title="Enviar nota de voz">
+                  <Send className="size-4" />
+                </button>
+              </div>
+            ) : (
+            <>
             <input
               ref={fileRef}
               type="file"
@@ -1005,14 +1102,29 @@ export function ChannelChat({
               enterKeyHint="send"
               className="max-h-48 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             />
-            <button
-              type="submit"
-              disabled={uploading || (!text.trim() && files.length === 0)}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
-              aria-label="Enviar"
-            >
-              <Send className="size-4" />
-            </button>
+            {text.trim() || files.length > 0 ? (
+              <button
+                type="submit"
+                disabled={uploading}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                aria-label="Enviar"
+              >
+                <Send className="size-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startRecording}
+                disabled={uploading}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                aria-label="Grabar nota de voz"
+                title="Grabar nota de voz"
+              >
+                <Mic className="size-5" />
+              </button>
+            )}
+            </>
+            )}
           </div>
         </form>
         </div>
