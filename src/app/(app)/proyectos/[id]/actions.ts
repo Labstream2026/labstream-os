@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
@@ -47,10 +47,12 @@ const accessSelect = {
 
 // Verifica permiso de ESCRITURA en un proyecto (mutaciones). Lanza si no. Devuelve la sesión.
 // Los invitados (GUEST) son de solo lectura → no pueden crear/editar/borrar.
-async function ensureProjectAccess(projectId: string): Promise<SessionUser> {
+async function ensureProjectAccess(projectId: string, perm?: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
   if (!project || !canWriteProject(project, session)) throw new Error("No autorizado");
+  // Además del acceso al proyecto, exige el permiso del catálogo si se indica (admin pasa por bypass).
+  if (perm && !hasPermission(session, perm)) throw new Error("No autorizado");
   return session!;
 }
 
@@ -63,7 +65,7 @@ type WithProject = {
   assigneeId?: string | null;
   project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } | null;
 } | null;
-async function ensureAccessVia(resource: WithProject): Promise<string | null> {
+async function ensureAccessVia(resource: WithProject, perm: string | null = "editar_tareas"): Promise<string | null> {
   const session = await getSession();
   if (!resource || !session) throw new Error("No autorizado");
   if (resource.project) {
@@ -71,6 +73,13 @@ async function ensureAccessVia(resource: WithProject): Promise<string | null> {
   } else {
     const ok = session.role === "admin" || resource.ownerId === session.id || resource.assigneeId === session.id;
     if (!ok) throw new Error("No autorizado");
+  }
+  // Permiso del catálogo (por defecto editar_tareas) con BYPASS para el dueño o el asignado de
+  // la propia tarea: un colaborador siempre puede editar/mover SU tarea aunque su rol no tenga
+  // el permiso; para tareas de OTROS sí se exige. `perm: null` lo desactiva (getters, etc.).
+  if (perm && !hasPermission(session, perm)) {
+    const mine = resource.ownerId === session.id || resource.assigneeId === session.id;
+    if (!mine) throw new Error("No autorizado");
   }
   return resource.projectId;
 }
@@ -99,7 +108,7 @@ function canEditTaskMeta(
 
 // ── Tareas ──
 export async function createTask(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId);
+  await ensureProjectAccess(projectId, "crear_tareas");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
   const assigneeId = String(formData.get("assigneeId") ?? "") || null;
@@ -170,7 +179,7 @@ export async function renameTask(taskId: string, _projectId: string, formData: F
 // Brief de la propuesta del proyecto (qué se hará + entregables/compromisos). Visible a
 // todo el equipo del proyecto; lo edita quien puede escribir el proyecto. Sin valores.
 export async function updateProjectBrief(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId);
+  await ensureProjectAccess(projectId, "editar_proyectos");
   const briefScope = String(formData.get("briefScope") ?? "").trim() || null;
   const briefDeliverables = String(formData.get("briefDeliverables") ?? "").trim() || null;
   await db.project.update({ where: { id: projectId }, data: { briefScope, briefDeliverables } });
@@ -221,7 +230,7 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
 // Fijar/limpiar la fecha de entrega. Avisa al responsable.
 export async function setTaskDueDate(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "gestionar_cronograma");
   if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la fecha de entrega.");
   const raw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
@@ -281,7 +290,7 @@ export async function setTaskStage(taskId: string, _projectId: string, stage: st
 // Fijar/limpiar la fecha de rodaje de una tarea (alimenta la vista de calendario).
 export async function setTaskShootDate(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "gestionar_cronograma");
   const raw = String(formData.get("shootDate") ?? "").trim();
   // input type=date → "YYYY-MM-DD"; se ancla a mediodía UTC para evitar saltos de día por zona horaria.
   const shootDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
@@ -314,7 +323,7 @@ export async function setTaskShootDate(taskId: string, _projectId: string, formD
 // Semántica por campo: ausente → no se toca; "" → se borra; valor → se fija.
 export async function setTaskDates(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "gestionar_cronograma");
   if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar las fechas.");
   const data: { startDate?: Date | null; dueDate?: Date | null } = {};
   const sRaw = formData.get("startDate");
@@ -367,7 +376,7 @@ export async function setTaskEstimate(taskId: string, _projectId: string, formDa
 // Registra horas reales trabajadas (parte de horas). Cualquiera con acceso imputa las suyas.
 export async function logTime(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "registrar_horas");
   const session = await getSession();
   const minutes = parseHoursToMinutes(String(formData.get("hours") ?? ""));
   if (!minutes || minutes <= 0) throw new Error("Horas inválidas");
@@ -400,7 +409,7 @@ export type TimeEntryItem = {
 
 export async function getTaskTimeEntries(taskId: string): Promise<TimeEntryItem[]> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  await ensureAccessVia(task);
+  await ensureAccessVia(task, null);
   const session = await getSession();
   const rows = await db.timeEntry.findMany({
     where: { taskId },
@@ -420,7 +429,7 @@ export async function getTaskTimeEntries(taskId: string): Promise<TimeEntryItem[
 // Fechas del proyecto (inicio/entrega) — alimentan el cronograma global. Editable desde
 // el arrastre de la barra del proyecto en /timeline.
 export async function setProjectDates(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId);
+  await ensureProjectAccess(projectId, "gestionar_cronograma");
   const data: { startDate?: Date | null; dueDate?: Date | null } = {};
   const sRaw = formData.get("startDate");
   const dRaw = formData.get("dueDate");
@@ -484,7 +493,7 @@ export async function getProjectBasics(projectId: string): Promise<{
 // Edita los datos básicos de un proyecto (nombre, emoji, responsable, estado, prioridad,
 // fechas y descripción) desde el botón flotante de creación rápida.
 export async function updateProject(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId);
+  await ensureProjectAccess(projectId, "editar_proyectos");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const emoji = String(formData.get("emoji") ?? "").trim() || null;
@@ -519,7 +528,7 @@ export async function updateProject(projectId: string, formData: FormData) {
 
 export async function deleteTask(taskId: string, _projectId: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "eliminar_tareas");
   await db.task.delete({ where: { id: taskId } });
   await recalcProjectProgress(projectId);
   await logActivity({
@@ -585,7 +594,7 @@ export type TaskCommentItem = {
 // Lee los comentarios de una tarea (verificando acceso).
 export async function getTaskComments(taskId: string): Promise<TaskCommentItem[]> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  await ensureAccessVia(task);
+  await ensureAccessVia(task, null);
   const session = await getSession();
   const rows = await db.taskComment.findMany({
     where: { taskId },
@@ -604,7 +613,7 @@ export async function getTaskComments(taskId: string): Promise<TaskCommentItem[]
 // Añade un comentario a la tarea y avisa al dueño/responsable (menos al autor).
 export async function addTaskComment(taskId: string, _projectId: string, formData: FormData): Promise<TaskCommentItem | null> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  const projectId = await ensureAccessVia(task, "comentar");
   const session = await getSession();
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   if (!body) return null;
@@ -735,7 +744,7 @@ export async function setDeliverableStatus(id: string, _projectId: string, statu
   // APROBADO/ENTREGADO con strings arbitrarios; el guard además estrecha el tipo.
   if (!isDeliverableStatus(status)) throw new Error("Estado inválido");
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
-  const projectId = await ensureAccessVia(deliverable);
+  const projectId = await ensureAccessVia(deliverable, null);
   await db.deliverable.update({ where: { id }, data: { status } });
   await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${deliverableStatusMeta(status).label}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
@@ -1034,7 +1043,7 @@ export async function addInternalReviewComment(deliverableId: string, formData: 
 
 // ── Archivos ──
 export async function addFile(projectId: string, formData: FormData) {
-  const session = await ensureProjectAccess(projectId);
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
   const name = String(formData.get("name") ?? "").trim();
   const url = safeExternalUrl(String(formData.get("url") ?? ""));
   if (!name || !url) return;
@@ -1054,7 +1063,7 @@ const BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|pif|cpl|jar|js|vbs|ps1|sh|app|dm
 const MAX_UPLOAD = 100 * 1024 * 1024; // 100 MB por archivo (coincide con bodySizeLimit)
 
 export async function uploadProjectFiles(projectId: string, formData: FormData) {
-  const session = await ensureProjectAccess(projectId);
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
   const folderId = String(formData.get("folderId") ?? "") || null;
   const files = formData
     .getAll("files")
@@ -1104,7 +1113,7 @@ async function ensureGuionesFolder(projectId: string): Promise<string> {
 
 // Sube uno o varios documentos de Word como guiones del proyecto (solo formatos Word).
 export async function uploadGuiones(projectId: string, formData: FormData) {
-  const session = await ensureProjectAccess(projectId);
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
   const files = formData
     .getAll("files")
     .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name))
@@ -1136,7 +1145,7 @@ export async function uploadGuiones(projectId: string, formData: FormData) {
 // un .docx válido y lo guarda en la carpeta «Guiones». Devuelve el id para abrirlo en
 // OnlyOffice y empezar a editar de inmediato.
 export async function createGuion(projectId: string, formData: FormData): Promise<{ ok: boolean; id?: string; error?: string }> {
-  const session = await ensureProjectAccess(projectId);
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
   let name = String(formData.get("name") ?? "").trim() || "Guion sin título";
   if (!/\.docx$/i.test(name)) name = `${name}.docx`;
   const folderId = await ensureGuionesFolder(projectId);
@@ -1183,7 +1192,7 @@ export async function copyGuionText(fileId: string): Promise<{ ok: boolean; text
 
 export async function deleteFile(fileId: string, _projectId: string) {
   const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
-  const projectId = await ensureAccessVia(file);
+  const projectId = await ensureAccessVia(file, "eliminar_archivos");
   await db.fileAsset.delete({ where: { id: fileId } });
   await logActivity({ action: "file.delete", summary: `eliminó el archivo «${file!.name}»`, projectId, entityType: "file", entityId: fileId });
   refresh(projectId);
@@ -1191,7 +1200,7 @@ export async function deleteFile(fileId: string, _projectId: string) {
 
 // ── Carpetas (personalizables: nombre, icono, color; se pueden crear y borrar) ──
 export async function createFolder(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId);
+  await ensureProjectAccess(projectId, "subir_archivos");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const icon = String(formData.get("icon") ?? "").trim() || null;
@@ -1210,7 +1219,7 @@ export async function createFolder(projectId: string, formData: FormData) {
 
 export async function updateFolder(folderId: string, _projectId: string, formData: FormData) {
   const folder = await db.projectFolder.findUnique({ where: { id: folderId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
-  const projectId = await ensureAccessVia(folder);
+  const projectId = await ensureAccessVia(folder, "subir_archivos");
   const name = String(formData.get("name") ?? "").trim() || folder!.name;
   const icon = String(formData.get("icon") ?? "").trim() || null;
   const color = String(formData.get("color") ?? "").trim() || null;
@@ -1221,7 +1230,7 @@ export async function updateFolder(folderId: string, _projectId: string, formDat
 
 export async function deleteFolder(folderId: string, _projectId: string) {
   const folder = await db.projectFolder.findUnique({ where: { id: folderId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
-  const projectId = await ensureAccessVia(folder);
+  const projectId = await ensureAccessVia(folder, "eliminar_archivos");
   // Los archivos de la carpeta quedan "sin carpeta" (folderId → null por onDelete: SetNull).
   await db.projectFolder.delete({ where: { id: folderId } });
   await logActivity({ action: "folder.delete", summary: `eliminó la carpeta «${folder!.name}»`, projectId, entityType: "folder", entityId: folderId });
@@ -1300,7 +1309,7 @@ export async function setProjectColor(projectId: string, color: string) {
 // Fecha de entrega de un entregable (alimenta el calendario de proyectos/clientes).
 export async function setDeliverableDueDate(id: string, _projectId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
-  const projectId = await ensureAccessVia(deliverable);
+  const projectId = await ensureAccessVia(deliverable, "gestionar_cronograma");
   const raw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
   await db.deliverable.update({ where: { id }, data: { dueDate } });
