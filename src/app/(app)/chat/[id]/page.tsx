@@ -8,7 +8,8 @@ import { ChannelChat } from "@/components/chat/channel-chat";
 import { MARCEBOT_EMAIL, MARCEBOT_NAME } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
-import { Hash, Lock } from "lucide-react";
+import { UserAvatar } from "@/components/user-avatar";
+import { Hash, Lock, ChevronLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -73,11 +74,24 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
-        <Link href="/chat" className="text-xs text-muted-foreground hover:text-foreground md:hidden">← Chats</Link>
-        <div className="mt-1 flex items-center gap-2">
-          {isDM ? null : channel.isPublic ? <Hash className="size-5 text-muted-foreground" /> : <Lock className="size-5 text-amber-600" />}
-          <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+      <div className="shrink-0 border-b border-border px-3 py-2.5 sm:px-6 sm:py-3">
+        <div className="flex items-center gap-2">
+          {/* Volver a la lista de chats (solo móvil): flecha grande tipo WhatsApp para cambiar de conversación. */}
+          <Link
+            href="/chat"
+            aria-label="Volver a Chats"
+            className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted md:hidden"
+          >
+            <ChevronLeft className="size-6" />
+          </Link>
+          {isDM ? (
+            <UserAvatar initials={other?.initials ?? null} color={other?.avatarColor ?? null} size="sm" />
+          ) : channel.isPublic ? (
+            <Hash className="size-5 shrink-0 text-muted-foreground" />
+          ) : (
+            <Lock className="size-5 shrink-0 text-amber-600" />
+          )}
+          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
           {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
           {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
         </div>
