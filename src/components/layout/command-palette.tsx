@@ -16,7 +16,6 @@ const PAGES: Item[] = [
   { id: "p-chats", label: "Chats", href: "/chat", icon: MessagesSquare, group: "Ir a" },
   { id: "p-proj", label: "Proyectos", href: "/proyectos", icon: LayoutGrid, group: "Ir a" },
   { id: "p-cal", label: "Calendario", href: "/calendario", icon: CalendarDays, group: "Ir a" },
-  { id: "p-ai", label: "Asistente IA", href: "/asistente", icon: Sparkles, group: "Ir a" },
   { id: "p-tpl", label: "Plantillas", href: "/plantillas", icon: LayoutTemplate, group: "Ir a" },
   { id: "p-quote", label: "Cotizaciones", href: "/cotizaciones", icon: FileText, group: "Ir a" },
   { id: "p-wiki", label: "Wiki del equipo", href: "/wiki", icon: BookOpen, group: "Ir a" },

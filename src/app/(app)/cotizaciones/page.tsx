@@ -4,7 +4,7 @@ import { Plus, FileText, Sparkles, Eye } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
-import { formatMoney, quoteStatusMeta, formatShortDate } from "@/lib/ui";
+import { formatMoney, quoteStatusMeta, formatShortDate, quoteTotals } from "@/lib/ui";
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
@@ -15,6 +15,22 @@ import { ServicesCatalog } from "./services-catalog";
 
 export const dynamic = "force-dynamic";
 
+// Estado efectivo de una FACTURA: ENVIADA con vencimiento pasado cuenta como VENCIDA.
+function effectiveInvoiceStatus(status: string, dueDate: Date | null): string {
+  if (status === "ENVIADA" && dueDate && new Date(dueDate) < new Date()) return "VENCIDA";
+  return status;
+}
+
+// Tarjeta del balance de facturación (resumen de cobro).
+function Money({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-xl font-bold ${valueClass ?? ""}`}>{value}</p>
+    </div>
+  );
+}
+
 export default async function CotizacionesPage() {
   const session = await getSession();
   if (!hasPermission(session, "ver_cotizaciones")) redirect("/");
@@ -22,7 +38,7 @@ export default async function CotizacionesPage() {
 
   // Las cotizaciones se filtran por los clientes a los que el usuario tiene acceso
   // (un editor/colaborador no debe ver el precio de clientes ajenos).
-  const [quotes, proposals] = await Promise.all([
+  const [quotes, proposals, invoices] = await Promise.all([
     db.quote.findMany({
       where: { client: accessibleClientWhere(session) },
       orderBy: { createdAt: "desc" },
@@ -36,12 +52,26 @@ export default async function CotizacionesPage() {
       orderBy: { updatedAt: "desc" },
       select: { id: true, code: true, title: true, status: true, expiresAt: true, views: true, templateKey: true, updatedAt: true },
     }),
+    // Facturas (solo lo necesario para el balance de cobro de esta ventana de Facturación).
+    db.invoice.findMany({
+      where: { client: accessibleClientWhere(session) },
+      select: { status: true, dueDate: true, taxRate: true, currency: true, items: { select: { quantity: true, unitPrice: true } } },
+    }),
   ]);
 
   // Catálogo interno de servicios (lista de precios) + ajustes (% e IVA). Se siembra la
   // primera vez. Es interno: no se muestra al cliente.
   await ensureServiceCatalog();
   const [catalog, qSettings] = await Promise.all([getServiceCatalog(), getQuoteSettings()]);
+
+  // Balance de facturación (resumen de cobro), recuperado en la ventana unificada.
+  const inv = invoices.map((i) => ({ status: effectiveInvoiceStatus(i.status, i.dueDate), total: quoteTotals(i.items, i.taxRate).total }));
+  const sumInv = (pred: (r: (typeof inv)[number]) => boolean) => inv.filter(pred).reduce((n, r) => n + r.total, 0);
+  const facturado = sumInv((r) => r.status !== "ANULADA");
+  const cobrado = sumInv((r) => r.status === "PAGADA");
+  const porCobrar = sumInv((r) => r.status === "ENVIADA" || r.status === "VENCIDA");
+  const vencido = sumInv((r) => r.status === "VENCIDA");
+  const invCurrency = invoices[0]?.currency ?? "COP";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
@@ -62,7 +92,15 @@ export default async function CotizacionesPage() {
         ) : null}
       </div>
 
-      <div className="mt-8">
+      {/* Balance de facturación (resumen de cobro) */}
+      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Money label="Facturado" value={formatMoney(facturado, invCurrency)} />
+        <Money label="Cobrado" value={formatMoney(cobrado, invCurrency)} valueClass="text-emerald-600 dark:text-emerald-400" />
+        <Money label="Por cobrar" value={formatMoney(porCobrar, invCurrency)} valueClass="text-amber-600 dark:text-amber-400" />
+        <Money label="Vencido" value={formatMoney(vencido, invCurrency)} valueClass={vencido > 0 ? "text-destructive" : undefined} />
+      </div>
+
+      <div className="mt-6">
       <ViewTabs
         storageKey="cotizaciones-view"
         views={[
