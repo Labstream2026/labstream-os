@@ -6,7 +6,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { isEmailEnabled } from "@/lib/email";
 import { caldavEnabled } from "@/lib/caldav";
 import { aiEnabled } from "@/lib/ai";
-import { onlyofficeEnabled } from "@/lib/onlyoffice";
+import { getOnlyOfficeConfig } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
 import { CleanupNamesButton } from "./cleanup-names-button";
 import { RolesManager } from "./roles-manager";
@@ -204,9 +204,10 @@ export default async function ConfiguracionPage() {
   const myCalendarConnection = myCalRow
     ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null }
     : null;
+  const ooCfg = await getOnlyOfficeConfig();
   const integracionesNode = (
     <div className="space-y-4">
-      <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={onlyofficeEnabled} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
+      <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={ooCfg.enabled} onlyofficeSettings={{ docsUrl: ooCfg.docsUrl, callbackBase: ooCfg.callbackBase, internalUrl: ooCfg.internalUrl, hasSecret: !!ooCfg.jwtSecret }} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
       <CalendarSyncSettings initial={calSyncConfig} />
     </div>
   );

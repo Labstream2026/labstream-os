@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   if ((body.status === 2 || body.status === 6) && body.url) {
-    if (!isAllowedDocsUrl(body.url)) return NextResponse.json({ error: 1 });
+    if (!(await isAllowedDocsUrl(body.url))) return NextResponse.json({ error: 1 });
     const att = await db.messageAttachment.findUnique({ where: { id } });
     if (att?.path) {
       try {

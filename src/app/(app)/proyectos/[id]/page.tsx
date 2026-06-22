@@ -12,7 +12,7 @@ import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
-import { isEditableOffice, onlyofficeEnabled } from "@/lib/onlyoffice";
+import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { Lock } from "lucide-react";
@@ -456,7 +456,7 @@ export default async function ProyectoPage({
             projectId={id}
             files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
             canWrite={canWriteProject(project, session)}
-            onlyoffice={onlyofficeEnabled}
+            onlyoffice={await onlyofficeReady()}
           />
         ) : null}
         {tab === "actividad" && hasPermission(session, "ver_actividad") ? (

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
-import { onlyofficeEnabled, isEditableOffice, buildConfig, signConfig, DOCS_URL, APP_BASE } from "@/lib/onlyoffice";
+import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "./editor";
 
@@ -36,15 +36,16 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
   if (!access) {
     return <Notice title="Sin acceso" msg="No tienes acceso a este documento." backHref="/" />;
   }
-  if (!onlyofficeEnabled) {
-    return <Notice title="Edición no disponible" msg="OnlyOffice no está configurado todavía." backHref={backHref} download={id} />;
+  const cfg = await getOnlyOfficeConfig();
+  if (!cfg.enabled) {
+    return <Notice title="Edición no disponible" msg="OnlyOffice no está conectado todavía. Configúralo en Configuración → Integraciones." backHref={backHref} download={id} />;
   }
   if (!isEditableOffice(att.name)) {
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
-  const fileUrl = `${APP_BASE}/api/files/${id}?t=${signFileToken(id)}`;
-  const callbackUrl = `${APP_BASE}/api/docs/${id}/callback`;
+  const fileUrl = `${cfg.callbackBase}/api/files/${id}?t=${signFileToken(id)}`;
+  const callbackUrl = `${cfg.callbackBase}/api/docs/${id}/callback`;
   const config = await signConfig(
     buildConfig({
       attachmentId: id,
@@ -57,7 +58,7 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={DOCS_URL} config={config} title={att.name} backHref={backHref} />;
+  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={att.name} backHref={backHref} />;
 }
 
 function Notice({

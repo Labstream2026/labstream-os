@@ -7,7 +7,7 @@ import { isDeliverableStatus } from "@/lib/enum-guards";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
-import { APP_BASE, convertOfficeToText, officeType, onlyofficeEnabled } from "@/lib/onlyoffice";
+import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
@@ -1185,10 +1185,11 @@ export async function copyGuionText(fileId: string): Promise<{ ok: boolean; text
   if (!file || !file.path) return { ok: false, error: "Guion no encontrado." };
   const session = await getSession();
   if (!file.project || !canAccessProject(file.project, session)) return { ok: false, error: "No autorizado." };
-  if (!onlyofficeEnabled) return { ok: false, error: "OnlyOffice no está configurado: no se puede extraer el texto." };
+  const ooCfg = await getOnlyOfficeConfig();
+  if (!ooCfg.enabled) return { ok: false, error: "OnlyOffice no está conectado: no se puede extraer el texto." };
   try {
     const token = signFileToken(fileId);
-    const sourceUrl = `${APP_BASE}/api/files-asset/${fileId}?t=${token}`;
+    const sourceUrl = `${ooCfg.callbackBase}/api/files-asset/${fileId}?t=${token}`;
     const text = await convertOfficeToText({ fileId, name: file.name, version: file.version, sourceUrl });
     return { ok: true, text };
   } catch (e) {

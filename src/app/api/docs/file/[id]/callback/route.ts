@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   if ((body.status === 2 || body.status === 6) && body.url) {
-    if (!isAllowedDocsUrl(body.url)) return NextResponse.json({ error: 1 });
+    if (!(await isAllowedDocsUrl(body.url))) return NextResponse.json({ error: 1 });
     const file = await db.fileAsset.findUnique({ where: { id }, select: { path: true } });
     if (file?.path) {
       try {

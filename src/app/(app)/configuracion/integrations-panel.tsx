@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2, Bot } from "lucide-react";
-import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw } from "./actions";
+import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw, saveOnlyOfficeSettings, testOnlyOffice } from "./actions";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 
 export type CalTeamRow = { name: string; calendarName: string | null; lastSyncAt: string | null; lastError: string | null };
@@ -25,6 +25,13 @@ export type OpenClawSettingsView = {
   baseUrl: string;
   agentModel: string;
   hasToken: boolean;
+};
+
+export type OnlyOfficeSettingsView = {
+  docsUrl: string;
+  callbackBase: string;
+  internalUrl: string;
+  hasSecret: boolean;
 };
 
 function StatusRow({
@@ -67,6 +74,7 @@ export function IntegrationsPanel({
   caldav,
   ai,
   onlyoffice,
+  onlyofficeSettings,
   mailSettings,
   openclawOn,
   openclawSettings,
@@ -79,6 +87,7 @@ export function IntegrationsPanel({
   caldav: boolean;
   ai: boolean;
   onlyoffice: boolean;
+  onlyofficeSettings: OnlyOfficeSettingsView;
   mailSettings: MailSettingsView;
   openclawOn: boolean;
   openclawSettings: OpenClawSettingsView;
@@ -94,6 +103,9 @@ export function IntegrationsPanel({
   const [ocPending, startOc] = React.useTransition();
   const [ocMsg, setOcMsg] = React.useState<string | null>(null);
   const [showOc, setShowOc] = React.useState(false);
+  const [ooPending, startOo] = React.useTransition();
+  const [ooMsg, setOoMsg] = React.useState<string | null>(null);
+  const [showOo, setShowOo] = React.useState(false);
 
   return (
     <>
@@ -157,7 +169,31 @@ export function IntegrationsPanel({
       ) : null}
       {calMsg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{calMsg}</p> : null}
       <StatusRow icon={<Sparkles className="size-4" />} label="Asistente IA (Claude)" on={ai} detail="Copiloto para correos, resúmenes e ideas." />
-      <StatusRow icon={<FileEdit className="size-4" />} label="Edición de documentos (OnlyOffice)" on={onlyoffice} detail="Editar Word/Excel/PPT del chat y los proyectos." />
+      <StatusRow icon={<FileEdit className="size-4" />} label="Edición de documentos (OnlyOffice)" on={onlyoffice} detail="Editar Word/Excel/PPT del chat y los proyectos, en colaboración y con guardado automático.">
+        <button
+          onClick={() => setShowOo((v) => !v)}
+          className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+        >
+          <Settings2 className="size-3.5" /> {showOo ? "Cerrar" : "Configurar"}
+        </button>
+        {onlyoffice ? (
+          <button
+            onClick={() => {
+              setOoMsg(null);
+              startOo(async () => {
+                const r = await testOnlyOffice();
+                setOoMsg(r.ok ? "✓ Document Server conectado." : `⚠️ ${r.error}`);
+              });
+            }}
+            disabled={ooPending}
+            className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {ooPending ? <Loader2 className="size-3.5 animate-spin" /> : <FileEdit className="size-3.5" />} Probar
+          </button>
+        ) : null}
+      </StatusRow>
+      {ooMsg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{ooMsg}</p> : null}
+      {showOo ? <OnlyOfficeForm initial={onlyofficeSettings} onSaved={(m) => setOoMsg(m)} /> : null}
       <StatusRow icon={<Bot className="size-4" />} label="Agente IA en el chat (OpenClaw)" on={openclawOn} detail="Tu agente OpenClaw responde en cualquier chat cuando lo etiquetan con @Marcebot.">
         <button
           onClick={() => setShowOc((v) => !v)}
@@ -254,6 +290,60 @@ function MailSettingsForm({ initial, onSaved }: { initial: MailSettingsView; onS
       <div className="flex items-center gap-3">
         <button disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
           {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Guardar configuración
+        </button>
+        {result ? <span className="text-xs text-muted-foreground">{result}</span> : null}
+      </div>
+    </form>
+  );
+}
+
+// Formulario de conexión con el Document Server de OnlyOffice. El secreto no se precarga: si
+// se deja vacío, se conserva el guardado. Al activarlo, los Word/Excel/PPT se editan en línea.
+function OnlyOfficeForm({ initial, onSaved }: { initial: OnlyOfficeSettingsView; onSaved: (msg: string) => void }) {
+  const [pending, start] = React.useTransition();
+  const [result, setResult] = React.useState<string | null>(null);
+  const labelCls = "flex flex-col gap-1 text-xs font-medium text-muted-foreground";
+  const inputCls = "rounded-md border border-input bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring";
+
+  return (
+    <form
+      action={(fd) => {
+        setResult(null);
+        start(async () => {
+          const r = await saveOnlyOfficeSettings(fd);
+          if (r.ok) { setResult("✓ Conexión guardada"); onSaved("✓ Conexión con OnlyOffice guardada. Pruébala con «Probar»."); }
+          else setResult(`⚠️ ${r.error}`);
+        });
+      }}
+      className="space-y-3 bg-muted/30 p-4"
+    >
+      <p className="text-xs text-muted-foreground">
+        Datos del Document Server de OnlyOffice. El secreto JWT se guarda cifrado y debe ser <strong>idéntico</strong> al del Document Server. <strong>Ojo con las redes:</strong> la app y OnlyOffice están en contenedores distintos, así que las direcciones internas usan la IP LAN del NAS, no el dominio público.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className={labelCls + " sm:col-span-2"}>
+          URL pública del Document Server <span className="font-normal">(la que abre el navegador)</span>
+          <input name="docsUrl" defaultValue={initial.docsUrl} placeholder="https://docs.labstreamsas.com" className={inputCls} />
+        </label>
+        <label className={labelCls}>
+          Secreto JWT {initial.hasSecret ? <span className="font-normal">(guardado · escribe para cambiarlo)</span> : null}
+          <input name="jwtSecret" type="password" placeholder={initial.hasSecret ? "•••••••• (sin cambios)" : "secreto del Document Server"} className={inputCls} autoComplete="new-password" />
+        </label>
+        <label className={labelCls}>
+          URL de la app vista desde OnlyOffice <span className="font-normal">(callback)</span>
+          <input name="callbackBase" defaultValue={initial.callbackBase} placeholder="http://192.168.0.22:3100" className={inputCls} />
+        </label>
+        <label className={labelCls + " sm:col-span-2"}>
+          URL interna del Document Server <span className="font-normal">(la app baja el doc guardado de aquí)</span>
+          <input name="internalUrl" defaultValue={initial.internalUrl} placeholder="http://192.168.0.22:8088" className={inputCls} />
+        </label>
+      </div>
+      <label className="flex items-center gap-2 text-xs font-medium">
+        <input name="enabled" type="checkbox" defaultChecked={initial.docsUrl !== ""} className="size-4" /> Activar la edición de documentos
+      </label>
+      <div className="flex items-center gap-3">
+        <button disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Guardar conexión
         </button>
         {result ? <span className="text-xs text-muted-foreground">{result}</span> : null}
       </div>

@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache, emailButton } from "@/lib/email";
 import { encryptSecret } from "@/lib/crypto";
 import { clearOpenClawCache } from "@/lib/openclaw/config";
+import { clearOnlyOfficeCache, getOnlyOfficeConfig } from "@/lib/onlyoffice";
 import { askOpenClaw } from "@/lib/openclaw/client";
 import { testCaldav } from "@/lib/caldav";
 import { syncAllCalendars } from "@/lib/calendar-sync";
@@ -178,6 +179,58 @@ export async function testOpenClaw(): Promise<AdminActionResult & { reply?: stri
     { role: "user", content: "Hola, ¿estás conectado? Confírmalo brevemente." },
   ]);
   return r.ok ? { ok: true, reply: r.reply } : { ok: false, error: r.error };
+}
+
+// Guarda la conexión con el Document Server de OnlyOffice. El secreto JWT se cifra; si llega
+// vacío se conserva el existente. Limpia la caché al guardar.
+export async function saveOnlyOfficeSettings(formData: FormData): Promise<AdminActionResult> {
+  const session = await requireIntegrations();
+  if (!session) return { ok: false, error: "No autorizado" };
+
+  const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
+  const strip = (k: string) => String(formData.get(k) ?? "").trim().replace(/\/+$/, "") || null;
+  const docsUrl = strip("docsUrl");
+  const callbackBase = strip("callbackBase");
+  const internalUrl = strip("internalUrl");
+  const rawSecret = String(formData.get("jwtSecret") ?? "");
+  const jwtSecretEnc = rawSecret ? encryptSecret(rawSecret) : undefined; // solo si escribió uno nuevo
+
+  if (enabled && !docsUrl) {
+    return { ok: false, error: "Para activarlo necesitas la URL pública del Document Server (ej. https://docs.labstreamsas.com)." };
+  }
+
+  await db.onlyOfficeSettings.upsert({
+    where: { id: "default" },
+    create: { id: "default", enabled, docsUrl, callbackBase, internalUrl, ...(jwtSecretEnc ? { jwtSecretEnc } : {}) },
+    update: { enabled, docsUrl, callbackBase, internalUrl, ...(jwtSecretEnc ? { jwtSecretEnc } : {}) },
+  });
+  clearOnlyOfficeCache();
+  await logActivity({ action: "settings.onlyoffice", summary: "actualizó la conexión con OnlyOffice" });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// Verifica que el Document Server responda (healthcheck) desde el contenedor de la app.
+// Prueba la URL interna (si hay) y la pública; cualquiera OK = conectado.
+export async function testOnlyOffice(): Promise<AdminActionResult> {
+  const session = await requireIntegrations();
+  if (!session) return { ok: false, error: "No autorizado" };
+  clearOnlyOfficeCache(); // leer la config recién guardada
+  const cfg = await getOnlyOfficeConfig();
+  if (!cfg.docsUrl) return { ok: false, error: "Falta la URL del Document Server." };
+  const targets = [...new Set([cfg.internalUrl, cfg.docsUrl].filter(Boolean))];
+  const errors: string[] = [];
+  for (const base of targets) {
+    try {
+      const res = await fetch(`${base}/healthcheck`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+      const text = (await res.text().catch(() => "")).trim().toLowerCase();
+      if (res.ok && text.includes("true")) return { ok: true };
+      errors.push(`${base} → HTTP ${res.status}${text ? ` (${text.slice(0, 40)})` : ""}`);
+    } catch (e) {
+      errors.push(`${base} → ${e instanceof Error ? e.message : "error de red"}`);
+    }
+  }
+  return { ok: false, error: `El Document Server no respondió. Intentos: ${errors.join(" | ")}.` };
 }
 
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.

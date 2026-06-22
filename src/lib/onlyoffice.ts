@@ -1,31 +1,55 @@
 import { SignJWT, jwtVerify } from "jose";
 import { extOf } from "@/lib/storage";
+import { db } from "@/lib/db";
+import { decryptSecret } from "@/lib/crypto";
 
-// Integración con el Document Server OnlyOffice del NAS (https://docs.labstreamsas.com).
-// Gateado por env ONLYOFFICE_DOCS_URL; firma de config opcional con ONLYOFFICE_JWT_SECRET.
-export const DOCS_URL = (process.env.ONLYOFFICE_DOCS_URL || "").replace(/\/$/, "");
-const JWT_SECRET = process.env.ONLYOFFICE_JWT_SECRET || "";
-export const onlyofficeEnabled = Boolean(DOCS_URL);
+// Integración con el Document Server de OnlyOffice (edición colaborativa de documentos).
+// La configuración vive en la BD (Configuración → Integraciones); si no hay fila, se cae a
+// las variables de entorno ONLYOFFICE_* (compatibilidad con despliegues previos).
+//
+// OnlyOffice necesita TRES caminos de red:
+//  - navegador → Document Server (docsUrl, público).
+//  - Document Server → la app, para descargar el doc y enviar el callback (callbackBase). El
+//    dominio público de la app suele NO ser alcanzable entre contenedores (NAT/TLS) → usar la
+//    IP LAN del NAS, p.ej. http://192.168.0.22:3100.
+//  - app → Document Server, para bajar el doc editado al guardar (internalUrl), p.ej.
+//    http://192.168.0.22:8088. Si falta, da "No se ha podido guardar".
 
-// URL con la que el Document Server (OnlyOffice) DESCARGA el documento y envía el
-// callback. OJO: es la app vista DESDE el contenedor de OnlyOffice, no desde el
-// navegador. Como app y OnlyOffice están en redes Docker distintas, el dominio
-// público (NEXTAUTH_URL = https://os.labstreamsas.com) suele NO ser alcanzable
-// (NAT loopback / TLS) → "Error de descarga". Configura ONLYOFFICE_CALLBACK_BASE
-// con una dirección que el contenedor SÍ alcance: la IP LAN del NAS, p.ej.
-// http://192.168.1.50:3200, o el nombre de servicio si comparten red Docker.
-export const APP_BASE = (
-  process.env.ONLYOFFICE_CALLBACK_BASE ||
-  process.env.NEXTAUTH_URL ||
-  "http://localhost:3200"
-).replace(/\/$/, "");
+export type OnlyOfficeConfig = {
+  enabled: boolean;
+  docsUrl: string; // público (navegador), sin barra final
+  jwtSecret: string; // secreto compartido con el Document Server (puede ser "")
+  callbackBase: string; // la app vista desde el contenedor de OnlyOffice
+  internalUrl: string; // el Document Server visto desde el contenedor de la app ("" si no)
+};
 
-// Dirección del Document Server alcanzable DESDE el contenedor de la app, para
-// descargar el archivo editado al guardar. Igual que arriba pero al revés: el
-// dominio público (docs.labstreamsas.com) no es alcanzable entre contenedores
-// → "No se ha podido guardar". Configura ONLYOFFICE_INTERNAL_URL con la IP LAN
-// del NAS y el puerto de OnlyOffice, p.ej. http://192.168.1.50:8088.
-export const DOCS_INTERNAL_URL = (process.env.ONLYOFFICE_INTERNAL_URL || "").replace(/\/$/, "");
+const stripSlash = (s: string) => s.replace(/\/+$/, "");
+
+// Caché en proceso (se limpia al guardar desde Configuración). `undefined` = no leído aún.
+let _cache: OnlyOfficeConfig | undefined;
+export function clearOnlyOfficeCache() {
+  _cache = undefined;
+}
+
+export async function getOnlyOfficeConfig(): Promise<OnlyOfficeConfig> {
+  if (_cache !== undefined) return _cache;
+  const row = await db.onlyOfficeSettings.findUnique({ where: { id: "default" } }).catch(() => null);
+  const docsUrl = stripSlash(row?.docsUrl || process.env.ONLYOFFICE_DOCS_URL || "");
+  const jwtSecret = row?.jwtSecretEnc ? decryptSecret(row.jwtSecretEnc) : process.env.ONLYOFFICE_JWT_SECRET || "";
+  const callbackBase = stripSlash(
+    row?.callbackBase || process.env.ONLYOFFICE_CALLBACK_BASE || process.env.NEXTAUTH_URL || "http://localhost:3200",
+  );
+  const internalUrl = stripSlash(row?.internalUrl || process.env.ONLYOFFICE_INTERNAL_URL || "");
+  // Activo si hay docsUrl Y (no hay fila → env; hay fila → su bandera enabled).
+  const enabled = Boolean(docsUrl) && (row ? row.enabled : true);
+  _cache = { enabled, docsUrl, jwtSecret, callbackBase, internalUrl };
+  return _cache;
+}
+
+// ¿Está OnlyOffice conectado (hay Document Server configurado y activo)?
+export async function onlyofficeReady(): Promise<boolean> {
+  return (await getOnlyOfficeConfig()).enabled;
+}
 
 const WORD = ["doc", "docx", "odt", "rtf", "txt"];
 const CELL = ["xls", "xlsx", "ods", "csv"];
@@ -39,8 +63,10 @@ export function officeType(name: string): "word" | "cell" | "slide" | null {
   return null;
 }
 
+// ¿Es un documento de Office editable? Por TIPO de archivo (no consulta la BD para poder
+// usarse en render síncrono). Si OnlyOffice no está conectado, la página del editor avisa.
 export function isEditableOffice(name: string) {
-  return onlyofficeEnabled && officeType(name) !== null;
+  return officeType(name) !== null;
 }
 
 export type EditorConfig = {
@@ -89,51 +115,51 @@ export function buildConfig(opts: {
   };
 }
 
+// Firma la config del editor con el secreto JWT (si hay). El Document Server con JWT activo
+// exige este token; el secreto debe coincidir a ambos lados.
 export async function signConfig(config: EditorConfig): Promise<EditorConfig> {
-  if (!JWT_SECRET) return config;
+  const { jwtSecret } = await getOnlyOfficeConfig();
+  if (!jwtSecret) return config;
   const token = await new SignJWT(config as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
-    .sign(new TextEncoder().encode(JWT_SECRET));
+    .sign(new TextEncoder().encode(jwtSecret));
   return { ...config, token };
 }
 
-// Verifica el JWT que el Document Server envía en el callback (body.token o header).
-// SIN secreto configurado NO se acepta el callback: aceptarlo permitiría a cualquiera
-// sobrescribir archivos (fs.writeFile desde una url arbitraria) y forzar SSRF.
+// Verifica el JWT que el Document Server envía en el callback. SIN secreto configurado NO se
+// acepta el callback (evitaría que cualquiera sobrescriba archivos / SSRF).
 export async function verifyCallbackToken(token: string | undefined): Promise<boolean> {
-  if (!JWT_SECRET || !token) return false;
+  const { jwtSecret } = await getOnlyOfficeConfig();
+  if (!jwtSecret || !token) return false;
   try {
-    await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
+    await jwtVerify(token, new TextEncoder().encode(jwtSecret));
     return true;
   } catch {
     return false;
   }
 }
 
-// El callback solo puede descargar el archivo editado desde el propio Document
-// Server. Evita SSRF: la url debe apuntar al host público (ONLYOFFICE_DOCS_URL) o
-// al interno (ONLYOFFICE_INTERNAL_URL); cualquier otro host se rechaza.
-export function isAllowedDocsUrl(url: string | undefined): boolean {
+// El callback solo descarga el archivo editado del propio Document Server (público o interno).
+// Cualquier otro host se rechaza (anti-SSRF).
+export async function isAllowedDocsUrl(url: string | undefined): Promise<boolean> {
   if (!url) return false;
+  const { docsUrl, internalUrl } = await getOnlyOfficeConfig();
   try {
     const host = new URL(url).host;
-    const allowed = [DOCS_URL, DOCS_INTERNAL_URL]
-      .filter(Boolean)
-      .map((u) => new URL(u).host);
+    const allowed = [docsUrl, internalUrl].filter(Boolean).map((u) => new URL(u).host);
     return allowed.includes(host);
   } catch {
     return false;
   }
 }
 
-// Reescribe la url que envía OnlyOffice (normalmente con el host público) hacia
-// la dirección interna alcanzable por el contenedor de la app, conservando ruta
-// y query. Si no hay URL interna configurada, se deja igual.
-export function internalDocsFetchUrl(url: string): string {
-  if (!DOCS_INTERNAL_URL) return url;
+// Reescribe la url de OnlyOffice (host público) hacia la dirección interna alcanzable por el
+// contenedor de la app, conservando ruta y query. Si no hay URL interna, se deja igual.
+function internalDocsFetchUrl(url: string, internalUrl: string): string {
+  if (!internalUrl) return url;
   try {
     const u = new URL(url);
-    const internal = new URL(DOCS_INTERNAL_URL);
+    const internal = new URL(internalUrl);
     u.protocol = internal.protocol;
     u.host = internal.host; // host incluye el puerto
     return u.toString();
@@ -142,30 +168,43 @@ export function internalDocsFetchUrl(url: string): string {
   }
 }
 
-// Candidatos para descargar el documento guardado, en orden de preferencia:
-// primero la dirección interna reescrita, luego la URL original (pública). Únicos.
-export function docsFetchCandidates(url: string): string[] {
-  return [...new Set([internalDocsFetchUrl(url), url].filter(Boolean))];
+// Descarga el documento editado del Document Server probando primero la dirección interna y
+// luego la original. Lanza con detalle si todas fallan (para diagnosticar el "No se ha podido
+// guardar"). Verifica res.ok para no escribir una página de error como si fuera el documento.
+export async function fetchSavedDoc(url: string): Promise<Buffer> {
+  const { internalUrl } = await getOnlyOfficeConfig();
+  const candidates = [...new Set([internalDocsFetchUrl(url, internalUrl), url].filter(Boolean))];
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(candidate, { cache: "no-store" });
+      if (!res.ok) { errors.push(`${candidate} → HTTP ${res.status}`); continue; }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0) { errors.push(`${candidate} → vacío`); continue; }
+      return buf;
+    } catch (e) {
+      errors.push(`${candidate} → ${e instanceof Error ? e.message : "error de red"}`);
+    }
+  }
+  throw new Error(
+    `OnlyOffice: no se pudo descargar el documento guardado. Intentos: ${errors.join(" | ")}. ` +
+      `Revisa la "URL interna" del Document Server (alcanzable desde el contenedor de la app).`,
+  );
 }
 
-// Descarga el documento editado del Document Server probando los candidatos hasta
-// que uno responda OK. Lanza con detalle si TODOS fallan (queda en el log del NAS,
-// para diagnosticar el "No se ha podido guardar"). Verifica res.ok para no escribir
-// una página de error como si fuera el documento (corrupción silenciosa).
-// Convierte un documento de Office (Word/celdas/diapositivas) a TEXTO PLANO usando el
-// servicio de conversión del Document Server (ConvertService.ashx). Se usa para el botón
-// «Copiar» de los guiones: extrae el texto del .docx para llevarlo al portapapeles.
-// El Document Server descarga el original desde `sourceUrl` (debe ser alcanzable por su
-// contenedor: APP_BASE + token), convierte a txt y devuelve una URL de la que bajamos el
-// resultado (reescrita a la dirección interna y validada contra SSRF como en el callback).
+// Convierte un documento de Office a TEXTO PLANO usando ConvertService.ashx del Document
+// Server (para el botón «Copiar» de los guiones). El DS descarga el original desde sourceUrl
+// (callbackBase + token), convierte a txt y devuelve una URL que bajamos (reescrita a interno
+// y validada anti-SSRF).
 export async function convertOfficeToText(opts: {
   fileId: string;
   name: string;
   version: number;
   sourceUrl: string;
 }): Promise<string> {
-  if (!onlyofficeEnabled) throw new Error("OnlyOffice no está configurado.");
-  const base = (DOCS_INTERNAL_URL || DOCS_URL).replace(/\/$/, "");
+  const cfg = await getOnlyOfficeConfig();
+  if (!cfg.enabled) throw new Error("OnlyOffice no está configurado.");
+  const base = (cfg.internalUrl || cfg.docsUrl).replace(/\/$/, "");
   const payload: Record<string, unknown> = {
     async: false,
     filetype: extOf(opts.name) || "docx",
@@ -174,11 +213,10 @@ export async function convertOfficeToText(opts: {
     title: opts.name,
     url: opts.sourceUrl,
   };
-  // Firma JWT (token en el body y en la cabecera) si hay secreto, igual que la config.
-  const token = JWT_SECRET
+  const token = cfg.jwtSecret
     ? await new SignJWT(payload as Record<string, unknown>)
         .setProtectedHeader({ alg: "HS256" })
-        .sign(new TextEncoder().encode(JWT_SECRET))
+        .sign(new TextEncoder().encode(cfg.jwtSecret))
     : "";
   const res = await fetch(`${base}/ConvertService.ashx`, {
     method: "POST",
@@ -194,26 +232,7 @@ export async function convertOfficeToText(opts: {
   const data = (await res.json()) as { error?: number; endConvert?: boolean; fileUrl?: string };
   if (typeof data.error === "number") throw new Error(`No se pudo convertir el documento (código ${data.error}).`);
   if (!data.endConvert || !data.fileUrl) throw new Error("La conversión no terminó.");
-  if (!isAllowedDocsUrl(data.fileUrl)) throw new Error("URL de conversión no permitida.");
+  if (!(await isAllowedDocsUrl(data.fileUrl))) throw new Error("URL de conversión no permitida.");
   const buf = await fetchSavedDoc(data.fileUrl);
   return buf.toString("utf8").replace(/^﻿/, ""); // quita BOM inicial si lo trae
-}
-
-export async function fetchSavedDoc(url: string): Promise<Buffer> {
-  const errors: string[] = [];
-  for (const candidate of docsFetchCandidates(url)) {
-    try {
-      const res = await fetch(candidate, { cache: "no-store" });
-      if (!res.ok) { errors.push(`${candidate} → HTTP ${res.status}`); continue; }
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length === 0) { errors.push(`${candidate} → vacío`); continue; }
-      return buf;
-    } catch (e) {
-      errors.push(`${candidate} → ${e instanceof Error ? e.message : "error de red"}`);
-    }
-  }
-  throw new Error(
-    `OnlyOffice: no se pudo descargar el documento guardado. Intentos: ${errors.join(" | ")}. ` +
-    `Revisa ONLYOFFICE_INTERNAL_URL (dirección del Document Server alcanzable desde el contenedor de la app).`,
-  );
 }

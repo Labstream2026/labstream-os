@@ -198,6 +198,19 @@ model OpenClawSettings {
   updatedAt  DateTime @updatedAt
 }
 
+// Conexión al Document Server de OnlyOffice (edición colaborativa de documentos). Fila única
+// "default", editable por el admin en Configuración → Integraciones. El secreto JWT se guarda
+// CIFRADO. Si no hay fila, se cae a las variables de entorno ONLYOFFICE_* (compatibilidad).
+model OnlyOfficeSettings {
+  id           String   @id @default("default")
+  enabled      Boolean  @default(false)
+  docsUrl      String? // URL pública del Document Server (la usa el navegador), sin barra final
+  jwtSecretEnc String? // secreto JWT compartido con el Document Server, cifrado (v1:...)
+  callbackBase String? // la app vista DESDE el contenedor de OnlyOffice (IP LAN del NAS:puerto)
+  internalUrl  String? // el Document Server visto DESDE el contenedor de la app (IP LAN:8088)
+  updatedAt    DateTime @updatedAt
+}
+
 // Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)
 // y recuerda si ya envió el saludo del día (personal y, para roles administrativos,
 // el resumen de equipo).
