@@ -75,6 +75,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    networks:
+      # Red propia del stack (app ↔ postgres ↔ redis).
+      default: {}
+      # Red del Document Server de OnlyOffice: la app se une SOLO para que OnlyOffice
+      # pueda descargar/guardar el doc llegando a la app por el alias `labstream-app:3000`
+      # (callback). Así NO hace falta exponer el puerto 3200 a la LAN: los crons siguen
+      # protegidos por el binding a 127.0.0.1. Mismo patrón que Mattermost↔OnlyOffice
+      # pero por red Docker interna en vez de IP pública.
+      onlyoffice:
+        aliases:
+          - labstream-app
 
   postgres:
     image: postgres:16-alpine
@@ -105,3 +116,13 @@ services:
   #     DATABASE_URL: postgresql://labstream:${POSTGRES_PASSWORD:-changeme}@postgres:5432/labstream_os?schema=public
   #     REDIS_URL: redis://redis:6379
   #   depends_on: [postgres, redis]
+
+networks:
+  # Red propia del proyecto (labstream-os_default): app ↔ postgres ↔ redis.
+  default:
+  # Red EXTERNA del proyecto compose `onlyoffice` (el Document Server). YA existe en el
+  # NAS (el DS corre aparte), por eso `external: true`. La app se cuelga de ella para que
+  # OnlyOffice alcance el callback de la app sin abrir el puerto 3200 a la LAN.
+  onlyoffice:
+    external: true
+    name: onlyoffice_default
