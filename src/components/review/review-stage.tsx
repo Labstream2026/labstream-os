@@ -177,18 +177,20 @@ export function ReviewStage({
     playerRef.current?.pause();
     if (t != null) setTc(t);
   };
-  // Al empezar a comentar (foco en el cuadro), marca el momento automáticamente la
-  // primera vez. Si ya hay un momento marcado, respeta el que el usuario eligió.
+  // Al enfocar el cuadro de comentario, ancla/ACTUALIZA el momento al fotograma ACTUAL del
+  // video (y lo pausa). Así, si el cliente reproduce y luego vuelve a escribir, la captura se
+  // actualiza al nuevo punto en vez de quedarse con la inicial.
   const onCommentFocus = () => {
-    if (tc == null && version?.timecodeCapable) grabTime();
+    if (version?.timecodeCapable) grabTime();
   };
 
   // Comentario anclado a un momento: captura automática del frame + el texto encima.
   const submitMoment = () => {
     if (!body.trim() && !drawing) return;
     if (!fixedName) localStorage.setItem("review_name", name);
-    // Segundo del video: el marcado a mano, o el actual en el momento de comentar.
-    const at = tc ?? playerRef.current?.getTime() ?? null;
+    // Segundo del video: el del fotograma ACTUAL (que es justo el que se captura abajo), con
+    // respaldo al marcado. Así el segundo guardado y la imagen capturada siempre coinciden.
+    const at = playerRef.current?.getTime() ?? tc ?? null;
     // Imagen a guardar: el dibujo manual si existe; si no, captura automática del frame
     // con el texto del comentario quemado encima (cuando la fuente lo permite).
     const image = drawing ?? playerRef.current?.capture(body.trim() || undefined) ?? null;
