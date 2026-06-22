@@ -64,7 +64,7 @@ async function postBotMessage(bot: BotUser, channelId: string, body: string, par
 // Maneja una mención al bot: arma el contexto reciente del canal, deja que el agente razone
 // con herramientas (ejecutadas con los permisos de quien etiqueta) y publica la respuesta.
 // Pensado para ejecutarse en segundo plano (after()). Best-effort: nunca lanza.
-export async function handleBotMention(channelId: string, userId: string, parentId: string | null = null): Promise<void> {
+export async function handleBotMention(channelId: string, userId: string, parentId: string | null = null, messageId: string | null = null): Promise<void> {
   try {
     if (!(await getOpenClawConfig())) return; // integración apagada → silencio
     const bot = await ensureMarcebot();
@@ -87,14 +87,13 @@ export async function handleBotMention(channelId: string, userId: string, parent
 
     const session = await buildAgentSession(userId);
 
-    // Si el último mensaje del usuario trae imágenes, se las pasamos al modelo VÍA OpenClaw
-    // (visión nativa del modelo elegido, p. ej. GPT-5.5). Best-effort: si falla, sigue sin ellas.
-    const lastUserMsg = await db.chatMessage.findFirst({
-      where: { channelId, deletedAt: null, authorId: userId },
-      orderBy: { createdAt: "desc" },
-      select: { attachments: { select: { name: true, mime: true, path: true } } },
-    });
-    const atts = lastUserMsg?.attachments ?? [];
+    // Adjuntos del mensaje EXACTO que disparó la mención (imágenes/documentos) → se los pasamos
+    // al modelo vía OpenClaw. Si no se conoce el messageId, caemos al último mensaje del usuario.
+    const attSel = { attachments: { select: { name: true, mime: true, path: true } } } as const;
+    const trigMsg = messageId
+      ? await db.chatMessage.findUnique({ where: { id: messageId }, select: attSel })
+      : await db.chatMessage.findFirst({ where: { channelId, deletedAt: null, authorId: userId }, orderBy: { createdAt: "desc" }, select: attSel });
+    const atts = trigMsg?.attachments ?? [];
     const imageParts = atts.length ? await buildImageParts(atts) : [];
     const docsText = atts.length ? await extractDocsText(atts) : null;
 

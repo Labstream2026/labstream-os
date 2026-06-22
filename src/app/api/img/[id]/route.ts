@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
+import { canSeeWiki } from "@/lib/wiki-access";
 import { db } from "@/lib/db";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
@@ -29,8 +30,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     select: { table: { select: { projectId: true, project: { select: { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } } } } },
   });
   if (!row) return new NextResponse("No encontrado", { status: 404 });
-  // Tabla de proyecto → exige acceso; tabla de wiki (sin proyecto) → cualquier sesión.
-  if (row.table.project && !canAccessProject(row.table.project, session)) {
+  // Tabla de proyecto → exige acceso al proyecto; tabla de wiki (sin proyecto) → exige ver_wiki
+  // (coherente con el resto de la wiki; antes la servía a cualquier sesión).
+  if (row.table.project) {
+    if (!canAccessProject(row.table.project, session)) return new NextResponse("No autorizado", { status: 403 });
+  } else if (!(await canSeeWiki(session))) {
     return new NextResponse("No autorizado", { status: 403 });
   }
 

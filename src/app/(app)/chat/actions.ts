@@ -346,7 +346,7 @@ export async function sendMessage(
   // canal, O si el mensaje va en su chat directo (ahí responde a TODO sin necesidad de @).
   // No bloquea el envío y actúa con los permisos de quien escribe (session.id).
   if (mentionsBot(text) || isBotDirectChannel(msg.channel, session!.id)) {
-    after(() => handleBotMention(channelId, session!.id, msg.parentId));
+    after(() => handleBotMention(channelId, session!.id, msg.parentId, msg.id));
   }
 
   const payload: ChatMessagePayload = {
@@ -410,7 +410,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
   if (mentionsBot(body) || isBotDirectChannel(msg.channel, session!.id)) {
-    after(() => handleBotMention(channelId, session!.id, msg.parentId));
+    after(() => handleBotMention(channelId, session!.id, msg.parentId, msg.id));
   }
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;

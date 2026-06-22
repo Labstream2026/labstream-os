@@ -98,6 +98,7 @@ export async function setReservationQuantity(reservationId: string, quantity: nu
   if (!res) return;
   const { plan } = await ensurePlanWrite(res.planId);
   await db.equipmentReservation.update({ where: { id: reservationId }, data: { quantity: Math.max(1, quantity) } });
+  if (plan.taskId) await syncMirrorTask(res.planId); // mantiene la lista de equipos de la tarea al día
   refresh(plan.projectId);
 }
 
