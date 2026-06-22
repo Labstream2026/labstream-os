@@ -23,31 +23,36 @@ export default async function InventarioPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">Inventario de equipos: cámaras, streaming, audio, iluminación…</p>
-      <WikiTabs />
+    <div className="py-6 sm:py-10">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8">
+        <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
+        <p className="mt-1 mb-6 text-sm text-muted-foreground">Inventario de equipos: cámaras, streaming, audio, iluminación…</p>
+        <WikiTabs />
 
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Inventario</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Usa el buscador para encontrar un serial o equipo. Filtra por categoría, marca o tags. Puedes añadir columnas y opciones.
-          </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Inventario</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Usa el buscador para encontrar un serial o equipo. Filtra por categoría, marca o tags. Puedes añadir columnas y opciones.
+            </p>
+          </div>
+          {session?.role === "admin" ? <ImportInventoryButton /> : null}
         </div>
-        {session?.role === "admin" ? <ImportInventoryButton /> : null}
       </div>
 
+      {/* La tabla usa todo el ancho de la pantalla (solo el padding lateral) para ver mejor las columnas. */}
       {table ? (
-        <DataTableView
-          team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
-          table={{
-            id: table.id,
-            name: table.name,
-            columns: table.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
-            rows: table.rows.map((r) => ({ id: r.id, cells: cellsToMap(table.columns, r.cells) })),
-          }}
-        />
+        <div className="px-4 sm:px-8">
+          <DataTableView
+            team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
+            table={{
+              id: table.id,
+              name: table.name,
+              columns: table.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
+              rows: table.rows.map((r) => ({ id: r.id, cells: cellsToMap(table.columns, r.cells) })),
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );

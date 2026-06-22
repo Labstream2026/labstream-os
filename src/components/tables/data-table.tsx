@@ -150,17 +150,17 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
           </button>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-auto max-h-[75vh]">
         <DndContext id="data-table-cols" sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <table className="w-full border-collapse text-sm">
-            <thead>
+            <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-border">
                 <SortableContext items={cols.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
                   {cols.map((c) => (
                     <SortableHeader key={c.id} col={c} rt={rt} run={run} />
                   ))}
                 </SortableContext>
-                <th className="w-10 px-2">
+                <th className="w-10 bg-card px-2">
                   {adding ? (
                     <form onSubmit={(e) => { e.preventDefault(); run(() => addColumn(table.id, newCol, newType)); setNewCol(""); setAdding(false); }} className="flex items-center gap-1">
                       <input autoFocus value={newCol} onChange={(e) => setNewCol(e.target.value)} placeholder="Nombre" className="w-24 rounded border border-input bg-background px-1.5 py-1 text-xs outline-none" />
