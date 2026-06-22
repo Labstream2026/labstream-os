@@ -70,7 +70,6 @@ export function AppShell({
   const [chatOpen, setChatOpen] = React.useState(true);
   // Móvil (cajones, no se recuerdan).
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
 
   const pathname = usePathname();
@@ -120,7 +119,6 @@ export function AppShell({
   // Cerrar cajones móviles al navegar entre páginas.
   React.useEffect(() => {
     setMobileMenuOpen(false);
-    setMobileChatOpen(false);
   }, [pathname]);
 
   return (
@@ -188,13 +186,6 @@ export function AppShell({
         <ChatDock variant="desktop" open={chatOpen} me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} />
       ) : null}
 
-      {/* Hoja de chat a pantalla completa (móvil) */}
-      {mobileChatOpen ? (
-        <div className="fixed inset-0 z-50 bg-background md:hidden">
-          <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
-        </div>
-      ) : null}
-
       {/* Cierra los menús <details> al hacer clic fuera o con Escape */}
       <DetailsAutoClose />
 
@@ -206,9 +197,7 @@ export function AppShell({
 
       {/* Barra de navegación inferior (móvil) */}
       <BottomNav
-        onChat={() => setMobileChatOpen((v) => !v)}
         onMenu={() => setMobileMenuOpen(true)}
-        chatActive={mobileChatOpen}
         chatUnread={chatUnread}
       />
     </div>

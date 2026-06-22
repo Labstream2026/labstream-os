@@ -6,19 +6,18 @@ import { Home, ListChecks, LayoutGrid, MessageSquare, Menu } from "lucide-react"
 import { cn } from "@/lib/utils";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
-// Inicio · Tareas · Proyectos son destinos; Chat y Más abren cajones (estado en AppShell).
+// Inicio · Tareas · Proyectos · Chat son destinos; "Más" abre el cajón del menú.
+// Chat lleva a /chat (la BANDEJA con todos los chats: Marcebot, DMs, canales), no a una
+// conversación suelta.
 export function BottomNav({
-  onChat,
   onMenu,
-  chatActive,
   chatUnread = 0,
 }: {
-  onChat: () => void;
   onMenu: () => void;
-  chatActive: boolean;
   chatUnread?: number;
 }) {
   const pathname = usePathname();
+  const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
 
   const links = [
     { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
@@ -50,11 +49,9 @@ export function BottomNav({
         );
       })}
 
-      <button
-        type="button"
-        onClick={onChat}
-        aria-label="Abrir chat"
-        aria-pressed={chatActive}
+      <Link
+        href="/chat"
+        aria-current={chatActive ? "page" : undefined}
         className={cn(cell, chatActive ? "text-primary" : "text-muted-foreground")}
       >
         {chatActive ? <span className={indicator} /> : null}
@@ -67,7 +64,7 @@ export function BottomNav({
           ) : null}
         </span>
         Chat
-      </button>
+      </Link>
 
       <button
         type="button"
