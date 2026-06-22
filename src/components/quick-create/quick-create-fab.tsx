@@ -191,7 +191,7 @@ export function QuickCreateFab({
                     ? "Nueva cita"
                     : "Editar proyecto"}
               </h3>
-              <button onClick={() => { if (!busy) setModal(null); }} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+              <button type="button" aria-label="Cerrar" onClick={() => { if (!busy) setModal(null); }} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
                 <X className="size-5" />
               </button>
             </div>

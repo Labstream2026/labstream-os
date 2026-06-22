@@ -106,7 +106,7 @@ export function UserPermissions({
                 <h3 className="text-sm font-semibold">Permisos de {userName}</h3>
                 <p className="text-xs text-muted-foreground">Rol: {roleName || "…"} · ajusta permisos individuales encima del rol</p>
               </div>
-              <button onClick={() => setOpen(false)} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
+              <button type="button" aria-label="Cerrar" onClick={() => setOpen(false)} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
             </div>
 
             <div className="overflow-y-auto p-4">

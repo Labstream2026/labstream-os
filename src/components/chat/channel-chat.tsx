@@ -705,7 +705,7 @@ export function ChannelChat({
           <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
             <Search className="size-3.5 text-muted-foreground" />
             <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en el chat…" className="w-full bg-transparent text-xs outline-none" />
-            <button onClick={() => { setSearch(""); setSearchOpen(false); }} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+            <button type="button" aria-label="Cerrar búsqueda" onClick={() => { setSearch(""); setSearchOpen(false); }} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
           </div>
         ) : (
           <>

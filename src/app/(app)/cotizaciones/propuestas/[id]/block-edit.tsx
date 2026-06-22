@@ -122,7 +122,7 @@ function StrList({ items, onChange, addLabel }: { items: string[]; onChange: (it
       {items.map((it, i) => (
         <div key={i} className="flex items-center gap-2">
           <input value={it} onChange={(e) => onChange(items.map((x, idx) => (idx === i ? e.target.value : x)))} className={inputCls} />
-          <button onClick={() => onChange(items.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
+          <button type="button" aria-label="Eliminar" onClick={() => onChange(items.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
         </div>
       ))}
       <button onClick={() => onChange([...items, ""])} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent">
@@ -187,7 +187,7 @@ function BudgetEditor({ block, patch }: { block: Block; patch: (k: string, v: un
         <div key={si} className="rounded-lg border border-border p-2.5">
           <div className="flex items-center gap-2">
             <input value={sec.s} onChange={(e) => setSections(sections.map((x, s) => (s === si ? { ...x, s: e.target.value } : x)))} className={inputCls + " font-medium"} />
-            <button onClick={() => rmSec(si)} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
+            <button type="button" aria-label="Eliminar sección" onClick={() => rmSec(si)} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
           </div>
           <div className="mt-2 space-y-2">
             {sec.items.map((it, ii) => (
@@ -197,7 +197,7 @@ function BudgetEditor({ block, patch }: { block: Block; patch: (k: string, v: un
                 <input type="number" value={it.q} onChange={(e) => setItem(si, ii, "q", Number(e.target.value) || 0)} className={inputCls + " col-span-1 text-right"} />
                 <input value={it.u} onChange={(e) => setItem(si, ii, "u", e.target.value)} placeholder="ud" className={inputCls + " col-span-1"} />
                 <input type="number" value={it.v} onChange={(e) => setItem(si, ii, "v", Number(e.target.value) || 0)} className={inputCls + " col-span-2 text-right"} />
-                <button onClick={() => rmItem(si, ii)} className="col-span-1 text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
+                <button type="button" aria-label="Eliminar ítem" onClick={() => rmItem(si, ii)} className="col-span-1 text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
               </div>
             ))}
             <button onClick={() => addItem(si)} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><Plus className="size-3.5" /> Añadir ítem</button>
@@ -231,7 +231,7 @@ function PlanEditor({ block, patch }: { block: Block; patch: (k: string, v: unkn
             {cols.map((_, ci) => (
               <input key={ci} value={r[ci] ?? ""} onChange={(e) => setRow(ri, ci, e.target.value)} className={inputCls} />
             ))}
-            <button onClick={() => patch("rows", rows.filter((_, i) => i !== ri))} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
+            <button type="button" aria-label="Eliminar fila" onClick={() => patch("rows", rows.filter((_, i) => i !== ri))} className="text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>
           </div>
         ))}
         <button onClick={() => patch("rows", [...rows, cols.map(() => "")])} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"><Plus className="size-3.5" /> Añadir fila</button>
