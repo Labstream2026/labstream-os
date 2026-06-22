@@ -5,7 +5,7 @@ import { askOpenClaw, type ChatTurn } from "./client";
 import { getOpenClawConfig } from "./config";
 import { runAgent } from "./agent";
 import { buildAgentSession, AGENT_TOOLS, executeAgentTool } from "./tools";
-import { buildImageParts } from "./attachments";
+import { buildImageParts, extractDocsText } from "./attachments";
 
 // Alias por los que se puede etiquetar al agente en el chat (además del nombre del bot).
 const ALIASES = [MARCEBOT_NAME, "IA", "Asistente"];
@@ -38,7 +38,7 @@ function systemPrompt(askerName: string, askerRole: string): string {
   return [
     "Eres Marcebot, el asistente de IA del equipo de Labstream (una productora audiovisual de Bogotá), dentro de su chat interno.",
     `Hoy es ${fechaLarga} (${hoyIso}). Te escribe ${askerName} (rol: ${askerRole}).`,
-    "Tienes herramientas para CONSULTAR clientes, proyectos, tareas, cotizaciones, facturas, eventos del calendario, archivos de proyecto y la wiki del equipo (páginas, inventario, ubicación y la bóveda de contraseñas —de la que NUNCA reveles la clave, solo dónde verla—), y para CREAR clientes, proyectos, tareas y tareas recurrentes. Puedes ENVIAR al usuario archivos de proyecto que tenga permiso de ver (find_files + send_file) y generar/enviar la cotización en PDF (send_quote). Si el usuario adjunta imágenes, las verás directamente; míralas para responder o crear tareas. NO tienes acceso a la Configuración del sistema (usuarios, roles, integraciones).",
+    "Tienes herramientas para CONSULTAR clientes, proyectos, tareas, cotizaciones, facturas, eventos del calendario, archivos de proyecto y la wiki del equipo (páginas, inventario, ubicación y la bóveda de contraseñas —de la que NUNCA reveles la clave, solo dónde verla—), y para CREAR clientes, proyectos, tareas y tareas recurrentes. Puedes ENVIAR al usuario archivos de proyecto que tenga permiso de ver (find_files + send_file) y generar/enviar la cotización en PDF (send_quote). Si el usuario adjunta imágenes las verás directamente, y si adjunta un PDF recibirás su texto extraído; úsalos para responder, resumir o crear tareas. NO tienes acceso a la Configuración del sistema (usuarios, roles, integraciones).",
     `Actúas SIEMPRE con los permisos de ${askerName}: las herramientas ya lo aplican, así que solo verás o crearás lo que esa persona podría (si no tiene permiso, te lo dirá la herramienta).`,
     "Reglas: usa las herramientas en vez de inventar datos. Resuelve nombres de cliente/proyecto/persona con find_clients/find_projects/find_users cuando haga falta. Para crear tareas de un cliente que aún no tiene proyecto: crea el cliente (si no existe), luego un proyecto, y luego las tareas. Si te falta un dato clave y no es evidente, pregúntalo antes de crear. Responde en español, breve y claro. Las fechas en formato YYYY-MM-DD.",
   ].join(" ");
@@ -94,12 +94,15 @@ export async function handleBotMention(channelId: string, userId: string, parent
       orderBy: { createdAt: "desc" },
       select: { attachments: { select: { name: true, mime: true, path: true } } },
     });
-    const imageParts = lastUserMsg?.attachments?.length ? await buildImageParts(lastUserMsg.attachments) : [];
+    const atts = lastUserMsg?.attachments ?? [];
+    const imageParts = atts.length ? await buildImageParts(atts) : [];
+    const docsText = atts.length ? await extractDocsText(atts) : null;
 
     const messages: ChatTurn[] = [
       { role: "system", content: session ? systemPrompt(session.name, session.role) : "Eres Marcebot, asistente del equipo de Labstream. Responde en español, breve y claro." },
       ...turns,
     ];
+    if (docsText) messages.push({ role: "user", content: `[Contenido de los documentos (PDF) que adjunté]\n${docsText}` });
     if (imageParts.length) {
       messages.push({ role: "user", content: [{ type: "text", text: "Imágenes que adjunté en el chat (míralas para responder):" }, ...imageParts] });
     }
