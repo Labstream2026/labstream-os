@@ -11,6 +11,7 @@ import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
+import { bogotaNoon } from "@/lib/today";
 import type { ToolDef } from "./client";
 
 // ── Sesión del usuario que etiqueta al bot ──
@@ -188,7 +189,8 @@ export const AGENT_TOOLS: ToolDef[] = [
           project: { type: "string", description: "Id o nombre del proyecto (opcional; vacío = tarea personal)." },
           assignee: { type: "string", description: "'yo' o nombre del responsable (opcional)." },
           priority: { type: "string", description: "Prioridad: ALTA, MEDIA o BAJA (opcional)." },
-          dueDate: { type: "string", description: "Fecha de entrega YYYY-MM-DD (opcional)." },
+          startDate: { type: "string", description: "Fecha de inicio YYYY-MM-DD (opcional; def. hoy)." },
+          dueDate: { type: "string", description: "Fecha de entrega YYYY-MM-DD (opcional; def. hoy)." },
           isPrivate: { type: "boolean", description: "Tarea privada (solo dueño y responsable). Opcional." },
         },
         required: ["title"],
@@ -511,13 +513,15 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         assigneeId = u.id;
       }
       const priority = await validPriority(args.priority);
-      const dueDate = parseDate(args.dueDate);
+      // Toda tarea lleva inicio y fin (def. hoy si no se indica).
+      const dueDate = parseDate(args.dueDate) ?? bogotaNoon();
+      const startDate = parseDate(args.startDate) ?? bogotaNoon();
       const position = projectId ? await db.task.count({ where: { projectId } }) : 0;
       const task = await db.task.create({
         data: {
           title, description: str(args.description) || null, projectId, assigneeId,
           ownerId: session.id, assignedById: assigneeId && assigneeId !== session.id ? session.id : null,
-          priority, dueDate, isPrivate: args.isPrivate === true,
+          priority, startDate, dueDate, isPrivate: args.isPrivate === true,
           position,
         },
         select: { id: true },

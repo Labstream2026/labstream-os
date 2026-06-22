@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Plus, X, ListChecks, CalendarPlus, FolderPlus, Pencil, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PROJECT_STATUS } from "@/lib/ui";
+import { todayInputValue } from "@/lib/today";
 import { createMyTask } from "@/app/(app)/mis-tareas/actions";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { createTask, updateProject, getProjectBasics, getProjectCapabilities } from "@/app/(app)/proyectos/[id]/actions";
@@ -256,10 +257,16 @@ function TaskForm({
           </select>
         </label>
       </div>
-      <label className="block">
-        <span className="mb-1 block text-xs text-muted-foreground">Fecha de entrega</span>
-        <input type="date" name="dueDate" className={inputCls} />
-      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted-foreground">Inicio</span>
+          <input type="date" name="startDate" required defaultValue={todayInputValue()} className={inputCls} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted-foreground">Fecha de entrega</span>
+          <input type="date" name="dueDate" required className={inputCls} />
+        </label>
+      </div>
       <label className="block">
         <span className="mb-1 block text-xs text-muted-foreground">Descripción (opcional)</span>
         <textarea name="description" rows={2} className={inputCls} />

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { DEFAULT_FOLDERS, TEMPLATES, type TemplateContent } from "./templates";
 import { createWithSequentialCode, maxCodeFrom } from "./sequential-code";
+import { bogotaNoon } from "./today";
 
 // Resuelve la definición de una plantilla por su `key`: primero la versión
 // editable de la BD (ProjectTemplate), y si no existe cae a la del código.
@@ -82,6 +83,7 @@ export async function instantiateTemplate(
   if (content?.tasks.length) {
     const cols = content.stages?.length ? content.stages : [];
     const total = content.tasks.length;
+    const hoy = bogotaNoon(); // toda tarea lleva inicio y fin; las de plantilla arrancan hoy
     await db.task.createMany({
       data: content.tasks.map((t, i) => ({
         projectId: project.id,
@@ -91,6 +93,8 @@ export async function instantiateTemplate(
         stage: t.stage ?? (cols.length ? cols[Math.min(cols.length - 1, Math.floor((i * cols.length) / total))] : null),
         position: i,
         assigneeId: opts.leadId ?? null,
+        startDate: hoy,
+        dueDate: hoy,
       })),
     });
   }

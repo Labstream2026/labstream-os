@@ -84,6 +84,7 @@ export async function runRecurringTasks(now: Date = new Date()): Promise<Recurri
         assigneeId: rule.assigneeId,
         ownerId: rule.createdById,
         assignedById: rule.assigneeId && rule.assigneeId !== rule.createdById ? rule.createdById : null,
+        startDate: today.noon, // toda tarea lleva inicio: la recurrente arranca el día que se genera
         dueDate,
         position,
       },

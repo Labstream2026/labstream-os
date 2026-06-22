@@ -7,6 +7,7 @@ import { canWriteProject } from "@/lib/project-access";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
 import { dayUTC } from "@/lib/equipos";
+import { bogotaNoon } from "@/lib/today";
 
 function refresh(projectId: string) {
   revalidatePath(`/proyectos/${projectId}`);
@@ -197,6 +198,7 @@ async function syncMirrorTask(planId: string) {
         title,
         description,
         assigneeId: plan.assigneeId,
+        startDate: bogotaNoon(), // empieza a prepararse hoy; entrega = día de grabación
         dueDate: plan.shootDate,
         shootDate: plan.shootDate,
         priority: "ALTA" as never,

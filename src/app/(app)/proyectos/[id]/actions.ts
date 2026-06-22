@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { safeExternalUrl } from "@/lib/url";
+import { bogotaNoon } from "@/lib/today";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { emptyDocx } from "@/lib/docx";
@@ -114,11 +115,12 @@ export async function createTask(projectId: string, formData: FormData) {
   const assigneeId = String(formData.get("assigneeId") ?? "") || null;
   const priority = String(formData.get("priority") ?? "MEDIA");
   const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
+  // Toda tarea lleva inicio y fin: el formulario los exige. Si por alguna vía no llegan
+  // (automatismos/API), por defecto hoy, para que nunca queden vacíos.
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
-  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
-  // Inicio y descripción opcionales (crear hoy, ejecutar después + documentar).
+  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : bogotaNoon();
   const startRaw = String(formData.get("startDate") ?? "").trim();
-  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : null;
+  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
   const description = String(formData.get("description") ?? "").trim() || null;
   const session = await getSession();
   const count = await db.task.count({ where: { projectId } });

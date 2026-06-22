@@ -22,6 +22,7 @@ import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { cn } from "@/lib/utils";
+import { todayInputValue } from "@/lib/today";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
@@ -239,6 +240,16 @@ function Column({
           placeholder="+ Añadir tarea"
           className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:bg-background"
         />
+        <div className="mt-1 flex items-center gap-1.5">
+          <label className="flex flex-1 items-center gap-1 text-[10px] text-muted-foreground" title="Fecha de inicio">
+            Inicio
+            <input type="date" name="startDate" required defaultValue={todayInputValue()} className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+          </label>
+          <label className="flex flex-1 items-center gap-1 text-[10px] text-muted-foreground" title="Fecha de finalización">
+            Fin
+            <input type="date" name="dueDate" required className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+          </label>
+        </div>
         <div className="mt-1 flex items-center gap-1.5">
           <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
             {priorities.map((p) => (

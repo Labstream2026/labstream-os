@@ -4,6 +4,7 @@ import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "@/lib/ui";
+import { todayInputValue } from "@/lib/today";
 import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
 import { type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
@@ -141,6 +142,8 @@ export function TasksList({
           placeholder="+ Añadir tarea"
           className="min-w-48 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
+        <input type="date" name="startDate" required defaultValue={todayInputValue()} title="Fecha de inicio" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
+        <input type="date" name="dueDate" required title="Fecha de finalización" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
         <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">
           {priorities.map((p) => (
             <option key={p.key} value={p.key}>{p.label}</option>

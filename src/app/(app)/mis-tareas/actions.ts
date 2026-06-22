@@ -7,6 +7,7 @@ import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
+import { bogotaNoon } from "@/lib/today";
 
 // Marcar una tarea como terminada (desde el dock o Mis tareas). Solo el responsable
 // o el dueño pueden. Usa el estado configurado como "Terminada" (isDone) y deja la
@@ -41,12 +42,12 @@ export async function createMyTask(formData: FormData) {
   const assigneeId = String(formData.get("assigneeId") ?? "") || session.id;
   const priority = String(formData.get("priority") ?? "MEDIA");
   const isPrivate = formData.get("isPrivate") === "on" || formData.get("isPrivate") === "true";
+  // Toda tarea lleva inicio y fin: el formulario los exige. Si no llegan (automatismos/API),
+  // por defecto hoy, para que nunca queden vacíos.
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
-  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
-  // Fecha de inicio y descripción opcionales: permiten crear hoy una tarea que se
-  // ejecuta después (agendada) y documentar qué hay que hacer.
+  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : bogotaNoon();
   const startRaw = String(formData.get("startDate") ?? "").trim();
-  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : null;
+  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
   const description = String(formData.get("description") ?? "").trim() || null;
 
   if (assigneeId !== session.id) {

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { type LabelRow, defaultKey } from "@/lib/colors";
+import { todayInputValue } from "@/lib/today";
 import { createMyTask } from "./actions";
 
 // Formulario para crear una tarea personal o asignarla a alguien del equipo.
@@ -58,11 +59,11 @@ export function MyTaskForm({ team, priorities }: { team: { id: string; name: str
             </select>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Inicio
-              <input name="startDate" type="date" title="Cuándo empieza (agéndala a futuro)" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+              <input name="startDate" type="date" required defaultValue={todayInputValue()} title="Cuándo empieza (agéndala a futuro)" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
             </label>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Entrega
-              <input name="dueDate" type="date" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+              <input name="dueDate" type="date" required className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
             </label>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <input name="isPrivate" type="checkbox" className="size-3.5" /> 🔒 Privada
