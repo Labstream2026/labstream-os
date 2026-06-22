@@ -10,7 +10,7 @@ import { saveProjectAppearance, clearProjectCover } from "./appearance-actions";
 import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeEnabled } from "@/lib/onlyoffice";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
@@ -263,11 +263,11 @@ export default async function ProyectoPage({
 
       {/* Tabs */}
       <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.map((t, i) => {
+        {TABS.filter((t) => t.key !== "actividad" || hasPermission(session, "ver_actividad")).map((t, i, arr) => {
           const active = tab === t.key;
           const count = (counts as Record<string, number>)[t.key];
           // Separador entre grupos (Contenido · Entregables · Operación).
-          const newGroup = i > 0 && TABS[i - 1].group !== t.group;
+          const newGroup = i > 0 && arr[i - 1].group !== t.group;
           return (
             <Fragment key={t.key}>
             {newGroup ? <span aria-hidden className="my-2 self-stretch border-l border-border/60" /> : null}
@@ -458,7 +458,7 @@ export default async function ProyectoPage({
             onlyoffice={onlyofficeEnabled}
           />
         ) : null}
-        {tab === "actividad" ? (
+        {tab === "actividad" && hasPermission(session, "ver_actividad") ? (
           <ActivityFeed
             items={project.activity.map((a) => ({
               id: a.id,

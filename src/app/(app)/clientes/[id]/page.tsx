@@ -28,6 +28,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const session = await getSession();
   // La zona Clientes requiere ver_clientes; además, abajo se valida el acceso a ESTE cliente.
   if (!hasPermission(session, "ver_clientes")) redirect("/");
+  const canActividad = hasPermission(session, "ver_actividad");
   const client = await db.client.findUnique({
     where: { id },
     include: {
@@ -221,7 +222,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                 </div>
               ),
             },
-            {
+            ...(canActividad ? [{
               key: "actividad",
               label: "Actividad",
               icon: "📝",
@@ -237,7 +238,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                   }))}
                 />
               ),
-            },
+            }] : []),
             {
               key: "acceso",
               label: "Ajustes",
