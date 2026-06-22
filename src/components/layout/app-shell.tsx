@@ -31,6 +31,7 @@ export function AppShell({
   canTimeline = true,
   canReports = true,
   canClients = true,
+  canPapelera = false,
   canCreateTasks = false,
   canCreateProjects = false,
   fabPriorities = [],
@@ -56,6 +57,7 @@ export function AppShell({
   canTimeline?: boolean;
   canReports?: boolean;
   canClients?: boolean;
+  canPapelera?: boolean;
   canCreateTasks?: boolean;
   canCreateProjects?: boolean;
   fabPriorities?: { value: string; label: string }[];
@@ -128,7 +130,7 @@ export function AppShell({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -148,6 +150,7 @@ export function AppShell({
               canTimeline={canTimeline}
               canReports={canReports}
               canClients={canClients}
+              canPapelera={canPapelera}
               chatUnread={chatUnread}
               reviewPending={reviewPending}
               onSearch={() => { setSearchOpen(true); setMobileMenuOpen(false); }}

@@ -1369,3 +1369,37 @@ export async function removeProjectMember(projectId: string, userId: string) {
   await logActivity({ action: "member.remove", summary: `quitó a ${member?.name ?? "un miembro"} del proyecto`, projectId, entityType: "member", entityId: userId });
   refresh(projectId);
 }
+
+// ── Papelera (borrado SUAVE de proyectos) ──
+// Archivar = sacarlo de las listas pero conservar TODO (tareas, archivos, entregables, chat);
+// restaurable desde la papelera. No hay borrado físico. Exige eliminar_proyectos + gestionar el
+// proyecto (admin/líder/owner). Idempotente.
+export async function archiveProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await ensureProjectManage(projectId, "eliminar_proyectos");
+  } catch {
+    return { ok: false, error: "No autorizado para borrar este proyecto." };
+  }
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, archivedAt: true } });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  if (project.archivedAt) return { ok: true }; // ya archivado
+  await db.project.update({ where: { id: projectId }, data: { archivedAt: new Date() } });
+  await logActivity({ action: "project.archive", summary: `envió a la papelera el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/proyectos");
+  revalidatePath("/papelera");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Restaura un proyecto archivado (vuelve a las listas). Lo hace quien puede ver la papelera.
+export async function restoreProject(projectId: string): Promise<void> {
+  const session = await getSession();
+  if (!hasPermission(session, "ver_papelera")) throw new Error("No autorizado");
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
+  if (!project) return;
+  await db.project.update({ where: { id: projectId }, data: { archivedAt: null } });
+  await logActivity({ action: "project.restore", summary: `restauró el proyecto «${project.name}» de la papelera`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/proyectos");
+  revalidatePath("/papelera");
+  revalidatePath("/", "layout");
+}

@@ -35,9 +35,9 @@ export default async function HomePage() {
   if (!me) redirect("/login");
   const session = await getSession();
   const [clients, projects, blocked, myTasks] = await Promise.all([
-    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: true } } } }),
-    db.project.count({ where: { status: { notIn: INACTIVE as never } } }),
-    db.project.count({ where: { status: "PAUSADO" } }),
+    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: { where: { archivedAt: null } } } } } }),
+    db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),
+    db.project.count({ where: { status: "PAUSADO", archivedAt: null } }),
     db.task.findMany({
       where: { assigneeId: me.id, status: { in: OPEN as never } },
       orderBy: { dueDate: "asc" },

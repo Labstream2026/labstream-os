@@ -11,6 +11,7 @@ export default async function AsistentePage() {
   const session = await getSession();
   if (!hasPermission(session, "ver_asistente")) redirect("/");
   const all = await db.project.findMany({
+    where: { archivedAt: null },
     orderBy: { createdAt: "desc" },
     select: { id: true, code: true, name: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } },
     take: 200,

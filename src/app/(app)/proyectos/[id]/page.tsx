@@ -303,6 +303,7 @@ export default async function ProyectoPage({
                     : [];
                 })}
                 team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+                canArchive={hasPermission(session, "eliminar_proyectos")}
               />
             ) : null}
             <Resumen project={project} priorities={taskLabels.priorities} />

@@ -382,8 +382,14 @@ model Project {
   activity     ActivityLog[]
   equipmentPlans EquipmentPlan[]
 
+  // Borrado SUAVE (papelera): archivar saca el proyecto de las listas pero conserva todo
+  // (tareas, archivos, entregables, chat) y se puede RESTAURAR. No hay borrado físico.
+  archivedAt  DateTime?
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
+  @@index([archivedAt])
 }
 
 // Rol dentro de un proyecto compartido (estilo Mattermost):

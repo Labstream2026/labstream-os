@@ -29,6 +29,7 @@ export default async function ClientesPage() {
     include: {
       _count: { select: { quotes: true } },
       projects: {
+        where: { archivedAt: null },
         orderBy: { createdAt: "desc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },

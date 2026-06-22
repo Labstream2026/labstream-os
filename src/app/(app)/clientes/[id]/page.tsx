@@ -35,6 +35,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       _count: { select: { quotes: true } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       projects: {
+        where: { archivedAt: null },
         orderBy: { createdAt: "asc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },

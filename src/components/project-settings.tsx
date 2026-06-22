@@ -1,13 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Globe, Lock, Plus, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Globe, Lock, Plus, X, Archive } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import {
   setProjectVisibility,
   addProjectMember,
   removeProjectMember,
+  archiveProject,
 } from "@/app/(app)/proyectos/[id]/actions";
 
 type Person = { id: string; name: string; initials: string | null; color: string | null };
@@ -21,15 +24,32 @@ export function ProjectSettings({
   leadId,
   members,
   team,
+  canArchive = false,
 }: {
   projectId: string;
   isPrivate: boolean;
   leadId: string | null;
   members: Member[];
   team: Person[];
+  canArchive?: boolean;
 }) {
   const [pending, start] = React.useTransition();
   const [adding, setAdding] = React.useState(false);
+  const router = useRouter();
+  const { confirm, dialog } = useConfirmDialog();
+
+  const onArchive = async () => {
+    const ok = await confirm({
+      title: "Mover a la papelera",
+      message: "El proyecto saldrá de las listas pero NO se borra nada: se conserva todo y podrás restaurarlo desde la Papelera.",
+      confirmLabel: "Mover a la papelera",
+      danger: true,
+    });
+    if (!ok) return;
+    const r = await archiveProject(projectId);
+    if (r.ok) router.push("/proyectos");
+    else await confirm({ title: "No se pudo", message: r.error ?? "Error al archivar.", confirmLabel: "Entendido" });
+  };
   const memberIds = new Set(members.map((m) => m.id));
   // candidatos: equipo que no es ya miembro ni el responsable
   const candidates = team.filter((u) => !memberIds.has(u.id) && u.id !== leadId);
@@ -103,6 +123,19 @@ export function ProjectSettings({
           </div>
         ) : null}
       </div>
+
+      {canArchive ? (
+        <button
+          type="button"
+          onClick={onArchive}
+          disabled={pending}
+          className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+          title="Mover el proyecto a la papelera"
+        >
+          <Archive className="size-3.5" /> Archivar
+        </button>
+      ) : null}
+      {dialog}
     </div>
   );
 }

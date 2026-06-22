@@ -44,13 +44,14 @@ export function canManageProject(project: ProjectShape, session: SessionUser | n
 // Refleja exactamente la lógica de canAccessProject().
 export function accessibleProjectWhere(session: SessionUser | null): Record<string, unknown> {
   if (!session) return { id: "__none__" }; // nada
-  if (session.role === "admin") return {};
+  // Los proyectos archivados (papelera) nunca salen en las listas normales.
+  if (session.role === "admin") return { archivedAt: null };
   const or: Record<string, unknown>[] = [
     { leadId: session.id },
     { members: { some: { userId: session.id } } },
   ];
   if (session.perms.includes("ver_proyectos")) or.push({ isPrivate: false });
-  return { OR: or };
+  return { archivedAt: null, OR: or };
 }
 
 const accessSelect = {

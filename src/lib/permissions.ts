@@ -78,6 +78,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "administrar_roles", label: "Administrar roles y permisos", category: "Administración" },
   { key: "administrar_integraciones", label: "Administrar integraciones", category: "Administración" },
   { key: "ver_actividad", label: "Ver registro de actividad", category: "Administración" },
+  { key: "ver_papelera", label: "Ver la papelera (proyectos y clientes archivados)", category: "Administración" },
 ];
 
 export const ALL_PERMISSION_KEYS = PERMISSION_CATALOG.map((p) => p.key);

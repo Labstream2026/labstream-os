@@ -71,6 +71,7 @@ export function Sidebar({
   canTimeline = true,
   canReports = true,
   canClients = true,
+  canPapelera = false,
   collapsed = false,
   chatUnread = 0,
   reviewPending = 0,
@@ -88,6 +89,7 @@ export function Sidebar({
   canTimeline?: boolean;
   canReports?: boolean;
   canClients?: boolean;
+  canPapelera?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   reviewPending?: number;
@@ -337,6 +339,7 @@ export function Sidebar({
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
             {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}
+            {canPapelera ? navRow("/papelera", "Papelera", Archive, pathname.startsWith("/papelera")) : null}
           </>
         ) : null}
       </div>
