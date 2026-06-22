@@ -33,6 +33,15 @@ async function requireRoleAdmin() {
   return session!;
 }
 
+// Gate de INTEGRACIONES (correo, OpenClaw/Marcebot, sincronización de calendario): requiere
+// "administrar_integraciones". Por defecto solo lo tiene el admin, pero ahora el admin puede
+// delegarlo a otro rol y SÍ surtirá efecto (antes estas acciones eran admin-only fijo).
+async function requireIntegrations() {
+  const session = await getSession();
+  if (!hasPermission(session, "administrar_integraciones")) return null;
+  return session!;
+}
+
 // ── Programación del sondeo de calendarios Synology (planificador en-proceso) ──
 // El admin define frecuencia, franja horaria (Bogotá) y días desde Configuración →
 // Integraciones; el planificador (calendar-scheduler) lo lee en cada tick.
@@ -43,7 +52,7 @@ export async function saveCalendarSyncSettings(input: {
   endHour: number;
   workDays: number[];
 }): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   const everyMinutes = Math.min(720, Math.max(1, Math.round(input.everyMinutes || 15)));
   const startHour = Math.min(23, Math.max(0, Math.round(input.startHour)));
@@ -92,7 +101,7 @@ async function notifyRoleUsers(
 // Guarda la configuración SMTP (Synology MailPlus) desde la UI. La contraseña se cifra;
 // si el campo llega vacío se conserva la existente. Tiene prioridad sobre el .env.
 export async function saveMailSettings(formData: FormData): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
 
   const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
@@ -134,7 +143,7 @@ export async function saveMailSettings(formData: FormData): Promise<AdminActionR
 // Guarda la conexión con el agente OpenClaw (gateway compatible con OpenAI). El token se
 // cifra; si el campo llega vacío se conserva el existente. Limpia la caché al guardar.
 export async function saveOpenClawSettings(formData: FormData): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
 
   const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
@@ -161,7 +170,7 @@ export async function saveOpenClawSettings(formData: FormData): Promise<AdminAct
 
 // Envía un "ping" al agente para verificar la conexión y devuelve su respuesta.
 export async function testOpenClaw(): Promise<AdminActionResult & { reply?: string }> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   clearOpenClawCache(); // leer la config recién guardada
   const r = await askOpenClaw([
@@ -173,7 +182,7 @@ export async function testOpenClaw(): Promise<AdminActionResult & { reply?: stri
 
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.
 export async function sendTestEmail(): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   if (!(await isEmailEnabled())) return { ok: false, error: "Correo no configurado (configúralo aquí en Integraciones o vía RESEND_API_KEY / SMTP_*)." };
   if (!session.email) return { ok: false, error: "Tu usuario no tiene correo." };
@@ -192,7 +201,7 @@ export async function sendTestEmail(): Promise<AdminActionResult> {
 
 // Prueba la conexión al Synology Calendar (CalDAV).
 export async function testCalendar(): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   return testCaldav();
 }
@@ -200,7 +209,7 @@ export async function testCalendar(): Promise<AdminActionResult> {
 // Fuerza el sondeo de TODOS los calendarios conectados del equipo (lo que normalmente
 // hace el cron cada pocos minutos). Para el panel de Integraciones del admin.
 export async function syncAllCalendarsNow(): Promise<{ ok: boolean; error?: string; users?: number; imported?: number; updated?: number; deleted?: number }> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   try {
     const r = await syncAllCalendars();
@@ -409,7 +418,7 @@ export async function setMarcebotConfig(input: {
   startHour: number;
   lastHour: number;
 }): Promise<AdminActionResult> {
-  const session = await requireAdmin();
+  const session = await requireIntegrations();
   if (!session) return { ok: false, error: "No autorizado" };
   const days = [...new Set((input.workDays ?? []).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
   if (!days.length) return { ok: false, error: "Elige al menos un día laboral." };

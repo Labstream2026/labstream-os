@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
 import { mentionsBot, handleBotMention } from "@/lib/openclaw/bridge";
@@ -17,6 +17,7 @@ import { getOrCreateMarcebotDM, isBotDirectChannel } from "@/lib/marcebot/bot";
 export async function createChannel(formData: FormData) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  if (!hasPermission(session, "crear_canales")) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim().slice(0, 80);
   if (!name) return;
   const isPublic = formData.get("isPublic") !== "false"; // por defecto público
@@ -149,7 +150,9 @@ export async function deleteMessage(messageId: string): Promise<void> {
   const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true, deletedAt: true } });
   if (!msg || msg.deletedAt) return;
   const isOwner = msg.authorId === session.id;
-  if (!isOwner && session.role !== "admin" && !(await userCanManageChannel(msg.channelId, session))) return;
+  // Borrar mensajes de OTROS exige moderar_chat (o admin / gestor del canal). El autor
+  // siempre puede borrar el suyo.
+  if (!isOwner && session.role !== "admin" && !hasPermission(session, "moderar_chat") && !(await userCanManageChannel(msg.channelId, session))) return;
   await db.chatMessage.update({ where: { id: messageId }, data: { deletedAt: new Date(), deletedById: session.id } });
   publishMessageDelete(msg.channelId, messageId);
 }
@@ -204,6 +207,8 @@ export async function togglePin(messageId: string): Promise<void> {
   const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, pinned: true } });
   if (!msg) return;
   if (!(await userCanAccessChannel(msg.channelId, session))) return;
+  // Fijar/desfijar es moderación: exige moderar_chat (o admin / gestor del canal).
+  if (session.role !== "admin" && !hasPermission(session, "moderar_chat") && !(await userCanManageChannel(msg.channelId, session))) return;
   await db.chatMessage.update({ where: { id: messageId }, data: { pinned: !msg.pinned } });
   publishMessagePin(msg.channelId, messageId, !msg.pinned);
 }
@@ -331,6 +336,7 @@ export async function sendMessage(
 
   const session = await getSession();
   if (!(await userCanAccessChannel(channelId, session))) return null;
+  if (!hasPermission(session, "comentar")) return null;
 
   const msg = await db.chatMessage.create({
     data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
@@ -375,6 +381,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
 
   const session = await getSession();
   if (!(await userCanAccessChannel(channelId, session))) return null;
+  if (!hasPermission(session, "comentar")) return null;
 
   const msg = await db.chatMessage.create({
     data: { channelId, body, parentId, authorId: session!.id },
