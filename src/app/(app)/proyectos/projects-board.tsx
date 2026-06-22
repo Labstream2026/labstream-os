@@ -10,50 +10,42 @@ export type BoardClient = {
   projects: ProjectCardData[];
 };
 
-// Tablero de proyectos agrupados por cliente, con dos disposiciones:
-// vertical (secciones apiladas) u horizontal (un columna por cliente, lado a lado).
-export function ProjectsBoard({ clients }: { clients: BoardClient[] }) {
-  const [horizontal, setHorizontal] = React.useState(false);
+// Tablero de proyectos agrupados por cliente. La disposición (vertical/horizontal) viene
+// fija por `orientation` (cada una es su propia pestaña ahora); si no se pasa, conserva el
+// conmutador interno (compatibilidad).
+export function ProjectsBoard({ clients, orientation }: { clients: BoardClient[]; orientation?: "vertical" | "horizontal" }) {
+  const fixed = orientation !== undefined;
+  const [pref, setPref] = React.useState(false);
+  const horizontal = fixed ? orientation === "horizontal" : pref;
 
   React.useEffect(() => {
-    setHorizontal(window.localStorage.getItem("ui:proyectosBoard") === "h");
-  }, []);
+    if (fixed) return;
+    setPref(window.localStorage.getItem("ui:proyectosBoard") === "h");
+  }, [fixed]);
   const setMode = (h: boolean) => {
-    setHorizontal(h);
+    setPref(h);
     window.localStorage.setItem("ui:proyectosBoard", h ? "h" : "v");
   };
 
+  // Cabecera del cliente: nombre +50% y en negrita (mismo espaciado → se ve más compacto).
   const Header = ({ c }: { c: BoardClient }) => (
     <div className="mb-3 flex items-center gap-2">
-      <span className="text-base">{c.emoji}</span>
-      <h2 className="text-sm font-semibold">{c.name}</h2>
+      <span className="text-2xl">{c.emoji}</span>
+      <h2 className="text-xl font-bold tracking-tight">{c.name}</h2>
       <span className="text-xs text-muted-foreground">· {c.projects.length}</span>
     </div>
   );
 
   return (
     <div>
-      {/* Conmutador de disposición */}
-      <div className="mb-4 flex justify-end">
-        <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
-          <button
-            type="button"
-            onClick={() => setMode(false)}
-            className={cnToggle(!horizontal)}
-            title="Apilados (vertical)"
-          >
-            ▤ Vertical
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode(true)}
-            className={cnToggle(horizontal)}
-            title="Columnas por cliente (horizontal)"
-          >
-            ▥ Horizontal
-          </button>
+      {fixed ? null : (
+        <div className="mb-4 flex justify-end">
+          <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+            <button type="button" onClick={() => setMode(false)} className={cnToggle(!horizontal)} title="Apilados (vertical)">▤ Vertical</button>
+            <button type="button" onClick={() => setMode(true)} className={cnToggle(horizontal)} title="Columnas por cliente (horizontal)">▥ Horizontal</button>
+          </div>
         </div>
-      </div>
+      )}
 
       {horizontal ? (
         <div className="flex gap-4 overflow-x-auto pb-3">

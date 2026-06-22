@@ -11,8 +11,6 @@ import { cn } from "@/lib/utils";
 import { ViewTabs } from "./[id]/view-tabs";
 import { ProjectColorPicker } from "./project-color-picker";
 import { ProjectsBoard, type BoardClient } from "./projects-board";
-import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
-import { eventToCalItem, taskToCalItems } from "@/app/(app)/calendario/build-items";
 
 export const dynamic = "force-dynamic";
 
@@ -39,39 +37,8 @@ export default async function ProyectosPage() {
   const clients = allClients.filter((c) => c.projects.length > 0);
 
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
-  const flat = clients.flatMap((c) => c.projects.map((p) => ({ ...p, clientName: c.name, clientEmoji: c.emoji })));
 
-  // Calendario del portafolio: SOLO citas + tareas de los proyectos visibles (no las
-  // reuniones del equipo sin proyecto: eso solo se ve en la pestaña Calendario, que es
-  // la única ventana que muestra TODO). Mismo board colaborativo.
-  const visibleProjectIds = flat.map((p) => p.id);
-  const safeIds = visibleProjectIds.length ? visibleProjectIds : ["__none__"];
-  const calWindowStart = new Date(new Date().setMonth(new Date().getMonth() - 1));
-  const [overviewEvents, overviewTasks, calTeam] = await Promise.all([
-    db.calendarEvent.findMany({
-      where: { projectId: { in: safeIds }, start: { gte: calWindowStart } },
-      include: {
-        project: { select: { name: true, emoji: true } },
-        attendees: { include: { user: { select: { name: true, initials: true, avatarColor: true } } } },
-        guests: { select: { email: true } },
-      },
-    }),
-    db.task.findMany({
-      where: { projectId: { in: safeIds }, OR: [{ dueDate: { gte: calWindowStart } }, { shootDate: { gte: calWindowStart } }] },
-      select: {
-        id: true, title: true, dueDate: true, shootDate: true,
-        project: { select: { id: true, name: true, emoji: true } },
-        assignee: { select: { name: true, initials: true, avatarColor: true } },
-      },
-    }),
-    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
-  ]);
-  const overviewCalItems = [
-    ...overviewEvents.map((e) => eventToCalItem(e, session?.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
-    ...overviewTasks.flatMap((t) => taskToCalItems(t)),
-  ];
-
-  // Vista Tablero (cards por cliente; vertical u horizontal — ProjectsBoard)
+  // Vista Tablero (cards por cliente; vertical y horizontal son pestañas aparte — ProjectsBoard)
   const boardClients: BoardClient[] = clients.map((c) => ({
     id: c.id,
     name: c.name,
@@ -86,7 +53,8 @@ export default async function ProyectosPage() {
       lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
     })),
   }));
-  const board = <ProjectsBoard clients={boardClients} />;
+  const boardV = <ProjectsBoard clients={boardClients} orientation="vertical" />;
+  const boardH = <ProjectsBoard clients={boardClients} orientation="horizontal" />;
 
   // Vista Lista: una tabla por cliente (segmentación clara por cliente).
   const list = (
@@ -94,8 +62,8 @@ export default async function ProyectosPage() {
       {clients.map((c) => (
         <section key={c.id}>
           <div className="mb-2 flex items-center gap-2">
-            <span className="text-base">{c.emoji}</span>
-            <h2 className="text-sm font-semibold">{c.name}</h2>
+            <span className="text-2xl">{c.emoji}</span>
+            <h2 className="text-xl font-bold tracking-tight">{c.name}</h2>
             <span className="text-xs text-muted-foreground">· {c.projects.length}</span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-border">
@@ -153,21 +121,9 @@ export default async function ProyectosPage() {
         <ViewTabs
           storageKey="proyectos-view"
           views={[
-            { key: "tablero", label: "Tablero", icon: "🗂️", node: board },
+            { key: "tablero-v", label: "Tablero vertical", icon: "▤", node: boardV },
+            { key: "tablero-h", label: "Tablero horizontal", icon: "▥", node: boardH },
             { key: "lista", label: "Lista", icon: "☰", node: list },
-            {
-              key: "calendario", label: "Calendario", icon: "📅",
-              node: (
-                <div className="h-[72vh]">
-                  {/* Vista de portafolio: ver/editar/arrastrar las citas de los proyectos.
-                      Crear citas se hace dentro de cada proyecto o en la pestaña Calendario. */}
-                  <CalendarBoard
-                    items={overviewCalItems}
-                    team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
-                  />
-                </div>
-              ),
-            },
           ]}
         />
       </div>
