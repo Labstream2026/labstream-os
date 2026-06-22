@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 
@@ -36,9 +37,21 @@ export type ChatListData = {
 };
 
 export async function getChatListData(session: SessionUser): Promise<ChatListData> {
+  const isAdmin = session.role === "admin";
+  // El rail muestra: canales donde soy miembro (DMs, grupos, chats a los que me uní) Y, además,
+  // los chats de PROYECTO/CLIENTE que PUEDO ver aunque no me hayan invitado al canal: admin ve
+  // todos; si soy líder o miembro del proyecto, el suyo; y los públicos. Así cada proyecto tiene
+  // su chat visible en la pestaña Chats (antes solo aparecía si te habían invitado al canal).
+  const channelAccess: Prisma.ChatChannelWhereInput[] = isAdmin
+    ? [{ type: { in: ["PROJECT", "CLIENT"] } }]
+    : [
+        { type: { in: ["PROJECT", "CLIENT"] }, isPublic: true },
+        { type: "PROJECT", project: { leadId: session.id } },
+        { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+      ];
   const [myChannels, publicChannels, team] = await Promise.all([
     db.chatChannel.findMany({
-      where: { members: { some: { userId: session.id } } },
+      where: { OR: [{ members: { some: { userId: session.id } } }, ...channelAccess] },
       orderBy: { createdAt: "desc" },
       include: {
         members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },

@@ -2,11 +2,13 @@ import type { SessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
 
 // ¿Puede el usuario ver/escribir en este canal?
-// Público → todo el equipo. Privado → admin, responsable del proyecto o miembro invitado.
+// Público → todo el equipo. Privado → admin, responsable o MIEMBRO del proyecto, o invitado al
+// canal. (Cada proyecto tiene su chat: quien está en el proyecto puede entrar a su chat aunque
+// no lo hayan invitado al canal explícitamente.)
 export function canAccessChannel(
   channel: {
     isPublic: boolean;
-    project?: { leadId: string | null } | null;
+    project?: { leadId: string | null; members?: { userId: string }[] } | null;
     members: { userId: string }[];
   },
   session: SessionUser | null,
@@ -15,6 +17,7 @@ export function canAccessChannel(
   if (session.role === "admin") return true;
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;
+  if (channel.project?.members?.some((m) => m.userId === session.id)) return true;
   return channel.members.some((m) => m.userId === session.id);
 }
 
@@ -29,7 +32,7 @@ export async function userCanAccessChannel(
     where: { id: channelId },
     select: {
       isPublic: true,
-      project: { select: { leadId: true } },
+      project: { select: { leadId: true, members: { select: { userId: true } } } },
       members: { select: { userId: true } },
     },
   });

@@ -24,7 +24,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const channel = await db.chatChannel.findUnique({
     where: { id },
     include: {
-      project: { select: { leadId: true } },
+      project: { select: { leadId: true, members: { select: { userId: true } } } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       messages: {
         where: isAdmin ? undefined : { deletedAt: null },
