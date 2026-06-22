@@ -1,4 +1,6 @@
 import { extractText, getDocumentProxy } from "unpdf";
+import mammoth from "mammoth";
+import * as XLSX from "xlsx";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
 import type { ContentPart } from "./client";
@@ -44,34 +46,60 @@ export async function buildImageParts(attachments: Att[]): Promise<ContentPart[]
   return parts;
 }
 
-const MAX_PDFS = 3;
-const MAX_PDF_BYTES = 25 * 1024 * 1024;
-const MAX_TEXT = 12000; // caracteres de texto extraído que se pasan al modelo
+const MAX_DOCS = 3;
+const MAX_DOC_BYTES = 25 * 1024 * 1024;
+const MAX_TEXT = 12000; // caracteres de texto extraído que se pasan al modelo (por archivo)
 
-// Extrae el TEXTO de los PDF que adjunta el usuario (vía unpdf/pdfjs, pure-JS) para pasárselo
-// al modelo por OpenClaw — GPT no lee PDFs nativo en chat-completions, así que le damos el
-// texto. Devuelve un bloque por archivo, o null si no hay PDFs. No sirve para PDF escaneados
-// (solo imagen): ahí no hay texto que extraer. Best-effort.
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MIMES = new Set(["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"]);
+
+type DocKind = "pdf" | "docx" | "xlsx";
+function docKind(a: Att): DocKind | null {
+  const n = a.name.toLowerCase();
+  if (a.mime === "application/pdf" || n.endsWith(".pdf")) return "pdf";
+  if (a.mime === DOCX_MIME || n.endsWith(".docx")) return "docx";
+  if (XLSX_MIMES.has(a.mime ?? "") || n.endsWith(".xlsx") || n.endsWith(".xls")) return "xlsx";
+  return null;
+}
+
+// Extrae el TEXTO de los documentos que adjunta el usuario (PDF vía unpdf, Word vía mammoth,
+// Excel vía SheetJS) para pasárselo al modelo por OpenClaw — el chat-completions de GPT no lee
+// estos archivos nativo, así que le damos su texto. Devuelve un bloque por archivo, o null si
+// no hay documentos. PDF escaneado (solo imagen) no da texto. Pure-JS. Best-effort.
 export async function extractDocsText(attachments: Att[]): Promise<string | null> {
-  const pdfs = attachments.filter((a) => a.path && a.mime === "application/pdf").slice(0, MAX_PDFS);
-  if (!pdfs.length) return null;
+  const docs = attachments
+    .map((a) => ({ a, kind: docKind(a) }))
+    .filter((d): d is { a: Att; kind: DocKind } => d.kind !== null && !!d.a.path)
+    .slice(0, MAX_DOCS);
+  if (!docs.length) return null;
+
   const blocks: string[] = [];
-  for (const a of pdfs) {
+  for (const { a, kind } of docs) {
     let buf: Buffer;
     try {
       buf = await readBuffer(a.path);
     } catch {
       continue;
     }
-    if (buf.length > MAX_PDF_BYTES) { blocks.push(`«${a.name}»: (demasiado grande para leer)`); continue; }
+    if (buf.length > MAX_DOC_BYTES) { blocks.push(`«${a.name}»: (demasiado grande para leer)`); continue; }
     try {
-      const pdf = await getDocumentProxy(new Uint8Array(buf));
-      const { text } = await extractText(pdf, { mergePages: true });
-      const clean = String(text ?? "").replace(/[ \t]+\n/g, "\n").trim();
+      let txt = "";
+      if (kind === "pdf") {
+        const pdf = await getDocumentProxy(new Uint8Array(buf));
+        const { text } = await extractText(pdf, { mergePages: true });
+        txt = String(text ?? "");
+      } else if (kind === "docx") {
+        const { value } = await mammoth.extractRawText({ buffer: buf });
+        txt = value ?? "";
+      } else {
+        const wb = XLSX.read(buf, { type: "buffer" });
+        txt = wb.SheetNames.map((n) => `# ${n}\n${XLSX.utils.sheet_to_csv(wb.Sheets[n]!)}`).join("\n\n");
+      }
+      const clean = txt.replace(/[ \t]+\n/g, "\n").trim();
       if (clean) blocks.push(`«${a.name}»:\n${clean.slice(0, MAX_TEXT)}${clean.length > MAX_TEXT ? "\n…(texto truncado)" : ""}`);
-      else blocks.push(`«${a.name}»: (sin texto extraíble; posiblemente es un PDF escaneado/solo imagen)`);
+      else blocks.push(`«${a.name}»: (sin texto extraíble${kind === "pdf" ? "; posiblemente PDF escaneado/solo imagen" : ""})`);
     } catch {
-      blocks.push(`«${a.name}»: (no se pudo leer el PDF)`);
+      blocks.push(`«${a.name}»: (no se pudo leer)`);
     }
   }
   return blocks.length ? blocks.join("\n\n") : null;
