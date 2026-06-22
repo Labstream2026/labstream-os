@@ -83,10 +83,23 @@ export async function updateClient(clientId: string, formData: FormData): Promis
 // al instante desde la cabecera. Lee solo los campos presentes en el FormData.
 export async function saveClientAppearance(clientId: string, formData: FormData): Promise<ClientUpdateResult> {
   if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
-  const data: { emoji?: string; accentColor?: string | null; bannerUrl?: string } = {};
+  const data: {
+    emoji?: string;
+    accentColor?: string | null;
+    bannerUrl?: string;
+    description?: string | null;
+    logoBg?: string | null;
+    photoUrl?: string;
+    logoUrl?: string;
+  } = {};
 
   if (formData.has("emoji")) data.emoji = String(formData.get("emoji") ?? "").trim().slice(0, 8) || "🏢";
   if (formData.has("accentColor")) data.accentColor = safeTone(String(formData.get("accentColor") ?? ""));
+  if (formData.has("description")) data.description = String(formData.get("description") ?? "").trim().slice(0, 280) || null;
+  if (formData.has("logoBg")) {
+    const v = String(formData.get("logoBg") ?? "").trim();
+    data.logoBg = /^#[0-9a-fA-F]{6}$/.test(v) ? v : null;
+  }
 
   const file = formData.get("banner");
   if (file instanceof File && file.size > 0) {
@@ -97,6 +110,26 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
     // y se convierte a WebP → portada ligera y sin guardar el original.
     await saveOptimizedImage("banners", clientId, buf, file.type, { crop: { width: 1600, height: 500 }, quality: 78 });
     data.bannerUrl = `/api/banner/${clientId}?v=${Date.now()}`;
+  }
+
+  // Foto del cliente: recorte cuadrado (va en un círculo).
+  const photo = formData.get("photo");
+  if (photo instanceof File && photo.size > 0) {
+    if (!photo.type.startsWith("image/")) return { ok: false, error: "La foto debe ser una imagen" };
+    if (photo.size > 8 * 1024 * 1024) return { ok: false, error: "La foto supera 8MB" };
+    const buf = Buffer.from(await photo.arrayBuffer());
+    await saveOptimizedImage("client-photos", clientId, buf, photo.type, { crop: { width: 480, height: 480 }, quality: 82 });
+    data.photoUrl = `/api/client-asset/photo/${clientId}?v=${Date.now()}`;
+  }
+
+  // Logo: se conserva la proporción (no se recorta) y el WebP mantiene la transparencia del PNG.
+  const logo = formData.get("logo");
+  if (logo instanceof File && logo.size > 0) {
+    if (!logo.type.startsWith("image/")) return { ok: false, error: "El logo debe ser una imagen" };
+    if (logo.size > 8 * 1024 * 1024) return { ok: false, error: "El logo supera 8MB" };
+    const buf = Buffer.from(await logo.arrayBuffer());
+    await saveOptimizedImage("client-logos", clientId, buf, logo.type, { maxEdge: 600, quality: 88 });
+    data.logoUrl = `/api/client-asset/logo/${clientId}?v=${Date.now()}`;
   }
 
   if (Object.keys(data).length === 0) return { ok: true };
@@ -111,6 +144,18 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
 export async function clearClientCover(clientId: string): Promise<ClientUpdateResult> {
   if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
   await db.client.update({ where: { id: clientId }, data: { bannerUrl: null } });
+  revalidatePath(`/clientes/${clientId}`);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Quita la foto o el logo del cliente.
+export async function clearClientImage(clientId: string, kind: "photo" | "logo"): Promise<ClientUpdateResult> {
+  if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
+  await db.client.update({
+    where: { id: clientId },
+    data: kind === "photo" ? { photoUrl: null } : { logoUrl: null },
+  });
   revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/", "layout");
   return { ok: true };

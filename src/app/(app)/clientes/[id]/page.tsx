@@ -6,8 +6,8 @@ import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientEdit } from "./client-edit";
-import { CoverBanner } from "@/components/cover-banner";
-import { saveClientAppearance, clearClientCover } from "../actions";
+import { ClientHeader } from "./client-header";
+import { saveClientAppearance, clearClientImage } from "../actions";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
@@ -155,16 +155,17 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <CoverBanner
+      <ClientHeader
         name={client.name}
-        subtitle={`${client.description ? `${client.description} · ` : ""}${projects.length} proyecto${projects.length === 1 ? "" : "s"}`}
-        emoji={client.emoji}
-        fallbackEmoji="🏢"
+        description={client.description}
+        photoUrl={client.photoUrl}
+        logoUrl={client.logoUrl}
+        logoBg={client.logoBg}
         color={client.accentColor}
-        bannerUrl={client.bannerUrl}
+        projectsCount={projects.length}
         canEdit={canEdit}
         onSave={saveClientAppearance.bind(null, client.id)}
-        onClearCover={clearClientCover.bind(null, client.id)}
+        onClearImage={clearClientImage.bind(null, client.id)}
       />
 
       <div className="mt-8 grid grid-cols-3 gap-4">
