@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
 import { TabsBar } from "@/components/layout/tabs-bar";
+import { ScrollMain } from "@/components/layout/scroll-main";
 import { Lightbox } from "@/components/lightbox";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
 import { CommandPalette, type WikiSearchItem } from "@/components/layout/command-palette";
@@ -169,7 +170,7 @@ export function AppShell({
         <TabsBar />
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior
             (incluye el área segura de la barra de inicio en iPhone). */}
-        <main className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">{children}</main>
+        <ScrollMain className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">{children}</ScrollMain>
 
         {/* Botón flotante de creación rápida (contextual por sección). Anclado al bloque
             CENTRAL (no a la ventana), así no se monta sobre el panel de chat de la derecha. */}

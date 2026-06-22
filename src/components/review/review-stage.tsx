@@ -510,6 +510,40 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
     version?.kind === "video" || usingProxy ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
   const canCapture = version?.kind === "video" || version?.kind === "image" || usingProxy;
 
+  // ── Recuerda la posición de reproducción por video ──
+  // Al cambiar de pestaña (o recargar en la misma sesión) el <video> se vuelve a montar y
+  // arrancaría en 0. Guardamos el segundo actual y al volver hacemos seek a ese punto (el
+  // proxy soporta Range, así que bufferea solo desde ahí). Solo aplica al <video> del mismo
+  // origen (proxy/archivo subido); el iframe de Google/YouTube es de otro dominio y no se
+  // puede controlar, así que ese modo sí reinicia.
+  const posKey = version ? `ui:vpos:${(version.proxySrc || version.src || "").split("?")[0]}` : null;
+  const posRestored = React.useRef(false);
+  const lastSaveRef = React.useRef(0);
+  React.useEffect(() => { posRestored.current = false; }, [posKey]);
+  const savePos = React.useCallback((force = false) => {
+    const v = videoRef.current;
+    if (!v || !posKey) return;
+    const now = Date.now();
+    if (!force && now - lastSaveRef.current < 1000) return; // throttle (timeupdate dispara ~4/s)
+    lastSaveRef.current = now;
+    try {
+      // Cerca del final → no reanudar (que vuelva a empezar la próxima vez).
+      if (v.currentTime > 1 && (!v.duration || v.currentTime < v.duration - 1)) sessionStorage.setItem(posKey, String(v.currentTime));
+      else sessionStorage.removeItem(posKey);
+    } catch { /* sessionStorage no disponible */ }
+  }, [posKey]);
+  const restorePos = React.useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !posKey || posRestored.current) return;
+    posRestored.current = true;
+    try {
+      const saved = Number(sessionStorage.getItem(posKey));
+      if (saved > 0 && Number.isFinite(saved) && (!v.duration || saved < v.duration - 0.5)) v.currentTime = saved;
+    } catch { /* noop */ }
+  }, [posKey]);
+  // Guarda al desmontar (cambio de pestaña/navegación) con el valor más reciente.
+  React.useEffect(() => () => savePos(true), [savePos]);
+
   // API del reproductor según el tipo de fuente.
   React.useEffect(() => {
     if (!version) { apiRef.current = null; return; }
@@ -591,6 +625,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
           controls
           crossOrigin={usingProxy ? undefined : "anonymous"}
           onError={() => { if (usingProxy) setDriveProxyFailed(true); }}
+          onLoadedMetadata={restorePos}
+          onTimeUpdate={() => savePos()}
+          onPause={() => savePos(true)}
           className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
         />
         {driveToggle}
