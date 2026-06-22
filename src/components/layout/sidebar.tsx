@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
   ListChecks,
-  MessageSquare,
   MessagesSquare,
   LayoutGrid,
   LayoutTemplate,
@@ -55,7 +54,6 @@ export type SidebarClient = {
 const NAV = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
-  { href: "/estados", label: "Chat del día", icon: MessageSquare },
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },

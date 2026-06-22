@@ -18,6 +18,7 @@ export type ChatListRow = {
 
 export type ChatListData = {
   marcebot: { channelId: string | null; unread: number }; // chat directo con el asistente (aparte)
+  daily: { channelId: string | null; name: string; unread: number }; // "Chat del día" (canal de equipo), fijado aparte
   dms: ChatListRow[];
   channels: ChatListRow[];
   explore: { id: string; name: string }[];
@@ -85,8 +86,14 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
       };
     });
 
+  // "Chat del día" (canal de sistema "estados-equipo") se fija aparte arriba; se excluye de
+  // las listas normales para no duplicarlo.
+  const dailyRow = publicChannels.find((c) => c.slug === "estados-equipo") ?? null;
+  const dailyId = dailyRow?.id ?? null;
+  const daily = { channelId: dailyId, name: dailyRow?.name ?? "Chat del día", unread: dailyId ? unread.get(dailyId) ?? 0 : 0 };
+
   const channels: ChatListRow[] = myChannels
-    .filter((c) => c.type !== "DIRECT")
+    .filter((c) => c.type !== "DIRECT" && c.id !== dailyId)
     .map((c) => ({
       id: c.id,
       name: c.name,
@@ -99,7 +106,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     }));
 
   const myChannelIds = new Set(myChannels.map((c) => c.id));
-  const explore = publicChannels.filter((c) => !myChannelIds.has(c.id)).map((c) => ({ id: c.id, name: c.name }));
+  const explore = publicChannels.filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId).map((c) => ({ id: c.id, name: c.name }));
 
-  return { marcebot, dms, channels, explore, team };
+  return { marcebot, daily, dms, channels, explore, team };
 }

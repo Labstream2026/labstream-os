@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Globe, Lock, Plus, X, Crown, Trash2 } from "lucide-react";
+import { Globe, Lock, Plus, X, Crown, Trash2, Pencil, Check } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel } from "@/app/(app)/chat/actions";
+import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel, renameChannel } from "@/app/(app)/chat/actions";
 
 type Member = { id: string; name: string; initials: string | null; color: string | null; role?: string };
 
@@ -35,6 +35,8 @@ export function ChannelSettings({
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5">
       {dialog}
+      {/* Renombrar (solo grupos creados en el chat) */}
+      {canManage && type === "GENERAL" ? <RenameControl channelId={channelId} initial={channelName} /> : null}
       {/* Visibilidad */}
       <button
         disabled={!canManage || pending}
@@ -144,5 +146,54 @@ export function ChannelSettings({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Renombrar el grupo en línea: botón "Renombrar" → input + Guardar.
+function RenameControl({ channelId, initial }: { channelId: string; initial: string }) {
+  const [editing, setEditing] = React.useState(false);
+  const [name, setName] = React.useState(initial);
+  const [pending, start] = React.useTransition();
+  React.useEffect(() => setName(initial), [initial]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+        title="Renombrar grupo"
+      >
+        <Pencil className="size-3.5" /> Renombrar
+      </button>
+    );
+  }
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const clean = name.trim();
+        if (!clean) return;
+        start(async () => {
+          await renameChannel(channelId, clean);
+          setEditing(false);
+        });
+      }}
+      className="inline-flex items-center gap-1.5"
+    >
+      <input
+        autoFocus
+        value={name}
+        maxLength={80}
+        onChange={(e) => setName(e.target.value)}
+        className="w-44 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring"
+      />
+      <button disabled={pending} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">
+        <Check className="size-3.5" /> Guardar
+      </button>
+      <button type="button" onClick={() => { setName(initial); setEditing(false); }} className="text-xs text-muted-foreground hover:text-foreground">
+        Cancelar
+      </button>
+    </form>
   );
 }

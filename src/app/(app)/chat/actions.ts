@@ -516,6 +516,22 @@ export async function setChannelVisibility(channelId: string, isPublic: boolean)
   if (channel.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
 }
 
+// Renombra un grupo del chat. Solo aplica a canales GENERAL creados por usuarios (sin slug):
+// los canales de sistema (general, estados-equipo) y los de proyecto/cliente conservan su nombre.
+export async function renameChannel(channelId: string, name: string) {
+  const session = await getSession();
+  if (!(await userCanManageChannel(channelId, session))) throw new Error("No autorizado");
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, slug: true, name: true } });
+  if (!channel) return;
+  if (channel.type !== "GENERAL" || channel.slug) throw new Error("Este canal no se puede renombrar.");
+  const clean = name.trim().slice(0, 80);
+  if (!clean || clean === channel.name) return;
+  await db.chatChannel.update({ where: { id: channelId }, data: { name: clean } });
+  await logActivity({ action: "chat.channel.rename", summary: `renombró el grupo «${channel.name}» → «${clean}»` }).catch(() => null);
+  revalidatePath("/chat");
+  revalidatePath(`/chat/${channelId}`);
+}
+
 export async function addChannelMember(channelId: string, userId: string) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) {
