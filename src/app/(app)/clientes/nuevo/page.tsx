@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getSession, hasPermission } from "@/lib/auth";
 import { createClient } from "../actions";
 
-export default function NuevoClientePage() {
+export default async function NuevoClientePage() {
+  const session = await getSession();
+  // Crear cliente requiere el permiso crear_clientes (la acción también lo valida).
+  if (!hasPermission(session, "crear_clientes")) redirect("/");
   return (
     <div className="mx-auto max-w-xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">

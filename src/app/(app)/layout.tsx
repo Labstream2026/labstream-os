@@ -133,6 +133,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canTimeline={hasPermission(session, "ver_proyectos")}
       wikiPages={wikiPages}
       canReports={hasPermission(session, "ver_reportes")}
+      canClients={hasPermission(session, "ver_clientes")}
       canCreateTasks={hasPermission(session, "crear_tareas")}
       canCreateProjects={hasPermission(session, "crear_proyectos")}
       fabPriorities={fabPriorities}

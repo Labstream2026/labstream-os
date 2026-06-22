@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
@@ -17,6 +18,9 @@ const CLOSED = ["CERRADO", "CANCELADO"];
 
 export default async function ClientesPage() {
   const session = await getSession();
+  // La zona Clientes requiere el permiso ver_clientes (admin lo tiene por bypass). Sin él,
+  // fuera. Los datos siguen acotados a los clientes accesibles (membresía/proyectos).
+  if (!hasPermission(session, "ver_clientes")) redirect("/");
 
   const clients = await db.client.findMany({
     // Excluye los archivados (borrado suave): no aparecen en la lista normal.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
@@ -26,6 +26,8 @@ export const dynamic = "force-dynamic";
 export default async function ClientePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getSession();
+  // La zona Clientes requiere ver_clientes; además, abajo se valida el acceso a ESTE cliente.
+  if (!hasPermission(session, "ver_clientes")) redirect("/");
   const client = await db.client.findUnique({
     where: { id },
     include: {
