@@ -33,7 +33,7 @@ export function GlobalTimeline({
   clients,
   milestones,
   readOnly = false,
-  lockMonth = false,
+  fixedUnit,
   maxHeight,
 }: {
   clients: GTClient[];
@@ -41,20 +41,20 @@ export function GlobalTimeline({
   // Solo lectura (p. ej. el resumen del Inicio): no se puede arrastrar para reprogramar;
   // el clic en un proyecto lleva a su cronograma para editarlo allí.
   readOnly?: boolean;
-  // Fija la vista en "Mes" y oculta el selector (resumen del Inicio).
-  lockMonth?: boolean;
+  // Fija la vista en una unidad (día/semana/mes) y oculta el selector (resumen del Inicio).
+  fixedUnit?: TimelineUnit;
   // Acota la altura con scroll propio (no crece hacia abajo sin fin).
   maxHeight?: string;
 }) {
   const router = useRouter();
-  const [unit, setUnit] = React.useState<TimelineUnit>("month");
+  const [unit, setUnit] = React.useState<TimelineUnit>(fixedUnit ?? "month");
   const [, startTransition] = React.useTransition();
 
   React.useEffect(() => {
-    if (lockMonth) return; // en modo resumen siempre es mensual
+    if (fixedUnit) return; // en modo resumen la vista está fijada
     const saved = localStorage.getItem("timeline-unit");
     if (saved === "day" || saved === "week" || saved === "month") setUnit(saved);
-  }, [lockMonth]);
+  }, [fixedUnit]);
   function changeUnit(u: TimelineUnit) {
     setUnit(u);
     localStorage.setItem("timeline-unit", u);
@@ -117,10 +117,10 @@ export function GlobalTimeline({
   return (
     <TimelineGrid
       lanes={lanes}
-      unit={lockMonth ? "month" : unit}
+      unit={fixedUnit ?? unit}
       onUnitChange={changeUnit}
       onBarChange={readOnly ? undefined : onBarChange}
-      lockUnit={lockMonth}
+      lockUnit={!!fixedUnit}
       maxHeight={maxHeight}
       emptyHint="Ningún proyecto tiene fechas de inicio o entrega. Asígnalas en cada proyecto para verlas aquí."
     />
