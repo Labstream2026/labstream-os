@@ -70,8 +70,8 @@ export default async function FacturacionPage() {
           Aún no hay facturas. {canCreate ? "Genera una desde una cotización aprobada." : ""}
         </div>
       ) : (
-        <div className="mt-8 overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-sm">
+        <div className="mt-8 overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Factura</th>
