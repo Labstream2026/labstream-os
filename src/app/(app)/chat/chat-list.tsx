@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
 import { Hash, Lock, Users, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import { createChannel, openMarcebotChat } from "./actions";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
@@ -48,7 +49,7 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
 
       {creating ? (
         <form action={createChannel} className="space-y-2 border-b border-border bg-muted/30 p-3">
-          <input name="name" required placeholder="Nombre del grupo o canal" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <Input name="name" required placeholder="Nombre del grupo o canal" />
           <select name="isPublic" defaultValue="false" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
             <option value="false">Privado (solo invitados)</option>
             <option value="true">Público (todo el equipo)</option>
