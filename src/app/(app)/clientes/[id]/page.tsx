@@ -161,7 +161,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         description={client.description}
         photoUrl={client.photoUrl}
         logoUrl={client.logoUrl}
-        logoBg={client.logoBg}
         color={client.accentColor}
         projectsCount={projects.length}
         canEdit={canEdit}
