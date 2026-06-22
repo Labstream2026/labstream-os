@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { CalendarDays, GanttChartSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
 import { WeekView } from "./week-view";
@@ -26,6 +27,7 @@ export function CalendarBoard({
   projectId = null,
   detailMode = "inline",
   defaultView = "semana",
+  timelineNode = null,
 }: {
   items: CalItem[];
   onCreate?: (fd: FormData) => Promise<void>;
@@ -33,12 +35,27 @@ export function CalendarBoard({
   projectId?: string | null;
   detailMode?: "dock" | "inline";
   defaultView?: "semana" | "mes";
+  // Si se pasa, la barra muestra el conmutador Calendario/Cronograma (mismo renglón) y al
+  // elegir "Cronograma" se renderiza este nodo en lugar de la rejilla. Compacta la interfaz.
+  timelineNode?: React.ReactNode | null;
 }) {
   const [view, setView] = React.useState<"semana" | "mes">(defaultView);
   const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
   const [personFilter, setPersonFilter] = React.useState<string>("");
   const [modal, setModal] = React.useState<EventModalState | null>(null);
   const [detail, setDetail] = React.useState<CalItem | null>(null);
+  // Vista principal: calendario o cronograma (solo si hay timelineNode). Preferencia
+  // persistida con la misma clave que usaba el conmutador anterior.
+  const [mainView, setMainView] = React.useState<"cal" | "crono">("cal");
+  React.useEffect(() => {
+    if (!timelineNode) return;
+    if (window.localStorage.getItem("calendario-vista") === "crono") setMainView("crono");
+  }, [timelineNode]);
+  const pickMain = (v: "cal" | "crono") => {
+    setMainView(v);
+    window.localStorage.setItem("calendario-vista", v);
+  };
+  const showingCrono = Boolean(timelineNode) && mainView === "crono";
 
   // Personas presentes en los items (responsables + asistentes), para el filtro.
   const people = React.useMemo(() => {
@@ -96,7 +113,26 @@ export function CalendarBoard({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <div className={cn("flex shrink-0 flex-wrap items-center gap-2", timelineNode ? "justify-between" : "justify-end")}>
+        {/* Conmutador Calendario/Cronograma: a la izquierda, en el MISMO renglón que los
+            controles, para compactar y ver más del calendario/cronograma. */}
+        {timelineNode ? (
+          <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+            {(["cal", "crono"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => pickMain(v)}
+                className={cn("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors", mainView === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+              >
+                {v === "cal" ? <><CalendarDays className="size-4" /> Calendario</> : <><GanttChartSquare className="size-4" /> Cronograma</>}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {/* Controles propios del calendario: ocultos en vista Cronograma. */}
+        {showingCrono ? null : (
+        <div className="flex flex-wrap items-center gap-2">
         {/* Filtro por persona: ver el calendario de un colaborador */}
         {people.length > 1 ? (
           <select
@@ -133,8 +169,12 @@ export function CalendarBoard({
             </button>
           ))}
         </div>
+        </div>
+        )}
       </div>
-      {view === "semana" ? (
+      {showingCrono ? (
+        <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
+      ) : view === "semana" ? (
         <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>

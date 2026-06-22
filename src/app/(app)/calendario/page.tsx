@@ -2,13 +2,11 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
-import { caldavEnabled } from "@/lib/caldav";
 import { CalendarBoard } from "./calendar-board";
 import { type CalItem } from "./my-calendar";
 import { createMyEvent } from "./actions";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "@/app/(app)/timeline/global-timeline";
-import { CalendarTimelineTabs } from "./calendar-timeline-tabs";
 import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 
 export const dynamic = "force-dynamic";
@@ -122,18 +120,6 @@ export default async function CalendarioPage() {
     })),
   ];
 
-  const calendarNode = (
-    <div className="flex h-full flex-col">
-      <p className="mb-3 shrink-0 text-sm text-muted-foreground">
-        Citas y reuniones + todas las tareas del equipo (entregas y rodajes).
-        {caldavEnabled ? " Las citas se sincronizan con Synology Calendar." : ""}
-      </p>
-      <div className="min-h-0 flex-1">
-        <CalendarBoard items={items} onCreate={createMyEvent} detailMode="dock" team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))} />
-      </div>
-    </div>
-  );
-
   const timelineNode = timeline ? (
     <div>
       <p className="mb-4 text-sm text-muted-foreground">
@@ -148,7 +134,13 @@ export default async function CalendarioPage() {
     <div className="flex h-full flex-col px-4 py-6 sm:px-6">
       <h1 className="shrink-0 text-3xl font-bold tracking-tight">Calendario del equipo</h1>
       <div className="mt-4 min-h-0 flex-1">
-        <CalendarTimelineTabs calendarNode={calendarNode} timelineNode={timelineNode} />
+        <CalendarBoard
+          items={items}
+          onCreate={createMyEvent}
+          detailMode="dock"
+          team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+          timelineNode={timelineNode}
+        />
       </div>
     </div>
   );
