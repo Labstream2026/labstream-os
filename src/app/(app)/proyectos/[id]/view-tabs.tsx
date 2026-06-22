@@ -9,9 +9,13 @@ import { cn } from "@/lib/utils";
 export function ViewTabs({
   views,
   storageKey,
+  titleSlot,
 }: {
   views: { key: string; label: string; icon?: string; node: React.ReactNode }[];
   storageKey?: string;
+  // Si se pasa, se muestra a la izquierda EN EL MISMO renglón que las pestañas (las pestañas
+  // se empujan a la derecha). Sirve para compactar: título + pestañas en una sola fila.
+  titleSlot?: React.ReactNode;
 }) {
   const [active, setActive] = useState(views[0]?.key);
 
@@ -26,7 +30,9 @@ export function ViewTabs({
 
   return (
     <div className="space-y-4">
-      <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+      <div className={cn("flex flex-wrap items-center gap-3", titleSlot && "justify-between")}>
+        {titleSlot ?? null}
+        <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
         {views.map((v) => {
           const on = v.key === current?.key;
           return (
@@ -49,6 +55,7 @@ export function ViewTabs({
             </button>
           );
         })}
+        </div>
       </div>
       <div>{current?.node}</div>
     </div>
