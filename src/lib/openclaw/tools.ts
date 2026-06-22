@@ -353,6 +353,58 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "find_wiki_pages",
+      description: "Busca o lista páginas de la wiki del equipo (procesos, políticas, onboarding, fichas…). REQUIERE permiso ver_wiki. Devuelve id y título; usa get_wiki_page para el contenido.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Texto a buscar en título, etiquetas o contenido (opcional)." },
+          section: { type: "string", description: "Filtra por sección (ej. Procesos, Administración) (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_wiki_page",
+      description: "Devuelve el contenido completo de una página de la wiki (por id o título). REQUIERE permiso ver_wiki.",
+      parameters: {
+        type: "object",
+        properties: { page: { type: "string", description: "Id o título de la página." } },
+        required: ["page"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_credentials",
+      description: "Lista las credenciales (bóveda de contraseñas de la wiki) que la persona puede ver. REQUIERE permiso ver_contrasenas. Por seguridad NO devuelve la contraseña, solo título, usuario, URL y categoría.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Texto a buscar en título o usuario (opcional)." },
+          category: { type: "string", description: "Filtra por categoría (correo, redes, hosting…) (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_wiki_table",
+      description: "Lee una tabla de la wiki: el INVENTARIO de equipos o la UBICACIÓN. REQUIERE permiso ver_wiki. Devuelve las filas con sus columnas.",
+      parameters: {
+        type: "object",
+        properties: { table: { type: "string", description: "'inventario' o 'ubicacion' (o el nombre de la tabla)." } },
+        required: ["table"],
+      },
+    },
+  },
 ];
 
 // Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
@@ -713,6 +765,108 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         { name: `Cotizacion-${q.code}.pdf`, mime: "application/pdf", buf: Buffer.from(bytes) },
       ]);
       return JSON.stringify({ ok: true, mensaje: `Cotización ${q.code} enviada como PDF al usuario.` });
+    }
+
+    case "find_wiki_pages": {
+      if (!hasPermission(session, "ver_wiki")) return "No tienes permiso para ver la wiki.";
+      const q = str(args.query);
+      const section = str(args.section);
+      const where: Record<string, unknown> = {};
+      if (section) where.section = { equals: section, mode: "insensitive" };
+      if (q) where.OR = [
+        { title: { contains: q, mode: "insensitive" } },
+        { tags: { has: q } },
+        { content: { contains: q, mode: "insensitive" } },
+      ];
+      const rows = await db.wikiPage.findMany({
+        where, take: 30, orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, section: true, tags: true, updatedAt: true },
+      });
+      if (!rows.length) return "No hay páginas de wiki que coincidan.";
+      return JSON.stringify(rows.map((p) => ({ id: p.id, titulo: p.title, seccion: p.section ?? null, tags: p.tags, actualizada: ymd(p.updatedAt) })));
+    }
+
+    case "get_wiki_page": {
+      if (!hasPermission(session, "ver_wiki")) return "No tienes permiso para ver la wiki.";
+      const ref = str(args.page);
+      if (!ref) return "Falta la página (id o título).";
+      const sel = { id: true, title: true, section: true, tags: true, content: true, updatedAt: true, owner: { select: { name: true } } } as const;
+      let p = await db.wikiPage.findFirst({ where: { id: ref }, select: sel });
+      if (!p) p = await db.wikiPage.findFirst({ where: { title: { contains: ref, mode: "insensitive" } }, select: sel });
+      if (!p) return `No encontré la página "${ref}".`;
+      const content = p.content.length > 6000 ? `${p.content.slice(0, 6000)}…(contenido truncado)` : p.content;
+      return JSON.stringify({ id: p.id, titulo: p.title, seccion: p.section ?? null, tags: p.tags, responsable: p.owner?.name ?? null, actualizada: ymd(p.updatedAt), contenido: content });
+    }
+
+    case "list_credentials": {
+      if (!hasPermission(session, "ver_contrasenas")) return "No tienes permiso para ver las contraseñas.";
+      // Mismo filtro de acceso que la página: admin todo; los demás solo las suyas o donde son viewers.
+      const access = session.role === "admin" ? {} : { OR: [{ createdById: session.id }, { viewers: { some: { userId: session.id } } }] };
+      const filters: Record<string, unknown>[] = [access];
+      if (str(args.category)) filters.push({ category: { equals: str(args.category), mode: "insensitive" } });
+      if (str(args.query)) filters.push({ OR: [{ title: { contains: str(args.query), mode: "insensitive" } }, { username: { contains: str(args.query), mode: "insensitive" } }] });
+      const rows = await db.credential.findMany({
+        where: { AND: filters }, take: 30, orderBy: { title: "asc" },
+        select: { title: true, category: true, username: true, url: true, notes: true },
+      });
+      if (!rows.length) return "No hay credenciales que puedas ver.";
+      // Seguridad: NUNCA se descifra ni se devuelve la contraseña en el chat.
+      return JSON.stringify({
+        nota: "Por seguridad NO muestro la contraseña en el chat; el usuario la revela en Wiki → Contraseñas.",
+        credenciales: rows.map((c) => ({ titulo: c.title, categoria: c.category ?? null, usuario: c.username ?? null, url: c.url ?? null, notas: c.notes ?? null })),
+      });
+    }
+
+    case "get_wiki_table": {
+      if (!hasPermission(session, "ver_wiki")) return "No tienes permiso para ver la wiki.";
+      const ref = str(args.table).toLowerCase();
+      const key = ref.includes("inventario") ? "sys:inventario" : ref.includes("ubicaci") ? "sys:ubicacion" : null;
+      const tableSel = {
+        name: true,
+        columns: { orderBy: { position: "asc" as const }, select: { id: true, name: true, type: true, options: true } },
+        rows: { orderBy: { position: "asc" as const }, take: 100, select: { cells: { select: { columnId: true, value: true } } } },
+      } as const;
+      const table = key
+        ? await db.dataTable.findUnique({ where: { key }, select: tableSel })
+        : await db.dataTable.findFirst({ where: { name: { contains: str(args.table), mode: "insensitive" } }, select: tableSel });
+      if (!table) return "No encontré esa tabla. Usa 'inventario' o 'ubicacion'.";
+
+      // Resuelve los userId de columnas PERSON a nombres (una sola consulta).
+      const personCols = new Set(table.columns.filter((c) => c.type === "PERSON").map((c) => c.id));
+      const userIds = new Set<string>();
+      for (const r of table.rows) for (const c of r.cells) if (personCols.has(c.columnId) && typeof c.value === "string") userIds.add(c.value);
+      const users = userIds.size ? await db.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true } }) : [];
+      const userMap = new Map(users.map((u) => [u.id, u.name] as const));
+
+      const fmt = (type: string, value: unknown, options: unknown): string => {
+        if (value == null) return "";
+        const opts = (Array.isArray(options) ? options : []) as { id: string; label: string }[];
+        switch (type) {
+          case "SELECT": return opts.find((o) => o.id === value)?.label ?? String(value);
+          case "MULTISELECT": return Array.isArray(value) ? value.map((id) => opts.find((o) => o.id === id)?.label ?? "").filter(Boolean).join(", ") : "";
+          case "PERSON": return userMap.get(String(value)) ?? "";
+          case "CHECKBOX": return value ? "Sí" : "No";
+          case "PASSWORD": return "(oculto)";
+          case "IMAGE": return "(imagen)";
+          case "EVENT": return "(evento)";
+          case "DATE": return typeof value === "string" ? value.slice(0, 10) : String(value);
+          default: return typeof value === "object" ? JSON.stringify(value) : String(value);
+        }
+      };
+
+      const colById = new Map(table.columns.map((c) => [c.id, c] as const));
+      const rows = table.rows.map((r) => {
+        const obj: Record<string, string> = {};
+        for (const c of r.cells) {
+          const col = colById.get(c.columnId);
+          if (!col) continue;
+          const v = fmt(col.type, c.value, col.options);
+          if (v) obj[col.name] = v;
+        }
+        return obj;
+      }).filter((o) => Object.keys(o).length);
+      if (!rows.length) return `La tabla «${table.name}» está vacía.`;
+      return JSON.stringify({ tabla: table.name, columnas: table.columns.map((c) => c.name), filas: rows });
     }
 
     default:
