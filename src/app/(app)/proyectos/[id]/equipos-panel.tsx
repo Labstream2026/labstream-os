@@ -11,7 +11,15 @@ import {
 } from "./equipos-actions";
 
 // ── Tipos serializables que llegan del servidor ──
-export type EqItem = { rowId: string; name: string; category: string | null; brand: string | null; photoUrl: string | null; tags: string[]; quantity: number };
+export type EqItem = { rowId: string; name: string; category: string | null; brand: string | null; serial: string | null; photoUrl: string | null; tags: string[]; quantity: number };
+
+// Etiqueta de modelo: marca + nombre (ej. "Sony" + "ZV-E1" = "Sony ZV-E1"), sin duplicar la
+// marca si el nombre ya la incluye.
+function modelLabel(it: { name: string; brand: string | null }): string {
+  const b = it.brand?.trim();
+  if (b && !it.name.toLowerCase().includes(b.toLowerCase())) return `${b} ${it.name}`;
+  return it.name;
+}
 export type EqReservation = { id: string; rowId: string; quantity: number; packed: boolean };
 export type EqPlan = {
   id: string;
@@ -130,6 +138,7 @@ function PlanCard({
 }) {
   const [adding, setAdding] = React.useState(false);
   const [savingKit, setSavingKit] = React.useState(false);
+  const [openSerial, setOpenSerial] = React.useState<string | null>(null); // id de reserva con el serial visible
   const { confirm, dialog } = useConfirmDialog();
   const status = STATUSES.find((s) => s.key === plan.status) ?? STATUSES[0];
   const reservedRows = new Set(plan.reservations.map((r) => r.rowId));
@@ -226,7 +235,15 @@ function PlanCard({
                 </button>
 
                 <div className="min-w-0 flex-1">
-                  <p className={cn("truncate text-sm font-medium", r.packed && "text-muted-foreground line-through")}>{it.name}</p>
+                  {/* Clic en el nombre → muestra/oculta el serial del equipo. */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenSerial((cur) => (cur === r.id ? null : r.id))}
+                    className={cn("block max-w-full truncate text-left text-sm font-medium hover:underline", r.packed && "text-muted-foreground line-through")}
+                    title="Ver serial"
+                  >
+                    {modelLabel(it)}
+                  </button>
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                     {it.category ? <span className="rounded bg-muted px-1.5 py-0.5">{it.category}</span> : null}
                     {conflict ? (
@@ -234,9 +251,12 @@ function PlanCard({
                         <AlertTriangle className="size-3" /> Solo {Math.max(0, avail)} libre(s) ese día{where.length ? ` · ya en ${where.join(", ")}` : ""}
                       </span>
                     ) : (
-                      <span className="text-emerald-600 dark:text-emerald-400">{avail} libre(s) de {it.quantity}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">{Math.max(0, avail - r.quantity)} libre(s) de {it.quantity}</span>
                     )}
                   </div>
+                  {openSerial === r.id ? (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">Serial: <span className="font-mono">{it.serial || "—"}</span></p>
+                  ) : null}
                 </div>
 
                 {/* Cantidad */}
@@ -390,9 +410,10 @@ function AddPicker({
                   <Package className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{it.name}</p>
+                  <p className="truncate text-sm font-medium">{modelLabel(it)}</p>
                   <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
                     {it.category ? <span>{it.category}</span> : null}
+                    {it.serial ? <span className="font-mono">· {it.serial}</span> : null}
                     {it.tags.slice(0, 3).map((t) => <span key={t} className="rounded bg-muted px-1 py-0.5">#{t}</span>)}
                   </div>
                 </div>

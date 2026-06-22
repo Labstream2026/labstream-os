@@ -10,6 +10,7 @@ export type InventoryItem = {
   name: string;
   category: string | null;
   brand: string | null;
+  serial: string | null;
   photoUrl: string | null;
   status: string | null;
   location: string | null;
@@ -90,6 +91,7 @@ export async function loadInventory(): Promise<{
         name,
         category: optLabel(catCol, cell("Categoría")) || null,
         brand: optLabel(byName["Marca"], cell("Marca")) || null,
+        serial: String(cell("Serial") ?? "").trim() || null,
         photoUrl: (cell("Foto") as string) || null,
         status: optLabel(byName["Estado"], cell("Estado")) || null,
         location: (cell("Localización") as string) || null,
