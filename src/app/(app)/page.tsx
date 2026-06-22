@@ -9,6 +9,8 @@ import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "./timeline/global-timeline";
 import { MarcebotCard } from "./marcebot-card";
 import { formatShortDate } from "@/lib/ui";
+import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { TeamPerformance } from "./reportes/team-performance";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -99,6 +101,7 @@ export default async function HomePage() {
   // Resumen del cronograma (proyectos activos visibles) para el Inicio. Solo si el
   // usuario puede ver proyectos; reutiliza el mismo armado que el Cronograma general.
   const canSeeCronograma = hasPermission(session, "ver_proyectos");
+  const canReports = hasPermission(session, "ver_reportes");
   const cronograma = canSeeCronograma
     ? await buildSessionTimeline(session, { activeOnly: true })
     : { clients: [], milestones: [], undatedCount: 0 };
@@ -110,11 +113,9 @@ export default async function HomePage() {
     { emoji: "💬", value: unread, label: "Sin leer", sub: "en el chat" },
   ];
 
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <p className="text-sm text-muted-foreground">{todayLabel()}</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
-
+  // Contenido personal del Inicio (mi desempeño + mis tareas), reutilizado como pestaña.
+  const miInicio = (
+    <>
       <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stats.map((s) => (
           <div key={s.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -231,6 +232,26 @@ export default async function HomePage() {
           </div>
         </section>
       </div>
+    </>
+  );
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
+      <p className="text-sm text-muted-foreground">{todayLabel()}</p>
+      <h1 className="mt-1 text-3xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
+      {canReports ? (
+        <div className="mt-6">
+          <ViewTabs
+            storageKey="inicio-view"
+            views={[
+              { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
+              { key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> },
+            ]}
+          />
+        </div>
+      ) : (
+        miInicio
+      )}
     </div>
   );
 }
