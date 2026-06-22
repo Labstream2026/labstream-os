@@ -560,13 +560,15 @@ export function ChannelChat({
     setRecording(false);
     if (!mr) { stopRecCleanup(); return; }
     mr.onstop = async () => {
-      const type = mr.mimeType || "audio/webm";
+      // mr.mimeType puede venir vacío en iOS; usamos el tipo del primer chunk o caemos a mp4
+      // (formato nativo de iOS), NO a webm —que iOS no graba— para no mal-etiquetar el archivo.
+      const type = mr.mimeType || recChunks.current[0]?.type || "audio/mp4";
       const blob = new Blob(recChunks.current, { type });
       recChunks.current = [];
       recRef.current = null;
       stopRecCleanup();
       if (!send || blob.size === 0) return;
-      const ext = type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("ogg") ? "ogg" : "weba";
+      const ext = type.includes("webm") ? "weba" : type.includes("ogg") ? "ogg" : "m4a";
       const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type });
       const fd = new FormData();
       fd.set("channelId", channelId);
