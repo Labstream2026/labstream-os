@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, formatShortDate } from "@/lib/ui";
+import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
 export type ProjectCardData = {
@@ -14,14 +15,20 @@ export type ProjectCardData = {
   lead: { initials: string | null; color: string | null } | null;
 };
 
-export function ProjectCard({ project }: { project: ProjectCardData }) {
+export function ProjectCard({ project, tintColor }: { project: ProjectCardData; tintColor?: string | null }) {
   const status = statusMeta(project.status);
   const due = formatShortDate(project.dueDate);
+  // Tinte por color del cliente (suave, vía hex+alpha): no altera el color del texto.
+  const t = tintColor ? tone(tintColor) : null;
 
   return (
     <Link
       href={`/proyectos/${project.id}`}
-      className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40"
+      style={t ? { backgroundColor: `${t.hex}14`, borderColor: `${t.hex}40` } : undefined}
+      className={cn(
+        "group flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition-colors hover:border-primary/40",
+        t ? "" : "border-border bg-card",
+      )}
     >
       <div className="flex items-center justify-between">
         <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-lg">

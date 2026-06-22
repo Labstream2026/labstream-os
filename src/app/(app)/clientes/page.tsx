@@ -7,6 +7,7 @@ import { canAccessProject } from "@/lib/project-access";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
+import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Plus, FolderOpen } from "lucide-react";
 
@@ -41,6 +42,7 @@ export default async function ClientesPage() {
       name: c.name,
       emoji: c.emoji,
       description: c.description,
+      color: c.accentColor,
       quotes: c._count.quotes,
       projects,
       active: projects.filter((p) => !CLOSED.includes(p.status)).length,
@@ -89,7 +91,10 @@ export default async function ClientesPage() {
             <div key={c.id} className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
               {/* Cabecera del cliente */}
               <div className="flex items-start gap-3">
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-2xl">{c.emoji ?? "🏢"}</span>
+                <span
+                  style={c.color ? { backgroundColor: `${tone(c.color).hex}24` } : undefined}
+                  className={cn("flex size-14 shrink-0 items-center justify-center rounded-xl text-3xl", c.color ? "" : "bg-muted")}
+                >{c.emoji ?? "🏢"}</span>
                 <div className="min-w-0 flex-1">
                   <Link href={`/clientes/${c.id}`} className="text-lg font-semibold leading-tight hover:underline">
                     {c.name}
@@ -117,6 +122,7 @@ export default async function ClientesPage() {
                         <Link
                           key={p.id}
                           href={`/proyectos/${p.id}`}
+                          style={c.color ? { backgroundColor: `${tone(c.color).hex}12` } : undefined}
                           className="flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent/50"
                         >
                           <span className="shrink-0">{p.emoji ?? "🎬"}</span>

@@ -7,6 +7,7 @@ export type BoardClient = {
   id: string;
   name: string;
   emoji: string | null;
+  color?: string | null; // color del cliente: tiñe sus tarjetas de proyecto
   projects: ProjectCardData[];
 };
 
@@ -54,7 +55,7 @@ export function ProjectsBoard({ clients, orientation }: { clients: BoardClient[]
               <Header c={c} />
               <div className="space-y-3">
                 {c.projects.map((p) => (
-                  <ProjectCard key={p.id} project={p} />
+                  <ProjectCard key={p.id} project={p} tintColor={c.color} />
                 ))}
               </div>
             </section>
@@ -67,7 +68,7 @@ export function ProjectsBoard({ clients, orientation }: { clients: BoardClient[]
               <Header c={c} />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {c.projects.map((p) => (
-                  <ProjectCard key={p.id} project={p} />
+                  <ProjectCard key={p.id} project={p} tintColor={c.color} />
                 ))}
               </div>
             </section>

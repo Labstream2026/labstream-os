@@ -43,6 +43,7 @@ export default async function ProyectosPage() {
     id: c.id,
     name: c.name,
     emoji: c.emoji,
+    color: c.accentColor,
     projects: c.projects.map((p) => ({
       id: p.id,
       name: p.name,

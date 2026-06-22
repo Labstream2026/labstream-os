@@ -120,6 +120,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         <ProjectCard
           key={p.id}
           project={{ id: p.id, name: p.name, emoji: p.emoji, status: p.status, progress: p.progress, dueDate: p.dueDate, lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null }}
+          tintColor={client.accentColor}
         />
       ))}
     </div>
