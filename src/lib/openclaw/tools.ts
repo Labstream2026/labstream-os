@@ -6,6 +6,7 @@ import { accessibleProjectWhere, canWriteProject, canAccessProject } from "@/lib
 import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { readBuffer } from "@/lib/storage";
+import { extractDocsText } from "./attachments";
 import { postBotFileMessage } from "@/lib/marcebot/bot";
 import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
@@ -322,6 +323,20 @@ export const AGENT_TOOLS: ToolDef[] = [
           query: { type: "string", description: "Texto a buscar en el nombre (opcional)." },
           project: { type: "string", description: "Id o nombre del proyecto (opcional)." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Lee y devuelve el CONTENIDO en texto de un archivo de proyecto (PDF, Word, Excel, CSV, texto, Markdown, subtítulos…). REQUIERE permiso ver_archivos y acceso al proyecto. Úsalo para responder preguntas sobre lo que dice un documento. Las imágenes no devuelven texto: para mostrarlas usa send_file.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "Id o nombre del archivo (usa find_files para ubicarlo)." },
+        },
+        required: ["file"],
       },
     },
   },
@@ -712,6 +727,39 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       });
       if (!rows.length) return "No hay archivos que coincidan (o no tienes acceso).";
       return JSON.stringify(rows.map((f) => ({ id: f.id, nombre: f.name, tipo: f.kind, mime: f.mime ?? null, proyecto: f.project?.name ?? null })));
+    }
+
+    case "read_file": {
+      if (!hasPermission(session, "ver_archivos")) return "No tienes permiso para ver archivos.";
+      const ref = str(args.file);
+      if (!ref) return "Falta el archivo a leer (id o nombre).";
+      const where = accessibleProjectWhere(session);
+      const sel = { id: true, name: true, kind: true, url: true, path: true, mime: true, project: { select: { leadId: true, isPrivate: true, members: { select: { userId: true } } } } } as const;
+      let file = await db.fileAsset.findFirst({ where: { AND: [{ project: where }, { id: ref }] }, select: sel });
+      if (!file) file = await db.fileAsset.findFirst({ where: { AND: [{ project: where }, { name: { contains: ref, mode: "insensitive" } }] }, select: sel });
+      if (!file) return `No encontré el archivo "${ref}" (o no tienes acceso).`;
+      if (!canAccessProject(file.project, session)) return "No tienes acceso al proyecto de ese archivo.";
+      if (file.kind !== "LOCAL" || !file.path) {
+        return file.url ? `Es un archivo externo (enlace), no puedo leer su contenido directamente. Comparte el enlace: ${file.url}` : "Ese archivo no tiene contenido local para leer.";
+      }
+      const mime = file.mime ?? "";
+      const name = file.name;
+      const MAXTXT = 12000;
+      const clip = (t: string) => (t.length > MAXTXT ? t.slice(0, MAXTXT) + "\n…(texto truncado)" : t);
+      // PDF / Word / Excel → extracción estructurada de texto.
+      if (/(pdf|word|officedocument|spreadsheet|ms-excel)/i.test(mime) || /\.(pdf|docx?|xlsx?)$/i.test(name)) {
+        const txt = await extractDocsText([{ name, mime: file.mime, path: file.path }]);
+        return txt ? clip(txt) : `No pude extraer texto de «${name}» (¿PDF escaneado o formato no soportado?).`;
+      }
+      // Texto plano / código / csv / json / markdown / subtítulos.
+      if (/^text\//i.test(mime) || /(json|csv|xml|yaml|markdown|javascript|typescript)/i.test(mime) || /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|log|srt|vtt|html?|css|jsx?|tsx?)$/i.test(name)) {
+        let buf: Buffer;
+        try { buf = await readBuffer(file.path); } catch { return "El archivo no está disponible en el almacenamiento."; }
+        const txt = buf.toString("utf8").trim();
+        return txt ? clip(txt) : "(archivo vacío)";
+      }
+      if (/^image\//i.test(mime)) return `«${name}» es una imagen; no extraigo texto de imágenes. Usa send_file para mostrársela al usuario.`;
+      return `No puedo leer «${name}» como texto (tipo ${mime || "desconocido"}).`;
     }
 
     case "send_file": {
