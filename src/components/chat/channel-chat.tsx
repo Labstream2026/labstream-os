@@ -672,13 +672,21 @@ export function ChannelChat({
       ) : null}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4">
+        <div className="mx-auto w-full max-w-3xl space-y-1.5 px-4 py-3">
         <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
         {roots.map((m, idx) => {
           const replies = repliesFor(m.id);
           const open = openThreads.has(m.id);
           const mine = isMine(m.author);
           const showDay = idx === 0 || dayKeyOf(roots[idx - 1].createdAt) !== dayKeyOf(m.createdAt);
+          // Continuación: mismo autor seguido, mismo día y < 7 min → se agrupa (sin avatar
+          // ni nombre repetidos, estilo WhatsApp). El footer (reaccionar/Responder) se
+          // muestra solo al pasar el mouse cuando no hay reacciones ni respuestas.
+          const prev = idx > 0 ? roots[idx - 1] : null;
+          const cont = !showDay && !!prev && !prev.deleted && !m.deleted
+            && prev.author?.name === m.author?.name && prev.author?.color === m.author?.color
+            && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60_000;
+          const hasFooter = (m.reactions?.length ?? 0) > 0 || replies.length > 0;
           return (
             <React.Fragment key={m.id}>
             {showDay ? (
@@ -703,36 +711,39 @@ export function ChannelChat({
                 </div>
               </div>
             ) : (
-            <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
-              <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
+            <div className={cn("group relative flex gap-2.5", mine && "flex-row-reverse")}>
+              {cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
-                <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
-                  <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
-                  <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
-                  {m.editedAt ? <span className="text-[10px] text-muted-foreground">(editado)</span> : null}
-                  {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
-                  {statusTag(m.status)}
-                  {!readOnly && !m.status ? (
-                    <details data-autoclose className="relative">
-                      <summary className="cursor-pointer list-none rounded px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
-                      <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
-                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
-                          <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+                {!cont || m.editedAt || m.pinned || m.status ? (
+                  <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
+                    {!cont ? <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span> : null}
+                    {!cont ? <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span> : null}
+                    {m.editedAt ? <span className="text-[10px] text-muted-foreground">(editado)</span> : null}
+                    {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
+                    {statusTag(m.status)}
+                  </div>
+                ) : null}
+                {/* Menú de acciones: flotante, aparece al pasar el mouse (no ocupa espacio). */}
+                {!readOnly && !m.status ? (
+                  <details data-autoclose className={cn("absolute top-0 z-20 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100", mine ? "left-0" : "right-0")}>
+                    <summary className="cursor-pointer list-none rounded bg-card/70 px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
+                    <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
+                      <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
+                        <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+                      </button>
+                      {mine ? (
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
+                          <Pencil className="size-3.5" /> Editar
                         </button>
-                        {mine ? (
-                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
-                            <Pencil className="size-3.5" /> Editar
-                          </button>
-                        ) : null}
-                        {mine || isAdmin ? (
-                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
-                            <Trash2 className="size-3.5" /> Borrar
-                          </button>
-                        ) : null}
-                      </div>
-                    </details>
-                  ) : null}
-                </div>
+                      ) : null}
+                      {mine || isAdmin ? (
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
+                          <Trash2 className="size-3.5" /> Borrar
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
+                ) : null}
                 {editing === m.id ? (
                   <div className="mt-0.5 w-full max-w-[88%]">
                     <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
@@ -758,25 +769,27 @@ export function ChannelChat({
                   ) : null}
                 </div>
 
-                {!readOnly || (m.reactions?.length ?? 0) > 0 ? (
-                  <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
-                ) : null}
+                <div className={cn(mine && "flex flex-col items-end", !hasFooter && "opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100")}>
+                  {!readOnly || (m.reactions?.length ?? 0) > 0 ? (
+                    <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
+                  ) : null}
 
-                {!readOnly || replies.length > 0 ? (
-                  <button
-                    onClick={() =>
-                      setOpenThreads((prev) => {
-                        const next = new Set(prev);
-                        next.has(m.id) ? next.delete(m.id) : next.add(m.id);
-                        return next;
-                      })
-                    }
-                    className="mt-1 inline-flex items-center gap-1 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-primary"
-                  >
-                    <MessageSquare className="size-3" />
-                    {replies.length > 0 ? `${replies.length} respuesta${replies.length === 1 ? "" : "s"}` : "Responder"}
-                  </button>
-                ) : null}
+                  {!readOnly || replies.length > 0 ? (
+                    <button
+                      onClick={() =>
+                        setOpenThreads((prev) => {
+                          const next = new Set(prev);
+                          next.has(m.id) ? next.delete(m.id) : next.add(m.id);
+                          return next;
+                        })
+                      }
+                      className="inline-flex items-center gap-1 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-primary"
+                    >
+                      <MessageSquare className="size-3" />
+                      {replies.length > 0 ? `${replies.length} respuesta${replies.length === 1 ? "" : "s"}` : "Responder"}
+                    </button>
+                  ) : null}
+                </div>
 
                 {open ? (
                   <div className="mt-2 w-full space-y-2 self-stretch border-l-2 border-border pl-3 text-left">

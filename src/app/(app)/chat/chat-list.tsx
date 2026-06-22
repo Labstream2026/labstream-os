@@ -19,6 +19,15 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
   const [openingBot, startOpenBot] = React.useTransition();
   const marcebotActive = !!data.marcebot.channelId && data.marcebot.channelId === activeId;
 
+  // Leído estilo WhatsApp: al abrir un chat, su badge de no-leídos se limpia AL INSTANTE en
+  // el cliente (el rail vive en el layout y no se re-renderiza al navegar; markChannelRead ya
+  // persiste lastReadAt en el servidor para la próxima carga).
+  const [readIds, setReadIds] = React.useState<Set<string>>(() => new Set());
+  React.useEffect(() => {
+    if (activeId) setReadIds((prev) => (prev.has(activeId) ? prev : new Set(prev).add(activeId)));
+  }, [activeId]);
+  const seen = (id: string | null, n: number) => (id && readIds.has(id) ? 0 : n);
+
   return (
     <div className="flex h-full flex-col">
       {/* Cabecera + acciones rápidas */}
@@ -81,8 +90,8 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
                 <span className="font-medium">{data.daily.name}</span>
                 <span className="truncate text-[11px] text-muted-foreground">Canal del equipo · día a día</span>
               </span>
-              {data.daily.unread > 0 ? (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{data.daily.unread}</span>
+              {seen(data.daily.channelId, data.daily.unread) > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{seen(data.daily.channelId, data.daily.unread)}</span>
               ) : null}
             </Link>
           </div>
@@ -104,21 +113,21 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
               <span className="font-medium">Marcebot</span>
               <span className="truncate text-[11px] text-muted-foreground">Tu asistente · chat directo</span>
             </span>
-            {data.marcebot.unread > 0 ? (
-              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{data.marcebot.unread}</span>
+            {seen(data.marcebot.channelId, data.marcebot.unread) > 0 ? (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{seen(data.marcebot.channelId, data.marcebot.unread)}</span>
             ) : null}
           </button>
         </div>
 
         <Section title="Mensajes directos" icon={<Users className="size-3.5" />}>
           {data.dms.length === 0 ? <Empty>Sin mensajes directos.</Empty> : data.dms.map((c) => (
-            <Row key={c.id} row={c} active={c.id === activeId} onNavigate={onNavigate} />
+            <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} />
           ))}
         </Section>
 
         <Section title="Mis canales" icon={<Hash className="size-3.5" />}>
           {data.channels.length === 0 ? <Empty>No estás en ningún canal.</Empty> : data.channels.map((c) => (
-            <Row key={c.id} row={c} active={c.id === activeId} onNavigate={onNavigate} />
+            <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} />
           ))}
         </Section>
 
