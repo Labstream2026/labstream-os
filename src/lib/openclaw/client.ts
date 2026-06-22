@@ -2,7 +2,13 @@ import { getOpenClawConfig } from "./config";
 
 // Mensajes en formato OpenAI. La unión cubre los turnos de herramienta (function-calling):
 // assistant puede traer tool_calls; los resultados se reinyectan como role:"tool".
-export type ChatTurn = { role: "system" | "user" | "assistant"; content: string };
+// El contenido puede ser texto plano o multimodal (texto + imágenes) en el formato de
+// visión de OpenAI: así las fotos que adjunta el usuario llegan al modelo elegido en
+// OpenClaw (debe ser uno con visión, p. ej. GPT-5.5).
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+export type ChatTurn = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
 export type ToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type ToolDef = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
 export type AgentMessage =
