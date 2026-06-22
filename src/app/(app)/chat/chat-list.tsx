@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, Users, Plus, X } from "lucide-react";
+import { Hash, Lock, Users, Plus, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { createChannel, openMarcebotChat } from "./actions";
@@ -120,46 +120,92 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
           </button>
         </div>
 
-        <Section title="Mensajes directos" icon={<Users className="size-3.5" />}>
-          {data.dms.length === 0 ? <Empty>Sin mensajes directos.</Empty> : data.dms.map((c) => (
-            <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} />
-          ))}
-        </Section>
+        {/* Clientes: cada cliente despliega sus chats de proyecto (colapsable). */}
+        {data.clientGroups.length > 0 ? (
+          <div className="mb-2">
+            <h2 className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Clientes</h2>
+            {data.clientGroups.map((g) => {
+              const groupUnread = g.channels.reduce((n, c) => n + seen(c.id, c.unread), 0);
+              return (
+                <Collapsible
+                  key={g.clientId}
+                  storeId={`client:${g.clientId}`}
+                  title={g.clientName}
+                  leading={<span className="text-base leading-none">{g.emoji ?? "🏢"}</span>}
+                  count={g.channels.length}
+                  unread={groupUnread}
+                  forceOpen={g.channels.some((c) => c.id === activeId)}
+                >
+                  {g.channels.map((c) => (
+                    <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} indent />
+                  ))}
+                </Collapsible>
+              );
+            })}
+          </div>
+        ) : null}
 
-        <Section title="Mis canales" icon={<Hash className="size-3.5" />}>
-          {data.channels.length === 0 ? <Empty>No estás en ningún canal.</Empty> : data.channels.map((c) => (
-            <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} />
+        {/* Mensajes directos (colapsable). */}
+        <Collapsible
+          storeId="dms"
+          title="Mensajes directos"
+          leading={<Users className="size-4 text-muted-foreground" />}
+          count={data.dms.length}
+          unread={data.dms.reduce((n, c) => n + seen(c.id, c.unread), 0)}
+          forceOpen={data.dms.some((c) => c.id === activeId)}
+          defaultOpen
+        >
+          {data.dms.length === 0 ? <Empty>Sin mensajes directos.</Empty> : data.dms.map((c) => (
+            <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} indent />
           ))}
-        </Section>
+        </Collapsible>
+
+        {/* Grupos sin cliente: editores, canales de equipo, etc. (colapsable). */}
+        {data.groups.length > 0 ? (
+          <Collapsible
+            storeId="groups"
+            title="Grupos"
+            leading={<Hash className="size-4 text-muted-foreground" />}
+            count={data.groups.length}
+            unread={data.groups.reduce((n, c) => n + seen(c.id, c.unread), 0)}
+            forceOpen={data.groups.some((c) => c.id === activeId)}
+            defaultOpen
+          >
+            {data.groups.map((c) => (
+              <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} active={c.id === activeId} onNavigate={onNavigate} indent />
+            ))}
+          </Collapsible>
+        ) : null}
 
         {data.explore.length > 0 ? (
-          <Section title="Canales del equipo" icon={<Hash className="size-3.5" />}>
+          <Collapsible storeId="explore" title="Canales del equipo" leading={<Hash className="size-4 text-muted-foreground" />} count={data.explore.length}>
             {data.explore.map((c) => (
               <Link
                 key={c.id}
                 href={`/chat/${c.id}`}
                 onClick={onNavigate}
-                className={cn("flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50", c.id === activeId && "bg-sidebar-accent")}
+                className={cn("flex items-center gap-2 py-2 pl-7 pr-3 text-sm hover:bg-muted/50", c.id === activeId && "bg-sidebar-accent")}
               >
                 <Hash className="size-4 shrink-0 text-muted-foreground" />
                 <span className="flex-1 truncate text-muted-foreground">{c.name}</span>
                 <span className="text-[11px] text-primary">Abrir →</span>
               </Link>
             ))}
-          </Section>
+          </Collapsible>
         ) : null}
       </div>
     </div>
   );
 }
 
-function Row({ row, active, onNavigate }: { row: ChatListRow; active: boolean; onNavigate?: () => void }) {
+function Row({ row, active, onNavigate, indent }: { row: ChatListRow; active: boolean; onNavigate?: () => void; indent?: boolean }) {
   return (
     <Link
       href={`/chat/${row.id}`}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-2.5 px-3 py-2 text-sm transition-colors",
+        "flex items-center gap-2.5 py-2 text-sm transition-colors",
+        indent ? "pl-7 pr-3" : "px-3",
         active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "hover:bg-muted/50",
       )}
     >
@@ -180,11 +226,57 @@ function Row({ row, active, onNavigate }: { row: ChatListRow; active: boolean; o
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+// Sección colapsable del rail: chevron + título + contador + badge de no-leídos. La
+// preferencia abierto/cerrado se guarda por sección (localStorage). `forceOpen` mantiene
+// abierta la sección que contiene el chat activo aunque esté guardada como cerrada.
+function Collapsible({
+  storeId,
+  title,
+  leading,
+  count,
+  unread = 0,
+  defaultOpen = false,
+  forceOpen = false,
+  children,
+}: {
+  storeId: string;
+  title: string;
+  leading?: React.ReactNode;
+  count?: number;
+  unread?: number;
+  defaultOpen?: boolean;
+  forceOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  React.useEffect(() => {
+    const v = window.localStorage.getItem(`chat:collapse:${storeId}`);
+    if (v === "1") setOpen(true);
+    else if (v === "0") setOpen(false);
+  }, [storeId]);
+  const toggle = () =>
+    setOpen((o) => {
+      const n = !o;
+      window.localStorage.setItem(`chat:collapse:${storeId}`, n ? "1" : "0");
+      return n;
+    });
+  const shown = open || forceOpen;
   return (
-    <section className="mb-3">
-      <h2 className="mb-1 flex items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{icon} {title}</h2>
-      <div>{children}</div>
+    <section className="mb-1.5">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-muted/50"
+      >
+        <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", shown && "rotate-90")} />
+        {leading}
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+        {count != null ? <span className="text-[11px] text-muted-foreground">{count}</span> : null}
+        {unread > 0 ? (
+          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{unread}</span>
+        ) : null}
+      </button>
+      {shown ? <div className="mt-0.5">{children}</div> : null}
     </section>
   );
 }

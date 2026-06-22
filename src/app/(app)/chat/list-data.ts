@@ -16,11 +16,21 @@ export type ChatListRow = {
   meta: string; // "N msj." (DM) o "N miembros" (canal)
 };
 
+// Un cliente con sus chats (de proyecto + el del propio cliente), para agrupar/colapsar el rail.
+export type ChatClientGroup = {
+  clientId: string;
+  clientName: string;
+  emoji: string | null;
+  channels: ChatListRow[];
+  unread: number; // suma de no-leídos del grupo
+};
+
 export type ChatListData = {
   marcebot: { channelId: string | null; unread: number }; // chat directo con el asistente (aparte)
   daily: { channelId: string | null; name: string; unread: number }; // "Chat del día" (canal de equipo), fijado aparte
   dms: ChatListRow[];
-  channels: ChatListRow[];
+  clientGroups: ChatClientGroup[]; // chats agrupados por cliente (colapsables)
+  groups: ChatListRow[]; // grupos/canales sin cliente (editores, etc.)
   explore: { id: string; name: string }[];
   team: { id: string; name: string }[];
 };
@@ -33,6 +43,9 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
       include: {
         members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
         _count: { select: { messages: true } },
+        // Para agrupar por cliente: canal de cliente (clientId directo) o de proyecto (→ su cliente).
+        client: { select: { id: true, name: true, emoji: true } },
+        project: { select: { client: { select: { id: true, name: true, emoji: true } } } },
       },
     }),
     db.chatChannel.findMany({
@@ -92,21 +105,41 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const dailyId = dailyRow?.id ?? null;
   const daily = { channelId: dailyId, name: dailyRow?.name ?? "Chat del día", unread: dailyId ? unread.get(dailyId) ?? 0 : 0 };
 
-  const channels: ChatListRow[] = myChannels
-    .filter((c) => c.type !== "DIRECT" && c.id !== dailyId)
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      initials: null,
-      color: null,
-      isPublic: c.isPublic,
-      isDM: false,
-      unread: unread.get(c.id) ?? 0,
-      meta: `${c.members.length} miembros`,
-    }));
+  // Canales no-DM (sin el "Chat del día"): se separan en chats CON cliente (agrupados por
+  // cliente) y GRUPOS sin cliente (editores, canales de equipo, etc.).
+  const groupChannels = myChannels.filter((c) => c.type !== "DIRECT" && c.id !== dailyId);
+  const rowOf = (c: (typeof groupChannels)[number]): ChatListRow => ({
+    id: c.id,
+    name: c.name,
+    initials: null,
+    color: null,
+    isPublic: c.isPublic,
+    isDM: false,
+    unread: unread.get(c.id) ?? 0,
+    meta: `${c.members.length} miembros`,
+  });
+
+  const clientMap = new Map<string, ChatClientGroup>();
+  const groups: ChatListRow[] = [];
+  for (const c of groupChannels) {
+    const client = c.client ?? c.project?.client ?? null;
+    if (!client) {
+      groups.push(rowOf(c));
+      continue;
+    }
+    let g = clientMap.get(client.id);
+    if (!g) {
+      g = { clientId: client.id, clientName: client.name, emoji: client.emoji, channels: [], unread: 0 };
+      clientMap.set(client.id, g);
+    }
+    const row = rowOf(c);
+    g.channels.push(row);
+    g.unread += row.unread;
+  }
+  const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   const myChannelIds = new Set(myChannels.map((c) => c.id));
   const explore = publicChannels.filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId).map((c) => ({ id: c.id, name: c.name }));
 
-  return { marcebot, daily, dms, channels, explore, team };
+  return { marcebot, daily, dms, clientGroups, groups, explore, team };
 }
