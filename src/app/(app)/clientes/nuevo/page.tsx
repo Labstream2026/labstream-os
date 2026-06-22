@@ -3,7 +3,7 @@ import { createClient } from "../actions";
 
 export default function NuevoClientePage() {
   return (
-    <div className="mx-auto max-w-xl px-8 py-10">
+    <div className="mx-auto max-w-xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
         ← Inicio
       </Link>

@@ -45,7 +45,7 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
   const [catalog, packages] = canEdit ? await Promise.all([getServiceCatalog(), getServicePackages()]) : [[], []];
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/cotizaciones" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Cotizaciones
       </Link>

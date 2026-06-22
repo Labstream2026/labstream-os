@@ -111,7 +111,7 @@ export default async function HomePage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-8 py-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <p className="text-sm text-muted-foreground">{todayLabel()}</p>
       <h1 className="mt-1 text-3xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
 

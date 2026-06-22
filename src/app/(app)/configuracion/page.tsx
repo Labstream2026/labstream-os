@@ -39,7 +39,7 @@ export default async function ConfiguracionPage() {
     });
     const myCal = myCalRow ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null } : null;
     return (
-      <div className="mx-auto max-w-2xl px-8 py-10">
+      <div className="mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
         <h1 className="text-3xl font-bold tracking-tight">Integraciones</h1>
         <p className="mt-1 text-sm text-muted-foreground">Conecta tu calendario de Synology para sincronizar tus citas en ambos sentidos.</p>
         <CalendarConnect email={session.email ?? ""} connection={myCal} />
