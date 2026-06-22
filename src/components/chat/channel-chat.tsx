@@ -7,6 +7,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
+import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
@@ -169,14 +170,8 @@ function Attachments({ items }: { items?: Attachment[] }) {
           );
         }
         if (isAudio(a)) {
-          // Nota de voz / audio: reproductor en línea.
-          return (
-            <div key={a.id} className="flex w-64 max-w-full items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5">
-              <Mic className="size-4 shrink-0 text-primary" />
-              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-              <audio controls preload="metadata" src={`/api/files/${a.id}`} className="h-8 min-w-0 flex-1" />
-            </div>
-          );
+          // Nota de voz / audio: reproductor estilo WhatsApp (onda + play + duración).
+          return <VoiceNote key={a.id} src={`/api/files/${a.id}`} />;
         }
         const { Icon, color } = fileIcon(a.name);
         return (
