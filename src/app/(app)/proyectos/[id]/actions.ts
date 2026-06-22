@@ -137,12 +137,18 @@ export async function createTask(projectId: string, formData: FormData) {
     // Al asignado le llega una notificación directa más abajo: evita el duplicado.
     exclude: assigneeId && assigneeId !== session?.id ? [assigneeId] : undefined,
   });
-  // Si se asigna a alguien (que no soy yo) al crear → avísale.
+  // Si se asigna a alguien (que no soy yo) al crear → avísale, con el proyecto y el detalle.
   if (assigneeId && assigneeId !== session?.id) {
+    const proj = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
+    const body = [
+      `Proyecto «${proj?.name ?? "—"}».`,
+      description ? `\n${description.slice(0, 240)}` : "",
+      dueRaw ? `\nEntrega: ${dueRaw}` : "",
+    ].join("");
     await notifyAndEmail(assigneeId, {
       type: "task",
       title: `Nueva tarea: ${title}`,
-      body: `Te asignaron una tarea${dueRaw ? ` (entrega ${dueRaw})` : ""}.`,
+      body,
       link: `/proyectos/${projectId}?tab=tareas`,
     });
   }
@@ -197,7 +203,13 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
   await db.task.update({ where: { id: taskId }, data: { assigneeId: newId, assignedById: session?.id ?? null } });
   const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
   if (newId && newId !== session?.id) {
-    await notifyAndEmail(newId, { type: "task", title: `Te asignaron: ${task!.title}`, body: "Eres el nuevo responsable de esta tarea.", link });
+    const info = await db.task.findUnique({ where: { id: taskId }, select: { description: true, dueDate: true, project: { select: { name: true } } } });
+    const body = [
+      info?.project?.name ? `Proyecto «${info.project.name}».` : "Eres el nuevo responsable de esta tarea.",
+      info?.description ? `\n${info.description.slice(0, 240)}` : "",
+      info?.dueDate ? `\nEntrega: ${info.dueDate.toISOString().slice(0, 10)}` : "",
+    ].join("");
+    await notifyAndEmail(newId, { type: "task", title: `Te asignaron: ${task!.title}`, body, link });
   }
   if (prevId && prevId !== session?.id) {
     await notifyAndEmail(prevId, { type: "task", title: `Ya no eres responsable de: ${task!.title}`, body: "La tarea se reasignó a otra persona.", link });

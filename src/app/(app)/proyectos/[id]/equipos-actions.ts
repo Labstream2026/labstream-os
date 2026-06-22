@@ -132,10 +132,12 @@ export async function setPlanAssignee(planId: string, assigneeId: string) {
   if (newId) {
     await syncMirrorTask(planId); // crea o reasigna la tarea espejo
     if (newId !== session.id) {
+      const fechaCorta = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "long", timeZone: "UTC" }).format(plan.shootDate);
+      const nItems = await db.equipmentReservation.count({ where: { planId } });
       await notifyAndEmail(newId, {
         type: "task",
         title: `Preparar equipos: ${plan.title || plan.project.name}`,
-        body: "Eres responsable de tener los equipos listos para esta grabación.",
+        body: `Proyecto «${plan.project.name}». Eres responsable de organizar y tener listos los equipos para la grabación del ${fechaCorta}${nItems ? ` (${nItems} equipo${nItems === 1 ? "" : "s"})` : ""}. La lista completa está en la tarea.`,
         link: `/proyectos/${plan.projectId}?tab=equipos`,
       });
     }
@@ -159,15 +161,27 @@ async function syncMirrorTask(planId: string) {
     },
   });
   if (!plan) return;
-  const itemNames = plan.items.map((it) => {
-    const nameCell = it.row.cells.find((c) => c.column.name === "Nombre");
-    const nm = nameCell?.value ? String(nameCell.value) : "Equipo";
-    return `• ${nm}${it.quantity > 1 ? ` ×${it.quantity}` : ""}`;
+  // Resuelve la etiqueta de Marca (columna SELECT → su label) para mostrar el modelo "Sony ZV-E1".
+  const marcaCol = await db.dataColumn.findFirst({ where: { name: "Marca", table: { key: "sys:inventario" } }, select: { options: true } });
+  const marcaOpts = (marcaCol?.options as { id: string; label: string }[] | null) ?? [];
+  const itemLines = plan.items.map((it) => {
+    const cells = it.row.cells;
+    const nombre = String(cells.find((c) => c.column.name === "Nombre")?.value ?? "Equipo");
+    const marcaId = cells.find((c) => c.column.name === "Marca")?.value;
+    const marca = marcaOpts.find((o) => o.id === marcaId)?.label ?? "";
+    const serialV = cells.find((c) => c.column.name === "Serial")?.value;
+    const serial = serialV ? String(serialV).trim() : "";
+    const label = marca && !nombre.toLowerCase().includes(marca.toLowerCase()) ? `${marca} ${nombre}` : nombre;
+    return `• ${label}${it.quantity > 1 ? ` ×${it.quantity}` : ""}${serial ? ` (serial ${serial})` : ""}`;
   });
-  const title = `🎒 Preparar equipos: ${plan.title || plan.project.name}`;
+  const fecha = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(plan.shootDate);
+  const grabacion = plan.title || plan.project.name;
+  const title = `🎒 Preparar equipos: ${grabacion}`;
   const description = [
-    "Tener listos los equipos para la grabación.",
-    itemNames.length ? `\nEquipos (${plan.items.length}):\n${itemNames.join("\n")}` : "",
+    `Eres responsable de organizar y tener listos los equipos para la grabación «${grabacion}» del proyecto ${plan.project.name}, el ${fecha}.`,
+    itemLines.length
+      ? `\n\nEquipos a organizar (${plan.items.length}):\n${itemLines.join("\n")}`
+      : "\n\n(Aún sin equipos en la lista; agrégalos en la pestaña Equipos del proyecto.)",
   ].join("");
 
   if (plan.taskId) {
