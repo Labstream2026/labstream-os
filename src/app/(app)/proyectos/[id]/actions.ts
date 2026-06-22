@@ -757,8 +757,10 @@ export async function addDeliverableVersion(
 ) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
-  // Escritura (no solo lectura): un invitado GUEST no puede subir versiones.
+  // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
+  // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
   if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!hasPermission(session, "subir_archivos") && deliverable.ownerId !== session!.id) throw new Error("No autorizado");
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({
@@ -841,7 +843,11 @@ export async function internalDecision(
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Decide el responsable del proyecto/admin O el responsable de revisión asignado.
-  const mayDecide = !!deliverable && (canManageProject(deliverable.project, session) || (!!deliverable.reviewerId && deliverable.reviewerId === session?.id));
+  // El gestor del proyecto necesita además aprobar_entregables; el revisor ASIGNADO siempre puede.
+  const mayDecide = !!deliverable && (
+    (canManageProject(deliverable.project, session) && hasPermission(session, "aprobar_entregables")) ||
+    (!!deliverable.reviewerId && deliverable.reviewerId === session?.id)
+  );
   if (!deliverable || !mayDecide) throw new Error("No autorizado");
   const projectId = deliverable.projectId;
   const approved = result === "APROBADO";
@@ -1238,10 +1244,11 @@ export async function deleteFolder(folderId: string, _projectId: string) {
 }
 
 // ── Proyecto compartido: visibilidad y miembros (solo gestores) ──
-async function ensureProjectManage(projectId: string): Promise<SessionUser> {
+async function ensureProjectManage(projectId: string, perm?: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
   if (!project || !canManageProject(project, session)) throw new Error("No autorizado");
+  if (perm && !hasPermission(session, perm)) throw new Error("No autorizado");
   return session!;
 }
 
@@ -1319,14 +1326,14 @@ export async function setDeliverableDueDate(id: string, _projectId: string, form
 }
 
 export async function setProjectVisibility(projectId: string, isPrivate: boolean) {
-  await ensureProjectManage(projectId);
+  await ensureProjectManage(projectId, "editar_proyectos");
   await db.project.update({ where: { id: projectId }, data: { isPrivate } });
   await logActivity({ action: "project.visibility", summary: `marcó el proyecto como ${isPrivate ? "privado" : "público"}`, projectId, entityType: "project", entityId: projectId });
   refresh(projectId);
 }
 
 export async function addProjectMember(projectId: string, userId: string, role: string = "MEMBER") {
-  const session = await ensureProjectManage(projectId);
+  const session = await ensureProjectManage(projectId, "gestionar_miembros_proyecto");
   // El rol debe ser uno conocido; conceder OWNER solo lo puede hacer admin o el responsable
   // (evita que un OWNER no-admin promueva a otros y escale control del proyecto).
   const allowed = ["MEMBER", "GUEST", "OWNER"];
@@ -1352,7 +1359,7 @@ export async function addProjectMember(projectId: string, userId: string, role: 
 }
 
 export async function removeProjectMember(projectId: string, userId: string) {
-  await ensureProjectManage(projectId);
+  await ensureProjectManage(projectId, "gestionar_miembros_proyecto");
   await db.projectMember
     .delete({ where: { projectId_userId: { projectId, userId } } })
     .catch((e: { code?: string }) => {
