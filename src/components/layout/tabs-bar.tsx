@@ -1,47 +1,57 @@
 "use client";
 
 import * as React from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { routeMeta } from "@/lib/nav-meta";
 
-// Barra de pestañas estilo Notion (solo escritorio). Vive en el layout, así que
-// su estado persiste entre navegaciones. Modelo "una pestaña por ruta":
-//   • La pestaña activa es siempre la ruta actual (usePathname).
-//   • Navegar normalmente reemplaza la pestaña activa (como un navegador) → no se
-//     acumulan pestañas infinitas al moverse por el menú.
+// Barra de pestañas estilo Notion (solo escritorio). Vive en el layout, así que su estado
+// persiste entre navegaciones. Modelo "una pestaña por RUTA":
+//   • Cada pestaña recuerda su URL COMPLETA (incluida la sub-pestaña ?tab=…), para que al
+//     volver a ella siga donde estabas (Equipos, Tareas…), no en "Resumen".
+//   • Cambiar de sub-pestaña dentro de un proyecto actualiza la MISMA pestaña (no abre otra).
+//   • Navegar a otra ruta reemplaza la pestaña activa (como un navegador).
 //   • Cmd/Ctrl+clic o clic central sobre un enlace interno abre una pestaña nueva.
 //   • El botón «+» abre Inicio en pestaña nueva.
-// Las pestañas se recuerdan en localStorage para reaperturas (útil en la app de
-// escritorio).
+// Se recuerdan en localStorage para reaperturas.
 
 const LS_TABS = "ui:tabs";
 
+// La IDENTIDAD de una pestaña es su RUTA (pathname sin query). Así, cambiar de sub-pestaña
+// (?tab=) actualiza la misma pestaña en vez de abrir una nueva.
+const pathOf = (url: string) => url.split("?")[0];
+
 export function TabsBar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [tabs, setTabs] = React.useState<string[]>(() => [pathname]);
+  const search = searchParams.toString();
+  const curUrl = search ? `${pathname}?${search}` : pathname;
+
+  const [tabs, setTabs] = React.useState<string[]>(() => [curUrl]);
   const [mounted, setMounted] = React.useState(false);
 
-  // Refs espejo para leer el estado más reciente dentro de listeners/efectos sin
-  // recrearlos en cada cambio.
+  // Refs espejo para leer el estado más reciente dentro de listeners/efectos.
   const tabsRef = React.useRef(tabs);
   React.useEffect(() => { tabsRef.current = tabs; }, [tabs]);
-  const lastPathRef = React.useRef(pathname);
+  const lastUrlRef = React.useRef(curUrl);
   // Marca que la siguiente navegación debe abrir una pestaña nueva (no reemplazar).
   const forceNewTabRef = React.useRef(false);
 
-  // Restaura pestañas guardadas al montar (evita desajustes de hidratación: el
-  // primer render usa solo la ruta actual, igual que el servidor).
+  // Restaura pestañas guardadas al montar (evita desajustes de hidratación: el primer
+  // render usa solo la URL actual, igual que el servidor).
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(LS_TABS);
       if (raw) {
         const saved = JSON.parse(raw);
         if (Array.isArray(saved) && saved.length && saved.every((x) => typeof x === "string")) {
-          setTabs(saved.includes(pathname) ? saved : [...saved, pathname]);
+          const curPath = pathOf(curUrl);
+          const hasRoute = saved.some((u) => pathOf(u) === curPath);
+          // Si la ruta actual ya estaba guardada, reflejamos su URL actual (con su sub-pestaña).
+          setTabs(hasRoute ? saved.map((u) => (pathOf(u) === curPath ? curUrl : u)) : [...saved, curUrl]);
         }
       }
     } catch { /* ignora almacenamiento no disponible */ }
@@ -49,32 +59,39 @@ export function TabsBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reconcilia la lista de pestañas cuando cambia la ruta.
+  // Reconcilia la lista cuando cambia la URL (ruta O sub-pestaña/query).
   React.useEffect(() => {
-    if (pathname === lastPathRef.current) return;
-    const prev = lastPathRef.current;
-    lastPathRef.current = pathname;
+    if (curUrl === lastUrlRef.current) return;
+    const prevUrl = lastUrlRef.current;
+    lastUrlRef.current = curUrl;
     if (!mounted) return;
 
     setTabs((curr) => {
-      if (curr.includes(pathname)) return curr; // ya abierta → pasa a ser la activa
+      const curPath = pathOf(curUrl);
+      // ¿Ya hay una pestaña para esta RUTA? → actualiza su URL (recuerda la sub-pestaña) y pasa a activa.
+      const sameRouteIdx = curr.findIndex((u) => pathOf(u) === curPath);
+      if (sameRouteIdx >= 0) {
+        if (curr[sameRouteIdx] === curUrl) return curr;
+        const next = [...curr];
+        next[sameRouteIdx] = curUrl;
+        return next;
+      }
+      // Ruta nueva → pestaña nueva (si se forzó) o reemplaza la activa (comportamiento de navegador).
+      const prevIdx = curr.findIndex((u) => pathOf(u) === pathOf(prevUrl));
       if (forceNewTabRef.current) {
         forceNewTabRef.current = false;
-        const idx = curr.indexOf(prev);
         const next = [...curr];
-        next.splice(idx >= 0 ? idx + 1 : next.length, 0, pathname);
+        next.splice(prevIdx >= 0 ? prevIdx + 1 : next.length, 0, curUrl);
         return next;
       }
-      // Reemplaza la pestaña activa en su sitio (comportamiento de navegador).
-      const idx = curr.indexOf(prev);
-      if (idx >= 0) {
+      if (prevIdx >= 0) {
         const next = [...curr];
-        next[idx] = pathname;
+        next[prevIdx] = curUrl;
         return next;
       }
-      return [...curr, pathname];
+      return [...curr, curUrl];
     });
-  }, [pathname, mounted]);
+  }, [curUrl, mounted]);
 
   // Persiste las pestañas.
   React.useEffect(() => {
@@ -109,8 +126,8 @@ export function TabsBar() {
     };
   }, [router]);
 
-  const selectTab = (path: string) => {
-    if (path !== pathname) router.push(path);
+  const selectTab = (url: string) => {
+    if (url !== curUrl) router.push(url);
   };
 
   const newTab = () => {
@@ -118,13 +135,13 @@ export function TabsBar() {
     router.push("/");
   };
 
-  const closeTab = (path: string) => {
+  const closeTab = (url: string) => {
     const curr = tabsRef.current;
     if (curr.length <= 1) return; // siempre queda al menos una
-    const idx = curr.indexOf(path);
-    const next = curr.filter((p) => p !== path);
+    const idx = curr.indexOf(url);
+    const next = curr.filter((p) => p !== url);
     setTabs(next);
-    if (path === pathname) {
+    if (pathOf(url) === pathname) {
       const fallback = next[Math.min(idx, next.length - 1)];
       if (fallback) router.push(fallback);
     }
@@ -135,14 +152,14 @@ export function TabsBar() {
   return (
     <div className="hidden h-9 shrink-0 items-stretch border-b border-border bg-background px-2 md:flex">
       <div className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {tabs.map((path) => {
-          const { emoji, label } = routeMeta(path);
-          const active = path === pathname;
+        {tabs.map((url) => {
+          const { emoji, label } = routeMeta(pathOf(url));
+          const active = pathOf(url) === pathname;
           return (
             <div
-              key={path}
-              onClick={() => selectTab(path)}
-              onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(path); } }}
+              key={url}
+              onClick={() => selectTab(url)}
+              onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(url); } }}
               title={label}
               className={cn(
                 "group my-1 flex max-w-[180px] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md pl-2.5 pr-1.5 text-[13px] transition-colors",
@@ -157,7 +174,7 @@ export function TabsBar() {
                 <button
                   type="button"
                   tabIndex={-1}
-                  onClick={(e) => { e.stopPropagation(); closeTab(path); }}
+                  onClick={(e) => { e.stopPropagation(); closeTab(url); }}
                   aria-label={`Cerrar ${label}`}
                   className={cn(
                     "ml-0.5 flex size-5 items-center justify-center rounded text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground",
