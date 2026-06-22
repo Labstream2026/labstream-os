@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
-import { restoreClientForm } from "./actions";
 import { canAccessProject } from "@/lib/project-access";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
@@ -56,16 +55,8 @@ export default async function ClientesPage() {
 
   const totalProjects = cards.reduce((n, c) => n + c.projects.length, 0);
   const canCreate = hasPermission(session, "crear_clientes");
-
-  // Clientes ARCHIVADOS (solo admins): se muestran aparte con opción de restaurar.
-  const isAdmin = session?.role === "admin";
-  const archived = isAdmin
-    ? await db.client.findMany({
-        where: { archivedAt: { not: null } },
-        orderBy: { archivedAt: "desc" },
-        select: { id: true, name: true, emoji: true, archivedAt: true },
-      })
-    : [];
+  // Los clientes archivados (borrado suave) viven ahora en la Papelera (/papelera), unificados
+  // con los proyectos archivados — no se duplican aquí.
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
@@ -155,33 +146,6 @@ export default async function ClientesPage() {
         </div>
       )}
 
-      {/* Archivados (solo admin): restaurables; su contenido se conservó intacto. */}
-      {archived.length > 0 ? (
-        <details className="mt-10 rounded-xl border border-border bg-card/50 p-4">
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-            🗄️ Archivados ({archived.length})
-          </summary>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Clientes archivados. No se borró nada de su información; al restaurar vuelven a la lista.
-          </p>
-          <div className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {archived.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="shrink-0">{c.emoji ?? "🏢"}</span>
-                <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
-                  Archivado {formatShortDate(c.archivedAt) ?? ""}
-                </span>
-                <form action={restoreClientForm.bind(null, c.id)}>
-                  <button className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent">
-                    Restaurar
-                  </button>
-                </form>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
     </div>
   );
 }

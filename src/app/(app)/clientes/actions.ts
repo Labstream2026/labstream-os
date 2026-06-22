@@ -222,6 +222,26 @@ export async function restoreClientForm(clientId: string): Promise<void> {
   await restoreClient(clientId);
 }
 
+// Borra DEFINITIVAMENTE un cliente desde la papelera (irreversible). Solo sobre clientes ya
+// archivados y para quien puede ver la papelera. Cascada: arrastra proyectos, cotizaciones,
+// FACTURAS, canal y miembros del cliente. Es destructivo — la UI exige confirmación.
+export async function purgeClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!hasPermission(session, "ver_papelera")) return { ok: false, error: "No autorizado" };
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true, archivedAt: true } });
+  if (!client) return { ok: false, error: "El cliente no existe." };
+  if (!client.archivedAt) return { ok: false, error: "Primero envía el cliente a la papelera." };
+  try {
+    await db.client.delete({ where: { id: clientId } });
+  } catch {
+    return { ok: false, error: "No se pudo borrar el cliente." };
+  }
+  await logActivity({ action: "client.purge", summary: `borró definitivamente el cliente ${client.name}` });
+  revalidatePath("/papelera");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 export type ClientMemberResult = { ok: boolean; error?: string };
 
 // Añade un miembro al cliente (quién puede verlo). Solo admin o miembro actual.

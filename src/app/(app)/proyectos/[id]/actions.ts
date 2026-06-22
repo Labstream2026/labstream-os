@@ -1403,3 +1403,23 @@ export async function restoreProject(projectId: string): Promise<void> {
   revalidatePath("/papelera");
   revalidatePath("/", "layout");
 }
+
+// Borra DEFINITIVAMENTE un proyecto desde la papelera (irreversible). Solo sobre proyectos ya
+// archivados. Cascada: borra tareas/entregables/archivos/canal/etc.; las cotizaciones, FACTURAS
+// y citas son SetNull → sobreviven desvinculadas (no se pierden registros financieros).
+export async function purgeProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!hasPermission(session, "ver_papelera")) return { ok: false, error: "No autorizado" };
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, archivedAt: true } });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  if (!project.archivedAt) return { ok: false, error: "Primero envía el proyecto a la papelera." };
+  try {
+    await db.project.delete({ where: { id: projectId } });
+  } catch {
+    return { ok: false, error: "No se pudo borrar el proyecto." };
+  }
+  await logActivity({ action: "project.purge", summary: `borró definitivamente el proyecto «${project.name}»` });
+  revalidatePath("/papelera");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}

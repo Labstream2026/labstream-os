@@ -2,8 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
-import { restoreProject } from "@/app/(app)/proyectos/[id]/actions";
-import { restoreClientForm } from "@/app/(app)/clientes/actions";
+import { PapeleraActions } from "./papelera-actions";
 import { Trash2, FolderOpen, Building2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -62,11 +61,7 @@ export default async function PapeleraPage() {
                     {p.client?.name ? `${p.client.name} · ` : ""}Archivado {formatShortDate(p.archivedAt) ?? ""}
                   </p>
                 </div>
-                <form action={restoreProject.bind(null, p.id)}>
-                  <button className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
-                    Restaurar
-                  </button>
-                </form>
+                <PapeleraActions kind="project" id={p.id} name={p.name} />
               </div>
             ))}
           </div>
@@ -87,11 +82,7 @@ export default async function PapeleraPage() {
                   <p className="truncate font-medium">{c.name}</p>
                   <p className="truncate text-xs text-muted-foreground">Archivado {formatShortDate(c.archivedAt) ?? ""}</p>
                 </div>
-                <form action={restoreClientForm.bind(null, c.id)}>
-                  <button className="shrink-0 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
-                    Restaurar
-                  </button>
-                </form>
+                <PapeleraActions kind="client" id={c.id} name={c.name} />
               </div>
             ))}
           </div>
