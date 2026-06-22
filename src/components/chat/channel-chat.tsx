@@ -147,7 +147,7 @@ function shortName(name: string, max = 26): string {
 // Cuerpo de mensaje vacío de los adjuntos (placeholder antiguo): no se muestra.
 const ATTACH_PLACEHOLDER = "📎 Archivo adjunto";
 
-function Attachments({ items }: { items?: Attachment[] }) {
+function Attachments({ items, author }: { items?: Attachment[]; author?: { initials: string | null; color: string | null } | null }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-1.5 space-y-1.5">
@@ -171,7 +171,7 @@ function Attachments({ items }: { items?: Attachment[] }) {
         }
         if (isAudio(a)) {
           // Nota de voz / audio: reproductor estilo WhatsApp (onda + play + duración).
-          return <VoiceNote key={a.id} src={`/api/files/${a.id}`} />;
+          return <VoiceNote key={a.id} src={`/api/files/${a.id}`} author={author} />;
         }
         const { Icon, color } = fileIcon(a.name);
         return (
@@ -837,7 +837,7 @@ export function ChannelChat({
                   </div>
                 ) : null}
                 <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
-                  <Attachments items={m.attachments} />
+                  <Attachments items={m.attachments} author={m.author} />
                   {m.poll ? (
                     <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
                   ) : null}
@@ -880,7 +880,7 @@ export function ChannelChat({
                             {statusTag(r.status)}
                           </div>
                           <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{r.body}</p>
-                          <Attachments items={r.attachments} />
+                          <Attachments items={r.attachments} author={r.author} />
                           {r.poll ? (
                             <PollWidget poll={r.poll} myOptionId={myVotes[r.poll.id] ?? null} onVote={(opt) => vote(r.poll!.id, opt)} />
                           ) : null}

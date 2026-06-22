@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 // Reproductor de nota de voz estilo WhatsApp: play/pausa, onda real (amplitudes
 // decodificadas con Web Audio), duración y clic para buscar. La reproducción usa un
@@ -26,12 +27,19 @@ function fmt(s: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-export function VoiceNote({ src }: { src: string }) {
+export function VoiceNote({ src, author }: { src: string; author?: { initials?: string | null; color?: string | null } | null }) {
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const [peaks, setPeaks] = React.useState<number[]>(() => Array.from({ length: BARS }, () => 0.4));
   const [playing, setPlaying] = React.useState(false);
   const [cur, setCur] = React.useState(0);
   const [dur, setDur] = React.useState(0);
+  const [speed, setSpeed] = React.useState(1);
+
+  const cycleSpeed = () => {
+    const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+    setSpeed(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
+  };
 
   // Decodifica el audio para dibujar la onda (best-effort; si falla, deja la onda por defecto).
   React.useEffect(() => {
@@ -81,7 +89,7 @@ export function VoiceNote({ src }: { src: string }) {
   const progress = dur > 0 && Number.isFinite(dur) ? cur / dur : 0;
 
   return (
-    <div className="flex w-64 max-w-full items-center gap-2.5 rounded-2xl border border-border bg-background px-3 py-2">
+    <div className="flex w-72 max-w-full items-center gap-2.5 rounded-2xl border border-border bg-background px-3 py-2">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
         ref={audioRef}
@@ -104,6 +112,14 @@ export function VoiceNote({ src }: { src: string }) {
           }
         }}
       />
+      {author ? (
+        <span className="relative shrink-0">
+          <UserAvatar initials={author.initials} color={author.color} size="sm" />
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Mic className="size-2" />
+          </span>
+        </span>
+      ) : null}
       <button
         type="button"
         onClick={toggle}
@@ -127,6 +143,15 @@ export function VoiceNote({ src }: { src: string }) {
         ))}
       </button>
       <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{playing ? fmt(cur) : fmt(dur)}</span>
+      <button
+        type="button"
+        onClick={cycleSpeed}
+        aria-label="Velocidad de reproducción"
+        title="Velocidad"
+        className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground hover:bg-muted/70"
+      >
+        {speed}×
+      </button>
     </div>
   );
 }
