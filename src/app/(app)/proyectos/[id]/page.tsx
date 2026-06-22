@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
@@ -32,17 +33,19 @@ import { loadInventory, conflictsForPlans } from "@/lib/equipos";
 
 export const dynamic = "force-dynamic";
 
+// Pestañas del proyecto agrupadas en 3 bloques (Contenido · Entregables · Operación) para que
+// las 10 no se vean como un muro plano; un separador sutil marca cada grupo.
 const TABS = [
-  { key: "resumen", label: "Resumen" },
-  { key: "propuesta", label: "Propuesta" },
-  { key: "tareas", label: "Tareas" },
-  { key: "calendario", label: "Calendario" },
-  { key: "cronograma", label: "Cronograma" },
-  { key: "entregables", label: "Entregables" },
-  { key: "archivos", label: "Archivos" },
-  { key: "guiones", label: "Guiones" },
-  { key: "equipos", label: "Equipos" },
-  { key: "actividad", label: "Actividad" },
+  { key: "resumen", label: "Resumen", group: "contenido" },
+  { key: "propuesta", label: "Propuesta", group: "contenido" },
+  { key: "tareas", label: "Tareas", group: "contenido" },
+  { key: "calendario", label: "Calendario", group: "contenido" },
+  { key: "cronograma", label: "Cronograma", group: "contenido" },
+  { key: "entregables", label: "Entregables", group: "entregables" },
+  { key: "archivos", label: "Archivos", group: "entregables" },
+  { key: "guiones", label: "Guiones", group: "entregables" },
+  { key: "equipos", label: "Equipos", group: "operacion" },
+  { key: "actividad", label: "Actividad", group: "operacion" },
 ];
 
 export default async function ProyectoPage({
@@ -260,12 +263,15 @@ export default async function ProyectoPage({
 
       {/* Tabs */}
       <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.map((t) => {
+        {TABS.map((t, i) => {
           const active = tab === t.key;
           const count = (counts as Record<string, number>)[t.key];
+          // Separador entre grupos (Contenido · Entregables · Operación).
+          const newGroup = i > 0 && TABS[i - 1].group !== t.group;
           return (
+            <Fragment key={t.key}>
+            {newGroup ? <span aria-hidden className="my-2 self-stretch border-l border-border/60" /> : null}
             <Link
-              key={t.key}
               href={`/proyectos/${id}?tab=${t.key}`}
               className={cn(
                 "-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
@@ -277,6 +283,7 @@ export default async function ProyectoPage({
               {t.label}
               {count ? <span className="ml-1.5 text-xs text-muted-foreground">{count}</span> : null}
             </Link>
+            </Fragment>
           );
         })}
       </div>
