@@ -55,6 +55,58 @@ function parseDate(v: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// ── Tablas de datos (DataTable) ──
+// Selección común (columnas + filas limitadas) y formateo a objetos legibles por fila.
+// Reutilizado por las tablas de wiki (inventario/ubicación) y las de proyecto.
+const TABLE_SELECT = {
+  name: true,
+  columns: { orderBy: { position: "asc" as const }, select: { id: true, name: true, type: true, options: true } },
+  rows: { orderBy: { position: "asc" as const }, take: 200, select: { cells: { select: { columnId: true, value: true } } } },
+} as const;
+
+type TableForRender = {
+  name: string;
+  columns: { id: string; name: string; type: string; options: unknown }[];
+  rows: { cells: { columnId: string; value: unknown }[] }[];
+};
+
+async function renderDataTable(table: TableForRender): Promise<string> {
+  // Resuelve columnas PERSON (userId → nombre) en una sola consulta.
+  const personCols = new Set(table.columns.filter((c) => c.type === "PERSON").map((c) => c.id));
+  const userIds = new Set<string>();
+  for (const r of table.rows) for (const c of r.cells) if (personCols.has(c.columnId) && typeof c.value === "string") userIds.add(c.value);
+  const users = userIds.size ? await db.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true } }) : [];
+  const userMap = new Map(users.map((u) => [u.id, u.name] as const));
+  const fmt = (type: string, value: unknown, options: unknown): string => {
+    if (value == null) return "";
+    const opts = (Array.isArray(options) ? options : []) as { id: string; label: string }[];
+    switch (type) {
+      case "SELECT": return opts.find((o) => o.id === value)?.label ?? String(value);
+      case "MULTISELECT": return Array.isArray(value) ? value.map((id) => opts.find((o) => o.id === id)?.label ?? "").filter(Boolean).join(", ") : "";
+      case "PERSON": return userMap.get(String(value)) ?? "";
+      case "CHECKBOX": return value ? "Sí" : "No";
+      case "PASSWORD": return "(oculto)"; // seguridad: nunca se revela en el chat
+      case "IMAGE": return "(imagen)";
+      case "EVENT": return "(evento)";
+      case "DATE": return typeof value === "string" ? value.slice(0, 10) : String(value);
+      default: return typeof value === "object" ? JSON.stringify(value) : String(value);
+    }
+  };
+  const colById = new Map(table.columns.map((c) => [c.id, c] as const));
+  const rows = table.rows.map((r) => {
+    const obj: Record<string, string> = {};
+    for (const c of r.cells) {
+      const col = colById.get(c.columnId);
+      if (!col) continue;
+      const v = fmt(col.type, c.value, col.options);
+      if (v) obj[col.name] = v;
+    }
+    return obj;
+  }).filter((o) => Object.keys(o).length);
+  if (!rows.length) return `La tabla «${table.name}» está vacía.`;
+  return JSON.stringify({ tabla: table.name, columnas: table.columns.map((c) => c.name), filas: rows });
+}
+
 // Días de la semana → 0..6 (0=Dom). Acepta español/inglés y números.
 const DAY_MAP: Record<string, number> = {
   dom: 0, domingo: 0, sun: 0, sunday: 0,
@@ -414,10 +466,37 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "get_wiki_table",
-      description: "Lee una tabla de la wiki: el INVENTARIO de equipos o la UBICACIÓN. REQUIERE permiso ver_wiki. Devuelve las filas con sus columnas.",
+      description: "Lee una tabla de la WIKI: el INVENTARIO de equipos o la UBICACIÓN. REQUIERE permiso ver_wiki. Para las tablas de un PROYECTO usa read_table.",
       parameters: {
         type: "object",
-        properties: { table: { type: "string", description: "'inventario' o 'ubicacion' (o el nombre de la tabla)." } },
+        properties: { table: { type: "string", description: "'inventario' o 'ubicacion'." } },
+        required: ["table"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_tables",
+      description: "Lista las tablas de datos de un PROYECTO que la persona puede ver (REQUIERE acceso al proyecto). Devuelve nombre, id y nº de columnas/filas para luego leerlas con read_table.",
+      parameters: {
+        type: "object",
+        properties: { project: { type: "string", description: "Id o nombre del proyecto." } },
+        required: ["project"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_table",
+      description: "Lee y devuelve el contenido (columnas y filas) de una tabla de datos de un PROYECTO. REQUIERE acceso al proyecto. Identifica la tabla por id o nombre; opcionalmente acota con el proyecto. Las columnas de contraseña salen ocultas. Úsalo para responder sobre los datos de una tabla del proyecto.",
+      parameters: {
+        type: "object",
+        properties: {
+          table: { type: "string", description: "Id o nombre de la tabla (usa list_tables para ubicarla)." },
+          project: { type: "string", description: "Id o nombre del proyecto (opcional, para desambiguar)." },
+        },
         required: ["table"],
       },
     },
@@ -873,52 +952,42 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (!hasPermission(session, "ver_wiki")) return "No tienes permiso para ver la wiki.";
       const ref = str(args.table).toLowerCase();
       const key = ref.includes("inventario") ? "sys:inventario" : ref.includes("ubicaci") ? "sys:ubicacion" : null;
-      const tableSel = {
-        name: true,
-        columns: { orderBy: { position: "asc" as const }, select: { id: true, name: true, type: true, options: true } },
-        rows: { orderBy: { position: "asc" as const }, take: 100, select: { cells: { select: { columnId: true, value: true } } } },
-      } as const;
+      // Por clave (inventario/ubicación) o por nombre, pero SOLO tablas de wiki/globales:
+      // las de proyecto se leen con read_table (con su control de acceso al proyecto).
       const table = key
-        ? await db.dataTable.findUnique({ where: { key }, select: tableSel })
-        : await db.dataTable.findFirst({ where: { name: { contains: str(args.table), mode: "insensitive" } }, select: tableSel });
-      if (!table) return "No encontré esa tabla. Usa 'inventario' o 'ubicacion'.";
+        ? await db.dataTable.findUnique({ where: { key }, select: TABLE_SELECT })
+        : await db.dataTable.findFirst({ where: { name: { contains: str(args.table), mode: "insensitive" }, OR: [{ key: { not: null } }, { wikiPageId: { not: null } }] }, select: TABLE_SELECT });
+      if (!table) return "No encontré esa tabla de wiki. Usa 'inventario' o 'ubicacion', o read_table para tablas de proyecto.";
+      return renderDataTable(table);
+    }
 
-      // Resuelve los userId de columnas PERSON a nombres (una sola consulta).
-      const personCols = new Set(table.columns.filter((c) => c.type === "PERSON").map((c) => c.id));
-      const userIds = new Set<string>();
-      for (const r of table.rows) for (const c of r.cells) if (personCols.has(c.columnId) && typeof c.value === "string") userIds.add(c.value);
-      const users = userIds.size ? await db.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, name: true } }) : [];
-      const userMap = new Map(users.map((u) => [u.id, u.name] as const));
+    case "list_tables": {
+      const ref = str(args.project);
+      if (!ref) return "Falta el proyecto.";
+      const p = await resolveProject(session, ref);
+      if (!p) return "No encontré ese proyecto o no tienes acceso.";
+      const rows = await db.dataTable.findMany({
+        where: { projectId: p.id }, orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, _count: { select: { rows: true, columns: true } } },
+      });
+      if (!rows.length) return `El proyecto «${p.name}» no tiene tablas.`;
+      return JSON.stringify(rows.map((t) => ({ id: t.id, nombre: t.name, columnas: t._count.columns, filas: t._count.rows })));
+    }
 
-      const fmt = (type: string, value: unknown, options: unknown): string => {
-        if (value == null) return "";
-        const opts = (Array.isArray(options) ? options : []) as { id: string; label: string }[];
-        switch (type) {
-          case "SELECT": return opts.find((o) => o.id === value)?.label ?? String(value);
-          case "MULTISELECT": return Array.isArray(value) ? value.map((id) => opts.find((o) => o.id === id)?.label ?? "").filter(Boolean).join(", ") : "";
-          case "PERSON": return userMap.get(String(value)) ?? "";
-          case "CHECKBOX": return value ? "Sí" : "No";
-          case "PASSWORD": return "(oculto)";
-          case "IMAGE": return "(imagen)";
-          case "EVENT": return "(evento)";
-          case "DATE": return typeof value === "string" ? value.slice(0, 10) : String(value);
-          default: return typeof value === "object" ? JSON.stringify(value) : String(value);
-        }
-      };
-
-      const colById = new Map(table.columns.map((c) => [c.id, c] as const));
-      const rows = table.rows.map((r) => {
-        const obj: Record<string, string> = {};
-        for (const c of r.cells) {
-          const col = colById.get(c.columnId);
-          if (!col) continue;
-          const v = fmt(col.type, c.value, col.options);
-          if (v) obj[col.name] = v;
-        }
-        return obj;
-      }).filter((o) => Object.keys(o).length);
-      if (!rows.length) return `La tabla «${table.name}» está vacía.`;
-      return JSON.stringify({ tabla: table.name, columnas: table.columns.map((c) => c.name), filas: rows });
+    case "read_table": {
+      const ref = str(args.table);
+      if (!ref) return "Falta la tabla (id o nombre).";
+      // Solo tablas que cuelgan de un proyecto al que la persona tiene acceso.
+      const filters: Record<string, unknown>[] = [{ project: accessibleProjectWhere(session) }];
+      if (str(args.project)) {
+        const p = await resolveProject(session, str(args.project));
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        filters.push({ projectId: p.id });
+      }
+      let table = await db.dataTable.findFirst({ where: { AND: [...filters, { id: ref }] }, select: TABLE_SELECT });
+      if (!table) table = await db.dataTable.findFirst({ where: { AND: [...filters, { name: { contains: ref, mode: "insensitive" } }] }, select: TABLE_SELECT });
+      if (!table) return `No encontré la tabla "${ref}" en proyectos a los que tengas acceso.`;
+      return renderDataTable(table);
     }
 
     default:
