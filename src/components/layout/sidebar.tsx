@@ -11,7 +11,6 @@ import {
   LayoutTemplate,
   CalendarDays,
   ClipboardCheck,
-  FileText,
   Sparkles,
   Search,
   Settings,
@@ -107,7 +106,7 @@ export function Sidebar({
 
   // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si
   // estás en una de sus rutas para no esconder la activa).
-  const adminActive = pathname.startsWith("/cotizaciones") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/biblioteca");
+  const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/biblioteca");
   const [adminOpen, setAdminOpen] = useState(true);
   useEffect(() => {
     const saved = window.localStorage.getItem("ui:adminOpen");
@@ -330,8 +329,7 @@ export function Sidebar({
         )}
         {collapsed || showAdminItems ? (
           <>
-            {canQuotes ? navRow("/cotizaciones", "Cotizaciones", FileText, pathname.startsWith("/cotizaciones")) : null}
-            {canQuotes ? navRow("/facturacion", "Facturación", Receipt, pathname.startsWith("/facturacion")) : null}
+            {canQuotes ? navRow("/cotizaciones", "Facturación", Receipt, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
             {canAsistente ? navRow("/asistente", "Asistente IA", Sparkles, pathname === "/asistente") : null}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}

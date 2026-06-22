@@ -50,7 +50,8 @@ export async function createInvoiceFromQuote(quoteId: string) {
   // Evita facturas duplicadas: si ya existe una para esta cotización (p. ej. doble clic
   // o re-render), abre la existente en lugar de crear otra con código FAC distinto.
   const existing = await db.invoice.findFirst({ where: { quoteId: quote.id }, select: { id: true } });
-  if (existing) redirect(`/facturacion/${existing.id}`);
+  // Documento unificado: volvemos a la cotización (pestaña "Facturado" muestra la factura).
+  if (existing) redirect(`/cotizaciones/${quoteId}`);
 
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 30);
@@ -92,7 +93,7 @@ export async function createInvoiceFromQuote(quoteId: string) {
   });
   await logActivity({ action: "invoice.create", summary: `generó la factura ${invoice.code} desde ${quote.code}`, clientId: quote.clientId, entityType: "invoice", entityId: invoice.id });
   refresh(invoice.id);
-  redirect(`/facturacion/${invoice.id}`);
+  redirect(`/cotizaciones/${quoteId}`);
 }
 
 export async function setInvoiceStatus(invoiceId: string, status: string): Promise<{ ok: boolean; error?: string }> {

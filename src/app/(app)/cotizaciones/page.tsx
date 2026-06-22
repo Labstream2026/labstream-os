@@ -47,8 +47,8 @@ export default async function CotizacionesPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cotizaciones</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{proposals.length} propuestas · {quotes.length} cotizaciones rápidas</p>
+          <h1 className="text-3xl font-bold tracking-tight">Facturación</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{proposals.length} propuestas · {quotes.length} cotizaciones</p>
         </div>
         {canCreate ? (
           <div className="flex items-center gap-2">
