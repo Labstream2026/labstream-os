@@ -20,8 +20,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const [clients, team, notifs, general, dockTeam] = await Promise.all([
     db.client.findMany({
-      // Solo los clientes que el usuario puede ver (miembro o participa en sus proyectos).
-      where: accessibleClientWhere(session),
+      // Solo los clientes que el usuario puede ver (miembro o participa en sus proyectos),
+      // y solo los ACTIVOS: los desactivados no estorban en el menú.
+      where: { AND: [accessibleClientWhere(session), { isActive: true }] },
       // Orden alfabético por nombre. El orden definitivo se afina abajo con localeCompare
       // (insensible a mayúsculas/acentos) porque la colación de Postgres no garantiza
       // ordenar "ANDREA" y "Diana" como en un diccionario.

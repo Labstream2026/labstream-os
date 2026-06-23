@@ -270,6 +270,10 @@ model Client {
   activity    ActivityLog[]
   channel     ChatChannel?
   members     ClientMember[]
+  // Activo/inactivo: un cliente sin proyectos a la vista se DESACTIVA para no estorbar en
+  // las listas, y se REACTIVA cuando llega un proyecto nuevo. Distinto de archivar: el
+  // inactivo NO va a la papelera, solo se oculta de las listas activas (con filtro para verlo).
+  isActive    Boolean   @default(true)
   // Archivado (borrado suave): en vez de BORRAR un cliente —lo que arrastraría sus
   // facturas/cotizaciones/proyectos— se archiva. Sale de las listas pero se puede
   // RESTAURAR; nada de su información se elimina. Solo admins archivan/restauran.

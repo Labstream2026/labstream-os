@@ -18,6 +18,7 @@ import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
+import { ClientStatus } from "./client-status";
 import { ClientBilling, type ClientInvoiceRow } from "./client-billing";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { quoteTotals } from "@/lib/ui";
@@ -262,6 +263,13 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         onClearImage={clearClientImage.bind(null, client.id)}
       />
 
+      {!client.isActive ? (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">Inactivo</span>
+          Este cliente está desactivado y oculto de las listas. Reactívalo en Ajustes cuando llegue un proyecto nuevo.
+        </div>
+      ) : null}
+
       <div className="mt-8 grid grid-cols-3 gap-4">
         <Stat value={projects.length} label="Proyectos" />
         <Stat value={active} label="Activos" />
@@ -364,6 +372,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     ) : (
                       <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
                     )}
+                    {canEdit ? (
+                      <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
+                    ) : null}
                   </div>
                   <div className="space-y-4 lg:sticky lg:top-4">
                     <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />

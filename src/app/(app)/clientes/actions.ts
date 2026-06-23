@@ -222,6 +222,28 @@ export async function restoreClientForm(clientId: string): Promise<void> {
   await restoreClient(clientId);
 }
 
+// Activa/desactiva un cliente: lo oculta de las listas activas (sidebar, /clientes, inicio)
+// sin archivarlo ni tocar nada de su información, y se reactiva cuando llega un proyecto
+// nuevo. Distinto de archivar (papelera). Requiere permiso de edición de clientes.
+export async function setClientActive(clientId: string, active: boolean): Promise<{ ok: boolean; error?: string }> {
+  if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true, isActive: true } });
+  if (!client) return { ok: false, error: "El cliente no existe." };
+  if (client.isActive === active) return { ok: true }; // idempotente
+  await db.client.update({ where: { id: clientId }, data: { isActive: active } });
+  await logActivity({
+    action: active ? "client.activate" : "client.deactivate",
+    summary: `${active ? "reactivó" : "desactivó"} el cliente ${client.name}`,
+    clientId,
+    entityType: "client",
+    entityId: clientId,
+  });
+  revalidatePath("/clientes");
+  revalidatePath("/");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // Borra DEFINITIVAMENTE un cliente desde la papelera (irreversible). Solo sobre clientes ya
 // archivados y para quien puede ver la papelera. Cascada: arrastra proyectos, cotizaciones,
 // FACTURAS, canal y miembros del cliente. Es destructivo — la UI exige confirmación.

@@ -9,21 +9,27 @@ import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen } from "lucide-react";
+import { Plus, FolderOpen, PowerOff } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 const CLOSED = ["CERRADO", "CANCELADO"];
 
-export default async function ClientesPage() {
+export default async function ClientesPage({ searchParams }: { searchParams: Promise<{ inactivos?: string }> }) {
   const session = await getSession();
   // La zona Clientes requiere el permiso ver_clientes (admin lo tiene por bypass). Sin él,
   // fuera. Los datos siguen acotados a los clientes accesibles (membresía/proyectos).
   if (!hasPermission(session, "ver_clientes")) redirect("/");
 
-  const clients = await db.client.findMany({
-    // Excluye los archivados (borrado suave): no aparecen en la lista normal.
-    where: { ...accessibleClientWhere(session), archivedAt: null },
+  // Vista por defecto: solo clientes ACTIVOS. Con ?inactivos=1 se muestran los desactivados
+  // (para reactivar un cliente viejo cuando llega un proyecto nuevo).
+  const { inactivos } = await searchParams;
+  const showInactive = inactivos === "1";
+
+  const [clients, inactiveCount] = await Promise.all([
+    db.client.findMany({
+    // Excluye los archivados (papelera); filtra por activo/inactivo según la vista.
+    where: { ...accessibleClientWhere(session), archivedAt: null, isActive: !showInactive },
     // Alfabético por nombre; se afina abajo con localeCompare (insensible a mayúsculas/acentos).
     orderBy: { name: "asc" },
     include: {
@@ -37,7 +43,10 @@ export default async function ClientesPage() {
         },
       },
     },
-  });
+    }),
+    // Cuántos inactivos hay (para el botón "Ver inactivos"), respetando el acceso.
+    db.client.count({ where: { ...accessibleClientWhere(session), archivedAt: null, isActive: false } }),
+  ]);
   // Orden alfabético real: insensible a mayúsculas/acentos y con reglas del español.
   clients.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 
@@ -65,24 +74,37 @@ export default async function ClientesPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{showInactive ? "Clientes inactivos" : "Clientes"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {cards.length} cliente{cards.length === 1 ? "" : "s"} · {totalProjects} proyecto{totalProjects === 1 ? "" : "s"} en total.
+            {showInactive
+              ? `${cards.length} cliente${cards.length === 1 ? "" : "s"} desactivado${cards.length === 1 ? "" : "s"}. Reactívalos abriendo su ficha → Ajustes.`
+              : `${cards.length} cliente${cards.length === 1 ? "" : "s"} · ${totalProjects} proyecto${totalProjects === 1 ? "" : "s"} en total.`}
           </p>
         </div>
-        {canCreate ? (
-          <Link
-            href="/clientes/nuevo"
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="size-4" /> Nuevo cliente
-          </Link>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {showInactive ? (
+            <Link href="/clientes" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
+              ← Ver activos
+            </Link>
+          ) : inactiveCount > 0 ? (
+            <Link href="/clientes?inactivos=1" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
+              <PowerOff className="size-4" /> Ver inactivos ({inactiveCount})
+            </Link>
+          ) : null}
+          {canCreate && !showInactive ? (
+            <Link
+              href="/clientes/nuevo"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="size-4" /> Nuevo cliente
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       {cards.length === 0 ? (
         <div className="mt-10 rounded-xl border border-dashed border-border bg-card/50 px-6 py-16 text-center text-sm text-muted-foreground">
-          No tienes clientes visibles todavía.
+          {showInactive ? "No hay clientes inactivos." : "No tienes clientes visibles todavía."}
         </div>
       ) : (
         <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
