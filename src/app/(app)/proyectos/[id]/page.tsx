@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
+import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { Lock } from "lucide-react";
@@ -80,10 +81,13 @@ export default async function ProyectoPage({
             versions: { include: { uploadedBy: { select: { initials: true, avatarColor: true } } } },
             decisions: { orderBy: { createdAt: "desc" }, take: 12, include: { by: { select: { name: true } } } },
             reviewComments: { orderBy: { createdAt: "asc" } },
+            // Fotos de los entregables FOTOGRAFIA (galería de selección del cliente).
+            photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: true } },
-        files: { where: { folderId: null }, orderBy: { createdAt: "asc" } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } } } } },
+        // Excluye de Archivos los FileAsset que son fotos de entregables (no son archivos sueltos del proyecto).
+        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" } },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -436,6 +440,14 @@ export default async function ProyectoPage({
                 resolved: c.resolved,
                 fromClient: c.fromClient,
                 createdAt: c.createdAt,
+              })),
+              photos: d.photos.map((p) => ({
+                id: p.id,
+                filename: p.filename,
+                src: photoViewSrc(p),
+                downloadSrc: photoDownloadSrc(p),
+                pick: p.pick,
+                clientNote: p.clientNote,
               })),
             }))}
             emailEnabled={await isEmailEnabled()}

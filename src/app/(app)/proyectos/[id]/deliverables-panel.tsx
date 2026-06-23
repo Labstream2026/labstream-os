@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck, Trash2 } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2, ImagePlus } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
@@ -16,7 +16,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry } from "./actions";
+import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -40,6 +40,14 @@ type Decision = {
   note: string | null;
   createdAt: Date;
 };
+type Photo = {
+  id: string;
+  filename: string;
+  src: string; // miniatura/visualización (servidor)
+  downloadSrc: string;
+  pick: string; // PENDIENTE | ME_GUSTA | NO_ME_GUSTA
+  clientNote: string | null;
+};
 type Member = { id: string; name: string; initials: string | null; color: string | null };
 type Deliverable = {
   id: string;
@@ -54,6 +62,7 @@ type Deliverable = {
   reviewRevoked: boolean;
   reviewAllowDrawings: boolean;
   versions: Version[];
+  photos: Photo[];
   decisions: Decision[];
   comments: {
     id: string;
@@ -70,6 +79,67 @@ type Deliverable = {
 };
 
 const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({ value, label: m.label }));
+
+const PICK_META: Record<string, { label: string; cls: string }> = {
+  ME_GUSTA: { label: "♥ Le gusta", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
+  NO_ME_GUSTA: { label: "✗ Descartada", cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" },
+  PENDIENTE: { label: "Pendiente", cls: "bg-background text-muted-foreground" },
+};
+
+// Galería de fotos del entregable (type = FOTOGRAFIA): el equipo sube fotos (NAS o enlaces de
+// Drive) y ve qué marcó el cliente. La selección la hace el cliente desde su portal de revisión.
+function PhotoManager({ deliverableId, projectId, canManage, photos }: { deliverableId: string; projectId: string; canManage: boolean; photos: Photo[] }) {
+  const liked = photos.filter((p) => p.pick === "ME_GUSTA").length;
+  const disliked = photos.filter((p) => p.pick === "NO_ME_GUSTA").length;
+  const pending = photos.length - liked - disliked;
+  return (
+    <div className="mt-4 space-y-3">
+      {canManage ? (
+        <form action={addDeliverablePhotos.bind(null, projectId, deliverableId)} className="space-y-2 rounded-lg border border-dashed border-border p-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold"><ImagePlus className="size-3.5" /> Añadir fotos a la galería</p>
+          <input type="file" name="photos" accept="image/*" multiple className="block w-full text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
+          <textarea name="photoLinks" rows={2} placeholder="…o pega enlaces de Google Drive / imágenes (uno por línea)" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring" />
+          <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Añadir fotos</SubmitButton>
+        </form>
+      ) : null}
+
+      {photos.length > 0 ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium">{photos.length} fotos</span>
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">♥ {liked} le gustan</span>
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">✗ {disliked} descartadas</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{pending} pendientes</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {photos.map((p) => {
+              const meta = PICK_META[p.pick] ?? PICK_META.PENDIENTE;
+              return (
+                <div key={p.id} className="group relative overflow-hidden rounded-lg border border-border bg-muted/40">
+                  <a href={p.downloadSrc} target="_blank" rel="noreferrer" title={`Descargar ${p.filename}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.src} alt={p.filename} loading="lazy" className="aspect-square w-full object-cover" />
+                  </a>
+                  <span className={cn("absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium", meta.cls)}>{meta.label}</span>
+                  {canManage ? (
+                    <form action={deleteDeliverablePhoto.bind(null, p.id, projectId)} className="absolute right-1 top-1 opacity-0 group-hover:opacity-100">
+                      <ConfirmSubmit message={`¿Eliminar la foto «${p.filename}»?`} className="flex size-6 items-center justify-center rounded bg-background/80 text-muted-foreground hover:text-destructive" title="Eliminar foto">
+                        <Trash2 className="size-3.5" />
+                      </ConfirmSubmit>
+                    </form>
+                  ) : null}
+                  {p.clientNote ? <p className="line-clamp-2 px-1.5 py-1 text-[10px] text-muted-foreground">“{p.clientNote}”</p> : null}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">Aún no hay fotos. Súbelas arriba; el cliente las verá en su enlace de revisión para marcar las que le gustan y las que no.</p>
+      )}
+    </div>
+  );
+}
 
 function sourceLabel(v: Version): string | null {
   if (v.fileAssetId) return "Archivo subido";
@@ -144,6 +214,7 @@ export function DeliverablesPanel({
         const latest = sorted[0] ?? null;
         const hasApproved = d.versions.some((v) => v.internalApproved);
         const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(d.id)}`;
+        const isPhoto = d.type === "FOTOGRAFIA";
         return (
           <div key={d.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -188,7 +259,10 @@ export function DeliverablesPanel({
               </div>
             ) : null}
 
-            {/* Versiones */}
+            {/* Galería de fotos (FOTOGRAFIA) o versiones de video/archivo (resto) */}
+            {isPhoto ? (
+              <PhotoManager deliverableId={d.id} projectId={projectId} canManage={canManage} photos={d.photos} />
+            ) : (
             <div className="mt-4 space-y-2">
               {sorted.map((v) => {
                 const src = sourceLabel(v);
@@ -217,6 +291,7 @@ export function DeliverablesPanel({
                 );
               })}
             </div>
+            )}
 
             {/* Decisiones */}
             {d.decisions.length > 0 ? (
@@ -262,14 +337,18 @@ export function DeliverablesPanel({
             {/* Comentarios del cliente (resolver + responder) */}
             <ReviewThread deliverableId={d.id} projectId={projectId} comments={d.comments} />
 
-            {/* Nueva versión */}
-            <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-              <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-              <input type="file" name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
-              <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">+ Versión</button>
-            </form>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>
+            {/* Nueva versión (solo material de video/archivo; las fotos se añaden arriba) */}
+            {!isPhoto ? (
+              <>
+                <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                  <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                  <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="file" name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">+ Versión</button>
+                </form>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>
+              </>
+            ) : null}
           </div>
         );
       })}

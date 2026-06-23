@@ -2,9 +2,11 @@ import { db } from "@/lib/db";
 import { verifyReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
+import { photoViewSrc } from "@/lib/deliverable-photo";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
+import { PhotoGallery } from "./photo-gallery";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,6 +22,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
       reviewComments: { orderBy: { createdAt: "asc" } },
+      photos: { orderBy: { position: "asc" } },
     },
   });
   if (!deliverable) return <PublicLinkInvalid />;
@@ -50,6 +53,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // Enlace de descarga al aprobar: la fuente de la última versión aprobada (Drive o archivo).
   const downloadUrl = versions[0]?.openUrl ?? null;
 
+  // Entregable de FOTOGRAFIA: en vez del reproductor, una galería de selección. Las URLs de
+  // visualización se calculan en el servidor (token de archivo para las locales, Drive para enlaces).
+  const isPhoto = deliverable.type === "FOTOGRAFIA";
+  const photos = deliverable.photos.map((p) => ({ id: p.id, filename: p.filename, src: photoViewSrc(p), pick: p.pick, clientNote: p.clientNote }));
+
   return (
     <div className="min-h-screen bg-muted/30">
       <header className="border-b border-border bg-card">
@@ -69,10 +77,20 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       <main className="mx-auto max-w-5xl px-6 py-6">
         <div className="mb-4">
           <h1 className="text-xl font-bold tracking-tight">Revisión del cliente</h1>
-          <p className="text-sm text-muted-foreground">Revisa el material, deja comentarios y aprueba o solicita cambios.</p>
+          <p className="text-sm text-muted-foreground">
+            {isPhoto ? "Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una." : "Revisa el material, deja comentarios y aprueba o solicita cambios."}
+          </p>
         </div>
 
-        {versions.length === 0 ? (
+        {isPhoto ? (
+          photos.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+              Aún no hay fotos para revisar. En cuanto el equipo las suba, las verás aquí para elegir.
+            </div>
+          ) : (
+            <PhotoGallery token={token} photos={photos} />
+          )
+        ) : versions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
             El material aún está en revisión interna del equipo. En cuanto esté listo, lo verás aquí.
           </div>
