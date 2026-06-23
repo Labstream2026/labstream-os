@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NuevaCotizacionPage() {
   const session = await getSession();
+  if (!hasPermission(session, "ver_finanzas")) redirect("/");
   if (!hasPermission(session, "crear_cotizaciones")) redirect("/cotizaciones");
 
   const clients = await db.client.findMany({

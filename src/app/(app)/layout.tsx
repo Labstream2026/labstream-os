@@ -133,7 +133,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       chatUnread={chatUnread}
       reviewPending={reviewPending}
       canAdmin={hasPermission(session, "administrar_usuarios")}
-      canQuotes={hasPermission(session, "ver_cotizaciones")}
+      canQuotes={hasPermission(session, "ver_finanzas")}
       canAsistente={hasPermission(session, "ver_asistente")}
       canWiki={showWiki}
       canBiblioteca={hasPermission(session, "ver_biblioteca")}

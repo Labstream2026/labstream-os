@@ -99,10 +99,10 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     select: { id: true, code: true, title: true, status: true, expiresAt: true, templateKey: true },
   });
 
-  // ── Facturación del cliente (solo si puede ver cotizaciones; no filtrar montos) ──
+  // ── Facturación del cliente (solo con permiso de finanzas; valores sensibles) ──
   // Vive pegada al cliente: aparece aunque no tenga proyectos activos (caso "terminé el
-  // proyecto y falta emitir la factura").
-  const canBilling = hasPermission(session, "ver_cotizaciones");
+  // proyecto y falta emitir la factura"). Sin ver_finanzas, la pestaña no se muestra.
+  const canBilling = hasPermission(session, "ver_finanzas");
   const canCreateInvoice = hasPermission(session, "crear_cotizaciones");
   let billingPorFacturar: PorFacturarItem[] = [];
   let billingInvoices: ClientInvoiceRow[] = [];

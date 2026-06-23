@@ -83,7 +83,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
         <Stat emoji="👥" value={activeMembers} label="Miembros activos" />
       </div>
 
-      {invoices.length > 0 ? (
+      {invoices.length > 0 && hasPermission(session, "ver_finanzas") ? (
         <div className="mt-6">
           <h2 className="mb-2 text-sm font-semibold">Facturación</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

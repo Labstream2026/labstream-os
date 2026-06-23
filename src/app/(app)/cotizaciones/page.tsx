@@ -33,7 +33,7 @@ function Money({ label, value, valueClass }: { label: string; value: string; val
 
 export default async function CotizacionesPage() {
   const session = await getSession();
-  if (!hasPermission(session, "ver_cotizaciones")) redirect("/");
+  if (!hasPermission(session, "ver_finanzas")) redirect("/");
   const canCreate = hasPermission(session, "crear_cotizaciones");
 
   // Las cotizaciones se filtran por los clientes a los que el usuario tiene acceso

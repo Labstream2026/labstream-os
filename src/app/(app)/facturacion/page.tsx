@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 export default async function FacturacionPage() {
   const session = await getSession();
-  if (!hasPermission(session, "ver_cotizaciones")) redirect("/");
+  // Los valores y resúmenes de cobro son sensibles: requieren el permiso de finanzas.
+  if (!hasPermission(session, "ver_finanzas")) redirect("/");
   const canCreate = hasPermission(session, "crear_cotizaciones");
 
   const [invoices, billableQuotes] = await Promise.all([

@@ -50,6 +50,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "crear_cotizaciones", label: "Crear cotizaciones", category: "Cotizaciones" },
   { key: "aprobar_cotizaciones", label: "Aprobar cotizaciones", category: "Cotizaciones" },
   { key: "enviar_cotizaciones", label: "Enviar al cliente", category: "Cotizaciones" },
+  { key: "ver_finanzas", label: "Ver finanzas (valores, montos y resúmenes)", category: "Cotizaciones" },
   // Clientes
   { key: "ver_clientes", label: "Ver clientes", category: "Clientes" },
   { key: "crear_clientes", label: "Crear clientes", category: "Clientes" },
@@ -210,6 +211,21 @@ export async function ensureAsistenteDefault(): Promise<void> {
 // ver_cumplimiento a `gerente` la primera vez si aún no lo tiene.
 export async function ensureCumplimientoDefault(): Promise<void> {
   const perm = await db.permission.findUnique({ where: { key: "ver_cumplimiento" }, select: { id: true } });
+  if (!perm) return;
+  const role = await db.role.findUnique({ where: { key: "gerente" }, select: { id: true } });
+  if (!role) return;
+  const already = await db.rolePermission.count({ where: { permissionId: perm.id, roleId: role.id } });
+  if (already > 0) return;
+  await db.rolePermission.create({ data: { roleId: role.id, permissionId: perm.id } });
+}
+
+// Los VALORES financieros (montos, KPIs, resúmenes de cobro) son sensibles: por defecto
+// solo los ve la GERENCIA (y el admin por bypass). Antes esto colgaba de `ver_cotizaciones`,
+// que tenían también Ventas y Productor; al separar el permiso, se concede `ver_finanzas`
+// a `gerente` la primera vez para no quitarle a quien debe verlos. Idempotente: si gerente
+// ya lo tiene, asume que el backfill ya corrió. El admin lo asigna a quien quiera.
+export async function ensureFinanzasDefault(): Promise<void> {
+  const perm = await db.permission.findUnique({ where: { key: "ver_finanzas" }, select: { id: true } });
   if (!perm) return;
   const role = await db.role.findUnique({ where: { key: "gerente" }, select: { id: true } });
   if (!role) return;
