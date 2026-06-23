@@ -52,4 +52,9 @@ EXPOSE 3000
 # Al arrancar, aplica las migraciones pendientes (idempotente) y luego levanta el server.
 # Así cada deploy crea las columnas/tablas nuevas sin paso manual. Se usa ';' (no '&&') para
 # que, si el migrate fallara, la app ARRANQUE igual y no se caiga todo el servicio.
-CMD ["sh", "-c", "npx prisma migrate deploy; node server.js"]
+# HOSTNAME=0.0.0.0: Next.js standalone se ata a $HOSTNAME y Docker lo fija al ID del
+# contenedor (red primaria solamente). Asignarlo aquí, en el propio comando, GANA para el
+# proceso node y fuerza escuchar en TODAS las interfaces (incl. la red de OnlyOffice), para
+# que el Document Server alcance el callback. Ponerlo en `environment` del compose NO basta:
+# Docker pisa HOSTNAME con el hostname del contenedor. El puerto al host sigue en 127.0.0.1.
+CMD ["sh", "-c", "npx prisma migrate deploy; HOSTNAME=0.0.0.0 node server.js"]
