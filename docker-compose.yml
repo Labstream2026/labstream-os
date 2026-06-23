@@ -14,13 +14,15 @@ services:
       # Así un dispositivo de la LAN NO puede llegar directo al contenedor (saltándose el proxy)
       # y falsificar cabeceras para disparar los crons sin secreto. Es la frontera de seguridad real.
       - "127.0.0.1:3200:3000"
-      # Además, en la PASARELA de la red de OnlyOffice (172.23.0.1): así el Document Server
-      # (que vive en esa red) alcanza el callback de la app por http://172.23.0.1:3200, SIN
-      # exponer el puerto a la LAN — 172.23.0.1 es interna de Docker, ningún equipo de la LAN
-      # la ve, así que los crons SIGUEN protegidos. El bridge de Synology aísla contenedor↔
-      # contenedor (por eso la red compartida no funcionó), pero contenedor→gateway/host sí.
-      # Si el proyecto `onlyoffice` se recrea con otra subred, actualizar esta IP y el callback.
-      - "172.23.0.1:3200:3000"
+      # Además, en la IP LAN del NAS (192.168.0.22): así el Document Server alcanza el callback
+      # de la app por http://192.168.0.22:3200 — exactamente el camino inverso al que ya funciona
+      # (la app llega al DS por 192.168.0.22:8088). Es una IP de host distinta a la pasarela del
+      # bridge, así que evita el hairpin/NAT que rompía la red compartida y la pasarela.
+      # OJO SEGURIDAD: esto SÍ expone el puerto a la LAN → un equipo podría falsificar
+      # `Host: localhost` y disparar los crons. Por eso `cron-auth` se endurece para exigir
+      # SIEMPRE el CRON_SECRET (ya no basta con ser "local"). Hay que poner un CRON_SECRET real
+      # en el .env del NAS y en las tareas Marcebot/Calendar (hoy mandan un placeholder).
+      - "192.168.0.22:3200:3000"
     environment:
       NODE_ENV: production
       # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor, con lo
