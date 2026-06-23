@@ -16,6 +16,13 @@ services:
       - "127.0.0.1:3200:3000"
     environment:
       NODE_ENV: production
+      # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor,
+      # con lo que Next escucharía SOLO en la interfaz de la red primaria. Forzando
+      # 0.0.0.0 escucha en TODAS las interfaces (incluida la red `onlyoffice` que se
+      # une abajo), para que el Document Server alcance el callback de la app por
+      # `labstream-os-app-1:3000`. El puerto al host sigue publicado solo en
+      # 127.0.0.1:3200 (los crons siguen protegidos): esto NO expone nada de más.
+      HOSTNAME: "0.0.0.0"
       # Todo el manejo de fechas del calendario asume hora de pared en UTC. Se fija
       # explícitamente para que NUNCA dependa del default del entorno: sin esto, correr
       # con otra TZ desplaza todas las horas de eventos (p.ej. -5h en Colombia).
