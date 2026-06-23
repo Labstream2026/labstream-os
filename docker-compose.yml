@@ -9,19 +9,15 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      # Loopback del host (127.0.0.1:3200): el reverse proxy de DSM reenvía localhost:3200 →
-      # os.labstreamsas.com. Es la frontera de seguridad de los crons (un equipo de la LAN no
-      # puede llegar directo al contenedor a falsificar Host:localhost y dispararlos sin secreto).
-      #
-      # NOTA OnlyOffice (sin resolver): se intentó que el Document Server alcanzara el callback de
-      # la app por TODOS los caminos — red Docker compartida (ICC), pasarela del bridge
-      # (172.23.0.1), IP LAN (.22 y 0.0.0.0) y la URL pública — y el DS de este Synology NO logra
-      # conexión saliente a la app por ninguno (da ECONNREFUSED/timeout), aunque el sentido
-      # app→DS sí funciona (.22:8088). Es un problema de red del contenedor del DS que requiere
-      # SSH/root para diagnosticar (`docker exec onlyoffice-documentserver curl -v http://...`),
-      # cosa que el terminal del DSM (roto) y el Programador de tareas (sin acceso a docker) no
-      # permiten. Mientras tanto el puerto vuelve a loopback para no exponer nada.
+      # Loopback (127.0.0.1:3200): lo usa el reverse proxy de DSM → os.labstreamsas.com.
       - "127.0.0.1:3200:3000"
+      # IP LAN del NAS (192.168.0.22:3200): por aquí el Document Server alcanza el callback de la
+      # app. CONFIRMADO por `docker exec onlyoffice-documentserver curl`: el DS llega a .22:8088
+      # (200 OK), así que llega a .22:3200 en cuanto la app publica ahí. OJO: hay que aplicarlo
+      # con `docker compose up -d --force-recreate app` — el `up -d` normal del deploy NO recrea
+      # el contenedor por un cambio de solo-puertos, por eso antes no enlazaba.
+      # SEGURIDAD: esto expone el puerto a la LAN → pendiente endurecer cron-auth (CRON_SECRET).
+      - "192.168.0.22:3200:3000"
     environment:
       NODE_ENV: production
       # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor, con lo
