@@ -10,7 +10,7 @@ import { bogotaNoon } from "@/lib/today";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { emptyDocx } from "@/lib/docx";
-import { saveBufferWithPreview } from "@/lib/image";
+import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
@@ -740,6 +740,67 @@ export async function deleteDeliverable(deliverableId: string, _projectId: strin
   await db.deliverable.delete({ where: { id: deliverableId } });
   await logActivity({ action: "deliverable.delete", summary: `eliminó el entregable «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable" });
   refresh(deliverable.projectId);
+}
+
+// ── Fotos de entregables (type = FOTOGRAFIA): galería de selección del cliente ──
+// Añade fotos a un entregable: archivos subidos al NAS (con miniatura) y/o enlaces de
+// Drive/imagen (una URL por línea). Cada foto queda PENDIENTE hasta que el cliente la marca.
+export async function addDeliverablePhotos(projectId: string, deliverableId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { name: true, projectId: true, project: { select: accessSelect } },
+  });
+  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
+  if (!canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+
+  // La posición continúa después de la última foto existente.
+  const last = await db.deliverablePhoto.findFirst({ where: { deliverableId }, orderBy: { position: "desc" }, select: { position: true } });
+  let pos = (last?.position ?? -1) + 1;
+  let added = 0;
+
+  // 1) Archivos subidos → NAS (solo imágenes; se genera miniatura WebP).
+  const files = formData
+    .getAll("photos")
+    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name) && isOptimizableImage(f.name, f.type));
+  for (const f of files) {
+    const buf = Buffer.from(await f.arrayBuffer());
+    const asset = await db.fileAsset.create({ data: { projectId, name: f.name, kind: "LOCAL", path: "", mime: mimeFor(f.name, f.type), size: buf.length, uploadedById: session.id } });
+    const rel = await saveBufferWithPreview(`project/${projectId}/fotos`, `${asset.id}-${f.name}`, buf, f.type);
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    await db.deliverablePhoto.create({ data: { deliverableId, fileAssetId: asset.id, filename: f.name, position: pos++ } });
+    added++;
+  }
+
+  // 2) Enlaces de Drive / imagen (una URL por línea).
+  const links = String(formData.get("photoLinks") ?? "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  for (const link of links) {
+    const safe = safeExternalUrl(link);
+    if (!safe) continue;
+    const guessed = (() => { try { return decodeURIComponent(new URL(safe).pathname.split("/").filter(Boolean).pop() || ""); } catch { return ""; } })();
+    await db.deliverablePhoto.create({ data: { deliverableId, url: safe, filename: guessed || "Foto enlazada", position: pos++ } });
+    added++;
+  }
+
+  if (added > 0) {
+    await logActivity({ action: "deliverable.photos", summary: `añadió ${added} foto(s) al entregable «${deliverable.name}»`, projectId, entityType: "deliverable", entityId: deliverableId });
+  }
+  refresh(projectId);
+}
+
+// Borra una foto del entregable (y su FileAsset si era local). Solo gestores del proyecto.
+export async function deleteDeliverablePhoto(photoId: string, projectId: string) {
+  const photo = await db.deliverablePhoto.findUnique({
+    where: { id: photoId },
+    select: { fileAssetId: true, deliverable: { select: { projectId: true, project: { select: accessSelect } } } },
+  });
+  if (!photo || photo.deliverable.projectId !== projectId) throw new Error("No autorizado");
+  const session = await getSession();
+  if (!canManageProject(photo.deliverable.project, session)) throw new Error("No autorizado");
+  await db.deliverablePhoto.delete({ where: { id: photoId } });
+  // El registro de la foto no cascada al FileAsset (es al revés); lo borramos aquí si era local.
+  if (photo.fileAssetId) await db.fileAsset.delete({ where: { id: photo.fileAssetId } }).catch(() => {});
+  refresh(projectId);
 }
 
 export async function setDeliverableStatus(id: string, _projectId: string, status: string) {

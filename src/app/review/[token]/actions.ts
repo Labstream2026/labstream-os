@@ -106,6 +106,23 @@ export async function addReviewComment(token: string, formData: FormData) {
   // (ReviewStage) para que el reproductor de video NO se reinicie al comentar.
 }
 
+// El cliente marca una foto de la galería: ME_GUSTA / NO_ME_GUSTA / PENDIENTE (toggle) + nota
+// opcional. Límite generoso porque el cliente puede recorrer muchas fotos seguidas. No revalida
+// la página (la galería actualiza de forma optimista); el valor queda guardado para el equipo.
+export async function setPhotoPick(token: string, photoId: string, pick: string, note?: string) {
+  if (!rateLimit(`review-pick:${await rlKey(token)}`, 200, 60_000)) {
+    throw new Error("Demasiadas acciones seguidas. Espera un momento e inténtalo de nuevo.");
+  }
+  const { id: deliverableId } = await resolveDeliverable(token);
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true } });
+  if (!photo || photo.deliverableId !== deliverableId) throw new Error("Foto no encontrada");
+  const value = pick === "ME_GUSTA" || pick === "NO_ME_GUSTA" ? pick : "PENDIENTE";
+  await db.deliverablePhoto.update({
+    where: { id: photoId },
+    data: { pick: value as never, clientNote: (note ?? "").trim().slice(0, 1000) || null, pickedAt: new Date() },
+  });
+}
+
 export async function setReviewDecision(token: string, decision: string, name?: string) {
   if (!rateLimit(`review-decision:${await rlKey(token)}`, 20, 60_000)) {
     throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
