@@ -86,6 +86,12 @@ model User {
   eps          String?
   arl          String?
   birthDate    DateTime?
+  // WhatsApp: número (E.164, p. ej. +57300...) para RECIBIR notificaciones del bot y para
+  // identificar al remitente de mensajes entrantes. `whatsappCommand` = puede COMANDAR al bot
+  // por WhatsApp (crear notas/tareas/citas, consultar); si es false solo recibe (no se procesan
+  // sus mensajes entrantes). Así el equipo recibe avisos pero no puede darle órdenes al bot.
+  whatsappPhone   String?
+  whatsappCommand Boolean  @default(false)
   // Usuario de sistema (Marcebot): no inicia sesión y se oculta de los listados.
   isSystemBot  Boolean   @default(false)
   role         Role      @relation(fields: [roleId], references: [id])
@@ -123,6 +129,7 @@ model User {
   ownedCredentials   Credential[]       @relation("CredentialOwner")
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
+  notes              Note[]             @relation("NoteCreator")
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -398,6 +405,7 @@ model Project {
   invoices     Invoice[]
   activity     ActivityLog[]
   equipmentPlans EquipmentPlan[]
+  notes        Note[]
 
   // Borrado SUAVE (papelera): archivar saca el proyecto de las listas pero conserva todo
   // (tareas, archivos, entregables, chat) y se puede RESTAURAR. No hay borrado físico.
@@ -407,6 +415,27 @@ model Project {
   updatedAt   DateTime      @updatedAt
 
   @@index([archivedAt])
+}
+
+// Nota rápida del equipo: una idea, recordatorio o apunte. Se puede crear desde la app, el
+// chat (Marcebot) o WhatsApp (campo `source`). Opcionalmente se ancla a un proyecto y/o lleva
+// una categoría libre detectada del texto. Es del creador (cada quien ve y gestiona las suyas;
+// los admins las ven todas, igual que con otras entidades).
+model Note {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  category    String? // categoría libre opcional (p. ej. "presupuesto", "idea")
+  source      String   @default("app") // app | chat | whatsapp
+  createdBy   User     @relation("NoteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@index([projectId])
 }
 
 // Rol dentro de un proyecto compartido (estilo Mattermost):

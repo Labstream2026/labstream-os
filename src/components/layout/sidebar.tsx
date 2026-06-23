@@ -11,6 +11,7 @@ import {
   LayoutTemplate,
   CalendarDays,
   ClipboardCheck,
+  StickyNote,
   Sparkles,
   Search,
   Settings,
@@ -52,6 +53,7 @@ export type SidebarClient = {
 const NAV = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
+  { href: "/notas", label: "Notas", icon: StickyNote },
   { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },

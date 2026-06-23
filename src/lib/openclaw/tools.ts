@@ -301,6 +301,37 @@ export const AGENT_TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "create_note",
+      description: "Guarda una NOTA rápida de la persona (idea, recordatorio, apunte). Úsalo cuando diga 'crea una nota', 'guarda esto', 'anota que', 'recuérdame…'. Genera un título corto a partir del contenido si no lo dan. La nota es de quien la pide.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Título corto de la nota (si no lo dan, genéralo del contenido)." },
+          content: { type: "string", description: "Contenido/cuerpo de la nota." },
+          category: { type: "string", description: "Categoría libre si se detecta (p. ej. 'presupuesto', 'idea'). Opcional." },
+          project: { type: "string", description: "Id o nombre del proyecto al que pertenece (opcional)." },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_notes",
+      description: "Lista o resume las notas de la persona (las más recientes). Útil para 'resúmeme mis notas' o '¿qué anoté sobre X?'.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Texto a buscar en título/contenido (opcional)." },
+          project: { type: "string", description: "Id o nombre del proyecto (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "find_clients",
       description: "Busca o lista los clientes a los que la persona tiene acceso. Útil para encontrar el cliente antes de crear un proyecto.",
       parameters: { type: "object", properties: { query: { type: "string", description: "Texto a buscar en el nombre (opcional)." } } },
@@ -542,7 +573,7 @@ export const AGENT_TOOLS: ToolDef[] = [
 
 // Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
 // algunas herramientas con efecto (p. ej. send_file) puedan PUBLICAR en la conversación.
-export type ToolContext = { channelId: string; botId: string };
+export type ToolContext = { channelId: string; botId: string; source?: "chat" | "whatsapp" };
 
 // ── Ejecución de cada herramienta (con los permisos de `session`) ──
 export async function executeAgentTool(name: string, args: Record<string, unknown>, session: SessionUser, ctx?: ToolContext): Promise<string> {
@@ -741,6 +772,44 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const rows = await db.recurringTask.findMany({ where: { AND: where }, take: 30, orderBy: { createdAt: "desc" }, select: { title: true, frequency: true, interval: true, weekdays: true, dayOfMonth: true, startDate: true, project: { select: { name: true } }, assignee: { select: { name: true } } } });
       if (!rows.length) return "No hay tareas recurrentes activas que puedas ver.";
       return JSON.stringify(rows.map((r) => ({ titulo: r.title, frecuencia: r.frequency, cada: r.interval, dias: r.weekdays, diaDelMes: r.dayOfMonth, desde: ymd(r.startDate), proyecto: r.project?.name ?? "(personal)", responsable: r.assignee?.name ?? null })));
+    }
+
+    case "create_note": {
+      const content = str(args.content);
+      if (!content) return "Falta el contenido de la nota.";
+      const title = str(args.title) || content.replace(/\s+/g, " ").slice(0, 60);
+      let projectId: string | null = null;
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        projectId = p.id;
+      }
+      const note = await db.note.create({
+        data: { title, content, category: str(args.category) || null, source: ctx?.source ?? "chat", createdById: session.id, projectId },
+        select: { id: true },
+      });
+      await logActivity({ action: "note.create", summary: `creó la nota «${title}» (vía @Marcebot)`, projectId: projectId ?? undefined, entityType: "note", entityId: note.id }).catch(() => null);
+      return JSON.stringify({ ok: true, noteId: note.id, mensaje: `Nota «${title}» guardada.` });
+    }
+
+    case "list_notes": {
+      const where: Record<string, unknown>[] = [];
+      // Cada quien ve sus notas; los admins ven todas.
+      if (session.role !== "admin") where.push({ createdById: session.id });
+      const q = str(args.query);
+      if (q) where.push({ OR: [{ title: { contains: q, mode: "insensitive" as const } }, { content: { contains: q, mode: "insensitive" as const } }] });
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        where.push({ projectId: p.id });
+      }
+      const rows = await db.note.findMany({
+        where: where.length ? { AND: where } : {},
+        take: 25, orderBy: { createdAt: "desc" },
+        select: { title: true, content: true, category: true, createdAt: true, project: { select: { name: true } } },
+      });
+      if (!rows.length) return "No tienes notas guardadas todavía.";
+      return JSON.stringify(rows.map((n) => ({ titulo: n.title, contenido: n.content.slice(0, 400), categoria: n.category, fecha: ymd(n.createdAt), proyecto: n.project?.name ?? null })));
     }
 
     case "find_clients": {
