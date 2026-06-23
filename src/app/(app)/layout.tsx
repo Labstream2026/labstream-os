@@ -22,7 +22,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.client.findMany({
       // Solo los clientes que el usuario puede ver (miembro o participa en sus proyectos).
       where: accessibleClientWhere(session),
-      orderBy: { createdAt: "asc" },
+      // Orden alfabético por nombre. El orden definitivo se afina abajo con localeCompare
+      // (insensible a mayúsculas/acentos) porque la colación de Postgres no garantiza
+      // ordenar "ANDREA" y "Diana" como en un diccionario.
+      orderBy: { name: "asc" },
       include: {
         // Solo los proyectos que el usuario puede ver, para el desplegable del sidebar.
         projects: {
@@ -143,14 +146,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canCreateTasks={hasPermission(session, "crear_tareas")}
       canCreateProjects={hasPermission(session, "crear_proyectos")}
       fabPriorities={fabPriorities}
-      clients={clients.map((c) => ({
-        id: c.id,
-        name: c.name,
-        emoji: c.emoji,
-        accentColor: c.accentColor,
-        projectCount: c.projects.length,
-        projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji })),
-      }))}
+      clients={clients
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          emoji: c.emoji,
+          accentColor: c.accentColor,
+          projectCount: c.projects.length,
+          projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji })),
+        }))
+        // Orden alfabético real: insensible a mayúsculas/acentos y con reglas del español.
+        .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }))}
       team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
       notifications={notifs.map((n) => ({
         id: n.id,

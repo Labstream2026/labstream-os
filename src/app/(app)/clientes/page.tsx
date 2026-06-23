@@ -24,7 +24,8 @@ export default async function ClientesPage() {
   const clients = await db.client.findMany({
     // Excluye los archivados (borrado suave): no aparecen en la lista normal.
     where: { ...accessibleClientWhere(session), archivedAt: null },
-    orderBy: { createdAt: "asc" },
+    // Alfabético por nombre; se afina abajo con localeCompare (insensible a mayúsculas/acentos).
+    orderBy: { name: "asc" },
     include: {
       _count: { select: { quotes: true } },
       projects: {
@@ -37,6 +38,8 @@ export default async function ClientesPage() {
       },
     },
   });
+  // Orden alfabético real: insensible a mayúsculas/acentos y con reglas del español.
+  clients.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 
   // Para cada cliente, solo los proyectos que el usuario puede ver.
   const cards = clients.map((c) => {

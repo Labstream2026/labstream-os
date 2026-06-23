@@ -35,7 +35,7 @@ export default async function HomePage() {
   if (!me) redirect("/login");
   const session = await getSession();
   const [clients, projects, blocked, myTasks] = await Promise.all([
-    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { createdAt: "asc" }, include: { _count: { select: { projects: { where: { archivedAt: null } } } } } }),
+    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, include: { _count: { select: { projects: { where: { archivedAt: null } } } } } }),
     db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),
     db.project.count({ where: { status: "PAUSADO", archivedAt: null } }),
     db.task.findMany({
@@ -45,6 +45,8 @@ export default async function HomePage() {
       include: { project: { select: { id: true, name: true, emoji: true } } },
     }),
   ]);
+  // Orden alfabético real de los clientes: insensible a mayúsculas/acentos y con reglas del español.
+  clients.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 
   const myTaskCount = await db.task.count({ where: { assigneeId: me.id, status: { in: OPEN as never } } });
 
