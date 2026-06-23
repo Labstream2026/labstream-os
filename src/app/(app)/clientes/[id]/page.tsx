@@ -6,6 +6,7 @@ import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientEdit } from "./client-edit";
+import { ClientAppearance } from "./client-appearance";
 import { ClientHeader } from "./client-header";
 import { saveClientAppearance, clearClientImage } from "../actions";
 import { ProjectCard } from "@/components/project-card";
@@ -360,6 +361,18 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                 // visible sin tener que bajar. En móvil se apilan.
                 <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
                   <div className="space-y-5">
+                    {/* Apariencia primero: toda la personalización visual reunida aquí. */}
+                    {canEdit ? (
+                      <ClientAppearance
+                        color={client.accentColor}
+                        photoUrl={client.photoUrl}
+                        logoUrl={client.logoUrl}
+                        logoBg={client.logoBg}
+                        bannerUrl={client.bannerUrl}
+                        onSave={saveClientAppearance.bind(null, client.id)}
+                        onClearImage={clearClientImage.bind(null, client.id)}
+                      />
+                    ) : null}
                     {canEdit ? (
                       <ClientEdit
                         clientId={id}
@@ -378,13 +391,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                   </div>
                   <div className="space-y-4 lg:sticky lg:top-4">
                     <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
-                    {/* La apariencia (foto, logo, color y portada) se edita en la cabecera de arriba. */}
-                    <div className="rounded-xl border border-dashed border-border bg-card/60 p-4">
-                      <p className="mb-1 text-sm font-semibold">🎨 Apariencia del cliente</p>
-                      <p className="text-xs text-muted-foreground">
-                        La <strong>foto</strong>, el <strong>logo</strong>, el <strong>color</strong> y la <strong>portada</strong> se editan directamente en la cabecera de arriba (pasa el cursor sobre ella).
-                      </p>
-                    </div>
                   </div>
                 </div>
               ),
