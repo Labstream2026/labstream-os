@@ -130,6 +130,7 @@ model User {
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
   notes              Note[]             @relation("NoteCreator")
+  whatsappMessages   WhatsappMessage[]
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -436,6 +437,22 @@ model Note {
 
   @@index([createdById])
   @@index([projectId])
+}
+
+// Conversación de WhatsApp con el agente (sesión SEPARADA del chat interno). Guarda cada turno
+// (user/assistant) para: (1) contexto multi-turno → confirmaciones de acciones sensibles,
+// (2) idempotencia por `waMessageId` (único; si el webhook reenvía el mismo mensaje, no se
+// reprocesa), (3) trazabilidad de lo que entra/sale por WhatsApp.
+model WhatsappMessage {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  role        String // "user" | "assistant"
+  content     String
+  waMessageId String?  @unique // id del mensaje entrante de WhatsApp (dedupe); null en respuestas
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // Rol dentro de un proyecto compartido (estilo Mattermost):

@@ -88,6 +88,13 @@ services:
       CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
       # =true acepta el cert auto-firmado del NAS (CalDAV local Synology)
       CALDAV_INSECURE_TLS: ${CALDAV_INSECURE_TLS:-false}
+      # Canal WhatsApp (Evolution API autohospedada). Si faltan, el canal queda desactivado.
+      # El webhook de Evolution debe apuntar a https://os.labstreamsas.com/api/whatsapp/webhook?token=$WHATSAPP_WEBHOOK_TOKEN
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-}
+      WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-}
+      DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-America/Bogota}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:

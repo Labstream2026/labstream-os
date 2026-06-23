@@ -136,7 +136,7 @@ export async function transcribeAudio(attachments: Att[]): Promise<string | null
   return blocks.length ? blocks.join("\n\n") : null;
 }
 
-async function transcribeOne(buf: Buffer, name: string, mime: string | null): Promise<string> {
+export async function transcribeOne(buf: Buffer, name: string, mime: string | null): Promise<string> {
   const elevenKey = process.env.ELEVENLABS_API_KEY;
   if (elevenKey) return transcribeElevenLabs(buf, name, mime, elevenKey);
   const cfg = await getOpenClawConfig();
