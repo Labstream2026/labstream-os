@@ -1204,6 +1204,8 @@ model Deliverable {
   reviewer   User?  @relation("DeliverableReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   reviewerId String?
   versions  DeliverableVersion[]
+  // Fotos del entregable cuando type = FOTOGRAFIA (galería de selección del cliente).
+  photos    DeliverablePhoto[]
   tasks     Task[]
   reviewComments ReviewComment[]
   decisions DeliverableDecision[]

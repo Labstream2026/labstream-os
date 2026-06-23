@@ -18,6 +18,10 @@ import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
+import { ClientBilling, type ClientInvoiceRow } from "./client-billing";
+import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
+import { quoteTotals } from "@/lib/ui";
+import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
@@ -94,6 +98,67 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     orderBy: { updatedAt: "desc" },
     select: { id: true, code: true, title: true, status: true, expiresAt: true, templateKey: true },
   });
+
+  // ── Facturación del cliente (solo si puede ver cotizaciones; no filtrar montos) ──
+  // Vive pegada al cliente: aparece aunque no tenga proyectos activos (caso "terminé el
+  // proyecto y falta emitir la factura").
+  const canBilling = hasPermission(session, "ver_cotizaciones");
+  const canCreateInvoice = hasPermission(session, "crear_cotizaciones");
+  let billingPorFacturar: PorFacturarItem[] = [];
+  let billingInvoices: ClientInvoiceRow[] = [];
+  if (canBilling) {
+    const [cInvoices, cQuotes] = await Promise.all([
+      db.invoice.findMany({
+        where: { clientId: id },
+        orderBy: { createdAt: "desc" },
+        include: { project: { select: { name: true } }, items: { select: { quantity: true, unitPrice: true } } },
+      }),
+      db.quote.findMany({
+        where: { clientId: id, ...billableQuoteWhere() },
+        orderBy: { approvedAt: "asc" },
+        include: { project: { select: { name: true, emoji: true } }, items: { select: { quantity: true, unitPrice: true } } },
+      }),
+    ]);
+    const drafts: PorFacturarItem[] = cInvoices
+      .filter((inv) => inv.status === "BORRADOR")
+      .map((inv) => ({
+        key: `inv-${inv.id}`,
+        clientName: client.name,
+        clientEmoji: client.emoji,
+        context: inv.project?.name ? `${inv.code} · ${inv.project.name}` : inv.code,
+        note: "Borrador creado, falta emitir",
+        amount: quoteTotals(inv.items, inv.taxRate).total,
+        currency: inv.currency,
+        emit: { type: "open", href: `/facturacion/${inv.id}` },
+      }));
+    const fromQuotes: PorFacturarItem[] = cQuotes.map((q) => {
+      const d = daysSince(q.approvedAt);
+      return {
+        key: `q-${q.id}`,
+        clientName: client.name,
+        clientEmoji: client.emoji,
+        context: q.project?.name ?? q.title,
+        note: q.project
+          ? `Proyecto terminado · sin factura${d != null ? ` · aprobada hace ${d} d` : ""}`
+          : `Sin proyecto · cobro directo${d != null ? ` · aprobada hace ${d} d` : ""}`,
+        urgent: d != null && d >= 15,
+        amount: quoteBillTotal(q),
+        currency: q.currency,
+        emit: { type: "quote", quoteId: q.id },
+      };
+    });
+    billingPorFacturar = [...fromQuotes, ...drafts];
+    billingInvoices = cInvoices
+      .filter((inv) => inv.status !== "BORRADOR")
+      .map((inv) => ({
+        id: inv.id,
+        code: inv.code,
+        status: effectiveInvoiceStatus(inv.status, inv.dueDate),
+        total: quoteTotals(inv.items, inv.taxRate).total,
+        currency: inv.currency,
+        projectName: inv.project?.name ?? null,
+      }));
+  }
 
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
   const canManage = canManageClient(client, session);
@@ -228,6 +293,12 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               icon: "📦",
               node: <ClientDeliverables deliverables={clientDeliverables} />,
             },
+            ...(canBilling ? [{
+              key: "facturacion",
+              label: billingPorFacturar.length ? `Facturación · ${billingPorFacturar.length}` : "Facturación",
+              icon: "🧾",
+              node: <ClientBilling porFacturar={billingPorFacturar} invoices={billingInvoices} canCreate={canCreateInvoice} />,
+            }] : []),
             {
               key: "propuestas",
               label: "Propuestas",
