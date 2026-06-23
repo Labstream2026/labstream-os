@@ -697,10 +697,11 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     await db.deliverable.update({ where: { id: d.id }, data: { status: "REVISION_INTERNA" } });
     await logActivity({ action: "deliverable.version", summary: `subió la v1 de «${name}» (pendiente de pre-aprobación interna)`, projectId, entityType: "deliverable", entityId: d.id });
     const lead = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, name: true } });
-    await notifyManyAndEmail(
-      [reviewerId, lead?.leadId].filter((x): x is string => Boolean(x) && x !== session.id),
-      { type: "review", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}` },
-    );
+    // Solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el lead del proyecto.
+    const responsible = reviewerId ?? lead?.leadId ?? null;
+    if (responsible && responsible !== session.id) {
+      await notifyAndEmail(responsible, { type: "review", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}` });
+    }
   }
   refresh(projectId);
 }
@@ -808,27 +809,19 @@ export async function addDeliverableVersion(
   // La nueva versión pasa a revisión interna (compuerta bloqueante).
   await db.deliverable.update({ where: { id: deliverableId }, data: { status: "REVISION_INTERNA" } });
   await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
-  // Aviso DIRIGIDO (in-app + correo) al responsable del proyecto y al dueño del
-  // entregable: tienen una revisión pendiente. Se excluye a quien subió la versión.
-  const directRecipients = [deliverable.reviewerId, deliverable.project.leadId, deliverable.ownerId]
-    .filter((id) => id && id !== session!.id);
-  // Los administradores pre-aprueban TODOS los entregables antes de enviarlos al cliente:
-  // se les avisa de cada versión nueva aunque no sean responsables del proyecto y AUN SI
-  // ellos mismos la subieron (por eso no se les excluye como al resto). notifyManyAndEmail
-  // deduplica, así que un admin que además sea responsable recibe un solo aviso.
-  const admins = await db.user.findMany({
-    where: { active: true, role: { key: "admin" } },
-    select: { id: true },
-  });
-  await notifyManyAndEmail(
-    [...directRecipients, ...admins.map((a) => a.id)],
-    {
+  // Aviso DIRIGIDO solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el
+  // responsable del proyecto (lead) y, en último caso, el dueño del entregable. Se excluye a
+  // quien subió la versión. (Antes se avisaba a TODOS los administradores → se quitó: la
+  // pre-aprobación es del responsable, no de todo el mundo.)
+  const responsible = deliverable.reviewerId ?? deliverable.project.leadId ?? deliverable.ownerId;
+  if (responsible && responsible !== session!.id) {
+    await notifyAndEmail(responsible, {
       type: "review",
       title: `Revisión pendiente: ${deliverable.name}`,
       body: `${session!.name} subió la v${number} en «${deliverable.project.name}». Revísala y pre-apruébala o solicita cambios.`,
       link: `/revisiones/${deliverableId}`,
-    },
-  );
+    });
+  }
   refresh(deliverable.projectId);
 }
 

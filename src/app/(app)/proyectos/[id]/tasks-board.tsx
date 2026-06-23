@@ -23,6 +23,7 @@ import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { cn } from "@/lib/utils";
 import { todayInputValue } from "@/lib/today";
+import { SubmitButton } from "@/components/submit-button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
@@ -262,9 +263,9 @@ function Column({
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
-          <button className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">
+          <SubmitButton pendingText="…" className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">
             Añadir
-          </button>
+          </SubmitButton>
         </div>
       </form>
     </div>

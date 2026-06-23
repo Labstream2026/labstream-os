@@ -80,13 +80,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const chatUnread = Number(unreadRows[0]?.total ?? 0);
 
   // Entregables pendientes de MI pre-aprobación (badge de «Proyectos a revisar»).
-  // El admin ve todos los pendientes; el resto, los de proyectos que lidera o cuyo
-  // entregable le pertenece.
+  // Solo los que ME corresponden como RESPONSABLE: soy el reviewer asignado; o si el
+  // entregable no tiene reviewer, soy el lead del proyecto (y en último caso su dueño).
+  // Antes el admin veía TODOS → se quitó: la pre-aprobación es del responsable.
   const reviewPending = await db.deliverable.count({
-    where:
-      session.role === "admin"
-        ? { status: "REVISION_INTERNA" }
-        : { status: "REVISION_INTERNA", OR: [{ project: { leadId: session.id } }, { ownerId: session.id }] },
+    where: {
+      status: "REVISION_INTERNA",
+      OR: [
+        { reviewerId: session.id },
+        { reviewerId: null, project: { leadId: session.id } },
+        { reviewerId: null, project: { leadId: null }, ownerId: session.id },
+      ],
+    },
   });
   const showWiki = await canSeeWiki(session);
 

@@ -25,14 +25,19 @@ export default async function RevisionesPage() {
       name: true,
       status: true,
       updatedAt: true,
-      project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
+      reviewerId: true,
+      ownerId: true,
+      project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true } } } },
       _count: { select: { reviewComments: true } },
     },
     orderBy: { updatedAt: "desc" },
   });
 
-  const pendientes = deliverables.filter((d) => d.status === "REVISION_INTERNA");
+  // Responsable de la pre-aprobación: el reviewer asignado; si no hay, el lead del proyecto
+  // (y en último caso, el dueño del entregable). Solo a esa persona le sale "pendiente".
+  const responsibleId = (d: (typeof deliverables)[number]) => d.reviewerId ?? d.project.leadId ?? d.ownerId;
+  const pendientes = deliverables.filter((d) => d.status === "REVISION_INTERNA" && responsibleId(d) === session.id);
   const conCliente = deliverables.filter((d) => d.status === "ENVIADO_CLIENTE");
   const cambios = deliverables.filter((d) => d.status === "CORRECCIONES");
 

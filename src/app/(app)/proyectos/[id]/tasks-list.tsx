@@ -5,6 +5,7 @@ import { DateInput } from "@/components/actions/date-input";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "@/lib/ui";
 import { todayInputValue } from "@/lib/today";
+import { SubmitButton } from "@/components/submit-button";
 import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
 import { type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
@@ -155,9 +156,9 @@ export function TasksList({
             <option key={u.id} value={u.id}>{u.name}</option>
           ))}
         </select>
-        <button className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">
+        <SubmitButton pendingText="…" className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">
           Añadir
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { type LabelRow, defaultKey } from "@/lib/colors";
 import { todayInputValue } from "@/lib/today";
+import { SubmitButton } from "@/components/submit-button";
 import { createMyTask } from "./actions";
 
 // Formulario para crear una tarea personal o asignarla a alguien del equipo.
@@ -73,9 +74,9 @@ export function MyTaskForm({ team, priorities }: { team: { id: string; name: str
             <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">
               Cancelar
             </button>
-            <button className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <SubmitButton pendingText="Creando…" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               Crear tarea
-            </button>
+            </SubmitButton>
           </div>
         </form>
       )}
