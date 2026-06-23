@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
-import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
+import { pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
+import { createCalendarEventCore } from "@/lib/calendar-create";
 
 const APP_TZ_HINT = ""; // las fechas se interpretan en hora del servidor app
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -39,56 +40,21 @@ export async function createMyEvent(formData: FormData): Promise<void> {
   // ignora y la cita queda como evento personal (no se confía en el projectId del cliente).
   const projectId = rawProjectId && (await userCanAccessProject(rawProjectId, session)) ? rawProjectId : null;
 
-  const allDay = !time;
-  const start = new Date(`${date}T${allDay ? "09:00" : time}:00${APP_TZ_HINT}`);
-  if (Number.isNaN(start.getTime())) return;
-  const end = !allDay && endTime ? new Date(`${date}T${endTime}:00${APP_TZ_HINT}`) : null;
-
-  // Validar que los asistentes existan y estén activos; siempre incluir al creador.
-  const validIds = new Set<string>([session.id]);
-  if (attendeeIds.length) {
-    const users = await db.user.findMany({ where: { id: { in: attendeeIds }, active: true }, select: { id: true } });
-    users.forEach((u) => validIds.add(u.id));
-  }
-
-  const event = await db.calendarEvent.create({
-    data: {
-      title,
-      description: description || null,
-      location: location || null,
-      start,
-      end,
-      allDay,
-      source: "app",
-      projectId,
-      createdById: session.id,
-      attendees: { create: [...validIds].map((userId) => ({ userId })) },
-      guests: { create: guestEmails.map((email) => ({ email })) },
-    },
+  // Creación + asistentes + notificación al invitado + sync Synology: núcleo compartido con
+  // la herramienta de Marcebot (create_calendar_event), para que ambas citas sean idénticas.
+  await createCalendarEventCore({
+    creatorId: session.id,
+    creatorName: session.name,
+    title,
+    date,
+    time,
+    endTime,
+    description,
+    location,
+    attendeeIds,
+    guestEmails,
+    projectId,
   });
-  // Si pertenece a un proyecto, lo revalidamos para que aparezca su calendario.
-  if (projectId) revalidatePath(`/proyectos/${projectId}`);
-  // UID estable para casar con Synology en ambos sentidos.
-  await db.calendarEvent.update({ where: { id: event.id }, data: { uid: appUid(event.id) } });
-
-  // Notificar a los asistentes mencionados (no a uno mismo).
-  const when = allDay
-    ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
-  for (const userId of validIds) {
-    if (userId === session.id) continue;
-    await notifyAndEmail(userId, {
-      type: "event",
-      title: `Te agregaron a una cita: ${title}`,
-      body: `${session.name} te invitó · ${when}`,
-      link: "/calendario",
-    });
-  }
-
-  // Escribir en los calendarios Synology conectados + enviar .ics a los externos.
-  await pushEventToParticipants(event.id);
-  await sendGuestInvites(event.id);
-  revalidatePath("/calendario");
 }
 
 // Edita una cita creada por mí: actualiza datos y asistentes, re-sincroniza con

@@ -11,6 +11,7 @@ import { postBotFileMessage, ensureMarcebot, sendBotDM } from "@/lib/marcebot/bo
 import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
+import { createCalendarEventCore } from "@/lib/calendar-create";
 import { logActivity } from "@/lib/activity";
 import { bogotaNoon } from "@/lib/today";
 import type { ToolDef } from "./client";
@@ -376,6 +377,27 @@ export const AGENT_TOOLS: ToolDef[] = [
           withinDays: { type: "number", description: "Ventana hacia adelante en días (opcional; def. 14, máx. 120)." },
           project: { type: "string", description: "Id o nombre del proyecto para filtrar (opcional)." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_calendar_event",
+      description: "Crea una cita/reunión en el calendario del equipo y ADJUNTA como asistentes a las personas indicadas; a cada invitado le llega una notificación (app + correo) avisando que la persona que pidió la cita lo invitó. El creador (quien te lo pide) queda incluido automáticamente. REQUIERE permiso para gestionar el calendario. Si falta la fecha, la hora o no está claro a quién invitar, pregúntalo antes de crear.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Título de la cita/reunión." },
+          date: { type: "string", description: "Fecha en formato YYYY-MM-DD." },
+          time: { type: "string", description: "Hora de inicio HH:mm (24h). Si se omite, la cita es de todo el día." },
+          endTime: { type: "string", description: "Hora de fin HH:mm (opcional)." },
+          attendees: { type: "string", description: "A quién invitar: nombres separados por coma (ej. 'Angie, Daniel, Lina') o 'todos' para todo el equipo activo. No hace falta incluir a quien pide la cita." },
+          location: { type: "string", description: "Lugar o enlace de la reunión (sala, Meet, Zoom…). Opcional." },
+          description: { type: "string", description: "Agenda o descripción de la cita (opcional)." },
+          project: { type: "string", description: "Id o nombre del proyecto al que pertenece la cita (opcional)." },
+        },
+        required: ["title", "date"],
       },
     },
   },
@@ -836,6 +858,65 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         todoElDia: e.allDay, lugar: e.location ?? null, proyecto: e.project?.name ?? null,
         asistentes: e.attendees.map((a) => a.user?.name).filter(Boolean),
       })));
+    }
+
+    case "create_calendar_event": {
+      if (!hasPermission(session, "gestionar_calendario")) return "No tienes permiso para crear citas en el calendario.";
+      const title = str(args.title);
+      if (!title) return "Falta el título de la cita.";
+      const date = str(args.date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Falta la fecha de la cita (formato YYYY-MM-DD).";
+      const time = str(args.time);
+      if (time && !/^\d{2}:\d{2}$/.test(time)) return "La hora de inicio debe ser HH:mm (24h) o vacía para todo el día.";
+      const endTime = str(args.endTime);
+
+      // Resolver asistentes por nombre (o 'todos'). El creador se incluye en el core.
+      const attRaw = str(args.attendees);
+      const attendeeIds: string[] = [];
+      const notFound: string[] = [];
+      if (attRaw) {
+        if (/^(todos|todo el equipo|equipo|all|everyone)$/i.test(attRaw.trim())) {
+          const everyone = await db.user.findMany({ where: { active: true, isSystemBot: false, id: { not: session.id } }, select: { id: true } });
+          attendeeIds.push(...everyone.map((u) => u.id));
+        } else {
+          for (const n of attRaw.split(/[,;]+/).map((s) => s.trim()).filter(Boolean)) {
+            const u = await resolveUser(session, n);
+            if (u) { if (!attendeeIds.includes(u.id)) attendeeIds.push(u.id); }
+            else notFound.push(n);
+          }
+        }
+      }
+
+      // Proyecto opcional (valida acceso).
+      let projectId: string | null = null;
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        projectId = p.id;
+      }
+
+      const res = await createCalendarEventCore({
+        creatorId: session.id,
+        creatorName: session.name,
+        title,
+        date,
+        time,
+        endTime,
+        description: str(args.description),
+        location: str(args.location),
+        attendeeIds,
+        projectId,
+      });
+      if (!res) return "No pude crear la cita: revisa que la fecha (YYYY-MM-DD) y la hora (HH:mm) sean válidas.";
+      await logActivity({ action: "event.create", summary: `creó la cita «${title}» (vía @Marcebot)`, projectId: projectId ?? undefined, entityType: "event", entityId: res.id }).catch(() => null);
+      const cuando = res.allDay ? `${date} (todo el día)` : `${date} a las ${time}${endTime ? `–${endTime}` : ""}`;
+      const extra = notFound.length ? ` No encontré a: ${notFound.join(", ")} (no se invitaron).` : "";
+      return JSON.stringify({
+        ok: true,
+        eventId: res.id,
+        invitados: res.invitedCount,
+        mensaje: `Cita «${title}» creada para ${cuando}. Se invitó a ${res.invitedCount} persona(s) y se les notificó.${extra}`,
+      });
     }
 
     case "find_files": {
