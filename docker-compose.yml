@@ -46,6 +46,11 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v1}
       ELEVENLABS_STT_LANG: ${ELEVENLABS_STT_LANG:-es}
+      # Secreto de los endpoints de cron (recurring-tasks, calendar-sync, marcebot). OBLIGATORIO:
+      # el puerto de la app se expone a la LAN (192.168.0.22:3200) para el callback de OnlyOffice,
+      # así que la autorización "local sin secreto" ya no es segura. Las tareas del Programador del
+      # NAS deben mandar `Authorization: Bearer $CRON_SECRET`. Si falta, los crons quedan cerrados.
+      CRON_SECRET: ${CRON_SECRET:-}
       AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
       AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
       AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}

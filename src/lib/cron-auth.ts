@@ -1,20 +1,22 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
-// Autorización de los endpoints de cron (calendar-sync, marcebot).
+// Autorización de los endpoints de cron (recurring-tasks, calendar-sync, marcebot).
 //
-// Se aceptan de dos formas:
-//   1. Llamada LOCAL del propio NAS: el Programador de tareas hace
-//      `curl http://localhost:3200/api/cron/...`. Esa petición llega DIRECTO al
-//      contenedor (Host: localhost) y NO pasa por el reverse proxy de DSM, que es quien
-//      añade X-Forwarded-For / X-Real-IP y reescribe el Host al dominio público.
-//      LA FRONTERA DE SEGURIDAD REAL es el binding del puerto a loopback en docker-compose
-//      (`127.0.0.1:3200:3000`): el contenedor solo escucha en 127.0.0.1, así que una
-//      petición sólo puede originarse en el propio host del NAS. La comprobación de
-//      cabeceras de abajo es DEFENSA SECUNDARIA: exige Host local y rechaza cualquier
-//      cabecera típica de proxy. Así la tarea del NAS no tiene que guardar el secreto.
-//   2. Llamada EXTERNA (vía dominio público / reverse proxy): se exige el header
-//      `Authorization: Bearer $CRON_SECRET`, igual que antes.
+// Se EXIGE SIEMPRE `Authorization: Bearer $CRON_SECRET`. No hay excepción "local".
+//
+// HISTORIA (importante): antes se aceptaba la llamada local del NAS sin secreto, confiando en
+// que el puerto sólo escuchaba en loopback (`127.0.0.1:3200:3000`) y por tanto sólo el propio
+// host podía originar la petición. Eso dejó de ser cierto: para que el Document Server de
+// OnlyOffice alcance el callback de la app, el `docker-compose.yml` ahora publica también
+// `192.168.0.22:3200` (IP LAN). Con el puerto expuesto a la LAN, comprobar `Host: localhost`
+// es FALSIFICABLE: cualquiera en la red puede hacer
+// `curl -H "Host: localhost" http://192.168.0.22:3200/api/cron/...` y la app no puede distinguir
+// por qué interfaz entró la conexión (las cabeceras son idénticas a las de una llamada loopback).
+// Por eso se eliminó el bypass y el secreto pasa a ser obligatorio para TODAS las llamadas.
+//
+// El Programador de tareas del NAS debe enviar el header con el secreto guardado en el `.env`
+// del NAS (`CRON_SECRET`). Si `CRON_SECRET` no está configurado, los endpoints quedan cerrados.
 
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -23,22 +25,9 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-function isLocalNas(req: NextRequest): boolean {
-  const host = (req.headers.get("host") || "").split(":")[0].toLowerCase();
-  const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-  const proxied =
-    !!req.headers.get("x-forwarded-for") ||
-    !!req.headers.get("x-real-ip") ||
-    !!req.headers.get("x-forwarded-host") ||
-    !!req.headers.get("x-forwarded-proto") ||
-    !!req.headers.get("forwarded");
-  return local && !proxied;
-}
-
 export function cronAuthorized(req: NextRequest): boolean {
-  if (isLocalNas(req)) return true;
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // sin secreto configurado, el endpoint externo queda cerrado
+  if (!secret) return false; // sin secreto configurado, los endpoints de cron quedan cerrados
   const header = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   return safeEqual(header, secret);
 }
