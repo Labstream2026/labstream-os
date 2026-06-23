@@ -1224,6 +1224,36 @@ model Deliverable {
   @@index([status])
 }
 
+// Una foto dentro de un entregable de tipo FOTOGRAFIA. La fuente puede ser un archivo LOCAL
+// del NAS (fileAsset, con miniatura vía sharp) o un enlace de Drive/URL (url). El cliente, desde
+// el portal de revisión (sin login), marca cada foto: me gusta / no me gusta / pendiente, con un
+// comentario opcional. El equipo ve el resultado y filtra por selección.
+model DeliverablePhoto {
+  id            String      @id @default(cuid())
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  deliverableId String
+  // Fuente LOCAL (NAS): el archivo se sirve por /api/files-asset (full + ?preview para miniatura).
+  fileAsset     FileAsset?  @relation("PhotoFile", fields: [fileAssetId], references: [id], onDelete: Cascade)
+  fileAssetId   String?
+  // Fuente ENLACE: imagen de Google Drive u otra URL directa (sin subir al NAS).
+  url           String?
+  filename      String // nombre visible de la foto
+  position      Int         @default(0) // orden en la galería
+  // Selección del cliente.
+  pick          PhotoPick   @default(PENDIENTE)
+  clientNote    String? // comentario opcional del cliente para esta foto
+  pickedAt      DateTime? // cuándo la marcó por última vez
+  createdAt     DateTime    @default(now())
+
+  @@index([deliverableId])
+}
+
+enum PhotoPick {
+  PENDIENTE
+  ME_GUSTA
+  NO_ME_GUSTA
+}
+
 // ─────────────────────────────────────────────
 // Revisión de cliente (fase 5): portal público + comentarios con timestamp
 // ─────────────────────────────────────────────
@@ -1356,6 +1386,8 @@ model FileAsset {
   uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
   deliverableVersions DeliverableVersion[] @relation("VersionFile")
+  // Fotos de entregables FOTOGRAFIA cuya fuente es este archivo local del NAS.
+  deliverablePhotos   DeliverablePhoto[]   @relation("PhotoFile")
   createdAt    DateTime       @default(now())
 
   @@index([projectId])
