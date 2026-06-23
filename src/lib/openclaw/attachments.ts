@@ -3,6 +3,7 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
+import { getOpenClawConfig } from "./config";
 import type { ContentPart } from "./client";
 
 // Construye las partes de IMAGEN (formato OpenAI `image_url` con data URL) a partir de los
@@ -100,6 +101,72 @@ export async function extractDocsText(attachments: Att[]): Promise<string | null
       else blocks.push(`«${a.name}»: (sin texto extraíble${kind === "pdf" ? "; posiblemente PDF escaneado/solo imagen" : ""})`);
     } catch {
       blocks.push(`«${a.name}»: (no se pudo leer)`);
+    }
+  }
+  return blocks.length ? blocks.join("\n\n") : null;
+}
+
+// ── Notas de voz → texto (speech-to-text) ──
+// Transcribe los audios adjuntos usando el endpoint compatible con OpenAI del MISMO OpenClaw
+// del chat (`{baseUrl}/v1/audio/transcriptions`, tipo Whisper), con su mismo token. El nombre
+// del modelo de transcripción es configurable por env (OPENCLAW_TRANSCRIBE_MODEL, def. whisper-1)
+// por si tu gateway lo enruta con otro nombre. Best-effort: si algo falla, devuelve una nota.
+const AUDIO_EXT = /\.(weba|webm|ogg|oga|m4a|mp4|mp3|mpga|mpeg|wav|aac|flac)$/i;
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB (límite típico de Whisper)
+
+function isAudio(a: Att): boolean {
+  return !!a.path && ((a.mime ?? "").startsWith("audio/") || AUDIO_EXT.test(a.name));
+}
+
+export function hasAudio(attachments: Att[]): boolean {
+  return attachments.some(isAudio);
+}
+
+export async function transcribeAudio(attachments: Att[]): Promise<string | null> {
+  const auds = attachments.filter(isAudio).slice(0, 3);
+  if (!auds.length) return null;
+  const cfg = await getOpenClawConfig();
+  if (!cfg) return null;
+  const model = process.env.OPENCLAW_TRANSCRIBE_MODEL || "whisper-1";
+  const lang = process.env.OPENCLAW_TRANSCRIBE_LANG || "es";
+  const blocks: string[] = [];
+  for (const a of auds) {
+    let buf: Buffer;
+    try { buf = await readBuffer(a.path); } catch { continue; }
+    if (buf.length > MAX_AUDIO_BYTES) { blocks.push("(nota de voz demasiado larga para transcribir)"); continue; }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120_000);
+    try {
+      const fd = new FormData();
+      fd.append("file", new Blob([new Uint8Array(buf)], { type: a.mime ?? "audio/webm" }), a.name || "voz.webm");
+      fd.append("model", model);
+      if (lang) fd.append("language", lang);
+      const res = await fetch(`${cfg.baseUrl}/v1/audio/transcriptions`, {
+        method: "POST",
+        headers: { ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) },
+        body: fd,
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const detail = (await res.text().catch(() => "")).slice(0, 200);
+        blocks.push(`(no se pudo transcribir la nota de voz — OpenClaw ${res.status}: ${detail || res.statusText})`);
+        continue;
+      }
+      // El endpoint tipo Whisper devuelve { text: "..." } (o texto plano si response_format=text).
+      const ct = res.headers.get("content-type") ?? "";
+      let txt = "";
+      if (ct.includes("application/json")) {
+        const data = (await res.json().catch(() => null)) as { text?: string } | null;
+        txt = (data?.text ?? "").trim();
+      } else {
+        txt = (await res.text().catch(() => "")).trim();
+      }
+      blocks.push(txt || "(nota de voz sin texto reconocible)");
+    } catch (e) {
+      blocks.push(e instanceof Error && e.name === "AbortError" ? "(la transcripción de la nota de voz tardó demasiado)" : "(no se pudo transcribir la nota de voz)");
+    } finally {
+      clearTimeout(timer);
     }
   }
   return blocks.length ? blocks.join("\n\n") : null;
