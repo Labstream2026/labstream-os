@@ -5,6 +5,7 @@ import { DataTableView } from "@/components/tables/data-table";
 import { createTableForWiki } from "@/app/(app)/tablas/actions";
 import { updateWikiPage, deleteWikiPage } from "../actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { EmojiSelect } from "@/components/emoji-select";
 import { cellsToMap } from "@/lib/table-cells";
 import { GovernanceBar } from "./governance-bar";
 import { MarkdownEditor } from "./markdown-editor";
@@ -68,7 +69,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
         /* Editor de la página (modo edición) */
         <form action={updateWikiPage.bind(null, id)} className="mt-4 space-y-3">
           <div className="flex items-center gap-2">
-            <input name="icon" defaultValue={page.icon ?? ""} maxLength={4} placeholder="📄" className="w-12 rounded-lg border border-input bg-background px-2 py-2 text-center text-xl outline-none focus:ring-2 focus:ring-ring" />
+            <EmojiSelect name="icon" defaultValue={page.icon} fallback="📄" />
             <input name="title" defaultValue={page.title} placeholder="Título de la página" className="flex-1 bg-transparent text-3xl font-bold tracking-tight outline-none" />
           </div>
           <div className="flex flex-wrap items-center gap-2">

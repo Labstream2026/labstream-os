@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import type { TemplateContent } from "@/lib/templates";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { EmojiSelect } from "@/components/emoji-select";
 import { Trash2, X } from "lucide-react";
 import {
   updateTemplateMeta,
@@ -72,7 +73,7 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
       {/* Metadatos */}
       <form action={updateTemplateMeta.bind(null, id)} className="mt-5 space-y-3 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center gap-2">
-          <input name="emoji" defaultValue={tpl.emoji ?? ""} maxLength={4} placeholder="🎬" className={`w-14 text-center text-2xl ${inputCls}`} />
+          <EmojiSelect name="emoji" defaultValue={tpl.emoji} fallback="🎬" />
           <input name="name" defaultValue={tpl.name} required placeholder="Nombre de la plantilla" className={`flex-1 text-lg font-semibold ${inputCls}`} />
         </div>
         <textarea name="description" defaultValue={tpl.description ?? ""} rows={2} placeholder="Descripción corta" className={`w-full resize-y ${inputCls}`} />

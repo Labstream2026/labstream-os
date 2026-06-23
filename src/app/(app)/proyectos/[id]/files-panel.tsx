@@ -23,6 +23,7 @@ import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { addFile, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { EmojiSelect } from "@/components/emoji-select";
 
 type FileAsset = { id: string; name: string; kind: string; url: string | null; editable: boolean };
 type FolderItem = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
@@ -73,7 +74,7 @@ export function FilesPanel({
       {tool === "folder" ? (
         <form action={createFolder.bind(null, projectId)} className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
           <input name="name" required placeholder="Nombre de la carpeta" className="min-w-44 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <input name="icon" maxLength={2} placeholder="📁" className="w-14 rounded-md border border-input bg-background px-2 py-2 text-center text-sm" />
+          <EmojiSelect name="icon" fallback="📁" />
           <ColorSelect />
           <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Crear</button>
         </form>
@@ -180,7 +181,7 @@ function FolderMenu({ folder, projectId }: { folder: FolderItem; projectId: stri
         <form action={updateFolder.bind(null, folder.id, projectId)} className="space-y-2">
           <input name="name" defaultValue={folder.name} className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
           <div className="flex gap-2">
-            <input name="icon" maxLength={2} defaultValue={folder.icon ?? ""} placeholder="📁" className="w-14 rounded-md border border-input bg-background px-2 py-1.5 text-center text-sm" />
+            <EmojiSelect name="icon" defaultValue={folder.icon} fallback="📁" />
             <ColorSelect defaultValue={folder.color ?? ""} />
           </div>
           <button className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Guardar</button>

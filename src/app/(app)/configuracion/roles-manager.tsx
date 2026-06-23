@@ -4,6 +4,7 @@ import * as React from "react";
 import { Pencil, Trash2, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TONES, tone } from "@/lib/colors";
+import { EmojiSelect } from "@/components/emoji-select";
 import { RolePermissions } from "./role-permissions";
 import { createRole, updateRole, deleteRole } from "./actions";
 
@@ -67,7 +68,7 @@ export function RolesManager({
           className="grid grid-cols-1 gap-3 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2"
         >
           <div className="sm:col-span-2 flex gap-2">
-            <input name="emoji" placeholder="🎬" maxLength={2} className="w-14 rounded-md border border-input bg-background px-2 py-2 text-center text-sm outline-none focus:ring-2 focus:ring-ring" />
+            <EmojiSelect name="emoji" fallback="🎬" />
             <input name="name" required placeholder="Nombre del rol (ej. Coordinador)" className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           </div>
           <input name="description" placeholder="Descripción (opcional)" className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
@@ -125,7 +126,7 @@ export function RolesManager({
                 className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-border bg-background/60 p-3 sm:grid-cols-2"
               >
                 <div className="flex gap-2">
-                  <input name="emoji" defaultValue={r.emoji ?? ""} placeholder="🎬" maxLength={2} className="w-14 rounded-md border border-input bg-background px-2 py-2 text-center text-sm outline-none focus:ring-2 focus:ring-ring" />
+                  <EmojiSelect name="emoji" defaultValue={r.emoji} fallback="🎬" />
                   <input name="name" defaultValue={r.name} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
                 </div>
                 <input name="description" defaultValue={r.description ?? ""} placeholder="Descripción" className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />

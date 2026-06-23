@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check } from "lucide-react";
+import { EmojiSelect } from "@/components/emoji-select";
 import { updateClient } from "../actions";
 
 export function ClientEdit({
@@ -37,8 +38,8 @@ export function ClientEdit({
       <h3 className="text-sm font-semibold">Información del cliente</h3>
       <div className="grid grid-cols-[72px_1fr] gap-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Emoji</span>
-          <input name="emoji" defaultValue={emoji ?? ""} maxLength={4} placeholder="🏢" className="w-full rounded-md border border-input bg-background px-2 py-2 text-center text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">Icono</span>
+          <EmojiSelect name="emoji" defaultValue={emoji} fallback="🏢" className="w-full" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted-foreground">Nombre</span>

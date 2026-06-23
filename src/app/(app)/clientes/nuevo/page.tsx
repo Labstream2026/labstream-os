@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, hasPermission } from "@/lib/auth";
+import { EmojiSelect } from "@/components/emoji-select";
 import { createClient } from "../actions";
 
 export default async function NuevoClientePage() {
@@ -25,13 +26,8 @@ export default async function NuevoClientePage() {
           />
         </Field>
         <div className="grid grid-cols-[80px_1fr] gap-3">
-          <Field label="Emoji">
-            <input
-              name="emoji"
-              maxLength={4}
-              placeholder="🏢"
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-center text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
+          <Field label="Icono">
+            <EmojiSelect name="emoji" fallback="🏢" className="w-full" />
           </Field>
           <Field label="Empresa (opcional)">
             <input

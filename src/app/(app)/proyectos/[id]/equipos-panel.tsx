@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Plus, Trash2, Search, Package, AlertTriangle, Check, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EmojiSelect } from "@/components/emoji-select";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   createPlan, updatePlan, deletePlan, setPlanStatus, setPlanAssignee,
@@ -329,7 +330,7 @@ function SaveKitForm({ planId, onDone }: { planId: string; onDone: () => void })
       action={async (fd) => { const res = await savePlanAsKit(planId, fd); if (res.ok) onDone(); else setError(res.error ?? "No se pudo guardar."); }}
       className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/30 p-2.5"
     >
-      <input name="emoji" defaultValue="🎒" maxLength={2} className="w-12 rounded-md border border-input bg-background px-2 py-1.5 text-center text-sm outline-none" />
+      <EmojiSelect name="emoji" defaultValue="🎒" fallback="🎒" />
       <input name="name" autoFocus placeholder="Nombre del kit (ej. Kit Reels)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
       <button className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Guardar kit</button>
       <button type="button" onClick={onDone} className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted">Cancelar</button>
