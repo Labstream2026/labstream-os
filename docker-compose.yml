@@ -14,14 +14,19 @@ services:
       # Así un dispositivo de la LAN NO puede llegar directo al contenedor (saltándose el proxy)
       # y falsificar cabeceras para disparar los crons sin secreto. Es la frontera de seguridad real.
       - "127.0.0.1:3200:3000"
+      # Además, en la PASARELA de la red de OnlyOffice (172.23.0.1): así el Document Server
+      # (que vive en esa red) alcanza el callback de la app por http://172.23.0.1:3200, SIN
+      # exponer el puerto a la LAN — 172.23.0.1 es interna de Docker, ningún equipo de la LAN
+      # la ve, así que los crons SIGUEN protegidos. El bridge de Synology aísla contenedor↔
+      # contenedor (por eso la red compartida no funcionó), pero contenedor→gateway/host sí.
+      # Si el proyecto `onlyoffice` se recrea con otra subred, actualizar esta IP y el callback.
+      - "172.23.0.1:3200:3000"
     environment:
       NODE_ENV: production
-      # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor,
-      # con lo que Next escucharía SOLO en la interfaz de la red primaria. Forzando
-      # 0.0.0.0 escucha en TODAS las interfaces (incluida la red `onlyoffice` que se
-      # une abajo), para que el Document Server alcance el callback de la app por
-      # `labstream-os-app-1:3000`. El puerto al host sigue publicado solo en
-      # 127.0.0.1:3200 (los crons siguen protegidos): esto NO expone nada de más.
+      # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor, con lo
+      # que Next escucharía SOLO en una interfaz. Forzando 0.0.0.0 escucha en TODAS, para que
+      # el docker-proxy del publish en 172.23.0.1 (arriba) pueda reenviar el callback del
+      # Document Server a la app. Sin esto el reenvío llega pero Next no responde en esa IP.
       HOSTNAME: "0.0.0.0"
       # Todo el manejo de fechas del calendario asume hora de pared en UTC. Se fija
       # explícitamente para que NUNCA dependa del default del entorno: sin esto, correr
@@ -88,18 +93,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    networks:
-      # Red propia del stack (app ↔ postgres ↔ redis).
-      default: {}
-      # Red del Document Server de OnlyOffice: la app se une SOLO para que OnlyOffice
-      # pueda descargar/guardar el doc llegando a la app por el alias `labstream-app:3000`
-      # (callback). Así NO hace falta exponer el puerto 3200 a la LAN: los crons siguen
-      # protegidos por el binding a 127.0.0.1. Mismo patrón que Mattermost↔OnlyOffice
-      # pero por red Docker interna en vez de IP pública.
-      onlyoffice:
-        aliases:
-          - labstream-app
-
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -129,13 +122,3 @@ services:
   #     DATABASE_URL: postgresql://labstream:${POSTGRES_PASSWORD:-changeme}@postgres:5432/labstream_os?schema=public
   #     REDIS_URL: redis://redis:6379
   #   depends_on: [postgres, redis]
-
-networks:
-  # Red propia del proyecto (labstream-os_default): app ↔ postgres ↔ redis.
-  default:
-  # Red EXTERNA del proyecto compose `onlyoffice` (el Document Server). YA existe en el
-  # NAS (el DS corre aparte), por eso `external: true`. La app se cuelga de ella para que
-  # OnlyOffice alcance el callback de la app sin abrir el puerto 3200 a la LAN.
-  onlyoffice:
-    external: true
-    name: onlyoffice_default
