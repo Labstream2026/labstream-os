@@ -347,18 +347,34 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: "Ajustes",
               icon: "⚙️",
               node: (
-                <div className="max-w-md space-y-5">
-                  {canEdit ? (
-                    <ClientEdit
-                      clientId={id}
-                      name={client.name}
-                      emoji={client.emoji}
-                      company={client.company}
-                      description={client.description}
-                      notes={client.notes}
-                    />
-                  ) : null}
-                  <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                // Diagramación en dos columnas: la información/personalización del cliente a la
+                // izquierda (columna principal) y el acceso del equipo a la derecha, SIEMPRE
+                // visible sin tener que bajar. En móvil se apilan.
+                <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+                  <div className="space-y-5">
+                    {canEdit ? (
+                      <ClientEdit
+                        clientId={id}
+                        name={client.name}
+                        emoji={client.emoji}
+                        company={client.company}
+                        description={client.description}
+                        notes={client.notes}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
+                    )}
+                  </div>
+                  <div className="space-y-4 lg:sticky lg:top-4">
+                    <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                    {/* La apariencia (foto, logo, color y portada) se edita en la cabecera de arriba. */}
+                    <div className="rounded-xl border border-dashed border-border bg-card/60 p-4">
+                      <p className="mb-1 text-sm font-semibold">🎨 Apariencia del cliente</p>
+                      <p className="text-xs text-muted-foreground">
+                        La <strong>foto</strong>, el <strong>logo</strong>, el <strong>color</strong> y la <strong>portada</strong> se editan directamente en la cabecera de arriba (pasa el cursor sobre ella).
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ),
             },
