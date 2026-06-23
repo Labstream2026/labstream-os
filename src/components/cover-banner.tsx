@@ -22,6 +22,7 @@ export function CoverBanner({
   canEdit,
   onSave,
   onClearCover,
+  compact = false,
   children,
 }: {
   name: string;
@@ -33,6 +34,9 @@ export function CoverBanner({
   canEdit: boolean;
   onSave: (fd: FormData) => Promise<SaveResult>;
   onClearCover: () => Promise<SaveResult>;
+  // Cabecera más baja (~40% del alto) con emoji/título reducidos. Para vistas donde el
+  // banner debe ocupar menos espacio vertical (p. ej. la cabecera de proyecto).
+  compact?: boolean;
   children?: React.ReactNode;
 }) {
   const [pending, start] = React.useTransition();
@@ -55,7 +59,7 @@ export function CoverBanner({
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm">
       {/* ── Hero: imagen (o degradado) DETRÁS, contenido DELANTE ── */}
-      <div className="group relative h-48 sm:h-60">
+      <div className={cn("group relative", compact ? "h-[4.8rem] sm:h-24" : "h-48 sm:h-60")}>
         {/* Capa de fondo, recortada a las esquinas redondeadas */}
         <div className="absolute inset-0 overflow-hidden rounded-t-2xl">
           {bannerUrl ? (
@@ -106,7 +110,7 @@ export function CoverBanner({
         ) : null}
 
         {/* Contenido sobre la imagen (delante): emoji + nombre + subtítulo */}
-        <div className="absolute inset-x-0 bottom-0 z-10 flex items-end gap-3 p-4 sm:p-5">
+        <div className={cn("absolute inset-x-0 bottom-0 z-10 flex items-end gap-3", compact ? "p-2.5 sm:p-3" : "p-4 sm:p-5")}>
           <div className="shrink-0">
             <button
               ref={emojiBtnRef}
@@ -114,7 +118,10 @@ export function CoverBanner({
               disabled={!canEdit}
               onClick={() => { if (canEdit) setEmojiOpen((o) => !o); }}
               title={canEdit ? "Cambiar icono" : undefined}
-              className="flex size-[64px] items-center justify-center rounded-2xl border border-white/30 bg-white/15 text-4xl shadow-lg backdrop-blur transition hover:bg-white/25 disabled:cursor-default disabled:hover:bg-white/15"
+              className={cn(
+                "flex items-center justify-center border border-white/30 bg-white/15 shadow-lg backdrop-blur transition hover:bg-white/25 disabled:cursor-default disabled:hover:bg-white/15",
+                compact ? "size-11 rounded-xl text-2xl" : "size-[64px] rounded-2xl text-4xl",
+              )}
             >
               {emoji || fallbackEmoji}
             </button>
@@ -134,8 +141,8 @@ export function CoverBanner({
             ) : null}
           </div>
           <div className="min-w-0 pb-1">
-            <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-md sm:text-3xl">{name}</h1>
-            {subtitle ? <div className="mt-0.5 truncate text-sm text-white/85 drop-shadow">{subtitle}</div> : null}
+            <h1 className={cn("font-bold tracking-tight text-white drop-shadow-md", compact ? "text-lg sm:text-xl" : "text-2xl sm:text-3xl")}>{name}</h1>
+            {subtitle ? <div className={cn("truncate text-white/85 drop-shadow", compact ? "text-xs" : "mt-0.5 text-sm")}>{subtitle}</div> : null}
           </div>
         </div>
       </div>

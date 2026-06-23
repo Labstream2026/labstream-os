@@ -225,7 +225,7 @@ export default async function ProyectoPage({
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
         ← Proyectos
       </Link>
@@ -240,6 +240,7 @@ export default async function ProyectoPage({
           canEdit={canManageProject(project, session)}
           onSave={saveProjectAppearance.bind(null, project.id)}
           onClearCover={clearProjectCover.bind(null, project.id)}
+          compact
           subtitle={
             <>
               <Link href={`/clientes/${project.clientId}`} className="hover:underline">
@@ -261,6 +262,8 @@ export default async function ProyectoPage({
         </CoverBanner>
       </div>
 
+      {/* El cabezal va a ancho completo; el resto del contenido se mantiene centrado. */}
+      <div className="mx-auto max-w-7xl">
       {/* Tabs */}
       <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
         {TABS.filter((t) => t.key !== "actividad" || hasPermission(session, "ver_actividad")).map((t, i, arr) => {
@@ -483,6 +486,7 @@ export default async function ProyectoPage({
             canWrite={canWriteProject(project, session)}
           />
         ) : null}
+      </div>
       </div>
     </div>
   );
