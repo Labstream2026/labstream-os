@@ -7,7 +7,7 @@ import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access"
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { readBuffer } from "@/lib/storage";
 import { extractDocsText } from "./attachments";
-import { postBotFileMessage } from "@/lib/marcebot/bot";
+import { postBotFileMessage, ensureMarcebot, sendBotDM } from "@/lib/marcebot/bot";
 import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
@@ -227,6 +227,21 @@ export const AGENT_TOOLS: ToolDef[] = [
       name: "find_users",
       description: "Busca personas del equipo por nombre (para resolver el responsable de una tarea).",
       parameters: { type: "object", properties: { query: { type: "string", description: "Texto a buscar en el nombre (opcional)." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description: "Envía un mensaje (que TÚ redactas) al chat directo con Marcebot de uno o varios colaboradores, con notificación push. Úsalo cuando la persona te pida avisar/informar/escribir a alguien o a todo el equipo. El mensaje queda atribuido a quien te lo pide. IMPORTANTE: antes de enviar a varias personas o a 'todos', muestra el borrador y confirma destinatarios; no envíes sin confirmación si hay ambigüedad.",
+      parameters: {
+        type: "object",
+        properties: {
+          recipients: { type: "string", description: "Nombres de las personas separados por coma (ej. 'Angie, Daniel, Lina'), o 'todos' para todo el equipo activo." },
+          message: { type: "string", description: "El texto del mensaje a enviar, ya redactado, claro y completo." },
+        },
+        required: ["recipients", "message"],
+      },
     },
   },
   {
@@ -588,6 +603,38 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       });
       if (!rows.length) return "No encontré personas con ese nombre.";
       return JSON.stringify(rows.map((u) => ({ id: u.id, nombre: u.name, cargo: u.title ?? null })));
+    }
+
+    case "send_message": {
+      const recRaw = str(args.recipients);
+      const message = str(args.message);
+      if (!recRaw) return "Falta a quién enviar (nombres separados por coma o 'todos').";
+      if (!message) return "Falta el mensaje a enviar.";
+      const bot = await ensureMarcebot();
+      const toAll = /^(todos|todo el equipo|equipo|all|everyone)$/i.test(recRaw.trim());
+      const targets: { id: string; name: string }[] = [];
+      const notFound: string[] = [];
+      if (toAll) {
+        // Todo el equipo activo, menos quien lo pide y los bots.
+        const everyone = await db.user.findMany({ where: { active: true, isSystemBot: false, id: { not: session.id } }, select: { id: true, name: true } });
+        targets.push(...everyone);
+      } else {
+        for (const n of recRaw.split(/[,;]+/).map((s) => s.trim()).filter(Boolean)) {
+          const u = await resolveUser(session, n);
+          if (u) { if (!targets.some((t) => t.id === u.id)) targets.push(u); }
+          else notFound.push(n);
+        }
+      }
+      if (!targets.length) return notFound.length ? `No encontré a: ${notFound.join(", ")}.` : "No hay destinatarios válidos.";
+      // El mensaje queda ATRIBUIDO a quien lo pide (sin suplantar a Marcebot ni anonimato).
+      const body = `📨 *${session.name}* te envía (vía Marcebot):\n\n${message}`;
+      let sent = 0;
+      for (const t of targets) {
+        try { await sendBotDM(bot, t.id, t.name, body); sent++; } catch { /* continúa con el resto */ }
+      }
+      await logActivity({ action: "marcebot.message", summary: `envió un mensaje vía Marcebot a ${sent} persona(s)`, entityType: "user", entityId: session.id }).catch(() => null);
+      const extra = notFound.length ? ` No encontré a: ${notFound.join(", ")}.` : "";
+      return JSON.stringify({ ok: true, enviados: sent, a: targets.map((t) => t.name), mensaje: `Mensaje enviado a ${sent} persona(s): ${targets.map((t) => t.name).join(", ")}.${extra}` });
     }
 
     case "create_task": {
