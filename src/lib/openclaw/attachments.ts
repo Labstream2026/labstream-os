@@ -107,12 +107,13 @@ export async function extractDocsText(attachments: Att[]): Promise<string | null
 }
 
 // ── Notas de voz → texto (speech-to-text) ──
-// Transcribe los audios adjuntos usando el endpoint compatible con OpenAI del MISMO OpenClaw
-// del chat (`{baseUrl}/v1/audio/transcriptions`, tipo Whisper), con su mismo token. El nombre
-// del modelo de transcripción es configurable por env (OPENCLAW_TRANSCRIBE_MODEL, def. whisper-1)
-// por si tu gateway lo enruta con otro nombre. Best-effort: si algo falla, devuelve una nota.
+// Transcribe los audios adjuntos. Proveedor según config:
+//   1) ElevenLabs Scribe si hay ELEVENLABS_API_KEY (excelente en español).
+//   2) Si no, el endpoint compatible con OpenAI del MISMO OpenClaw del chat
+//      (`{baseUrl}/v1/audio/transcriptions`, tipo Whisper) — solo si el gateway lo expone.
+// Best-effort: si algo falla, devuelve una nota legible (el modelo la relata al usuario).
 const AUDIO_EXT = /\.(weba|webm|ogg|oga|m4a|mp4|mp3|mpga|mpeg|wav|aac|flac)$/i;
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB (límite típico de Whisper)
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
 
 function isAudio(a: Att): boolean {
   return !!a.path && ((a.mime ?? "").startsWith("audio/") || AUDIO_EXT.test(a.name));
@@ -125,49 +126,86 @@ export function hasAudio(attachments: Att[]): boolean {
 export async function transcribeAudio(attachments: Att[]): Promise<string | null> {
   const auds = attachments.filter(isAudio).slice(0, 3);
   if (!auds.length) return null;
-  const cfg = await getOpenClawConfig();
-  if (!cfg) return null;
-  const model = process.env.OPENCLAW_TRANSCRIBE_MODEL || "whisper-1";
-  const lang = process.env.OPENCLAW_TRANSCRIBE_LANG || "es";
   const blocks: string[] = [];
   for (const a of auds) {
     let buf: Buffer;
     try { buf = await readBuffer(a.path); } catch { continue; }
     if (buf.length > MAX_AUDIO_BYTES) { blocks.push("(nota de voz demasiado larga para transcribir)"); continue; }
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 120_000);
-    try {
-      const fd = new FormData();
-      fd.append("file", new Blob([new Uint8Array(buf)], { type: a.mime ?? "audio/webm" }), a.name || "voz.webm");
-      fd.append("model", model);
-      if (lang) fd.append("language", lang);
-      const res = await fetch(`${cfg.baseUrl}/v1/audio/transcriptions`, {
-        method: "POST",
-        headers: { ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) },
-        body: fd,
-        signal: ctrl.signal,
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const detail = (await res.text().catch(() => "")).slice(0, 200);
-        blocks.push(`(no se pudo transcribir la nota de voz — OpenClaw ${res.status}: ${detail || res.statusText})`);
-        continue;
-      }
-      // El endpoint tipo Whisper devuelve { text: "..." } (o texto plano si response_format=text).
-      const ct = res.headers.get("content-type") ?? "";
-      let txt = "";
-      if (ct.includes("application/json")) {
-        const data = (await res.json().catch(() => null)) as { text?: string } | null;
-        txt = (data?.text ?? "").trim();
-      } else {
-        txt = (await res.text().catch(() => "")).trim();
-      }
-      blocks.push(txt || "(nota de voz sin texto reconocible)");
-    } catch (e) {
-      blocks.push(e instanceof Error && e.name === "AbortError" ? "(la transcripción de la nota de voz tardó demasiado)" : "(no se pudo transcribir la nota de voz)");
-    } finally {
-      clearTimeout(timer);
-    }
+    blocks.push(await transcribeOne(buf, a.name, a.mime));
   }
   return blocks.length ? blocks.join("\n\n") : null;
+}
+
+async function transcribeOne(buf: Buffer, name: string, mime: string | null): Promise<string> {
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  if (elevenKey) return transcribeElevenLabs(buf, name, mime, elevenKey);
+  const cfg = await getOpenClawConfig();
+  if (cfg) return transcribeOpenClaw(buf, name, mime, cfg.baseUrl, cfg.token);
+  return "(no hay servicio de transcripción configurado)";
+}
+
+// ElevenLabs Scribe (https://api.elevenlabs.io/v1/speech-to-text). Modelo e idioma configurables.
+async function transcribeElevenLabs(buf: Buffer, name: string, mime: string | null, apiKey: string): Promise<string> {
+  const model = process.env.ELEVENLABS_STT_MODEL || "scribe_v1";
+  const lang = process.env.ELEVENLABS_STT_LANG || "es"; // ISO-639; vacío = autodetectar
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  try {
+    const fd = new FormData();
+    fd.append("file", new Blob([new Uint8Array(buf)], { type: mime ?? "audio/webm" }), name || "voz.webm");
+    fd.append("model_id", model);
+    if (lang) fd.append("language_code", lang);
+    const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+      method: "POST",
+      headers: { "xi-api-key": apiKey },
+      body: fd,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => "")).slice(0, 200);
+      return `(no se pudo transcribir la nota de voz — ElevenLabs ${res.status}: ${detail || res.statusText})`;
+    }
+    const data = (await res.json().catch(() => null)) as { text?: string } | null;
+    return (data?.text ?? "").trim() || "(nota de voz sin texto reconocible)";
+  } catch (e) {
+    return e instanceof Error && e.name === "AbortError" ? "(la transcripción de la nota de voz tardó demasiado)" : "(no se pudo transcribir la nota de voz)";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Endpoint compatible con OpenAI (Whisper) del gateway OpenClaw. Solo si lo expone.
+async function transcribeOpenClaw(buf: Buffer, name: string, mime: string | null, baseUrl: string, token: string): Promise<string> {
+  const model = process.env.OPENCLAW_TRANSCRIBE_MODEL || "whisper-1";
+  const lang = process.env.OPENCLAW_TRANSCRIBE_LANG || "es";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  try {
+    const fd = new FormData();
+    fd.append("file", new Blob([new Uint8Array(buf)], { type: mime ?? "audio/webm" }), name || "voz.webm");
+    fd.append("model", model);
+    if (lang) fd.append("language", lang);
+    const res = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
+      method: "POST",
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: fd,
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => "")).slice(0, 200);
+      return `(no se pudo transcribir la nota de voz — OpenClaw ${res.status}: ${detail || res.statusText})`;
+    }
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const data = (await res.json().catch(() => null)) as { text?: string } | null;
+      return (data?.text ?? "").trim() || "(nota de voz sin texto reconocible)";
+    }
+    return (await res.text().catch(() => "")).trim() || "(nota de voz sin texto reconocible)";
+  } catch (e) {
+    return e instanceof Error && e.name === "AbortError" ? "(la transcripción de la nota de voz tardó demasiado)" : "(no se pudo transcribir la nota de voz)";
+  } finally {
+    clearTimeout(timer);
+  }
 }
