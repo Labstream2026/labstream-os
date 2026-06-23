@@ -38,6 +38,12 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:hola@labstream.co}
+      # Transcripción de notas de voz para Marcebot (ElevenLabs Scribe). Pon tu clave en el
+      # .env del NAS; si falta, intenta el endpoint Whisper de OpenClaw (si lo expone) y, si
+      # no, Marcebot avisa que no pudo transcribir. Modelo/idioma opcionales (def. scribe_v1/es).
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v1}
+      ELEVENLABS_STT_LANG: ${ELEVENLABS_STT_LANG:-es}
       AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-}
       AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
       AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
