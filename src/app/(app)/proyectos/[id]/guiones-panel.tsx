@@ -57,9 +57,9 @@ export function GuionesPanel({
   async function upload(list: FileList | null) {
     if (!list || list.length === 0) return;
     const all = Array.from(list);
-    const words = all.filter((f) => /\.(docx?|odt|rtf|txt)$/i.test(f.name));
+    const words = all.filter((f) => /\.(docx?|odt|rtf|txt|pdf)$/i.test(f.name));
     if (words.length === 0) {
-      setErr("Solo se aceptan documentos de Word (.doc, .docx, .odt, .rtf, .txt).");
+      setErr("Solo se aceptan documentos de Word (.doc, .docx, .odt, .rtf, .txt) o PDF.");
       return;
     }
     setBusy(true);
@@ -69,7 +69,7 @@ export function GuionesPanel({
       words.forEach((f) => fd.append("files", f));
       await uploadGuiones(projectId, fd);
       router.refresh();
-      if (words.length < all.length) setErr("Algunos archivos se omitieron (no son documentos de Word).");
+      if (words.length < all.length) setErr("Algunos archivos se omitieron (solo Word o PDF).");
     } catch {
       setErr("No se pudieron subir los guiones. Inténtalo de nuevo.");
     } finally {
@@ -100,7 +100,7 @@ export function GuionesPanel({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Guiones del proyecto en Word: previsualízalos y edítalos en OnlyOffice, y copia su texto con un clic.
+        Guiones del proyecto en Word o PDF: previsualízalos y edítalos (o anótalos) en OnlyOffice, y copia su texto con un clic.
       </p>
 
       {/* Crear un documento nuevo en blanco (se abre en OnlyOffice para editar). */}
@@ -152,12 +152,12 @@ export function GuionesPanel({
           <p className="text-sm font-medium">
             {busy ? "Subiendo…" : "Arrastra tus guiones aquí o haz clic para elegir"}
           </p>
-          <p className="text-xs text-muted-foreground">Word (.doc, .docx, .odt, .rtf, .txt) · varios a la vez</p>
+          <p className="text-xs text-muted-foreground">Word (.doc, .docx, .odt, .rtf, .txt) o PDF · varios a la vez</p>
           <input
             ref={inputRef}
             type="file"
             multiple
-            accept=".doc,.docx,.odt,.rtf,.txt"
+            accept=".doc,.docx,.odt,.rtf,.txt,.pdf"
             className="hidden"
             onChange={(e) => void upload(e.target.files)}
           />

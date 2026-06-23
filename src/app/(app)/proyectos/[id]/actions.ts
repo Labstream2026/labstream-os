@@ -1112,13 +1112,17 @@ async function ensureGuionesFolder(projectId: string): Promise<string> {
   }
 }
 
-// Sube uno o varios documentos de Word como guiones del proyecto (solo formatos Word).
+// Sube uno o varios guiones del proyecto: documentos de Word (editables en OnlyOffice) o PDF
+// (se abren en el visor-editor de PDF de OnlyOffice para ver/anotar y se les puede copiar el texto).
 export async function uploadGuiones(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId, "subir_archivos");
   const files = formData
     .getAll("files")
     .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name))
-    .filter((f) => officeType(f.name) === "word");
+    .filter((f) => {
+      const t = officeType(f.name);
+      return t === "word" || t === "pdf";
+    });
   if (!files.length) return;
   const folderId = await ensureGuionesFolder(projectId);
   for (const file of files) {

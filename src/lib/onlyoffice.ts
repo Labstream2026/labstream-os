@@ -54,12 +54,16 @@ export async function onlyofficeReady(): Promise<boolean> {
 const WORD = ["doc", "docx", "odt", "rtf", "txt"];
 const CELL = ["xls", "xlsx", "ods", "csv"];
 const SLIDE = ["ppt", "pptx", "odp"];
+// PDF: el Document Server lo abre en su visor-editor de PDF (ver, anotar, rellenar
+// formularios) con documentType "pdf", y su ConvertService lo convierte a txt para "Copiar".
+const PDF = ["pdf"];
 
-export function officeType(name: string): "word" | "cell" | "slide" | null {
+export function officeType(name: string): "word" | "cell" | "slide" | "pdf" | null {
   const e = extOf(name);
   if (WORD.includes(e)) return "word";
   if (CELL.includes(e)) return "cell";
   if (SLIDE.includes(e)) return "slide";
+  if (PDF.includes(e)) return "pdf";
   return null;
 }
 
@@ -77,7 +81,7 @@ export type EditorConfig = {
     url: string;
     permissions: { edit: boolean; download: boolean };
   };
-  documentType: "word" | "cell" | "slide";
+  documentType: "word" | "cell" | "slide" | "pdf";
   editorConfig: {
     mode: "edit" | "view";
     callbackUrl: string;
