@@ -17,6 +17,7 @@ import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
+import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
@@ -40,7 +41,17 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         include: {
           lead: { select: { initials: true, avatarColor: true } },
           members: { select: { userId: true, role: true } },
-          deliverables: { select: { name: true, dueDate: true } },
+          deliverables: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              status: true,
+              dueDate: true,
+              versions: { orderBy: { number: "desc" }, take: 1, select: { number: true } },
+            },
+          },
         },
       },
     },
@@ -54,6 +65,20 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const projects = client.projects.filter((p) => canAccessProject(p, session));
   const projectIds = projects.map((p) => p.id);
   const active = projects.filter((p) => !["CERRADO", "CANCELADO"].includes(p.status)).length;
+
+  // Entregables de TODOS los proyectos visibles del cliente, aplanados con su proyecto
+  // de origen, para la pestaña «Entregables» (vista agregada por cliente, agrupada por estado).
+  const clientDeliverables: ClientDeliverable[] = projects.flatMap((p) =>
+    p.deliverables.map((d) => ({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      status: d.status,
+      dueDate: d.dueDate,
+      versionNumber: d.versions[0]?.number ?? null,
+      project: { id: p.id, name: p.name, emoji: p.emoji },
+    })),
+  );
 
   // Actividad del cliente: cambios del propio cliente + de sus proyectos.
   const activity = await db.activityLog.findMany({
@@ -196,6 +221,12 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                   />
                 </div>
               ),
+            },
+            {
+              key: "entregables",
+              label: clientDeliverables.length ? `Entregables · ${clientDeliverables.length}` : "Entregables",
+              icon: "📦",
+              node: <ClientDeliverables deliverables={clientDeliverables} />,
             },
             {
               key: "propuestas",
