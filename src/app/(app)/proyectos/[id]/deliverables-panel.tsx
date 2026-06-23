@@ -100,11 +100,17 @@ export function DeliverablesPanel({
         className="space-y-2.5 rounded-xl border border-border bg-card p-4"
       >
         <p className="text-sm font-semibold">Subir para revisión</p>
-        <div className="flex flex-wrap gap-2">
-          <input name="name" required placeholder="Nombre del proyecto o video…" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <select name="type" defaultValue="REEL" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
-            {Object.entries(DELIVERABLE_TYPE).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
-          </select>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Nombre
+            <input name="name" required placeholder="Nombre del proyecto o video…" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Tipo de contenido
+            <select name="type" defaultValue="REEL" title="Define el formato de revisión: vertical (9:16), horizontal (16:9) o galería de fotos" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
+              {Object.entries(DELIVERABLE_TYPE).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
+            </select>
+          </label>
         </div>
         <div className="flex flex-wrap gap-2">
           <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />

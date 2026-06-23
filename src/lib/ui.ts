@@ -121,11 +121,15 @@ export function deliverableStatusMeta(s: string): StatusMeta {
   return DELIVERABLE_STATUS[s] ?? DELIVERABLE_STATUS.PENDIENTE;
 }
 
+// Etiquetas visibles del tipo de contenido. Las CLAVES del enum (REEL, VIDEO_LARGO…) NO
+// cambian para no requerir migración; solo cambia el texto que ve el usuario. "Video vertical"
+// (antes "Reel") y "Video horizontal" (antes "Video largo") nombran por ORIENTACIÓN, que es lo
+// que define el formato de revisión (ver deliverableOrientation).
 export const DELIVERABLE_TYPE: Record<string, string> = {
-  REEL: "Reel",
-  SHORT: "Short",
-  VIDEO_LARGO: "Video largo",
+  REEL: "Video vertical",
+  VIDEO_LARGO: "Video horizontal",
   FOTOGRAFIA: "Fotografía",
+  SHORT: "Short vertical",
   PODCAST: "Podcast",
   TEASER: "Teaser",
   DOCUMENTO: "Documento",
