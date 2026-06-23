@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { saveNote, deleteNote } from "./actions";
@@ -26,13 +26,13 @@ function fmtDate(iso: string): string {
 }
 function snippet(content: string, title: string): string {
   const body = content.trim();
-  // Si el contenido empieza con el título, muestra lo que sigue como vista previa.
   const rest = body.startsWith(title) ? body.slice(title.length).trim() : body;
   return (rest || "Sin texto adicional").replace(/\s+/g, " ");
 }
 
-// Vista de Notas estilo iCloud: lista a la izquierda (búsqueda + tarjetas), editor a la derecha
-// con AUTOGUARDADO (debounce). Crear, editar y borrar sin recargar la página.
+// Vista de Notas estilo iCloud, a PANTALLA COMPLETA (llena la ventana, sin caja exterior).
+// Dos paneles en escritorio (lista + editor); en móvil, la lista ocupa todo y al tocar una nota
+// se abre el editor a pantalla completa con botón «atrás». Autoguardado con debounce.
 export function NotesApp({ initial }: { initial: NoteItem[] }) {
   const [notes, setNotes] = React.useState<NoteItem[]>(initial);
   const [selectedId, setSelectedId] = React.useState<string | null>(initial[0]?.id ?? null);
@@ -42,6 +42,8 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
   const [isNew, setIsNew] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [status, setStatus] = React.useState<"idle" | "saving" | "saved">("idle");
+  // En móvil: false = se ve la lista; true = se ve el editor. En escritorio se ven ambos.
+  const [mobileEditorOpen, setMobileEditorOpen] = React.useState(false);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, start] = React.useTransition();
   const { confirm, dialog } = useConfirmDialog();
@@ -52,10 +54,9 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
     return notes.filter((n) => (n.title + " " + n.content + " " + (n.category ?? "")).toLowerCase().includes(needle));
   }, [notes, q]);
 
-  // Persiste el borrador actual (crea o actualiza) y refleja el resultado en la lista.
   const persist = React.useCallback(
     (d: { id: string | null; title: string; content: string; category: string }) => {
-      if (!d.content.trim() && !d.title.trim()) return; // nota vacía → no guardar
+      if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
       start(async () => {
         const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category });
@@ -68,8 +69,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             const updated: NoteItem = { id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", createdAt: r.createdAt ?? new Date(0).toISOString() };
-            const list = exists ? prev.map((n) => (n.id === realId ? { ...n, ...updated } : n)) : [updated, ...prev];
-            return list;
+            return exists ? prev.map((n) => (n.id === realId ? { ...n, ...updated } : n)) : [updated, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
@@ -81,7 +81,6 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
     [selectedId],
   );
 
-  // Cambio en cualquier campo → actualiza borrador y programa guardado (debounce 700ms).
   function onChange(patch: Partial<{ title: string; content: string; category: string }>) {
     setDraft((cur) => {
       const next = { ...cur, ...patch };
@@ -102,6 +101,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
       setSelectedId(n.id);
       setIsNew(false);
       setDraft({ id: n.id, title: n.title, content: n.content, category: n.category ?? "" });
+      setMobileEditorOpen(true);
     });
   }
 
@@ -110,6 +110,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
       setSelectedId(null);
       setIsNew(true);
       setDraft({ id: null, title: "", content: "", category: "" });
+      setMobileEditorOpen(true);
     });
   }
 
@@ -124,43 +125,38 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
         }
         return rest;
       });
+      setMobileEditorOpen(false);
     });
   }
 
   const editing = isNew || selectedId !== null;
 
   return (
-    <div className="flex h-[78vh] overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      {/* ── Lista (izquierda) ── */}
-      <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-muted/20">
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
-          <span className="flex items-center gap-1.5 text-sm font-semibold"><StickyNote className="size-4 text-amber-500" /> Notas</span>
-          <button type="button" onClick={newNote} title="Nueva nota" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Plus className="size-4" />
+    <div className="flex h-full w-full overflow-hidden bg-background">
+      {/* ── Lista (izquierda) ── llena todo en móvil; columna fija en escritorio */}
+      <aside className={cn("flex min-h-0 w-full flex-col border-r border-border lg:flex lg:w-80 lg:shrink-0", mobileEditorOpen ? "hidden lg:flex" : "flex")}>
+        <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <span className="flex items-center gap-2 text-base font-semibold"><StickyNote className="size-5 text-amber-500" /> Notas</span>
+          <button type="button" onClick={newNote} title="Nueva nota" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+            <Plus className="size-5" />
           </button>
         </div>
-        <div className="relative px-2.5 py-2">
-          <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar" className="w-full rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+        <div className="relative px-3 pb-2">
+          <Search className="pointer-events-none absolute left-5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar" className="w-full rounded-md border border-input bg-muted/40 py-2 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-          {isNew ? (
-            <div className="mb-1 rounded-lg bg-amber-100 px-3 py-2 dark:bg-amber-500/15">
-              <p className="truncate text-sm font-medium">{draft.title || "Nueva nota"}</p>
-              <p className="truncate text-xs text-muted-foreground">Escribiendo…</p>
-            </div>
-          ) : null}
-          {filtered.length === 0 && !isNew ? (
-            <p className="px-3 py-6 text-center text-xs text-muted-foreground">{q ? "Sin resultados." : "No tienes notas."}</p>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground">{q ? "Sin resultados." : "No tienes notas. Toca + para crear una."}</p>
           ) : (
             filtered.map((n) => (
               <button
                 key={n.id}
                 type="button"
                 onClick={() => selectNote(n)}
-                className={cn("mb-1 block w-full rounded-lg px-3 py-2 text-left transition-colors", selectedId === n.id && !isNew ? "bg-amber-100 dark:bg-amber-500/15" : "hover:bg-accent")}
+                className={cn("mb-0.5 block w-full rounded-lg px-3 py-2.5 text-left transition-colors", selectedId === n.id && !isNew ? "bg-amber-100 dark:bg-amber-500/15" : "hover:bg-accent")}
               >
-                <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
                   <span className="truncate">{n.title}</span>
                   {n.source !== "app" ? <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">{SOURCE_LABEL[n.source] ?? n.source}</span> : null}
                 </p>
@@ -171,49 +167,54 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
         </div>
       </aside>
 
-      {/* ── Editor (derecha) ── */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      {/* ── Editor (derecha) ── pantalla completa en móvil cuando hay nota abierta */}
+      <section className={cn("min-h-0 min-w-0 flex-1 flex-col", mobileEditorOpen ? "flex" : "hidden lg:flex")}>
         {editing ? (
           <>
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">
-                {status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
-              </span>
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <button type="button" onClick={() => setMobileEditorOpen(false)} className="-ml-1 flex items-center gap-0.5 rounded-md px-1 py-0.5 hover:bg-accent hover:text-foreground lg:hidden" title="Volver a la lista">
+                  <ChevronLeft className="size-4" /> Notas
+                </button>
+                <span className="inline-flex items-center gap-1.5">
+                  {status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
+                </span>
+              </div>
               {draft.id ? (
                 <button
                   type="button"
                   title="Eliminar nota"
                   onClick={async () => { const id = draft.id as string; if (await confirm({ message: `¿Eliminar la nota «${draft.title || "sin título"}»?`, danger: true })) removeNote(id); }}
-                  className="flex size-7 items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive"
+                  className="flex size-8 items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Trash2 className="size-4" />
                 </button>
               ) : null}
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2 px-5 py-4">
+            <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-2 px-5 pb-6 pt-2 sm:px-8">
               <input
                 value={draft.title}
                 onChange={(e) => onChange({ title: e.target.value })}
                 placeholder="Título"
-                className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/50"
+                className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/40 sm:text-3xl"
               />
               <input
                 value={draft.category}
                 onChange={(e) => onChange({ category: e.target.value })}
                 placeholder="Categoría (opcional)"
-                className="w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/50"
+                className="w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/40"
               />
               <textarea
                 value={draft.content}
                 onChange={(e) => onChange({ content: e.target.value })}
                 placeholder="Escribe tu nota…"
-                className="min-h-0 flex-1 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50"
+                className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
               />
             </div>
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-            <StickyNote className="size-8 text-muted-foreground/40" />
+            <StickyNote className="size-10 text-muted-foreground/30" />
             Selecciona una nota o crea una nueva.
           </div>
         )}
