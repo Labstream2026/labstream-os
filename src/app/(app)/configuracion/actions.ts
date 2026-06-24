@@ -466,6 +466,37 @@ export async function setUserGender(userId: string, gender: string | null): Prom
   return { ok: true };
 }
 
+// Vincula el número de WhatsApp de un usuario y si puede COMANDAR al agente desde WhatsApp.
+// El número se guarda como solo dígitos (con indicativo, p. ej. 57300…); el webhook compara
+// normalizando ambos lados, así que el formato exacto no importa. Sin número no se puede
+// comandar (se fuerza command=false), porque el agente identifica a la persona por su número.
+export async function setUserWhatsapp(
+  userId: string,
+  phone: string | null,
+  command: boolean,
+): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const digits = (phone ?? "").replace(/\D/g, "");
+  const whatsappPhone = digits.length >= 7 ? digits : null; // mínimo razonable; vacío → desvincula
+  if (phone && phone.trim() && !whatsappPhone) {
+    return { ok: false, error: "Número inválido. Usa solo dígitos con indicativo, p. ej. 57300…" };
+  }
+  // Si no hay número, no puede comandar (el agente no podría identificarlo).
+  const whatsappCommand = whatsappPhone ? !!command : false;
+  // Evita que dos usuarios queden con el mismo número (el webhook elegiría a uno arbitrario).
+  if (whatsappPhone) {
+    const clash = await db.user.findFirst({
+      where: { id: { not: userId }, whatsappPhone },
+      select: { name: true },
+    });
+    if (clash) return { ok: false, error: `Ese número ya está vinculado a ${clash.name}.` };
+  }
+  await db.user.update({ where: { id: userId }, data: { whatsappPhone, whatsappCommand } });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
 // Configuración de Marcebot: encendido, días laborales (0=Dom … 6=Sáb) y franja horaria.
 export async function setMarcebotConfig(input: {
   enabled: boolean;

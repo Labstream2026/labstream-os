@@ -136,6 +136,8 @@ export default async function ConfiguracionPage() {
                 active={u.active}
                 isGuest={u.isGuest}
                 gender={u.gender}
+                whatsappPhone={u.whatsappPhone}
+                whatsappCommand={u.whatsappCommand}
                 roles={roleOptions}
                 isSelf={u.email === session!.email}
               />

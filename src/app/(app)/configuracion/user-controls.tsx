@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Trash2 } from "lucide-react";
-import { setUserRole, setUserActive, setUserGuest, setUserGender, deleteUser } from "./actions";
+import { Trash2, MessageCircle } from "lucide-react";
+import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, deleteUser } from "./actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 export function UserControls({
@@ -12,6 +12,8 @@ export function UserControls({
   active,
   isGuest,
   gender,
+  whatsappPhone,
+  whatsappCommand,
   roles,
   isSelf,
 }: {
@@ -21,12 +23,28 @@ export function UserControls({
   active: boolean;
   isGuest: boolean;
   gender: string | null;
+  whatsappPhone: string | null;
+  whatsappCommand: boolean;
   roles: { key: string; name: string }[];
   isSelf: boolean;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
+
+  // Estado local de los campos de WhatsApp (número + permiso de comandar).
+  const [phone, setPhone] = useState(whatsappPhone ?? "");
+  const [command, setCommand] = useState(whatsappCommand);
+  const savePhone = () => {
+    const v = phone.trim();
+    if (v === (whatsappPhone ?? "")) return; // sin cambios
+    run(() => setUserWhatsapp(userId, v || null, command));
+  };
+  const toggleCommand = () => {
+    const next = !command;
+    setCommand(next);
+    run(() => setUserWhatsapp(userId, phone.trim() || null, next));
+  };
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
@@ -120,6 +138,43 @@ export function UserControls({
           </button>
         ) : null}
       </div>
+
+      {/* WhatsApp: número vinculado + permiso de comandar al agente desde WhatsApp. */}
+      <div className="flex items-center gap-2">
+        <MessageCircle className="size-3.5 text-muted-foreground" />
+        <input
+          value={phone}
+          disabled={pending}
+          onChange={(e) => setPhone(e.target.value)}
+          onBlur={savePhone}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          inputMode="tel"
+          placeholder="WhatsApp 57300…"
+          title="Número de WhatsApp de la persona (con indicativo). Vacío = sin vincular."
+          className="w-36 rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+        />
+        <button
+          type="button"
+          disabled={pending || !phone.trim()}
+          onClick={toggleCommand}
+          title={
+            !phone.trim()
+              ? "Vincula primero un número para poder comandar"
+              : command
+                ? "Puede dar instrucciones al agente por WhatsApp (crear notas, tareas, citas). Clic para quitar."
+                : "Solo está vinculado. Clic para permitir comandar por WhatsApp."
+          }
+          className={
+            "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 " +
+            (command
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+              : "border-border bg-card text-muted-foreground hover:bg-accent")
+          }
+        >
+          {command ? "Comanda ✓" : "No comanda"}
+        </button>
+      </div>
+
       {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
     </div>
   );

@@ -16,6 +16,7 @@ import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
+import { ProjectDetailsForm } from "./project-details-form";
 import { Lock } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
@@ -311,6 +312,14 @@ export default async function ProyectoPage({
                 })}
                 team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
                 canArchive={hasPermission(session, "eliminar_proyectos")}
+              />
+            ) : null}
+            {hasPermission(session, "editar_proyectos") ? (
+              <ProjectDetailsForm
+                projectId={project.id}
+                name={project.name}
+                description={project.description}
+                dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
               />
             ) : null}
             <Resumen project={project} priorities={taskLabels.priorities} />

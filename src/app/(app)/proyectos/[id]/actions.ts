@@ -536,6 +536,42 @@ export async function updateProject(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
+// Edita SOLO nombre, descripción y fecha de entrega del proyecto, desde la ficha (pestaña
+// Resumen). A diferencia de updateProject, NO toca estado, prioridad, responsable, emoji ni
+// fecha de inicio: es una edición acotada para corregir el nombre/brief y reagendar la entrega.
+export async function updateProjectDetails(projectId: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  await ensureProjectAccess(projectId, "editar_proyectos");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { ok: false, error: "El nombre no puede quedar vacío." };
+
+  const prev = await db.project.findUnique({ where: { id: projectId }, select: { name: true, dueDate: true } });
+
+  // Solo se actualiza lo que el formulario realmente envía (campos que el usuario tocó). Así,
+  // editar el nombre no reescribe la fecha de entrega (que por zona horaria podría correrse un día).
+  const data: { name: string; description?: string | null; dueDate?: Date | null } = { name };
+  if (formData.has("description")) data.description = String(formData.get("description") ?? "").trim() || null;
+  let nextKey: string | null = prev?.dueDate ? dayKey(prev.dueDate) : null;
+  if (formData.has("dueDate")) {
+    const dRaw = String(formData.get("dueDate") ?? "").trim();
+    data.dueDate = dRaw ? noonUTC(dRaw) : null;
+    nextKey = data.dueDate ? dayKey(data.dueDate) : null;
+  }
+  await db.project.update({ where: { id: projectId }, data });
+
+  // Resumen legible para la bitácora (qué cambió): renombre y/o reprogramación de entrega.
+  const parts: string[] = [];
+  if (prev && prev.name !== name) parts.push(`renombró «${prev.name}» → «${name}»`);
+  const prevKey = prev?.dueDate ? dayKey(prev.dueDate) : null;
+  if (formData.has("dueDate") && prevKey !== nextKey) parts.push(nextKey ? `fijó la entrega el ${nextKey}` : "quitó la fecha de entrega");
+  const summary = parts.length ? `actualizó el proyecto: ${parts.join(" · ")}` : `editó los datos del proyecto «${name}»`;
+
+  await logActivity({ action: "project.details", summary, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/timeline");
+  revalidatePath("/proyectos");
+  refresh(projectId);
+  return { ok: true };
+}
+
 export async function deleteTask(taskId: string, _projectId: string) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task, "eliminar_tareas");

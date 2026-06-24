@@ -373,7 +373,7 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "list_quotes",
-      description: "Lista las cotizaciones que la persona puede ver (REQUIERE permiso para ver cotizaciones; si no lo tiene, la herramienta lo niega). Filtra por cliente o estado.",
+      description: "Lista las cotizaciones que la persona puede ver (REQUIERE permiso para ver finanzas; si no lo tiene, la herramienta lo niega y NO debes dar información de cotizaciones ni montos). Filtra por cliente o estado.",
       parameters: {
         type: "object",
         properties: {
@@ -387,7 +387,7 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "list_invoices",
-      description: "Lista las facturas que la persona puede ver (REQUIERE permiso para ver cotizaciones/facturación; si no lo tiene, la herramienta lo niega). Filtra por cliente o estado.",
+      description: "Lista las facturas que la persona puede ver (REQUIERE permiso para ver finanzas; si no lo tiene, la herramienta lo niega y NO debes dar información de facturación ni montos). Filtra por cliente o estado.",
       parameters: {
         type: "object",
         properties: {
@@ -479,7 +479,7 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "send_quote",
-      description: "Genera el PDF de una cotización y se lo ENVÍA al usuario en este chat (REQUIERE permiso ver_cotizaciones y acceso al cliente). Identifica la cotización por su código (COT-XXXX), id o nombre.",
+      description: "Genera el PDF de una cotización y se lo ENVÍA al usuario en este chat (REQUIERE permiso ver_finanzas y acceso al cliente). Identifica la cotización por su código (COT-XXXX), id o nombre.",
       parameters: {
         type: "object",
         properties: {
@@ -857,9 +857,11 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "list_quotes": {
-      // Candado: mismo permiso que la sección. Un rol sin él (p. ej. editor) recibe la
-      // negativa y el agente la traslada al usuario.
-      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver cotizaciones.";
+      // Candado: MISMO permiso que la sección de la app (ver_finanzas, no ver_cotizaciones).
+      // La UI de Cotizaciones/Facturación se cierra con ver_finanzas (solo Gerencia + admin);
+      // si el agente usara ver_cotizaciones, Ventas/Productor —que sí lo tienen— obtendrían por
+      // chat los valores que la app les oculta. Quien no ve finanzas recibe la negativa.
+      if (!hasPermission(session, "ver_finanzas")) return "No tienes permiso para ver cotizaciones.";
       const filters: Record<string, unknown>[] = [{ client: accessibleClientWhere(session) }];
       if (str(args.client)) {
         const c = await resolveClient(session, args.client);
@@ -881,7 +883,8 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "list_invoices": {
-      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver facturas.";
+      // Mismo candado que la sección de Facturación: ver_finanzas (no ver_cotizaciones).
+      if (!hasPermission(session, "ver_finanzas")) return "No tienes permiso para ver facturas.";
       const filters: Record<string, unknown>[] = [{ client: accessibleClientWhere(session) }];
       if (str(args.client)) {
         const c = await resolveClient(session, args.client);
@@ -1064,7 +1067,8 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
 
     case "send_quote": {
       if (!ctx) return "No puedo enviar archivos en este contexto.";
-      if (!hasPermission(session, "ver_cotizaciones")) return "No tienes permiso para ver cotizaciones.";
+      // Mismo candado que la sección de Cotizaciones: ver_finanzas (no ver_cotizaciones).
+      if (!hasPermission(session, "ver_finanzas")) return "No tienes permiso para ver cotizaciones.";
       const ref = str(args.quote);
       if (!ref) return "Falta la cotización (código, id o nombre).";
       const base = { client: accessibleClientWhere(session) };
