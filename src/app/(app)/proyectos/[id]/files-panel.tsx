@@ -18,14 +18,35 @@ import {
   Download,
   Eye,
   Pencil,
+  HardDrive,
+  Copy,
+  Check,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { addFile, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
+import { addFile, addNasRoute, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmojiSelect } from "@/components/emoji-select";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null; editable: boolean };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean };
+
+// Botón "Copiar ruta" para rutas de red SMB: el navegador no abre \\servidor\carpeta,
+// así que la copiamos al portapapeles para pegarla en el explorador de archivos.
+function CopyPathButton({ path }: { path: string }) {
+  const [done, setDone] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(path); setDone(true); setTimeout(() => setDone(false), 1500); } catch { /* sin portapapeles */ }
+      }}
+      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+      title={`Copiar ruta: ${path}`}
+    >
+      {done ? <><Check className="size-3.5" /> Copiada</> : <><Copy className="size-3.5" /> Copiar ruta</>}
+    </button>
+  );
+}
 type FolderItem = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
 
 export function FilesPanel({
@@ -37,12 +58,12 @@ export function FilesPanel({
   folders: FolderItem[];
   looseFiles: FileAsset[];
 }) {
-  const [tool, setTool] = React.useState<null | "upload" | "link" | "folder">(null);
+  const [tool, setTool] = React.useState<null | "upload" | "link" | "nas" | "folder">(null);
   const [open, setOpen] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(folders.filter((f) => f.files.length).map((f) => [f.id, true])),
   );
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
-  const flip = (t: "upload" | "link" | "folder") => setTool((cur) => (cur === t ? null : t));
+  const flip = (t: "upload" | "link" | "nas" | "folder") => setTool((cur) => (cur === t ? null : t));
 
   const empty = folders.length === 0 && looseFiles.length === 0;
 
@@ -52,6 +73,7 @@ export function FilesPanel({
       <div className="flex flex-wrap items-center gap-1.5">
         <ToolBtn active={tool === "upload"} onClick={() => flip("upload")} icon={Upload}>Subir archivos</ToolBtn>
         <ToolBtn active={tool === "link"} onClick={() => flip("link")} icon={Link2}>Añadir enlace</ToolBtn>
+        <ToolBtn active={tool === "nas"} onClick={() => flip("nas")} icon={HardDrive}>Ruta de red (SMB)</ToolBtn>
         <ToolBtn active={tool === "folder"} onClick={() => flip("folder")} icon={FolderPlus}>Nueva carpeta</ToolBtn>
       </div>
 
@@ -69,6 +91,14 @@ export function FilesPanel({
           <input name="url" type="url" required placeholder="https:// (Drive, web…)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <FolderSelect folders={folders} />
           <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</button>
+        </form>
+      ) : null}
+      {tool === "nas" ? (
+        <form action={addNasRoute.bind(null, projectId)} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
+          <input name="name" required placeholder="Nombre (ej. Material rodaje)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input name="path" required placeholder="\\NAS\Labstream\proyecto…" className="min-w-48 flex-[2] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <FolderSelect folders={folders} />
+          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir ruta</button>
         </form>
       ) : null}
       {tool === "folder" ? (
@@ -201,6 +231,7 @@ function FolderMenu({ folder, projectId }: { folder: FolderItem; projectId: stri
 }
 
 function fileIcon(name: string, kind: string) {
+  if (kind === "NAS") return { Icon: HardDrive, color: "text-amber-600" };
   if (kind === "DRIVE") return { Icon: Link2, color: "text-emerald-600" };
   if (kind === "LINK") return { Icon: Link2, color: "text-muted-foreground" };
   if (/\.(docx?|odt|rtf)$/i.test(name)) return { Icon: FileText, color: "text-blue-600" };
@@ -216,8 +247,13 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
     <div className={cn("group/file flex items-center gap-2.5 py-2 pr-2 hover:bg-muted/40", indent ? "pl-12" : "pl-3")}>
       <Icon className={cn("size-4 shrink-0", color)} />
       <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+      {file.kind === "NAS" && file.path ? (
+        <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block sm:max-w-[16rem]">{file.path}</span>
+      ) : null}
       <div className="flex items-center gap-2.5 opacity-0 group-hover/file:opacity-100">
-        {file.kind === "LOCAL" ? (
+        {file.kind === "NAS" && file.path ? (
+          <CopyPathButton path={file.path} />
+        ) : file.kind === "LOCAL" ? (
           <>
             <a href={`/api/files-asset/${file.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Ver"><Eye className="size-3.5" /></a>
             {file.editable ? (

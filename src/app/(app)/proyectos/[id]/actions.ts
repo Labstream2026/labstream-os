@@ -1168,6 +1168,23 @@ export async function addFile(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
+// Añade una RUTA DE RED (SMB) del NAS al proyecto: no sube nada, solo guarda la ruta
+// (\\servidor\carpeta o smb://…) para copiar/pegar en el explorador. kind = NAS.
+export async function addNasRoute(projectId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
+  const name = String(formData.get("name") ?? "").trim();
+  const path = String(formData.get("path") ?? "").trim();
+  if (!name || !path) return;
+  // Acepta UNC (\\srv\share), smb:// y rutas absolutas locales; nada de http(s) ni javascript.
+  if (!/^(\\\\|smb:\/\/|\/\/|[a-zA-Z]:\\|\/)/.test(path) || /^\s*(javascript|data|http):/i.test(path)) return;
+  const folderId = String(formData.get("folderId") ?? "") || null;
+  const f = await db.fileAsset.create({
+    data: { projectId, name, path, folderId, kind: "NAS", uploadedById: session.id },
+  });
+  await logActivity({ action: "file.nas", summary: `añadió la ruta de red «${name}»`, projectId, entityType: "file", entityId: f.id });
+  refresh(projectId);
+}
+
 // Subir archivos LOCALES al proyecto (se guardan en el storage del NAS y se pueden
 // editar con OnlyOffice). Distinto de addFile, que solo guarda enlaces.
 // Extensiones ejecutables/peligrosas que no se permiten subir.

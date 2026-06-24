@@ -7,6 +7,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanManageClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
 import { saveOptimizedImage } from "@/lib/image";
+import { safeExternalUrl } from "@/lib/url";
 import { TONE_MAP } from "@/lib/colors";
 
 // Color de acento válido = clave de la paleta (lib/colors), o null.
@@ -293,4 +294,41 @@ export async function removeClientMember(clientId: string, userId: string): Prom
   revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+// ── Archivos del cliente (ligero): enlaces (Drive/web) y rutas de red SMB ──
+// Añade un ENLACE (Drive/web) a la ficha del cliente.
+export async function addClientLink(clientId: string, formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!(await canEditClient(clientId))) return;
+  const name = String(formData.get("name") ?? "").trim();
+  const url = safeExternalUrl(String(formData.get("url") ?? ""));
+  if (!name || !url) return;
+  const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
+  await db.clientFile.create({ data: { clientId, name, url, kind, uploadedById: session!.id } });
+  await logActivity({ action: "client.file.link", summary: `añadió el enlace «${name}»`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
+}
+
+// Añade una RUTA DE RED (SMB) a la ficha del cliente (no sube nada, solo la ruta para copiar).
+export async function addClientNasRoute(clientId: string, formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!(await canEditClient(clientId))) return;
+  const name = String(formData.get("name") ?? "").trim();
+  const path = String(formData.get("path") ?? "").trim();
+  if (!name || !path) return;
+  if (!/^(\\\\|smb:\/\/|\/\/|[a-zA-Z]:\\|\/)/.test(path) || /^\s*(javascript|data|http):/i.test(path)) return;
+  await db.clientFile.create({ data: { clientId, name, path, kind: "NAS", uploadedById: session!.id } });
+  await logActivity({ action: "client.file.nas", summary: `añadió la ruta de red «${name}»`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
+}
+
+// Borra un archivo/referencia del cliente.
+export async function deleteClientFile(fileId: string, clientId: string): Promise<void> {
+  if (!(await canEditClient(clientId))) return;
+  const file = await db.clientFile.findUnique({ where: { id: fileId }, select: { clientId: true, name: true } });
+  if (!file || file.clientId !== clientId) return;
+  await db.clientFile.delete({ where: { id: fileId } });
+  await logActivity({ action: "client.file.delete", summary: `eliminó «${file.name}»`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
 }

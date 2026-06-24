@@ -120,6 +120,7 @@ model User {
   pollVotes        PollVote[]
   notifications    Notification[]       @relation("NotificationRecipient")
   notificationsActed Notification[]     @relation("NotificationActor")
+  clientFiles      ClientFile[]         @relation("ClientFileUploader")
   pushSubscriptions PushSubscription[]
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
@@ -290,6 +291,7 @@ model Client {
   activity    ActivityLog[]
   channel     ChatChannel?
   members     ClientMember[]
+  files       ClientFile[]
   // Activo/inactivo: un cliente sin proyectos a la vista se DESACTIVA para no estorbar en
   // las listas, y se REACTIVA cuando llega un proyecto nuevo. Distinto de archivar: el
   // inactivo NO va a la papelera, solo se oculta de las listas activas (con filtro para verlo).
@@ -1423,6 +1425,24 @@ enum FileKind {
   DRIVE
   LINK
   NAS // ruta SMB del NAS para copiar/pegar en el explorador (\\servidor\carpeta)
+}
+
+// Archivo/referencia a NIVEL DE CLIENTE (ligero): enlaces (Drive/web) y rutas de red SMB
+// (\\NAS\carpeta) que aplican al cliente, no a un proyecto puntual. No sube binarios al NAS
+// (eso vive en los proyectos); aquí solo se guardan referencias para copiar/abrir.
+model ClientFile {
+  id           String   @id @default(cuid())
+  name         String
+  kind         FileKind @default(LINK) // LINK | DRIVE | NAS
+  url          String? // enlace externo / Google Drive
+  path         String? // ruta SMB \\servidor\carpeta (kind = NAS)
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId     String
+  uploadedBy   User?    @relation("ClientFileUploader", fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([clientId])
 }
 
 model ProjectFolder {

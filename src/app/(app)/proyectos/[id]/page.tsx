@@ -45,7 +45,6 @@ const TABS = [
   { key: "cronograma", label: "Cronograma", group: "contenido" },
   { key: "entregables", label: "Entregables", group: "entregables" },
   { key: "archivos", label: "Archivos", group: "entregables" },
-  { key: "guiones", label: "Guiones", group: "entregables" },
   { key: "equipos", label: "Equipos", group: "operacion" },
   { key: "actividad", label: "Actividad", group: "operacion" },
 ];
@@ -187,8 +186,7 @@ export default async function ProyectoPage({
   const counts = {
     tareas: project.tasks.length,
     entregables: project.deliverables.length,
-    archivos: otherFolders.reduce((n, f) => n + f.files.length, 0) + project.files.length,
-    guiones: guionesFiles.length,
+    archivos: otherFolders.reduce((n, f) => n + f.files.length, 0) + project.files.length + guionesFiles.length,
   };
 
   // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
@@ -463,25 +461,38 @@ export default async function ProyectoPage({
           />
         ) : null}
         {tab === "archivos" ? (
-          <FilesPanel
-            projectId={id}
-            folders={otherFolders.map((f) => ({
-              id: f.id,
-              name: f.name,
-              icon: f.icon,
-              color: f.color,
-              files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) })),
-            }))}
-            looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, editable: isEditableOffice(file.name) }))}
-          />
-        ) : null}
-        {tab === "guiones" ? (
-          <GuionesPanel
-            projectId={id}
-            files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
-            canWrite={canWriteProject(project, session)}
-            onlyoffice={await onlyofficeReady()}
-          />
+          <div className="space-y-6">
+            {/* Guiones: sección destacada arriba para adjuntar/ver guiones rápido (fusionada en Archivos). */}
+            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-base">📝</span>
+                <h3 className="text-sm font-semibold">Guiones</h3>
+                {guionesFiles.length ? <span className="text-xs text-muted-foreground">· {guionesFiles.length}</span> : null}
+              </div>
+              <GuionesPanel
+                projectId={id}
+                files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
+                canWrite={canWriteProject(project, session)}
+                onlyoffice={await onlyofficeReady()}
+              />
+            </section>
+
+            {/* Resto de archivos del proyecto (carpetas, subidas, enlaces, rutas de red). */}
+            <section>
+              <h3 className="mb-3 text-sm font-semibold">Archivos del proyecto</h3>
+              <FilesPanel
+                projectId={id}
+                folders={otherFolders.map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  icon: f.icon,
+                  color: f.color,
+                  files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) })),
+                }))}
+                looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) }))}
+              />
+            </section>
+          </div>
         ) : null}
         {tab === "actividad" && hasPermission(session, "ver_actividad") ? (
           <ActivityFeed

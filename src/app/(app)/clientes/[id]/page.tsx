@@ -21,6 +21,7 @@ import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { ClientStatus } from "./client-status";
 import { ClientBilling, type ClientInvoiceRow } from "./client-billing";
+import { ClientFilesPanel } from "./client-files";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { quoteTotals } from "@/lib/ui";
 import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
@@ -41,6 +42,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     include: {
       _count: { select: { quotes: true } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+      files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true } },
       projects: {
         where: { archivedAt: null },
         orderBy: { createdAt: "asc" },
@@ -301,6 +303,12 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: clientDeliverables.length ? `Entregables · ${clientDeliverables.length}` : "Entregables",
               icon: "📦",
               node: <ClientDeliverables deliverables={clientDeliverables} />,
+            },
+            {
+              key: "archivos",
+              label: client.files.length ? `Archivos · ${client.files.length}` : "Archivos",
+              icon: "📁",
+              node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
             },
             ...(canBilling ? [{
               key: "facturacion",
