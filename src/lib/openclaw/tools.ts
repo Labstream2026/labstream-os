@@ -12,6 +12,7 @@ import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { createCalendarEventCore } from "@/lib/calendar-create";
+import { generateImage, normalizeAspect } from "@/lib/higgsfield";
 import { logActivity } from "@/lib/activity";
 import { bogotaNoon } from "@/lib/today";
 import type { ToolDef } from "./client";
@@ -472,6 +473,21 @@ export const AGENT_TOOLS: ToolDef[] = [
           note: { type: "string", description: "Mensaje breve que acompaña al archivo (opcional)." },
         },
         required: ["file"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generar_imagen",
+      description: "Genera una imagen con IA a partir de una descripción en texto y la ENVÍA al usuario en este chat (se ve y se puede descargar). Úsalo cuando pidan 'créame/genérame/hazme/dibújame una imagen' de algo. NO inventes que la enviaste: usa SIEMPRE esta herramienta para entregarla de verdad.",
+      parameters: {
+        type: "object",
+        properties: {
+          descripcion: { type: "string", description: "Descripción detallada de la imagen a generar (en español o inglés)." },
+          formato: { type: "string", description: "Orientación: '1:1' (cuadrado/Instagram, por defecto), '9:16' (vertical/story/reel) o '16:9' (horizontal)." },
+        },
+        required: ["descripcion"],
       },
     },
   },
@@ -1063,6 +1079,34 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         return JSON.stringify({ ok: true, tipo: "enlace", mensaje: `Es un archivo externo. Comparte este enlace con el usuario: ${file.url}` });
       }
       return "Ese archivo no tiene contenido local ni enlace para enviar.";
+    }
+
+    case "generar_imagen": {
+      if (!ctx) return "No puedo enviar imágenes en este contexto.";
+      const prompt = str(args.descripcion) || str(args.prompt);
+      if (!prompt) return "Falta la descripción de la imagen a generar.";
+      const aspecto = normalizeAspect(str(args.formato) || str(args.aspect_ratio) || str(args.formato_imagen));
+      let url: string;
+      try {
+        ({ url } = await generateImage(prompt, aspecto));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "error desconocido";
+        if (/credit/i.test(msg)) return "No pude generar la imagen: la cuenta de Higgsfield no tiene créditos. Dile al usuario que avise al administrador para recargar créditos en Higgsfield.";
+        if (/HF_CREDENTIALS/i.test(msg)) return "No pude generar la imagen: falta configurar las credenciales de Higgsfield en el servidor. Avísale al administrador.";
+        return `No pude generar la imagen: ${msg}.`;
+      }
+      let buf: Buffer;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`descarga ${res.status}`);
+        buf = Buffer.from(await res.arrayBuffer());
+      } catch (e) {
+        return `Generé la imagen pero no pude adjuntarla (${e instanceof Error ? e.message : "error"}). Comparte este enlace con el usuario: ${url}`;
+      }
+      await postBotFileMessage(ctx.botId, ctx.channelId, "🖼️ Aquí tienes la imagen que generé.", [
+        { name: `imagen-${Date.now()}.jpg`, mime: "image/jpeg", buf },
+      ]);
+      return JSON.stringify({ ok: true, mensaje: "Imagen generada y enviada al usuario en el chat (se ve y se puede descargar)." });
     }
 
     case "send_quote": {

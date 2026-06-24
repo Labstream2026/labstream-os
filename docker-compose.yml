@@ -98,6 +98,9 @@ services:
       # Webhook inverso: deja que el agente de OpenClaw ENTREGUE imágenes/archivos al chat de la app.
       # OpenClaw debe hacer POST a https://os.labstreamsas.com/api/openclaw/inbound?token=$OPENCLAW_INBOUND_TOKEN
       OPENCLAW_INBOUND_TOKEN: ${OPENCLAW_INBOUND_TOKEN:-}
+      # Higgsfield (generación de imágenes con IA, tool generar_imagen del chat). Formato KEY_ID:KEY_SECRET
+      # (credenciales de cloud.higgsfield.ai). Si falta, la tool avisa en vez de fallar en silencio.
+      HF_CREDENTIALS: ${HF_CREDENTIALS:-}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:
