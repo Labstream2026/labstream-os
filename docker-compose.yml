@@ -95,6 +95,9 @@ services:
       EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-}
       WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-}
       DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-America/Bogota}
+      # Webhook inverso: deja que el agente de OpenClaw ENTREGUE imágenes/archivos al chat de la app.
+      # OpenClaw debe hacer POST a https://os.labstreamsas.com/api/openclaw/inbound?token=$OPENCLAW_INBOUND_TOKEN
+      OPENCLAW_INBOUND_TOKEN: ${OPENCLAW_INBOUND_TOKEN:-}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
     depends_on:

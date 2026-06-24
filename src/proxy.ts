@@ -14,7 +14,9 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /api/cron: trabajos programados del NAS (protegidos por CRON_SECRET, no por sesión).
 // - /api/review-media: video de Drive proxiado para el portal de revisión (token firmado).
 // - /api/files-asset: archivo de proyecto servido por token firmado (lo usa el portal).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/whatsapp"];
+// - /api/openclaw: webhook inverso de OpenClaw (entrega imágenes/archivos al chat); usa
+//   OPENCLAW_INBOUND_TOKEN, no la sesión del navegador.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/whatsapp", "/api/openclaw"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no
