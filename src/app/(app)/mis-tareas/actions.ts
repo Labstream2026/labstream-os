@@ -73,9 +73,11 @@ export async function createMyTask(formData: FormData) {
   if (assigneeId !== session.id) {
     await notifyAndEmail(assigneeId, {
       type: "task",
+      event: "task_assigned",
       title: `Nueva tarea: ${title}`,
       body: `${session.name} te asignó una tarea${dueRaw ? ` (entrega ${dueRaw})` : ""}.`,
       link: "/mis-tareas",
+      actorId: session.id,
     });
     await logActivity({ action: "task.create", summary: `asignó la tarea «${title}»`, entityType: "task", entityId: task.id });
   }

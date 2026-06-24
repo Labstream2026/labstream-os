@@ -37,7 +37,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       },
     }),
     db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
-    db.notification.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, take: 15 }),
+    db.notification.findMany({
+      where: { userId: session.id },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      include: { actor: { select: { name: true, initials: true, avatarColor: true, avatarUrl: true } } },
+    }),
     db.chatChannel.findUnique({
       // El chat por defecto del dock es el "Chat del día" del equipo (estados-equipo).
       where: { slug: "estados-equipo" },
@@ -161,11 +166,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
       notifications={notifs.map((n) => ({
         id: n.id,
+        type: n.type,
         title: n.title,
         body: n.body,
         link: n.link,
         read: n.read,
         createdAt: n.createdAt.toISOString(),
+        actor: n.actor
+          ? { name: n.actor.name, initials: n.actor.initials, color: n.actor.avatarColor, url: n.actor.avatarUrl }
+          : null,
       }))}
       generalChannel={
         generalVisible

@@ -158,9 +158,11 @@ export async function createTask(projectId: string, formData: FormData) {
     ].join("");
     await notifyAndEmail(assigneeId, {
       type: "task",
+      event: "task_assigned",
       title: `Nueva tarea: ${title}`,
       body,
       link: `/proyectos/${projectId}?tab=tareas`,
+      actorId: session?.id,
     });
   }
   await recalcProjectProgress(projectId);
@@ -220,10 +222,10 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
       info?.description ? `\n${info.description.slice(0, 240)}` : "",
       info?.dueDate ? `\nEntrega: ${info.dueDate.toISOString().slice(0, 10)}` : "",
     ].join("");
-    await notifyAndEmail(newId, { type: "task", title: `Te asignaron: ${task!.title}`, body, link });
+    await notifyAndEmail(newId, { type: "task", event: "task_assigned", title: `Te asignaron: ${task!.title}`, body, link, actorId: session?.id });
   }
   if (prevId && prevId !== session?.id) {
-    await notifyAndEmail(prevId, { type: "task", title: `Ya no eres responsable de: ${task!.title}`, body: "La tarea se reasignó a otra persona.", link });
+    await notifyAndEmail(prevId, { type: "task", event: "task_unassigned", title: `Ya no eres responsable de: ${task!.title}`, body: "La tarea se reasignó a otra persona.", link, actorId: session?.id });
   }
   await logActivity({ action: "task.assignee", summary: `reasignó la tarea «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
   refresh(projectId);
@@ -241,11 +243,13 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
       type: "task",
+      event: "task_due_date",
       title: `Fecha de entrega: ${task!.title}`,
       body: raw
         ? `${session?.name ?? "Alguien"} cambió la entrega de tu tarea al ${raw}.`
         : `${session?.name ?? "Alguien"} quitó la fecha de entrega de tu tarea.`,
       link: projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas",
+      actorId: session?.id,
     });
   }
   await logActivity({ action: "task.dueDate", summary: raw ? `fijó la entrega de «${task!.title}» el ${raw}` : `quitó la entrega de «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
@@ -302,11 +306,13 @@ export async function setTaskShootDate(taskId: string, _projectId: string, formD
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
       type: "task",
+      event: "task_shoot_date",
       title: `Fecha de rodaje: ${task!.title}`,
       body: raw
         ? `${session?.name ?? "Alguien"} fijó el rodaje de tu tarea el ${raw}.`
         : `${session?.name ?? "Alguien"} quitó la fecha de rodaje de tu tarea.`,
       link: projectId ? `/proyectos/${projectId}?tab=calendario` : "/mis-tareas",
+      actorId: session?.id,
     });
   }
   await logActivity({
@@ -347,9 +353,11 @@ export async function setTaskDates(taskId: string, _projectId: string, formData:
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
       type: "task",
+      event: "task_schedule",
       title: `Cambio de fechas: ${task!.title}`,
       body: `${session?.name ?? "Alguien"} movió tu tarea en el cronograma. Nuevas fechas: ${changeDesc || "actualizadas"}.`,
       link: projectId ? `/proyectos/${projectId}?tab=cronograma` : "/mis-tareas",
+      actorId: session?.id,
     });
   }
   await logActivity({ action: "task.dates", summary: `ajustó fechas de «${task!.title}» (${changeDesc})`, projectId, entityType: "task", entityId: taskId });
@@ -629,7 +637,7 @@ export async function addTaskComment(taskId: string, _projectId: string, formDat
   if (task!.assigneeId) recipients.add(task!.assigneeId);
   recipients.delete(session?.id ?? "");
   for (const userId of recipients) {
-    await notify(userId, { type: "task", title: `Comentario en «${task!.title}»`, body: body.slice(0, 140), link });
+    await notify(userId, { type: "task", event: "task_comment", title: `Comentario en «${task!.title}»`, body: body.slice(0, 140), link, actorId: session?.id });
   }
   await logActivity({ action: "task.comment", summary: `comentó en «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
   refresh(projectId);
@@ -700,7 +708,7 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     // Solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el lead del proyecto.
     const responsible = reviewerId ?? lead?.leadId ?? null;
     if (responsible && responsible !== session.id) {
-      await notifyAndEmail(responsible, { type: "review", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}` });
+      await notifyAndEmail(responsible, { type: "review", event: "review_pending", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}`, actorId: session.id });
     }
   }
   refresh(projectId);
@@ -714,7 +722,7 @@ export async function setDeliverableReviewer(deliverableId: string, _projectId: 
   const valid = await validateProjectMember(deliverable.projectId, reviewerId);
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewerId: valid } });
   if (valid && valid !== session!.id) {
-    await notifyAndEmail(valid, { type: "review", title: `Eres responsable de revisar: ${deliverable.name}`, body: "Te asignaron como responsable de la revisión de este entregable.", link: `/revisiones/${deliverableId}` });
+    await notifyAndEmail(valid, { type: "review", event: "review_reviewer", title: `Eres responsable de revisar: ${deliverable.name}`, body: "Te asignaron como responsable de la revisión de este entregable.", link: `/revisiones/${deliverableId}`, actorId: session?.id });
   }
   refresh(deliverable.projectId);
 }
@@ -878,9 +886,11 @@ export async function addDeliverableVersion(
   if (responsible && responsible !== session!.id) {
     await notifyAndEmail(responsible, {
       type: "review",
+      event: "review_pending",
       title: `Revisión pendiente: ${deliverable.name}`,
       body: `${session!.name} subió la v${number} en «${deliverable.project.name}». Revísala y pre-apruébala o solicita cambios.`,
       link: `/revisiones/${deliverableId}`,
+      actorId: session!.id,
     });
   }
   refresh(deliverable.projectId);
@@ -945,9 +955,11 @@ export async function internalDecision(
         .filter((id) => id && id !== session!.id),
       {
         type: "review",
+        event: "review_changes",
         title: `Cambios solicitados: ${deliverable.name}`,
         body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}»${changeCount ? ` · ${changeCount} ${changeCount === 1 ? "punto" : "puntos"} en el checklist` : ""}.${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
         link: `/revisiones/${deliverableId}`,
+        actorId: session!.id,
       },
     );
   }
@@ -996,9 +1008,11 @@ export async function resolveReviewComment(commentId: string, _projectId: string
       ),
       {
         type: "review",
+        event: "review_checklist",
         title: `Cambio realizado: ${c.deliverable.name}`,
         body: `${session!.name} marcó como hecho: «${change}»`,
         link: `/revisiones/${c.deliverableId}`,
+        actorId: session!.id,
       },
     );
   }

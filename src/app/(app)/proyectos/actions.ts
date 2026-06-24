@@ -59,9 +59,11 @@ export async function createProject(formData: FormData) {
     if (assigneeId && assigneeId !== session?.id) {
       await notifyAndEmail(assigneeId, {
         type: "task",
+        event: "task_assigned",
         title: `Tarea asignada: ${a.taskTitle}`,
         body: `En el proyecto «${name}»${a.dueDate ? ` · entrega ${a.dueDate}` : ""}.`,
         link: `/proyectos/${project.id}?tab=tareas`,
+        actorId: session?.id,
       });
     }
   }

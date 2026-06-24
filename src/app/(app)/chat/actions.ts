@@ -271,9 +271,11 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
     if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros del canal
     await notifyAndEmail(userId, {
       type: "mention",
+      event: "chat_mention",
       title: `${authorName} te mencionó ${where}`,
       body: body.slice(0, 140),
       link: `/chat/${channelId}`,
+      actorId: authorId,
     });
   }
 }
@@ -300,9 +302,9 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
     if (m.user?.isSystemBot) continue; // no notificar/emailar a bots del sistema (Marcebot)
     // En app (sin email para no saturar). Los DMs sí van también por correo.
     if (isDM) {
-      await notifyAndEmail(m.userId, { type: "dm", title, body: body.slice(0, 140), link });
+      await notifyAndEmail(m.userId, { type: "dm", event: "chat_dm", title, body: body.slice(0, 140), link, actorId: authorId });
     } else {
-      await notify(m.userId, { type: "chat", title, body: body.slice(0, 140), link });
+      await notify(m.userId, { type: "chat", event: "chat_channel", title, body: body.slice(0, 140), link, actorId: authorId });
     }
   }
 }

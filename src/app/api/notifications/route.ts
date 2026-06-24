@@ -15,7 +15,8 @@ export async function GET() {
     db.notification.findMany({
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 40,
+      include: { actor: { select: { name: true, initials: true, avatarColor: true, avatarUrl: true } } },
     }),
     db.notification.count({ where: { userId: session.id, read: false } }),
   ]);
@@ -25,11 +26,15 @@ export async function GET() {
       unread,
       items: rows.map((n) => ({
         id: n.id,
+        type: n.type,
         title: n.title,
         body: n.body,
         link: n.link,
         read: n.read,
         createdAt: n.createdAt.toISOString(),
+        actor: n.actor
+          ? { name: n.actor.name, initials: n.actor.initials, color: n.actor.avatarColor, url: n.actor.avatarUrl }
+          : null,
       })),
     }),
     { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },

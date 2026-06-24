@@ -172,6 +172,7 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   // Aviso DIRIGIDO (in-app + correo) a todo el equipo del proyecto.
   await notifyManyAndEmail(await projectTeamIds(projectId), {
     type: "review",
+    event: "review_client",
     title: approved ? `Cliente aprobó: ${delName}` : `Cliente pidió cambios: ${delName}`,
     body: approved ? `${who} aprobó el entregable.` : `${who} solicitó cambios. Revisa sus comentarios.`,
     link: `/revisiones/${deliverableId}`,

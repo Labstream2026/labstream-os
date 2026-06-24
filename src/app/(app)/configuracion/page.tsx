@@ -15,6 +15,7 @@ import { IntegrationsPanel } from "./integrations-panel";
 import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
+import { NotificationSettingsPanel } from "./notification-settings-panel";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "./calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
@@ -213,6 +214,10 @@ export default async function ConfiguracionPage() {
     </div>
   );
 
+  // ── Sección Notificaciones (admin: activar/desactivar tipos para todo el equipo) ──
+  const disabledNotif = await db.notificationSetting.findMany({ where: { enabled: false }, select: { key: true } });
+  const notificacionesNode = <NotificationSettingsPanel disabledKeys={disabledNotif.map((d) => d.key)} />;
+
   // ── Sección Marcebot ──
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 
@@ -248,6 +253,7 @@ export default async function ConfiguracionPage() {
           { key: "usuarios", label: "Usuarios", icon: "👥", node: usuariosNode },
           { key: "labels", label: "Estados y prioridades", icon: "🏷️", node: labelsNode },
           { key: "roles", label: "Roles y permisos", icon: "🔐", node: rolesNode },
+          { key: "notificaciones", label: "Notificaciones", icon: "🔔", node: notificacionesNode },
           { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
           { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },

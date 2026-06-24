@@ -109,7 +109,7 @@ export async function sendBotDM(bot: BotUser, userId: string, userName: string, 
     attachments: [],
   });
   const firstLine = body.split("\n").find((l) => l.trim())?.replace(/\*/g, "") ?? "Tienes un mensaje";
-  await notify(userId, { type: "marcebot", title: "Marcebot", body: firstLine.slice(0, 140), link: `/chat/${channelId}` });
+  await notify(userId, { type: "marcebot", event: "marcebot", title: "Marcebot", body: firstLine.slice(0, 140), link: `/chat/${channelId}` });
 }
 
 // Publica un mensaje del bot CON archivos adjuntos en un canal y lo emite en tiempo real.

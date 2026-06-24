@@ -95,7 +95,7 @@ async function notifyRoleUsers(
   const users = await db.user.findMany({ where: { roleId, active: true }, select: { id: true } });
   for (const u of users) {
     if (u.id === actorId) continue;
-    await notifyAndEmail(u.id, n);
+    await notifyAndEmail(u.id, { ...n, actorId, event: "admin_role" });
   }
 }
 
@@ -361,9 +361,11 @@ export async function setUserRole(userId: string, roleKey: string): Promise<Admi
   if (userId !== session.id) {
     await notifyAndEmail(userId, {
       type: "role",
+      event: "admin_role",
       title: `Tu rol ahora es «${role.name}»`,
       body: "Un administrador actualizó tu rol. Tus permisos se aplicaron de inmediato.",
       link: "/perfil",
+      actorId: session.id,
     });
   }
   await logActivity({
@@ -565,9 +567,11 @@ export async function deleteRole(roleId: string, reassignToKey: string): Promise
     if (u.id === session.id) continue;
     await notifyAndEmail(u.id, {
       type: "role",
+      event: "admin_role",
       title: `Tu rol cambió a «${fallback.name}»`,
       body: `El rol «${role.name}» se eliminó; tu cuenta se reasignó a «${fallback.name}».`,
       link: "/perfil",
+      actorId: session.id,
     });
   }
   await db.role.delete({ where: { id: roleId } });
@@ -640,9 +644,11 @@ export async function setUserPermissionOverride(
   if (userId !== session.id && state !== "inherit") {
     await notifyAndEmail(userId, {
       type: "role",
+      event: "admin_role",
       title: state === "grant" ? `Permiso concedido: ${label}` : `Permiso retirado: ${label}`,
       body: state === "grant" ? "Un administrador te concedió un permiso adicional." : "Un administrador te retiró un permiso.",
       link: "/perfil",
+      actorId: session.id,
     });
   }
   await logActivity({

@@ -138,9 +138,11 @@ export async function setPlanAssignee(planId: string, assigneeId: string) {
       const nItems = await db.equipmentReservation.count({ where: { planId } });
       await notifyAndEmail(newId, {
         type: "task",
+        event: "task_assigned",
         title: `Preparar equipos: ${plan.title || plan.project.name}`,
         body: `Proyecto «${plan.project.name}». Eres responsable de organizar y tener listos los equipos para la grabación del ${fechaCorta}${nItems ? ` (${nItems} equipo${nItems === 1 ? "" : "s"})` : ""}. La lista completa está en la tarea.`,
         link: `/proyectos/${plan.projectId}?tab=equipos`,
+        actorId: session.id,
       });
     }
   } else if (plan.taskId) {

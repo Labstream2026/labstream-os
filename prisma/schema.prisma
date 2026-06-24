@@ -118,7 +118,8 @@ model User {
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
-  notifications    Notification[]
+  notifications    Notification[]       @relation("NotificationRecipient")
+  notificationsActed Notification[]     @relation("NotificationActor")
   pushSubscriptions PushSubscription[]
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
@@ -217,6 +218,17 @@ model OnlyOfficeSettings {
   callbackBase String? // la app vista DESDE el contenedor de OnlyOffice (IP LAN del NAS:puerto)
   internalUrl  String? // el Document Server visto DESDE el contenedor de la app (IP LAN:8088)
   updatedAt    DateTime @updatedAt
+}
+
+// Interruptor por TIPO de notificación, global para todo el equipo (lo gestiona el admin en
+// Configuración → Notificaciones). El catálogo de `key` vive en código (`@/lib/notification-types`);
+// aquí solo se guarda lo que se TOCA. Por defecto todo está activo: si no hay fila para un key,
+// se considera habilitado. Desactivar un key corta ese aviso (in-app, push y correo).
+model NotificationSetting {
+  key         String   @id // event key del catálogo (p. ej. "task_assigned")
+  enabled     Boolean  @default(true)
+  updatedById String? // quién lo cambió por última vez (admin)
+  updatedAt   DateTime @updatedAt
 }
 
 // Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)
@@ -820,8 +832,13 @@ model PollVote {
 
 model Notification {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  // Quién ORIGINÓ la notificación (el actor): para agrupar por persona y mostrar su color/avatar
+  // en la campana. NULL = evento del sistema (recordatorios, recurrentes, Marcebot). Si el actor
+  // se borra, queda NULL (no se pierde la notificación del destinatario).
+  actor     User?    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorId   String?
   type      String // mention, event, task, etc.
   title     String
   body      String?
@@ -831,6 +848,7 @@ model Notification {
 
   @@index([userId, read])
   @@index([userId, createdAt])
+  @@index([actorId])
 }
 
 // Suscripción de Web Push (navegador) de un usuario, por dispositivo/navegador.

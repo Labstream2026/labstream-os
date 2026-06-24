@@ -95,6 +95,7 @@ export async function runRecurringTasks(now: Date = new Date()): Promise<Recurri
     if (rule.assigneeId && rule.assigneeId !== rule.createdById) {
       await notifyAndEmail(rule.assigneeId, {
         type: "task",
+        event: "task_recurring",
         title: `Tarea recurrente: ${rule.title}`,
         body: `Se generó tu tarea recurrente (entrega ${dueDate.toISOString().slice(0, 10)}).`,
         link: rule.projectId ? `/proyectos/${rule.projectId}?tab=tareas` : "/mis-tareas",

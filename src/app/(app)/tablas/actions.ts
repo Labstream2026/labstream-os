@@ -242,11 +242,14 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
   });
 
   if (col.type === "PERSON" && typeof value === "string" && value && (await isRealUser(value))) {
+    const session = await getSession();
     await notify(value, {
       type: "mention",
+      event: "chat_mention",
       title: `Te asignaron en "${col.table.name}"`,
       body: `Columna ${col.name}`,
       link: col.table.projectId ? `/proyectos/${col.table.projectId}` : undefined,
+      actorId: session?.id,
     });
   }
   await revalidateForTable(col.tableId);
@@ -323,9 +326,11 @@ export async function setEventCell(
   if (attendeeId && attendeeId !== me?.id) {
     await notifyAndEmail(attendeeId, {
       type: "event",
+      event: "calendar_event",
       title: `Nueva cita: ${event.title}`,
       body: new Date(data.start).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
       link: "/calendario",
+      actorId: me?.id,
     });
   }
   revalidatePath("/calendario");

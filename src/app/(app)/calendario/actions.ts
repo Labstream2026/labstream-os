@@ -129,9 +129,11 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
     if (userId === session.id) continue;
     await notifyAndEmail(userId, {
       type: "event",
+      event: "calendar_event",
       title: `Te agregaron a una cita: ${title}`,
       body: `${session.name} te invitó · ${when}`,
       link: "/calendario",
+      actorId: session.id,
     });
   }
 
@@ -147,9 +149,11 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
     for (const userId of staying) {
       await notifyAndEmail(userId, {
         type: "event",
+        event: "calendar_event",
         title: `Se actualizó la cita: ${title}`,
         body: `${session.name} hizo cambios · ${when}${location ? ` · ${location}` : ""}`,
         link: "/calendario",
+        actorId: session.id,
       });
     }
   }
@@ -158,9 +162,11 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
     if (userId === session.id) continue;
     await notifyAndEmail(userId, {
       type: "event",
+      event: "calendar_event",
       title: `Te quitaron de la cita: ${event.title}`,
       body: `${session.name} actualizó los asistentes.`,
       link: "/calendario",
+      actorId: session.id,
     });
   }
   revalidatePath("/calendario");
@@ -187,7 +193,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
     : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const a of event.attendees) {
     if (a.userId === session.id) continue;
-    await notifyAndEmail(a.userId, { type: "event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario" });
+    await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id });
   }
   revalidatePath("/calendario");
 }
@@ -210,7 +216,7 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
     : new Date(event.start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const a of event.attendees) {
     if (a.userId === session.id) continue;
-    await notifyAndEmail(a.userId, { type: "event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario" });
+    await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: session.id });
   }
   await sendEventCancellations(eventId).catch(() => 0);
   // Quitarlo de Synology (necesita los EventSyncRef, que se borran en cascada).

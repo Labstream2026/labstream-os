@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { markAllNotificationsRead } from "@/lib/notify-actions";
+import { markAllNotificationsRead, markNotificationRead } from "@/lib/notify-actions";
 import {
   showNative,
   ensureNotifyPermission,
@@ -14,16 +16,34 @@ import {
   subscribeBrowserPush,
 } from "@/lib/native-notify";
 
+export type NotificationActor = { name: string; initials: string | null; color: string | null; url: string | null };
 export type NotificationItem = {
   id: string;
+  type?: string | null;
   title: string;
   body: string | null;
   link: string | null;
   read: boolean;
   createdAt: string;
+  // Quién originó el aviso (avatar + color). null = evento del sistema.
+  actor?: NotificationActor | null;
 };
 
 const POLL_MS = 20000; // cada 20 s buscamos notificaciones nuevas sin recargar
+
+// Icono + tono por tipo de notificación. Se muestra como pequeña insignia sobre el avatar
+// del actor (qué pasó), o como icono principal cuando el aviso es del sistema (sin actor).
+const TYPE_META: Record<string, { icon: LucideIcon; tint: string; label: string }> = {
+  task: { icon: CheckSquare, tint: "bg-blue-500", label: "Tarea" },
+  review: { icon: Eye, tint: "bg-amber-500", label: "Revisión" },
+  dm: { icon: MessageSquare, tint: "bg-emerald-500", label: "Mensaje" },
+  chat: { icon: MessageSquare, tint: "bg-emerald-500", label: "Chat" },
+  event: { icon: Calendar, tint: "bg-violet-500", label: "Agenda" },
+  mention: { icon: AtSign, tint: "bg-rose-500", label: "Mención" },
+};
+function typeMeta(t?: string | null) {
+  return (t && TYPE_META[t]) || { icon: Bell, tint: "bg-slate-400", label: "Aviso" };
+}
 
 // Tiempo relativo corto en español ("ahora", "hace 5 min", "hace 2 h", "hace 3 d").
 function timeAgo(iso: string): string {
@@ -37,8 +57,75 @@ function timeAgo(iso: string): string {
   return `hace ${d} d`;
 }
 
+// Agrupa por franja temporal (Hoy / Ayer / Esta semana / Antes).
+const BUCKET_ORDER = ["Hoy", "Ayer", "Esta semana", "Antes"] as const;
+function bucketOf(iso: string): (typeof BUCKET_ORDER)[number] {
+  const t = new Date(iso).getTime();
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= startToday) return "Hoy";
+  if (t >= startToday - 86400000) return "Ayer";
+  if (t >= startToday - 7 * 86400000) return "Esta semana";
+  return "Antes";
+}
+
+type Tab = "todas" | "sinleer" | "persona";
+
+// Avatar del actor (con su color) + insignia del tipo; o icono del sistema si no hay actor.
+function NotifAvatar({ n }: { n: NotificationItem }) {
+  const meta = typeMeta(n.type);
+  const Icon = meta.icon;
+  if (!n.actor) {
+    return (
+      <span className={cn("inline-flex size-9 shrink-0 items-center justify-center rounded-full text-white", meta.tint)}>
+        <Icon className="size-4" />
+      </span>
+    );
+  }
+  return (
+    <div className="relative shrink-0">
+      <UserAvatar initials={n.actor.initials} name={n.actor.name} color={n.actor.color} url={n.actor.url} size="md" />
+      <span
+        className={cn(
+          "absolute -bottom-1 -right-1 inline-flex size-4 items-center justify-center rounded-full text-white ring-2 ring-popover",
+          meta.tint,
+        )}
+      >
+        <Icon className="size-2.5" />
+      </span>
+    </div>
+  );
+}
+
+function NotifRow({ n, onPick, showActor }: { n: NotificationItem; onPick: (n: NotificationItem) => void; showActor: boolean }) {
+  const inner = (
+    <div className={cn("flex items-start gap-3 px-4 py-2.5 transition-colors hover:bg-accent", !n.read && "bg-primary/5")}>
+      <NotifAvatar n={n} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-medium leading-snug">{n.title}</p>
+          <span suppressHydrationWarning className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
+        </div>
+        {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{n.body}</p> : null}
+        {showActor && n.actor ? <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{n.actor.name}</p> : null}
+      </div>
+      {!n.read ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
+    </div>
+  );
+  return n.link ? (
+    <Link href={n.link} onClick={() => onPick(n)} className="block border-b border-border last:border-0">
+      {inner}
+    </Link>
+  ) : (
+    <button type="button" onClick={() => onPick(n)} className="block w-full border-b border-border text-left last:border-0">
+      {inner}
+    </button>
+  );
+}
+
 export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const [open, setOpen] = React.useState(false);
+  const [tab, setTab] = React.useState<Tab>("todas");
   const [list, setList] = React.useState<NotificationItem[]>(items);
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
   const [perm, setPerm] = React.useState<ReturnType<typeof notifyPermission>>("default");
@@ -84,7 +171,9 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
 
   React.useEffect(() => {
     const id = setInterval(refresh, POLL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") refreshIfStale(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshIfStale();
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", refreshIfStale);
     return () => {
@@ -97,19 +186,66 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   function toggle() {
     const next = !open;
     setOpen(next);
-    if (next) {
-      // Al abrir: marcar como leído de forma optimista y, solo cuando el servidor
-      // confirme, refrescar (si refrescáramos antes, podría devolver el estado aún
-      // sin leer y reaparecería el contador).
-      if (unread > 0) {
-        setUnread(0);
-        setList((prev) => prev.map((n) => ({ ...n, read: true })));
-        void markAllNotificationsRead().then(refresh).catch(() => {});
-      } else {
-        void refresh();
-      }
-    }
+    // Al abrir solo refrescamos: las notificaciones NO se marcan leídas en bloque
+    // (eso vaciaba el contador al instante). Se marcan al hacer clic o con «Marcar todas».
+    if (next) void refresh();
   }
+
+  // Marca una al abrirla (y navega si tiene enlace).
+  const onPick = React.useCallback((n: NotificationItem) => {
+    setOpen(false);
+    if (n.read) return;
+    setList((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    setUnread((u) => Math.max(0, u - 1));
+    void markNotificationRead(n.id).catch(() => {});
+  }, []);
+
+  // Marca TODAS como leídas (botón explícito).
+  const markAll = React.useCallback(() => {
+    setUnread(0);
+    setList((prev) => prev.map((n) => ({ ...n, read: true })));
+    void markAllNotificationsRead().then(refresh).catch(() => {});
+  }, [refresh]);
+
+  // Lista filtrada según la pestaña activa.
+  const filtered = React.useMemo(
+    () => (tab === "sinleer" ? list.filter((n) => !n.read) : list),
+    [tab, list],
+  );
+
+  // Vista cronológica con franjas de tiempo (Todas / Sin leer).
+  const buckets = React.useMemo(() => {
+    if (tab === "persona") return [];
+    const map = new Map<string, NotificationItem[]>();
+    for (const n of filtered) {
+      const b = bucketOf(n.createdAt);
+      (map.get(b) ?? map.set(b, []).get(b)!).push(n);
+    }
+    return BUCKET_ORDER.filter((b) => map.has(b)).map((b) => ({ label: b, items: map.get(b)! }));
+  }, [filtered, tab]);
+
+  // Vista agrupada por persona (Por persona): cada actor con sus avisos; el sistema, aparte.
+  const personGroups = React.useMemo(() => {
+    if (tab !== "persona") return [];
+    const map = new Map<string, { actor: NotificationActor | null; items: NotificationItem[] }>();
+    for (const n of filtered) {
+      const key = n.actor ? `u:${n.actor.name}` : "__sistema__";
+      if (!map.has(key)) map.set(key, { actor: n.actor ?? null, items: [] });
+      map.get(key)!.items.push(n);
+    }
+    return [...map.values()].sort((a, b) => {
+      // El sistema al final; el resto por aviso más reciente.
+      if (!a.actor) return 1;
+      if (!b.actor) return -1;
+      return new Date(b.items[0].createdAt).getTime() - new Date(a.items[0].createdAt).getTime();
+    });
+  }, [filtered, tab]);
+
+  const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
+    { key: "todas", label: "Todas", icon: Bell },
+    { key: "sinleer", label: "Sin leer", icon: CheckCheck },
+    { key: "persona", label: "Por persona", icon: Users },
+  ];
 
   return (
     <div className="relative">
@@ -124,44 +260,97 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
       {open ? (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+          <div className="absolute right-0 z-20 mt-2 w-[22rem] overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+            {/* Cabecera: título + acciones */}
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-              <span className="text-sm font-semibold">Notificaciones</span>
-              {notificationsSupported() && perm === "default" ? (
-                <button
-                  type="button"
-                  className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={async () => {
-                    const ok = await ensureNotifyPermission();
-                    setPerm(ok ? "granted" : notifyPermission());
-                    // En navegador, además suscribe al Web Push (avisos en segundo plano).
-                    if (ok) void subscribeBrowserPush();
-                  }}
-                >
-                  Activar avisos
-                </button>
-              ) : null}
+              <span className="shrink-0 whitespace-nowrap text-sm font-semibold">Notificaciones</span>
+              <div className="flex items-center gap-1.5">
+                {unread > 0 ? (
+                  <button
+                    type="button"
+                    onClick={markAll}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary hover:bg-accent"
+                  >
+                    <CheckCheck className="size-3.5" /> Marcar todas
+                  </button>
+                ) : null}
+                {notificationsSupported() && perm === "default" ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={async () => {
+                      const ok = await ensureNotifyPermission();
+                      setPerm(ok ? "granted" : notifyPermission());
+                      if (ok) void subscribeBrowserPush();
+                    }}
+                  >
+                    Activar avisos
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div className="max-h-96 overflow-y-auto">
-              {list.length === 0 ? (
-                <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin notificaciones</p>
-              ) : (
-                list.map((n) => {
-                  const inner = (
-                    <div className={cn("border-b border-border px-4 py-2.5 last:border-0 hover:bg-accent", !n.read && "bg-primary/5")}>
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium">{n.title}</p>
-                        <span suppressHydrationWarning className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
-                      </div>
-                      {n.body ? <p className="text-xs text-muted-foreground">{n.body}</p> : null}
+
+            {/* Pestañas */}
+            <div className="flex gap-1 border-b border-border px-2 py-1.5">
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setTab(t.key)}
+                    className={cn(
+                      "inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors",
+                      active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                    {t.label}
+                    {t.key === "sinleer" && unread > 0 ? (
+                      <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">
+                        {unread > 9 ? "9+" : unread}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Contenido */}
+            <div className="max-h-[28rem] overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {tab === "sinleer" ? "Estás al día. Sin pendientes. 🎉" : "Sin notificaciones"}
+                </p>
+              ) : tab === "persona" ? (
+                personGroups.map((g, i) => (
+                  <div key={i} className="border-b border-border last:border-0">
+                    <div className="flex items-center gap-2 bg-muted/40 px-4 py-1.5">
+                      {g.actor ? (
+                        <UserAvatar initials={g.actor.initials} name={g.actor.name} color={g.actor.color} url={g.actor.url} size="sm" />
+                      ) : (
+                        <span className="inline-flex size-6 items-center justify-center rounded-full bg-slate-400 text-white">
+                          <Bell className="size-3" />
+                        </span>
+                      )}
+                      <span className="text-xs font-semibold">{g.actor ? g.actor.name : "Sistema"}</span>
+                      <span className="text-[10px] text-muted-foreground">· {g.items.length}</span>
                     </div>
-                  );
-                  return n.link ? (
-                    <Link key={n.id} href={n.link} onClick={() => setOpen(false)}>{inner}</Link>
-                  ) : (
-                    <div key={n.id}>{inner}</div>
-                  );
-                })
+                    {g.items.map((n) => (
+                      <NotifRow key={n.id} n={n} onPick={onPick} showActor={false} />
+                    ))}
+                  </div>
+                ))
+              ) : (
+                buckets.map((bk) => (
+                  <div key={bk.label}>
+                    <div className="bg-muted/40 px-4 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{bk.label}</div>
+                    {bk.items.map((n) => (
+                      <NotifRow key={n.id} n={n} onPick={onPick} showActor />
+                    ))}
+                  </div>
+                ))
               )}
             </div>
           </div>
