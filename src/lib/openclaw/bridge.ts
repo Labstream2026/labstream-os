@@ -125,7 +125,9 @@ export async function handleBotMention(channelId: string, userId: string, parent
     }
 
     await postBotMessage(bot, channelId, reply, parentId);
-  } catch {
-    /* best-effort: nunca romper el envío del usuario */
+  } catch (err) {
+    // Best-effort: nunca romper el envío del usuario. Pero dejar señal: corre en after(),
+    // así que sin este log un fallo al generar o PERSISTIR la respuesta sería invisible.
+    console.error("[openclaw] handleBotMention falló", { channelId, userId, parentId, messageId }, err);
   }
 }

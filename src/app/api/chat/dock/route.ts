@@ -13,7 +13,9 @@ export const runtime = "nodejs";
 //   ?dm=<userId>   → mensaje directo con esa persona (lo crea si no existe)
 // Devuelve el canal + sus mensajes ya con la forma que espera ChannelChat.
 const messageInclude = {
-  orderBy: { createdAt: "asc" as const },
+  // Los 100 MÁS RECIENTES (desc); shape() los re-invierte a orden cronológico. Con asc+take:100
+  // se devolvían los 100 más VIEJOS y los nuevos no llegaban al panel en canales largos.
+  orderBy: { createdAt: "desc" as const },
   take: 100,
   include: {
     author: { select: { name: true, initials: true, avatarColor: true } },
@@ -42,7 +44,8 @@ type RawMessage = {
 };
 
 function shape(messages: RawMessage[], myVotes: Map<string, string>) {
-  return messages.map((m) => ({
+  // messageInclude trae desc (recientes primero); re-invertimos a orden cronológico ascendente.
+  return [...messages].reverse().map((m) => ({
     id: m.id,
     body: m.body,
     parentId: m.parentId,

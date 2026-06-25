@@ -25,7 +25,8 @@ export default async function ChatDelDiaPage() {
   const messages = await db.chatMessage.findMany({
     // El admin ve los borrados (en gris); los demás solo los no borrados.
     where: { channelId: channel.id, ...(session.role === "admin" ? {} : { deletedAt: null }) },
-    orderBy: { createdAt: "asc" },
+    // Los 100 MÁS RECIENTES (desc) + reverse abajo. asc+take:100 traía los 100 más viejos.
+    orderBy: { createdAt: "desc" },
     take: 100,
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
@@ -69,7 +70,7 @@ export default async function ChatDelDiaPage() {
           isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={team}
-          initialMessages={messages.map((m) => ({
+          initialMessages={[...messages].reverse().map((m) => ({
             id: m.id,
             body: m.body,
             parentId: m.parentId,

@@ -163,6 +163,7 @@ function Attachments({ items, author }: { items?: Attachment[]; author?: { initi
                 alt={a.name}
                 className="max-h-56 max-w-full rounded-lg border border-border object-contain"
                 loading="lazy"
+                onLoad={() => window.dispatchEvent(new Event("chat-media-loaded"))}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
               <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{a.name}</span>
@@ -285,6 +286,10 @@ export function ChannelChat({
   const [editText, setEditText] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [searchOpen, setSearchOpen] = React.useState(false);
+  // Paginación hacia atrás: el fetch inicial trae solo la ventana reciente; estos permiten
+  // cargar el historial anterior por demanda sin recargar la página.
+  const [hasOlder, setHasOlder] = React.useState(initialMessages.length >= 50);
+  const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [typingNames, setTypingNames] = React.useState<Record<string, number>>({}); // name → expiry ts
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = React.useState(0);
@@ -306,7 +311,10 @@ export function ChannelChat({
   const q = search.trim().toLowerCase();
   const roots = messages
     .filter((m) => !m.parentId)
-    .filter((m) => !q || m.body.toLowerCase().includes(q));
+    .filter((m) => !q || m.body.toLowerCase().includes(q))
+    // Ordenar por fecha: el render depende del orden del array; así los mensajes que lleguen
+    // por SSE/catch-up/paginación fuera de orden quedan siempre cronológicos (como las respuestas).
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const repliesFor = (id: string) =>
     messages.filter((m) => m.parentId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const pinned = messages.filter((m) => m.pinned && !m.parentId);
@@ -349,8 +357,93 @@ export function ChannelChat({
     );
   }, []);
 
+  // Espejo de mensajes para leer el último/primer createdAt sin recrear callbacks por cada cambio.
+  const messagesRef = React.useRef(messages);
+  React.useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // ¿El scroll está (casi) al fondo? Se usa para no arrancar al usuario que lee historial arriba.
+  const nearBottom = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
+  // Catch-up: trae de la BD los mensajes posteriores al último conocido y los integra. Cierra el
+  // hueco del bus SSE en memoria (cortes de red, pestaña en segundo plano, reinicio del servidor,
+  // o respuestas del bot que llegan con retraso en background). Se llama al (re)conectar y al volver.
+  const catchUp = React.useCallback(async () => {
+    let latest = "";
+    for (const m of messagesRef.current) if (m.createdAt > latest) latest = m.createdAt;
+    if (!latest) return;
+    try {
+      const res = await fetch(`/api/chat/${channelId}/messages?after=${encodeURIComponent(latest)}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const incoming: ChatMsg[] = data?.messages ?? [];
+      if (!incoming.length) return;
+      const wasNear = nearBottom();
+      setMessages((prev) => {
+        const ids = new Set(prev.map((m) => m.id));
+        const add = incoming.filter((m) => !ids.has(m.id)).map((m) => ({ ...m, status: "sent" as const }));
+        return add.length ? [...prev, ...add] : prev;
+      });
+      if (wasNear) scrollToBottom();
+    } catch {
+      /* best-effort */
+    }
+  }, [channelId, nearBottom, scrollToBottom]);
+
+  // Cargar mensajes ANTERIORES (paginación hacia arriba) preservando la posición de scroll.
+  const loadOlder = React.useCallback(async () => {
+    if (loadingOlder) return;
+    let earliest = "";
+    for (const m of messagesRef.current) if (!earliest || m.createdAt < earliest) earliest = m.createdAt;
+    if (!earliest) return;
+    setLoadingOlder(true);
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+    try {
+      const res = await fetch(`/api/chat/${channelId}/messages?before=${encodeURIComponent(earliest)}`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const older: ChatMsg[] = (data?.messages ?? []).map((m: ChatMsg) => ({ ...m, status: "sent" as const }));
+        setHasOlder(!!data?.hasMore);
+        if (older.length) {
+          setMessages((prev) => {
+            const ids = new Set(prev.map((m) => m.id));
+            const add = older.filter((m) => !ids.has(m.id));
+            return add.length ? [...add, ...prev] : prev;
+          });
+          // Tras anteponer, restaurar la posición para que el usuario no salte.
+          requestAnimationFrame(() => {
+            const el2 = scrollRef.current;
+            if (el2) el2.scrollTop = prevTop + (el2.scrollHeight - prevHeight);
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [channelId, loadingOlder]);
+
+  // Re-anclar al fondo cuando una imagen/adjunto termina de cargar (las <img> son lazy y crecen
+  // después del primer scroll). Solo si el usuario seguía al fondo, para no interrumpir su lectura.
+  React.useEffect(() => {
+    const onMedia = () => {
+      if (nearBottom()) scrollToBottom();
+    };
+    window.addEventListener("chat-media-loaded", onMedia);
+    return () => window.removeEventListener("chat-media-loaded", onMedia);
+  }, [nearBottom, scrollToBottom]);
+
   React.useEffect(() => {
     const es = new EventSource(`/api/chat/${channelId}/stream`);
+    es.onopen = () => void catchUp();
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -395,7 +488,7 @@ export function ChannelChat({
       }
     };
     return () => es.close();
-  }, [channelId, upsert, scrollToBottom, me.id, isAdmin]);
+  }, [channelId, upsert, scrollToBottom, me.id, isAdmin, catchUp]);
 
   React.useEffect(() => {
     scrollToBottom();
@@ -405,18 +498,24 @@ export function ChannelChat({
   // llamar por cada mensaje). Así los no-leídos no se borran si llegan en segundo plano.
   React.useEffect(() => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-    const t = setTimeout(() => void markChannelRead(channelId), 800);
+    // Solo marcar leído si el último mensaje está realmente a la vista (al fondo); si el usuario
+    // está leyendo historial arriba, no ocultar avisos de mensajes que aún no ha visto.
+    const t = setTimeout(() => {
+      if (nearBottom()) void markChannelRead(channelId);
+    }, 800);
     return () => clearTimeout(t);
-  }, [channelId, messages.length]);
+  }, [channelId, messages.length, nearBottom]);
   React.useEffect(() => {
     let last = 0;
     const onVis = () => {
       if (document.visibilityState !== "visible") return;
+      // Al volver a la pestaña, reconciliar lo perdido mientras estuvo en segundo plano.
+      void catchUp();
       // Throttle: ráfagas de visibilitychange/focus (extensiones, cambio de pestaña)
       // no deben disparar más de una marca cada 5 s.
       if (Date.now() - last < 5000) return;
       last = Date.now();
-      void markChannelRead(channelId);
+      if (nearBottom()) void markChannelRead(channelId);
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onVis);
@@ -424,7 +523,7 @@ export function ChannelChat({
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("focus", onVis);
     };
-  }, [channelId]);
+  }, [channelId, catchUp, nearBottom]);
 
   React.useEffect(() => {
     setOnline(navigator.onLine);
@@ -750,7 +849,20 @@ export function ChannelChat({
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl space-y-1.5 px-4 py-3">
-        <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
+        {hasOlder ? (
+          <div className="flex justify-center py-1">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {loadingOlder ? "Cargando…" : "Cargar mensajes anteriores"}
+            </button>
+          </div>
+        ) : (
+          <p className="text-center text-xs text-muted-foreground">Inicio de la conversación</p>
+        )}
         {roots.map((m, idx) => {
           const replies = repliesFor(m.id);
           const open = openThreads.has(m.id);

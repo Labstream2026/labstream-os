@@ -28,7 +28,10 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       messages: {
         where: isAdmin ? undefined : { deletedAt: null },
-        orderBy: { createdAt: "asc" },
+        // Traemos los 100 MÁS RECIENTES (desc) y los re-invertimos a orden cronológico abajo.
+        // Con orderBy:"asc"+take:100 Prisma devolvía los 100 más VIEJOS → en chats largos (p. ej.
+        // el DM con Marcebot) los mensajes nuevos nunca llegaban al cliente y "no aparecían".
+        orderBy: { createdAt: "desc" },
         take: 100,
         include: {
           author: { select: { name: true, initials: true, avatarColor: true } },
@@ -121,7 +124,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
             const botIds = new Set(bots.map((b) => b.id));
             return [...bots, ...team.filter((t) => !botIds.has(t.id))].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
           })()}
-          initialMessages={channel.messages.map((m) => ({
+          initialMessages={[...channel.messages].reverse().map((m) => ({
             id: m.id,
             body: m.body,
             parentId: m.parentId,

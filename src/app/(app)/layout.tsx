@@ -51,7 +51,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         messages: {
           // El admin ve los borrados (en gris) para seguimiento; los demás no.
           where: session.role === "admin" ? undefined : { deletedAt: null },
-          orderBy: { createdAt: "asc" },
+          // Los 50 MÁS RECIENTES (desc) + reverse abajo. asc+take:50 traía los 50 más viejos.
+          orderBy: { createdAt: "desc" },
           take: 50,
           include: {
             author: { select: { name: true, initials: true, avatarColor: true } },
@@ -181,7 +182,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ? {
               id: generalVisible.id,
               name: generalVisible.name,
-              messages: generalVisible.messages.map((m) => ({
+              messages: [...generalVisible.messages].reverse().map((m) => ({
                 id: m.id,
                 body: m.body,
                 parentId: m.parentId,
