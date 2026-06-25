@@ -591,6 +591,33 @@ export const AGENT_TOOLS: ToolDef[] = [
 // algunas herramientas con efecto (p. ej. send_file) puedan PUBLICAR en la conversación.
 export type ToolContext = { channelId: string; botId: string; source?: "chat" | "whatsapp" };
 
+// Herramientas que MODIFICAN datos (para filtrar en keys de API read-only).
+export const WRITE_TOOL_NAMES = new Set<string>([
+  "create_task",
+  "create_recurring_task",
+  "create_note",
+  "create_client",
+  "create_project",
+  "create_calendar_event",
+  "send_message",
+]);
+
+// Herramientas que ENTREGAN al chat del solicitante (necesitan un canal real): no aplican a la
+// API intermedia, donde no hay un DM donde dejar el archivo/imagen. Se excluyen siempre (si no,
+// se ofrecerían al modelo y siempre devolverían un no-op "no puedo enviar… en este contexto").
+export const CHANNEL_TOOL_NAMES = new Set<string>(["send_file", "send_quote", "generar_imagen"]);
+
+// Devuelve el subconjunto de herramientas apto para la API intermedia: sin las de canal y, si la
+// key es de solo lectura, sin las de escritura.
+export function toolsForApi(readOnly: boolean): ToolDef[] {
+  return AGENT_TOOLS.filter((t) => {
+    const n = t.function.name;
+    if (CHANNEL_TOOL_NAMES.has(n)) return false;
+    if (readOnly && WRITE_TOOL_NAMES.has(n)) return false;
+    return true;
+  });
+}
+
 // ── Ejecución de cada herramienta (con los permisos de `session`) ──
 export async function executeAgentTool(name: string, args: Record<string, unknown>, session: SessionUser, ctx?: ToolContext): Promise<string> {
   switch (name) {

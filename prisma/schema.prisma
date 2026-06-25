@@ -121,6 +121,7 @@ model User {
   notifications    Notification[]       @relation("NotificationRecipient")
   notificationsActed Notification[]     @relation("NotificationActor")
   clientFiles      ClientFile[]         @relation("ClientFileUploader")
+  appKeys          AppKey[]             @relation("AppKeyUser")
   pushSubscriptions PushSubscription[]
   createdEvents    CalendarEvent[]      @relation("EventCreator")
   eventAttendances CalendarAttendee[]
@@ -230,6 +231,36 @@ model NotificationSetting {
   enabled     Boolean  @default(true)
   updatedById String? // quién lo cambió por última vez (admin)
   updatedAt   DateTime @updatedAt
+}
+
+// Credencial de la API intermedia (/api/v1). Un servicio externo (gateway de OpenClaw, n8n,
+// un GPT…) se autentica con `Authorization: Bearer <secreto>`. El secreto NUNCA se guarda en
+// claro ni cifrado reversible: solo su hash SHA-256 (una fuga de BD no entrega keys usables);
+// el `prefixVisible` (primeros chars) sí es visible para identificarla en UI y logs.
+// La key se ata a un USUARIO del que hereda permisos EN VIVO; los permisos efectivos de la
+// petición = intersección(permisos del usuario, `scopes`). Si el usuario se desactiva, la key
+// queda inerte automáticamente (buildAgentSession devuelve null).
+model AppKey {
+  id              String    @id @default(cuid())
+  name            String // etiqueta humana (ej. "Gateway OpenClaw")
+  prefixVisible   String    @unique // ej. "lsk_a1b2c3d4" — visible, NO secreto
+  secretHash      String // sha256(secretoCompleto) en hex — verificación, nunca recuperación
+  scopes          String[]  @default([]) // subconjunto de ALL_PERMISSION_KEYS; [] = todos los del usuario
+  readOnly        Boolean   @default(false) // true = solo herramientas/endpoints de consulta
+  user            User      @relation("AppKeyUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  createdById     String? // admin que la creó
+  rateLimitPerMin Int       @default(120)
+  lastUsedAt      DateTime?
+  lastUsedIp      String?
+  expiresAt       DateTime? // null = sin caducidad
+  revoked         Boolean   @default(false)
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([revoked])
 }
 
 // Estado de Marcebot por usuario: evita repetir el mismo resumen cada hora (anti-spam)

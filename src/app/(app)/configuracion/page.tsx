@@ -16,6 +16,7 @@ import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, e
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
 import { NotificationSettingsPanel } from "./notification-settings-panel";
+import { ApiKeysPanel } from "./api-keys-panel";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "./calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
@@ -220,6 +221,20 @@ export default async function ConfiguracionPage() {
   const disabledNotif = await db.notificationSetting.findMany({ where: { enabled: false }, select: { key: true } });
   const notificacionesNode = <NotificationSettingsPanel disabledKeys={disabledNotif.map((d) => d.key)} />;
 
+  // ── Sección API (credenciales para servicios externos: gateway OpenClaw, etc.) ──
+  const canApi = hasPermission(session, "administrar_integraciones");
+  const apiKeyRows = canApi
+    ? await db.appKey.findMany({ orderBy: { createdAt: "desc" }, include: { user: { select: { name: true } } } })
+    : [];
+  const apiNode = (
+    <ApiKeysPanel
+      keys={apiKeyRows.map((k) => ({ id: k.id, name: k.name, prefix: k.prefixVisible, scopes: k.scopes, readOnly: k.readOnly, userName: k.user.name, lastUsedAt: k.lastUsedAt?.toISOString() ?? null, revoked: k.revoked }))}
+      users={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))}
+      roles={roleOptions}
+      perms={catalog}
+    />
+  );
+
   // ── Sección Marcebot ──
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 
@@ -258,6 +273,7 @@ export default async function ConfiguracionPage() {
           { key: "notificaciones", label: "Notificaciones", icon: "🔔", node: notificacionesNode },
           { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
+          ...(canApi ? [{ key: "api", label: "API", icon: "🔑", node: apiNode }] : []),
           { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
         ]}
       />
