@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
-import { askOpenClaw, type ChatTurn } from "@/lib/openclaw/client";
+import { askOpenClaw, isRateLimitError, type ChatTurn } from "@/lib/openclaw/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +26,11 @@ export const POST = withApiKey(async (req: NextRequest, _ctx: ApiKeyContext) => 
     { role: "user", content: message },
   ];
   const r = await askOpenClaw(turns);
-  if (!r.ok) return apiJson({ ok: false, error: r.error }, 502);
+  if (!r.ok) {
+    if (isRateLimitError(r.error)) {
+      return apiJson({ ok: false, error: "El asistente alcanzó el límite de uso del modelo. Reintenta en unos minutos.", code: "MODEL_RATE_LIMITED", retryable: true, detail: r.error }, 503);
+    }
+    return apiJson({ ok: false, error: r.error, code: "UPSTREAM_OPENCLAW" }, 502);
+  }
   return apiJson({ ok: true, reply: r.reply });
 });

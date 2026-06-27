@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { publishMessage, publishTyping } from "@/lib/chat-bus";
 import { ensureMarcebot, MARCEBOT_NAME, type BotUser } from "@/lib/marcebot/bot";
-import { askOpenClaw, type ChatTurn } from "./client";
+import { askOpenClaw, isRateLimitError, type ChatTurn } from "./client";
 import { getOpenClawConfig } from "./config";
 import { runAgent } from "./agent";
 import { buildAgentSession, AGENT_TOOLS, executeAgentTool } from "./tools";
@@ -119,7 +119,11 @@ export async function handleBotMention(channelId: string, userId: string, parent
       const r = session
         ? await runAgent(messages, AGENT_TOOLS, (name, args) => executeAgentTool(name, args, session, { channelId, botId: bot.id }))
         : await askOpenClaw(messages);
-      reply = r.ok ? r.reply : `⚠️ ${r.error}`;
+      reply = r.ok
+        ? r.reply
+        : isRateLimitError(r.error)
+          ? "⏳ El asistente alcanzó su límite de uso del modelo por ahora. Inténtalo de nuevo en unos minutos."
+          : `⚠️ ${r.error}`;
     } finally {
       clearInterval(keepTyping);
     }

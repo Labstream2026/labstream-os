@@ -104,3 +104,12 @@ export async function chatWithTools(messages: AgentMessage[], tools: ToolDef[], 
   const msg = r.choice.message;
   return { ok: true, content: msg?.content ?? null, toolCalls: msg?.tool_calls ?? [] };
 }
+
+// Reconoce errores de LÍMITE DE USO/CUOTA del modelo (p. ej. "You've reached your Codex
+// subscription usage limit", 429, rate_limit). NO es un fallo transitorio recuperable con retry:
+// la cuota se repone tras una ventana. Sirve para degradar con un mensaje CLARO ("reintenta en
+// unos minutos") en vez de un 502 genérico que parece que el agente se cayó.
+export function isRateLimitError(msg: string | null | undefined): boolean {
+  if (!msg) return false;
+  return /usage limit|rate.?limit|too many requests|\b429\b|subscription usage|reached your|\bquota\b/i.test(msg);
+}

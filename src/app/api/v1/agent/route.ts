@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
 import { runAgent } from "@/lib/openclaw/agent";
 import { executeAgentTool, toolsForApi } from "@/lib/openclaw/tools";
-import type { ChatTurn } from "@/lib/openclaw/client";
+import { isRateLimitError, type ChatTurn } from "@/lib/openclaw/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +58,13 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
   const tools = toolsForApi(ctx.readOnly);
   // ctx undefined: la API no tiene un chat donde entregar; las tools de canal ya están excluidas.
   const r = await runAgent(turns, tools, (name, args) => executeAgentTool(name, args, ctx.session, undefined));
-  if (!r.ok) return apiJson({ ok: false, error: r.error }, 502);
+  if (!r.ok) {
+    // Límite de uso del modelo (cuota de Codex agotada): NO es que el agente esté caído. Se devuelve
+    // 503 + code estable para que el integrador sepa que es TEMPORAL y reintente, no un 502 confuso.
+    if (isRateLimitError(r.error)) {
+      return apiJson({ ok: false, error: "El asistente alcanzó el límite de uso del modelo. Reintenta en unos minutos.", code: "MODEL_RATE_LIMITED", retryable: true, detail: r.error }, 503);
+    }
+    return apiJson({ ok: false, error: r.error, code: "UPSTREAM_OPENCLAW" }, 502);
+  }
   return apiJson({ ok: true, reply: r.reply, steps: r.steps, readOnly: ctx.readOnly });
 });
