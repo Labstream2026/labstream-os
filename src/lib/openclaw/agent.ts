@@ -6,7 +6,7 @@ export type ToolExecutor = (name: string, args: Record<string, unknown>) => Prom
 
 export type AgentResult = { ok: true; reply: string; steps: number } | { ok: false; error: string };
 
-const MAX_STEPS = 6;
+const MAX_STEPS = 5;
 const OVERALL_DEADLINE_MS = 240_000; // 4 min para TODA la interacción
 
 // NOTA: el endpoint de OpenClaw NO inyecta al agente las "tools" del cliente (probado: ni con
@@ -75,6 +75,11 @@ export async function runAgent(messages: ChatTurn[], tools: ToolDef[], execute: 
   const convo: ChatTurn[] = [...messages, { role: "system", content: protocol(actionsDoc(tools)) }];
   let lastText = "";
 
+  // Índice del último turno de resultado de tool. Antes de añadir uno nuevo recortamos el anterior
+  // a su cabecera (que suele traer los IDs/nombres clave y ya fue usado para decidir este paso): así
+  // convo NO arrastra todos los resultados grandes en cada llamada — coste cuadrático → lineal.
+  let lastResultIdx = -1;
+
   for (let step = 0; step < MAX_STEPS; step++) {
     const remaining = deadline - Date.now();
     if (remaining < 3_000) break;
@@ -93,11 +98,19 @@ export async function runAgent(messages: ChatTurn[], tools: ToolDef[], execute: 
     } catch (e) {
       result = `Error ejecutando ${decision.action}: ${e instanceof Error ? e.message : "desconocido"}`;
     }
+    // Poda del resultado ANTERIOR (el modelo ya lo usó para decidir este paso): deja solo su cabecera.
+    if (lastResultIdx >= 0) {
+      const prev = convo[lastResultIdx];
+      if (prev && typeof prev.content === "string" && prev.content.length > 600) {
+        convo[lastResultIdx] = { role: "user", content: `${prev.content.slice(0, 500)} …[resultado anterior recortado para ahorrar contexto]` };
+      }
+    }
     convo.push({ role: "assistant", content: r.reply });
     convo.push({
       role: "user",
       content: `Resultado de ${decision.action}: ${result.slice(0, 4000)}\n\nSiguiente paso: otra acción JSON, o {"action":"answer","text":"…"} si ya puedes responder al usuario.`,
     });
+    lastResultIdx = convo.length - 1;
   }
 
   // Cierre: pedir la respuesta final en texto si se agotaron pasos/tiempo.

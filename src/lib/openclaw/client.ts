@@ -1,4 +1,4 @@
-import { getOpenClawConfig } from "./config";
+import { getOpenClawConfig, clearOpenClawCache } from "./config";
 
 // Mensajes en formato OpenAI. La unión cubre los turnos de herramienta (function-calling):
 // assistant puede traer tool_calls; los resultados se reinyectan como role:"tool".
@@ -28,6 +28,7 @@ export const DEFAULT_TIMEOUT_MS = 90_000; // presupuesto por defecto de una llam
 const PER_ATTEMPT_MS = 75_000; // tope de un intento individual (antes: 4 min colgado)
 const MAX_RETRIES = 2; // hasta 3 intentos, SOLO en fallos transitorios (red, 502/503/504)
 const BACKOFF_MS = [500, 1_500];
+const MAX_OUTPUT_TOKENS = 2048; // tope de salida: un JSON de paso o una respuesta de chat caben de sobra
 
 // POST de bajo nivel al endpoint compatible con OpenAI del gateway. Devuelve el primer choice.
 // Best-effort: nunca lanza. Reintenta SOLO en fallos transitorios que fallan rápido (gateway
@@ -53,18 +54,26 @@ async function post(body: Record<string, unknown>, timeoutMs: number = DEFAULT_T
           "Content-Type": "application/json",
           ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}),
         },
-        body: JSON.stringify({ model: cfg.agentModel, stream: false, ...body }),
+        // max_tokens acota la salida (un paso emite un JSON corto; la respuesta final cabe en 2048):
+        // evita prosa larga que se reinyecta en el bucle y gasta cuota de más.
+        body: JSON.stringify({ model: cfg.agentModel, stream: false, max_tokens: MAX_OUTPUT_TOKENS, ...body }),
         signal: ctrl.signal,
         cache: "no-store",
       });
       if (!res.ok) {
         const detail = (await res.text().catch(() => "")).slice(0, 300);
+        // 401/403 = token del gateway inválido/expirado: mensaje accionable (no un "OpenClaw 401:" críptico).
+        if (res.status === 401 || res.status === 403) {
+          return { ok: false, error: "El token del gateway de IA es inválido o expiró. Revísalo en Configuración → Integraciones." };
+        }
         lastError = `OpenClaw ${res.status}: ${detail || res.statusText}`;
         // 502/503/504 = gateway reiniciándose/saturado → reintentable; 4xx u otros → no.
         if (res.status === 502 || res.status === 503 || res.status === 504) retry = true;
         else return { ok: false, error: lastError };
       } else {
-        const data = (await res.json().catch(() => null)) as { choices?: Choice[] } | null;
+        const data = (await res.json().catch(() => null)) as { choices?: Choice[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+        // Mide el gasto real (el endpoint OpenAI-compatible devuelve usage). Útil para validar el ahorro.
+        if (data?.usage) console.log(`[openclaw] tokens in=${data.usage.prompt_tokens ?? "?"} out=${data.usage.completion_tokens ?? "?"}`);
         const choice = data?.choices?.[0];
         if (!choice) return { ok: false, error: "Respuesta vacía del agente." };
         return { ok: true, choice };
@@ -72,10 +81,21 @@ async function post(body: Record<string, unknown>, timeoutMs: number = DEFAULT_T
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         // Timeout de ESTE intento: ya esperó su parte; no reintentar.
-        return { ok: false, error: "El agente tardó demasiado y se canceló." };
+        return { ok: false, error: "El agente de IA tardó demasiado y se canceló. Inténtalo de nuevo." };
       }
-      // Error de red (ECONNREFUSED en un reinicio del gateway, DNS, socket caído) → reintentable.
-      lastError = e instanceof Error ? `No se pudo contactar al agente: ${e.message}` : "Error desconocido al contactar al agente.";
+      // Desenvolver e.cause (undici) para distinguir el FALLO REAL en vez de un "fetch failed" críptico.
+      const code = (e as { cause?: { code?: string } } | undefined)?.cause?.code;
+      if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EAI_AGAIN") {
+        clearOpenClawCache(); // el gateway no responde/no resuelve: relee la config por si su IP cambió en BD
+        lastError =
+          code === "ECONNREFUSED"
+            ? "El gateway de IA no responde (¿apagado o cambió de IP/puerto? Revisa la máquina IA_Labstream y la URL en Configuración → Integraciones)."
+            : "No se resolvió el host del gateway de IA. Usa su IP de la LAN en Configuración → Integraciones.";
+      } else if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") {
+        lastError = "Tiempo de espera agotado contra el gateway de IA.";
+      } else {
+        lastError = e instanceof Error ? `No se pudo contactar al agente: ${e.message}` : "Error desconocido al contactar al agente.";
+      }
       retry = true;
     } finally {
       clearTimeout(timer);
@@ -112,4 +132,29 @@ export async function chatWithTools(messages: AgentMessage[], tools: ToolDef[], 
 export function isRateLimitError(msg: string | null | undefined): boolean {
   if (!msg) return false;
   return /usage limit|rate.?limit|too many requests|\b429\b|subscription usage|reached your|\bquota\b/i.test(msg);
+}
+
+// Chequeo de salud LIGERO del gateway: pega a /v1/models (NO consume cuota del modelo, a diferencia
+// de una completion). Sirve para SABER si el gateway está vivo sin gastar créditos de Codex.
+export async function healthCheckOpenClaw(): Promise<{ up: boolean; latencyMs?: number; baseUrl?: string; error?: string }> {
+  const cfg = await getOpenClawConfig();
+  if (!cfg) return { up: false, error: "La integración con OpenClaw no está configurada o está desactivada." };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5_000);
+  const t0 = Date.now();
+  try {
+    const res = await fetch(`${cfg.baseUrl}/v1/models`, {
+      headers: { ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}) },
+      signal: ctrl.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) return { up: false, baseUrl: cfg.baseUrl, latencyMs: Date.now() - t0, error: `el gateway respondió ${res.status}` };
+    return { up: true, baseUrl: cfg.baseUrl, latencyMs: Date.now() - t0 };
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } } | undefined)?.cause?.code;
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EAI_AGAIN") clearOpenClawCache();
+    return { up: false, baseUrl: cfg.baseUrl, error: code ?? (e instanceof Error ? e.message : "error de red") };
+  } finally {
+    clearTimeout(timer);
+  }
 }

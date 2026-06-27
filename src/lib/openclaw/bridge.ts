@@ -28,7 +28,7 @@ function stripMention(body: string): string {
     .trim();
 }
 
-const CONTEXT_LIMIT = 14; // últimos mensajes del canal que se pasan como contexto
+const CONTEXT_LIMIT = 10; // últimos mensajes del canal que se pasan como contexto (menos = menos tokens)
 
 // Instrucciones del sistema: identidad, fecha (zona Colombia), quién pregunta y reglas.
 function systemPrompt(askerName: string, askerRole: string): string {
@@ -104,7 +104,7 @@ export async function handleBotMention(channelId: string, userId: string, parent
       ...turns,
     ];
     if (docsText) messages.push({ role: "user", content: `[Contenido de los documentos (PDF) que adjunté]\n${docsText}` });
-    if (voiceText) messages.push({ role: "user", content: `[Transcripción de la nota de voz que envié — trátala como si te lo hubiera escrito]\n${voiceText}` });
+    if (voiceText) messages.push({ role: "user", content: `[Transcripción de la nota de voz que envié — trátala como si te lo hubiera escrito]\n${voiceText.slice(0, 6000)}` });
     if (imageParts.length) {
       messages.push({ role: "user", content: [{ type: "text", text: "Imágenes que adjunté en el chat (míralas para responder):" }, ...imageParts] });
     }

@@ -120,7 +120,7 @@ export function apiJson(data: unknown, status = 200): NextResponse {
 // parsear y amplificación de coste hacia el LLM por un titular abusivo). bodySizeLimit de
 // next.config solo aplica a Server Actions, NO a route handlers — por eso se acota aquí.
 export const MAX_BODY_BYTES = 256 * 1024; // 256 KB de cuerpo
-export const MAX_TEXT_CHARS = 24_000; // por campo de texto (message/content/system)
+export const MAX_TEXT_CHARS = 6_000; // por campo de texto (message/content/system) — acota tokens hacia el modelo
 
 // true si la cabecera Content-Length declara un cuerpo mayor al permitido. (Content-Length puede
 // faltar con transfer-encoding chunked; por eso además se recorta cada campo de texto al parsear.)

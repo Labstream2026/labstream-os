@@ -12,17 +12,21 @@ export type OpenClawConfig = {
 // leer la BD en cada mensaje del chat. `undefined` = no leído todavía; `null` = leído pero
 // sin configurar/desactivado.
 let _cache: OpenClawConfig | null | undefined;
+let _cacheAt = 0;
+const CACHE_TTL_MS = 60_000; // revalida cada 60s: si el gateway cambia de IP/puerto en BD, se toma sin reiniciar
 
 export function clearOpenClawCache() {
   _cache = undefined;
+  _cacheAt = 0;
 }
 
 // Devuelve la config SOLO si la integración está activada y tiene baseUrl; si no, null.
 export async function getOpenClawConfig(): Promise<OpenClawConfig | null> {
-  if (_cache !== undefined) return _cache;
+  if (_cache !== undefined && Date.now() - _cacheAt < CACHE_TTL_MS) return _cache;
   const row = await db.openClawSettings.findUnique({ where: { id: "default" } }).catch(() => null);
   if (!row || !row.enabled || !row.baseUrl) {
     _cache = null;
+    _cacheAt = Date.now();
     return null;
   }
   _cache = {
@@ -30,5 +34,6 @@ export async function getOpenClawConfig(): Promise<OpenClawConfig | null> {
     token: row.tokenEnc ? decryptSecret(row.tokenEnc) : "",
     agentModel: row.agentModel || "openclaw",
   };
+  _cacheAt = Date.now();
   return _cache;
 }

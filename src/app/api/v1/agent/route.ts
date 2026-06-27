@@ -45,7 +45,7 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
 
   const turns: ChatTurn[] = [{ role: "system", content: systemPrompt(ctx.session.name, ctx.session.role) }];
   if (history) {
-    for (const m of history.slice(-20)) {
+    for (const m of history.slice(-8)) {
       if (m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim()) {
         turns.push({ role: m.role, content: clampText(m.content) });
       }
