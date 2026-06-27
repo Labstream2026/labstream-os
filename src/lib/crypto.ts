@@ -27,7 +27,10 @@ export function decryptSecret(payload: string): string {
     const decipher = crypto.createDecipheriv("aes-256-gcm", key(), Buffer.from(ivB, "base64"));
     decipher.setAuthTag(Buffer.from(tagB, "base64"));
     return Buffer.concat([decipher.update(Buffer.from(dataB, "base64")), decipher.final()]).toString("utf8");
-  } catch {
+  } catch (err) {
+    // No silenciar: un fallo de descifrado normalmente significa que NEXTAUTH_SECRET/AUTH_SECRET
+    // cambió y dejó ilegibles los secretos cifrados (p.ej. el token de OpenClaw → 401 en el chat).
+    console.error("[crypto] decryptSecret falló (¿cambió NEXTAUTH_SECRET/AUTH_SECRET?)", err instanceof Error ? err.message : err);
     return "";
   }
 }

@@ -150,7 +150,9 @@ export async function saveOpenClawSettings(formData: FormData): Promise<AdminAct
   const enabled = formData.get("enabled") === "on" || formData.get("enabled") === "true";
   const baseUrl = String(formData.get("baseUrl") ?? "").trim().replace(/\/+$/, "") || null;
   const agentModel = String(formData.get("agentModel") ?? "").trim() || "openclaw";
-  const rawToken = String(formData.get("token") ?? "");
+  // Se sanea (trim + comillas envolventes) para no guardar un token con comillas/espacios que
+  // luego rompería el header Authorization hacia el gateway y daría un 401 falso.
+  const rawToken = String(formData.get("token") ?? "").trim().replace(/^["']+|["']+$/g, "");
   // Solo se reescribe el token si el admin escribió uno nuevo (campo no vacío).
   const tokenEnc = rawToken ? encryptSecret(rawToken) : undefined;
 

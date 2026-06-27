@@ -44,7 +44,10 @@ function safeEqualHex(a: string, b: string): boolean {
 // Resuelve y valida la credencial de una petición. NO toca lastUsedAt (eso lo hace withApiKey
 // de forma asíncrona para no bloquear la respuesta).
 export async function resolveApiKey(req: NextRequest): Promise<Resolved> {
-  const raw = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const raw = (req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "")
+    .trim()
+    .replace(/^["']+|["']+$/g, "") // comillas envolventes al pegar la clave en una env var
+    .replace(/\s+/g, ""); // espacios/saltos de línea colados (lsk_ es base64url: nunca los lleva)
   // El secreto va SIEMPRE en el header Authorization, NUNCA en query string (que acabaría en logs).
   if (!raw || raw.length < PREFIX_VISIBLE_LEN) return { ok: false, status: 401, error: "Falta o es inválida la credencial (Authorization: Bearer …)." };
 

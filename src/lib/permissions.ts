@@ -247,6 +247,10 @@ export const getLiveAuthState = cache(async (userId: string): Promise<{ roleKey:
     },
   });
   if (!user) return null;
+  // Defensa: un usuario sin rol (roleId nulo) NO debe hacer LANZAR al leer user.role.key
+  // (eso dejaba el chat en "escribiendo…" en silencio y daba 500 en /api/v1). Sin rol = sin
+  // estado de auth válido.
+  if (!user.role) return null;
   let perms: string[];
   if (user.role.key === "admin") {
     perms = ALL_PERMISSION_KEYS;

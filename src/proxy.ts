@@ -35,7 +35,20 @@ export async function proxy(req: NextRequest) {
   const isPublic =
     PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) || isOnlyOfficeCallback(pathname);
 
-  const session = await verifyToken(req.cookies.get(SESSION_COOKIE)?.value);
+  // Las rutas públicas con su propia autenticación (Bearer en /api/v1, tokens en webhooks/cron)
+  // NO dependen de la cookie de sesión: se cortocircuitan ANTES de verifyToken, para que un
+  // NEXTAUTH_SECRET roto/ausente (que hace LANZAR a verifyToken) no devuelva 500 en TODA la API.
+  // /login se excluye del atajo porque sí necesita saber si hay sesión (para redirigir si ya entró).
+  if (isPublic && pathname !== "/login") return NextResponse.next();
+
+  // Un secreto de sesión inválido no debe tumbar la app entera: si verifyToken lanza, se trata
+  // como "sin sesión" (el usuario va a /login) en vez de propagar un 500.
+  let session: Awaited<ReturnType<typeof verifyToken>>;
+  try {
+    session = await verifyToken(req.cookies.get(SESSION_COOKIE)?.value);
+  } catch {
+    session = null;
+  }
 
   if (!session && !isPublic) {
     const url = req.nextUrl.clone();

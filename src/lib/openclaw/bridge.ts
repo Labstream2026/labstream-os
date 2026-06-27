@@ -129,5 +129,13 @@ export async function handleBotMention(channelId: string, userId: string, parent
     // Best-effort: nunca romper el envío del usuario. Pero dejar señal: corre en after(),
     // así que sin este log un fallo al generar o PERSISTIR la respuesta sería invisible.
     console.error("[openclaw] handleBotMention falló", { channelId, userId, parentId, messageId }, err);
+    // No dejar el chat en SILENCIO: si algo lanzó antes de publicar la respuesta, avisar al
+    // usuario para que reintente (si no, solo veía el "escribiendo…" apagarse y nada más).
+    try {
+      const bot = await ensureMarcebot();
+      await postBotMessage(bot, channelId, "⚠️ Tuve un problema procesando tu mensaje. Inténtalo de nuevo.", parentId);
+    } catch (postErr) {
+      console.error("[openclaw] no se pudo publicar el aviso de error", postErr);
+    }
   }
 }
