@@ -14,6 +14,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { QuickCreateFab } from "@/components/quick-create/quick-create-fab";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
+import { saveUserPreference } from "@/app/(app)/perfil/preference-actions";
 
 export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } | null;
 
@@ -42,6 +43,9 @@ export function AppShell({
   chatUnread = 0,
   reviewPending = 0,
   notifications,
+  initialSidebarCollapsed = false,
+  initialChatPanelOpen = true,
+  reduceMotion = false,
   children,
 }: {
   user: SidebarUser;
@@ -68,11 +72,15 @@ export function AppShell({
   chatUnread?: number;
   reviewPending?: number;
   notifications: NotificationItem[];
+  initialSidebarCollapsed?: boolean;
+  initialChatPanelOpen?: boolean;
+  reduceMotion?: boolean;
   children: React.ReactNode;
 }) {
-  // Escritorio (preferencias recordadas).
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
-  const [chatOpen, setChatOpen] = React.useState(true);
+  // Escritorio (preferencias recordadas EN BD → sincronizan entre dispositivos; el valor
+  // inicial llega del servidor, así que no hay parpadeo al cargar).
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(initialSidebarCollapsed);
+  const [chatOpen, setChatOpen] = React.useState(initialChatPanelOpen);
   // Móvil (cajones, no se recuerdan).
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
@@ -100,24 +108,20 @@ export function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Cargar preferencias de escritorio tras montar (evita mismatch de hidratación).
-  React.useEffect(() => {
-    const c = window.localStorage.getItem("ui:sidebarCollapsed");
-    const ch = window.localStorage.getItem("ui:chatOpen");
-    if (c != null) setSidebarCollapsed(c === "1");
-    if (ch != null) setChatOpen(ch === "1");
-  }, []);
-
+  // Al alternar, persiste en BD (best-effort) para que el estado siga al usuario entre el
+  // móvil y el escritorio. Antes solo se guardaba en localStorage de ese navegador.
   const toggleSidebar = () => {
     setSidebarCollapsed((v) => {
-      window.localStorage.setItem("ui:sidebarCollapsed", v ? "0" : "1");
-      return !v;
+      const next = !v;
+      void saveUserPreference({ sidebarCollapsed: next });
+      return next;
     });
   };
   const toggleChat = () => {
     setChatOpen((v) => {
-      window.localStorage.setItem("ui:chatOpen", v ? "0" : "1");
-      return !v;
+      const next = !v;
+      void saveUserPreference({ chatPanelOpen: next });
+      return next;
     });
   };
 
@@ -127,7 +131,7 @@ export function AppShell({
   }, [pathname]);
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+    <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
         <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />

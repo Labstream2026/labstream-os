@@ -12,6 +12,7 @@ import { formatShortDate } from "@/lib/ui";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
+import { getUserPreference } from "@/lib/user-preference";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -35,6 +36,11 @@ export default async function HomePage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
   const session = await getSession();
+
+  // Página de inicio personalizada: si el usuario eligió otra distinta de Inicio, lo llevamos
+  // allí al entrar en "/". (Se configura en el Perfil; lista blanca de rutas.)
+  const prefs = await getUserPreference(me.id);
+  if (prefs.startPage && prefs.startPage !== "/") redirect(prefs.startPage);
   const [clients, projects, blocked, myTasks] = await Promise.all([
     db.client.findMany({ where: { AND: [accessibleClientWhere(session), { isActive: true }] }, orderBy: { name: "asc" }, include: { _count: { select: { projects: { where: { archivedAt: null } } } } } }),
     db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),

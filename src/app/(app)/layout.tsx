@@ -9,6 +9,7 @@ import { isEditableOffice } from "@/lib/onlyoffice";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { labelOptions } from "@/lib/colors";
 import { AppShell } from "@/components/layout/app-shell";
+import { getUserPreference } from "@/lib/user-preference";
 import { MarcebotPopup } from "./marcebot-popup";
 
 // Datos por petición desde Postgres → render dinámico (evita prerender en el build de Docker).
@@ -105,6 +106,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   });
   const showWiki = await canSeeWiki(session);
 
+  // Preferencias del usuario (panel lateral/chat, accesibilidad) que sincronizan entre dispositivos.
+  const prefs = await getUserPreference(session.id);
+
   // Prioridades para el botón flotante de creación rápida (tareas/proyectos).
   const { priorities } = await getTaskLabels();
   const fabPriorities = labelOptions(priorities);
@@ -139,6 +143,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       dockTeam={dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
       reviewPending={reviewPending}
+      initialSidebarCollapsed={prefs.sidebarCollapsed}
+      initialChatPanelOpen={prefs.chatPanelOpen}
+      reduceMotion={prefs.reduceMotion}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_finanzas")}
       canAsistente={hasPermission(session, "ver_asistente")}

@@ -1,12 +1,15 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
+import { getUserPreference } from "@/lib/user-preference";
 import { ProfileForm } from "./profile-form";
+import { PreferencesForm } from "./preferences-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function PerfilPage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
+  const prefs = await getUserPreference(me.id);
 
   return (
     <div className="px-6 py-8 lg:px-10">
@@ -26,6 +29,7 @@ export default async function PerfilPage() {
         arl={me.arl}
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
       />
+      <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} />
     </div>
   );
 }

@@ -139,6 +139,7 @@ model User {
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
+  preference          UserPreference?
   marcebotState      MarcebotState?     @relation("MarcebotStateUser")
   equipPlansAssigned EquipmentPlan[]    @relation("EquipPlanAssignee")
   equipPlansCreated  EquipmentPlan[]    @relation("EquipPlanCreator")
@@ -149,6 +150,19 @@ model User {
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// Preferencias por usuario que SINCRONIZAN entre dispositivos (antes solo vivían en el
+// localStorage de cada navegador, así que no pasaban del móvil al escritorio). Fila por
+// usuario; todo con defaults sensatos. El layout las hidrata en el servidor (sin parpadeo).
+model UserPreference {
+  userId           String   @id
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sidebarCollapsed Boolean  @default(false) // barra lateral plegada (modo riel)
+  chatPanelOpen    Boolean  @default(true)  // panel de chat de la derecha abierto (escritorio)
+  reduceMotion     Boolean  @default(false) // accesibilidad: minimizar animaciones/transiciones
+  startPage        String   @default("/")   // a dónde llevar al entrar (Inicio por defecto)
+  updatedAt        DateTime @updatedAt
 }
 
 // Configuración de Marcebot (fila única "default"), editable por el admin desde

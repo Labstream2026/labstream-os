@@ -144,6 +144,18 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Accesibilidad: cuando el usuario activa "reducir animaciones" en su perfil, el shell añade
+   la clase .reduce-motion y se minimizan animaciones/transiciones dentro de la app (no depende
+   solo de la preferencia del sistema operativo). */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* En móvil, iOS Safari hace ZOOM automático al enfocar un campo con tipografía < 16px.
    Forzamos 16px en los controles dentro de pantallas pequeñas para que no salte el zoom
    (es la causa #1 de que un formulario "se sienta roto" en iPhone). En escritorio se
