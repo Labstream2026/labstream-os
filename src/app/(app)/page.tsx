@@ -11,6 +11,7 @@ import { MarcebotCard } from "./marcebot-card";
 import { formatShortDate } from "@/lib/ui";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { TeamPerformance } from "./reportes/team-performance";
+import { TeamTasks } from "./team-tasks";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -248,6 +249,7 @@ export default async function HomePage() {
             views={[
               { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
               { key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> },
+              { key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> },
             ]}
           />
         </div>
