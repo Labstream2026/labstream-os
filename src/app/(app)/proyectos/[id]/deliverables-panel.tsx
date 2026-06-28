@@ -16,7 +16,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto } from "./actions";
+import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -61,6 +61,7 @@ type Deliverable = {
   reviewVisits: number;
   reviewRevoked: boolean;
   reviewAllowDrawings: boolean;
+  cover: { src: string; full: string } | null; // portada del reel (imagen que acompaña al video)
   versions: Version[];
   photos: Photo[];
   decisions: Decision[];
@@ -145,6 +146,43 @@ function sourceLabel(v: Version): string | null {
   if (v.fileAssetId) return "Archivo subido";
   const s = detectSource(v.fileUrl);
   return s ? SOURCE_LABEL[s.type] : null;
+}
+
+// Portada del reel: imagen que acompaña al video entregado. El equipo la sube/cambia/quita.
+// Solo para entregables de video (no para galerías de fotos, que tienen su propia cuadrícula).
+function CoverManager({ deliverableId, projectId, canManage, cover }: { deliverableId: string; projectId: string; canManage: boolean; cover: { src: string; full: string } | null }) {
+  if (!cover && !canManage) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border p-3">
+      {cover ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <a href={cover.full} data-lightbox rel="noreferrer" title="Ver portada a tamaño completo" className="shrink-0 cursor-zoom-in">
+          <img src={cover.src} alt="Portada del reel" className="h-20 w-32 rounded-md border border-border object-cover" />
+        </a>
+      ) : (
+        <div className="flex h-20 w-32 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
+          <ImagePlus className="size-5" />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5 text-xs font-semibold">🖼️ Portada del reel</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">La imagen que acompaña al video entregado (miniatura/portada).</p>
+        {canManage ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <form action={setDeliverableCover.bind(null, projectId, deliverableId)} className="flex items-center gap-2">
+              <input type="file" name="cover" accept="image/*" required className="max-w-44 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+              <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90">{cover ? "Cambiar" : "Subir portada"}</SubmitButton>
+            </form>
+            {cover ? (
+              <form action={removeDeliverableCover.bind(null, projectId, deliverableId)}>
+                <SubmitButton pendingText="Quitando…" className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive">Quitar</SubmitButton>
+              </form>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function DeliverablesPanel({
@@ -243,6 +281,9 @@ export function DeliverablesPanel({
                 ) : null}
               </div>
             </div>
+
+            {/* Portada del reel (no aplica a galerías de fotos, que tienen su propia cuadrícula) */}
+            {!isPhoto ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
 
             {/* Responsable de la revisión + caducidad del enlace (editable por el responsable) */}
             {canManage ? (

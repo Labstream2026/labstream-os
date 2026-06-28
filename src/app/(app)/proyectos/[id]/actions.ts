@@ -139,6 +139,14 @@ export async function createTask(projectId: string, formData: FormData) {
       assignedById: assigneeId ? session?.id ?? null : null,
     },
   });
+  // Si se asigna a alguien, asegúrale acceso al proyecto (añádelo como miembro si no lo era).
+  if (assigneeId) {
+    await db.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: assigneeId } },
+      create: { projectId, userId: assigneeId },
+      update: {},
+    });
+  }
   await logActivity({
     action: "task.create",
     summary: `creó la tarea «${title}»${stage ? ` en ${stage}` : ""}`,
@@ -214,6 +222,15 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
   const prevId = task!.assigneeId ?? null;
   if (prevId === newId) return;
   await db.task.update({ where: { id: taskId }, data: { assigneeId: newId, assignedById: session?.id ?? null } });
+  // Garantiza acceso del NUEVO responsable: si no es miembro del proyecto, se añade. Sin esto, en
+  // un proyecto privado se le asignaría la tarea pero no podría abrirla (ni el proyecto).
+  if (projectId && newId) {
+    await db.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: newId } },
+      create: { projectId, userId: newId },
+      update: {},
+    });
+  }
   const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
   if (newId && newId !== session?.id) {
     const info = await db.task.findUnique({ where: { id: taskId }, select: { description: true, dueDate: true, project: { select: { name: true } } } });
@@ -844,6 +861,51 @@ export async function deleteDeliverablePhoto(photoId: string, projectId: string)
   await db.deliverablePhoto.delete({ where: { id: photoId } });
   // El registro de la foto no cascada al FileAsset (es al revés); lo borramos aquí si era local.
   if (photo.fileAssetId) await db.fileAsset.delete({ where: { id: photo.fileAssetId } }).catch(() => {});
+  refresh(projectId);
+}
+
+// Sube/reemplaza la PORTADA del entregable (la imagen que acompaña al reel/video). Imagen
+// optimizada a WebP en el NAS; se sirve por /api/files-asset. Solo gestores con subir_archivos.
+export async function setDeliverableCover(projectId: string, deliverableId: string, formData: FormData) {
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { name: true, projectId: true, coverFileAssetId: true, project: { select: accessSelect } },
+  });
+  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
+  if (!canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+
+  const file = formData.get("cover");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Sube una imagen para la portada.");
+  if (file.size > MAX_UPLOAD || BLOCKED_EXT.test(file.name) || !isOptimizableImage(file.name, file.type)) {
+    throw new Error("La portada debe ser una imagen (JPG, PNG o WebP).");
+  }
+  const buf = Buffer.from(await file.arrayBuffer());
+  const asset = await db.fileAsset.create({ data: { projectId, name: file.name, kind: "LOCAL", path: "", mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id } });
+  const rel = await saveBufferWithPreview(`project/${projectId}/portadas`, `${asset.id}-${file.name}`, buf, file.type);
+  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+
+  const prevId = deliverable.coverFileAssetId;
+  await db.deliverable.update({ where: { id: deliverableId }, data: { coverFileAssetId: asset.id } });
+  // Borra la portada anterior para no dejar archivos huérfanos.
+  if (prevId) await db.fileAsset.delete({ where: { id: prevId } }).catch(() => {});
+
+  await logActivity({ action: "deliverable.cover", summary: `actualizó la portada del entregable «${deliverable.name}»`, projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(projectId);
+}
+
+// Quita la portada del entregable. Solo gestores del proyecto.
+export async function removeDeliverableCover(projectId: string, deliverableId: string) {
+  const session = await getSession();
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { projectId: true, coverFileAssetId: true, project: { select: accessSelect } },
+  });
+  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
+  if (!canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  const prevId = deliverable.coverFileAssetId;
+  await db.deliverable.update({ where: { id: deliverableId }, data: { coverFileAssetId: null } });
+  if (prevId) await db.fileAsset.delete({ where: { id: prevId } }).catch(() => {});
   refresh(projectId);
 }
 

@@ -1304,6 +1304,11 @@ model Deliverable {
   // pre-aprobar/solicitar cambios aunque no sea responsable del proyecto. Solo miembros.
   reviewer   User?  @relation("DeliverableReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   reviewerId String?
+  // Portada (thumbnail/poster) del REEL: imagen que acompaña al video entregado. Una productora
+  // entrega el video y SU portada; aquí se sube/gestiona. Apunta a un FileAsset local del NAS
+  // (servido por /api/files-asset, con miniatura WebP). SetNull si el archivo se borra.
+  coverFileAsset   FileAsset? @relation("DeliverableCover", fields: [coverFileAssetId], references: [id], onDelete: SetNull)
+  coverFileAssetId String?
   versions  DeliverableVersion[]
   // Fotos del entregable cuando type = FOTOGRAFIA (galería de selección del cliente).
   photos    DeliverablePhoto[]
@@ -1507,6 +1512,8 @@ model FileAsset {
   deliverableVersions DeliverableVersion[] @relation("VersionFile")
   // Fotos de entregables FOTOGRAFIA cuya fuente es este archivo local del NAS.
   deliverablePhotos   DeliverablePhoto[]   @relation("PhotoFile")
+  // Entregables (REEL) que usan este archivo como imagen de portada.
+  deliverableCovers   Deliverable[]        @relation("DeliverableCover")
   createdAt    DateTime       @default(now())
 
   @@index([projectId])

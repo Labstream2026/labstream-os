@@ -415,6 +415,9 @@ export default async function ProyectoPage({
               reviewVisits: d.reviewVisits,
               reviewRevoked: !!d.reviewRevokedAt,
               reviewAllowDrawings: d.reviewAllowDrawings,
+              cover: d.coverFileAssetId
+                ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }), full: photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null }) }
+                : null,
               versions: d.versions.map((v) => ({
                 id: v.id,
                 number: v.number,
