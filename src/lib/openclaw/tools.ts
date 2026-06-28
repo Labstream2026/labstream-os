@@ -13,6 +13,9 @@ import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail } from "@/lib/notify";
 import { createCalendarEventCore } from "@/lib/calendar-create";
 import { generateImage, normalizeAspect } from "@/lib/higgsfield";
+import { mcpGenerateImage, mcpStartVideo, HiggsfieldNotConnected } from "@/lib/higgsfield-mcp";
+import { isHiggsfieldConnected } from "@/lib/higgsfield-oauth";
+import { pollAndDeliverJob } from "@/lib/media-jobs";
 import { logActivity } from "@/lib/activity";
 import { bogotaNoon } from "@/lib/today";
 import type { ToolDef } from "./client";
@@ -503,6 +506,22 @@ export const AGENT_TOOLS: ToolDef[] = [
         properties: {
           descripcion: { type: "string", description: "Descripción detallada de la imagen a generar (en español o inglés)." },
           formato: { type: "string", description: "Orientación: '1:1' (cuadrado/Instagram, por defecto), '9:16' (vertical/story/reel) o '16:9' (horizontal)." },
+        },
+        required: ["descripcion"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generar_video",
+      description: "Genera un VIDEO con IA a partir de una descripción y se lo entrega al usuario en este chat. Úsalo cuando pidan 'créame/genérame/hazme un video' de algo. El video TARDA varios minutos: esta herramienta lo ARRANCA y el sistema lo entrega aquí cuando esté listo; NO afirmes que ya está listo, di que lo estás generando y que llegará en unos minutos.",
+      parameters: {
+        type: "object",
+        properties: {
+          descripcion: { type: "string", description: "Descripción detallada del video a generar (en español o inglés)." },
+          formato: { type: "string", description: "Orientación: '9:16' (vertical, por defecto para reels), '16:9' (horizontal) o '1:1'." },
+          duracion: { type: "number", description: "Duración en segundos (opcional; según lo que permita el modelo)." },
         },
         required: ["descripcion"],
       },
@@ -1148,11 +1167,18 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const aspecto = normalizeAspect(str(args.formato) || str(args.aspect_ratio) || str(args.formato_imagen));
       let url: string;
       try {
-        ({ url } = await generateImage(prompt, aspecto));
+        // Preferir el MCP de Higgsfield (créditos del PLAN); si no está conectado, caer al SDK (Cloud API).
+        if (await isHiggsfieldConnected()) {
+          ({ url } = await mcpGenerateImage(prompt, { aspectRatio: aspecto }));
+        } else {
+          ({ url } = await generateImage(prompt, aspecto));
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "error desconocido";
-        if (/credit/i.test(msg)) return "No pude generar la imagen: la cuenta de Higgsfield no tiene créditos. Dile al usuario que avise al administrador para recargar créditos en Higgsfield.";
-        if (/HF_CREDENTIALS/i.test(msg)) return "No pude generar la imagen: falta configurar las credenciales de Higgsfield en el servidor. Avísale al administrador.";
+        if (e instanceof HiggsfieldNotConnected) return "No pude generar la imagen: Higgsfield no está conectado. Pídele al administrador conectarlo en Configuración → Integraciones.";
+        if (/credit|saldo/i.test(msg)) return "No pude generar la imagen: la cuenta de Higgsfield no tiene créditos. Dile al usuario que avise al administrador para recargar.";
+        if (/HF_CREDENTIALS/i.test(msg)) return "No pude generar la imagen: falta conectar Higgsfield (Configuración → Integraciones).";
+        if (/nsfw|content|filtro/i.test(msg)) return "No pude generar la imagen: el contenido fue rechazado por el filtro. Cambia la descripción.";
         return `No pude generar la imagen: ${msg}.`;
       }
       let buf: Buffer;
@@ -1167,6 +1193,43 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         { name: `imagen-${Date.now()}.jpg`, mime: "image/jpeg", buf },
       ]);
       return JSON.stringify({ ok: true, mensaje: "Imagen generada y enviada al usuario en el chat (se ve y se puede descargar)." });
+    }
+
+    case "generar_video": {
+      if (!ctx) return "No puedo generar videos en este contexto.";
+      const prompt = str(args.descripcion) || str(args.prompt);
+      if (!prompt) return "Falta la descripción del video a generar.";
+      if (!(await isHiggsfieldConnected())) return "No pude generar el video: Higgsfield no está conectado. Pídele al administrador conectarlo en Configuración → Integraciones.";
+      const aspecto = normalizeAspect(str(args.formato) || str(args.aspect_ratio) || "9:16");
+      const duracion = Number(str(args.duracion) || str(args.duration)) || undefined;
+      let started: { jobId?: string; url?: string };
+      try {
+        started = await mcpStartVideo(prompt, { aspectRatio: aspecto, duration: duracion });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "error";
+        if (e instanceof HiggsfieldNotConnected) return "No pude generar el video: Higgsfield no está conectado (Configuración → Integraciones).";
+        if (/credit|saldo/i.test(msg)) return "No pude generar el video: la cuenta de Higgsfield no tiene créditos. Avísale al administrador para recargar.";
+        if (/nsfw|content|filtro/i.test(msg)) return "No pude generar el video: el contenido fue rechazado por el filtro. Cambia la descripción.";
+        return `No pude iniciar el video: ${msg}.`;
+      }
+      // Si el MCP lo devolvió síncrono (poco común), entregar de una.
+      if (started.url) {
+        try {
+          const res = await fetch(started.url);
+          if (!res.ok) throw new Error(`descarga ${res.status}`);
+          const buf = Buffer.from(await res.arrayBuffer());
+          await postBotFileMessage(ctx.botId, ctx.channelId, "🎬 Aquí tienes el video que generé.", [{ name: `video-${Date.now()}.mp4`, mime: "video/mp4", buf }]);
+          return JSON.stringify({ ok: true, mensaje: "Video generado y enviado al usuario en el chat." });
+        } catch {
+          return `Generé el video. Comparte este enlace con el usuario: ${started.url}`;
+        }
+      }
+      if (!started.jobId) return "Inicié la generación del video pero Higgsfield no me dio un identificador para seguirlo, así que no puedo entregarlo automáticamente. Dile al usuario que lo intente de nuevo o lo revise el administrador.";
+      // Asíncrono: crear el job y arrancar el sondeo activo (entrega oportuna). El cron
+      // /api/cron/media-jobs es la red de seguridad si el contenedor se reinicia.
+      const job = await db.mediaJob.create({ data: { channelId: ctx.channelId, userId: session.id, kind: "video", prompt, providerJobId: started.jobId, status: "in_progress" }, select: { id: true } });
+      void pollAndDeliverJob(job.id);
+      return JSON.stringify({ ok: true, mensaje: "El video se está generando (tarda unos minutos). Dile al usuario que se lo enviarás aquí mismo en cuanto esté listo; NO digas que ya está listo." });
     }
 
     case "send_quote": {

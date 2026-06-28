@@ -249,6 +249,39 @@ model OpenClawSettings {
   updatedAt  DateTime @updatedAt
 }
 
+// Conexión OAuth a Higgsfield (MCP de imágenes/videos con créditos del PLAN del usuario).
+// Fila única "default". El refresh_token se guarda CIFRADO; Higgsfield puede ROTARLO en cada
+// refresh → se re-guarda. Se conecta desde Configuración → Integraciones (flujo OAuth+PKCE).
+model HiggsfieldAuth {
+  id              String    @id @default("default")
+  clientId        String? // client_id del registro dinámico OAuth
+  refreshTokenEnc String? // refresh_token cifrado (v1:...)
+  connectedById   String?
+  connectedByName String?
+  connectedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+// Trabajo de generación de medios (video) en Higgsfield, ASÍNCRONO: el video tarda minutos, así
+// que la tool generar_video crea el job y responde, y el cron /api/cron/media-jobs lo sondea hasta
+// completarlo y publicar el resultado en el chat del que lo pidió.
+model MediaJob {
+  id            String   @id @default(cuid())
+  channelId     String
+  userId        String
+  kind          String   @default("video") // "video" | "image"
+  prompt        String
+  provider      String   @default("higgsfield")
+  providerJobId String? // id del job en Higgsfield para sondear
+  status        String   @default("queued") // queued | in_progress | completed | failed | nsfw
+  resultUrl     String?
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+}
+
 // Conexión al Document Server de OnlyOffice (edición colaborativa de documentos). Fila única
 // "default", editable por el admin en Configuración → Integraciones. El secreto JWT se guarda
 // CIFRADO. Si no hay fila, se cae a las variables de entorno ONLYOFFICE_* (compatibilidad).

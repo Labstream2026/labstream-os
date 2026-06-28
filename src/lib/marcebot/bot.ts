@@ -145,6 +145,24 @@ export async function postBotFileMessage(
   });
 }
 
+// Publica un mensaje de SOLO texto del bot en cualquier canal y lo emite en tiempo real.
+// Útil para avisos del bot fuera de un DM (p. ej. "no pude generar el video") sin adjuntos.
+export async function postBotTextMessage(botId: string, channelId: string, body: string): Promise<void> {
+  const msg = await db.chatMessage.create({
+    data: { channelId, body, authorId: botId },
+    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+  publishMessage({
+    id: msg.id,
+    channelId,
+    body: msg.body,
+    parentId: null,
+    createdAt: msg.createdAt.toISOString(),
+    author: msg.author ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor } : null,
+    attachments: [],
+  });
+}
+
 // Manda el mismo resumen por CORREO (además del DM). Best-effort: solo sale si el SMTP
 // está configurado (lo gestiona sendEmail) y el usuario tiene correo. Conserva los saltos
 // de línea y la sangría del texto (white-space:pre-wrap) y agrega un botón a la app.
