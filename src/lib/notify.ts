@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
 import { sendPushToUser } from "@/lib/web-push";
+import { getUserEventPref, getUsersEventPrefs, ALL_ON } from "@/lib/user-notif-prefs";
 
 // ── Compuerta por TIPO de notificación (global, gestionada por el admin) ──
 // El catálogo de keys vive en `@/lib/notification-types`; la BD solo guarda lo DESACTIVADO.
@@ -54,14 +55,22 @@ export async function notify(
   if (!userId) return false;
   // Compuerta global por tipo: si el admin desactivó este evento, no se envía nada.
   if (!(await eventEnabled(n.event))) return false;
+  // Preferencia personal por canal: el usuario puede apagar la campana y/o el push de este evento.
+  const pref = await getUserEventPref(userId, n.event);
   // Una notificación cuyo actor es el propio destinatario no aporta nada (uno no se avisa a sí
   // mismo): se descarta el actor para no agrupar «tú» en la campana.
   const actorId = n.actorId && n.actorId !== userId ? n.actorId : null;
-  await db.notification.create({
-    data: { userId, actorId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null },
-  });
+  if (pref.inApp) {
+    await db.notification.create({
+      data: { userId, actorId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null },
+    });
+  }
   // Web Push al navegador (best-effort; sin claves VAPID es no-op).
-  await sendPushToUser(userId, { title: n.title, body: n.body, url: n.link });
+  if (pref.push) {
+    await sendPushToUser(userId, { title: n.title, body: n.body, url: n.link });
+  }
+  // true = el evento está habilitado a nivel global (para que notifyAndEmail evalúe el correo por
+  // su propio canal), aunque el usuario haya apagado la campana/push.
   return true;
 }
 
@@ -76,6 +85,8 @@ export async function notifyAndEmail(
   const sent = await notify(userId, n);
   if (!sent) return;
   if (!(await isEmailEnabled())) return;
+  // Canal correo de la preferencia del usuario (cacheado → no re-consulta tras el notify de arriba).
+  if (!(await getUserEventPref(userId, n.event)).email) return;
   try {
     const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user?.email) return;
@@ -102,15 +113,19 @@ export async function notifyMany(
   if (!ids.length) return;
   // Compuerta global por tipo: si el admin desactivó este evento, no se envía nada.
   if (!(await eventEnabled(n.event))) return;
-  await db.notification.createMany({
-    // El actor nunca se anota a sí mismo (se descarta de la lista de destinatarios).
-    data: ids
-      .filter((userId) => userId !== n.actorId)
-      .map((userId) => ({ userId, actorId: n.actorId ?? null, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null })),
-  });
-  // Web Push a cada uno (best-effort).
+  // El actor nunca se anota a sí mismo (se descarta de la lista de destinatarios).
+  const recipients = ids.filter((userId) => userId !== n.actorId);
+  // Preferencia personal por canal de cada destinatario (sin fila → todo activo).
+  const prefs = await getUsersEventPrefs(recipients, n.event);
+  const inAppIds = recipients.filter((id) => (prefs.get(id) ?? ALL_ON).inApp);
+  if (inAppIds.length) {
+    await db.notification.createMany({
+      data: inAppIds.map((userId) => ({ userId, actorId: n.actorId ?? null, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null })),
+    });
+  }
+  // Web Push a cada uno que lo tenga activo (best-effort).
   await Promise.all(
-    ids.map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link })),
+    recipients.filter((id) => (prefs.get(id) ?? ALL_ON).push).map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link })),
   );
 }
 

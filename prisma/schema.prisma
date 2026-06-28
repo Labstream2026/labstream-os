@@ -140,6 +140,7 @@ model User {
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
   preference          UserPreference?
+  notifPrefs          UserNotificationPref[]
   marcebotState      MarcebotState?     @relation("MarcebotStateUser")
   equipPlansAssigned EquipmentPlan[]    @relation("EquipPlanAssignee")
   equipPlansCreated  EquipmentPlan[]    @relation("EquipPlanCreator")
@@ -163,6 +164,22 @@ model UserPreference {
   reduceMotion     Boolean  @default(false) // accesibilidad: minimizar animaciones/transiciones
   startPage        String   @default("/")   // a dónde llevar al entrar (Inicio por defecto)
   updatedAt        DateTime @updatedAt
+}
+
+// Preferencia PERSONAL de notificación por evento y canal. El usuario decide qué le avisa y
+// por dónde (campana in-app, push, correo). Sparse: solo se guarda lo que se desvía del valor
+// por defecto (todo activo). Se cruza con el ajuste GLOBAL del admin (NotificationSetting):
+// para que algo llegue, debe estar activo a nivel global Y a nivel del usuario.
+model UserNotificationPref {
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventKey String // clave del catálogo NOTIFICATION_EVENTS (p. ej. "task_assigned")
+  inApp    Boolean @default(true)
+  push     Boolean @default(true)
+  email    Boolean @default(true)
+
+  @@id([userId, eventKey])
+  @@index([userId])
 }
 
 // Configuración de Marcebot (fila única "default"), editable por el admin desde
@@ -495,6 +512,7 @@ model Note {
   title       String
   content     String
   category    String? // categoría libre opcional (p. ej. "presupuesto", "idea")
+  pinned      Boolean  @default(false) // fijada arriba de la lista
   source      String   @default("app") // app | chat | whatsapp
   createdBy   User     @relation("NoteCreator", fields: [createdById], references: [id], onDelete: Cascade)
   createdById String

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { START_PAGE_SET } from "@/lib/user-preference";
+import { NOTIFICATION_EVENT_KEYS } from "@/lib/notification-types";
 
 // Guarda (parcialmente) las preferencias del usuario actual. Best-effort: no lanza al cliente para
 // no romper la UI por un fallo al persistir una preferencia (la UI ya cambió de forma optimista).
@@ -28,4 +29,24 @@ export async function saveUserPreference(patch: {
   });
   // reduceMotion/startPage afectan el render del servidor (shell / Inicio): revalida el layout.
   if ("reduceMotion" in data || "startPage" in data) revalidatePath("/", "layout");
+}
+
+// Preferencia personal de notificación: activa/desactiva un CANAL (app/push/correo) para un evento.
+// Sin fila previa, los otros canales quedan en su default (activos). Best-effort.
+export async function setNotifPref(
+  eventKey: string,
+  channel: "inApp" | "push" | "email",
+  enabled: boolean,
+): Promise<{ ok: boolean }> {
+  const session = await getSession();
+  if (!session) return { ok: false };
+  if (!NOTIFICATION_EVENT_KEYS.has(eventKey)) return { ok: false };
+  const data = channel === "inApp" ? { inApp: enabled } : channel === "push" ? { push: enabled } : channel === "email" ? { email: enabled } : null;
+  if (!data) return { ok: false };
+  await db.userNotificationPref.upsert({
+    where: { userId_eventKey: { userId: session.id, eventKey } },
+    create: { userId: session.id, eventKey, ...data },
+    update: data,
+  });
+  return { ok: true };
 }

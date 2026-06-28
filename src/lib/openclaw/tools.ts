@@ -320,13 +320,30 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "list_notes",
-      description: "Lista o resume las notas de la persona (las más recientes). Útil para 'resúmeme mis notas' o '¿qué anoté sobre X?'.",
+      description: "Lista o resume las notas de la persona (las más recientes). Útil para 'resúmeme mis notas' o '¿qué anoté sobre X?'. Devuelve el id de cada nota, necesario para editarla con update_note.",
       parameters: {
         type: "object",
         properties: {
           query: { type: "string", description: "Texto a buscar en título/contenido (opcional)." },
           project: { type: "string", description: "Id o nombre del proyecto (opcional)." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_note",
+      description: "Edita una NOTA existente de la persona (cambia su título, contenido o categoría). Úsalo cuando diga 'edita la nota…', 'añade a la nota…', 'corrige la nota…'. Primero usa list_notes para ubicar el id. Solo notas propias (los admin, cualquiera).",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Id de la nota a editar (lo da list_notes)." },
+          title: { type: "string", description: "Nuevo título (opcional; si no se pasa, se conserva)." },
+          content: { type: "string", description: "Nuevo contenido (opcional; si no se pasa, se conserva)." },
+          category: { type: "string", description: "Nueva categoría (opcional; cadena vacía la borra)." },
+        },
+        required: ["id"],
       },
     },
   },
@@ -596,6 +613,7 @@ export const WRITE_TOOL_NAMES = new Set<string>([
   "create_task",
   "create_recurring_task",
   "create_note",
+  "update_note",
   "create_client",
   "create_project",
   "create_calendar_event",
@@ -848,11 +866,26 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       }
       const rows = await db.note.findMany({
         where: where.length ? { AND: where } : {},
-        take: 25, orderBy: { createdAt: "desc" },
-        select: { title: true, content: true, category: true, createdAt: true, project: { select: { name: true } } },
+        take: 25, orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, content: true, category: true, updatedAt: true, project: { select: { name: true } } },
       });
       if (!rows.length) return "No tienes notas guardadas todavía.";
-      return JSON.stringify(rows.map((n) => ({ titulo: n.title, contenido: n.content.slice(0, 400), categoria: n.category, fecha: ymd(n.createdAt), proyecto: n.project?.name ?? null })));
+      return JSON.stringify(rows.map((n) => ({ id: n.id, titulo: n.title, contenido: n.content.slice(0, 400), categoria: n.category, fecha: ymd(n.updatedAt), proyecto: n.project?.name ?? null })));
+    }
+
+    case "update_note": {
+      const id = str(args.id);
+      if (!id) return "Falta el id de la nota a editar (usa list_notes para ubicarla).";
+      const existing = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, content: true, category: true } });
+      if (!existing) return "No encontré esa nota.";
+      if (existing.createdById !== session.id && session.role !== "admin") return "No puedes editar una nota de otra persona.";
+      const title = args.title !== undefined ? (str(args.title) || existing.title) : existing.title;
+      const content = args.content !== undefined ? str(args.content) : existing.content;
+      const category = args.category !== undefined ? (str(args.category) || null) : existing.category;
+      if (!content.trim()) return "El contenido de la nota no puede quedar vacío.";
+      const note = await db.note.update({ where: { id }, data: { title, content, category }, select: { id: true } });
+      await logActivity({ action: "note.update", summary: `editó la nota «${title}» (vía @Marcebot)`, entityType: "note", entityId: note.id }).catch(() => null);
+      return JSON.stringify({ ok: true, noteId: note.id, mensaje: `Nota «${title}» actualizada.` });
     }
 
     case "find_clients": {

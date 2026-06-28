@@ -11,7 +11,7 @@ import { logActivity } from "@/lib/activity";
 
 // Crea o actualiza (upsert) una nota. Si llega `id`, edita la nota propia; si no, crea una nueva.
 // Devuelve datos para que el editor del cliente refresque su estado sin recargar.
-export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; error?: string }> {
+export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
   const content = (input.content ?? "").trim();
@@ -22,18 +22,31 @@ export async function saveNote(input: { id?: string; title?: string; content?: s
     const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true } });
     if (!existing) return { ok: false, error: "La nota no existe" };
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
-    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category }, select: { id: true, title: true, createdAt: true } });
+    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
     revalidatePath("/notas");
-    return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString() };
+    return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
   }
 
   const n = await db.note.create({
     data: { title, content, category, source: "app", createdById: session.id },
-    select: { id: true, title: true, createdAt: true },
+    select: { id: true, title: true, createdAt: true, updatedAt: true },
   });
   await logActivity({ action: "note.create", summary: `creó la nota «${title}»`, entityType: "note", entityId: n.id }).catch(() => null);
   revalidatePath("/notas");
-  return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString() };
+  return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
+}
+
+// Fija/desfija una nota (las fijadas van arriba). Solo notas propias (los admin, cualquiera).
+export async function togglePinNote(id: string): Promise<{ ok: boolean; pinned?: boolean }> {
+  const session = await getSession();
+  if (!session) return { ok: false };
+  const note = await db.note.findUnique({ where: { id }, select: { createdById: true, pinned: true } });
+  if (!note) return { ok: false };
+  if (note.createdById !== session.id && session.role !== "admin") return { ok: false };
+  const pinned = !note.pinned;
+  await db.note.update({ where: { id }, data: { pinned } });
+  revalidatePath("/notas");
+  return { ok: true, pinned };
 }
 
 export async function deleteNote(id: string): Promise<{ ok: boolean }> {

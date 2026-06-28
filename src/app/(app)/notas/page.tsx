@@ -11,9 +11,10 @@ export default async function NotasPage() {
 
   const notes = await db.note.findMany({
     where: { createdById: session.id },
-    orderBy: { createdAt: "desc" },
+    // Fijadas arriba; luego por última edición (las que tocas suben, estilo iCloud).
+    orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
     take: 500,
-    select: { id: true, title: true, content: true, category: true, source: true, createdAt: true },
+    select: { id: true, title: true, content: true, category: true, source: true, pinned: true, createdAt: true, updatedAt: true },
   });
 
   const items: NoteItem[] = notes.map((n) => ({
@@ -22,7 +23,9 @@ export default async function NotasPage() {
     content: n.content,
     category: n.category,
     source: n.source,
+    pinned: n.pinned,
     createdAt: n.createdAt.toISOString(),
+    updatedAt: n.updatedAt.toISOString(),
   }));
 
   // Sin contenedor con ancho máximo ni padding: la vista de Notas llena toda la ventana.

@@ -1,15 +1,17 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
 import { getUserPreference } from "@/lib/user-preference";
+import { getAllUserNotifPrefs } from "@/lib/user-notif-prefs";
 import { ProfileForm } from "./profile-form";
 import { PreferencesForm } from "./preferences-form";
+import { NotificationPrefsForm } from "./notification-prefs-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function PerfilPage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
-  const prefs = await getUserPreference(me.id);
+  const [prefs, notifPrefs] = await Promise.all([getUserPreference(me.id), getAllUserNotifPrefs(me.id)]);
 
   return (
     <div className="px-6 py-8 lg:px-10">
@@ -30,6 +32,7 @@ export default async function PerfilPage() {
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
       />
       <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} />
+      <NotificationPrefsForm prefs={notifPrefs} />
     </div>
   );
 }
