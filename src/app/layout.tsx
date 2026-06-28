@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/pwa-register";
+import { getOrgSettings, brandCss } from "@/lib/org-settings";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,11 +39,15 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Color de marca configurable por el admin (Configuración → Marca): se inyecta como CSS para
+  // re-teñir --primary/--ring en toda la app. getOrgSettings es resiliente (si falla la BD,
+  // devuelve null y se usa el color por defecto de globals.css).
+  const css = brandCss((await getOrgSettings()).primaryColor);
   return (
     <html
       lang="es"
@@ -50,6 +55,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
       <body className="min-h-full">
+        {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
           {children}
         </ThemeProvider>

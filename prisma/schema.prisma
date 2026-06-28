@@ -209,6 +209,15 @@ model MailSettings {
   updatedAt          DateTime @updatedAt
 }
 
+// Marca/branding de la organización (fila única "default"), editable por el admin en
+// Configuración → Marca. `primaryColor` (hex, p. ej. "#2563eb") re-tiñe TODA la app: se inyecta
+// como --primary/--ring en el layout raíz. null = usa el azul por defecto de globals.css.
+model OrgSettings {
+  id           String   @id @default("default")
+  primaryColor String? // hex "#rrggbb" o null (color por defecto)
+  updatedAt    DateTime @updatedAt
+}
+
 // Conexión al agente de IA OpenClaw (gateway autohospedado, API compatible con OpenAI).
 // Fila única "default", editable por el admin en Configuración → Integraciones. El token
 // Bearer se guarda CIFRADO (lib/crypto). Cuando alguien etiqueta al bot (@Marcebot) en

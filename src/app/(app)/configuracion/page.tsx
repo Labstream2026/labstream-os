@@ -18,6 +18,8 @@ import { MarcebotSettings } from "./marcebot-settings";
 import { NotificationSettingsPanel } from "./notification-settings-panel";
 import { ApiKeysPanel } from "./api-keys-panel";
 import { AuditLogPanel } from "./audit-log-panel";
+import { BrandingPanel } from "./branding-panel";
+import { getOrgSettings } from "@/lib/org-settings";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "./calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
@@ -266,6 +268,10 @@ export default async function ConfiguracionPage() {
     />
   );
 
+  // ── Sección Marca (color de la organización; admin con administrar_integraciones) ──
+  const brand = await getOrgSettings();
+  const brandingNode = <BrandingPanel primaryColor={brand.primaryColor} />;
+
   // ── Sección Marcebot ──
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 
@@ -306,6 +312,7 @@ export default async function ConfiguracionPage() {
           { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
           ...(canApi ? [{ key: "api", label: "API", icon: "🔑", node: apiNode }] : []),
+          ...(canApi ? [{ key: "marca", label: "Marca", icon: "🖌️", node: brandingNode }] : []),
           { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
         ]}
       />
