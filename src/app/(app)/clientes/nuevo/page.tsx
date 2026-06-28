@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, hasPermission } from "@/lib/auth";
 import { EmojiSelect } from "@/components/emoji-select";
+import { SubmitButton } from "@/components/submit-button";
 import { createClient } from "../actions";
 
 export default async function NuevoClientePage() {
@@ -44,9 +45,9 @@ export default async function NuevoClientePage() {
           />
         </Field>
 
-        <button className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+        <SubmitButton pendingText="Creando…" className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           Crear cliente
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

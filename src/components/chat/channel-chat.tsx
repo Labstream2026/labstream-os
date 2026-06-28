@@ -912,7 +912,7 @@ export function ChannelChat({
                 ) : null}
                 {/* Menú de acciones: flotante, aparece al pasar el mouse (no ocupa espacio). */}
                 {!readOnly && !m.status ? (
-                  <details data-autoclose className={cn("absolute top-0 z-20 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100", mine ? "left-0" : "right-0")}>
+                  <details data-autoclose className={cn("absolute top-0 z-20 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100", mine ? "left-0" : "right-0")}>
                     <summary className="cursor-pointer list-none rounded bg-card/70 px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
                     <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
                       <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
@@ -960,7 +960,7 @@ export function ChannelChat({
                   ) : null}
                 </div>
 
-                <div className={cn(mine && "flex flex-col items-end", !hasFooter && "opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100")}>
+                <div className={cn(mine && "flex flex-col items-end", !hasFooter && "opacity-100 transition-opacity duration-150 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100")}>
                   {!readOnly || (m.reactions?.length ?? 0) > 0 ? (
                     <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
                   ) : null}

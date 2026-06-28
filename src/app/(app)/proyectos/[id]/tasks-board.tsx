@@ -194,7 +194,7 @@ function Column({
         />
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{count}</span>
         <details data-autoclose className="relative">
-          <summary className="cursor-pointer list-none px-1 text-xs text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100">⋯</summary>
+          <summary className="cursor-pointer list-none px-1 text-xs text-muted-foreground opacity-100 hover:text-foreground md:opacity-0 md:group-hover:opacity-100">⋯</summary>
           <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-2 shadow-lg">
             <p className="mb-1 text-[11px] font-medium text-muted-foreground">Color de la fase</p>
             <select

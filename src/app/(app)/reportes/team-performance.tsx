@@ -6,6 +6,7 @@ import { getTaskLabels } from "@/lib/workflow-labels";
 import { personCompliance } from "@/lib/compliance";
 import { statusMeta, quoteTotals, formatMoney } from "@/lib/ui";
 import { formatMinutes } from "@/lib/timeline";
+import { effectiveInvoiceStatus } from "@/lib/billing";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -32,9 +33,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
   ]);
 
   // Facturación: total facturado, cobrado y por cobrar (ENVIADA + vencidas).
-  const invEffective = (status: string, dueDate: Date | null) =>
-    status === "ENVIADA" && dueDate && new Date(dueDate) < new Date() ? "VENCIDA" : status;
-  const invRows = invoices.map((i) => ({ status: invEffective(i.status, i.dueDate), total: quoteTotals(i.items, i.taxRate).total }));
+  const invRows = invoices.map((i) => ({ status: effectiveInvoiceStatus(i.status, i.dueDate), total: quoteTotals(i.items, i.taxRate).total }));
   const facturado = invRows.filter((r) => r.status !== "ANULADA").reduce((n, r) => n + r.total, 0);
   const cobrado = invRows.filter((r) => r.status === "PAGADA").reduce((n, r) => n + r.total, 0);
   const porCobrar = invRows.filter((r) => r.status === "ENVIADA" || r.status === "VENCIDA").reduce((n, r) => n + r.total, 0);
@@ -103,7 +102,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
               <div className="space-y-2.5">
                 {compliance.map((r) => (
                   <div key={r.user.id} className="flex items-center gap-3">
-                    <span className="flex w-44 shrink-0 items-center gap-2">
+                    <span className="flex w-28 shrink-0 items-center gap-2 sm:w-44">
                       <UserAvatar initials={r.user.initials} color={r.user.avatarColor} size="sm" />
                       <span className="truncate text-sm">{r.user.name}</span>
                     </span>
@@ -152,7 +151,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
             <div className="space-y-2.5">
               {loadRows.map((r) => (
                 <div key={r.user.id} className="flex items-center gap-3">
-                  <span className="flex w-40 shrink-0 items-center gap-2">
+                  <span className="flex w-28 shrink-0 items-center gap-2 sm:w-40">
                     <UserAvatar initials={r.user.initials} color={r.user.avatarColor} size="sm" />
                     <span className="truncate text-sm">{r.user.name}</span>
                   </span>
@@ -173,7 +172,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
             <div className="space-y-2.5">
               {hoursByProject.map((p, i) => (
                 <div key={i} className="flex items-center gap-3">
-                  <span className="w-48 shrink-0 truncate text-sm">{p.emoji} {p.name}</span>
+                  <span className="w-32 shrink-0 truncate text-sm sm:w-48">{p.emoji} {p.name}</span>
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${(p.minutes / maxHours) * 100}%` }} />
                   </div>

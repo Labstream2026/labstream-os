@@ -250,7 +250,7 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
       {file.kind === "NAS" && file.path ? (
         <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block sm:max-w-[16rem]">{file.path}</span>
       ) : null}
-      <div className="flex items-center gap-2.5 opacity-0 group-hover/file:opacity-100">
+      <div className="flex items-center gap-2.5 opacity-100 md:opacity-0 md:group-hover/file:opacity-100">
         {file.kind === "NAS" && file.path ? (
           <CopyPathButton path={file.path} />
         ) : file.kind === "LOCAL" ? (

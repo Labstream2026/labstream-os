@@ -40,6 +40,11 @@ export function CalendarBoard({
   timelineNode?: React.ReactNode | null;
 }) {
   const [view, setView] = React.useState<"semana" | "mes">(defaultView);
+  // En móvil la vista Semana (7 columnas × 24 horas) es ilegible; arranca en Mes. No se
+  // persiste la vista, así que esto solo fija el ARRANQUE: el usuario puede tocar "Semana".
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) setView("mes");
+  }, []);
   const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
   const [personFilter, setPersonFilter] = React.useState<string>("");
   const [modal, setModal] = React.useState<EventModalState | null>(null);

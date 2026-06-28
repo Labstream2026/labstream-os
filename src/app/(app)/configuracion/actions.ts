@@ -400,6 +400,13 @@ export async function setUserActive(userId: string, active: boolean): Promise<Ad
   }
 
   await db.user.update({ where: { id: userId }, data: { active } });
+  const tActive = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await logActivity({
+    action: active ? "user.activate" : "user.deactivate",
+    summary: `${active ? "activó" : "desactivó"} a ${tActive?.name ?? "un usuario"}`,
+    entityType: "user",
+    entityId: userId,
+  });
   revalidatePath("/configuracion");
   return { ok: true };
 }
@@ -419,6 +426,12 @@ export async function deleteUser(userId: string): Promise<AdminActionResult> {
     if (admins <= 1) return { ok: false, error: "Es el único administrador activo." };
   }
   await db.user.delete({ where: { id: userId } });
+  await logActivity({
+    action: "user.delete",
+    summary: `eliminó al usuario ${target.name}`,
+    entityType: "user",
+    entityId: userId,
+  });
   revalidatePath("/configuracion");
   revalidatePath("/", "layout");
   return { ok: true };
@@ -430,6 +443,13 @@ export async function setUserGuest(userId: string, isGuest: boolean): Promise<Ad
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
   await db.user.update({ where: { id: userId }, data: { isGuest } });
+  const tGuest = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await logActivity({
+    action: "user.guest",
+    summary: `${isGuest ? "marcó como invitado" : "quitó el estado de invitado"} a ${tGuest?.name ?? "un usuario"}`,
+    entityType: "user",
+    entityId: userId,
+  });
   revalidatePath("/configuracion");
   revalidatePath("/", "layout");
   return { ok: true };

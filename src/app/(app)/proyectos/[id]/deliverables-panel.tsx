@@ -122,7 +122,7 @@ function PhotoManager({ deliverableId, projectId, canManage, photos }: { deliver
                   </a>
                   <span className={cn("absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium", meta.cls)}>{meta.label}</span>
                   {canManage ? (
-                    <form action={deleteDeliverablePhoto.bind(null, p.id, projectId)} className="absolute right-1 top-1 opacity-0 group-hover:opacity-100">
+                    <form action={deleteDeliverablePhoto.bind(null, p.id, projectId)} className="absolute right-1 top-1 opacity-100 md:opacity-0 md:group-hover:opacity-100">
                       <ConfirmSubmit message={`¿Eliminar la foto «${p.filename}»?`} className="flex size-6 items-center justify-center rounded bg-background/80 text-muted-foreground hover:text-destructive" title="Eliminar foto">
                         <Trash2 className="size-3.5" />
                       </ConfirmSubmit>

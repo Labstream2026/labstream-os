@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { formatMoney, quoteStatusMeta, formatShortDate, quoteTotals } from "@/lib/ui";
 import { composeQuoteTotals } from "@/lib/quote-compose";
+import { effectiveInvoiceStatus } from "@/lib/billing";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
@@ -14,12 +15,6 @@ import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib
 import { ServicesCatalog } from "./services-catalog";
 
 export const dynamic = "force-dynamic";
-
-// Estado efectivo de una FACTURA: ENVIADA con vencimiento pasado cuenta como VENCIDA.
-function effectiveInvoiceStatus(status: string, dueDate: Date | null): string {
-  if (status === "ENVIADA" && dueDate && new Date(dueDate) < new Date()) return "VENCIDA";
-  return status;
-}
 
 // Tarjeta del balance de facturación (resumen de cobro).
 function Money({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {

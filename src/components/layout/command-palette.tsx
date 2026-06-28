@@ -37,12 +37,15 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
     const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: Building2, group: "Clientes" }));
     const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: Rocket, group: "Proyectos" })));
     const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: FileText, group: "Wiki" }));
-    const term = q.trim().toLowerCase();
+    // Normaliza quitando acentos (NFD + strip diacríticos): "diseno" encuentra "Diseño",
+    // "cotizacion" encuentra "Cotización". Antes una tilde de más/menos no encontraba nada.
+    const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const term = norm(q.trim());
     // Las páginas de la Wiki solo se listan al buscar (pueden ser muchas); sin
     // término mostramos navegación, clientes y proyectos.
     const all = term ? [...PAGES, ...clientItems, ...projectItems, ...wikiItems] : [...PAGES, ...clientItems, ...projectItems];
     if (!term) return all;
-    return all.filter((i) => i.label.toLowerCase().includes(term) || (i.sub ?? "").toLowerCase().includes(term));
+    return all.filter((i) => norm(i.label).includes(term) || norm(i.sub ?? "").includes(term));
   }, [clients, wikiPages, q]);
 
   React.useEffect(() => { if (active >= items.length) setActive(0); }, [items.length, active]);

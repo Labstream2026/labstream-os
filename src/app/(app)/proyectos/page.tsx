@@ -118,16 +118,27 @@ export default async function ProyectosPage() {
         </Link>
       </div>
 
-      <div className="mt-8">
-        <ViewTabs
-          storageKey="proyectos-view"
-          views={[
-            { key: "tablero-v", label: "Tablero vertical", icon: "▤", node: boardV },
-            { key: "tablero-h", label: "Tablero horizontal", icon: "▥", node: boardH },
-            { key: "lista", label: "Lista", icon: "☰", node: list },
-          ]}
-        />
-      </div>
+      {total === 0 ? (
+        <div className="mt-12 flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+          <div className="text-4xl">🎬</div>
+          <h2 className="mt-3 text-lg font-semibold">Aún no hay proyectos</h2>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">Crea tu primer proyecto para organizar tareas, entregables, cronograma y archivos por cliente.</p>
+          <Link href="/proyectos/nuevo" className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <Plus className="size-4" /> Crear proyecto
+          </Link>
+        </div>
+      ) : (
+        <div className="mt-8">
+          <ViewTabs
+            storageKey="proyectos-view"
+            views={[
+              { key: "tablero-v", label: "Tablero vertical", icon: "▤", node: boardV },
+              { key: "tablero-h", label: "Tablero horizontal", icon: "▥", node: boardH },
+              { key: "lista", label: "Lista", icon: "☰", node: list },
+            ]}
+          />
+        </div>
+      )}
     </div>
   );
 }

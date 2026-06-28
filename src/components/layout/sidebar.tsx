@@ -287,7 +287,7 @@ export function Sidebar({
                     onClick={() => removeClient(c.id, c.name)}
                     title="Archivar cliente"
                     aria-label={`Archivar ${c.name}`}
-                    className="mr-1 hidden size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive group-hover/cli:flex"
+                    className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive md:hidden md:group-hover/cli:flex"
                   >
                     <Archive className="size-3.5" />
                   </button>

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Plus, Trash2, Sparkles, GripVertical } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { formatMoney } from "@/lib/ui";
@@ -36,6 +36,9 @@ export function QuoteEditor({
   const [items, setItems] = React.useState<Item[]>(initialItems);
   const [pending, start] = React.useTransition();
   const [composing, setComposing] = React.useState(false);
+  // Error de guardado visible: ANTES `commit` era fire-and-forget y un fallo (sin permiso,
+  // cotización ya enviada, red caída) perdía el cambio de PRECIO en silencio. Ahora se avisa.
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   React.useEffect(() => setItems(initialItems), [initialItems]);
 
@@ -46,12 +49,31 @@ export function QuoteEditor({
     );
   };
 
+  // Guarda una línea y, si falla, lo dice claramente. El valor editado sigue en pantalla para
+  // que se pueda reintentar (volviendo a salir del campo) sin perder lo escrito.
   const commit = (it: Item) => {
-    updateItem(it.id, { section: it.section, description: it.description, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice });
+    setSaveError(null);
+    start(async () => {
+      try {
+        await updateItem(it.id, { section: it.section, description: it.description, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice });
+      } catch (e) {
+        setSaveError(`No se pudo guardar «${it.description || "la línea"}»: ${e instanceof Error ? e.message : "error desconocido"}. Tu cambio sigue en pantalla; reintenta saliendo del campo de nuevo.`);
+      }
+    });
+  };
+
+  // Igual para quitar/reordenar: si fallan, se avisa en vez de quedar en un estado inconsistente.
+  const safeRemove = (id: string) => {
+    setSaveError(null);
+    start(async () => {
+      try { await removeItem(id); } catch (e) { setSaveError(`No se pudo quitar la línea: ${e instanceof Error ? e.message : "error"}.`); }
+    });
   };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // Táctil: arrastrar para reordenar líneas con el dedo sin bloquear el scroll.
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     // Accesibilidad: reordenar con teclado (Espacio para tomar, flechas para mover, Espacio para soltar).
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
@@ -61,9 +83,18 @@ export function QuoteEditor({
     const from = items.findIndex((i) => i.id === active.id);
     const to = items.findIndex((i) => i.id === over.id);
     if (from < 0 || to < 0) return;
+    const prev = items;
     const next = arrayMove(items, from, to);
     setItems(next);
-    start(() => reorderQuoteItems(quoteId, next.map((i) => i.id)));
+    setSaveError(null);
+    start(async () => {
+      try {
+        await reorderQuoteItems(quoteId, next.map((i) => i.id));
+      } catch (e) {
+        setItems(prev); // revertir el orden si el servidor lo rechaza
+        setSaveError(`No se pudo reordenar: ${e instanceof Error ? e.message : "error"}.`);
+      }
+    });
   };
 
   const { costSubtotal, contingency, clientSubtotal, tax, total } = composeQuoteTotals(items, { taxRate, contingencyPct });
@@ -86,6 +117,12 @@ export function QuoteEditor({
 
   return (
     <div className="space-y-3">
+      {saveError ? (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span className="flex-1">{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="shrink-0 text-lg leading-none text-destructive/70 hover:text-destructive" aria-label="Descartar aviso">×</button>
+        </div>
+      ) : null}
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => setComposing((v) => !v)} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
@@ -123,7 +160,7 @@ export function QuoteEditor({
                     <tr><td colSpan={colCount} className="px-4 py-6 text-center text-sm text-muted-foreground">Sin conceptos todavía. Compón desde el catálogo o añade una línea.</td></tr>
                   ) : null}
                   {items.map((it) => (
-                    <SortableRow key={it.id} it={it} canEdit={canEdit} pending={pending} currency={currency} patch={patch} commit={commit} onRemove={() => start(() => removeItem(it.id))} />
+                    <SortableRow key={it.id} it={it} canEdit={canEdit} pending={pending} currency={currency} patch={patch} commit={commit} onRemove={() => safeRemove(it.id)} />
                   ))}
                 </tbody>
               </SortableContext>

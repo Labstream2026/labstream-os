@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
+import { SubmitButton } from "@/components/submit-button";
 import { createQuote } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -78,9 +79,9 @@ export default async function NuevaCotizacionPage() {
           </select>
         </div>
 
-        <button className="w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+        <SubmitButton pendingText="Creando…" className="w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           Crear cotización
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

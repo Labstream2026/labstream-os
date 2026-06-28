@@ -12,7 +12,7 @@ import {
   type Table as RTable,
 } from "@tanstack/react-table";
 import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil, GripVertical } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { UserAvatar } from "@/components/user-avatar";
@@ -95,7 +95,12 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
   const [cols, setCols] = React.useState<Column[]>(table.columns);
   React.useEffect(() => { setCols(table.columns); }, [table.columns]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  // PointerSensor para ratón/lápiz; TouchSensor con retardo para que arrastrar la columna
+  // funcione con el dedo SIN bloquear el scroll vertical de la tabla (patrón de tasks-board).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
   const onDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
@@ -186,7 +191,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
                       </td>
                     ))}
                     <td className="px-2 text-center">
-                      <button onClick={() => run(() => deleteRow(row.id))} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar fila"><Trash2 className="size-3.5" /></button>
+                      <button onClick={() => run(() => deleteRow(row.id))} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar fila"><Trash2 className="size-3.5" /></button>
                     </td>
                   </tr>
                 );
@@ -228,9 +233,9 @@ function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (
           className="w-full bg-transparent outline-none focus:text-foreground"
         />
         <button onClick={() => tc?.toggleSorting()} className="text-muted-foreground hover:text-foreground" title="Ordenar">
-          {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-40 group-hover:opacity-100" />}
+          {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-100 md:opacity-40 md:group-hover:opacity-100" />}
         </button>
-        <button onClick={async () => { if (await confirm({ title: "Eliminar columna", message: `¿Eliminar la columna «${col.name}»? Se borran sus datos en todas las filas.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteColumn(col.id)); }} className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" title="Eliminar columna">
+        <button onClick={async () => { if (await confirm({ title: "Eliminar columna", message: `¿Eliminar la columna «${col.name}»? Se borran sus datos en todas las filas.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteColumn(col.id)); }} className="text-muted-foreground opacity-100 hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar columna">
           <Trash2 className="size-3.5" />
         </button>
       </div>

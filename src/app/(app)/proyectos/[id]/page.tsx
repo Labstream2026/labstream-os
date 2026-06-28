@@ -371,7 +371,7 @@ export default async function ProyectoPage({
               Calendario de <span className="font-medium text-foreground">{project.name}</span>: citas y reuniones del
               proyecto, tareas (entrega y rodaje) e hitos (inicio, entrega y entregables).
             </p>
-            <div className="h-[74vh]">
+            <div className="h-[74vh] min-h-[26rem]">
               <CalendarBoard
                 items={projectCalItems}
                 onCreate={canWriteProject(project, session) ? createMyEvent : undefined}

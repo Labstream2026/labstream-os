@@ -288,7 +288,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             {
               key: "calendario", label: "Calendario", icon: "📅",
               node: (
-                <div className="h-[72vh]">
+                <div className="h-[72vh] min-h-[26rem]">
                   <CalendarBoard
                     items={clientCalItems}
                     onCreate={projects.length ? createMyEvent : undefined}

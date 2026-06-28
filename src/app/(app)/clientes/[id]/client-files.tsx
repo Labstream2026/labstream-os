@@ -86,7 +86,7 @@ export function ClientFilesPanel({ clientId, files, canEdit }: { clientId: strin
                     ) : null}
                     {canEdit ? (
                       <form action={deleteClientFile.bind(null, file.id, clientId)}>
-                        <ConfirmSubmit message={`¿Eliminar «${file.name}»?`} confirmLabel="Eliminar" className="text-muted-foreground hover:text-destructive opacity-0 group-hover/file:opacity-100" title="Eliminar">
+                        <ConfirmSubmit message={`¿Eliminar «${file.name}»?`} confirmLabel="Eliminar" className="text-muted-foreground hover:text-destructive opacity-100 md:opacity-0 md:group-hover/file:opacity-100" title="Eliminar">
                           <Trash2 className="size-3.5" />
                         </ConfirmSubmit>
                       </form>

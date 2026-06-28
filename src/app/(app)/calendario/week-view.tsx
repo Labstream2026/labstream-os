@@ -192,8 +192,12 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
         </div>
       </div>
 
-      {/* Rejilla a borde completo que llena el alto disponible (estilo Notion) */}
-      <div className="flex min-h-0 flex-1 flex-col border-t border-border/50 bg-card">
+      {/* Rejilla a borde completo que llena el alto disponible (estilo Notion).
+          En móvil hace scroll HORIZONTAL: con 7 columnas + horas, por debajo de ~680px las
+          columnas quedarían ilegibles, así que el ancho mínimo fuerza el scroll lateral y las
+          tres rejillas (cabecera, todo-el-día y horas) se desplazan juntas y alineadas. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden border-t border-border/50 bg-card">
+        <div className="flex min-h-0 min-w-[680px] flex-1 flex-col">
           {/* Cabecera de días */}
           <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
             <div />
@@ -332,6 +336,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
               ) : null}
             </div>
           </div>
+        </div>
       </div>
       {/* El detalle de la selección se muestra en el panel derecho (dock), partido sobre el chat. */}
     </div>
