@@ -1,13 +1,13 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Users, X, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { markAllNotificationsRead, markNotificationRead } from "@/lib/notify-actions";
+import { markAllNotificationsRead, markNotificationRead, deleteNotification } from "@/lib/notify-actions";
 import {
   showNative,
   ensureNotifyPermission,
@@ -97,29 +97,84 @@ function NotifAvatar({ n }: { n: NotificationItem }) {
   );
 }
 
-function NotifRow({ n, onPick, showActor }: { n: NotificationItem; onPick: (n: NotificationItem) => void; showActor: boolean }) {
-  const inner = (
-    <div className={cn("flex items-start gap-3 px-4 py-2.5 transition-colors hover:bg-accent", !n.read && "bg-primary/5")}>
-      <NotifAvatar n={n} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-medium leading-snug">{n.title}</p>
-          <span suppressHydrationWarning className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
-        </div>
-        {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{n.body}</p> : null}
-        {showActor && n.actor ? <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{n.actor.name}</p> : null}
+function NotifRow({ n, onPick, onDelete, showActor }: { n: NotificationItem; onPick: (n: NotificationItem) => void; onDelete: (n: NotificationItem) => void; showActor: boolean }) {
+  const router = useRouter();
+  const startX = React.useRef(0);
+  const startY = React.useRef(0);
+  const swiping = React.useRef(false);
+  const [dx, setDx] = React.useState(0);
+  const [removing, setRemoving] = React.useState(false);
+
+  const remove = () => {
+    setRemoving(true);
+    window.setTimeout(() => onDelete(n), 160); // deja correr la animación de salida
+  };
+
+  // Deslizar para borrar (móvil): solo si el gesto es claramente horizontal (no choca con el scroll).
+  const onTouchStart = (e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
+    swiping.current = false;
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const ddx = e.touches[0].clientX - startX.current;
+    const ddy = e.touches[0].clientY - startY.current;
+    if (!swiping.current && Math.abs(ddx) > 12 && Math.abs(ddx) > Math.abs(ddy)) swiping.current = true;
+    if (swiping.current) setDx(ddx);
+  };
+  const onTouchEnd = () => {
+    if (swiping.current && Math.abs(dx) > 96) remove();
+    else setDx(0);
+  };
+
+  const activate = () => {
+    if (Math.abs(dx) > 8) { setDx(0); return; } // fue deslizamiento, no toque
+    onPick(n);
+    if (n.link) router.push(n.link);
+  };
+
+  return (
+    <div className="group/row relative border-b border-border last:border-0">
+      {/* Fondo de "borrar" que asoma al deslizar la fila. */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-between bg-destructive/10 px-4 text-destructive">
+        <Trash2 className="size-4" />
+        <Trash2 className="size-4" />
       </div>
-      {!n.read ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={activate}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{ transform: `translateX(${dx}px)`, opacity: removing ? 0 : 1, transition: swiping.current ? "none" : "transform .2s ease, opacity .15s ease" }}
+        className={cn(
+          "relative flex cursor-pointer items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-accent",
+          n.read ? "bg-popover" : "bg-primary/5",
+        )}
+      >
+        <NotifAvatar n={n} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-medium leading-snug">{n.title}</p>
+            <span suppressHydrationWarning className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
+          </div>
+          {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{n.body}</p> : null}
+          {showActor && n.actor ? <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{n.actor.name}</p> : null}
+        </div>
+        {!n.read ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
+        {/* Borrar — escritorio: aparece al pasar el cursor; móvil: se usa el deslizamiento. */}
+        <button
+          type="button"
+          aria-label="Borrar notificación"
+          onClick={(e) => { e.stopPropagation(); remove(); }}
+          className="absolute right-1.5 top-1/2 hidden size-7 -translate-y-1/2 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover/row:opacity-100 md:flex"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
     </div>
-  );
-  return n.link ? (
-    <Link href={n.link} onClick={() => onPick(n)} className="block border-b border-border last:border-0">
-      {inner}
-    </Link>
-  ) : (
-    <button type="button" onClick={() => onPick(n)} className="block w-full border-b border-border text-left last:border-0">
-      {inner}
-    </button>
   );
 }
 
@@ -186,9 +241,12 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   function toggle() {
     const next = !open;
     setOpen(next);
-    // Al abrir solo refrescamos: las notificaciones NO se marcan leídas en bloque
-    // (eso vaciaba el contador al instante). Se marcan al hacer clic o con «Marcar todas».
-    if (next) void refresh();
+    // Al ABRIR el panel, el contador vuelve a cero (se marca todo como leído). Si no había
+    // pendientes, solo se refresca para traer lo más reciente.
+    if (next) {
+      if (unread > 0) markAll();
+      else void refresh();
+    }
   }
 
   // Marca una al abrirla (y navega si tiene enlace).
@@ -206,6 +264,13 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     setList((prev) => prev.map((n) => ({ ...n, read: true })));
     void markAllNotificationsRead().then(refresh).catch(() => {});
   }, [refresh]);
+
+  // Borra una notificación (deslizar en móvil / botón en escritorio). Optimista + persiste.
+  const deleteOne = React.useCallback((n: NotificationItem) => {
+    setList((prev) => prev.filter((x) => x.id !== n.id));
+    if (!n.read) setUnread((u) => Math.max(0, u - 1));
+    void deleteNotification(n.id).catch(() => {});
+  }, []);
 
   // Lista filtrada según la pestaña activa.
   const filtered = React.useMemo(
@@ -338,7 +403,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                       <span className="text-[10px] text-muted-foreground">· {g.items.length}</span>
                     </div>
                     {g.items.map((n) => (
-                      <NotifRow key={n.id} n={n} onPick={onPick} showActor={false} />
+                      <NotifRow key={n.id} n={n} onPick={onPick} onDelete={deleteOne} showActor={false} />
                     ))}
                   </div>
                 ))
@@ -347,7 +412,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                   <div key={bk.label}>
                     <div className="bg-muted/40 px-4 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{bk.label}</div>
                     {bk.items.map((n) => (
-                      <NotifRow key={n.id} n={n} onPick={onPick} showActor />
+                      <NotifRow key={n.id} n={n} onPick={onPick} onDelete={deleteOne} showActor />
                     ))}
                   </div>
                 ))

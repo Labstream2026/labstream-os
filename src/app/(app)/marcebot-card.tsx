@@ -10,13 +10,21 @@ const ADMIN_ROLES = ["admin", "gerente", "productor"];
 export async function MarcebotCard({ userId, name, roleKey }: { userId: string; name: string; roleKey: string }) {
   const openKeys = await openStatusKeys();
   const isAdmin = ADMIN_ROLES.includes(roleKey);
-  const [u, p, chases, leadEsc, team, esc] = await Promise.all([
+  const [u, p, chases, leadEsc, team, esc, mentions] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { gender: true } }),
     getUserPendientes(userId, openKeys),
     getUserChases(userId),
     getLeadEscalations(userId, openKeys),
     isAdmin ? getTeamSummary(openKeys) : Promise.resolve(null),
     isAdmin ? getTeamEscalation(openKeys) : Promise.resolve(null),
+    // @menciones sin leer: si alguien te etiquetó en un chat, Marcebot te lo dice aquí y al
+    // tocar te lleva al chat (el enlace ya apunta a /chat/<canal>).
+    db.notification.findMany({
+      where: { userId, type: "mention", read: false },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, title: true, body: true, link: true },
+    }),
   ]);
   const voc = vocativo(u?.gender as Gender);
   const firstName = name.split(" ")[0];
@@ -45,6 +53,22 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
               <p className="font-semibold">Marcebot</p>
               <span className="text-xs text-muted-foreground">tu copiloto del día</span>
             </div>
+
+            {/* Te etiquetaron: aparece siempre que haya menciones sin leer (clic → al chat). */}
+            {mentions.length ? (
+              <div className="mt-3 rounded-xl border border-rose-300/50 bg-rose-50/70 p-3 dark:border-rose-500/25 dark:bg-rose-500/10">
+                <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">📣 Te etiquetaron</p>
+                <ul className="mt-1 space-y-0.5">
+                  {mentions.map((m) => (
+                    <li key={m.id}>
+                      <Link href={m.link ?? "/chat"} className="block truncate text-sm text-foreground hover:underline">
+                        {m.title}{m.body ? ` — “${m.body}”` : ""}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             {showActionable ? (
               <>
@@ -106,7 +130,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
                   </div>
                 ) : null}
               </>
-            ) : (
+            ) : mentions.length ? null : (
               <p className="mt-1 text-sm">
                 ¡Vas al día, {voc}! 🎉 No tienes pendientes urgentes. Disfruta tu jornada.
               </p>

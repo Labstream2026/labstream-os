@@ -47,7 +47,8 @@ export function TeamTasksBoard({
   const [q, setQ] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<Set<string>>(new Set());
-  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
+  // Por defecto cada persona aparece RETRAÍDA; el usuario despliega a quien quiere ver.
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [, startTransition] = React.useTransition();
 
   const setBusyFor = (id: string, on: boolean) =>
@@ -130,12 +131,13 @@ export function TeamTasksBoard({
 
       <div className="space-y-3">
         {groups.map((g) => {
-          const isOpen = !collapsed[g.key];
+          // Retraído por defecto; al buscar se abren todos para ver las coincidencias.
+          const isOpen = term.length > 0 || !!expanded[g.key];
           return (
             <section key={g.key} className="overflow-hidden rounded-xl border border-border bg-card">
               <button
                 type="button"
-                onClick={() => setCollapsed((c) => ({ ...c, [g.key]: !c[g.key] }))}
+                onClick={() => setExpanded((c) => ({ ...c, [g.key]: !c[g.key] }))}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/40"
               >
                 <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
