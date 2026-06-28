@@ -13,11 +13,14 @@ export type NoteItem = {
   category: string | null;
   source: string;
   pinned: boolean;
+  projectId: string | null;
   createdAt: string; // ISO
   updatedAt: string; // ISO
 };
 
-const SOURCE_LABEL: Record<string, string> = { app: "App", chat: "Chat", whatsapp: "WhatsApp" };
+export type NoteProject = { id: string; name: string; emoji: string | null };
+
+const SOURCE_LABEL: Record<string, string> = { app: "App", chat: "Chat", whatsapp: "WhatsApp", api: "API" };
 
 function fmtDate(iso: string): string {
   try {
@@ -35,11 +38,13 @@ function snippet(content: string, title: string): string {
 // Vista de Notas estilo iCloud, a PANTALLA COMPLETA (llena la ventana, sin caja exterior).
 // Dos paneles en escritorio (lista + editor); en móvil, la lista ocupa todo y al tocar una nota
 // se abre el editor a pantalla completa con botón «atrás». Autoguardado con debounce.
-export function NotesApp({ initial }: { initial: NoteItem[] }) {
+export function NotesApp({ initial, projects }: { initial: NoteItem[]; projects: NoteProject[] }) {
+  const projectsById = React.useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const projOf = (id: string | null) => (id ? projectsById.get(id) ?? null : null);
   const [notes, setNotes] = React.useState<NoteItem[]>(initial);
   const [selectedId, setSelectedId] = React.useState<string | null>(initial[0]?.id ?? null);
-  const [draft, setDraft] = React.useState<{ id: string | null; title: string; content: string; category: string }>(
-    initial[0] ? { id: initial[0].id, title: initial[0].title, content: initial[0].content, category: initial[0].category ?? "" } : { id: null, title: "", content: "", category: "" },
+  const [draft, setDraft] = React.useState<{ id: string | null; title: string; content: string; category: string; projectId: string }>(
+    initial[0] ? { id: initial[0].id, title: initial[0].title, content: initial[0].content, category: initial[0].category ?? "", projectId: initial[0].projectId ?? "" } : { id: null, title: "", content: "", category: "", projectId: "" },
   );
   const [isNew, setIsNew] = React.useState(false);
   const [q, setQ] = React.useState("");
@@ -68,11 +73,11 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
   }, [notes, q, catFilter]);
 
   const persist = React.useCallback(
-    (d: { id: string | null; title: string; content: string; category: string }) => {
+    (d: { id: string | null; title: string; content: string; category: string; projectId: string }) => {
       if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
       start(async () => {
-        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category });
+        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null });
         if (r.ok && r.id) {
           const realId = r.id;
           const finalTitle = r.title ?? d.title;
@@ -83,8 +88,8 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             return exists
-              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, updatedAt } : n))
-              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
+              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, updatedAt } : n))
+              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
@@ -96,7 +101,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
     [selectedId],
   );
 
-  function onChange(patch: Partial<{ title: string; content: string; category: string }>) {
+  function onChange(patch: Partial<{ title: string; content: string; category: string; projectId: string }>) {
     setDraft((cur) => {
       const next = { ...cur, ...patch };
       if (timer.current) clearTimeout(timer.current);
@@ -115,7 +120,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
     flushThen(() => {
       setSelectedId(n.id);
       setIsNew(false);
-      setDraft({ id: n.id, title: n.title, content: n.content, category: n.category ?? "" });
+      setDraft({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "" });
       setMobileEditorOpen(true);
     });
   }
@@ -124,7 +129,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
     flushThen(() => {
       setSelectedId(null);
       setIsNew(true);
-      setDraft({ id: null, title: "", content: "", category: "" });
+      setDraft({ id: null, title: "", content: "", category: "", projectId: "" });
       setMobileEditorOpen(true);
     });
   }
@@ -135,8 +140,8 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
       setNotes((prev) => {
         const rest = prev.filter((n) => n.id !== id);
         if (selectedId === id) {
-          if (rest[0]) { setSelectedId(rest[0].id); setDraft({ id: rest[0].id, title: rest[0].title, content: rest[0].content, category: rest[0].category ?? "" }); }
-          else { setSelectedId(null); setDraft({ id: null, title: "", content: "", category: "" }); setIsNew(false); }
+          if (rest[0]) { setSelectedId(rest[0].id); setDraft({ id: rest[0].id, title: rest[0].title, content: rest[0].content, category: rest[0].category ?? "", projectId: rest[0].projectId ?? "" }); }
+          else { setSelectedId(null); setDraft({ id: null, title: "", content: "", category: "", projectId: "" }); setIsNew(false); }
         }
         return rest;
       });
@@ -187,6 +192,7 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
                     {n.pinned ? <Pin className="size-3 shrink-0 fill-amber-500 text-amber-500" /> : null}
                     <span className="truncate">{n.title}</span>
                     {n.source !== "app" ? <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">{SOURCE_LABEL[n.source] ?? n.source}</span> : null}
+                    {projOf(n.projectId) ? <span className="shrink-0 truncate rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{projOf(n.projectId)!.emoji ?? "📂"} {projOf(n.projectId)!.name}</span> : null}
                   </p>
                   <p className="truncate text-xs text-muted-foreground"><span className="text-foreground/70">{fmtDate(n.updatedAt)}</span> · {snippet(n.content, n.title)}</p>
                 </button>
@@ -239,12 +245,25 @@ export function NotesApp({ initial }: { initial: NoteItem[] }) {
                 placeholder="Título"
                 className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/40 sm:text-3xl"
               />
-              <input
-                value={draft.category}
-                onChange={(e) => onChange({ category: e.target.value })}
-                placeholder="Categoría (opcional)"
-                className="w-full bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/40"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={draft.category}
+                  onChange={(e) => onChange({ category: e.target.value })}
+                  placeholder="Categoría (opcional)"
+                  className="min-w-32 flex-1 bg-transparent text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/40"
+                />
+                {projects.length ? (
+                  <select
+                    value={draft.projectId}
+                    onChange={(e) => onChange({ projectId: e.target.value })}
+                    className="max-w-[60%] cursor-pointer rounded-md bg-transparent text-xs text-muted-foreground outline-none hover:text-foreground"
+                    title="Vincular esta nota a un proyecto"
+                  >
+                    <option value="">📂 Sin proyecto</option>
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.name}</option>)}
+                  </select>
+                ) : null}
+              </div>
               <textarea
                 value={draft.content}
                 onChange={(e) => onChange({ content: e.target.value })}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
+import { accessibleProjectWhere } from "@/lib/project-access";
 
 // Notas rápidas del usuario. Se crean/editan desde la vista /notas (estilo iCloud), desde el
 // chat (Marcebot) o desde WhatsApp (campo `source`). Cada quien gestiona las suyas (los admins
@@ -11,24 +12,33 @@ import { logActivity } from "@/lib/activity";
 
 // Crea o actualiza (upsert) una nota. Si llega `id`, edita la nota propia; si no, crea una nueva.
 // Devuelve datos para que el editor del cliente refresque su estado sin recargar.
-export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
+export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null; projectId?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
   const content = (input.content ?? "").trim();
   const title = (input.title ?? "").trim() || content.replace(/\s+/g, " ").slice(0, 60) || "Nota sin título";
   const category = (input.category ?? "")?.toString().trim() || null;
+  // Proyecto vinculado (opcional). `undefined` = no tocar; "" o id inaccesible → se deja sin proyecto.
+  let projectId: string | null | undefined = undefined;
+  if (input.projectId !== undefined) {
+    projectId = null;
+    if (input.projectId) {
+      const p = await db.project.findFirst({ where: { AND: [accessibleProjectWhere(session), { id: input.projectId }] }, select: { id: true } });
+      if (p) projectId = p.id;
+    }
+  }
 
   if (input.id) {
     const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true } });
     if (!existing) return { ok: false, error: "La nota no existe" };
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
-    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
+    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
     revalidatePath("/notas");
     return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
   }
 
   const n = await db.note.create({
-    data: { title, content, category, source: "app", createdById: session.id },
+    data: { title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null },
     select: { id: true, title: true, createdAt: true, updatedAt: true },
   });
   await logActivity({ action: "note.create", summary: `creó la nota «${title}»`, entityType: "note", entityId: n.id }).catch(() => null);
