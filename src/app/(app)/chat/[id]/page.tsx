@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
+import { MuteToggle } from "@/components/chat/mute-toggle";
 import { MARCEBOT_EMAIL, MARCEBOT_NAME } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
@@ -95,6 +96,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
             <Lock className="size-5 shrink-0 text-amber-600" />
           )}
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
+          {isMember ? <MuteToggle channelId={id} muted={channel.members.find((m) => m.user.id === session.id)?.muted ?? false} /> : null}
           {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
           {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
         </div>

@@ -287,7 +287,7 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
 async function notifyChannelMessage(channelId: string, authorId: string, authorName: string, body: string) {
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { type: true, name: true, slug: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } },
+    select: { type: true, name: true, slug: true, members: { select: { userId: true, muted: true, user: { select: { isSystemBot: true } } } } },
   });
   if (!channel) return;
   const isBroadcast = channel.type === "GENERAL" && !!channel.slug; // general / estados-equipo
@@ -300,6 +300,7 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
   for (const m of channel.members) {
     if (m.userId === authorId) continue;
     if (m.user?.isSystemBot) continue; // no notificar/emailar a bots del sistema (Marcebot)
+    if (m.muted) continue; // el usuario silenció este canal (las @menciones sí llegan, en notifyMentions)
     // En app (sin email para no saturar). Los DMs sí van también por correo.
     if (isDM) {
       await notifyAndEmail(m.userId, { type: "dm", event: "chat_dm", title, body: body.slice(0, 140), link, actorId: authorId });
@@ -325,6 +326,26 @@ export async function toggleReaction(channelId: string, messageId: string, emoji
   const all = await db.messageReaction.findMany({ where: { messageId }, select: { emoji: true, userId: true } });
   publishReactionUpdate(channelId, messageId, all);
   return all;
+}
+
+// Silenciar/reactivar los avisos de un canal para el USUARIO actual. Las @menciones siguen
+// llegando (como en Slack). Devuelve el nuevo estado (true = silenciado) o null si no aplica
+// (no es miembro / sin acceso).
+export async function toggleChannelMute(channelId: string): Promise<boolean | null> {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) return null;
+  const existing = await db.channelMember.findUnique({
+    where: { channelId_userId: { channelId, userId: session.id } },
+    select: { muted: true },
+  });
+  if (!existing) return null; // no es miembro del canal: no hay preferencia que guardar
+  const muted = !existing.muted;
+  await db.channelMember.update({
+    where: { channelId_userId: { channelId, userId: session.id } },
+    data: { muted },
+  });
+  revalidatePath(`/chat/${channelId}`);
+  return muted;
 }
 
 export async function sendMessage(

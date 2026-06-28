@@ -777,6 +777,9 @@ model ChannelMember {
   userId     String
   role       ChannelRole @default(MEMBER)
   lastReadAt DateTime? // última vez que el usuario abrió el canal (para no leídos)
+  // Silenciado por ESTE usuario: deja de recibir avisos de mensajes nuevos del canal. Las
+  // menciones directas (@) SÍ siguen llegando (igual que en Slack). No afecta a otros miembros.
+  muted      Boolean     @default(false)
   createdAt  DateTime    @default(now())
 
   @@id([channelId, userId])

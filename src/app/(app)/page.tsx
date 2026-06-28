@@ -111,6 +111,8 @@ export default async function HomePage() {
   // usuario puede ver proyectos; reutiliza el mismo armado que el Cronograma general.
   const canSeeCronograma = hasPermission(session, "ver_proyectos");
   const canReports = hasPermission(session, "ver_reportes");
+  // La vista "Tareas del equipo" (todas las tareas del equipo, con reasignación) es SOLO admin.
+  const isAdmin = hasPermission(session, "administrar_usuarios");
   const cronograma = canSeeCronograma
     ? await buildSessionTimeline(session, { activeOnly: true })
     : { clients: [], milestones: [], undatedCount: 0 };
@@ -255,7 +257,7 @@ export default async function HomePage() {
             views={[
               { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
               { key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> },
-              { key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> },
+              ...(isAdmin ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
             ]}
           />
         </div>
