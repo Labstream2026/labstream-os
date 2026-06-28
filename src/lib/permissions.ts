@@ -18,6 +18,7 @@ export const PERMISSION_CATEGORIES = [
   "Clientes",
   "Calendario",
   "Chat",
+  "Notas",
   "Asistente IA",
   "Wiki",
   "Biblioteca",
@@ -62,6 +63,10 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "crear_canales", label: "Crear canales", category: "Chat" },
   { key: "moderar_chat", label: "Moderar el chat", category: "Chat" },
   { key: "comentar", label: "Comentar", category: "Chat" },
+  // Notas (notas rápidas personales; también accesibles por la API y Marcebot)
+  { key: "ver_notas", label: "Ver notas", category: "Notas" },
+  { key: "crear_notas", label: "Crear notas", category: "Notas" },
+  { key: "editar_notas", label: "Editar notas", category: "Notas" },
   // Asistente IA
   { key: "ver_asistente", label: "Ver Asistente IA", category: "Asistente IA" },
   // Wiki
@@ -203,6 +208,21 @@ export async function ensureAsistenteDefault(): Promise<void> {
       skipDuplicates: true,
     });
   }
+}
+
+// Las NOTAS antes eran de acceso universal (cualquier usuario con sesión las creaba/veía, en la
+// app, por chat o por WhatsApp). Al añadir los permisos ver/crear/editar_notas para poder
+// acotarlos en las API keys, se conceden a TODOS los roles existentes la PRIMERA vez, para no
+// quitarle el acceso a nadie. Idempotente: si ya hay alguna asignación de notas, no re-corre.
+const NOTAS_PERMS = ["ver_notas", "crear_notas", "editar_notas"];
+export async function ensureNotasDefault(): Promise<void> {
+  const perms = await db.permission.findMany({ where: { key: { in: NOTAS_PERMS } }, select: { id: true } });
+  if (perms.length < NOTAS_PERMS.length) return; // el catálogo aún no se sincronizó
+  const already = await db.rolePermission.count({ where: { permissionId: { in: perms.map((p) => p.id) } } });
+  if (already > 0) return;
+  const roles = await db.role.findMany({ select: { id: true } });
+  const data = roles.flatMap((r) => perms.map((p) => ({ roleId: r.id, permissionId: p.id })));
+  if (data.length) await db.rolePermission.createMany({ data, skipDuplicates: true });
 }
 
 // El reporte de "Cumplimiento del equipo" es sensible (mide a cada persona). Por

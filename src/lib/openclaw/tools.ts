@@ -855,6 +855,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "create_note": {
+      if (!hasPermission(session, "crear_notas")) return "No tienes permiso para crear notas.";
       const content = str(args.content);
       if (!content) return "Falta el contenido de la nota.";
       const title = str(args.title) || content.replace(/\s+/g, " ").slice(0, 60);
@@ -873,6 +874,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "list_notes": {
+      if (!hasPermission(session, "ver_notas")) return "No tienes permiso para ver notas.";
       const where: Record<string, unknown>[] = [];
       // Cada quien ve sus notas; los admins ven todas.
       if (session.role !== "admin") where.push({ createdById: session.id });
@@ -893,6 +895,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "update_note": {
+      if (!hasPermission(session, "editar_notas")) return "No tienes permiso para editar notas.";
       const id = str(args.id);
       if (!id) return "Falta el id de la nota a editar (usa list_notes para ubicarla).";
       const existing = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, content: true, category: true } });

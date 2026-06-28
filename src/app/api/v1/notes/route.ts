@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
+import { hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { logActivity } from "@/lib/activity";
 
@@ -28,6 +29,7 @@ export const NOTE_SELECT = {
 
 // GET /api/v1/notes?q=texto&projectId=...  — lista las notas del titular (admin: todas).
 export const GET = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
+  if (!hasPermission(ctx.session, "ver_notas")) return apiJson({ ok: false, error: "Sin permiso para ver notas (ver_notas)." }, 403);
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   const projectId = url.searchParams.get("projectId")?.trim();
@@ -47,6 +49,7 @@ export const GET = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
 // POST /api/v1/notes  body { content (req), title?, category?, projectId? } — crea una nota del titular.
 export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
+  if (!hasPermission(ctx.session, "crear_notas")) return apiJson({ ok: false, error: "Sin permiso para crear notas (crear_notas)." }, 403);
   if (bodyTooLarge(req)) return apiJson({ ok: false, error: "Cuerpo demasiado grande." }, 413);
   let body: { title?: unknown; content?: unknown; category?: unknown; projectId?: unknown };
   try {

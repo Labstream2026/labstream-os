@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
+import { hasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { shapeNote, NOTE_SELECT } from "../route";
 
@@ -23,6 +24,7 @@ async function loadOwned(id: string, ctx: ApiKeyContext) {
 
 // GET /api/v1/notes/:id — lee una nota propia (admin: cualquiera).
 export const GET = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
+  if (!hasPermission(ctx.session, "ver_notas")) return apiJson({ ok: false, error: "Sin permiso para ver notas (ver_notas)." }, 403);
   const { id } = await (routeCtx as RouteCtx).params;
   const r = await loadOwned(id, ctx);
   if (r instanceof NextResponse) return r;
@@ -32,6 +34,7 @@ export const GET = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, rout
 // PATCH /api/v1/notes/:id  body { title?, content?, category? } — edita los campos dados (parcial).
 export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
+  if (!hasPermission(ctx.session, "editar_notas")) return apiJson({ ok: false, error: "Sin permiso para editar notas (editar_notas)." }, 403);
   if (bodyTooLarge(req)) return apiJson({ ok: false, error: "Cuerpo demasiado grande." }, 413);
   const { id } = await (routeCtx as RouteCtx).params;
   const r = await loadOwned(id, ctx);
@@ -59,6 +62,7 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
 // DELETE /api/v1/notes/:id — borra una nota propia (admin: cualquiera).
 export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
+  if (!hasPermission(ctx.session, "editar_notas")) return apiJson({ ok: false, error: "Sin permiso para editar notas (editar_notas)." }, 403);
   const { id } = await (routeCtx as RouteCtx).params;
   const r = await loadOwned(id, ctx);
   if (r instanceof NextResponse) return r;
