@@ -17,7 +17,7 @@ import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
-import { Lock } from "lucide-react";
+import { Lock, ChevronRight } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
@@ -39,7 +39,6 @@ export const dynamic = "force-dynamic";
 // las 10 no se vean como un muro plano; un separador sutil marca cada grupo.
 const TABS = [
   { key: "resumen", label: "Resumen", group: "contenido" },
-  { key: "propuesta", label: "Propuesta", group: "contenido" },
   { key: "tareas", label: "Tareas", group: "contenido" },
   { key: "calendario", label: "Calendario", group: "contenido" },
   { key: "cronograma", label: "Cronograma", group: "contenido" },
@@ -227,6 +226,74 @@ export default async function ProyectoPage({
     }),
   ];
 
+  // Panel de entregables, definido una vez y reutilizado en Resumen y en la pestaña Entregables.
+  const emailEnabled = await isEmailEnabled();
+  const deliverablesPanelNode = (
+    <DeliverablesPanel
+      projectId={id}
+      canManage={canManageProject(project, session)}
+      members={team
+        .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
+        .map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+      deliverables={project.deliverables.map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        status: d.status,
+        dueDate: d.dueDate,
+        owner: d.owner,
+        reviewerId: d.reviewerId,
+        reviewExpiresAt: d.reviewExpiresAt,
+        reviewVisits: d.reviewVisits,
+        reviewRevoked: !!d.reviewRevokedAt,
+        reviewAllowDrawings: d.reviewAllowDrawings,
+        cover: d.coverFileAssetId
+          ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }), full: photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null }) }
+          : null,
+        versions: d.versions.map((v) => ({
+          id: v.id,
+          number: v.number,
+          notes: v.notes,
+          fileUrl: v.fileUrl,
+          fileAssetId: v.fileAssetId,
+          internalApproved: v.internalApproved,
+          createdAt: v.createdAt,
+          uploadedBy: v.uploadedBy,
+        })),
+        decisions: d.decisions.map((dec) => ({
+          id: dec.id,
+          versionNumber: dec.versionNumber,
+          stage: dec.stage,
+          result: dec.result,
+          byName: dec.by?.name ?? dec.byName ?? null,
+          note: dec.note,
+          createdAt: dec.createdAt,
+        })),
+        comments: d.reviewComments.map((c) => ({
+          id: c.id,
+          authorName: c.authorName,
+          body: c.body,
+          timecode: c.timecode,
+          versionNumber: c.versionNumber,
+          image: (c.drawingData as { image?: string } | null)?.image ?? null,
+          isNote: c.isNote,
+          resolved: c.resolved,
+          fromClient: c.fromClient,
+          createdAt: c.createdAt,
+        })),
+        photos: d.photos.map((p) => ({
+          id: p.id,
+          filename: p.filename,
+          src: photoViewSrc(p),
+          downloadSrc: photoDownloadSrc(p),
+          pick: p.pick,
+          clientNote: p.clientNote,
+        })),
+      }))}
+      emailEnabled={emailEnabled}
+    />
+  );
+
   return (
     <div className="px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
@@ -312,6 +379,9 @@ export default async function ProyectoPage({
                 canArchive={hasPermission(session, "eliminar_proyectos")}
               />
             ) : null}
+            {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
+            <Resumen project={project} priorities={taskLabels.priorities} />
+            {/* Detalle del proyecto, debajo del resumen. */}
             {hasPermission(session, "editar_proyectos") ? (
               <ProjectDetailsForm
                 projectId={project.id}
@@ -320,21 +390,27 @@ export default async function ProyectoPage({
                 dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
               />
             ) : null}
-            <Resumen project={project} priorities={taskLabels.priorities} />
-          </div>
-        ) : null}
-        {tab === "propuesta" ? (
-          <div className="space-y-4">
+            {/* Propuesta (alcance y entregables): antes una pestaña; ahora plegada aquí. */}
+            <details className="group/brief overflow-hidden rounded-xl border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold">
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open/brief:rotate-90" />
+                Propuesta del proyecto
+                <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
+              </summary>
+              <div className="border-t border-border p-4">
+                <BriefPanel
+                  projectId={id}
+                  scope={project.briefScope}
+                  deliverables={project.briefDeliverables}
+                  canWrite={canWriteProject(project, session)}
+                />
+              </div>
+            </details>
+            {/* Entregables al final (reemplazan la antigua pestaña Propuesta como foco del resumen). */}
             <div>
-              <h2 className="text-sm font-semibold">Propuesta del proyecto</h2>
-              <p className="text-xs text-muted-foreground">Qué vamos a hacer y qué entregaremos — para todo el equipo. No incluye valores ni equipos.</p>
+              <h2 className="mb-3 text-base font-semibold">Entregables</h2>
+              {deliverablesPanelNode}
             </div>
-            <BriefPanel
-              projectId={id}
-              scope={project.briefScope}
-              deliverables={project.briefDeliverables}
-              canWrite={canWriteProject(project, session)}
-            />
           </div>
         ) : null}
         {tab === "tareas" ? (
@@ -396,73 +472,7 @@ export default async function ProyectoPage({
             projectEnd={project.dueDate}
           />
         ) : null}
-        {tab === "entregables" ? (
-          <DeliverablesPanel
-            projectId={id}
-            canManage={canManageProject(project, session)}
-            members={team
-              .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
-              .map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-            deliverables={project.deliverables.map((d) => ({
-              id: d.id,
-              name: d.name,
-              type: d.type,
-              status: d.status,
-              dueDate: d.dueDate,
-              owner: d.owner,
-              reviewerId: d.reviewerId,
-              reviewExpiresAt: d.reviewExpiresAt,
-              reviewVisits: d.reviewVisits,
-              reviewRevoked: !!d.reviewRevokedAt,
-              reviewAllowDrawings: d.reviewAllowDrawings,
-              cover: d.coverFileAssetId
-                ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }), full: photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null }) }
-                : null,
-              versions: d.versions.map((v) => ({
-                id: v.id,
-                number: v.number,
-                notes: v.notes,
-                fileUrl: v.fileUrl,
-                fileAssetId: v.fileAssetId,
-                internalApproved: v.internalApproved,
-                createdAt: v.createdAt,
-                uploadedBy: v.uploadedBy,
-              })),
-              decisions: d.decisions.map((dec) => ({
-                id: dec.id,
-                versionNumber: dec.versionNumber,
-                stage: dec.stage,
-                result: dec.result,
-                byName: dec.by?.name ?? dec.byName ?? null,
-                note: dec.note,
-                createdAt: dec.createdAt,
-              })),
-              comments: d.reviewComments.map((c) => ({
-                id: c.id,
-                authorName: c.authorName,
-                body: c.body,
-                timecode: c.timecode,
-                versionNumber: c.versionNumber,
-                // Imagen capturada (fotograma con la anotación) para que el editor vea
-                // dónde es la corrección directamente en la vista del entregable.
-                image: (c.drawingData as { image?: string } | null)?.image ?? null,
-                isNote: c.isNote,
-                resolved: c.resolved,
-                fromClient: c.fromClient,
-                createdAt: c.createdAt,
-              })),
-              photos: d.photos.map((p) => ({
-                id: p.id,
-                filename: p.filename,
-                src: photoViewSrc(p),
-                downloadSrc: photoDownloadSrc(p),
-                pick: p.pick,
-                clientNote: p.clientNote,
-              })),
-            }))}
-            emailEnabled={await isEmailEnabled()}
-          />
-        ) : null}
+        {tab === "entregables" ? deliverablesPanelNode : null}
         {tab === "archivos" ? (
           <div className="space-y-6">
             {/* Guiones: sección destacada arriba para adjuntar/ver guiones rápido (fusionada en Archivos). */}

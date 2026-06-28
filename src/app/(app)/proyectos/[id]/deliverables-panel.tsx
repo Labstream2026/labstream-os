@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck, Trash2, ImagePlus } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
@@ -253,6 +253,9 @@ export function DeliverablesPanel({
         const hasApproved = d.versions.some((v) => v.internalApproved);
         const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(d.id)}`;
         const isPhoto = d.type === "FOTOGRAFIA";
+        const verCount = isPhoto ? d.photos.length : d.versions.length;
+        const comCount = d.comments.length;
+        const summaryBits = isPhoto ? `${verCount} foto${verCount === 1 ? "" : "s"}` : `${verCount} versión${verCount === 1 ? "" : "es"}`;
         return (
           <div key={d.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -281,6 +284,16 @@ export function DeliverablesPanel({
                 ) : null}
               </div>
             </div>
+
+            {/* Contenido (versiones, correcciones, portada, enlaces) PLEGADO por defecto: así se ve
+                de un vistazo qué entregable abrir. El usuario despliega el que quiere. */}
+            <details className="group/det mt-1">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <ChevronRight className="size-4 shrink-0 transition-transform group-open/det:rotate-90" />
+                <span>Ver contenido y correcciones</span>
+                <span className="text-xs font-normal">· {summaryBits}{comCount > 0 ? ` · ${comCount} comentario${comCount === 1 ? "" : "s"}` : ""}</span>
+              </summary>
+              <div className="pt-1">
 
             {/* Portada del reel (no aplica a galerías de fotos, que tienen su propia cuadrícula) */}
             {!isPhoto ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
@@ -390,6 +403,8 @@ export function DeliverablesPanel({
                 <p className="mt-1.5 text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>
               </>
             ) : null}
+              </div>
+            </details>
           </div>
         );
       })}
