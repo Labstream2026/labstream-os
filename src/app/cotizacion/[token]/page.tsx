@@ -3,6 +3,7 @@ import { verifyQuoteToken } from "@/lib/quote-token";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { QuoteDocument } from "@/components/quote-document";
+import { FitToWidth } from "@/components/fit-to-width";
 import { PrintButton } from "@/components/print-button";
 import { QuoteDecision } from "./decision";
 
@@ -54,6 +55,8 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
         </div>
       ) : null}
 
+      <div className="mx-auto w-full max-w-[820px] px-2 sm:px-4 print:max-w-none print:px-0">
+      <FitToWidth>
       <QuoteDocument
         quote={{
           code: quote.code,
@@ -76,6 +79,8 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
           items: quote.items.map((i) => ({ section: i.section, description: i.description, unit: i.unit, quantity: i.quantity, unitPrice: i.unitPrice })),
         }}
       />
+      </FitToWidth>
+      </div>
 
       {!decided && !expired ? (
         <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">

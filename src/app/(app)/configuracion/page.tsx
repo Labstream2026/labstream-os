@@ -17,6 +17,7 @@ import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
 import { NotificationSettingsPanel } from "./notification-settings-panel";
 import { ApiKeysPanel } from "./api-keys-panel";
+import { AuditLogPanel } from "./audit-log-panel";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "./calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
@@ -235,6 +236,36 @@ export default async function ConfiguracionPage() {
     />
   );
 
+  // ── Sección Auditoría (registro global de actividad; gate ver_actividad) ──
+  const canAudit = hasPermission(session, "ver_actividad");
+  const auditRows = canAudit
+    ? await db.activityLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: {
+          user: { select: { name: true, initials: true, avatarColor: true } },
+          project: { select: { name: true } },
+          client: { select: { name: true } },
+        },
+      })
+    : [];
+  const auditNode = (
+    <AuditLogPanel
+      rows={auditRows.map((a) => ({
+        id: a.id,
+        action: a.action,
+        summary: a.summary,
+        entityType: a.entityType,
+        when: a.createdAt.toISOString(),
+        userName: a.user?.name ?? a.actorName ?? null,
+        userInitials: a.user?.initials ?? null,
+        userColor: a.user?.avatarColor ?? null,
+        projectName: a.project?.name ?? null,
+        clientName: a.client?.name ?? null,
+      }))}
+    />
+  );
+
   // ── Sección Marcebot ──
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 
@@ -271,6 +302,7 @@ export default async function ConfiguracionPage() {
           { key: "labels", label: "Estados y prioridades", icon: "🏷️", node: labelsNode },
           { key: "roles", label: "Roles y permisos", icon: "🔐", node: rolesNode },
           { key: "notificaciones", label: "Notificaciones", icon: "🔔", node: notificacionesNode },
+          ...(canAudit ? [{ key: "auditoria", label: "Auditoría", icon: "📋", node: auditNode }] : []),
           { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
           ...(canApi ? [{ key: "api", label: "API", icon: "🔑", node: apiNode }] : []),
