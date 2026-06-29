@@ -5,6 +5,8 @@ import { getInventoryTableId } from "@/lib/wiki-tables";
 import { getSession } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
 import { ImportInventoryButton } from "./import-button";
+import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { InventoryGallery } from "./inventory-gallery";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,15 @@ export default async function InventarioPage() {
     db.user.findMany({ where: { active: true }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
   ]);
 
+  const shaped = table
+    ? {
+        id: table.id,
+        name: table.name,
+        columns: table.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
+        rows: table.rows.map((r) => ({ id: r.id, cells: cellsToMap(table.columns, r.cells) })),
+      }
+    : null;
+
   return (
     <div className="py-6 sm:py-10">
       <div className="mx-auto max-w-7xl px-4 sm:px-8">
@@ -29,31 +40,26 @@ export default async function InventarioPage() {
         <p className="mt-1 mb-6 text-sm text-muted-foreground">Inventario de equipos: cámaras, streaming, audio, iluminación…</p>
         <WikiTabs />
 
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Inventario</h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Usa el buscador para encontrar un serial o equipo. Filtra por categoría, marca o tags. Puedes añadir columnas y opciones.
+              Sube la foto de cada equipo y mira su disponibilidad de un vistazo. La pestaña <b>Tabla</b> es el editor completo (columnas, opciones, importar).
             </p>
           </div>
           {session?.role === "admin" ? <ImportInventoryButton /> : null}
         </div>
-      </div>
 
-      {/* La tabla usa todo el ancho de la pantalla (solo el padding lateral) para ver mejor las columnas. */}
-      {table ? (
-        <div className="px-4 sm:px-8">
-          <DataTableView
-            team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
-            table={{
-              id: table.id,
-              name: table.name,
-              columns: table.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: (c.options as { id: string; label: string; color: string }[] | null) ?? null })),
-              rows: table.rows.map((r) => ({ id: r.id, cells: cellsToMap(table.columns, r.cells) })),
-            }}
+        {shaped ? (
+          <ViewTabs
+            storageKey="inventario-view"
+            views={[
+              { key: "galeria", label: "Galería", icon: "🖼️", node: <InventoryGallery columns={shaped.columns} rows={shaped.rows} /> },
+              { key: "tabla", label: "Tabla", icon: "📋", node: <DataTableView team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))} table={shaped} /> },
+            ]}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

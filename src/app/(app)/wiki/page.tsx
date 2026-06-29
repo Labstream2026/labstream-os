@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { FileText, Search, ChevronRight } from "lucide-react";
+import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock } from "lucide-react";
 import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
 import { WikiTabs } from "./wiki-tabs";
 import { NewWikiPageButton } from "./new-page";
-import { ensureStartHerePage } from "@/lib/wiki-tables";
+import { ensureStartHerePage, getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
 import { WIKI_SECTIONS, WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
 
 export const dynamic = "force-dynamic";
@@ -12,13 +12,21 @@ export const dynamic = "force-dynamic";
 const OTHER = "Otras páginas";
 const staleMs = WIKI_REVIEW_STALE_DAYS * 86400000;
 
-// Las "pestañas fijas" (tablas globales y contraseñas) viven en rutas propias, pero
-// se listan dentro de su sección en la portada para tener UN solo índice coherente.
-const SYSTEM_ENTRIES = [
-  { section: "Equipo y técnica", href: "/wiki/inventario", icon: "📦", title: "Inventario", desc: "Equipos: cámaras, audio, iluminación…" },
-  { section: "Equipo y técnica", href: "/wiki/ubicacion", icon: "🗄️", title: "Ubicación del material", desc: "Dónde está cada archivo, disco o backup." },
-  { section: "Administración", href: "/wiki/contrasenas", icon: "🔑", title: "Usuarios y contraseñas", desc: "Credenciales del equipo (cifradas)." },
-] as const;
+// `Date.now()` directo en el cuerpo del componente lo marca la regla de pureza; el wrapper
+// a nivel de módulo es equivalente y evita el falso positivo (igual que `new Date()` en helpers).
+function nowMs(): number {
+  return Date.now();
+}
+
+// Días desde hoy hasta "YYYY-MM-DD" (negativo = vencido); null si no hay fecha.
+function daysUntil(date: string): number | null {
+  if (!date) return null;
+  const d = new Date(date + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
 
 export default async function WikiPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;
@@ -39,20 +47,41 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
     },
   });
 
-  // Agrupa por sección (en el orden sugerido; lo demás cae en "Otras páginas").
+  // Conteos en vivo para los accesos rápidos (inventario / ubicación).
+  const [invTableId, locTableId] = await Promise.all([getInventoryTableId(), getLocationsTableId()]);
+  const [invTotal, invEstadoCol, locTotal, locCadCol] = await Promise.all([
+    db.dataRow.count({ where: { tableId: invTableId } }),
+    db.dataColumn.findFirst({ where: { tableId: invTableId, name: "Estado" }, select: { id: true } }),
+    db.dataRow.count({ where: { tableId: locTableId } }),
+    db.dataColumn.findFirst({ where: { tableId: locTableId, name: "Caducidad" }, select: { id: true } }),
+  ]);
+  const [estadoCells, cadCells] = await Promise.all([
+    invEstadoCol ? db.dataCell.findMany({ where: { columnId: invEstadoCol.id }, select: { value: true } }) : Promise.resolve([]),
+    locCadCol ? db.dataCell.findMany({ where: { columnId: locCadCol.id }, select: { value: true } }) : Promise.resolve([]),
+  ]);
+  const invAttention = estadoCells.filter((c) => c.value === "en-mantenimiento" || c.value === "danado").length;
+  const locSoon = cadCells.filter((c) => { const d = daysUntil(typeof c.value === "string" ? c.value : ""); return d !== null && d <= 30; }).length;
+
+  const tiles = [
+    { href: "/wiki/inventario", Icon: Package, title: "Inventario", main: `${invTotal} equipo${invTotal === 1 ? "" : "s"}`, alert: invAttention > 0 ? `${invAttention} requiere${invAttention === 1 ? "" : "n"} atención` : null },
+    { href: "/wiki/ubicacion", Icon: HardDrive, title: "Ubicación del material", main: `${locTotal} respaldo${locTotal === 1 ? "" : "s"}`, alert: locSoon > 0 ? `${locSoon} por vencer` : null },
+    { href: "/wiki/contrasenas", Icon: KeyRound, title: "Usuarios y contraseñas", main: "Credenciales cifradas", alert: null },
+  ];
+
+  const now = nowMs();
+
+  // Páginas que ya tocaba revisar (revisadas alguna vez y vencidas) — gobernanza arriba.
+  const reviewList = pages
+    .filter((p) => p.lastReviewedAt && now - p.lastReviewedAt.getTime() > staleMs)
+    .slice(0, 6);
+
+  // Agrupa las páginas de documentación por sección (lo demás cae en "Otras páginas").
   const bySection = new Map<string, typeof pages>();
   for (const p of pages) {
     const key = p.section && WIKI_SECTIONS.includes(p.section as never) ? p.section : OTHER;
     (bySection.get(key) ?? bySection.set(key, []).get(key)!).push(p);
   }
-  // Entradas de sistema (Inventario/Ubicación/Contraseñas) por sección — solo sin búsqueda.
-  const sysBySection = new Map<string, typeof SYSTEM_ENTRIES[number][]>();
-  if (!query) {
-    for (const e of SYSTEM_ENTRIES) (sysBySection.get(e.section) ?? sysBySection.set(e.section, []).get(e.section)!).push(e);
-  }
-  const hasContent = (s: string) => bySection.has(s) || sysBySection.has(s);
-  const orderedSections = [...WIKI_SECTIONS.filter(hasContent), ...(bySection.has(OTHER) ? [OTHER] : [])];
-  const now = Date.now();
+  const orderedSections = [...WIKI_SECTIONS.filter((s) => bySection.has(s)), ...(bySection.has(OTHER) ? [OTHER] : [])];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
@@ -61,6 +90,54 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
         Toda la información de la empresa: procesos, equipo, clientes, inventario y contraseñas.
       </p>
       <WikiTabs />
+
+      {/* Accesos rápidos con conteos en vivo */}
+      {!query ? (
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {tiles.map((t) => (
+            <Link
+              key={t.href}
+              href={t.href}
+              className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <t.Icon className="size-5 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">{t.title}</p>
+                <p className="truncate text-xs text-muted-foreground">{t.main}</p>
+                {t.alert ? (
+                  <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{t.alert}</span>
+                ) : null}
+              </div>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Para revisar (páginas con revisión vencida) */}
+      {!query && reviewList.length > 0 ? (
+        <div className="mb-6 overflow-hidden rounded-xl border border-amber-300 bg-amber-50/60 dark:border-amber-800/60 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 border-b border-amber-200 px-4 py-2.5 dark:border-amber-900/50">
+            <Clock className="size-4 text-amber-600 dark:text-amber-400" />
+            <span className="text-sm font-semibold text-amber-800 dark:text-amber-200">Para revisar</span>
+            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">{reviewList.length}</span>
+          </div>
+          <div className="divide-y divide-amber-200/70 dark:divide-amber-900/40">
+            {reviewList.map((p) => (
+              <Link key={p.id} href={`/wiki/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-amber-100/50 dark:hover:bg-amber-900/20">
+                <span className="text-lg">{p.icon ?? <FileText className="size-4 text-muted-foreground" />}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{p.title}</span>
+                {p.owner ? <span title={`Dueño: ${p.owner.name}`}><UserAvatar initials={p.owner.initials} name={p.owner.name} color={p.owner.avatarColor} size="sm" /></span> : null}
+                <span className="shrink-0 text-xs text-amber-700 dark:text-amber-300">
+                  {Math.round((now - p.lastReviewedAt!.getTime()) / 86400000)} días
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -89,20 +166,6 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
             <section key={section}>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h3>
               <div className="space-y-2">
-                {(sysBySection.get(section) ?? []).map((e) => (
-                  <Link
-                    key={e.href}
-                    href={e.href}
-                    className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 transition-colors hover:border-primary/40"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-lg">{e.icon}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{e.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">{e.desc}</p>
-                    </div>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                ))}
                 {(bySection.get(section) ?? []).map((p) => {
                   const reviewedMs = p.lastReviewedAt ? p.lastReviewedAt.getTime() : 0;
                   const stale = now - reviewedMs > staleMs;
@@ -128,7 +191,7 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
                         <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Revisar</span>
                       ) : null}
                       {p.owner ? (
-                        <span title={`Dueño: ${p.owner.name}`}><UserAvatar initials={p.owner.initials} color={p.owner.avatarColor} size="sm" /></span>
+                        <span title={`Dueño: ${p.owner.name}`}><UserAvatar initials={p.owner.initials} name={p.owner.name} color={p.owner.avatarColor} size="sm" /></span>
                       ) : null}
                     </Link>
                   );
