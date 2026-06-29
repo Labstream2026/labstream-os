@@ -1209,7 +1209,14 @@ export function ChannelChat({
               placeholder={uploading ? "Subiendo…" : "Escribe un mensaje…  (@ menciona · Enter envía · Shift+Enter salto)"}
               disabled={uploading}
               enterKeyHint="send"
-              className="max-h-48 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm"
+              className={cn(
+                "max-h-48 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground sm:text-sm",
+                // Vacío: el placeholder es largo y, al envolverse, hacía que el cuadro arrancara con
+                // varias líneas de alto. Forzamos UNA línea con elipsis (…) — esto también deja el
+                // scrollHeight en 1 línea, así que el auto-crecimiento ya no infla la altura inicial.
+                // Al escribir (text != "") se quita y el texto vuelve a envolver y crecer normal.
+                !text && "overflow-x-hidden whitespace-nowrap text-ellipsis",
+              )}
             />
             {text.trim() || files.length > 0 ? (
               <button
