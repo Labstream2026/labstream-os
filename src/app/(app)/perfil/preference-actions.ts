@@ -31,6 +31,24 @@ export async function saveUserPreference(patch: {
   if ("reduceMotion" in data || "startPage" in data) revalidatePath("/", "layout");
 }
 
+// Guarda las VISTAS GUARDADAS (filtros con nombre) de una superficie (p. ej. "mis-tareas").
+// Reemplaza solo las de esa superficie y conserva las demás. Sincroniza entre dispositivos.
+export async function setSavedViews(surface: string, views: { id: string; name: string; query: string }[]): Promise<{ ok: boolean }> {
+  const session = await getSession();
+  if (!session) return { ok: false };
+  const row = await db.userPreference.findUnique({ where: { userId: session.id }, select: { savedViews: true } }).catch(() => null);
+  let all: { surface: string; id: string; name: string; query: string }[] = [];
+  try { const p = row?.savedViews ? JSON.parse(row.savedViews) : []; if (Array.isArray(p)) all = p; } catch { all = []; }
+  const others = all.filter((v) => v && v.surface !== surface);
+  const clean = (views ?? []).slice(0, 50).map((v) => ({ surface, id: String(v.id).slice(0, 40), name: String(v.name ?? "").slice(0, 60), query: String(v.query ?? "").slice(0, 500) }));
+  await db.userPreference.upsert({
+    where: { userId: session.id },
+    create: { userId: session.id, savedViews: JSON.stringify([...others, ...clean]) },
+    update: { savedViews: JSON.stringify([...others, ...clean]) },
+  });
+  return { ok: true };
+}
+
 // Preferencia personal de notificación: activa/desactiva un CANAL (app/push/correo) para un evento.
 // Sin fila previa, los otros canales quedan en su default (activos). Best-effort.
 export async function setNotifPref(

@@ -4,29 +4,31 @@ import * as React from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, ChevronDown, X, Bookmark, Plus, Trash2, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { setSavedViews } from "@/app/(app)/perfil/preference-actions";
 
 type Opt = { value: string; label: string };
 type Proj = { id: string; name: string; emoji: string | null };
 type SavedView = { id: string; name: string; query: string };
 
-// Vistas guardadas POR DISPOSITIVO (localStorage), como las pestañas/preferencias de vista.
-// Si más adelante se quieren sincronizar entre dispositivos, se promueven a BD.
-const LS_KEY = "mis-tareas-saved-views";
 const FILTER_KEYS = ["estado", "prioridad", "proyecto", "q", "grupo"] as const;
 
 // Barra de filtros + agrupación + vistas guardadas para "Mis tareas". Los filtros viven en la
 // URL (?estado=&prioridad=&proyecto=&q=&grupo=) y el servidor filtra; así el enlace es
-// compartible y las vistas guardadas son solo una cadena de query con nombre.
+// compartible y las vistas guardadas son solo una cadena de query con nombre. Las vistas se
+// guardan en BD (sincronizan entre dispositivos): llegan en `initialViews` y se persisten con
+// setSavedViews.
 export function TaskFilters({
   statusOptions,
   priorityOptions,
   projectOptions,
   hasPersonal,
+  initialViews,
 }: {
   statusOptions: Opt[];
   priorityOptions: Opt[];
   projectOptions: Proj[];
   hasPersonal: boolean;
+  initialViews: SavedView[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -69,12 +71,11 @@ export function TaskFilters({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qLocal]);
 
-  // Vistas guardadas (localStorage).
-  const [views, setViews] = React.useState<SavedView[]>([]);
-  React.useEffect(() => {
-    try { const raw = localStorage.getItem(LS_KEY); if (raw) setViews(JSON.parse(raw)); } catch { /* ignora */ }
-  }, []);
-  const persist = (v: SavedView[]) => { setViews(v); try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } catch { /* ignora */ } };
+  // Vistas guardadas (en BD; sincronizan entre dispositivos).
+  const [views, setViews] = React.useState<SavedView[]>(initialViews);
+  const [, startSave] = React.useTransition();
+  React.useEffect(() => { setViews(initialViews); }, [initialViews]);
+  const persist = (v: SavedView[]) => { setViews(v); startSave(() => { void setSavedViews("mis-tareas", v); }); };
   const currentQuery = () => {
     const params = new URLSearchParams();
     for (const k of FILTER_KEYS) { const val = sp.get(k); if (val) params.set(k, val); }

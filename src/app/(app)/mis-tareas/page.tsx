@@ -19,6 +19,7 @@ import { TaskDetailButton } from "./task-detail-panel";
 import { MyDayToggle } from "./my-day-toggle";
 import { TaskFilters } from "./task-filters";
 import { clearMyDay } from "./actions";
+import { getUserPreference, parseSavedViews } from "@/lib/user-preference";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
 
   // Orden/pertenencia de "Mi día" por id de tarea (para el ⭐ y la pestaña enfocada).
   const myDayPos = new Map(myDayRows.map((m) => [m.taskId, m.position]));
+
+  // Vistas guardadas (sincronizadas por usuario) de esta superficie.
+  const savedViews = parseSavedViews((await getUserPreference(user.id)).savedViews, "mis-tareas");
 
   // Cumplimiento personal (cada quien ve el suyo, sin permiso especial).
   const sla = await userComplianceSummary(user.id);
@@ -235,7 +239,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
 
   const list = (
     <div className="space-y-5">
-      <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} />
+      <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
       {tasks.length === 0 ? (
         <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
       ) : listTasks.length === 0 ? (

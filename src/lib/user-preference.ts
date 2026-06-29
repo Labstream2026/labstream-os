@@ -9,6 +9,9 @@ export type UserPrefs = {
   chatPanelOpen: boolean;
   reduceMotion: boolean;
   startPage: string;
+  // Vistas guardadas (filtros con nombre) por superficie. JSON: [{ surface, id, name, query }].
+  // Sincronizan entre dispositivos (antes localStorage por navegador).
+  savedViews: string | null;
 };
 
 export const DEFAULT_PREFS: UserPrefs = {
@@ -16,7 +19,18 @@ export const DEFAULT_PREFS: UserPrefs = {
   chatPanelOpen: true,
   reduceMotion: false,
   startPage: "/",
+  savedViews: null,
 };
+
+export type SavedView = { surface: string; id: string; name: string; query: string };
+export function parseSavedViews(json: string | null | undefined, surface: string): { id: string; name: string; query: string }[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((v) => v && v.surface === surface && typeof v.id === "string").map((v) => ({ id: String(v.id), name: String(v.name ?? ""), query: String(v.query ?? "") }));
+  } catch { return []; }
+}
 
 // Páginas permitidas como "página de inicio" (lista blanca: nunca redirigir a una ruta arbitraria).
 // Vive aquí (módulo normal) y no en el archivo "use server", que solo puede exportar funciones.
@@ -39,5 +53,6 @@ export const getUserPreference = cache(async (userId: string): Promise<UserPrefs
     chatPanelOpen: row.chatPanelOpen,
     reduceMotion: row.reduceMotion,
     startPage: row.startPage || "/",
+    savedViews: row.savedViews ?? null,
   };
 });

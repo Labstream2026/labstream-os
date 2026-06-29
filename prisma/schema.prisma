@@ -164,6 +164,9 @@ model UserPreference {
   chatPanelOpen    Boolean  @default(true)  // panel de chat de la derecha abierto (escritorio)
   reduceMotion     Boolean  @default(false) // accesibilidad: minimizar animaciones/transiciones
   startPage        String   @default("/")   // a dónde llevar al entrar (Inicio por defecto)
+  // Vistas guardadas (filtros con nombre) por superficie. JSON [{surface,id,name,query}].
+  // Sincronizan entre dispositivos (antes localStorage en task-filters).
+  savedViews       String?
   updatedAt        DateTime @updatedAt
 }
 
