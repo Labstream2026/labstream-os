@@ -19,6 +19,15 @@ import { TaskDetailButton } from "./task-detail-panel";
 
 export const dynamic = "force-dynamic";
 
+function SummaryTile({ count, label, color }: { count: number; label: string; color: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+      <p className="text-2xl font-bold tabular-nums" style={{ color: count > 0 ? color : undefined }}>{count}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
 export default async function MisTareasPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -83,6 +92,10 @@ export default async function MisTareasPage() {
     { key: "despues", label: "Más adelante", cls: "text-muted-foreground" },
     { key: "sin", label: "Sin fecha", cls: "text-muted-foreground" },
   ];
+
+  // Resumen rápido por urgencia (tiles arriba): de un vistazo, qué aprieta.
+  const counts: Record<string, number> = { vencidas: 0, hoy: 0, semana: 0, despues: 0, sin: 0 };
+  for (const t of tasks) counts[bucketOf(t.dueDate)] = (counts[bucketOf(t.dueDate)] ?? 0) + 1;
 
   const taskRow = (t: (typeof tasks)[number]) => {
           const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
@@ -248,6 +261,12 @@ export default async function MisTareasPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {tasks.length} tarea{tasks.length === 1 ? "" : "s"} abierta{tasks.length === 1 ? "" : "s"} · {user.name}
             </p>
+            <div className="mt-4 grid max-w-2xl grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <SummaryTile count={counts.vencidas} label="Vencidas" color="#e24b4a" />
+              <SummaryTile count={counts.hoy} label="Hoy" color="#ba7517" />
+              <SummaryTile count={counts.semana} label="Esta semana" color="#2a78d6" />
+              <SummaryTile count={counts.despues + counts.sin} label="Más adelante" color="#888780" />
+            </div>
           </div>
         }
         views={[
