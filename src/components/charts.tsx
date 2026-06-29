@@ -71,8 +71,11 @@ export function Gauge({ pct, label, color = POS, size = 148 }: { pct: number; la
 }
 
 // ── Sparkline / área ── tendencia de una serie. points = valores en orden temporal.
-export function AreaTrend({ points, color = "hsl(var(--primary))", width = 132, height = 44 }: { points: number[]; color?: string; width?: number; height?: number }) {
-  if (points.length < 2) return <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true" />;
+export function AreaTrend({ points, color = "hsl(var(--primary))", width = 132, height = 44, fluid }: { points: number[]; color?: string; width?: number; height?: number; fluid?: boolean }) {
+  const dims = fluid
+    ? ({ width: "100%" as const, preserveAspectRatio: "none" as const, style: { display: "block", height } })
+    : ({ width, height });
+  if (points.length < 2) return <svg viewBox={`0 0 ${width} ${height}`} {...dims} aria-hidden="true" />;
   const min = Math.min(...points);
   const max = Math.max(...points);
   const span = max - min || 1;
@@ -83,7 +86,7 @@ export function AreaTrend({ points, color = "hsl(var(--primary))", width = 132, 
   const area = `${line} L${xy[xy.length - 1][0].toFixed(1)},${height} L${xy[0][0].toFixed(1)},${height} Z`;
   const last = xy[xy.length - 1];
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={`Tendencia (${points.length} puntos)`}>
+    <svg viewBox={`0 0 ${width} ${height}`} {...dims} role="img" aria-label={`Tendencia (${points.length} puntos)`}>
       <path d={area} fill={color} opacity={0.12} />
       <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={last[0]} cy={last[1]} r={3} fill={color} />

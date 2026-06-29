@@ -8,7 +8,7 @@ import { statusMeta, quoteTotals, formatMoney } from "@/lib/ui";
 import { formatMinutes } from "@/lib/timeline";
 import { effectiveInvoiceStatus } from "@/lib/billing";
 import { UserAvatar } from "@/components/user-avatar";
-import { Donut, Gauge, Legend, BarRow, SERIES, POS, WARN } from "@/components/charts";
+import { Donut, Gauge, Legend, BarRow, AreaTrend, SERIES, POS, WARN } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
 // Cuerpo del DESEMPEÑO DEL EQUIPO (métricas del estudio, facturación, cumplimiento, carga,
@@ -68,6 +68,24 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
   const maxLoad = Math.max(1, ...loadRows.map((r) => r.count));
 
   const totalMinutes = hoursAgg._sum.minutes ?? 0;
+
+  // Tendencia: horas registradas por semana (últimas 8 semanas) según spentOn (día imputado).
+  const WEEKS = 8;
+  const weekMs = 7 * 86_400_000;
+  const weekEntries = await db.timeEntry.findMany({
+    where: { spentOn: { gte: new Date(Date.now() - WEEKS * weekMs) } },
+    select: { spentOn: true, minutes: true },
+  });
+  const weekBuckets: number[] = new Array(WEEKS).fill(0);
+  const nowMs = Date.now();
+  for (const e of weekEntries) {
+    const idx = Math.floor((nowMs - new Date(e.spentOn).getTime()) / weekMs);
+    if (idx >= 0 && idx < WEEKS) weekBuckets[WEEKS - 1 - idx] += e.minutes;
+  }
+  const weeklyHours = weekBuckets.map((m) => Math.round(m / 60));
+  const thisWeekH = weeklyHours[WEEKS - 1];
+  const prevWeekH = weeklyHours[WEEKS - 2] ?? 0;
+  const weekDelta = prevWeekH > 0 ? Math.round(((thisWeekH - prevWeekH) / prevWeekH) * 100) : null;
 
   const canCumplimiento = hasPermission(session, "ver_cumplimiento");
   const compliance = canCumplimiento ? await personCompliance() : [];
@@ -184,6 +202,24 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
                   color={POS}
                 />
               ))}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Horas por semana" hint="Tiempo registrado en las últimas 8 semanas" full>
+          {weeklyHours.every((h) => h === 0) ? (
+            <Empty text="Aún no hay horas registradas en las últimas semanas." />
+          ) : (
+            <div className="flex flex-wrap items-end gap-6">
+              <div className="shrink-0">
+                <p className="text-2xl font-bold tabular-nums">{thisWeekH} h</p>
+                <p className="text-xs text-muted-foreground">
+                  esta semana{weekDelta !== null ? ` · ${weekDelta >= 0 ? "▲ +" : "▼ −"}${Math.abs(weekDelta)}% vs. anterior` : ""}
+                </p>
+              </div>
+              <div className="min-w-48 flex-1">
+                <AreaTrend points={weeklyHours} color={POS} height={56} fluid />
+              </div>
             </div>
           )}
         </Section>
