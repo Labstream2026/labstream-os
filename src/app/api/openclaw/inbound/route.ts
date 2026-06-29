@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { ensureMarcebot, getOrCreateMarcebotDM, postBotFileMessage } from "@/lib/marcebot/bot";
+import { fetchPublicUrlToBuffer } from "@/lib/ssrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,14 +50,14 @@ async function resolveFile(f: IncomingFile): Promise<{ name: string; mime: strin
     });
     buf = Buffer.from(raw, "base64");
   } else if (f.url) {
-    const res = await fetch(f.url);
-    if (!res.ok) throw new Error(`No pude descargar el archivo (${res.status})`);
-    const ab = await res.arrayBuffer();
-    buf = Buffer.from(ab);
-    if (!mime) mime = res.headers.get("content-type")?.split(";")[0]?.trim() || null;
+    // Descarga SEGURA: la URL la controla quien llama al webhook, así que se bloquean
+    // destinos de la red interna (SSRF), se acota tiempo/tamaño y se revalida cada redirección.
+    const got = await fetchPublicUrlToBuffer(f.url, { maxBytes: MAX_BYTES });
+    buf = got.buf;
+    if (!mime) mime = got.contentType?.split(";")[0]?.trim() || null;
     if (!name) {
       try {
-        name = decodeURIComponent(new URL(f.url).pathname.split("/").pop() || "");
+        name = decodeURIComponent(new URL(got.finalUrl).pathname.split("/").pop() || "");
       } catch {
         /* url inválida para nombre: usamos fallback abajo */
       }
@@ -78,6 +79,12 @@ export async function POST(req: NextRequest) {
   const token = process.env.OPENCLAW_INBOUND_TOKEN || "";
   if (!token) return NextResponse.json({ ok: false, error: "Inbound deshabilitado" }, { status: 503 });
   if (!authorized(req, token)) return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+
+  // Tope del cuerpo: evita payloads JSON absurdos (base64 de varios archivos grandes).
+  const declaredLen = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(declaredLen) && declaredLen > 64 * 1024 * 1024) {
+    return NextResponse.json({ ok: false, error: "Cuerpo demasiado grande" }, { status: 413 });
+  }
 
   let body: {
     to?: string;
