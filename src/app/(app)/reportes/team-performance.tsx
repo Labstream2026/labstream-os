@@ -8,7 +8,7 @@ import { statusMeta, quoteTotals, formatMoney } from "@/lib/ui";
 import { formatMinutes } from "@/lib/timeline";
 import { effectiveInvoiceStatus } from "@/lib/billing";
 import { UserAvatar } from "@/components/user-avatar";
-import { Badge } from "@/components/ui/badge";
+import { Donut, Gauge, Legend, BarRow, SERIES, POS, WARN } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
 // Cuerpo del DESEMPEÑO DEL EQUIPO (métricas del estudio, facturación, cumplimiento, carga,
@@ -42,7 +42,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
   const statusRows = byStatus
     .map((r) => ({ status: r.status as string, count: r._count._all, meta: statusMeta(r.status as string) }))
     .sort((a, b) => b.count - a.count);
-  const maxStatus = Math.max(1, ...statusRows.map((r) => r.count));
+  const totalStatus = statusRows.reduce((n, r) => n + r.count, 0);
 
   const taskIds = timeByTask.map((t) => t.taskId);
   const tasksForHours = taskIds.length
@@ -85,10 +85,16 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
       {invoices.length > 0 && hasPermission(session, "ver_finanzas") ? (
         <div className="mt-6">
           <h2 className="mb-2 text-sm font-semibold">Facturación</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Stat emoji="🧾" value={formatMoney(facturado, invCurrency)} label="Facturado" />
-            <Stat emoji="💰" value={formatMoney(cobrado, invCurrency)} label="Cobrado" />
-            <Stat emoji="⌛" value={formatMoney(porCobrar, invCurrency)} label="Por cobrar" />
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+            <Gauge pct={facturado > 0 ? (cobrado / facturado) * 100 : 0} label="cobrado" />
+            <div className="min-w-56 flex-1 space-y-2.5">
+              <div className="flex h-3.5 overflow-hidden rounded-full" style={{ background: "hsl(var(--muted))" }}>
+                <div className="h-full" style={{ width: `${facturado > 0 ? (cobrado / facturado) * 100 : 0}%`, background: POS }} />
+                <div className="h-full" style={{ width: `${facturado > 0 ? (porCobrar / facturado) * 100 : 0}%`, background: WARN }} />
+              </div>
+              <Legend items={[{ label: "Cobrado", value: formatMoney(cobrado, invCurrency), color: POS }, { label: "Por cobrar", value: formatMoney(porCobrar, invCurrency), color: WARN }]} />
+              <p className="border-t border-border pt-2 text-sm"><span className="text-muted-foreground">Facturado total:</span> <span className="font-semibold tabular-nums">{formatMoney(facturado, invCurrency)}</span></p>
+            </div>
           </div>
         </div>
       ) : null}
@@ -130,16 +136,17 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
           {statusRows.length === 0 ? (
             <Empty />
           ) : (
-            <div className="space-y-2">
-              {statusRows.map((r) => (
-                <div key={r.status} className="flex items-center gap-3">
-                  <Badge className={cn("w-36 shrink-0 justify-center text-[10px]", r.meta.className)}>{r.meta.label}</Badge>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary/60" style={{ width: `${(r.count / maxStatus) * 100}%` }} />
-                  </div>
-                  <span className="w-6 shrink-0 text-right text-sm font-medium">{r.count}</span>
-                </div>
-              ))}
+            <div className="flex flex-wrap items-center justify-center gap-5 sm:justify-start">
+              <Donut
+                segments={statusRows.map((r, i) => ({ label: r.meta.label, value: r.count, color: SERIES[i % SERIES.length] }))}
+                centerValue={totalStatus}
+                centerLabel="proyectos"
+              />
+              <Legend
+                vertical
+                className="flex-1"
+                items={statusRows.map((r, i) => ({ label: r.meta.label, value: r.count, color: SERIES[i % SERIES.length] }))}
+              />
             </div>
           )}
         </Section>
@@ -150,16 +157,14 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
           ) : (
             <div className="space-y-2.5">
               {loadRows.map((r) => (
-                <div key={r.user.id} className="flex items-center gap-3">
-                  <span className="flex w-28 shrink-0 items-center gap-2 sm:w-40">
-                    <UserAvatar initials={r.user.initials} color={r.user.avatarColor} size="sm" />
-                    <span className="truncate text-sm">{r.user.name}</span>
-                  </span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-amber-500/70" style={{ width: `${(r.count / maxLoad) * 100}%` }} />
-                  </div>
-                  <span className="w-6 shrink-0 text-right text-sm font-medium">{r.count}</span>
-                </div>
+                <BarRow
+                  key={r.user.id}
+                  icon={<UserAvatar initials={r.user.initials} color={r.user.avatarColor} size="sm" />}
+                  label={r.user.name}
+                  value={r.count}
+                  pct={(r.count / maxLoad) * 100}
+                  color={maxLoad > 3 && r.count >= maxLoad * 0.85 ? WARN : "hsl(var(--primary))"}
+                />
               ))}
             </div>
           )}
@@ -171,13 +176,13 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
           ) : (
             <div className="space-y-2.5">
               {hoursByProject.map((p, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="w-32 shrink-0 truncate text-sm sm:w-48">{p.emoji} {p.name}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${(p.minutes / maxHours) * 100}%` }} />
-                  </div>
-                  <span className="w-16 shrink-0 text-right text-sm font-medium">{formatMinutes(p.minutes)}</span>
-                </div>
+                <BarRow
+                  key={i}
+                  label={`${p.emoji ?? "📁"} ${p.name}`}
+                  value={formatMinutes(p.minutes)}
+                  pct={(p.minutes / maxHours) * 100}
+                  color={POS}
+                />
               ))}
             </div>
           )}
