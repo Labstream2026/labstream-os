@@ -52,7 +52,16 @@ const accessSelect = {
 async function ensureProjectAccess(projectId: string, perm?: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project || !canWriteProject(project, session)) throw new Error("No autorizado");
+  if (!project) throw new Error("No autorizado");
+  if (!canWriteProject(project, session)) {
+    // Excepción para el PORTAL DEL CLIENTE: un cliente (miembro GUEST de su proyecto) es de solo
+    // lectura para casi todo, PERO puede ejecutar acciones para las que tiene permiso explícito
+    // —subir su guion/archivos (subir_archivos)—. El resto (tareas, ajustes, equipos, cronograma)
+    // sigue bloqueado porque su rol no tiene esos permisos. Las subidas de VERSIONES de entregable
+    // llevan además su propio canWriteProject, así que siguen siendo solo del equipo.
+    const isClienteMember = session?.role === "cliente" && perm != null && project.members.some((m) => m.userId === session.id);
+    if (!(isClienteMember && hasPermission(session, perm!))) throw new Error("No autorizado");
+  }
   // Además del acceso al proyecto, exige el permiso del catálogo si se indica (admin pasa por bypass).
   if (perm && !hasPermission(session, perm)) throw new Error("No autorizado");
   return session!;
@@ -1732,4 +1741,104 @@ export async function purgeProject(projectId: string): Promise<{ ok: boolean; er
   revalidatePath("/papelera");
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// Portal del cliente (rol "cliente"): comentar y aprobar SUS entregables desde la app.
+// Mismos efectos que el portal público de revisión (/review/[token]) pero autenticados por SESIÓN
+// (rol cliente + miembro del proyecto + permiso del catálogo), no por token. El cliente solo
+// actúa sobre material que el equipo ya aprobó internamente (versión internalApproved) y sobre
+// entregables ya enviados a su revisión.
+// ─────────────────────────────────────────────
+
+// Resuelve y autoriza una acción de cliente sobre un entregable: rol cliente, con el permiso
+// indicado, y miembro del proyecto del entregable. Devuelve la sesión y el entregable.
+async function ensureClienteDeliverable(deliverableId: string, perm: string) {
+  const session = await getSession();
+  if (!session || session.role !== "cliente" || !hasPermission(session, perm)) throw new Error("No autorizado");
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { id: true, name: true, projectId: true, status: true, project: { select: { ...accessSelect, name: true } } },
+  });
+  if (!deliverable || !deliverable.project.members.some((m) => m.userId === session.id)) throw new Error("No autorizado");
+  return { session, deliverable };
+}
+
+// IDs del equipo a avisar cuando el cliente actúa (responsable + miembros, sin el propio cliente).
+function clienteTeamIds(project: { leadId: string | null; members: { userId: string }[] }, exceptId: string): string[] {
+  return [project.leadId, ...project.members.map((m) => m.userId)].filter((id): id is string => Boolean(id) && id !== exceptId);
+}
+
+// El cliente comenta un entregable (feedback). Se guarda como comentario del cliente y avisa al equipo.
+export async function clientCommentDeliverable(deliverableId: string, versionNumber: number | null, body: string) {
+  const { session, deliverable } = await ensureClienteDeliverable(deliverableId, "comentar");
+  const text = body.trim().slice(0, 4000);
+  if (!text) return;
+  await db.reviewComment.create({
+    data: { deliverableId, authorName: session.name, authorUserId: session.id, body: text, versionNumber: versionNumber ?? null, fromClient: true },
+  });
+  await logActivity({
+    action: "deliverable.client_comment",
+    summary: `comentó la revisión de «${deliverable.name}»`,
+    projectId: deliverable.projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${session.name} (cliente)`,
+  });
+  await notifyManyAndEmail(clienteTeamIds(deliverable.project, session.id), {
+    type: "review",
+    event: "review_client",
+    title: `Comentario del cliente: ${deliverable.name}`,
+    body: `${session.name} comentó «${deliverable.project.name}».`,
+    link: `/revisiones/${deliverableId}`,
+    actorId: session.id,
+  });
+  refresh(deliverable.projectId);
+}
+
+// El cliente decide sobre su entregable: aprobar o solicitar cambios. Solo si está en etapa de
+// cliente (ENVIADO_CLIENTE/CORRECCIONES) y hay una versión final (internalApproved) disponible.
+export async function clientDecideDeliverable(deliverableId: string, decision: "APROBADO" | "CAMBIOS", note?: string) {
+  const { session, deliverable } = await ensureClienteDeliverable(deliverableId, "aprobar_cliente");
+  if (deliverable.status !== "ENVIADO_CLIENTE" && deliverable.status !== "CORRECCIONES") {
+    throw new Error("Este entregable ya no está disponible para decidir.");
+  }
+  const latestApproved = await db.deliverableVersion.findFirst({
+    where: { deliverableId, internalApproved: true },
+    orderBy: { number: "desc" },
+    select: { number: true },
+  });
+  if (!latestApproved) throw new Error("Aún no hay una versión final disponible.");
+  const approved = decision === "APROBADO";
+  await db.deliverable.update({ where: { id: deliverableId }, data: { status: approved ? "APROBADO" : "CORRECCIONES" } });
+  await db.deliverableDecision.create({
+    data: { deliverableId, versionNumber: latestApproved.number, stage: "CLIENTE", result: approved ? "APROBADO" : "CAMBIOS", byUserId: session.id, byName: session.name, note: note?.slice(0, 1000) || null },
+  });
+  await db.reviewComment.create({
+    data: {
+      deliverableId,
+      authorName: session.name,
+      authorUserId: session.id,
+      body: approved ? "✅ Aprobó el entregable." : `✏️ Solicitó cambios.${note ? ` ${note.trim().slice(0, 300)}` : ""}`,
+      versionNumber: latestApproved.number,
+      fromClient: true,
+    },
+  });
+  await logActivity({
+    action: approved ? "deliverable.client_approved" : "deliverable.client_changes",
+    summary: approved ? `aprobó la revisión de «${deliverable.name}»` : `solicitó cambios en «${deliverable.name}»`,
+    projectId: deliverable.projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${session.name} (cliente)`,
+  });
+  await notifyManyAndEmail(clienteTeamIds(deliverable.project, session.id), {
+    type: "review",
+    event: "review_client",
+    title: approved ? `Cliente aprobó: ${deliverable.name}` : `Cliente pidió cambios: ${deliverable.name}`,
+    body: approved ? `${session.name} aprobó el entregable.` : `${session.name} solicitó cambios. Revisa sus comentarios.`,
+    link: `/revisiones/${deliverableId}`,
+    actorId: session.id,
+  });
+  refresh(deliverable.projectId);
 }

@@ -37,6 +37,7 @@ export function AppShell({
   fabPriorities = [],
   me,
   isAdmin = false,
+  isCliente = false,
   generalChannel,
   dockTeam = [],
   chatUnread = 0,
@@ -66,6 +67,7 @@ export function AppShell({
   fabPriorities?: { value: string; label: string }[];
   me: ChatMe;
   isAdmin?: boolean;
+  isCliente?: boolean;
   generalChannel: GeneralChannel;
   dockTeam?: DockTeamMember[];
   chatUnread?: number;
@@ -91,7 +93,8 @@ export function AppShell({
   // día, Chats) y otras son de lectura/trabajo amplio (Wiki, Asistente IA, Reportes,
   // Inicio, Plantillas).
   const FULL_WIDTH_ROUTES = ["/", "/estados", "/chat", "/plantillas", "/wiki", "/asistente", "/reportes", "/revisiones"];
-  const hideChatDock = FULL_WIDTH_ROUTES.some((r) =>
+  // El cliente (portal del cliente) nunca ve el panel de chat del equipo (es interno).
+  const hideChatDock = isCliente || FULL_WIDTH_ROUTES.some((r) =>
     r === "/" ? pathname === "/" : pathname === r || pathname.startsWith(`${r}/`),
   );
 
@@ -133,7 +136,7 @@ export function AppShell({
     <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -154,6 +157,7 @@ export function AppShell({
               canReports={canReports}
               canClients={canClients}
               canPapelera={canPapelera}
+              isCliente={isCliente}
               chatUnread={chatUnread}
               reviewPending={reviewPending}
               onSearch={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
@@ -209,6 +213,7 @@ export function AppShell({
         onMenu={() => setMobileMenuOpen(true)}
         chatUnread={chatUnread}
         canClients={canClients}
+        isCliente={isCliente}
       />
     </div>
   );

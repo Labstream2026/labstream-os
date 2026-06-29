@@ -42,6 +42,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // Entregables
   { key: "aprobar_entregables", label: "Aprobar entregables (interno)", category: "Entregables" },
   { key: "compartir_cliente", label: "Compartir con el cliente", category: "Entregables" },
+  { key: "aprobar_cliente", label: "Aprobar entregables como cliente", category: "Entregables" },
   // Archivos
   { key: "ver_archivos", label: "Ver archivos", category: "Archivos" },
   { key: "subir_archivos", label: "Subir archivos", category: "Archivos" },
@@ -116,6 +117,14 @@ const LEGACY_KEYS = new Set([
   "administrar_usuarios", "ver_reportes",
 ]);
 
+// Permisos del PORTAL DEL CLIENTE (rol "cliente"). Acotado a lo suyo; el alcance por proyecto
+// lo imponen project-access/client-access. Se usa tanto en ROLE_DEFAULTS (instalaciones nuevas)
+// como en ensureClienteDefaults (backfill para producción, donde ensureRoleDefaults ya corrió).
+const CLIENTE_PORTAL_PERMS = [
+  "ver_proyectos", "crear_proyectos", "ver_archivos", "subir_archivos",
+  "ver_calendario", "comentar", "aprobar_cliente",
+];
+
 // Conjunto sensato de permisos por rol del sistema, para POBLAR los roles con los
 // permisos nuevos sin dejar a nadie sin lo que ya podía hacer. Es ADITIVO y se aplica
 // UNA sola vez (ver ensureRoleDefaults). El admin luego ajusta a gusto.
@@ -129,7 +138,11 @@ const ROLE_DEFAULTS: Record<string, string[]> = {
   disenador: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "ver_wiki", "ver_biblioteca", "comentar"],
   community: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "comentar"],
   freelancer: ["ver_proyectos", "ver_archivos", "comentar", "ver_calendario", "ver_biblioteca"],
-  cliente: ["comentar"],
+  // El "cliente" es el portal del cliente: ve/crea SUS proyectos (acceso acotado por membresía),
+  // ve y sube archivos (guion, referencias), ve el calendario y comenta/aprueba sus entregables.
+  // El alcance real (solo lo suyo) lo imponen accessibleProjectWhere/canAccessProject, que excluyen
+  // a "cliente" de la rama de proyectos públicos. NO recibe ver_clientes (no gestiona clientes).
+  cliente: CLIENTE_PORTAL_PERMS,
 };
 
 // Puebla los roles del sistema con un set sensato de permisos nuevos, UNA sola vez
@@ -262,6 +275,24 @@ export async function ensureVentasFinanzas(): Promise<void> {
   const role = await db.role.findUnique({ where: { key: "ventas" }, select: { id: true } });
   if (!perm || !role) return;
   await db.rolePermission.createMany({ data: [{ roleId: role.id, permissionId: perm.id }], skipDuplicates: true });
+}
+
+// El rol "cliente" (portal del cliente) pasó de tener solo "comentar" a un set acotado
+// (CLIENTE_PORTAL_PERMS) para que el cliente vea/cree sus proyectos, vea/suba archivos, vea el
+// calendario y apruebe sus entregables. Como ensureRoleDefaults ya corrió en producción, esto
+// concede esos permisos al rol cliente la PRIMERA vez. Idempotente: si el cliente ya tiene
+// "ver_proyectos", asume que ya corrió y no re-añade (no pisa que un admin se los quite luego).
+export async function ensureClienteDefaults(): Promise<void> {
+  const role = await db.role.findUnique({ where: { key: "cliente" }, select: { id: true } });
+  if (!role) return;
+  const already = await db.rolePermission.count({ where: { roleId: role.id, permission: { key: "ver_proyectos" } } });
+  if (already > 0) return;
+  const perms = await db.permission.findMany({ where: { key: { in: CLIENTE_PORTAL_PERMS } }, select: { id: true } });
+  if (!perms.length) return;
+  await db.rolePermission.createMany({
+    data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
+    skipDuplicates: true,
+  });
 }
 
 // Estado de autenticación EN VIVO de un usuario (rol + permisos efectivos + activo).

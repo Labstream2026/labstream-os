@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ListChecks, LayoutGrid, MessageSquare, Menu } from "lucide-react";
+import { Home, ListChecks, LayoutGrid, MessageSquare, CalendarDays, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
@@ -18,22 +18,30 @@ export function BottomNav({
   onMenu,
   chatUnread = 0,
   canClients = true,
+  isCliente = false,
 }: {
   onMenu: () => void;
   chatUnread?: number;
   canClients?: boolean;
+  isCliente?: boolean;
 }) {
   const pathname = usePathname();
   const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
 
-  const links = [
-    { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
-    { href: "/mis-tareas", label: "Tareas", icon: ListChecks, match: (p: string) => p.startsWith("/mis-tareas") },
-    // "Clientes" (antes "Proyectos"); sin permiso de clientes, cae al tablero de proyectos.
-    canClients
-      ? { href: "/clientes", label: "Clientes", icon: LayoutGrid, match: (p: string) => p.startsWith("/clientes") }
-      : { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
-  ];
+  // El portal del cliente solo navega entre SUS proyectos y el calendario (sin Inicio/Tareas/Chat).
+  const links = isCliente
+    ? [
+        { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
+        { href: "/calendario", label: "Calendario", icon: CalendarDays, match: (p: string) => p.startsWith("/calendario") },
+      ]
+    : [
+        { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
+        { href: "/mis-tareas", label: "Tareas", icon: ListChecks, match: (p: string) => p.startsWith("/mis-tareas") },
+        // "Clientes" (antes "Proyectos"); sin permiso de clientes, cae al tablero de proyectos.
+        canClients
+          ? { href: "/clientes", label: "Clientes", icon: LayoutGrid, match: (p: string) => p.startsWith("/clientes") }
+          : { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
+      ];
 
   // Celda táctil: ocupa toda la fila, centra ícono + etiqueta y da feedback al tocar.
   const cell =
@@ -61,22 +69,24 @@ export function BottomNav({
           );
         })}
 
-        <Link
-          href="/chat"
-          aria-current={chatActive ? "page" : undefined}
-          className={cn(cell, chatActive ? "text-primary" : "text-muted-foreground")}
-        >
-          {chatActive ? <span className={indicator} /> : null}
-          <span className="relative">
-            <MessageSquare className="size-6" strokeWidth={chatActive ? 2.4 : 2} />
-            {chatUnread > 0 ? (
-              <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
-                {chatUnread > 99 ? "99+" : chatUnread}
-              </span>
-            ) : null}
-          </span>
-          <span className="truncate">Chat</span>
-        </Link>
+        {!isCliente ? (
+          <Link
+            href="/chat"
+            aria-current={chatActive ? "page" : undefined}
+            className={cn(cell, chatActive ? "text-primary" : "text-muted-foreground")}
+          >
+            {chatActive ? <span className={indicator} /> : null}
+            <span className="relative">
+              <MessageSquare className="size-6" strokeWidth={chatActive ? 2.4 : 2} />
+              {chatUnread > 0 ? (
+                <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
+                  {chatUnread > 99 ? "99+" : chatUnread}
+                </span>
+              ) : null}
+            </span>
+            <span className="truncate">Chat</span>
+          </Link>
+        ) : null}
 
         <button type="button" onClick={onMenu} aria-label="Abrir menú" className={cn(cell, "text-muted-foreground")}>
           <Menu className="size-6" />

@@ -14,7 +14,9 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
   if (session.role === "admin") return true;
   if (project.leadId === session.id) return true;
   if (project.members.some((m) => m.userId === session.id)) return true;
-  if (!project.isPrivate && session.perms.includes("ver_proyectos")) return true;
+  // El "cliente" (portal del cliente) SOLO accede a lo suyo (es lead o miembro): nunca a la rama
+  // de proyectos públicos, aunque tenga ver_proyectos. Así no ve proyectos de otros clientes.
+  if (!project.isPrivate && session.role !== "cliente" && session.perms.includes("ver_proyectos")) return true;
   return false;
 }
 
@@ -50,7 +52,8 @@ export function accessibleProjectWhere(session: SessionUser | null): Record<stri
     { leadId: session.id },
     { members: { some: { userId: session.id } } },
   ];
-  if (session.perms.includes("ver_proyectos")) or.push({ isPrivate: false });
+  // El "cliente" queda acotado a sus proyectos (lead/miembro): no se le añade la rama pública.
+  if (session.role !== "cliente" && session.perms.includes("ver_proyectos")) or.push({ isPrivate: false });
   return { archivedAt: null, OR: or };
 }
 

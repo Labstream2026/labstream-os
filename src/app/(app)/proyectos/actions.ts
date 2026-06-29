@@ -29,6 +29,16 @@ export async function createProject(formData: FormData) {
     leadId,
   });
 
+  // El cliente accede a sus proyectos SOLO por membresía (no por la rama de proyectos públicos),
+  // así que al crear uno debe quedar como miembro GUEST (solo lectura) para poder verlo.
+  if (session?.role === "cliente") {
+    await db.projectMember.upsert({
+      where: { projectId_userId: { projectId: project.id, userId: session.id } },
+      create: { projectId: project.id, userId: session.id, role: "GUEST" },
+      update: {},
+    });
+  }
+
   await logActivity({
     action: "project.create",
     summary: templateKey ? `creó el proyecto «${name}» desde plantilla` : `creó el proyecto «${name}»`,

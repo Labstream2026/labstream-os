@@ -59,6 +59,9 @@ const NAV = [
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
 ];
 
+// Superficies internas que el portal del cliente NO ve (solo ve sus proyectos y el calendario).
+const CLIENTE_HIDDEN_NAV = new Set(["/", "/mis-tareas", "/notas", "/chat", "/revisiones"]);
+
 export function Sidebar({
   user,
   clients,
@@ -72,6 +75,7 @@ export function Sidebar({
   canReports = true,
   canClients = true,
   canPapelera = false,
+  isCliente = false,
   collapsed = false,
   chatUnread = 0,
   reviewPending = 0,
@@ -90,6 +94,7 @@ export function Sidebar({
   canReports?: boolean;
   canClients?: boolean;
   canPapelera?: boolean;
+  isCliente?: boolean;
   collapsed?: boolean;
   chatUnread?: number;
   reviewPending?: number;
@@ -199,11 +204,14 @@ export function Sidebar({
         {NAV.map((item) => {
           if (item.href === "/calendario" && !canCalendar) return null;
           if (item.href === "/timeline" && !canTimeline) return null;
+          // El portal del cliente solo ve sus proyectos y el calendario: ocultamos las superficies
+          // internas (Inicio, Mis tareas, Notas, Chats, Proyectos a revisar).
+          if (isCliente && CLIENTE_HIDDEN_NAV.has(item.href)) return null;
           // "Clientes" reemplaza al antiguo "Proyectos". Si el usuario no puede ver clientes,
           // le mostramos el tablero de proyectos en su lugar (no perder el acceso a proyectos).
           let href = item.href;
           let label = item.label;
-          if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = "Proyectos"; }
+          if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; }
           const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
           const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : pathname === href;
           return navRow(href, label, item.icon, active, badge);
@@ -352,7 +360,9 @@ export function Sidebar({
 
       {/* Footer */}
       <div className={cn("border-t border-sidebar-border", collapsed ? "p-2" : "p-3")}>
-        {canAdmin
+        {isCliente
+          ? null
+          : canAdmin
           ? navRow("/configuracion", "Configuración", Settings, pathname.startsWith("/configuracion"))
           : navRow("/configuracion", "Integraciones", Settings, pathname.startsWith("/configuracion"))}
         <div className={cn("flex items-center gap-2.5 rounded-md", collapsed ? "flex-col px-0 py-1" : "px-2.5 py-1.5")}>

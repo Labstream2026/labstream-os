@@ -23,6 +23,9 @@ export default async function CalendarioPage() {
   const now = new Date();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const meId = session?.id ?? "";
+  // El portal del cliente solo ve en el calendario lo de SUS proyectos (nunca los eventos del
+  // equipo sin proyecto, que son visibles para todo el equipo).
+  const isCliente = session?.role === "cliente";
 
   const accessSelect = { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } as const;
 
@@ -72,6 +75,8 @@ export default async function CalendarioPage() {
     if (e.source !== "app") {
       return e.createdById === meId || e.attendees.some((a) => a.userId === meId);
     }
+    // Cliente: solo eventos de la app que pertenezcan a un proyecto suyo.
+    if (isCliente) return !!e.project && canAccessProject(e.project, session);
     if (!e.project) return true;
     if (e.createdById === meId) return true;
     if (e.attendees.some((a) => a.userId === meId)) return true;

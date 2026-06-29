@@ -26,6 +26,7 @@ import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
+import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
@@ -120,6 +121,11 @@ export default async function ProyectoPage({
   ]);
 
   if (!project) notFound();
+
+  // Portal del cliente: dentro del proyecto solo ve sus pestañas (sin Equipos), y los entregables
+  // se le muestran con una vista de cliente (final + aprobar + comentar). Puede subir archivos.
+  const isCliente = session?.role === "cliente";
+  const canUploadFiles = canWriteProject(project, session) || (isCliente && hasPermission(session, "subir_archivos"));
 
   // Acceso al proyecto: público → equipo con ver_proyectos; privado → responsable/miembros/admin.
   if (!canAccessProject(project, session)) {
@@ -294,6 +300,27 @@ export default async function ProyectoPage({
     />
   );
 
+  // Entregables tal como los ve el CLIENTE: solo los que ya salieron a su revisión, con la última
+  // versión que el equipo aprobó internamente (la "final"); nunca el trabajo en proceso.
+  const CLIENT_FACING = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"]);
+  const clientDeliverables: ClientDeliverable[] = isCliente
+    ? project.deliverables
+        .filter((d) => CLIENT_FACING.has(d.status))
+        .map((d) => {
+          const fv = d.versions.filter((v) => v.internalApproved).sort((a, b) => b.number - a.number)[0];
+          return {
+            id: d.id,
+            name: d.name,
+            type: d.type,
+            status: d.status,
+            dueDate: d.dueDate ? d.dueDate.toISOString() : null,
+            cover: d.coverFileAssetId ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) } : null,
+            finalVersion: fv ? { number: fv.number, href: fv.fileAssetId ? `/api/files-asset/${fv.fileAssetId}` : fv.fileUrl } : null,
+            comments: d.reviewComments.map((c) => ({ id: c.id, authorName: c.authorName, body: c.body, fromClient: c.fromClient, createdAt: c.createdAt.toISOString() })),
+          };
+        })
+    : [];
+
   return (
     <div className="px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
@@ -336,7 +363,7 @@ export default async function ProyectoPage({
       <div className="mx-auto max-w-7xl">
       {/* Tabs */}
       <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.filter((t) => t.key !== "actividad" || hasPermission(session, "ver_actividad")).map((t, i, arr) => {
+        {TABS.filter((t) => (t.key !== "actividad" || hasPermission(session, "ver_actividad")) && (t.key !== "equipos" || !isCliente)).map((t, i, arr) => {
           const active = tab === t.key;
           const count = (counts as Record<string, number>)[t.key];
           // Separador entre grupos (Contenido · Entregables · Operación).
@@ -469,7 +496,17 @@ export default async function ProyectoPage({
             projectEnd={project.dueDate}
           />
         ) : null}
-        {tab === "entregables" ? deliverablesPanelNode : null}
+        {tab === "entregables" ? (
+          isCliente ? (
+            <ClientDeliverables
+              deliverables={clientDeliverables}
+              canApprove={hasPermission(session, "aprobar_cliente")}
+              canComment={hasPermission(session, "comentar")}
+            />
+          ) : (
+            deliverablesPanelNode
+          )
+        ) : null}
         {tab === "archivos" ? (
           <div className="space-y-6">
             {/* Guiones: sección destacada arriba para adjuntar/ver guiones rápido (fusionada en Archivos). */}
@@ -482,7 +519,7 @@ export default async function ProyectoPage({
               <GuionesPanel
                 projectId={id}
                 files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
-                canWrite={canWriteProject(project, session)}
+                canWrite={canUploadFiles}
                 onlyoffice={await onlyofficeReady()}
               />
             </section>
@@ -497,9 +534,10 @@ export default async function ProyectoPage({
                   name: f.name,
                   icon: f.icon,
                   color: f.color,
-                  files: f.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) })),
+                  // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) })),
                 }))}
-                looseFiles={project.files.map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) }))}
               />
             </section>
           </div>
