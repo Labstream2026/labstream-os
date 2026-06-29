@@ -17,7 +17,7 @@ export default async function NotasPage() {
       // Fijadas arriba; luego por última edición (las que tocas suben, estilo iCloud).
       orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
       take: 500,
-      select: { id: true, title: true, content: true, category: true, source: true, pinned: true, projectId: true, clientId: true, createdAt: true, updatedAt: true },
+      select: { id: true, title: true, content: true, category: true, source: true, pinned: true, projectId: true, clientId: true, color: true, remindAt: true, createdAt: true, updatedAt: true },
     }),
     // Proyectos accesibles para poder VINCULAR una nota a un proyecto.
     db.project.findMany({
@@ -44,6 +44,8 @@ export default async function NotasPage() {
     pinned: n.pinned,
     projectId: n.projectId,
     clientId: n.clientId,
+    color: n.color,
+    remindAt: n.remindAt ? n.remindAt.toISOString() : null,
     createdAt: n.createdAt.toISOString(),
     updatedAt: n.updatedAt.toISOString(),
   }));

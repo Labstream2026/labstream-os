@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, ListChecks, Bell, BellOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { renderMarkdown } from "@/lib/markdown";
 import { saveNote, deleteNote, togglePinNote } from "./actions";
 
 export type NoteItem = {
@@ -15,9 +16,35 @@ export type NoteItem = {
   pinned: boolean;
   projectId: string | null;
   clientId: string | null;
+  color: string | null;
+  remindAt: string | null; // ISO | null
   createdAt: string; // ISO
   updatedAt: string; // ISO
 };
+
+// Paleta de color por nota (clave guardada → hex para pintar). Funciona en claro/oscuro.
+const NOTE_COLORS: { key: string; hex: string }[] = [
+  { key: "amber", hex: "#eda100" },
+  { key: "blue", hex: "#2a78d6" },
+  { key: "green", hex: "#1d9e75" },
+  { key: "violet", hex: "#7f77dd" },
+  { key: "rose", hex: "#e24b4a" },
+  { key: "gray", hex: "#888780" },
+];
+const noteHex = (key: string | null): string | null => NOTE_COLORS.find((c) => c.key === key)?.hex ?? null;
+
+// ISO → valor de <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") en hora local.
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fmtReminder(iso: string | null): string {
+  if (!iso) return "";
+  try { return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)); } catch { return ""; }
+}
 
 export type NoteProject = { id: string; name: string; emoji: string | null };
 export type NoteClient = { id: string; name: string; emoji: string | null; accentColor: string | null };
@@ -39,9 +66,9 @@ function snippet(content: string, title: string): string {
   return (rest || "Sin texto adicional").replace(/\s+/g, " ");
 }
 
-type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string };
-const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "" });
-const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "" };
+type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string };
+const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt) });
+const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "" };
 
 // Vista de Notas estilo iCloud, a PANTALLA COMPLETA (llena la ventana, sin caja exterior).
 // Dos paneles en escritorio (lista + editor); en móvil la lista ocupa todo y al tocar una nota
@@ -64,6 +91,9 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
   const [status, setStatus] = React.useState<"idle" | "saving" | "saved">("idle");
   // En móvil: false = se ve la lista; true = se ve el editor. En escritorio se ven ambos.
   const [mobileEditorOpen, setMobileEditorOpen] = React.useState(false);
+  // Cuerpo: editar (textarea Markdown) o vista (render con checkboxes interactivos).
+  const [bodyMode, setBodyMode] = React.useState<"edit" | "view">("edit");
+  const bodyRef = React.useRef<HTMLTextAreaElement>(null);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, start] = React.useTransition();
   const { confirm, dialog } = useConfirmDialog();
@@ -113,8 +143,9 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
     (d: Draft) => {
       if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
+      const remindIso = d.remindAt ? (() => { const dt = new Date(d.remindAt); return Number.isNaN(dt.getTime()) ? null : dt.toISOString(); })() : null;
       start(async () => {
-        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null, clientId: d.clientId || null });
+        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: d.remindAt || null });
         if (r.ok && r.id) {
           const realId = r.id;
           const finalTitle = r.title ?? d.title;
@@ -125,8 +156,8 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             return exists
-              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, updatedAt } : n))
-              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
+              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, updatedAt } : n))
+              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
@@ -195,6 +226,27 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
   const editing = isNew || selectedId !== null;
   const draftClient = clientOf(draft.clientId || null);
 
+  // Inserta un prefijo (lista de tareas) al inicio de la línea actual del cuerpo.
+  function prefixBody(prefix: string) {
+    const ta = bodyRef.current;
+    const text = draft.content;
+    if (!ta) { onChange({ content: text + (text && !text.endsWith("\n") ? "\n" : "") + prefix }); return; }
+    const s = ta.selectionStart;
+    const lineStart = text.lastIndexOf("\n", s - 1) + 1;
+    onChange({ content: text.slice(0, lineStart) + prefix + text.slice(lineStart) });
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(s + prefix.length, s + prefix.length); });
+  }
+  // Alterna [ ]↔[x] en la línea de origen del checkbox tocado en la vista.
+  function toggleTaskLine(lineNo: number) {
+    const lines = draft.content.split("\n");
+    const ln = lines[lineNo];
+    if (ln == null) return;
+    const m = /^(\s*[-*+]\s+)\[( |x|X)\](\s.*)$/.exec(ln);
+    if (!m) return;
+    lines[lineNo] = `${m[1]}[${m[2].toLowerCase() === "x" ? " " : "x"}]${m[3]}`;
+    onChange({ content: lines.join("\n") });
+  }
+
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
       {/* ── Lista (izquierda) ── llena todo en móvil; columna fija en escritorio */}
@@ -255,7 +307,7 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                   const sub = groupBy === "cliente" ? (n.category ?? "").trim() : (clientOf(n.clientId)?.name ?? "");
                   return (
                     <div key={n.id} className={cn("group relative mb-0.5 rounded-lg transition-colors", selected ? "bg-muted" : "hover:bg-accent")}>
-                      {selected ? <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" /> : null}
+                      {selected ? <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" /> : noteHex(n.color) ? <span className="absolute inset-y-1 left-0 w-1 rounded-full" style={{ background: noteHex(n.color)! }} /> : null}
                       <button type="button" onClick={() => selectNote(n)} className="block w-full rounded-lg px-3 py-2.5 pr-9 text-left">
                         <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
                           {n.pinned ? <Pin className="size-3 shrink-0 fill-amber-500 text-amber-500" /> : null}
@@ -263,7 +315,12 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                           {n.source !== "app" ? <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{SOURCE_LABEL[n.source] ?? n.source}</span> : null}
                         </p>
                         <p className="truncate text-xs text-muted-foreground"><span className="text-foreground/70">{fmtDate(n.updatedAt)}</span> · {snippet(n.content, n.title)}</p>
-                        {sub ? <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{sub}</span> : null}
+                        {(sub || n.remindAt) ? (
+                          <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            {sub ? <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{sub}</span> : null}
+                            {n.remindAt ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"><Bell className="size-2.5" /> {fmtReminder(n.remindAt)}</span> : null}
+                          </span>
+                        ) : null}
                       </button>
                       <button
                         type="button"
@@ -348,13 +405,55 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                     </select>
                   </label>
                 ) : null}
+                {/* Recordatorio */}
+                <label className={cn("inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors", draft.remindAt ? "border-primary/40 text-foreground" : "border-border text-muted-foreground hover:border-primary/40")} title="Recordatorio">
+                  {draft.remindAt ? <Bell className="size-3.5 shrink-0 text-primary" /> : <BellOff className="size-3.5 shrink-0" />}
+                  <input type="datetime-local" value={draft.remindAt} onChange={(e) => onChange({ remindAt: e.target.value })} className="bg-transparent outline-none [color-scheme:light] dark:[color-scheme:dark]" />
+                  {draft.remindAt ? <button type="button" onClick={(e) => { e.preventDefault(); onChange({ remindAt: "" }); }} aria-label="Quitar recordatorio" className="text-muted-foreground hover:text-foreground">×</button> : null}
+                </label>
+                {/* Color de la nota */}
+                <div className="flex items-center gap-1.5">
+                  {NOTE_COLORS.map((c) => (
+                    <button
+                      key={c.key}
+                      type="button"
+                      onClick={() => onChange({ color: draft.color === c.key ? "" : c.key })}
+                      title={`Color ${c.key}`}
+                      aria-label={`Color ${c.key}`}
+                      className={cn("size-5 rounded-full border border-black/10 transition hover:scale-110", draft.color === c.key && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-background")}
+                      style={{ background: c.hex }}
+                    />
+                  ))}
+                </div>
               </div>
-              <textarea
-                value={draft.content}
-                onChange={(e) => onChange({ content: e.target.value })}
-                placeholder="Escribe tu nota…"
-                className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
-              />
+              {/* Cuerpo: editar Markdown o ver con checkboxes interactivos */}
+              <div className="flex items-center gap-1 border-b border-border pb-1.5">
+                <button type="button" onClick={() => setBodyMode("edit")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "edit" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Pencil className="size-3.5" /> Editar</button>
+                <button type="button" onClick={() => setBodyMode("view")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "view" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Eye className="size-3.5" /> Vista</button>
+                {bodyMode === "edit" ? (
+                  <button type="button" onClick={() => prefixBody("- [ ] ")} title="Insertar tarea" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><ListChecks className="size-3.5" /> Tarea</button>
+                ) : null}
+              </div>
+              {bodyMode === "edit" ? (
+                <textarea
+                  ref={bodyRef}
+                  value={draft.content}
+                  onChange={(e) => onChange({ content: e.target.value })}
+                  placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista, - [ ] tarea."
+                  className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
+                />
+              ) : (
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed [&_button[data-md-task]]:text-lg [&_button[data-md-task]]:text-primary"
+                  onClick={(e) => {
+                    const btn = (e.target as HTMLElement).closest("[data-md-task]");
+                    if (!btn) return;
+                    const n = Number(btn.getAttribute("data-md-task"));
+                    if (!Number.isNaN(n)) toggleTaskLine(n);
+                  }}
+                  dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
+                />
+              )}
             </div>
           </>
         ) : (

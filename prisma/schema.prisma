@@ -558,12 +558,23 @@ model Note {
   // pero ningún proyecto). Tag visible en el editor y encabezado de grupo en la lista.
   client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   clientId    String?
+  // Color de la nota (clave de paleta, p. ej. "amber"); null = sin color.
+  color       String?
+  // Visibilidad: "private" (solo el dueño), "project" (miembros del proyecto vinculado) o
+  // "team" (todo el equipo). Las compartidas se ven en SOLO LECTURA para quien no es dueño.
+  visibility  String   @default("private")
+  // Recordatorio: cuándo avisar (remindAt) y cuándo ya se notificó (reminderSentAt, para no
+  // repetir). El cron /api/cron/note-reminders dispara los vencidos.
+  remindAt       DateTime?
+  reminderSentAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([createdById])
   @@index([projectId])
   @@index([clientId])
+  @@index([visibility])
+  @@index([remindAt])
 }
 
 // Conversación de WhatsApp con el agente (sesión SEPARADA del chat interno). Guarda cada turno
