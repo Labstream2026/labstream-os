@@ -10,6 +10,7 @@ import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Plus, FolderOpen, PowerOff } from "lucide-react";
 import { ViewTabs } from "../proyectos/[id]/view-tabs";
+import { ClientCardMenu } from "./client-card-menu";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,9 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
 
   const totalProjects = cards.reduce((n, c) => n + c.projects.length, 0);
   const canCreate = hasPermission(session, "crear_clientes");
+  // Para el menú de la tarjeta: crear proyecto (permiso propio) y archivar (solo admin).
+  const canCreateProject = hasPermission(session, "crear_proyectos");
+  const isAdmin = session?.role === "admin";
   // Los clientes archivados (borrado suave) viven ahora en la Papelera (/papelera), unificados
   // con los proyectos archivados — no se duplican aquí.
 
@@ -118,6 +122,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                   </Link>
                   {c.description ? <p className="truncate text-xs text-muted-foreground">{c.description}</p> : null}
                 </div>
+                <ClientCardMenu clientId={c.id} clientName={c.name} canCreateProject={canCreateProject} canArchive={isAdmin} />
               </div>
 
               <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
@@ -153,42 +158,6 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
               <Link href={`/clientes/${c.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 Ver ficha del cliente →
               </Link>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  // ── Vista COLUMNAS ── una columna por cliente, scroll horizontal (estilo tablero).
-  const columnsNode = (
-    <div className="flex gap-4 overflow-x-auto pb-2">
-      {cards.map((c) => {
-        const accent = c.color ? tone(c.color).hex : null;
-        const initial = (c.name.trim().charAt(0) || "C").toUpperCase();
-        return (
-          <div key={c.id} className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            <div className="h-1.5 w-full" style={{ background: accent ?? "hsl(var(--primary))" }} />
-            <div className="flex flex-col p-4">
-              <div className="flex items-center gap-2.5">
-                <span
-                  style={accent ? { backgroundColor: `${accent}24`, color: accent } : undefined}
-                  className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg text-xl font-semibold", accent ? "" : "bg-muted text-foreground")}
-                >{c.emoji ?? initial}</span>
-                <div className="min-w-0 flex-1">
-                  <Link href={`/clientes/${c.id}`} className="block truncate font-semibold leading-tight hover:underline">{c.name}</Link>
-                  <p className="text-[11px] text-muted-foreground">{c.projects.length} proyectos · {c.progress}%</p>
-                </div>
-              </div>
-              <div className="mt-3">
-                {c.projects.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">Sin proyectos.</p>
-                ) : (
-                  <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-                    {c.projects.map((p) => <ProjectRow key={p.id} p={p} accent={accent} />)}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         );
@@ -287,7 +256,6 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
             storageKey="clientes-view"
             views={[
               { key: "tarjetas", label: "Tarjetas", icon: "▦", node: cardsNode },
-              { key: "columnas", label: "Columnas", icon: "▥", node: columnsNode },
               { key: "lista", label: "Lista", icon: "☰", node: listNode },
             ]}
           />
