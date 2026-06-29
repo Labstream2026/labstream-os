@@ -154,13 +154,16 @@ export function ReviewStage({
   const merged = React.useMemo(() => {
     return [...comments, ...localComments]
       .filter((c) => !deletedIds.has(c.id))
+      // Defensa en profundidad: en el portal del CLIENTE nunca se muestran los comentarios
+      // internos del equipo (fromClient=false), aunque por error llegaran al componente.
+      .filter((c) => mode !== "client" || c.fromClient)
       .map((c) => {
         let next = c;
         if (c.id in resolvedOverride) next = { ...next, resolved: resolvedOverride[c.id] };
         if (c.id in bodyOverride) next = { ...next, body: bodyOverride[c.id] };
         return next;
       });
-  }, [comments, localComments, resolvedOverride, bodyOverride, deletedIds]);
+  }, [comments, localComments, resolvedOverride, bodyOverride, deletedIds, mode]);
 
   // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas.
   const ofVersion = merged.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);

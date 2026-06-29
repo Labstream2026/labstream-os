@@ -21,7 +21,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     include: {
       project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
-      reviewComments: { orderBy: { createdAt: "asc" } },
+      // El portal del cliente SOLO carga los comentarios del cliente (fromClient). Los
+      // comentarios INTERNOS del equipo (pre-aprobación, fromClient=false) nunca salen del
+      // servidor por este enlace público. La bandeja interna /revisiones los muestra todos.
+      reviewComments: { where: { fromClient: true }, orderBy: { createdAt: "asc" } },
       photos: { orderBy: { position: "asc" } },
     },
   });
