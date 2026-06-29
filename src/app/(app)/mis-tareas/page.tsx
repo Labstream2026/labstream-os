@@ -17,6 +17,7 @@ import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
 import { TaskDetailButton } from "./task-detail-panel";
 import { MyDayToggle } from "./my-day-toggle";
+import { TaskFilters } from "./task-filters";
 import { clearMyDay } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -30,9 +31,18 @@ function SummaryTile({ count, label, color }: { count: number; label: string; co
   );
 }
 
-export default async function MisTareasPage() {
+export default async function MisTareasPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  // Filtros en la URL (compartibles y guardables como "vistas").
+  const sp = await searchParams;
+  const getStr = (k: string) => { const v = sp[k]; return (Array.isArray(v) ? v[0] : v) ?? ""; };
+  const fEstado = getStr("estado").split(",").filter(Boolean);
+  const fPrioridad = getStr("prioridad").split(",").filter(Boolean);
+  const fProyecto = getStr("proyecto");
+  const fQ = getStr("q").toLowerCase().trim();
+  const fGrupo = getStr("grupo") || "urgencia";
 
   const { statuses, priorities } = await getTaskLabels();
   const statusOptions = labelOptions(statuses);
@@ -103,6 +113,50 @@ export default async function MisTareasPage() {
   // Resumen rápido por urgencia (tiles arriba): de un vistazo, qué aprieta.
   const counts: Record<string, number> = { vencidas: 0, hoy: 0, semana: 0, despues: 0, sin: 0 };
   for (const t of tasks) counts[bucketOf(t.dueDate)] = (counts[bucketOf(t.dueDate)] ?? 0) + 1;
+
+  // Opciones de filtro derivadas de las tareas del usuario.
+  const projMap = new Map<string, { id: string; name: string; emoji: string | null }>();
+  let hasPersonal = false;
+  for (const t of tasks) {
+    if (t.project) projMap.set(t.project.id, { id: t.project.id, name: t.project.name, emoji: t.project.emoji });
+    else hasPersonal = true;
+  }
+  const projectOptions = [...projMap.values()].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  const priorityOptions = labelOptions(priorities);
+
+  // Aplicar filtros en memoria (las tareas abiertas ya están cargadas).
+  const listTasks = tasks.filter((t) => {
+    if (fEstado.length && !fEstado.includes(t.status)) return false;
+    if (fPrioridad.length && !fPrioridad.includes(t.priority)) return false;
+    if (fProyecto === "personal" && t.projectId) return false;
+    if (fProyecto && fProyecto !== "personal" && t.projectId !== fProyecto) return false;
+    if (fQ && !t.title.toLowerCase().includes(fQ)) return false;
+    return true;
+  });
+
+  // Secciones según la agrupación elegida (urgencia por defecto).
+  type Section = { key: string; label: string; cls: string; items: typeof listTasks };
+  let sections: Section[];
+  if (fGrupo === "proyecto") {
+    const m = new Map<string, Section>();
+    for (const t of listTasks) {
+      const key = t.project?.id ?? "personal";
+      if (!m.has(key)) m.set(key, { key, label: t.project ? `${t.project.emoji ?? "📁"} ${t.project.name}` : "🔒 Personales", cls: "text-muted-foreground", items: [] });
+      m.get(key)!.items.push(t);
+    }
+    sections = [...m.values()].sort((a, b) => Number(a.key === "personal") - Number(b.key === "personal") || a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
+  } else if (fGrupo === "prioridad") {
+    sections = priorities
+      .map((p) => ({ key: p.key, label: p.label, cls: "text-muted-foreground", items: listTasks.filter((t) => t.priority === p.key) }))
+      .filter((s) => s.items.length);
+    const known = new Set(priorities.map((p) => p.key));
+    const rest = listTasks.filter((t) => !known.has(t.priority));
+    if (rest.length) sections.push({ key: "_sin", label: "Sin prioridad", cls: "text-muted-foreground", items: rest });
+  } else {
+    sections = GROUPS
+      .map((g) => ({ key: g.key, label: g.label, cls: g.cls, items: listTasks.filter((t) => bucketOf(t.dueDate) === g.key) }))
+      .filter((s) => s.items.length);
+  }
 
   const taskRow = (t: (typeof tasks)[number]) => {
           const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
@@ -181,21 +235,20 @@ export default async function MisTareasPage() {
 
   const list = (
     <div className="space-y-5">
+      <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} />
       {tasks.length === 0 ? (
         <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
+      ) : listTasks.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Ninguna tarea coincide con los filtros.</p>
       ) : (
-        GROUPS.map((g) => {
-          const items = tasks.filter((t) => bucketOf(t.dueDate) === g.key);
-          if (!items.length) return null;
-          return (
-            <div key={g.key}>
-              <h3 className={cn("mb-2 text-xs font-semibold uppercase tracking-wide", g.cls)}>
-                {g.label} <span className="text-muted-foreground">· {items.length}</span>
-              </h3>
-              <div className="space-y-2">{items.map(taskRow)}</div>
-            </div>
-          );
-        })
+        sections.map((g) => (
+          <div key={g.key}>
+            <h3 className={cn("mb-2 text-xs font-semibold uppercase tracking-wide", g.cls)}>
+              {g.label} <span className="text-muted-foreground">· {g.items.length}</span>
+            </h3>
+            <div className="space-y-2">{g.items.map(taskRow)}</div>
+          </div>
+        ))
       )}
     </div>
   );
