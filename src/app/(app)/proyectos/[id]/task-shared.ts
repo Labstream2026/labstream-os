@@ -8,6 +8,7 @@ export type Task = {
   priority: string;
   shootDate: Date | string | null;
   dueDate: Date | string | null;
+  dueTime?: string | null; // "HH:mm" opcional: hora de finalización (la tarea sale a esa hora en el calendario)
   // Campos del cronograma (opcionales: las vistas tablero/lista/calendario no los usan).
   startDate?: Date | string | null;
   estimatedMinutes?: number | null;

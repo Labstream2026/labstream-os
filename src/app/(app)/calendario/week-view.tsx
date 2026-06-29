@@ -170,7 +170,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
   const parsed = items.map((it) => {
     const start = new Date(it.start ?? it.date);
     const end = it.end ? new Date(it.end) : null;
-    const timed = it.kind === "event" && !it.allDay && !Number.isNaN(start.getTime());
+    // Cualquier ítem con hora (allDay=false) se ubica en la rejilla horaria: eventos con hora y
+    // ahora también tareas con hora de finalización. Los que son "todo el día" (hitos, rodajes,
+    // tareas sin hora) van a la franja superior.
+    const timed = !it.allDay && !Number.isNaN(start.getTime());
     return { it, start, end, timed };
   });
 

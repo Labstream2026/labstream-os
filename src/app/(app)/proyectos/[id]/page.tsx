@@ -220,7 +220,7 @@ export default async function ProyectoPage({
     ...projectEvents.map((e) => eventToCalItem(e, session?.id, `/proyectos/${id}`)),
     ...project.tasks.flatMap((t) =>
       taskToCalItems({
-        id: t.id, title: t.title, dueDate: t.dueDate, shootDate: t.shootDate,
+        id: t.id, title: t.title, dueDate: t.dueDate, dueTime: t.dueTime, shootDate: t.shootDate,
         project: { id, name: project.name, emoji: project.emoji },
         assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, avatarColor: t.assignee.avatarColor } : null,
       }),

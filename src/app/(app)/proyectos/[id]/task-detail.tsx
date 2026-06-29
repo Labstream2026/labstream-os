@@ -13,6 +13,7 @@ import {
   setTaskPriority,
   setTaskAssignee,
   setTaskDueDate,
+  setTaskDueTime,
   setTaskDates,
   setTaskShootDate,
   setTaskEstimate,
@@ -160,6 +161,16 @@ export function TaskDetail({
             </Field>
             <Field label="📅 Fecha de entrega">
               <DateInput name="dueDate" value={toDateInputValue(task.dueDate)} action={setTaskDueDate.bind(null, task.id, projectId)} className="w-full" />
+              <form action={setTaskDueTime.bind(null, task.id, projectId)} className="mt-1">
+                <input
+                  type="time"
+                  name="dueTime"
+                  defaultValue={task.dueTime ?? ""}
+                  onChange={(e) => e.target.form?.requestSubmit()}
+                  title="Hora de finalización (opcional): la tarea aparece en el calendario a esa hora"
+                  className="w-full rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
+                />
+              </form>
             </Field>
             <Field label="🎬 Fecha de rodaje">
               <DateInput name="shootDate" value={toDateInputValue(task.shootDate)} action={setTaskShootDate.bind(null, task.id, projectId)} className="w-full" />

@@ -196,7 +196,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     db.task.findMany({
       where: { projectId: { in: safeProjectIds }, OR: [{ dueDate: { gte: calWindowStart } }, { shootDate: { gte: calWindowStart } }] },
       select: {
-        id: true, title: true, dueDate: true, shootDate: true,
+        id: true, title: true, dueDate: true, dueTime: true, shootDate: true,
         project: { select: { id: true, name: true, emoji: true } },
         assignee: { select: { name: true, initials: true, avatarColor: true } },
       },

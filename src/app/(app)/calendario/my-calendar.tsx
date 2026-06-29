@@ -163,7 +163,7 @@ export function MyCalendar({
                             )}
                             style={{ background: colorBy === "persona" ? personColor(ev) ?? itemSolid(ev) : itemSolid(ev) }}
                           >
-                            {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? "✅" : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
+                            {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? `✅ ${ev.time ? `${ev.time} ` : ""}` : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
                           </button>
                         );
                       })}

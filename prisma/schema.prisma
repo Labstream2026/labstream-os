@@ -1286,6 +1286,9 @@ model Task {
   // dueDate, la tarea se dibuja como hito de un día; si solo hay startDate, igual.
   startDate     DateTime?
   dueDate       DateTime?
+  // Hora de finalización opcional ("HH:mm", hora de pared). Con ella la tarea aparece en el
+  // calendario a esa hora (no "todo el día"). Sin ella, sigue siendo de día completo.
+  dueTime       String?
   shootDate     DateTime? // fecha de rodaje/grabación (campo de producción)
   // Horas estimadas de trabajo (en minutos, para evitar floats). Alimenta el seguimiento
   // estimado vs real del cronograma. El tiempo real se registra en TimeEntry.

@@ -7,6 +7,17 @@ import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 
 const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(d);
 
+// Combina la fecha de entrega (anclada a mediodía UTC) con una hora "HH:mm" → ISO con esa hora
+// de pared en UTC (misma convención que los eventos). Si no hay hora válida, devuelve null
+// (la tarea sigue siendo de "todo el día").
+export function dueDateTimeISO(dueDate: Date, dueTime: string | null | undefined): string | null {
+  if (!dueTime) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(dueTime.trim());
+  if (!m) return null;
+  const hh = Math.min(23, Number(m[1])), mm = Math.min(59, Number(m[2]));
+  return new Date(Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate(), hh, mm, 0, 0)).toISOString();
+}
+
 export type EventRow = {
   id: string;
   title: string;
@@ -52,6 +63,7 @@ export type TaskRow = {
   id: string;
   title: string;
   dueDate: Date | null;
+  dueTime?: string | null; // "HH:mm" opcional → la entrega se muestra a esa hora
   shootDate: Date | null;
   project?: { id: string; name: string | null; emoji: string | null } | null;
   assignee?: { name: string; initials: string | null; avatarColor: string | null } | null;
@@ -86,8 +98,17 @@ export function taskToCalItems(t: TaskRow): CalItem[] {
   const out: CalItem[] = [];
   const assignee = t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null;
   const link = t.project ? `/proyectos/${t.project.id}?tab=tareas` : "/mis-tareas";
-  const base = { projectName: t.project?.name ?? null, projectEmoji: t.project?.emoji ?? null, assignee, link, allDay: true as const };
-  if (t.dueDate) out.push({ id: `t-${t.id}`, title: t.title, date: t.dueDate.toISOString(), start: t.dueDate.toISOString(), kind: "task", urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state), ...base });
-  if (t.shootDate) out.push({ id: `s-${t.id}`, title: t.title, date: t.shootDate.toISOString(), start: t.shootDate.toISOString(), kind: "shoot", ...base });
+  const base = { projectName: t.project?.name ?? null, projectEmoji: t.project?.emoji ?? null, assignee, link };
+  if (t.dueDate) {
+    const timed = dueDateTimeISO(t.dueDate, t.dueTime);
+    const iso = timed ?? t.dueDate.toISOString();
+    out.push({
+      id: `t-${t.id}`, title: t.title, date: iso, start: iso, kind: "task",
+      // Con hora → bloque a esa hora; sin hora → todo el día (como antes).
+      allDay: !timed, time: timed ? (t.dueTime ?? null) : null,
+      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state), ...base,
+    });
+  }
+  if (t.shootDate) out.push({ id: `s-${t.id}`, title: t.title, date: t.shootDate.toISOString(), start: t.shootDate.toISOString(), kind: "shoot", allDay: true, ...base });
   return out;
 }

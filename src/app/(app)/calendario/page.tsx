@@ -4,6 +4,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { CalendarBoard } from "./calendar-board";
 import { type CalItem } from "./my-calendar";
+import { dueDateTimeISO } from "./build-items";
 import { createMyEvent } from "./actions";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "@/app/(app)/timeline/global-timeline";
@@ -56,7 +57,7 @@ export default async function CalendarioPage() {
         OR: [{ dueDate: { gte: windowStart } }, { shootDate: { gte: windowStart } }],
       },
       select: {
-        id: true, title: true, dueDate: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,
+        id: true, title: true, dueDate: true, dueTime: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,
         assignee: { select: { name: true, initials: true, avatarColor: true } },
         project: { select: { id: true, name: true, emoji: true, ...accessSelect } },
       },
@@ -114,20 +115,25 @@ export default async function CalendarioPage() {
       attendees: e.attendees.map((a) => ({ name: a.user.name, initials: a.user.initials, color: a.user.avatarColor })),
       link: e.projectId ? `/proyectos/${e.projectId}` : null,
     })),
-    // Tareas con fecha de entrega.
-    ...tasks.filter((t) => t.dueDate).map((t) => ({
-      id: `t-${t.id}`,
-      title: t.title,
-      date: t.dueDate!.toISOString(),
-      start: t.dueDate!.toISOString(),
-      kind: "task" as const,
-      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state),
-      allDay: true,
-      projectName: t.project?.name ?? null,
-      projectEmoji: t.project?.emoji ?? null,
-      assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null,
-      link: t.project ? `/proyectos/${t.project.id}?tab=tareas` : "/mis-tareas",
-    })),
+    // Tareas con fecha de entrega (con hora si la tienen → bloque a esa hora; si no, todo el día).
+    ...tasks.filter((t) => t.dueDate).map((t) => {
+      const timed = dueDateTimeISO(t.dueDate!, t.dueTime);
+      const iso = timed ?? t.dueDate!.toISOString();
+      return {
+        id: `t-${t.id}`,
+        title: t.title,
+        date: iso,
+        start: iso,
+        kind: "task" as const,
+        urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state),
+        allDay: !timed,
+        time: timed ? (t.dueTime ?? null) : null,
+        projectName: t.project?.name ?? null,
+        projectEmoji: t.project?.emoji ?? null,
+        assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null,
+        link: t.project ? `/proyectos/${t.project.id}?tab=tareas` : "/mis-tareas",
+      };
+    }),
     // Tareas con fecha de rodaje (día de grabación).
     ...tasks.filter((t) => t.shootDate).map((t) => ({
       id: `s-${t.id}`,

@@ -13,7 +13,7 @@ import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/only
 import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
-import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail } from "@/lib/notify";
+import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
@@ -265,7 +265,8 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
   if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la fecha de entrega.");
   const raw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
-  await db.task.update({ where: { id: taskId }, data: { dueDate } });
+  // Si se quita la fecha de entrega, la hora de entrega deja de tener sentido → se limpia.
+  await db.task.update({ where: { id: taskId }, data: dueDate ? { dueDate } : { dueDate: null, dueTime: null } });
   const session = await getSession();
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
@@ -280,6 +281,20 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
     });
   }
   await logActivity({ action: "task.dueDate", summary: raw ? `fijó la entrega de «${task!.title}» el ${raw}` : `quitó la entrega de «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  refresh(projectId);
+}
+
+// Hora de finalización de la tarea ("HH:mm" o "" para quitar). Hace que la entrega aparezca en
+// el calendario a esa hora en vez de "todo el día".
+export async function setTaskDueTime(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task, "gestionar_cronograma");
+  if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la hora de entrega.");
+  const raw = String(formData.get("dueTime") ?? "").trim();
+  const dueTime = /^\d{1,2}:\d{2}$/.test(raw) ? raw : null;
+  await db.task.update({ where: { id: taskId }, data: { dueTime } });
+  await logActivity({ action: "task.dueTime", summary: dueTime ? `fijó la hora de entrega de «${task!.title}» a las ${dueTime}` : `quitó la hora de entrega de «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  revalidatePath("/calendario");
   refresh(projectId);
 }
 
@@ -412,7 +427,7 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
     where: { id: taskId },
     select: {
       title: true, description: true, status: true, stage: true, priority: true,
-      startDate: true, dueDate: true, assigneeId: true, completedAt: true, projectId: true,
+      startDate: true, dueDate: true, dueTime: true, assigneeId: true, completedAt: true, projectId: true,
       project: { select: { name: true } },
       assignee: { select: { name: true } },
     },
@@ -431,6 +446,9 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
   const descRaw = String(formData.get("description") ?? "");
   const newStart = sRaw ? noonUTC(sRaw) : null;
   const newDue = dRaw ? noonUTC(dRaw) : null;
+  const tRaw = String(formData.get("dueTime") ?? "").trim();
+  // La hora de entrega solo tiene sentido si hay fecha de entrega.
+  const newDueTime = newDue && /^\d{1,2}:\d{2}$/.test(tRaw) ? tRaw : null;
   const newDesc = descRaw.trim() ? descRaw : null;
 
   // El responsable elegido debe existir y estar activo.
@@ -457,6 +475,7 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
       assignedById: assigneeChanged ? session.id : undefined,
       startDate: newStart,
       dueDate: newDue,
+      dueTime: newDueTime,
       completedAt,
     },
   });
@@ -481,6 +500,7 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
   if (assigneeChanged) changes.push(`Responsable: ${task.assignee?.name ?? "Sin asignar"} → ${newName ?? "Sin asignar"}`);
   if (fmt(task.startDate) !== fmt(newStart)) changes.push(`Inicio: ${fmt(task.startDate)} → ${fmt(newStart)}`);
   if (fmt(task.dueDate) !== fmt(newDue)) changes.push(`Entrega: ${fmt(task.dueDate)} → ${fmt(newDue)}`);
+  if ((task.dueTime ?? "") !== (newDueTime ?? "")) changes.push(`Hora de entrega: ${task.dueTime ?? "—"} → ${newDueTime ?? "—"}`);
   if ((task.description ?? "") !== (newDesc ?? "")) changes.push("Descripción actualizada");
 
   const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
@@ -703,6 +723,16 @@ export async function updateProjectDetails(projectId: string, formData: FormData
   const summary = parts.length ? `actualizó el proyecto: ${parts.join(" · ")}` : `editó los datos del proyecto «${name}»`;
 
   await logActivity({ action: "project.details", summary, projectId, entityType: "project", entityId: projectId });
+  // Si cambió la fecha de entrega, avisa al CLIENTE (portal) del proyecto.
+  if (formData.has("dueDate") && prevKey !== nextKey) {
+    await notifyProjectClients(projectId, {
+      type: "task",
+      event: "client_project_date",
+      title: `Nueva fecha en «${name}»`,
+      body: nextKey ? `La entrega del proyecto «${name}» se fijó para el ${nextKey}.` : `Se quitó la fecha de entrega del proyecto «${name}».`,
+      link: `/proyectos/${projectId}`,
+    });
+  }
   revalidatePath("/timeline");
   revalidatePath("/proyectos");
   refresh(projectId);
@@ -1142,6 +1172,15 @@ export async function internalDecision(
   if (approved) {
     await db.deliverableVersion.updateMany({ where: { deliverableId, number: versionNumber }, data: { internalApproved: true, internalApprovedAt: new Date() } });
     await db.deliverable.update({ where: { id: deliverableId }, data: { status: "ENVIADO_CLIENTE" } });
+    // Avisa al CLIENTE (portal): su entregable ya está listo para revisarlo y aprobarlo.
+    await notifyProjectClients(projectId, {
+      type: "review",
+      event: "client_deliverable_ready",
+      title: `Tu entregable está listo: ${deliverable.name}`,
+      body: `El equipo terminó «${deliverable.name}» en «${deliverable.project.name}». Ya puedes verlo, comentarlo y aprobarlo.`,
+      link: `/proyectos/${projectId}?tab=entregables`,
+      actorId: session!.id,
+    });
   } else {
     await db.deliverable.update({ where: { id: deliverableId }, data: { status: "CORRECCIONES" } });
     // Sella los comentarios internos (borradores) de esta versión: pasan a ser el checklist
@@ -1767,6 +1806,16 @@ async function ensureClienteDeliverable(deliverableId: string, perm: string) {
 // IDs del equipo a avisar cuando el cliente actúa (responsable + miembros, sin el propio cliente).
 function clienteTeamIds(project: { leadId: string | null; members: { userId: string }[] }, exceptId: string): string[] {
   return [project.leadId, ...project.members.map((m) => m.userId)].filter((id): id is string => Boolean(id) && id !== exceptId);
+}
+
+// Avisa (in-app + correo) a los MIEMBROS CLIENTE de un proyecto (usuarios con rol "cliente").
+// Se usa cuando el equipo termina algo relevante para el cliente: entregable listo, fecha movida.
+async function notifyProjectClients(projectId: string, n: NotifyInput) {
+  const members = await db.projectMember.findMany({
+    where: { projectId, user: { role: { key: "cliente" } } },
+    select: { userId: true },
+  });
+  if (members.length) await notifyManyAndEmail(members.map((m) => m.userId), n);
 }
 
 // El cliente comenta un entregable (feedback). Se guarda como comentario del cliente y avisa al equipo.
