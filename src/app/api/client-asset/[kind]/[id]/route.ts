@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
 import { getSession } from "@/lib/auth";
+import { userCanAccessClient } from "@/lib/client-access";
 
 // Sirve la foto o el logo de un cliente (storage/client-photos/<id> o client-logos/<id>).
 // Solo dentro de la app autenticada (igual que los banners): 404 a no autenticados.
@@ -23,6 +24,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ kind: stri
   const dir = DIRS[kind];
   const safe = id.replace(/[^a-zA-Z0-9]/g, "");
   if (!dir || !safe) return new NextResponse("No encontrado", { status: 404 });
+
+  // Control de acceso: solo sirve la foto/logo a quien tiene acceso a ese cliente (404 si no).
+  if (!(await userCanAccessClient(safe, session))) return new NextResponse("No encontrado", { status: 404 });
 
   let buf: Buffer;
   let contentType: string;

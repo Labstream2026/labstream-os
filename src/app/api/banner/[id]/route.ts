@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { readBuffer } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
 import { getSession } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { canAccessProject } from "@/lib/project-access";
+import { userCanAccessClient } from "@/lib/client-access";
 
 // Sirve la portada/banner de un cliente o proyecto (storage/banners/<id>).
 // Pública (solo imágenes de portada); detecta el tipo por los primeros bytes.
@@ -24,6 +27,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const safe = id.replace(/[^a-zA-Z0-9]/g, "");
   if (!safe) return new NextResponse("No encontrado", { status: 404 });
+
+  // Control de acceso: el id de la portada es el del proyecto o el del cliente. Solo se sirve a
+  // quien tiene acceso a ese proyecto/cliente (evita ver portadas de proyectos/clientes privados
+  // ajenos). 404 si no autorizado o si no existe la entidad.
+  const project = await db.project.findUnique({
+    where: { id: safe },
+    select: { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } },
+  });
+  const allowed = project ? canAccessProject(project, session) : await userCanAccessClient(safe, session);
+  if (!allowed) return new NextResponse("No encontrado", { status: 404 });
+
   let buf: Buffer;
   let contentType: string;
   try {

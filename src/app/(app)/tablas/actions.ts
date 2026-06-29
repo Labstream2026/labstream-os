@@ -26,7 +26,11 @@ const accessSelect = {
 
 // Acceso a una tabla: si cuelga de un proyecto → acceso al proyecto; si es de wiki
 // o suelta → basta sesión (la wiki es del equipo). Lanza si no hay acceso.
-async function ensureTableAccess(tableId: string): Promise<void> {
+// `write` = la acción MODIFICA la tabla. Para tablas globales/de wiki (inventario/ubicación)
+// editar exige el permiso editar_wiki; VERLAS basta con canSeeWiki. Por defecto write=true
+// (fail-safe): casi todas las acciones que pasan por aquí mutan; las de solo lectura
+// (revealCell) pasan write=false explícitamente.
+async function ensureTableAccess(tableId: string, write = true): Promise<void> {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
   const t = await db.dataTable.findUnique({
@@ -39,20 +43,22 @@ async function ensureTableAccess(tableId: string): Promise<void> {
   } else {
     // Tablas de wiki o globales (inventario/ubicación): solo equipo interno (no invitados).
     if (!(await canSeeWiki(session))) throw new Error("No autorizado");
+    // Y MODIFICARLAS exige editar_wiki (no basta con poder ver la wiki).
+    if (write && !hasPermission(session, "editar_wiki")) throw new Error("No tienes permiso para editar la wiki.");
   }
 }
 
 // Acceso vía columna o fila (resuelven su tableId primero).
-async function ensureColumnAccess(columnId: string): Promise<string> {
+async function ensureColumnAccess(columnId: string, write = true): Promise<string> {
   const col = await db.dataColumn.findUnique({ where: { id: columnId }, select: { tableId: true } });
   if (!col) throw new Error("No autorizado");
-  await ensureTableAccess(col.tableId);
+  await ensureTableAccess(col.tableId, write);
   return col.tableId;
 }
-async function ensureRowAccess(rowId: string): Promise<string> {
+async function ensureRowAccess(rowId: string, write = true): Promise<string> {
   const row = await db.dataRow.findUnique({ where: { id: rowId }, select: { tableId: true } });
   if (!row) throw new Error("No autorizado");
-  await ensureTableAccess(row.tableId);
+  await ensureTableAccess(row.tableId, write);
   return row.tableId;
 }
 
@@ -112,7 +118,7 @@ export async function deleteTable(tableId: string): Promise<void> {
 
 export async function createTableForWiki(wikiPageId: string, formData: FormData): Promise<void> {
   const session = await getSession();
-  if (!session || !(await canSeeWiki(session))) throw new Error("No autorizado");
+  if (!session || !(await canSeeWiki(session)) || !hasPermission(session, "editar_wiki")) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
   await db.dataTable.create({ data: { name, wikiPageId, ...DEFAULT_TABLE } });
   revalidatePath(`/wiki/${wikiPageId}`);
@@ -230,9 +236,12 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
   // Las contraseñas se guardan cifradas (nunca en claro en la BD). Gestionarlas exige el
   // permiso específico ver_contrasenas (no basta con poder ver/editar la tabla).
   let stored: unknown = value;
-  if (col.type === "PASSWORD" && typeof value === "string") {
+  if (col.type === "PASSWORD") {
+    // Gestionar CUALQUIER valor de una celda de contraseña (también vaciarla o un valor no-string)
+    // exige ver_contrasenas; normalizamos a string y ciframos, para que nunca quede en claro.
     if (!hasPermission(await getSession(), "ver_contrasenas")) throw new Error("No autorizado para gestionar contraseñas.");
-    stored = value ? encryptSecret(value) : "";
+    const s = typeof value === "string" ? value : String(value ?? "");
+    stored = s ? encryptSecret(s) : "";
   }
 
   await db.dataCell.upsert({
@@ -257,7 +266,7 @@ export async function setCell(rowId: string, columnId: string, value: unknown) {
 
 // Revela (descifra) el valor de una celda PASSWORD bajo demanda, con control de acceso.
 export async function revealCell(rowId: string, columnId: string): Promise<string> {
-  await ensureRowAccess(rowId);
+  await ensureRowAccess(rowId, false); // revelar es LECTURA: no exige editar_wiki (sí ver_contrasenas, abajo)
   // Revelar una contraseña exige el permiso ver_contrasenas; tener acceso a la tabla
   // (ver_wiki o el proyecto) no basta para descifrar el secreto.
   if (!hasPermission(await getSession(), "ver_contrasenas")) throw new Error("No autorizado para ver contraseñas.");
