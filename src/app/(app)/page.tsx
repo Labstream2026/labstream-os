@@ -15,7 +15,7 @@ import { TeamTasks } from "./team-tasks";
 import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
 import { StatTile } from "@/components/charts";
-import { Building2, Rocket, ListChecks, MessageSquare } from "lucide-react";
+import { Rocket, ListChecks, MessageSquare, Users } from "lucide-react";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -43,6 +43,9 @@ export default async function HomePage() {
   // El portal del cliente no tiene Inicio: entra directo a sus proyectos.
   if (session?.role === "cliente") redirect("/proyectos");
 
+  // Admin: el Inicio muestra las tareas de TODO el equipo (no solo las propias).
+  const isAdmin = hasPermission(session, "administrar_usuarios");
+
   // Página de inicio personalizada: si el usuario eligió otra distinta de Inicio, lo llevamos
   // allí al entrar en "/". (Se configura en el Perfil; lista blanca de rutas.)
   const prefs = await getUserPreference(me.id);
@@ -52,7 +55,8 @@ export default async function HomePage() {
     db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),
     db.project.count({ where: { status: "PAUSADO", archivedAt: null } }),
     db.task.findMany({
-      where: { assigneeId: me.id, status: { in: OPEN as never } },
+      // Admin → tareas de TODO el equipo; resto → solo las suyas.
+      where: isAdmin ? { status: { in: OPEN as never } } : { assigneeId: me.id, status: { in: OPEN as never } },
       orderBy: { dueDate: "asc" },
       take: 5,
       include: { project: { select: { id: true, name: true, emoji: true } } },
@@ -61,7 +65,7 @@ export default async function HomePage() {
   // Orden alfabético real de los clientes: insensible a mayúsculas/acentos y con reglas del español.
   clients.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 
-  const myTaskCount = await db.task.count({ where: { assigneeId: me.id, status: { in: OPEN as never } } });
+  const myTaskCount = await db.task.count({ where: isAdmin ? { status: { in: OPEN as never } } : { assigneeId: me.id, status: { in: OPEN as never } } });
 
   // Conteo REAL de mensajes no leídos del usuario (igual que el badge del sidebar).
   // En try/catch: si la query raw falla, el conteo NO debe tumbar toda la portada.
@@ -117,24 +121,23 @@ export default async function HomePage() {
   // usuario puede ver proyectos; reutiliza el mismo armado que el Cronograma general.
   const canSeeCronograma = hasPermission(session, "ver_proyectos");
   const canReports = hasPermission(session, "ver_reportes");
-  // La vista "Tareas del equipo" (todas las tareas del equipo, con reasignación) es SOLO admin.
-  const isAdmin = hasPermission(session, "administrar_usuarios");
   const cronograma = canSeeCronograma
     ? await buildSessionTimeline(session, { activeOnly: true })
     : { clients: [], milestones: [], undatedCount: 0 };
 
   const unreadAccent: "red" | "amber" = unread > 0 ? "red" : "amber";
+  // Para un admin, el indicador de tareas refleja TODO el equipo (no solo lo suyo). Se quitó el
+  // indicador de Clientes por redundante (sigue la sección Clientes abajo y la página del menú).
   const stats = [
-    { icon: <Building2 className="size-5" />, value: clients.length, label: "Clientes", accent: "blue" as const },
     { icon: <Rocket className="size-5" />, value: projects, label: "Proyectos", accent: "primary" as const },
-    { icon: <ListChecks className="size-5" />, value: myTaskCount, label: "Tus tareas", accent: "green" as const },
+    { icon: isAdmin ? <Users className="size-5" /> : <ListChecks className="size-5" />, value: myTaskCount, label: isAdmin ? "Tareas del equipo" : "Tus tareas", accent: "green" as const },
     { icon: <MessageSquare className="size-5" />, value: unread, label: "Sin leer", accent: unreadAccent },
   ];
 
   // Contenido personal del Inicio (mi desempeño + mis tareas), reutilizado como pestaña.
   const miInicio = (
     <>
-      <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {stats.map((s) => (
           <StatTile key={s.label} compact icon={s.icon} value={s.value} label={s.label} accent={s.accent} />
         ))}
@@ -191,14 +194,14 @@ export default async function HomePage() {
       <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
         <section>
           <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">Tus tareas de hoy</h2>
+            <h2 className="text-lg font-semibold">{isAdmin ? "Tareas del equipo" : "Tus tareas de hoy"}</h2>
             <Link href="/mis-tareas" className="text-sm font-medium text-primary hover:underline">
               Ver todas
             </Link>
           </div>
           <div className="space-y-2">
             {myTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
+              <p className="text-sm text-muted-foreground">{isAdmin ? "El equipo no tiene tareas abiertas. 🎉" : "No tienes tareas abiertas. 🎉"}</p>
             ) : (
               myTasks.map((t) => (
                 <Link

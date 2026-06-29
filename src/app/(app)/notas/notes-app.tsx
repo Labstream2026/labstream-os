@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, ListChecks, Bell, BellOff, Users, Lock } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
@@ -237,26 +237,6 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
   const editing = isNew || selectedId !== null;
   const draftClient = clientOf(draft.clientId || null);
 
-  // Inserta un prefijo (lista de tareas) al inicio de la línea actual del cuerpo.
-  function prefixBody(prefix: string) {
-    const ta = bodyRef.current;
-    const text = draft.content;
-    if (!ta) { onChange({ content: text + (text && !text.endsWith("\n") ? "\n" : "") + prefix }); return; }
-    const s = ta.selectionStart;
-    const lineStart = text.lastIndexOf("\n", s - 1) + 1;
-    onChange({ content: text.slice(0, lineStart) + prefix + text.slice(lineStart) });
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(s + prefix.length, s + prefix.length); });
-  }
-  // Alterna [ ]↔[x] en la línea de origen del checkbox tocado en la vista.
-  function toggleTaskLine(lineNo: number) {
-    const lines = draft.content.split("\n");
-    const ln = lines[lineNo];
-    if (ln == null) return;
-    const m = /^(\s*[-*+]\s+)\[( |x|X)\](\s.*)$/.exec(ln);
-    if (!m) return;
-    lines[lineNo] = `${m[1]}[${m[2].toLowerCase() === "x" ? " " : "x"}]${m[3]}`;
-    onChange({ content: lines.join("\n") });
-  }
   // Las notas compartidas por otros se muestran siempre en modo vista.
   React.useEffect(() => { if (readOnly) setBodyMode("view"); }, [readOnly, selectedId]);
 
@@ -463,16 +443,13 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                   <div className="flex items-center gap-1 border-b border-border pb-1.5">
                     <button type="button" onClick={() => setBodyMode("edit")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "edit" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Pencil className="size-3.5" /> Editar</button>
                     <button type="button" onClick={() => setBodyMode("view")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "view" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Eye className="size-3.5" /> Vista</button>
-                    {bodyMode === "edit" ? (
-                      <button type="button" onClick={() => prefixBody("- [ ] ")} title="Insertar tarea" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><ListChecks className="size-3.5" /> Tarea</button>
-                    ) : null}
                   </div>
                   {bodyMode === "edit" ? (
                     <textarea
                       ref={bodyRef}
                       value={draft.content}
                       onChange={(e) => onChange({ content: e.target.value })}
-                      placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista, - [ ] tarea."
+                      placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista."
                       // Sin caja de foco naranja (outline global) en el cuerpo de la nota; el
                       // cursor ya indica dónde estás escribiendo. Editor más limpio.
                       style={{ outline: "none" }}
@@ -480,14 +457,8 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                     />
                   ) : (
                     <div
-                      className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed [&_button[data-md-task]]:text-lg [&_button[data-md-task]]:text-primary"
-                      onClick={(e) => {
-                        const btn = (e.target as HTMLElement).closest("[data-md-task]");
-                        if (!btn) return;
-                        const n = Number(btn.getAttribute("data-md-task"));
-                        if (!Number.isNaN(n)) toggleTaskLine(n);
-                      }}
-                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
+                      className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
                     />
                   )}
                 </>
