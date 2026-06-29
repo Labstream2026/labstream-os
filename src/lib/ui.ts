@@ -1,6 +1,8 @@
 // Mapas de presentación: colores de avatar, estados, tipos y prioridades.
 // Clases literales para que Tailwind las detecte en el escaneo.
 
+import { resolveProjectStatus } from "@/lib/project-status";
+
 export const AVATAR_COLORS: Record<string, string> = {
   indigo: "bg-indigo-500 text-white",
   emerald: "bg-emerald-500 text-white",
@@ -52,7 +54,10 @@ export const PROJECT_STATUS: Record<string, StatusMeta> = {
 };
 
 export function statusMeta(status: string): StatusMeta {
-  return PROJECT_STATUS[status] ?? PROJECT_STATUS.NUEVO;
+  // Etiqueta/color CONFIGURABLES (overrides en OrgSettings, cacheados por request); si no hay
+  // override usa los valores por defecto. PROJECT_STATUS (arriba) sigue como defaults estáticos
+  // para quienes lo importan directo (IA, formulario de creación).
+  return resolveProjectStatus(status);
 }
 
 export const PROJECT_TYPE: Record<string, string> = {

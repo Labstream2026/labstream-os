@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/pwa-register";
 import { getOrgSettings, brandCss } from "@/lib/org-settings";
+import { setProjectStatusOverrides } from "@/lib/project-status";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,7 +48,11 @@ export default async function RootLayout({
   // Color de marca configurable por el admin (Configuración → Marca): se inyecta como CSS para
   // re-teñir --primary/--ring en toda la app. getOrgSettings es resiliente (si falla la BD,
   // devuelve null y se usa el color por defecto de globals.css).
-  const css = brandCss((await getOrgSettings()).primaryColor);
+  const org = await getOrgSettings();
+  const css = brandCss(org.primaryColor);
+  // Calienta la caché de estados de proyecto personalizados (config global) para este request,
+  // así statusMeta() (síncrono, usado en toda la app) refleja las etiquetas/colores del admin.
+  setProjectStatusOverrides(org.projectStatuses);
   return (
     <html
       lang="es"

@@ -2,11 +2,11 @@ import { cache } from "react";
 import { db } from "@/lib/db";
 
 // Marca/branding de la organización (fila única "default"). El color de marca re-tiñe la app.
-export type OrgBrand = { primaryColor: string | null };
+export type OrgBrand = { primaryColor: string | null; projectStatuses: string | null };
 
 export const getOrgSettings = cache(async (): Promise<OrgBrand> => {
   const row = await db.orgSettings.findUnique({ where: { id: "default" } }).catch(() => null);
-  return { primaryColor: row?.primaryColor ?? null };
+  return { primaryColor: row?.primaryColor ?? null, projectStatuses: row?.projectStatuses ?? null };
 });
 
 // Convierte "#rrggbb" al triplete HSL "H S% L%" que usa globals.css (hsl(var(--primary))).

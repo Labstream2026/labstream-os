@@ -19,7 +19,9 @@ import { NotificationSettingsPanel } from "./notification-settings-panel";
 import { ApiKeysPanel } from "./api-keys-panel";
 import { AuditLogPanel } from "./audit-log-panel";
 import { BrandingPanel } from "./branding-panel";
+import { ProjectStatusesPanel } from "./project-statuses-panel";
 import { getOrgSettings } from "@/lib/org-settings";
+import { projectStatusesFromJson } from "@/lib/project-status";
 import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "./calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
@@ -272,6 +274,7 @@ export default async function ConfiguracionPage() {
   // ── Sección Marca (color de la organización; admin con administrar_integraciones) ──
   const brand = await getOrgSettings();
   const brandingNode = <BrandingPanel primaryColor={brand.primaryColor} />;
+  const projectStatusesNode = <ProjectStatusesPanel initial={projectStatusesFromJson(brand.projectStatuses)} />;
 
   // ── Sección Marcebot ──
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
@@ -314,6 +317,7 @@ export default async function ConfiguracionPage() {
           { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
           ...(canApi ? [{ key: "api", label: "API", icon: "🔑", node: apiNode }] : []),
           ...(canApi ? [{ key: "marca", label: "Marca", icon: "🖌️", node: brandingNode }] : []),
+          ...(canApi ? [{ key: "estados-proyecto", label: "Estados de proyecto", icon: "🎬", node: projectStatusesNode }] : []),
           { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
         ]}
       />

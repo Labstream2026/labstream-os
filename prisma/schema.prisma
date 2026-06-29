@@ -233,6 +233,9 @@ model MailSettings {
 model OrgSettings {
   id           String   @id @default("default")
   primaryColor String? // hex "#rrggbb" o null (color por defecto)
+  // Personalización de los estados de proyecto: JSON { CLAVE_ENUM: { label, color } }. Solo
+  // sobrescribe etiqueta/color de los estados existentes (no migra el enum). null = por defecto.
+  projectStatuses String?
   updatedAt    DateTime @updatedAt
 }
 
