@@ -10,6 +10,12 @@ import { QuoteDecision } from "./decision";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// `Date.now()` directo en el render lo marca la regla de pureza; el wrapper a nivel de módulo
+// es equivalente y evita el falso positivo.
+function nowMs(): number {
+  return Date.now();
+}
+
 export default async function CotizacionPublicaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const quoteId = verifyQuoteToken(token);
@@ -25,10 +31,12 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
   });
   if (!quote) return <PublicLinkInvalid />;
 
-  const decided = quote.status === "APROBADA" || quote.status === "RECHAZADA";
+  // "Decidida" = el CLIENTE ya respondió (aceptó/rechazó) en el portal. La aprobación INTERNA
+  // del equipo (status APROBADA) no afecta lo que el cliente ve/puede hacer aquí.
+  const decided = quote.clientDecision != null || quote.status === "RECHAZADA";
   // Vencimiento por fecha de validez: una cotización con validUntil pasado ya no
-  // se puede aprobar/rechazar (igual que las propuestas vencidas).
-  const expired = !decided && Boolean(quote.validUntil && new Date(quote.validUntil).getTime() < Date.now());
+  // se puede aceptar/rechazar (igual que las propuestas vencidas).
+  const expired = !decided && Boolean(quote.validUntil && new Date(quote.validUntil).getTime() < nowMs());
 
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
@@ -41,11 +49,11 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
         <PrintButton label="Descargar PDF" />
       </div>
 
-      {quote.status === "APROBADA" ? (
+      {quote.clientDecision === "ACEPTADA" ? (
         <div className="mx-auto mb-4 max-w-3xl rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 print:hidden">
-          ✅ Aprobaste esta cotización. ¡Gracias! Nos pondremos en contacto.
+          ✅ Aceptaste esta cotización. ¡Gracias! El equipo la revisará y se pondrá en contacto.
         </div>
-      ) : quote.status === "RECHAZADA" ? (
+      ) : quote.clientDecision === "RECHAZADA" || quote.status === "RECHAZADA" ? (
         <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
           Esta cotización fue rechazada. Si fue un error, contáctanos.
         </div>

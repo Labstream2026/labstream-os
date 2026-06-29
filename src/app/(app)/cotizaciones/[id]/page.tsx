@@ -190,6 +190,15 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
         </p>
       ) : null}
 
+      {/* Decisión DEL CLIENTE en el portal (distinta de la aprobación interna del equipo). */}
+      {quote.clientDecision ? (
+        <p className={`mt-3 rounded-md px-3 py-2 text-sm ${quote.clientDecision === "ACEPTADA" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300"}`}>
+          {quote.clientDecision === "ACEPTADA" ? "🤝 El cliente aceptó esta cotización" : "El cliente rechazó esta cotización"}
+          {quote.clientDecidedAt ? ` · ${formatShortDate(quote.clientDecidedAt)}` : ""}
+          {quote.clientDecision === "ACEPTADA" && quote.status !== "APROBADA" ? " — apruébala internamente para poder facturar." : ""}
+        </p>
+      ) : null}
+
       <div className="mt-6">
         <ViewTabs
           storageKey="factura-doc-view"

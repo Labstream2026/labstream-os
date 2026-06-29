@@ -655,6 +655,11 @@ model Quote {
   approvedBy   User?       @relation("QuoteApprover", fields: [approvedById], references: [id])
   approvedById String?
   approvedAt   DateTime?
+  // Decisión del CLIENTE en el portal público, SEPARADA del estado interno: que el cliente
+  // "acepte" NO aprueba la cotización. La aprobación interna (status=APROBADA, con permiso
+  // aprobar_cotizaciones) es la única que dispara inmutabilidad + facturación.
+  clientDecision  String?    // "ACEPTADA" | "RECHAZADA" | null
+  clientDecidedAt DateTime?
   items        QuoteItem[]
   invoices     Invoice[]
   createdAt    DateTime    @default(now())

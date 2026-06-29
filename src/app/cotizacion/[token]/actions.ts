@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { verifyQuoteToken } from "@/lib/quote-token";
 import { rateLimit } from "@/lib/rate-limit";
+import { notifyAndEmail } from "@/lib/notify";
 
 // Clave de rate-limit a partir del token (autorización del portal) y, si está disponible,
 // la IP. Evita que un token filtrado se use para inundar la BD.
@@ -28,21 +29,38 @@ export async function respondQuote(token: string, decision: string) {
   const quoteId = verifyQuoteToken(token);
   if (!quoteId) throw new Error("Enlace inválido");
 
-  const quote = await db.quote.findUnique({ where: { id: quoteId }, select: { status: true, validUntil: true } });
+  const quote = await db.quote.findUnique({
+    where: { id: quoteId },
+    select: { status: true, validUntil: true, clientDecision: true, code: true, title: true, createdById: true, client: { select: { name: true } } },
+  });
   if (!quote) throw new Error("Cotización inexistente");
-  // Solo se puede responder una cotización aún no decidida.
-  if (quote.status === "APROBADA" || quote.status === "RECHAZADA") return;
-  // Una cotización con fecha de validez pasada ya no se puede aprobar ni rechazar.
+  // Solo se responde UNA vez, y nunca si el equipo ya cerró la cotización.
+  if (quote.clientDecision || quote.status === "APROBADA" || quote.status === "RECHAZADA") return;
+  // Una cotización con fecha de validez pasada ya no se puede aceptar ni rechazar.
   if (quote.validUntil && new Date(quote.validUntil).getTime() < Date.now()) throw new Error("La cotización venció");
 
-  const status = decision === "APROBADA" ? "APROBADA" : "RECHAZADA";
+  const accepted = decision === "APROBADA" || decision === "ACEPTADA";
   await db.quote.update({
     where: { id: quoteId },
     data: {
-      status: status as never,
-      approvedAt: status === "APROBADA" ? new Date() : null,
+      // Decisión DEL CLIENTE, separada de la aprobación interna: aceptar NO pone APROBADA
+      // (eso lo hace el equipo con aprobar_cotizaciones, y es lo único que dispara la
+      // facturación). Rechazar sí cierra la cotización, porque no queda nada que aprobar.
+      clientDecision: accepted ? "ACEPTADA" : "RECHAZADA",
+      clientDecidedAt: new Date(),
+      ...(accepted ? {} : { status: "RECHAZADA" as never }),
     },
   });
+  // Avisar al creador: que la apruebe internamente (si la aceptaron) o que sepa del rechazo.
+  if (quote.createdById) {
+    const who = quote.client?.name ?? "El cliente";
+    await notifyAndEmail(quote.createdById, {
+      type: "quote",
+      title: accepted ? `✅ Cliente aceptó la cotización ${quote.code}` : `Cliente rechazó la cotización ${quote.code}`,
+      body: accepted ? `${who} aceptó «${quote.title}». Apruébala internamente para poder facturar.` : `${who} rechazó «${quote.title}».`,
+      link: `/cotizaciones/${quoteId}`,
+    }).catch(() => null);
+  }
   revalidatePath(`/cotizacion/${token}`);
   revalidatePath(`/cotizaciones/${quoteId}`);
   revalidatePath("/cotizaciones");
