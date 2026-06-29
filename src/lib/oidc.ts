@@ -2,6 +2,8 @@
 // AUTHENTIK_ISSUER / AUTHENTIK_CLIENT_ID / AUTHENTIK_CLIENT_SECRET.
 // Sin esas 3 → solo email+contraseña. Mapea usuarios por email (como la otra app).
 
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
 const ISSUER = process.env.AUTHENTIK_ISSUER;
 const CLIENT_ID = process.env.AUTHENTIK_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTHENTIK_CLIENT_SECRET;
@@ -43,7 +45,28 @@ type Discovery = {
   authorization_endpoint: string;
   token_endpoint: string;
   userinfo_endpoint: string;
+  jwks_uri?: string;
 };
+
+// Verificación de la FIRMA del id_token contra el JWKS del IdP. OPT-IN con
+// OIDC_VERIFY_ID_TOKEN=true: hay que probarlo primero contra el Authentik real, porque si se
+// activa con una config equivocada (issuer/audience/alg) rompería el login de TODO el equipo.
+// Desactivado (por defecto) NO cambia el comportamiento actual.
+export const VERIFY_ID_TOKEN = process.env.OIDC_VERIFY_ID_TOKEN === "true";
+let _jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+export async function verifyIdTokenSignature(idToken: string | null): Promise<boolean> {
+  if (!VERIFY_ID_TOKEN) return true; // desactivado → no bloquea
+  if (!idToken) return false;
+  try {
+    const d = await discovery();
+    if (!d.jwks_uri) return true; // el IdP no publica JWKS → no podemos verificar; no bloquear
+    if (!_jwks) _jwks = createRemoteJWKSet(new URL(d.jwks_uri));
+    await jwtVerify(idToken, _jwks, { issuer: ISSUER, audience: CLIENT_ID });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let cached: Discovery | null = null;
 async function discovery(): Promise<Discovery> {

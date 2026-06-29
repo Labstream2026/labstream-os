@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, isProvisionableEmail, REQUIRE_EMAIL_VERIFIED } from "@/lib/oidc";
+import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, verifyIdTokenSignature, isProvisionableEmail, REQUIRE_EMAIL_VERIFIED } from "@/lib/oidc";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
 import { safeNext } from "@/lib/safe-next";
 
@@ -45,7 +45,11 @@ export async function GET(req: NextRequest) {
     const redirectUri = `${base}/api/auth/oidc/callback`;
     const { accessToken, idToken } = await exchangeCode(code, redirectUri);
 
-    // Validaciones del id_token (canal directo de confianza; sin verificar firma):
+    // Firma del id_token contra el JWKS del IdP (opt-in OIDC_VERIFY_ID_TOKEN). Si está activo
+    // y la firma no verifica, se rechaza; si está desactivado, no bloquea.
+    if (!(await verifyIdTokenSignature(idToken))) return fail("firma");
+
+    // Validaciones de claims del id_token:
     const claims = decodeIdTokenClaims(idToken);
     // Anti-replay: solo bloquea si TENEMOS el nonce esperado Y el id_token trae uno
     // distinto. Si falta cualquiera (cookie perdida o IdP sin nonce) no rompemos el login.

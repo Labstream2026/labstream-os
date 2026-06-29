@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { ensureMarcebot, getOrCreateMarcebotDM, postBotFileMessage } from "@/lib/marcebot/bot";
 import { fetchPublicUrlToBuffer } from "@/lib/ssrf";
+import { safeEqual } from "@/lib/secure-compare";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ function authorized(req: NextRequest, token: string): boolean {
   if (!token) return false;
   const q = req.nextUrl.searchParams.get("token");
   const h = req.headers.get("x-openclaw-token") || req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return q === token || h === token;
+  return safeEqual(q, token) || safeEqual(h, token);
 }
 
 // Descarga (url) o decodifica (base64) un archivo a Buffer, validando tipo y tamaño.

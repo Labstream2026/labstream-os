@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import { getWhatsappConfig } from "@/lib/whatsapp/config";
 import { processWhatsappInbound, type InboundMessage } from "@/lib/whatsapp/inbound";
+import { safeEqual } from "@/lib/secure-compare";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ function authorized(req: NextRequest, token: string): boolean {
   if (!token) return false; // sin secreto configurado → cerrado
   const q = req.nextUrl.searchParams.get("token");
   const h = req.headers.get("x-webhook-token") || req.headers.get("apikey");
-  return q === token || h === token;
+  return safeEqual(q, token) || safeEqual(h, token);
 }
 
 // Evolution puede mandar `data` como objeto único o como lista (data.messages). Normalizamos.
