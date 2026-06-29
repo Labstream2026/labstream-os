@@ -1031,6 +1031,9 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         if (!p) return "No encontré ese proyecto o no tienes acceso.";
         filters.push({ projectId: p.id });
       }
+      // Privacidad: las citas importadas de un calendario personal (source != "app") solo se
+      // listan si son del usuario o lo tienen como invitado; las de la app/equipo, normal.
+      filters.push({ OR: [{ source: "app" }, { createdById: session.id }, { attendees: { some: { userId: session.id } } }] });
       const rows = await db.calendarEvent.findMany({
         where: { AND: filters }, take: 40, orderBy: { start: "asc" },
         select: { title: true, start: true, end: true, allDay: true, location: true, project: { select: { name: true } }, attendees: { select: { user: { select: { name: true } } } } },

@@ -22,12 +22,24 @@ export default async function CalendarioPage() {
   // Ventana acotada: desde el inicio del mes anterior en adelante.
   const now = new Date();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const meId = session?.id ?? "";
 
   const accessSelect = { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } as const;
 
   const [allEvents, allTasks, team] = await Promise.all([
     db.calendarEvent.findMany({
-      where: { start: { gte: windowStart } },
+      // Privacidad en la propia consulta: las citas importadas de un calendario PERSONAL
+      // (source != "app", p. ej. Synology/CalDAV) solo se cargan si son del usuario o lo
+      // tienen como invitado; así los eventos personales de otros ni siquiera llegan al
+      // servidor. Las citas de la app se cargan todas y se filtran por acceso más abajo.
+      where: {
+        start: { gte: windowStart },
+        OR: [
+          { source: "app" },
+          { createdById: meId },
+          { attendees: { some: { userId: meId } } },
+        ],
+      },
       orderBy: { start: "asc" },
       include: {
         project: { select: { name: true, emoji: true, ...accessSelect } },
@@ -51,12 +63,18 @@ export default async function CalendarioPage() {
 
   const timeline = canTimeline ? await buildSessionTimeline(session) : null;
 
-  // Privacidad de citas: las de proyecto privado solo a quien tiene acceso o es
-  // invitado/creador. Las citas sin proyecto son del equipo.
+  // Privacidad de citas:
+  // - Las importadas de un calendario PERSONAL (source != "app") son privadas de su dueño e
+  //   invitados, NUNCA del equipo aunque no tengan proyecto (corrige fuga de citas personales).
+  // - Las creadas en la app: sin proyecto = del equipo; con proyecto = solo quien tiene acceso
+  //   o es invitado/creador.
   const events = allEvents.filter((e) => {
+    if (e.source !== "app") {
+      return e.createdById === meId || e.attendees.some((a) => a.userId === meId);
+    }
     if (!e.project) return true;
-    if (e.createdById === session?.id) return true;
-    if (e.attendees.some((a) => a.userId === session?.id)) return true;
+    if (e.createdById === meId) return true;
+    if (e.attendees.some((a) => a.userId === meId)) return true;
     return canAccessProject(e.project, session);
   });
 
