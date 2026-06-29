@@ -1,10 +1,25 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardCheck, Clock, Send, RefreshCw } from "lucide-react";
+import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
-import { deliverableStatusMeta, formatShortDate } from "@/lib/ui";
+import { deliverableStatusMeta } from "@/lib/ui";
+import { UserAvatar } from "@/components/user-avatar";
+
+// Tiempo que un entregable lleva esperando esta acción. Se vuelve "urgente" (rojo) a los 3 días.
+// nowMs() a nivel de módulo evita el falso positivo de la regla de pureza con Date.now().
+function nowMs(): number {
+  return Date.now();
+}
+function waitingLabel(date: Date): { text: string; danger: boolean } {
+  const ms = nowMs() - new Date(date).getTime();
+  const h = Math.floor(ms / 3_600_000);
+  if (h < 1) return { text: "hace un momento", danger: false };
+  if (h < 24) return { text: `hace ${h} h`, danger: false };
+  const days = Math.floor(h / 24);
+  return { text: `esperando ${days} día${days === 1 ? "" : "s"}`, danger: days >= 3 };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +43,7 @@ export default async function RevisionesPage() {
       reviewerId: true,
       ownerId: true,
       project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { name: true } } } },
-      versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true } } } },
+      versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
       _count: { select: { reviewComments: true } },
     },
     orderBy: { updatedAt: "desc" },
@@ -60,9 +75,9 @@ export default async function RevisionesPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" items={pendientes} />
-          <Group title="Con el cliente" Icon={Send} accent="sky" items={conCliente} />
-          <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" items={cambios} />
+          <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" items={pendientes} />
+          <Group title="Con el cliente" Icon={Send} accent="sky" cta="Ver" items={conCliente} />
+          <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" cta="Revisar" items={cambios} />
         </div>
       )}
     </div>
@@ -75,7 +90,7 @@ type Item = {
   status: string;
   updatedAt: Date;
   project: { id: string; name: string; emoji: string | null; client: { name: string } | null };
-  versions: { number: number; createdAt: Date; uploadedBy: { name: string } | null }[];
+  versions: { number: number; createdAt: Date; uploadedBy: { name: string; initials: string | null; avatarColor: string | null } | null }[];
   _count: { reviewComments: number };
 };
 
@@ -84,37 +99,64 @@ const ACCENT: Record<string, string> = {
   sky: "text-sky-600 dark:text-sky-400",
   rose: "text-rose-600 dark:text-rose-400",
 };
+const BADGE: Record<string, string> = {
+  amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  rose: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+};
 
-function Group({ title, Icon, accent, items }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; items: Item[] }) {
+function Group({ title, Icon, accent, cta, items }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; cta: string; items: Item[] }) {
   if (items.length === 0) return null;
   return (
     <section>
-      <h2 className={`mb-2 flex items-center gap-2 text-sm font-semibold ${ACCENT[accent]}`}>
-        <Icon className="size-4" /> {title} <span className="text-muted-foreground">({items.length})</span>
+      <h2 className={`mb-3 flex items-center gap-2 text-sm font-semibold ${ACCENT[accent]}`}>
+        <Icon className="size-4" /> {title}
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BADGE[accent]}`}>{items.length}</span>
       </h2>
-      <div className="grid gap-2">
+      <div className="grid gap-2.5">
         {items.map((d) => {
           const meta = deliverableStatusMeta(d.status);
           const v = d.versions[0];
+          const wait = waitingLabel(d.updatedAt);
+          const uploader = v?.uploadedBy;
           return (
             <Link
               key={d.id}
               href={`/revisiones/${d.id}`}
-              className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+              className="group flex items-stretch gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40 hover:bg-accent/30"
             >
-              <span className="text-lg leading-none">{d.project.emoji ?? "🎬"}</span>
+              {/* Miniatura: marco con icono + número de versión (sin imagen para no romper la vista). */}
+              <div className="relative flex h-[52px] w-[74px] shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+                <Film className="size-5 text-muted-foreground" />
+                {v ? <span className="absolute bottom-1 right-1 rounded border border-border bg-card/90 px-1 text-[10px] leading-tight text-muted-foreground">v{v.number}</span> : null}
+              </div>
+
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{d.name}</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {d.project.name}
-                  {d.project.client ? ` · ${d.project.client.name}` : ""}
-                  {v ? ` · v${v.number}${v.uploadedBy ? ` de ${v.uploadedBy.name}` : ""} · ${formatShortDate(v.createdAt)}` : ""}
+                  <span className="opacity-80">{d.project.emoji ?? "🎬"}</span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
                 </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {uploader ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <UserAvatar initials={uploader.initials} color={uploader.avatarColor} size="sm" /> subió {uploader.name.split(" ")[0]}
+                    </span>
+                  ) : null}
+                  <span className={`inline-flex items-center gap-1 text-[11px] ${wait.danger ? "font-medium text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}>
+                    <Clock className="size-3.5" /> {wait.text}
+                  </span>
+                  {d._count.reviewComments > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MessageSquare className="size-3.5" /> {d._count.reviewComments}</span>
+                  ) : null}
+                </div>
               </div>
-              {d._count.reviewComments > 0 ? (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{d._count.reviewComments} 💬</span>
-              ) : null}
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+
+              <div className="flex shrink-0 flex-col items-end justify-between">
+                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
+                  {cta} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </div>
             </Link>
           );
         })}
