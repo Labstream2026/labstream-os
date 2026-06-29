@@ -14,6 +14,8 @@ import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
 import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
+import { StatTile } from "@/components/charts";
+import { Building2, Rocket, ListChecks, MessageSquare } from "lucide-react";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -119,10 +121,10 @@ export default async function HomePage() {
     : { clients: [], milestones: [], undatedCount: 0 };
 
   const stats = [
-    { emoji: "🏢", value: clients.length, label: "Clientes", sub: "activos" },
-    { emoji: "🚀", value: projects, label: "Proyectos", sub: blocked ? `${blocked} bloqueado` : "activos" },
-    { emoji: "✅", value: myTaskCount, label: "Tus tareas", sub: "abiertas" },
-    { emoji: "💬", value: unread, label: "Sin leer", sub: "en el chat" },
+    { icon: <Building2 className="size-5" />, value: clients.length, label: "Clientes", sub: "activos", accent: "blue" as const },
+    { icon: <Rocket className="size-5" />, value: projects, label: "Proyectos", sub: blocked ? `${blocked} bloqueado` : "activos", accent: "primary" as const },
+    { icon: <ListChecks className="size-5" />, value: myTaskCount, label: "Tus tareas", sub: "abiertas", accent: "green" as const },
+    { icon: <MessageSquare className="size-5" />, value: unread, label: "Sin leer", sub: "en el chat", accent: "amber" as const },
   ];
 
   // Contenido personal del Inicio (mi desempeño + mis tareas), reutilizado como pestaña.
@@ -130,12 +132,7 @@ export default async function HomePage() {
     <>
       <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-border bg-card p-5 shadow-sm">
-            <span className="text-xl">{s.emoji}</span>
-            <p className="mt-3 text-3xl font-bold">{s.value}</p>
-            <p className="text-sm font-medium">{s.label}</p>
-            <p className="text-xs text-muted-foreground">{s.sub}</p>
-          </div>
+          <StatTile key={s.label} icon={s.icon} value={s.value} label={s.label} sub={s.sub} accent={s.accent} />
         ))}
       </div>
 
