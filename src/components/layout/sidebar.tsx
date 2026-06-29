@@ -54,7 +54,7 @@ const NAV = [
   { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
   { href: "/notas", label: "Notas", icon: StickyNote },
   { href: "/chat", label: "Chats", icon: MessagesSquare },
-  { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
+  { href: "/clientes", label: "Clientes", icon: LayoutGrid },
   { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
 ];
@@ -199,8 +199,14 @@ export function Sidebar({
         {NAV.map((item) => {
           if (item.href === "/calendario" && !canCalendar) return null;
           if (item.href === "/timeline" && !canTimeline) return null;
+          // "Clientes" reemplaza al antiguo "Proyectos". Si el usuario no puede ver clientes,
+          // le mostramos el tablero de proyectos en su lugar (no perder el acceso a proyectos).
+          let href = item.href;
+          let label = item.label;
+          if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = "Proyectos"; }
           const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
-          return navRow(item.href, item.label, item.icon, item.href === "/revisiones" ? pathname.startsWith("/revisiones") : pathname === item.href, badge);
+          const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : pathname === href;
+          return navRow(href, label, item.icon, active, badge);
         })}
       </nav>
 

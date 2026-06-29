@@ -4,7 +4,6 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar, type SidebarUser, type SidebarClient } from "@/components/layout/sidebar";
 import { Topbar, type TopbarAvatar } from "@/components/layout/topbar";
-import { TabsBar } from "@/components/layout/tabs-bar";
 import { ScrollMain } from "@/components/layout/scroll-main";
 import { Lightbox } from "@/components/lightbox";
 import { ChatDock, type DockTeamMember } from "@/components/layout/chat-dock";
@@ -173,8 +172,7 @@ export function AppShell({
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           showChatToggle={!hideChatDock}
         />
-        {/* Barra de pestañas estilo Notion (solo escritorio). */}
-        <TabsBar />
+        {/* Las pestañas (escritorio) ahora viven dentro de la barra superior (Topbar). */}
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior
             (incluye el área segura de la barra de inicio en iPhone). */}
         <ScrollMain className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">{children}</ScrollMain>
@@ -210,6 +208,7 @@ export function AppShell({
       <BottomNav
         onMenu={() => setMobileMenuOpen(true)}
         chatUnread={chatUnread}
+        canClients={canClients}
       />
     </div>
   );

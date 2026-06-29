@@ -17,9 +17,11 @@ import { cn } from "@/lib/utils";
 export function BottomNav({
   onMenu,
   chatUnread = 0,
+  canClients = true,
 }: {
   onMenu: () => void;
   chatUnread?: number;
+  canClients?: boolean;
 }) {
   const pathname = usePathname();
   const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
@@ -27,7 +29,10 @@ export function BottomNav({
   const links = [
     { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
     { href: "/mis-tareas", label: "Tareas", icon: ListChecks, match: (p: string) => p.startsWith("/mis-tareas") },
-    { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
+    // "Clientes" (antes "Proyectos"); sin permiso de clientes, cae al tablero de proyectos.
+    canClients
+      ? { href: "/clientes", label: "Clientes", icon: LayoutGrid, match: (p: string) => p.startsWith("/clientes") }
+      : { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
   ];
 
   // Celda táctil: ocupa toda la fila, centra ícono + etiqueta y da feedback al tocar.

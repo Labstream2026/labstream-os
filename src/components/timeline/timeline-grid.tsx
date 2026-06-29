@@ -54,9 +54,6 @@ export type TLLane = {
 };
 
 const LABEL_W = 200;
-const ROW_H = 34;
-const LANE_H = 30;
-const BAR_H = 22;
 
 type DragState = {
   id: string;
@@ -74,6 +71,7 @@ export function TimelineGrid({
   emptyHint,
   lockUnit = false,
   maxHeight,
+  compact = false,
 }: {
   lanes: TLLane[];
   unit: TimelineUnit;
@@ -85,8 +83,14 @@ export function TimelineGrid({
   // Si se indica, el cronograma tiene su propio scroll (vertical + horizontal) acotado
   // a esa altura, en vez de crecer hacia abajo indefinidamente.
   maxHeight?: string;
+  // Modo compacto (resumen del Inicio): filas más bajas y sin leyenda, para una vista
+  // general corta de los proyectos. Las tareas se omiten desde GlobalTimeline.
+  compact?: boolean;
 }) {
   const dayWidth = DAY_WIDTH[unit];
+  const ROW_H = compact ? 26 : 34;
+  const LANE_H = compact ? 24 : 30;
+  const BAR_H = compact ? 15 : 22;
 
   // Todas las claves de fecha presentes (barras + hitos) para acotar el rango.
   const keys: (string | null)[] = [];
@@ -290,11 +294,13 @@ export function TimelineGrid({
           </div>
         )}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-primary/30" /> Tarea</span>
-            <span className="inline-flex items-center gap-1">🎬 Rodaje</span>
-            <span className="inline-flex items-center gap-1">📦 Entrega</span>
-          </div>
+          {!compact ? (
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-primary/30" /> Tarea</span>
+              <span className="inline-flex items-center gap-1">🎬 Rodaje</span>
+              <span className="inline-flex items-center gap-1">📦 Entrega</span>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => {

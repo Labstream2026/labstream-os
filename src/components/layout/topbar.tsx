@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
+import { TabsBar } from "@/components/layout/tabs-bar";
 import { logout } from "@/lib/auth-actions";
 import { routeMeta } from "@/lib/nav-meta";
 
@@ -83,6 +84,11 @@ export function Topbar({
         <span className="text-base leading-none">{emoji}</span>
         <span className="truncate">{label}</span>
       </div>
+
+      {/* Pestañas (escritorio): ahora viven en esta misma fila, junto al botón de plegar. */}
+      <span className="mx-1 hidden h-5 w-px shrink-0 bg-border md:block" />
+      <TabsBar />
+      <span className="mx-1 hidden h-5 w-px shrink-0 bg-border md:block" />
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
         <div className="hidden -space-x-2 lg:flex">

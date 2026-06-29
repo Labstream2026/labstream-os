@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, Users, Plus, X, ChevronRight } from "lucide-react";
+import { Hash, Lock, Users, Plus, X, ChevronRight, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { createChannel, openMarcebotChat } from "./actions";
@@ -120,10 +120,18 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
           </button>
         </div>
 
-        {/* Clientes: cada cliente despliega sus chats de proyecto (colapsable). */}
+        {/* Clientes: sección maestra colapsable (oculta/muestra TODOS los clientes de una
+            vez para limpiar la vista) y, dentro, cada cliente despliega sus chats. */}
         {data.clientGroups.length > 0 ? (
-          <div className="mb-2">
-            <h2 className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Clientes</h2>
+          <Collapsible
+            storeId="clients-section"
+            title="Clientes"
+            leading={<Building2 className="size-4 text-muted-foreground" />}
+            count={data.clientGroups.length}
+            unread={data.clientGroups.reduce((n, g) => n + g.channels.reduce((m, c) => m + seen(c.id, c.unread), 0), 0)}
+            forceOpen={data.clientGroups.some((g) => g.channels.some((c) => c.id === activeId))}
+            defaultOpen
+          >
             {data.clientGroups.map((g) => {
               const groupUnread = g.channels.reduce((n, c) => n + seen(c.id, c.unread), 0);
               return (
@@ -142,7 +150,7 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
                 </Collapsible>
               );
             })}
-          </div>
+          </Collapsible>
         ) : null}
 
         {/* Mensajes directos (colapsable). */}

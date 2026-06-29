@@ -152,7 +152,7 @@ export default async function HomePage() {
             </Link>
           </div>
           {cronograma.clients.length > 0 ? (
-            <GlobalTimeline clients={cronograma.clients} milestones={cronograma.milestones} readOnly fixedUnit="week" maxHeight="60vh" />
+            <GlobalTimeline clients={cronograma.clients} milestones={cronograma.milestones} readOnly compact fixedUnit="week" maxHeight="22rem" />
           ) : (
             <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
               Aún no hay proyectos activos con fechas. Asigna fechas de inicio/entrega en tus proyectos para ver aquí el resumen del cronograma.

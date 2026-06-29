@@ -35,6 +35,7 @@ export function GlobalTimeline({
   readOnly = false,
   fixedUnit,
   maxHeight,
+  compact = false,
 }: {
   clients: GTClient[];
   milestones: GTMilestone[];
@@ -45,6 +46,9 @@ export function GlobalTimeline({
   fixedUnit?: TimelineUnit;
   // Acota la altura con scroll propio (no crece hacia abajo sin fin).
   maxHeight?: string;
+  // Vista general compacta (Inicio): una fila por proyecto (sin desplegar tareas), filas
+  // más bajas y el nº de tareas como subetiqueta. Para "ver de un vistazo", no editar.
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [unit, setUnit] = React.useState<TimelineUnit>(fixedUnit ?? "month");
@@ -92,9 +96,12 @@ export function GlobalTimeline({
             progress: p.progress,
             done: p.progress >= 100,
             editable: p.editable,
+            // En modo compacto: nº de tareas como subetiqueta (las tareas no se despliegan).
+            sublabel: compact && p.tasks.length ? `${p.tasks.length} t.` : undefined,
             // El clic en el nombre despliega las tareas; el clic en la barra abre el proyecto.
             onClick: () => router.push(`/proyectos/${p.id}?tab=cronograma`),
-            children: p.tasks.map(
+            // En compacto no incluimos las tareas hijas (vista general de un vistazo).
+            children: compact ? [] : p.tasks.map(
               (t) =>
                 ({
                   id: `${p.id}:${t.id}`,
@@ -122,6 +129,7 @@ export function GlobalTimeline({
       onBarChange={readOnly ? undefined : onBarChange}
       lockUnit={!!fixedUnit}
       maxHeight={maxHeight}
+      compact={compact}
       emptyHint="Ningún proyecto tiene fechas de inicio o entrega. Asígnalas en cada proyecto para verlas aquí."
     />
   );

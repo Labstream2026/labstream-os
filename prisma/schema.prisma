@@ -396,6 +396,7 @@ model Client {
   channel     ChatChannel?
   members     ClientMember[]
   files       ClientFile[]
+  clientNotes Note[] // notas (modelo Note) etiquetadas a este cliente — distinto del campo `notes` libre
   // Activo/inactivo: un cliente sin proyectos a la vista se DESACTIVA para no estorbar en
   // las listas, y se REACTIVA cuando llega un proyecto nuevo. Distinto de archivar: el
   // inactivo NO va a la papelera, solo se oculta de las listas activas (con filtro para verlo).
@@ -551,11 +552,17 @@ model Note {
   createdById String
   project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectId   String?
+  // Cliente vinculado (opcional): permite etiquetar y AGRUPAR las notas por cliente sin
+  // depender de un proyecto. Independiente de `projectId` (una nota puede tener cliente
+  // pero ningún proyecto). Tag visible en el editor y encabezado de grupo en la lista.
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([createdById])
   @@index([projectId])
+  @@index([clientId])
 }
 
 // Conversación de WhatsApp con el agente (sesión SEPARADA del chat interno). Guarda cada turno

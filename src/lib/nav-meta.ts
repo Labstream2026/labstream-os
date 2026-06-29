@@ -15,6 +15,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/calendario")) return { emoji: "📅", label: "Calendario" };
   if (pathname.startsWith("/wiki")) return { emoji: "📚", label: "Wiki del equipo" };
   if (pathname.startsWith("/clientes/nuevo")) return { emoji: "✨", label: "Nuevo cliente" };
+  if (pathname === "/clientes") return { emoji: "🏢", label: "Clientes" };
   if (pathname.startsWith("/clientes")) return { emoji: "🏢", label: "Cliente" };
   if (pathname.startsWith("/configuracion")) return { emoji: "⚙️", label: "Configuración" };
   if (pathname.startsWith("/cotizaciones")) return { emoji: "📄", label: "Cotizaciones" };

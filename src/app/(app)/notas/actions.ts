@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { accessibleClientWhere } from "@/lib/client-access";
 
 // Notas rápidas del usuario. Se crean/editan desde la vista /notas (estilo iCloud), desde el
 // chat (Marcebot) o desde WhatsApp (campo `source`). Cada quien gestiona las suyas (los admins
@@ -12,7 +13,7 @@ import { accessibleProjectWhere } from "@/lib/project-access";
 
 // Crea o actualiza (upsert) una nota. Si llega `id`, edita la nota propia; si no, crea una nueva.
 // Devuelve datos para que el editor del cliente refresque su estado sin recargar.
-export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null; projectId?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
+export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null; projectId?: string | null; clientId?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
   const content = (input.content ?? "").trim();
@@ -27,18 +28,27 @@ export async function saveNote(input: { id?: string; title?: string; content?: s
       if (p) projectId = p.id;
     }
   }
+  // Cliente vinculado (opcional, mismo patrón): solo se guarda si es accesible para el usuario.
+  let clientId: string | null | undefined = undefined;
+  if (input.clientId !== undefined) {
+    clientId = null;
+    if (input.clientId) {
+      const c = await db.client.findFirst({ where: { AND: [accessibleClientWhere(session), { id: input.clientId }] }, select: { id: true } });
+      if (c) clientId = c.id;
+    }
+  }
 
   if (input.id) {
     const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true } });
     if (!existing) return { ok: false, error: "La nota no existe" };
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
-    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
+    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}), ...(clientId !== undefined ? { clientId } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
     revalidatePath("/notas");
     return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
   }
 
   const n = await db.note.create({
-    data: { title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null },
+    data: { title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null, clientId: clientId ?? null },
     select: { id: true, title: true, createdAt: true, updatedAt: true },
   });
   await logActivity({ action: "note.create", summary: `creó la nota «${title}»`, entityType: "note", entityId: n.id }).catch(() => null);

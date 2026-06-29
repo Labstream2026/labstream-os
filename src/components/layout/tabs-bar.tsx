@@ -149,9 +149,11 @@ export function TabsBar() {
 
   if (tabs.length === 0) return null;
 
+  // Vive DENTRO de la barra superior (misma fila que el botón de plegar), para ahorrar la
+  // antigua fila propia de pestañas. Solo escritorio; ocupa el espacio libre del centro.
   return (
-    <div className="hidden h-9 shrink-0 items-stretch border-b border-border bg-background px-2 md:flex">
-      <div className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="hidden min-w-0 flex-1 items-center md:flex">
+      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((url) => {
           const { emoji, label } = routeMeta(pathOf(url));
           const active = pathOf(url) === pathname;
@@ -162,7 +164,7 @@ export function TabsBar() {
               onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(url); } }}
               title={label}
               className={cn(
-                "group my-1 flex max-w-[180px] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md pl-2.5 pr-1.5 text-[13px] transition-colors",
+                "group flex h-7 max-w-[180px] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md pl-2.5 pr-1.5 text-[13px] transition-colors",
                 active
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -193,7 +195,7 @@ export function TabsBar() {
         onClick={newTab}
         aria-label="Nueva pestaña"
         title="Nueva pestaña"
-        className="my-1 ml-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Plus className="size-4" />
       </button>
