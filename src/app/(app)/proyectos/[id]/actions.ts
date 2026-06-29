@@ -1585,6 +1585,9 @@ export async function archiveProject(projectId: string): Promise<{ ok: boolean; 
 export async function restoreProject(projectId: string): Promise<void> {
   const session = await getSession();
   if (!hasPermission(session, "ver_papelera")) throw new Error("No autorizado");
+  // Además del permiso de papelera, exige poder GESTIONAR ese proyecto concreto: no restaurar
+  // proyectos ajenos/privados solo por tener ver_papelera.
+  await ensureProjectManage(projectId);
   const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
   if (!project) return;
   await db.project.update({ where: { id: projectId }, data: { archivedAt: null } });
@@ -1600,6 +1603,13 @@ export async function restoreProject(projectId: string): Promise<void> {
 export async function purgeProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!hasPermission(session, "ver_papelera")) return { ok: false, error: "No autorizado" };
+  // Borrado DEFINITIVO (cascada): además de papelera, exige gestionar el proyecto y el permiso
+  // de eliminar (igual que archiveProject). No purgar proyectos ajenos por adivinar el id.
+  try {
+    await ensureProjectManage(projectId, "eliminar_proyectos");
+  } catch {
+    return { ok: false, error: "No autorizado para borrar este proyecto." };
+  }
   const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, archivedAt: true } });
   if (!project) return { ok: false, error: "El proyecto no existe." };
   if (!project.archivedAt) return { ok: false, error: "Primero envía el proyecto a la papelera." };
