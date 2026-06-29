@@ -8,7 +8,6 @@ import {
   ListChecks,
   MessagesSquare,
   LayoutGrid,
-  LayoutTemplate,
   CalendarDays,
   ClipboardCheck,
   StickyNote,
@@ -58,7 +57,6 @@ const NAV = [
   { href: "/proyectos", label: "Proyectos", icon: LayoutGrid },
   { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
-  { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
 ];
 
 export function Sidebar({
@@ -112,7 +110,7 @@ export function Sidebar({
 
   // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si
   // estás en una de sus rutas para no esconder la activa).
-  const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/biblioteca");
+  const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca");
   const [adminOpen, setAdminOpen] = useState(true);
   useEffect(() => {
     const saved = window.localStorage.getItem("ui:adminOpen");
@@ -338,7 +336,7 @@ export function Sidebar({
         {collapsed || showAdminItems ? (
           <>
             {canQuotes ? navRow("/cotizaciones", "Facturación", Receipt, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
-            {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki")) : null}
+            {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
             {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}
             {canPapelera ? navRow("/papelera", "Papelera", Archive, pathname.startsWith("/papelera")) : null}

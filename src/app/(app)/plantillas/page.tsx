@@ -4,6 +4,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import type { TemplateContent } from "@/lib/templates";
 import { createTemplate, duplicateTemplate } from "./actions";
 import { PromptCreate } from "@/components/prompt-create";
+import { WikiTabs } from "@/app/(app)/wiki/wiki-tabs";
 import { Plus, Pencil, Copy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,16 @@ export default async function PlantillasPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-center justify-between">
+      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
+      <p className="mt-1 mb-6 text-sm text-muted-foreground">
+        Plantillas de proyecto: arranca con etapas, tareas, carpetas y entregables predefinidos.
+      </p>
+      <WikiTabs />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Plantillas</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h2 className="text-lg font-semibold">Plantillas</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Crea proyectos con etapas, tareas, carpetas y entregables predefinidos.
           </p>
         </div>
@@ -41,7 +48,7 @@ export default async function PlantillasPage() {
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {templates.map((t) => {
           const c = t.content as unknown as TemplateContent;
           return (

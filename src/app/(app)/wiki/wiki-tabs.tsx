@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Boxes, HardDrive, KeyRound } from "lucide-react";
+import { BookOpen, Boxes, HardDrive, KeyRound, LayoutTemplate } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/wiki", label: "General", icon: BookOpen, exact: true },
   { href: "/wiki/inventario", label: "Inventario", icon: Boxes },
   { href: "/wiki/ubicacion", label: "Ubicación del material", icon: HardDrive },
+  { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
   { href: "/wiki/contrasenas", label: "Usuarios y contraseñas", icon: KeyRound, adminOnly: false },
 ];
 
