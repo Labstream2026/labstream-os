@@ -19,9 +19,18 @@ export async function GET(
   const t = new URL(req.url).searchParams.get("t") || "";
   if (verifyReviewMediaToken(t) !== versionId) return new Response("No autorizado", { status: 401 });
 
-  const version = await db.deliverableVersion.findUnique({ where: { id: versionId }, select: { fileUrl: true } });
+  const version = await db.deliverableVersion.findUnique({
+    where: { id: versionId },
+    select: { fileUrl: true, deliverable: { select: { reviewRevokedAt: true, reviewExpiresAt: true } } },
+  });
+  // El enlace de revisión pudo ser REVOCADO o CADUCAR: aunque el token siga válido por su
+  // cuenta, no servimos el media si el equipo cerró el enlace (mismo criterio que el portal).
+  const d = version?.deliverable;
+  if (!version || !d || d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now())) {
+    return new Response("Enlace no disponible", { status: 403 });
+  }
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
-  const media = await resolveDriveMediaFile(version?.fileUrl);
+  const media = await resolveDriveMediaFile(version.fileUrl);
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });
 
   // Endpoint de descarga directa que evita el interstitial de análisis de virus.

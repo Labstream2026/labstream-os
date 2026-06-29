@@ -18,7 +18,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ proposalId
     return new NextResponse(new Uint8Array(buf), {
       headers: {
         "Content-Type": mimeFor(name, "image/webp") ?? "image/webp",
-        "Cache-Control": "public, max-age=31536000, immutable",
+        // Privado y sin caché compartida: la imagen es de una propuesta del cliente; no debe
+        // quedar en CDNs/proxies. (El gating por token de propuesta queda como mejora aparte.)
+        "Cache-Control": "private, no-store",
       },
     });
   } catch {

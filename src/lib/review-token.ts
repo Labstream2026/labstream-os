@@ -16,7 +16,9 @@ export function verifyReviewToken(token: string): string | null {
 // por el mismo origen, de modo que el player pueda capturar el fotograma (CORS). Sirve
 // tanto en la bandeja interna como en el portal del cliente (sin sesión).
 export function signReviewMediaToken(versionId: string): string {
-  return signScopedToken("rmedia", versionId, 60);
+  // TTL corto: la página se re-renderiza (force-dynamic) y re-firma el token en cada carga,
+  // así que no hace falta vida larga; acota la ventana si el enlace se filtra.
+  return signScopedToken("rmedia", versionId, 1);
 }
 
 export function verifyReviewMediaToken(token: string): string | null {
