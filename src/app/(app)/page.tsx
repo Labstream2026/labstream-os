@@ -12,6 +12,7 @@ import { formatShortDate } from "@/lib/ui";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
+import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
 
 function greeting(name: string) {
@@ -246,24 +247,22 @@ export default async function HomePage() {
     </>
   );
 
+  // Pestañas del Inicio. "Mi inicio" y "RACI" (guía de quién hace qué) las ve todo el
+  // equipo; "Desempeño" y "Tareas del equipo" solo quien tenga el permiso.
+  const inicioViews = [
+    { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
+    { key: "raci", label: "RACI del equipo", icon: "🧭", node: <RaciMatrix /> },
+    ...(canReports ? [{ key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> }] : []),
+    ...(isAdmin ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <p className="text-sm text-muted-foreground">{todayLabel()}</p>
       <h1 className="mt-1 text-3xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
-      {canReports ? (
-        <div className="mt-6">
-          <ViewTabs
-            storageKey="inicio-view"
-            views={[
-              { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
-              { key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> },
-              ...(isAdmin ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
-            ]}
-          />
-        </div>
-      ) : (
-        miInicio
-      )}
+      <div className="mt-6">
+        <ViewTabs storageKey="inicio-view" views={inicioViews} />
+      </div>
     </div>
   );
 }
