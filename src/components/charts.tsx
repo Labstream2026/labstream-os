@@ -128,8 +128,9 @@ const TINT: Record<string, string> = {
   green: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   violet: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  red: "bg-red-500/10 text-red-600 dark:text-red-400",
 };
-export function StatTile({ icon, value, label, sub, accent = "primary", spark, sparkColor }: {
+export function StatTile({ icon, value, label, sub, accent = "primary", spark, sparkColor, compact }: {
   icon: React.ReactNode;
   value: React.ReactNode;
   label: string;
@@ -137,7 +138,22 @@ export function StatTile({ icon, value, label, sub, accent = "primary", spark, s
   accent?: keyof typeof TINT;
   spark?: number[];
   sparkColor?: string;
+  compact?: boolean;
 }) {
+  // Variante compacta: icono a la izquierda, número y etiqueta a la derecha (sin línea «sub»
+  // ni tendencia). Pensada para la fila de indicadores de Inicio.
+  if (compact) {
+    const danger = accent === "red";
+    return (
+      <div className={cn("flex items-center gap-3 rounded-xl border bg-card p-3 shadow-sm", danger ? "border-red-500/30" : "border-border")}>
+        <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg text-lg", TINT[accent])}>{icon}</span>
+        <div className="min-w-0">
+          <p className={cn("text-xl font-bold leading-none tabular-nums", danger && "text-red-600 dark:text-red-400")}>{value}</p>
+          <p className={cn("mt-1 truncate text-xs", danger ? "text-red-600/90 dark:text-red-400/90" : "text-muted-foreground")}>{label}</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">

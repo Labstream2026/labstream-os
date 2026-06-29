@@ -388,6 +388,10 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                 value={draft.title}
                 onChange={(e) => onChange({ title: e.target.value })}
                 placeholder="Título"
+                // El outline global :focus-visible (color --ring) pinta una caja alrededor de
+                // esta superficie grande de texto; aquí el cursor ya indica el foco, así que la
+                // suprimimos para un editor más limpio (no afecta el outline del resto de la app).
+                style={{ outline: "none" }}
                 className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/40 sm:text-3xl"
               />
               {/* Tags grandes: cliente + categoría (+ proyecto opcional). */}
@@ -469,6 +473,9 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                       value={draft.content}
                       onChange={(e) => onChange({ content: e.target.value })}
                       placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista, - [ ] tarea."
+                      // Sin caja de foco naranja (outline global) en el cuerpo de la nota; el
+                      // cursor ya indica dónde estás escribiendo. Editor más limpio.
+                      style={{ outline: "none" }}
                       className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
                     />
                   ) : (

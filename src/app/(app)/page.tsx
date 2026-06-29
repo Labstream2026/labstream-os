@@ -40,6 +40,9 @@ export default async function HomePage() {
   if (!me) redirect("/login");
   const session = await getSession();
 
+  // El portal del cliente no tiene Inicio: entra directo a sus proyectos.
+  if (session?.role === "cliente") redirect("/proyectos");
+
   // Página de inicio personalizada: si el usuario eligió otra distinta de Inicio, lo llevamos
   // allí al entrar en "/". (Se configura en el Perfil; lista blanca de rutas.)
   const prefs = await getUserPreference(me.id);
@@ -120,19 +123,20 @@ export default async function HomePage() {
     ? await buildSessionTimeline(session, { activeOnly: true })
     : { clients: [], milestones: [], undatedCount: 0 };
 
+  const unreadAccent: "red" | "amber" = unread > 0 ? "red" : "amber";
   const stats = [
-    { icon: <Building2 className="size-5" />, value: clients.length, label: "Clientes", sub: "activos", accent: "blue" as const },
-    { icon: <Rocket className="size-5" />, value: projects, label: "Proyectos", sub: blocked ? `${blocked} bloqueado` : "activos", accent: "primary" as const },
-    { icon: <ListChecks className="size-5" />, value: myTaskCount, label: "Tus tareas", sub: "abiertas", accent: "green" as const },
-    { icon: <MessageSquare className="size-5" />, value: unread, label: "Sin leer", sub: "en el chat", accent: "amber" as const },
+    { icon: <Building2 className="size-5" />, value: clients.length, label: "Clientes", accent: "blue" as const },
+    { icon: <Rocket className="size-5" />, value: projects, label: "Proyectos", accent: "primary" as const },
+    { icon: <ListChecks className="size-5" />, value: myTaskCount, label: "Tus tareas", accent: "green" as const },
+    { icon: <MessageSquare className="size-5" />, value: unread, label: "Sin leer", accent: unreadAccent },
   ];
 
   // Contenido personal del Inicio (mi desempeño + mis tareas), reutilizado como pestaña.
   const miInicio = (
     <>
-      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <StatTile key={s.label} icon={s.icon} value={s.value} label={s.label} sub={s.sub} accent={s.accent} />
+          <StatTile key={s.label} compact icon={s.icon} value={s.value} label={s.label} accent={s.accent} />
         ))}
       </div>
 
