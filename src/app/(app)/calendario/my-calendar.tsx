@@ -71,53 +71,55 @@ export function MyCalendar({
     return map;
   }, [items]);
 
-  const first = new Date(Date.UTC(year, month, 1));
-  const startOffset = (first.getUTCDay() + 6) % 7;
-  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < startOffset; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-
   const pad = (n: number) => String(n).padStart(2, "0");
   const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  // La vista mes muestra una ventana CONTINUA de varios meses (no se corta en el mes actual);
+  // se desplaza mes a mes con ←/→ y "Hoy" vuelve al mes en curso.
+  const MONTH_COUNT = 6;
   const prev = () => (month === 0 ? (setMonth(11), setYear((y) => y - 1)) : setMonth((m) => m - 1));
   const next = () => (month === 11 ? (setMonth(0), setYear((y) => y + 1)) : setMonth((m) => m + 1));
 
-  // Soltar una cita en otro día: conserva la hora, cambia la fecha.
-  const dropOnDay = (dayNum: number) => {
+  // Soltar una cita en otro día (de cualquier mes visible): conserva la hora, cambia la fecha.
+  const dropOnDay = (y: number, m: number, dayNum: number) => {
     const it = dragItem.current;
     dragItem.current = null;
     setOverKey(null);
     if (!it?.eventId || !it.canEdit) return;
     const orig = new Date(it.start ?? it.date);
-    const ns = new Date(year, month, dayNum, orig.getHours(), orig.getMinutes(), 0, 0);
+    const ns = new Date(y, m, dayNum, orig.getHours(), orig.getMinutes(), 0, 0);
     const dur = it.end ? new Date(it.end).getTime() - orig.getTime() : 0;
     const ne = dur ? new Date(ns.getTime() + dur) : null;
     startMove(() => { void moveMyEvent(it.eventId!, ns.toISOString(), ne ? ne.toISOString() : null); });
   };
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between pb-2">
-        <h3 className="text-sm font-semibold capitalize">{MONTHS[month]} {year}</h3>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={prev} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
-          <button type="button" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
-          <button type="button" onClick={next} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">→</button>
-        </div>
-      </div>
+  // Los MONTH_COUNT meses visibles a partir del mes/año actual (normalizados por Date).
+  const months = Array.from({ length: MONTH_COUNT }, (_, i) => {
+    const dt = new Date(year, month + i, 1);
+    return { y: dt.getFullYear(), m: dt.getMonth() };
+  });
+  const startDt = new Date(year, month, 1);
+  const endDt = new Date(year, month + MONTH_COUNT - 1, 1);
+  const rangeLabel = startDt.getFullYear() === endDt.getFullYear()
+    ? `${MONTHS[startDt.getMonth()]} – ${MONTHS[endDt.getMonth()]} ${endDt.getFullYear()}`
+    : `${MONTHS[startDt.getMonth()]} ${startDt.getFullYear()} – ${MONTHS[endDt.getMonth()]} ${endDt.getFullYear()}`;
 
-      {/* Rejilla a borde completo, sin tarjeta (estilo Notion) */}
-      <div className="overflow-hidden border-t border-border/50 bg-card">
-        <div className="grid grid-cols-7 border-b border-border/50">
-          {WEEKDAYS.map((w) => (
-            <div key={w} className="py-2 text-center text-[11px] font-medium uppercase text-muted-foreground">{w}</div>
-          ))}
+  // Rejilla de un mes (cabecera con su nombre + celdas). Reutilizada por los 6 meses.
+  const monthGrid = (y: number, m: number) => {
+    const startOffset = (new Date(Date.UTC(y, m, 1)).getUTCDay() + 6) % 7;
+    const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < startOffset; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    return (
+      <div key={`${y}-${m}`}>
+        <div className="sticky top-9 z-[1] flex items-center gap-2 bg-card/95 px-1 py-1.5 backdrop-blur">
+          <span className="text-sm font-semibold capitalize">{MONTHS[m]} {y}</span>
+          <span className="h-px flex-1 bg-border/50" />
         </div>
-        <div className="grid grid-cols-7">
+        <div className="grid grid-cols-7 border-t border-border/50">
           {cells.map((d, i) => {
-            const key = d ? `${year}-${pad(month + 1)}-${pad(d)}` : null;
+            const key = d ? `${y}-${pad(m + 1)}-${pad(d)}` : null;
             const evs = key ? byDay.get(key) ?? [] : [];
             const isToday = key === todayKey;
             const isOver = key != null && overKey === key;
@@ -126,9 +128,9 @@ export function MyCalendar({
                 key={i}
                 onClick={() => { if (d && key && canCreate) emitCalendarCreate(key); }}
                 onDragOver={d ? (e) => { if (dragItem.current) { e.preventDefault(); if (key !== overKey) setOverKey(key); } } : undefined}
-                onDrop={d ? (e) => { e.preventDefault(); dropOnDay(d); } : undefined}
+                onDrop={d ? (e) => { e.preventDefault(); dropOnDay(y, m, d); } : undefined}
                 className={cn(
-                  "min-h-[104px] border-b border-l border-border/30 p-1 [&:nth-child(7n+1)]:border-l-0",
+                  "min-h-[100px] border-b border-l border-border/30 p-1 [&:nth-child(7n+1)]:border-l-0",
                   !d && "bg-muted/20",
                   isToday && "bg-rose-50/40 dark:bg-rose-500/[0.05]",
                   isOver && "bg-primary/10 ring-1 ring-inset ring-primary/40",
@@ -172,6 +174,29 @@ export function MyCalendar({
             );
           })}
         </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center justify-between pb-2">
+        <h3 className="text-sm font-semibold capitalize">{rangeLabel}</h3>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={prev} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
+          <button type="button" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
+          <button type="button" onClick={next} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">→</button>
+        </div>
+      </div>
+
+      {/* Ventana continua de 6 meses con scroll propio; cabecera de día fija arriba (estilo Notion). */}
+      <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 bg-card">
+        <div className="sticky top-0 z-[2] grid grid-cols-7 border-b border-border/50 bg-card">
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="py-2 text-center text-[11px] font-medium uppercase text-muted-foreground">{w}</div>
+          ))}
+        </div>
+        {months.map((mo) => monthGrid(mo.y, mo.m))}
       </div>
 
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">

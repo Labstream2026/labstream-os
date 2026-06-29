@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, ChevronDown } from "lucide-react";
+import Link from "next/link";
+import { Check, ChevronRight, ChevronDown, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type TimelineUnit,
@@ -42,6 +43,8 @@ export type TLMilestone = {
   label: string;
   emoji: string;
   colorHex: string;
+  dateLabel?: string; // fecha legible para el popover de detalle
+  link?: string; // a dónde lleva "Abrir" (p. ej. el cronograma del proyecto)
   onClick?: () => void;
 };
 
@@ -127,6 +130,24 @@ export function TimelineGrid({
       return next;
     });
   }
+
+  // Popover de detalle de un hito (rodaje/entrega). Se ancla con coordenadas de viewport
+  // (posición fija) para que NO se recorte por el scroll del cronograma. Se cierra al hacer
+  // clic fuera, al desplazar o con Escape.
+  const [openMs, setOpenMs] = React.useState<{ m: TLMilestone; x: number; y: number } | null>(null);
+  React.useEffect(() => {
+    if (!openMs) return;
+    const close = () => setOpenMs(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenMs(null); };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openMs]);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   // Centrar en "hoy" al montar / cambiar zoom.
@@ -428,9 +449,12 @@ export function TimelineGrid({
                           <button
                             key={m.id}
                             type="button"
-                            onClick={m.onClick}
+                            onClick={(e) => {
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setOpenMs((cur) => (cur?.m.id === m.id ? null : { m, x: r.left + r.width / 2, y: r.bottom }));
+                            }}
                             title={`${m.emoji} ${m.label}`}
-                            className="absolute top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center"
+                            className="absolute top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center"
                             style={{ left }}
                           >
                             <span
@@ -453,6 +477,31 @@ export function TimelineGrid({
           </div>
         </div>
       )}
+
+      {/* Detalle del hito al hacer clic en su marcador (qué es, cuándo, y abrir). */}
+      {openMs ? (
+        <div className="fixed inset-0 z-[60]" onClick={() => setOpenMs(null)}>
+          <div
+            className="absolute w-60 -translate-x-1/2 rounded-lg border border-border bg-card p-3 shadow-lg"
+            style={{ left: openMs.x, top: openMs.y + 8 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1 flex items-start gap-2">
+              <span className="text-base leading-none">{openMs.m.emoji}</span>
+              <span className="flex-1 text-sm font-semibold leading-snug">{openMs.m.label}</span>
+              <button type="button" onClick={() => setOpenMs(null)} aria-label="Cerrar" className="shrink-0 text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </div>
+            {openMs.m.dateLabel ? <p className="text-xs text-muted-foreground">{openMs.m.dateLabel}</p> : null}
+            {openMs.m.link ? (
+              <Link href={openMs.m.link} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                Abrir <ArrowRight className="size-3.5" />
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

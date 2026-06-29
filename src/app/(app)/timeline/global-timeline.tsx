@@ -27,7 +27,7 @@ export type GTProject = {
   tasks: GTTask[];
 };
 export type GTClient = { id: string; label: string; colorHex?: string; projects: GTProject[] };
-export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string };
+export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string; dateLabel?: string; link?: string };
 
 export function GlobalTimeline({
   clients,

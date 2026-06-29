@@ -53,6 +53,8 @@ export async function buildSessionTimeline(
 
   const clientMap = new Map<string, GTClient>();
   const milestones: GTMilestone[] = [];
+  // "YYYY-MM-DD" → "12 jul 2026" para el popover de detalle del hito.
+  const fmtDay = (k: string) => new Date(`${k}T00:00:00`).toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" });
   let idx = 0;
   const mine = (t: { ownerId: string | null; assigneeId: string | null }) =>
     t.ownerId === session?.id || t.assigneeId === session?.id;
@@ -103,12 +105,12 @@ export async function buildSessionTimeline(
 
     for (const d of p.deliverables) {
       const k = dayKey(d.dueDate);
-      if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `${p.name} · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex });
+      if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `${p.name} · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex, dateLabel: `Entrega · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma` });
     }
     for (const t of p.tasks) {
       if (t.isPrivate && !mine(t)) continue;
       const k = dayKey(t.shootDate);
-      if (k) milestones.push({ id: `shoot-${t.id}`, dayKey: k, label: `${p.name} · ${t.title}`, emoji: "🎬", colorHex: tone("rose").hex });
+      if (k) milestones.push({ id: `shoot-${t.id}`, dayKey: k, label: `${p.name} · ${t.title}`, emoji: "🎬", colorHex: tone("rose").hex, dateLabel: `Rodaje · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma` });
     }
   }
 
