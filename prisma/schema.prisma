@@ -141,6 +141,7 @@ model User {
   permissionOverrides UserPermission[]
   preference          UserPreference?
   notifPrefs          UserNotificationPref[]
+  myDayItems          MyDayItem[]
   marcebotState      MarcebotState?     @relation("MarcebotStateUser")
   equipPlansAssigned EquipmentPlan[]    @relation("EquipPlanAssignee")
   equipPlansCreated  EquipmentPlan[]    @relation("EquipPlanCreator")
@@ -1289,6 +1290,7 @@ model Task {
   checklist     ChecklistItem[]
   comments      TaskComment[]
   timeEntries   TimeEntry[]
+  myDayItems    MyDayItem[]
   // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
   equipmentPlan EquipmentPlan?  @relation("EquipPlanTask")
   createdAt     DateTime        @default(now())
@@ -1695,4 +1697,22 @@ model EquipmentReservation {
   @@index([rowId])
   // Disponibilidad por fecha: se cruza con shootDate del plan.
   @@index([planId])
+}
+
+// "Mi día": lista de enfoque PERSONAL del usuario (planificador estilo Sunsama/Things).
+// Una tarea puede pertenecer a dos personas (dueño y responsable), así que el día es por
+// usuario — no un campo en Task. `position` ordena la lista; al completar la tarea, sale
+// del listado abierto y deja de aparecer en Mi día.
+model MyDayItem {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, taskId])
+  @@index([userId])
+  @@index([taskId])
 }

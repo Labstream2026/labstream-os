@@ -31,6 +31,35 @@ export async function completeMyTask(taskId: string) {
   if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
 }
 
+// "Mi día": añade/quita una tarea del listado de enfoque PERSONAL del usuario. Solo tareas
+// donde es responsable o dueño (las que ya ve en Mis tareas). Devuelve el estado resultante
+// para que el botón ⭐ haga actualización optimista.
+export async function toggleMyDay(taskId: string): Promise<{ ok: boolean; inMyDay: boolean }> {
+  const session = await getSession();
+  if (!session) return { ok: false, inMyDay: false };
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { assigneeId: true, ownerId: true } });
+  if (!task) return { ok: false, inMyDay: false };
+  if (task.assigneeId !== session.id && task.ownerId !== session.id && session.role !== "admin") return { ok: false, inMyDay: false };
+  const existing = await db.myDayItem.findUnique({ where: { userId_taskId: { userId: session.id, taskId } }, select: { id: true } });
+  if (existing) {
+    await db.myDayItem.delete({ where: { id: existing.id } });
+    revalidatePath("/mis-tareas");
+    return { ok: true, inMyDay: false };
+  }
+  const last = await db.myDayItem.findFirst({ where: { userId: session.id }, orderBy: { position: "desc" }, select: { position: true } });
+  await db.myDayItem.create({ data: { userId: session.id, taskId, position: (last?.position ?? 0) + 1 } });
+  revalidatePath("/mis-tareas");
+  return { ok: true, inMyDay: true };
+}
+
+// Vacía "Mi día" del usuario (no borra tareas; solo limpia el plan de enfoque de hoy).
+export async function clearMyDay() {
+  const session = await getSession();
+  if (!session) return;
+  await db.myDayItem.deleteMany({ where: { userId: session.id } });
+  revalidatePath("/mis-tareas");
+}
+
 // Crear una tarea personal o asignada a alguien (sin proyecto).
 // - Sin responsable o asignada a mí → tarea personal mía.
 // - Privada → solo la vemos su dueño y su responsable.

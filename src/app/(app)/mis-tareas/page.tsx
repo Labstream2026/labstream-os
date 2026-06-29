@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
 import { TaskDetailButton } from "./task-detail-panel";
+import { MyDayToggle } from "./my-day-toggle";
+import { clearMyDay } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,7 @@ export default async function MisTareasPage() {
   const openKeys = statuses.filter((s) => !s.isDone).map((s) => s.key);
   const doneKeys = statuses.filter((s) => s.isDone).map((s) => s.key);
 
-  const [tasks, doneTasks, team] = await Promise.all([
+  const [tasks, doneTasks, team, myDayRows] = await Promise.all([
     db.task.findMany({
       where: {
         status: { in: openKeys },
@@ -65,7 +67,12 @@ export default async function MisTareasPage() {
       },
     }),
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
+    // "Mi día": tareas que el usuario marcó para enfocarse hoy (solo ids + orden).
+    db.myDayItem.findMany({ where: { userId: user.id }, select: { taskId: true, position: true } }),
   ]);
+
+  // Orden/pertenencia de "Mi día" por id de tarea (para el ⭐ y la pestaña enfocada).
+  const myDayPos = new Map(myDayRows.map((m) => [m.taskId, m.position]));
 
   // Cumplimiento personal (cada quien ve el suyo, sin permiso especial).
   const sla = await userComplianceSummary(user.id);
@@ -105,6 +112,7 @@ export default async function MisTareasPage() {
           const canEditMeta = t.ownerId === user.id;
           return (
             <div key={t.id} className={cn("flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3", URGENCY_META[u.state].row)}>
+              <MyDayToggle taskId={t.id} initial={myDayPos.has(t.id)} />
               <div className="min-w-0 flex-1">
                 {t.project ? (
                   <Link href={`/proyectos/${t.project.id}?tab=tareas`} className="block min-w-0">
@@ -234,6 +242,36 @@ export default async function MisTareasPage() {
     </div>
   );
 
+  // "Mi día": las tareas abiertas que el usuario marcó con ⭐, en su orden de planeación.
+  const miDayTasks = tasks
+    .filter((t) => myDayPos.has(t.id))
+    .sort((a, b) => (myDayPos.get(a.id) ?? 0) - (myDayPos.get(b.id) ?? 0));
+  const miDia = (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {miDayTasks.length === 0
+            ? "Tu día está vacío."
+            : `${miDayTasks.length} tarea${miDayTasks.length === 1 ? "" : "s"} en tu enfoque de hoy.`}
+        </p>
+        {miDayTasks.length ? (
+          <form action={clearMyDay}>
+            <button type="submit" className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+              Limpiar Mi día
+            </button>
+          </form>
+        ) : null}
+      </div>
+      {miDayTasks.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
+          Marca tareas con la <span className="text-amber-500">⭐</span> desde la pestaña <span className="font-medium text-foreground">Lista</span> para planear en qué te enfocas hoy.
+        </div>
+      ) : (
+        <div className="space-y-2">{miDayTasks.map(taskRow)}</div>
+      )}
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <ViewTabs
@@ -270,6 +308,7 @@ export default async function MisTareasPage() {
           </div>
         }
         views={[
+          { key: "mi-dia", label: "Mi día", icon: "⭐", node: miDia },
           { key: "lista", label: "Lista", icon: "☰", node: list },
           { key: "completadas", label: "Completadas", icon: "✓", node: completed },
         ]}

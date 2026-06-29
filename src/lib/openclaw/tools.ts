@@ -659,6 +659,7 @@ export function toolsForApi(readOnly: boolean): ToolDef[] {
 export async function executeAgentTool(name: string, args: Record<string, unknown>, session: SessionUser, ctx?: ToolContext): Promise<string> {
   switch (name) {
     case "find_projects": {
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver proyectos.";
       const q = str(args.query);
       const where = q ? { AND: [accessibleProjectWhere(session), { name: { contains: q, mode: "insensitive" as const } }] } : accessibleProjectWhere(session);
       const rows = await db.project.findMany({
@@ -670,6 +671,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "get_project": {
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver proyectos.";
       const p = await resolveProject(session, args.project);
       if (!p) return "No encontré ese proyecto o no tienes acceso a él.";
       const full = await db.project.findUnique({
@@ -701,6 +703,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "list_tasks": {
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver tareas.";
       const filters: Record<string, unknown>[] = [taskVisibilityWhere(session)];
       if (str(args.project)) {
         const p = await resolveProject(session, args.project);
@@ -729,6 +732,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "find_users": {
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver el directorio del equipo.";
       const q = str(args.query);
       const rows = await db.user.findMany({
         where: { active: true, isSystemBot: false, ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },
@@ -739,6 +743,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "send_message": {
+      if (!hasPermission(session, "comentar")) return "No tienes permiso para enviar mensajes al equipo.";
       const recRaw = str(args.recipients);
       const message = str(args.message);
       if (!recRaw) return "Falta a quién enviar (nombres separados por coma o 'todos').";
@@ -777,6 +782,10 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (str(args.project)) {
         const p = await resolveProject(session, args.project);
         if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        // Crear tareas DENTRO de un proyecto exige el permiso (igual que el server action
+        // createTask). Las tareas PERSONALES sin proyecto quedan abiertas a cualquier sesión,
+        // igual que createMyTask, para no perder esa función.
+        if (!hasPermission(session, "crear_tareas")) return "No tienes permiso para crear tareas en proyectos.";
         if (!canWriteProject(p, session)) return `No tienes permiso para crear tareas en «${p.name}».`;
         projectId = p.id;
       }
@@ -808,6 +817,9 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "create_recurring_task": {
+      // Las tareas recurrentes no tienen equivalente "personal sin permiso" (no hay UI para
+      // crearlas sin proyecto), así que exigen crear_tareas siempre.
+      if (!hasPermission(session, "crear_tareas")) return "No tienes permiso para crear tareas recurrentes.";
       const title = str(args.title);
       const freqRaw = str(args.frequency).toUpperCase();
       if (!title) return "Falta el título.";
@@ -911,6 +923,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
     }
 
     case "find_clients": {
+      if (!hasPermission(session, "ver_clientes")) return "No tienes permiso para ver clientes.";
       const q = str(args.query);
       const base = accessibleClientWhere(session);
       const where = q ? { AND: [base, { name: { contains: q, mode: "insensitive" as const }, archivedAt: null }] } : { AND: [base, { archivedAt: null }] };
