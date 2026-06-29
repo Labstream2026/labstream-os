@@ -7,6 +7,7 @@ import { accessibleClientWhere } from "@/lib/client-access";
 import { formatMoney, quoteStatusMeta, formatShortDate, quoteTotals } from "@/lib/ui";
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { effectiveInvoiceStatus } from "@/lib/billing";
+import { Gauge, Legend, POS, WARN, NEG } from "@/components/charts";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
@@ -87,8 +88,23 @@ export default async function CotizacionesPage() {
         ) : null}
       </div>
 
-      {/* Balance de facturación (resumen de cobro) */}
-      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {/* Balance de facturación: medidor de % cobrado + reparto cobrado / por cobrar / vencido. */}
+      {facturado > 0 ? (
+        <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <Gauge pct={(cobrado / facturado) * 100} label="cobrado" />
+          <div className="min-w-56 flex-1 space-y-2.5">
+            <div className="flex h-3.5 overflow-hidden rounded-full" style={{ background: "hsl(var(--muted))" }}>
+              <div className="h-full" style={{ width: `${(cobrado / facturado) * 100}%`, background: POS }} />
+              <div className="h-full" style={{ width: `${(Math.max(0, porCobrar - vencido) / facturado) * 100}%`, background: WARN }} />
+              <div className="h-full" style={{ width: `${(vencido / facturado) * 100}%`, background: NEG }} />
+            </div>
+            <Legend items={[{ label: "Cobrado", value: formatMoney(cobrado, invCurrency), color: POS }, { label: "Por cobrar", value: formatMoney(Math.max(0, porCobrar - vencido), invCurrency), color: WARN }, { label: "Vencido", value: formatMoney(vencido, invCurrency), color: NEG }]} />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Balance de facturación (cifras exactas) */}
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Money label="Facturado" value={formatMoney(facturado, invCurrency)} />
         <Money label="Cobrado" value={formatMoney(cobrado, invCurrency)} valueClass="text-emerald-600 dark:text-emerald-400" />
         <Money label="Por cobrar" value={formatMoney(porCobrar, invCurrency)} valueClass="text-amber-600 dark:text-amber-400" />

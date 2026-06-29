@@ -46,9 +46,9 @@ export function ProjectCard({ project, tintColor }: { project: ProjectCardData; 
       </div>
 
       <div className="mt-auto flex items-center gap-3">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary"
+            className="h-full rounded-full bg-primary transition-all"
             style={{ width: `${Math.min(100, Math.max(0, project.progress))}%` }}
           />
         </div>
