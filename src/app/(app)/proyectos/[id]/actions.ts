@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
+import { isDeliverableType, isProjectRole } from "@/lib/enum-guards";
 import { safeExternalUrl } from "@/lib/url";
 import { bogotaNoon } from "@/lib/today";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
@@ -737,7 +738,7 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   // Responsable de la revisión: solo se acepta si es miembro/responsable del proyecto.
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
-  const d = await db.deliverable.create({ data: { projectId, name, type: type as never, dueDate, reviewExpiresAt, reviewerId, ownerId: session.id } });
+  const d = await db.deliverable.create({ data: { projectId, name, type: isDeliverableType(type) ? type : "REEL", dueDate, reviewExpiresAt, reviewerId, ownerId: session.id } });
   await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
 
   // Primera versión opcional en el mismo formulario (link externo o archivo subido).
@@ -1526,8 +1527,7 @@ export async function addProjectMember(projectId: string, userId: string, role: 
   const session = await ensureProjectManage(projectId, "gestionar_miembros_proyecto");
   // El rol debe ser uno conocido; conceder OWNER solo lo puede hacer admin o el responsable
   // (evita que un OWNER no-admin promueva a otros y escale control del proyecto).
-  const allowed = ["MEMBER", "GUEST", "OWNER"];
-  const safeRole = allowed.includes(role) ? role : "MEMBER";
+  const safeRole = isProjectRole(role) ? role : "MEMBER";
   if (safeRole === "OWNER") {
     const project = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true } });
     if (!(session.role === "admin" || project?.leadId === session.id)) {
@@ -1540,8 +1540,8 @@ export async function addProjectMember(projectId: string, userId: string, role: 
 
   await db.projectMember.upsert({
     where: { projectId_userId: { projectId, userId } },
-    create: { projectId, userId, role: safeRole as never },
-    update: { role: safeRole as never },
+    create: { projectId, userId, role: safeRole },
+    update: { role: safeRole },
   });
   const member = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
   await logActivity({ action: "member.add", summary: `añadió a ${member?.name ?? "un miembro"} como ${safeRole}`, projectId, entityType: "member", entityId: userId });

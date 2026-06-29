@@ -11,6 +11,7 @@ import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEve
 import { logActivity } from "@/lib/activity";
 import { saveBufferWithPreview } from "@/lib/image";
 import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import { isColumnType } from "@/lib/enum-guards";
 
 // projectId de una tabla (para registrar actividad; null si la tabla es de wiki).
 async function projectIdOfTable(tableId: string): Promise<string | null> {
@@ -134,8 +135,9 @@ export async function addColumn(tableId: string, name: string, type: string) {
           { id: "b", label: "Opción 2", color: "blue" },
         ]
       : undefined;
+  // Validar el tipo contra el enum REAL (evita un 500 / dato corrupto si llega un tipo raro).
   await db.dataColumn.create({
-    data: { tableId, name: name.trim() || "Columna", type: type as never, position: count, options: options as never },
+    data: { tableId, name: name.trim() || "Columna", type: isColumnType(type) ? type : "TEXT", position: count, options: options as never },
   });
   await revalidateForTable(tableId);
 }
