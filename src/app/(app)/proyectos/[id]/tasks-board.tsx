@@ -15,7 +15,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Pencil } from "lucide-react";
 import { PriorityPill } from "@/components/priority-pill";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
@@ -41,6 +41,7 @@ import {
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { TaskDetail } from "./task-detail";
+import { TaskAdminPanel } from "./task-admin-panel";
 import { formatShortDate } from "@/lib/ui";
 import { taskUrgency, urgencyLabel, URGENCY_META } from "@/lib/task-urgency";
 import { TONES, tone, type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
@@ -53,6 +54,7 @@ export function TasksBoard({
   statuses,
   priorities,
   stageColors = {},
+  isAdmin = false,
 }: {
   projectId: string;
   tasks: Task[];
@@ -61,6 +63,8 @@ export function TasksBoard({
   statuses: LabelRow[];
   priorities: LabelRow[];
   stageColors?: Record<string, string>;
+  // Solo los administradores ven el botón ✏️ que abre el panel central de edición completa.
+  isAdmin?: boolean;
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
   // Errores de acciones de fase (color/renombrar/eliminar) sin tumbar el tablero.
@@ -78,6 +82,8 @@ export function TasksBoard({
   const activeTask = items.find((t) => t.id === activeId) ?? null;
   const [detailId, setDetailId] = React.useState<string | null>(null);
   const detailTask = items.find((t) => t.id === detailId) ?? null;
+  const [adminId, setAdminId] = React.useState<string | null>(null);
+  const adminTask = items.find((t) => t.id === adminId) ?? null;
 
   // Sensores: ratón/lápiz arrastra tras 6px; táctil tras mantener pulsado 200ms
   // (así el scroll del móvil sigue funcionando y no se arrastra sin querer).
@@ -130,7 +136,7 @@ export function TasksBoard({
             {items
               .filter((t) => colFor(t) === col)
               .map((t) => (
-                <DraggableCard key={t.id} task={t} projectId={projectId} statuses={statuses} priorities={priorities} dimmed={t.id === activeId} onOpen={() => setDetailId(t.id)} />
+                <DraggableCard key={t.id} task={t} projectId={projectId} statuses={statuses} priorities={priorities} dimmed={t.id === activeId} onOpen={() => setDetailId(t.id)} onAdmin={isAdmin ? () => setAdminId(t.id) : undefined} />
               ))}
           </Column>
         ))}
@@ -151,6 +157,10 @@ export function TasksBoard({
 
       {detailTask ? (
         <TaskDetail task={detailTask} projectId={projectId} team={team} stages={cols} statuses={statuses} priorities={priorities} onClose={() => setDetailId(null)} />
+      ) : null}
+
+      {adminTask ? (
+        <TaskAdminPanel task={adminTask} projectId={projectId} team={team} stages={cols} statuses={statuses} priorities={priorities} onClose={() => setAdminId(null)} />
       ) : null}
     </DndContext>
   );
@@ -272,11 +282,11 @@ function Column({
   );
 }
 
-function DraggableCard({ task, projectId, statuses, priorities, dimmed, onOpen }: { task: Task; projectId: string; statuses: LabelRow[]; priorities: LabelRow[]; dimmed: boolean; onOpen: () => void }) {
+function DraggableCard({ task, projectId, statuses, priorities, dimmed, onOpen, onAdmin }: { task: Task; projectId: string; statuses: LabelRow[]; priorities: LabelRow[]; dimmed: boolean; onOpen: () => void; onAdmin?: () => void }) {
   const { setNodeRef, listeners, attributes, setActivatorNodeRef } = useDraggable({ id: task.id });
   return (
     <div ref={setNodeRef} className={cn(dimmed && "opacity-40")}>
-      <CardContent task={task} projectId={projectId} statuses={statuses} priorities={priorities} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} onOpen={onOpen} />
+      <CardContent task={task} projectId={projectId} statuses={statuses} priorities={priorities} handleRef={setActivatorNodeRef} handleProps={{ ...listeners, ...attributes }} onOpen={onOpen} onAdmin={onAdmin} />
     </div>
   );
 }
@@ -290,6 +300,7 @@ function CardContent({
   handleProps,
   overlay,
   onOpen,
+  onAdmin,
 }: {
   task: Task;
   projectId: string;
@@ -299,6 +310,7 @@ function CardContent({
   handleProps?: Record<string, unknown>;
   overlay?: boolean;
   onOpen?: () => void;
+  onAdmin?: () => void;
 }) {
   const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null });
   const done = t.checklist.filter((c) => c.done).length;
@@ -323,6 +335,17 @@ function CardContent({
           <p className="flex-1 text-sm font-medium leading-snug">{t.title}</p>
         )}
         {t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" /> : null}
+        {onAdmin ? (
+          <button
+            type="button"
+            onClick={onAdmin}
+            title="Editar tarea (admin)"
+            aria-label="Editar tarea"
+            className="-mr-1 -mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">

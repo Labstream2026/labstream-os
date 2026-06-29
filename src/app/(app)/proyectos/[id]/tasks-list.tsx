@@ -11,6 +11,7 @@ import { type LabelRow, labelOptions, defaultKey } from "@/lib/colors";
 import { createTask, setTaskStatus, setTaskStage, setTaskShootDate, deleteTask } from "./actions";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
+import { TaskAdminButton } from "./task-admin-panel";
 
 // Vista Lista: todas las tareas en una tabla densa estilo Notion, ordenadas por fase.
 export function TasksList({
@@ -20,6 +21,7 @@ export function TasksList({
   stages,
   statuses,
   priorities,
+  isAdmin = false,
 }: {
   projectId: string;
   tasks: Task[];
@@ -27,6 +29,8 @@ export function TasksList({
   stages: string[];
   statuses: LabelRow[];
   priorities: LabelRow[];
+  // Solo admins ven el botón ✏️ que abre el panel central de edición completa.
+  isAdmin?: boolean;
 }) {
   const cols = stages.length ? stages : ["Por hacer"];
   const stageOptions = cols.map((s) => ({ value: s, label: s }));
@@ -114,16 +118,21 @@ export function TasksList({
                     title="Fecha de rodaje"
                   />
                 </td>
-                <td className="px-3 py-2 text-right">
-                  <form action={deleteTask.bind(null, t.id, projectId)}>
-                    <ConfirmSubmit
-                      message={`¿Eliminar la tarea «${t.title}»?`}
-                      title="Eliminar"
-                      className="px-1 text-xs text-muted-foreground hover:text-destructive"
-                    >
-                      ✕
-                    </ConfirmSubmit>
-                  </form>
+                <td className="px-3 py-2">
+                  <div className="flex items-center justify-end gap-1">
+                    {isAdmin ? (
+                      <TaskAdminButton task={t} projectId={projectId} team={team} stages={cols} statuses={statuses} priorities={priorities} />
+                    ) : null}
+                    <form action={deleteTask.bind(null, t.id, projectId)}>
+                      <ConfirmSubmit
+                        message={`¿Eliminar la tarea «${t.title}»?`}
+                        title="Eliminar"
+                        className="px-1 text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        ✕
+                      </ConfirmSubmit>
+                    </form>
+                  </div>
                 </td>
               </tr>
             );

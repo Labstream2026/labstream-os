@@ -383,6 +383,116 @@ export async function setTaskDates(taskId: string, _projectId: string, formData:
   refresh(projectId);
 }
 
+// Solo lectura: descripción de una tarea, para precargar el panel de edición admin.
+export async function getTaskDescription(taskId: string): Promise<string> {
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: { description: true, projectId: true, ownerId: true, assigneeId: true, project: { select: accessSelect } },
+  });
+  await ensureAccessVia(task, null);
+  return task?.description ?? "";
+}
+
+// Edición INTEGRAL de una tarea por un ADMINISTRADOR (panel central): cambia varios campos a
+// la vez y notifica al responsable anterior y al nuevo con el detalle claro de lo que cambió.
+// Solo admins (los cambios de responsable y fechas son sensibles).
+export async function adminUpdateTask(taskId: string, _projectId: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede editar la tarea completa." };
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      title: true, description: true, status: true, stage: true, priority: true,
+      startDate: true, dueDate: true, assigneeId: true, completedAt: true, projectId: true,
+      project: { select: { name: true } },
+      assignee: { select: { name: true } },
+    },
+  });
+  if (!task) return { ok: false, error: "La tarea no existe." };
+  const projectId = task.projectId;
+
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return { ok: false, error: "El título no puede quedar vacío." };
+  const newStatus = String(formData.get("status") ?? task.status);
+  const newStage = String(formData.get("stage") ?? (task.stage ?? "")).trim();
+  const newPriority = String(formData.get("priority") ?? task.priority);
+  const newAssigneeId = String(formData.get("assigneeId") ?? "").trim() || null;
+  const sRaw = String(formData.get("startDate") ?? "").trim();
+  const dRaw = String(formData.get("dueDate") ?? "").trim();
+  const descRaw = String(formData.get("description") ?? "");
+  const newStart = sRaw ? noonUTC(sRaw) : null;
+  const newDue = dRaw ? noonUTC(dRaw) : null;
+  const newDesc = descRaw.trim() ? descRaw : null;
+
+  // El responsable elegido debe existir y estar activo.
+  let newName: string | null = null;
+  if (newAssigneeId) {
+    const u = await db.user.findUnique({ where: { id: newAssigneeId }, select: { name: true, active: true } });
+    if (!u?.active) return { ok: false, error: "El responsable elegido no es válido." };
+    newName = u.name;
+  }
+
+  const prevId = task.assigneeId ?? null;
+  const assigneeChanged = prevId !== newAssigneeId;
+  const { completedAt } = await completionTransition(newStatus, task.completedAt ?? null);
+
+  await db.task.update({
+    where: { id: taskId },
+    data: {
+      title,
+      description: newDesc,
+      status: newStatus,
+      stage: newStage || null,
+      priority: newPriority,
+      assigneeId: newAssigneeId,
+      assignedById: assigneeChanged ? session.id : undefined,
+      startDate: newStart,
+      dueDate: newDue,
+      completedAt,
+    },
+  });
+
+  // El nuevo responsable debe poder abrir el proyecto (aunque sea privado).
+  if (projectId && newAssigneeId) {
+    await db.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: newAssigneeId } },
+      create: { projectId, userId: newAssigneeId },
+      update: {},
+    });
+  }
+  if (newStatus !== task.status) await recalcProjectProgress(projectId);
+
+  // Resumen legible de lo que cambió (para la notificación y el registro).
+  const fmt = (d: Date | null) => (d ? dayKey(d) : "—");
+  const changes: string[] = [];
+  if (title !== task.title) changes.push(`Título: «${task.title}» → «${title}»`);
+  if (newStatus !== task.status) changes.push(`Estado: ${await statusLabelOf(task.status)} → ${await statusLabelOf(newStatus)}`);
+  if ((task.stage ?? "") !== newStage) changes.push(`Fase: ${task.stage ?? "—"} → ${newStage || "—"}`);
+  if (newPriority !== task.priority) changes.push(`Prioridad: ${task.priority} → ${newPriority}`);
+  if (assigneeChanged) changes.push(`Responsable: ${task.assignee?.name ?? "Sin asignar"} → ${newName ?? "Sin asignar"}`);
+  if (fmt(task.startDate) !== fmt(newStart)) changes.push(`Inicio: ${fmt(task.startDate)} → ${fmt(newStart)}`);
+  if (fmt(task.dueDate) !== fmt(newDue)) changes.push(`Entrega: ${fmt(task.dueDate)} → ${fmt(newDue)}`);
+  if ((task.description ?? "") !== (newDesc ?? "")) changes.push("Descripción actualizada");
+
+  const link = projectId ? `/proyectos/${projectId}?tab=tareas` : "/mis-tareas";
+  const proj = task.project?.name ? `Proyecto «${task.project.name}».\n` : "";
+  const summary = changes.length ? changes.join("\n") : "Sin cambios.";
+
+  // Avisar al NUEVO/actual responsable (si hubo cambios) y al ANTERIOR si se le retiró la tarea.
+  if (newAssigneeId && newAssigneeId !== session.id && changes.length) {
+    const head = assigneeChanged ? "Ahora eres responsable de esta tarea." : "Se actualizó tu tarea.";
+    await notifyAndEmail(newAssigneeId, { type: "task", event: "task_updated", title: `Tarea actualizada: ${title}`, body: `${proj}${head}\n${summary}`, link, actorId: session.id }).catch(() => null);
+  }
+  if (assigneeChanged && prevId && prevId !== session.id && prevId !== newAssigneeId) {
+    await notifyAndEmail(prevId, { type: "task", event: "task_reassigned", title: `Cambió tu tarea: ${title}`, body: `${proj}Ya no eres el responsable.\n${summary}`, link, actorId: session.id }).catch(() => null);
+  }
+
+  await logActivity({ action: "task.adminUpdate", summary: `editó la tarea «${title}»${changes.length ? ` (${changes.length} cambios)` : ""}`, projectId, entityType: "task", entityId: taskId });
+  revalidatePath("/timeline");
+  refresh(projectId);
+  return { ok: true };
+}
+
 // Fija/limpia las horas estimadas de la tarea.
 export async function setTaskEstimate(taskId: string, _projectId: string, formData: FormData) {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
