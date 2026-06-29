@@ -13,7 +13,7 @@ import { accessibleClientWhere } from "@/lib/client-access";
 
 // Crea o actualiza (upsert) una nota. Si llega `id`, edita la nota propia; si no, crea una nueva.
 // Devuelve datos para que el editor del cliente refresque su estado sin recargar.
-export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null; projectId?: string | null; clientId?: string | null; color?: string | null; remindAt?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
+export async function saveNote(input: { id?: string; title?: string; content?: string; category?: string | null; projectId?: string | null; clientId?: string | null; color?: string | null; remindAt?: string | null; visibility?: string | null }): Promise<{ ok: boolean; id?: string; title?: string; createdAt?: string; updatedAt?: string; error?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
   const content = (input.content ?? "").trim();
@@ -46,18 +46,24 @@ export async function saveNote(input: { id?: string; title?: string; content?: s
     remindAt = null;
     if (input.remindAt) { const d = new Date(input.remindAt); if (!Number.isNaN(d.getTime())) remindAt = d; }
   }
+  // Visibilidad (compartir): solo valores válidos; cualquier otro cae a "private".
+  let visibility: string | undefined = undefined;
+  if (input.visibility !== undefined) {
+    const v = String(input.visibility);
+    visibility = ["private", "project", "team"].includes(v) ? v : "private";
+  }
 
   if (input.id) {
     const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true } });
     if (!existing) return { ok: false, error: "La nota no existe" };
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
-    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}), ...(clientId !== undefined ? { clientId } : {}), ...(color !== undefined ? { color } : {}), ...(remindAt !== undefined ? { remindAt, reminderSentAt: null } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
+    const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}), ...(clientId !== undefined ? { clientId } : {}), ...(color !== undefined ? { color } : {}), ...(remindAt !== undefined ? { remindAt, reminderSentAt: null } : {}), ...(visibility !== undefined ? { visibility } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
     revalidatePath("/notas");
     return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
   }
 
   const n = await db.note.create({
-    data: { title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null, clientId: clientId ?? null, color: color ?? null, remindAt: remindAt ?? null },
+    data: { title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null, clientId: clientId ?? null, color: color ?? null, remindAt: remindAt ?? null, visibility: visibility ?? "private" },
     select: { id: true, title: true, createdAt: true, updatedAt: true },
   });
   await logActivity({ action: "note.create", summary: `creó la nota «${title}»`, entityType: "note", entityId: n.id }).catch(() => null);

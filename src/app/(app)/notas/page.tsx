@@ -13,11 +13,19 @@ export default async function NotasPage() {
 
   const [notes, projects, clients] = await Promise.all([
     db.note.findMany({
-      where: { createdById: session.id },
+      // Mis notas + las compartidas conmigo: visibilidad "team" (todo el equipo) o "project"
+      // (miembros de un proyecto accesible). Las ajenas se verán en SOLO LECTURA.
+      where: {
+        OR: [
+          { createdById: session.id },
+          { visibility: "team", createdById: { not: session.id } },
+          { visibility: "project", createdById: { not: session.id }, project: accessibleProjectWhere(session) },
+        ],
+      },
       // Fijadas arriba; luego por última edición (las que tocas suben, estilo iCloud).
       orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
       take: 500,
-      select: { id: true, title: true, content: true, category: true, source: true, pinned: true, projectId: true, clientId: true, color: true, remindAt: true, createdAt: true, updatedAt: true },
+      select: { id: true, title: true, content: true, category: true, source: true, pinned: true, projectId: true, clientId: true, color: true, remindAt: true, visibility: true, createdById: true, createdBy: { select: { name: true } }, createdAt: true, updatedAt: true },
     }),
     // Proyectos accesibles para poder VINCULAR una nota a un proyecto.
     db.project.findMany({
@@ -46,6 +54,9 @@ export default async function NotasPage() {
     clientId: n.clientId,
     color: n.color,
     remindAt: n.remindAt ? n.remindAt.toISOString() : null,
+    visibility: n.visibility,
+    mine: n.createdById === session.id,
+    ownerName: n.createdById === session.id ? null : (n.createdBy?.name ?? null),
     createdAt: n.createdAt.toISOString(),
     updatedAt: n.updatedAt.toISOString(),
   }));

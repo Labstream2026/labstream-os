@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, ListChecks, Bell, BellOff } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, ListChecks, Bell, BellOff, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
@@ -18,9 +18,14 @@ export type NoteItem = {
   clientId: string | null;
   color: string | null;
   remindAt: string | null; // ISO | null
+  visibility: string; // private | project | team
+  mine: boolean; // ¿la creó el usuario actual? (las ajenas compartidas van en solo lectura)
+  ownerName: string | null; // nombre del dueño cuando es una nota compartida por otro
   createdAt: string; // ISO
   updatedAt: string; // ISO
 };
+
+const VISIBILITY_LABEL: Record<string, string> = { private: "Privada", project: "Proyecto", team: "Equipo" };
 
 // Paleta de color por nota (clave guardada → hex para pintar). Funciona en claro/oscuro.
 const NOTE_COLORS: { key: string; hex: string }[] = [
@@ -66,9 +71,9 @@ function snippet(content: string, title: string): string {
   return (rest || "Sin texto adicional").replace(/\s+/g, " ");
 }
 
-type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string };
-const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt) });
-const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "" };
+type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string; visibility: string };
+const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt), visibility: n.visibility });
+const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "", visibility: "private" };
 
 // Vista de Notas estilo iCloud, a PANTALLA COMPLETA (llena la ventana, sin caja exterior).
 // Dos paneles en escritorio (lista + editor); en móvil la lista ocupa todo y al tocar una nota
@@ -139,13 +144,18 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
       .sort((a, b) => Number(a.key.endsWith(":none")) - Number(b.key.endsWith(":none")));
   }, [filtered, groupBy, clientsById]);
 
+  // Nota abierta y si es de SOLO LECTURA (compartida por otra persona). En ese caso no se
+  // edita ni autoguarda; se muestra en modo vista.
+  const currentNote = selectedId ? notes.find((n) => n.id === selectedId) ?? null : null;
+  const readOnly = !isNew && !!currentNote && !currentNote.mine;
+
   const persist = React.useCallback(
     (d: Draft) => {
       if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
       const remindIso = d.remindAt ? (() => { const dt = new Date(d.remindAt); return Number.isNaN(dt.getTime()) ? null : dt.toISOString(); })() : null;
       start(async () => {
-        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: d.remindAt || null });
+        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: d.remindAt || null, visibility: d.visibility });
         if (r.ok && r.id) {
           const realId = r.id;
           const finalTitle = r.title ?? d.title;
@@ -156,8 +166,8 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             return exists
-              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, updatedAt } : n))
-              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
+              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, updatedAt } : n))
+              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
@@ -170,6 +180,7 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
   );
 
   function onChange(patch: Partial<Omit<Draft, "id">>) {
+    if (readOnly) return; // las notas compartidas por otros no se editan aquí
     setDraft((cur) => {
       const next = { ...cur, ...patch };
       if (timer.current) clearTimeout(timer.current);
@@ -180,7 +191,7 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
 
   function flushThen(fn: () => void) {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-    if (draft.content.trim() || draft.title.trim()) persist(draft);
+    if (!readOnly && (draft.content.trim() || draft.title.trim())) persist(draft);
     fn();
   }
 
@@ -246,6 +257,8 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
     lines[lineNo] = `${m[1]}[${m[2].toLowerCase() === "x" ? " " : "x"}]${m[3]}`;
     onChange({ content: lines.join("\n") });
   }
+  // Las notas compartidas por otros se muestran siempre en modo vista.
+  React.useEffect(() => { if (readOnly) setBodyMode("view"); }, [readOnly, selectedId]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
@@ -313,6 +326,7 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                           {n.pinned ? <Pin className="size-3 shrink-0 fill-amber-500 text-amber-500" /> : null}
                           <span className="truncate">{n.title}</span>
                           {n.source !== "app" ? <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">{SOURCE_LABEL[n.source] ?? n.source}</span> : null}
+                          {!n.mine ? <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground" title={`Compartida por ${n.ownerName ?? "otro"}`}><Eye className="size-2.5" /> {n.ownerName ?? "Compartida"}</span> : null}
                         </p>
                         <p className="truncate text-xs text-muted-foreground"><span className="text-foreground/70">{fmtDate(n.updatedAt)}</span> · {snippet(n.content, n.title)}</p>
                         {(sub || n.remindAt) ? (
@@ -322,18 +336,20 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                           </span>
                         ) : null}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => togglePin(n)}
-                        title={n.pinned ? "Desfijar" : "Fijar arriba"}
-                        aria-label={n.pinned ? "Desfijar nota" : "Fijar nota arriba"}
-                        className={cn(
-                          "absolute right-1.5 top-2 flex size-7 items-center justify-center rounded-md hover:bg-background hover:text-amber-600",
-                          n.pinned ? "text-amber-600 opacity-100" : "text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                        )}
-                      >
-                        {n.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-                      </button>
+                      {n.mine ? (
+                        <button
+                          type="button"
+                          onClick={() => togglePin(n)}
+                          title={n.pinned ? "Desfijar" : "Fijar arriba"}
+                          aria-label={n.pinned ? "Desfijar nota" : "Fijar nota arriba"}
+                          className={cn(
+                            "absolute right-1.5 top-2 flex size-7 items-center justify-center rounded-md hover:bg-background hover:text-amber-600",
+                            n.pinned ? "text-amber-600 opacity-100" : "text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                          )}
+                        >
+                          {n.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -353,10 +369,10 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                   <ChevronLeft className="size-4" /> Notas
                 </button>
                 <span className="inline-flex items-center gap-1.5">
-                  {status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
+                  {readOnly ? <><Eye className="size-3.5" /> Compartida por {currentNote?.ownerName ?? "otro"} · solo lectura</> : status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
                 </span>
               </div>
-              {draft.id ? (
+              {draft.id && !readOnly ? (
                 <button
                   type="button"
                   title="Eliminar nota"
@@ -425,34 +441,49 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
                     />
                   ))}
                 </div>
+                {/* Visibilidad: privada / proyecto / equipo */}
+                <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:border-primary/40" title="Quién puede ver esta nota">
+                  {draft.visibility === "team" ? <Users className="size-3.5 shrink-0 text-muted-foreground" /> : draft.visibility === "project" ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" /> : <Lock className="size-3.5 shrink-0 text-muted-foreground" />}
+                  <select value={draft.visibility} disabled={readOnly} onChange={(e) => onChange({ visibility: e.target.value })} className="cursor-pointer bg-transparent outline-none disabled:cursor-default">
+                    <option value="private">Privada</option>
+                    <option value="project">Proyecto</option>
+                    <option value="team">Equipo</option>
+                  </select>
+                </label>
               </div>
-              {/* Cuerpo: editar Markdown o ver con checkboxes interactivos */}
-              <div className="flex items-center gap-1 border-b border-border pb-1.5">
-                <button type="button" onClick={() => setBodyMode("edit")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "edit" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Pencil className="size-3.5" /> Editar</button>
-                <button type="button" onClick={() => setBodyMode("view")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "view" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Eye className="size-3.5" /> Vista</button>
-                {bodyMode === "edit" ? (
-                  <button type="button" onClick={() => prefixBody("- [ ] ")} title="Insertar tarea" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><ListChecks className="size-3.5" /> Tarea</button>
-                ) : null}
-              </div>
-              {bodyMode === "edit" ? (
-                <textarea
-                  ref={bodyRef}
-                  value={draft.content}
-                  onChange={(e) => onChange({ content: e.target.value })}
-                  placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista, - [ ] tarea."
-                  className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
-                />
+              {/* Cuerpo: solo lectura (compartida por otro) o editar/ver Markdown con checkboxes */}
+              {readOnly ? (
+                <div className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content) : '<p class="text-muted-foreground">Esta nota no tiene contenido.</p>' }} />
               ) : (
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed [&_button[data-md-task]]:text-lg [&_button[data-md-task]]:text-primary"
-                  onClick={(e) => {
-                    const btn = (e.target as HTMLElement).closest("[data-md-task]");
-                    if (!btn) return;
-                    const n = Number(btn.getAttribute("data-md-task"));
-                    if (!Number.isNaN(n)) toggleTaskLine(n);
-                  }}
-                  dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
-                />
+                <>
+                  <div className="flex items-center gap-1 border-b border-border pb-1.5">
+                    <button type="button" onClick={() => setBodyMode("edit")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "edit" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Pencil className="size-3.5" /> Editar</button>
+                    <button type="button" onClick={() => setBodyMode("view")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "view" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Eye className="size-3.5" /> Vista</button>
+                    {bodyMode === "edit" ? (
+                      <button type="button" onClick={() => prefixBody("- [ ] ")} title="Insertar tarea" className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><ListChecks className="size-3.5" /> Tarea</button>
+                    ) : null}
+                  </div>
+                  {bodyMode === "edit" ? (
+                    <textarea
+                      ref={bodyRef}
+                      value={draft.content}
+                      onChange={(e) => onChange({ content: e.target.value })}
+                      placeholder="Escribe tu nota… Markdown: **negrita**, # título, - lista, - [ ] tarea."
+                      className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
+                    />
+                  ) : (
+                    <div
+                      className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed [&_button[data-md-task]]:text-lg [&_button[data-md-task]]:text-primary"
+                      onClick={(e) => {
+                        const btn = (e.target as HTMLElement).closest("[data-md-task]");
+                        if (!btn) return;
+                        const n = Number(btn.getAttribute("data-md-task"));
+                        if (!Number.isNaN(n)) toggleTaskLine(n);
+                      }}
+                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
+                    />
+                  )}
+                </>
               )}
             </div>
           </>
