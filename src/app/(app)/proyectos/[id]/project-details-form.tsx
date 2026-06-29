@@ -2,11 +2,20 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Pencil } from "lucide-react";
+import { Check, Pencil, Info, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { updateProjectDetails } from "./actions";
 
-// Edición acotada del proyecto (nombre, descripción, fecha de entrega) en la pestaña Resumen.
+// "YYYY-MM-DD" → "12 jul 2026" (display). Se ancla a medianoche local para no correr un día.
+function fmtDate(d: string): string {
+  if (!d) return "";
+  const dt = new Date(`${d}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// Detalles del proyecto (nombre, descripción, fecha de entrega) en la pestaña Resumen.
+// Por defecto se muestra en LECTURA, limpio; al pulsar "Editar" se despliega el formulario.
 // Solo se muestra a quien puede editar el proyecto. No toca estado/prioridad/responsable.
 export function ProjectDetailsForm({
   projectId,
@@ -20,6 +29,7 @@ export function ProjectDetailsForm({
   dueDate: string | null; // "YYYY-MM-DD" o ""
 }) {
   const router = useRouter();
+  const [editing, setEditing] = React.useState(false);
   const [pending, start] = React.useTransition();
   const [form, setForm] = React.useState({ name, description: description ?? "", dueDate: dueDate ?? "" });
   const [saved, setSaved] = React.useState(false);
@@ -43,6 +53,12 @@ export function ProjectDetailsForm({
     setError(null);
   }
 
+  function cancel() {
+    setForm(original.current);
+    setError(null);
+    setEditing(false);
+  }
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) {
@@ -62,6 +78,7 @@ export function ProjectDetailsForm({
       const r = await updateProjectDetails(projectId, fd);
       if (r.ok) {
         setSaved(true);
+        setEditing(false);
         router.refresh();
       } else {
         setError(r.error ?? "No se pudieron guardar los cambios.");
@@ -72,11 +89,59 @@ export function ProjectDetailsForm({
   const inputCls =
     "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/60 focus:ring-2 focus:ring-primary/15";
 
+  // ── Vista LECTURA (limpia) ──
+  if (!editing) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Info className="size-4 text-muted-foreground" /> Detalles del proyecto
+          </h3>
+          <button
+            type="button"
+            onClick={() => { setSaved(false); setEditing(true); }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+          >
+            <Pencil className="size-3.5" /> Editar
+          </button>
+        </div>
+        {saved ? (
+          <p className="mb-2 inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+            <Check className="size-3.5" /> Cambios guardados
+          </p>
+        ) : null}
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-muted-foreground">Nombre</dt>
+            <dd className="mt-0.5 text-sm font-medium">{name}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Fecha de entrega</dt>
+            <dd className="mt-0.5 text-sm">
+              {dueDate ? (
+                <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-3.5 text-muted-foreground" /> {fmtDate(dueDate)}</span>
+              ) : (
+                <span className="text-muted-foreground">Sin fecha</span>
+              )}
+            </dd>
+          </div>
+          <div className="sm:col-span-3">
+            <dt className="text-xs text-muted-foreground">Descripción</dt>
+            <dd className="mt-0.5 whitespace-pre-wrap text-sm text-muted-foreground">
+              {description?.trim() ? description : "Sin descripción."}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
+
+  // ── Vista EDICIÓN (menú desplegado) ──
   return (
-    <form onSubmit={onSubmit} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <form onSubmit={onSubmit} className="rounded-xl border border-primary/40 bg-card p-4 shadow-sm">
       <div className="mb-3 flex items-center gap-2">
-        <Pencil className="size-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Detalles del proyecto</h3>
+        <Pencil className="size-4 text-primary" />
+        <h3 className="text-sm font-semibold">Editando detalles</h3>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -115,23 +180,24 @@ export function ProjectDetailsForm({
 
       <div className="mt-3 flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          {error ? <span className="text-destructive">{error}</span> : saved && !dirty ? (
-            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <Check className="size-3.5" /> Cambios guardados
-            </span>
-          ) : dirty ? (
-            "Tienes cambios sin guardar."
-          ) : (
-            ""
-          )}
+          {error ? <span className="text-destructive">{error}</span> : dirty ? "Tienes cambios sin guardar." : ""}
         </p>
-        <button
-          type="submit"
-          disabled={!dirty || pending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {pending ? "Guardando…" : "Guardar cambios"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={cancel}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={!dirty || pending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pending ? "Guardando…" : "Guardar cambios"}
+          </button>
+        </div>
       </div>
     </form>
   );

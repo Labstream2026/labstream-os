@@ -17,7 +17,7 @@ import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
-import { Lock, ChevronRight } from "lucide-react";
+import { Lock, FileText } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
@@ -390,13 +390,15 @@ export default async function ProyectoPage({
                 dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
               />
             ) : null}
-            {/* Propuesta (alcance y entregables): antes una pestaña; ahora plegada aquí. */}
-            <details className="group/brief overflow-hidden rounded-xl border border-border bg-card">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold">
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open/brief:rotate-90" />
+            {/* Propuesta (alcance y entregables): expandida por defecto y renderizada; la edición
+                se despliega a demanda desde el propio BriefPanel. Los Entregables ya no van en el
+                Resumen (viven en su propia pestaña). */}
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold">
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
                 Propuesta del proyecto
                 <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
-              </summary>
+              </div>
               <div className="border-t border-border p-4">
                 <BriefPanel
                   projectId={id}
@@ -405,11 +407,6 @@ export default async function ProyectoPage({
                   canWrite={canWriteProject(project, session)}
                 />
               </div>
-            </details>
-            {/* Entregables al final (reemplazan la antigua pestaña Propuesta como foco del resumen). */}
-            <div>
-              <h2 className="mb-3 text-base font-semibold">Entregables</h2>
-              {deliverablesPanelNode}
             </div>
           </div>
         ) : null}
