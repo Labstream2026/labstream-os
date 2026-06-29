@@ -16,6 +16,7 @@ import { generateImage, normalizeAspect } from "@/lib/higgsfield";
 import { mcpGenerateImage, mcpStartVideo, HiggsfieldNotConnected } from "@/lib/higgsfield-mcp";
 import { isHiggsfieldConnected } from "@/lib/higgsfield-oauth";
 import { pollAndDeliverJob } from "@/lib/media-jobs";
+import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
 import { bogotaNoon } from "@/lib/today";
 import type { ToolDef } from "./client";
@@ -1181,6 +1182,10 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
 
     case "generar_imagen": {
       if (!ctx) return "No puedo enviar imágenes en este contexto.";
+      // Generar medios CUESTA créditos del plan de Higgsfield: solo el equipo interno
+      // (ver_asistente, igual que el Asistente IA) y con un límite por usuario contra abuso/bucles.
+      if (!hasPermission(session, "ver_asistente")) return "No tienes permiso para generar imágenes con IA.";
+      if (!rateLimit(`genmedia:${session.id}`, 10, 10 * 60 * 1000)) return "Has generado muchos medios en poco tiempo. Espera unos minutos antes de pedir otro.";
       const prompt = str(args.descripcion) || str(args.prompt);
       if (!prompt) return "Falta la descripción de la imagen a generar.";
       const aspecto = normalizeAspect(str(args.formato) || str(args.aspect_ratio) || str(args.formato_imagen));
@@ -1216,6 +1221,9 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
 
     case "generar_video": {
       if (!ctx) return "No puedo generar videos en este contexto.";
+      // Igual que las imágenes: cuesta créditos del plan → solo ver_asistente + rate-limit.
+      if (!hasPermission(session, "ver_asistente")) return "No tienes permiso para generar videos con IA.";
+      if (!rateLimit(`genmedia:${session.id}`, 10, 10 * 60 * 1000)) return "Has generado muchos medios en poco tiempo. Espera unos minutos antes de pedir otro.";
       const prompt = str(args.descripcion) || str(args.prompt);
       if (!prompt) return "Falta la descripción del video a generar.";
       if (!(await isHiggsfieldConnected())) return "No pude generar el video: Higgsfield no está conectado. Pídele al administrador conectarlo en Configuración → Integraciones.";

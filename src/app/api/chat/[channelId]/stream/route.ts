@@ -36,10 +36,29 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ channelId:
       };
       chatBus.on(event, onMessage);
 
-      const ping = setInterval(() => send(": ping\n\n"), 25000);
+      // Mantiene viva la conexión Y revalida el acceso periódicamente: en el connect solo se
+      // valida una vez, así que si al usuario lo expulsan del canal o cambia la visibilidad,
+      // aquí se detecta y se CIERRA el stream (acota la exposición a la ventana del tick).
+      const tick = setInterval(async () => {
+        send(": ping\n\n");
+        try {
+          if (!(await userCanAccessChannel(channelId, session))) {
+            send("event: revoked\ndata: {}\n\n");
+            clearInterval(tick);
+            chatBus.off(event, onMessage);
+            try {
+              controller.close();
+            } catch {
+              /* ya cerrado */
+            }
+          }
+        } catch {
+          /* error transitorio de revalidación: no cerramos por eso */
+        }
+      }, 20000);
 
       const close = () => {
-        clearInterval(ping);
+        clearInterval(tick);
         chatBus.off(event, onMessage);
         try {
           controller.close();
