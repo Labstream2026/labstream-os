@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { runRecurringTasks } from "@/lib/recurring";
+import { dispatchDueNoteReminders } from "@/lib/note-reminders";
 import { cronAuthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
@@ -12,7 +13,9 @@ async function run(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
   try {
     const summary = await runRecurringTasks();
-    return NextResponse.json(summary);
+    // Red de seguridad: despacha recordatorios de notas vencidos (por si no hay job frecuente).
+    const reminders = await dispatchDueNoteReminders().catch(() => null);
+    return NextResponse.json({ ...summary, reminders });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }
