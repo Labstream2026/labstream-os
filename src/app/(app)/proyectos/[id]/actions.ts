@@ -112,7 +112,8 @@ function canEditTaskMeta(
   session: SessionUser | null,
 ): boolean {
   if (!session) return false;
-  if (session.role === "admin") return true;
+  // Admin y PRODUCTOR gestionan las tareas de todo el equipo (fechas, hora, prioridad).
+  if (session.role === "admin" || session.role === "productor") return true;
   if (task.ownerId === session.id) return true;
   return !!task.project && canManageProject(task.project, session);
 }
@@ -132,6 +133,9 @@ export async function createTask(projectId: string, formData: FormData) {
   const startRaw = String(formData.get("startDate") ?? "").trim();
   const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
   const description = String(formData.get("description") ?? "").trim() || null;
+  // Hora de finalización OBLIGATORIA al crear: si no llega una válida, por defecto 9:00 am.
+  const dueTimeRaw = String(formData.get("dueTime") ?? "").trim();
+  const dueTime = /^\d{1,2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "09:00";
   const session = await getSession();
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
@@ -145,6 +149,7 @@ export async function createTask(projectId: string, formData: FormData) {
       position: count,
       startDate,
       dueDate,
+      dueTime,
       ownerId: session?.id ?? null,
       assignedById: assigneeId ? session?.id ?? null : null,
     },
@@ -422,7 +427,7 @@ export async function getTaskDescription(taskId: string): Promise<string> {
 // Solo admins (los cambios de responsable y fechas son sensibles).
 export async function adminUpdateTask(taskId: string, _projectId: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
-  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede editar la tarea completa." };
+  if (!session || (session.role !== "admin" && session.role !== "productor")) return { ok: false, error: "Solo un administrador o productor puede editar la tarea completa." };
   const task = await db.task.findUnique({
     where: { id: taskId },
     select: {
@@ -447,8 +452,9 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
   const newStart = sRaw ? noonUTC(sRaw) : null;
   const newDue = dRaw ? noonUTC(dRaw) : null;
   const tRaw = String(formData.get("dueTime") ?? "").trim();
-  // La hora de entrega solo tiene sentido si hay fecha de entrega.
-  const newDueTime = newDue && /^\d{1,2}:\d{2}$/.test(tRaw) ? tRaw : null;
+  // Hora OBLIGATORIA cuando hay fecha de entrega: por defecto 9:00 am si no se indicó. Sin
+  // fecha de entrega, no hay hora.
+  const newDueTime = newDue ? (/^\d{1,2}:\d{2}$/.test(tRaw) ? tRaw : "09:00") : null;
   const newDesc = descRaw.trim() ? descRaw : null;
 
   // El responsable elegido debe existir y estar activo.

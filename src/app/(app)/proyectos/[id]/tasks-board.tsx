@@ -263,8 +263,8 @@ function Column({
           </label>
         </div>
         <label className="flex min-w-0 flex-col gap-0.5 text-[10px] text-muted-foreground">
-          Hora de entrega <span className="opacity-70">(opcional)</span>
-          <input type="time" name="dueTime" className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+          Hora de entrega
+          <input type="time" name="dueTime" required defaultValue="09:00" className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
         </label>
         <div className="flex items-center gap-1.5">
           <select name="priority" defaultValue={defaultKey(priorities)} className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">

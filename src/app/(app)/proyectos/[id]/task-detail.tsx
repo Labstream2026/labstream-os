@@ -167,7 +167,7 @@ export function TaskDetail({
                   name="dueTime"
                   defaultValue={task.dueTime ?? ""}
                   onChange={(e) => e.target.form?.requestSubmit()}
-                  title="Hora de finalización (opcional): la tarea aparece en el calendario a esa hora"
+                  title="Hora de entrega: la tarea aparece en el calendario a esa hora"
                   className="w-full rounded-md border border-border bg-card px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
                 />
               </form>

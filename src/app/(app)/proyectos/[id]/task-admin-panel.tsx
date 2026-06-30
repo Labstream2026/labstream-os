@@ -72,7 +72,7 @@ export function TaskAdminPanel({
     assigneeId: task.assigneeId ?? "",
     startDate: toDateInputValue(task.startDate ?? null) ?? "",
     dueDate: toDateInputValue(task.dueDate) ?? "",
-    dueTime: task.dueTime ?? "",
+    dueTime: task.dueTime ?? (task.dueDate ? "09:00" : ""),
     description: "",
   });
 
@@ -184,7 +184,7 @@ export function TaskAdminPanel({
           </div>
 
           <div>
-            <label className={labelCls}>Hora de entrega <span className="font-normal text-muted-foreground/70">(opcional)</span></label>
+            <label className={labelCls}>Hora de entrega</label>
             <input type="time" value={form.dueTime} onChange={(e) => set("dueTime", e.target.value)} className={inputCls} />
             <p className="mt-1 text-[11px] text-muted-foreground">Con hora, la tarea aparece en el calendario a esa hora (no «todo el día»).</p>
           </div>

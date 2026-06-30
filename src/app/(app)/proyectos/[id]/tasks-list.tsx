@@ -154,7 +154,7 @@ export function TasksList({
         />
         <input type="date" name="startDate" required defaultValue={todayInputValue()} title="Fecha de inicio" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
         <input type="date" name="dueDate" required title="Fecha de finalización" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
-        <input type="time" name="dueTime" title="Hora de entrega (opcional)" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
+        <input type="time" name="dueTime" required defaultValue="09:00" title="Hora de entrega" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
         <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">
           {priorities.map((p) => (
             <option key={p.key} value={p.key}>{p.label}</option>
