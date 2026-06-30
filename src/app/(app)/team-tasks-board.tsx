@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Search, CalendarClock, AlertTriangle } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { setTaskAssignee, setTaskDueDate } from "@/app/(app)/proyectos/[id]/actions";
+import { setTaskAssignee, setTaskDueDate, setTaskDueTime } from "@/app/(app)/proyectos/[id]/actions";
 
 // Compilado de tareas del equipo (pestaña de Inicio): todas las tareas abiertas agrupadas por
 // responsable, con reasignación y cambio de fecha de entrega EN LÍNEA y optimista. Reusa las
@@ -22,6 +22,7 @@ export type TeamTask = {
   projectEmoji: string | null;
   assigneeId: string | null;
   dueDate: string | null; // "YYYY-MM-DD" o null
+  dueTime: string | null; // "HH:mm" o null
   statusLabel: string;
   statusClass: string;
 };
@@ -86,6 +87,13 @@ export function TeamTasksBoard({
       const fd = new FormData();
       fd.set("dueDate", value);
       return setTaskDueDate(t.id, t.projectId ?? "", fd);
+    });
+
+  const changeDueTime = (t: TeamTask, value: string) =>
+    run(t.id, (x) => ({ ...x, dueTime: value || null }), () => {
+      const fd = new FormData();
+      fd.set("dueTime", value);
+      return setTaskDueTime(t.id, t.projectId ?? "", fd);
     });
 
   const term = norm(q.trim());
@@ -182,6 +190,19 @@ export function TeamTasksBoard({
                                 disabled={!canEditDates || isBusy}
                                 onChange={(e) => changeDue(t, e.target.value)}
                                 className="bg-transparent outline-none disabled:cursor-not-allowed"
+                              />
+                            </label>
+
+                            {/* Hora de entrega (opcional): la tarea sale en el calendario a esa hora */}
+                            <label className="flex items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs" title="Hora de entrega (opcional)">
+                              <CalendarClock className="size-3.5 text-muted-foreground" />
+                              <input
+                                type="time"
+                                value={t.dueTime ?? ""}
+                                disabled={!canEditDates || isBusy || !t.dueDate}
+                                onChange={(e) => changeDueTime(t, e.target.value)}
+                                title={t.dueDate ? "Hora de entrega" : "Primero fija una fecha de entrega"}
+                                className="bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-50"
                               />
                             </label>
 

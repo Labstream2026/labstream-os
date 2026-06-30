@@ -31,6 +31,7 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
         title: true,
         status: true,
         dueDate: true,
+        dueTime: true,
         assigneeId: true,
         isPrivate: true,
         ownerId: true,
@@ -60,6 +61,7 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
       projectEmoji: t.project?.emoji ?? null,
       assigneeId: t.assigneeId,
       dueDate: t.dueDate ? t.dueDate.toISOString().slice(0, 10) : null,
+      dueTime: t.dueTime ?? null,
       statusLabel: meta?.label ?? t.status,
       statusClass: meta?.chip ?? "bg-muted text-muted-foreground",
     };

@@ -126,7 +126,7 @@ export function TaskAdminPanel({
           <div className="flex items-center gap-2">
             <Pencil className="size-4 text-muted-foreground" />
             <span className="text-sm font-semibold">Editar tarea</span>
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">ADMIN</span>
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">GESTIÓN</span>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
             <X className="size-5" />

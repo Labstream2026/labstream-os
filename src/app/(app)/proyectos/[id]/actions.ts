@@ -1393,6 +1393,8 @@ export async function addFile(projectId: string, formData: FormData) {
 // (\\servidor\carpeta o smb://…) para copiar/pegar en el explorador. kind = NAS.
 export async function addNasRoute(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId, "subir_archivos");
+  // El cliente no maneja rutas de red internas (SMB/NAS): puede subir archivos y enlaces, no rutas.
+  if (session.role === "cliente") throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim();
   const path = String(formData.get("path") ?? "").trim();
   if (!name || !path) return;

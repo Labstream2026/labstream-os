@@ -451,13 +451,13 @@ export default async function ProyectoPage({
                       key: "tablero",
                       label: "Tablero",
                       icon: "🗂️",
-                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin"} />,
+                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                     },
                     {
                       key: "lista",
                       label: "Lista",
                       icon: "☰",
-                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin"} />,
+                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                     },
                   ]}
                 />

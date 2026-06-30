@@ -242,8 +242,9 @@ function Column({
         {children}
       </div>
 
-      {/* Añadir tarea en esta fase */}
-      <form action={createTask.bind(null, projectId)} className="rounded-lg border border-dashed border-border bg-card/50 p-2">
+      {/* Añadir tarea en esta fase. Campos a lo ANCHO (sin date inputs lado a lado que se
+          salgan de la columna estrecha); incluye hora de entrega opcional. */}
+      <form action={createTask.bind(null, projectId)} className="space-y-1.5 rounded-lg border border-dashed border-border bg-card/50 p-2">
         <input type="hidden" name="stage" value={stage} />
         <input
           name="title"
@@ -251,18 +252,22 @@ function Column({
           placeholder="+ Añadir tarea"
           className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:bg-background"
         />
-        <div className="mt-1 flex items-center gap-1.5">
-          <label className="flex flex-1 items-center gap-1 text-[10px] text-muted-foreground" title="Fecha de inicio">
+        <div className="grid grid-cols-2 gap-1.5">
+          <label className="flex min-w-0 flex-col gap-0.5 text-[10px] text-muted-foreground">
             Inicio
-            <input type="date" name="startDate" required defaultValue={todayInputValue()} className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+            <input type="date" name="startDate" required defaultValue={todayInputValue()} className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
           </label>
-          <label className="flex flex-1 items-center gap-1 text-[10px] text-muted-foreground" title="Fecha de finalización">
-            Fin
-            <input type="date" name="dueDate" required className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+          <label className="flex min-w-0 flex-col gap-0.5 text-[10px] text-muted-foreground">
+            Entrega
+            <input type="date" name="dueDate" required className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
           </label>
         </div>
-        <div className="mt-1 flex items-center gap-1.5">
-          <select name="priority" defaultValue={defaultKey(priorities)} className="rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
+        <label className="flex min-w-0 flex-col gap-0.5 text-[10px] text-muted-foreground">
+          Hora de entrega <span className="opacity-70">(opcional)</span>
+          <input type="time" name="dueTime" className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]" />
+        </label>
+        <div className="flex items-center gap-1.5">
+          <select name="priority" defaultValue={defaultKey(priorities)} className="min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 py-1 text-[11px]">
             {priorities.map((p) => (
               <option key={p.key} value={p.key}>{p.label}</option>
             ))}
@@ -273,10 +278,10 @@ function Column({
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
-          <SubmitButton pendingText="…" className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">
-            Añadir
-          </SubmitButton>
         </div>
+        <SubmitButton pendingText="…" className="w-full rounded-md bg-primary px-2 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">
+          Añadir
+        </SubmitButton>
       </form>
     </div>
   );
