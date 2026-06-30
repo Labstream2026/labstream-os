@@ -80,7 +80,13 @@ async function ensureAccessVia(resource: WithProject, perm: string | null = "edi
   const session = await getSession();
   if (!resource || !session) throw new Error("No autorizado");
   if (resource.project) {
-    if (!canWriteProject(resource.project, session)) throw new Error("No autorizado");
+    if (!canWriteProject(resource.project, session)) {
+      // Cliente (portal): puede operar tareas de SU proyecto para las que tiene permiso explícito
+      // (crear/editar tareas), aunque como GUEST sea de solo lectura para el resto (entregables,
+      // equipos, brief siguen bloqueados porque su rol no tiene esos permisos).
+      const isClienteMember = session.role === "cliente" && perm != null && resource.project.members.some((m) => m.userId === session.id);
+      if (!(isClienteMember && hasPermission(session, perm))) throw new Error("No autorizado");
+    }
   } else {
     const ok = session.role === "admin" || resource.ownerId === session.id || resource.assigneeId === session.id;
     if (!ok) throw new Error("No autorizado");

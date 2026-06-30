@@ -474,7 +474,7 @@ export default async function ProyectoPage({
             <div className="h-[74vh] min-h-[26rem]">
               <CalendarBoard
                 items={projectCalItems}
-                onCreate={canWriteProject(project, session) ? createMyEvent : undefined}
+                onCreate={canWriteProject(project, session) || (isCliente && hasPermission(session, "gestionar_calendario")) ? createMyEvent : undefined}
                 projectId={id}
                 team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
               />

@@ -123,6 +123,9 @@ const LEGACY_KEYS = new Set([
 const CLIENTE_PORTAL_PERMS = [
   "ver_proyectos", "crear_proyectos", "ver_archivos", "subir_archivos",
   "ver_calendario", "comentar", "aprobar_cliente",
+  // El cliente participa activamente en SU proyecto: crea/edita tareas y crea citas en el calendario.
+  // El alcance sigue acotado por membresía + GUEST (no toca entregables internos, equipos ni ajustes).
+  "crear_tareas", "editar_tareas", "gestionar_calendario",
 ];
 
 // Conjunto sensato de permisos por rol del sistema, para POBLAR los roles con los
@@ -288,6 +291,23 @@ export async function ensureClienteDefaults(): Promise<void> {
   const already = await db.rolePermission.count({ where: { roleId: role.id, permission: { key: "ver_proyectos" } } });
   if (already > 0) return;
   const perms = await db.permission.findMany({ where: { key: { in: CLIENTE_PORTAL_PERMS } }, select: { id: true } });
+  if (!perms.length) return;
+  await db.rolePermission.createMany({
+    data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
+    skipDuplicates: true,
+  });
+}
+
+// El rol cliente pasó a poder CREAR/EDITAR tareas y CREAR citas en su proyecto (participación activa).
+// Como ensureClienteDefaults ya corrió en producción (y no re-añade), esto concede esos 3 permisos
+// la PRIMERA vez. Idempotente: si el cliente ya tiene crear_tareas, asume que ya corrió.
+const CLIENTE_WRITE_PERMS = ["crear_tareas", "editar_tareas", "gestionar_calendario"];
+export async function ensureClienteWriteDefaults(): Promise<void> {
+  const role = await db.role.findUnique({ where: { key: "cliente" }, select: { id: true } });
+  if (!role) return;
+  const already = await db.rolePermission.count({ where: { roleId: role.id, permission: { key: "crear_tareas" } } });
+  if (already > 0) return;
+  const perms = await db.permission.findMany({ where: { key: { in: CLIENTE_WRITE_PERMS } }, select: { id: true } });
   if (!perms.length) return;
   await db.rolePermission.createMany({
     data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
