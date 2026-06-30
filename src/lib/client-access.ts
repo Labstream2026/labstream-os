@@ -2,7 +2,7 @@ import type { SessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
 
 type ClientShape = {
-  members: { userId: string }[];
+  members: { userId: string; role?: string }[];
   projects: { leadId: string | null; members: { userId: string }[] }[];
 };
 
@@ -23,7 +23,9 @@ export function canAccessClient(client: ClientShape, session: SessionUser | null
 export function canManageClient(client: ClientShape, session: SessionUser | null): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
-  return session.role === "editor" && canAccessClient(client, session);
+  if (session.role === "editor" && canAccessClient(client, session)) return true;
+  // RESPONSABLES del cliente (productores asignados a la cuenta) la gestionan. Puede haber varios.
+  return session.role !== "cliente" && client.members.some((m) => m.userId === session.id && m.role === "RESPONSABLE");
 }
 
 // Cláusula `where` de Prisma equivalente a canAccessClient(): trae solo los
@@ -49,7 +51,7 @@ export function accessibleClientWhere(session: SessionUser | null): Record<strin
 }
 
 const accessSelect = {
-  members: { select: { userId: true } },
+  members: { select: { userId: true, role: true } },
   projects: { select: { leadId: true, members: { select: { userId: true } } } },
 } as const;
 

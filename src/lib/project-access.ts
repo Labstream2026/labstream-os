@@ -5,6 +5,10 @@ type ProjectShape = {
   isPrivate: boolean;
   leadId: string | null;
   members: { userId: string; role?: string }[];
+  // Opcional: el cliente del proyecto con sus miembros (para reconocer al RESPONSABLE de la cuenta).
+  // Solo se pasa donde se carga (p. ej. el detalle del proyecto); el resto de sitios lo omiten. El
+  // índice permite pasar el `client` con otras formas (name/emoji/…) sin romper el tipo.
+  client?: { members?: { userId: string; role?: string | null }[]; [k: string]: unknown } | null;
 };
 
 // ¿Puede el usuario VER/colaborar en este proyecto?
@@ -14,6 +18,8 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
   if (session.role === "admin") return true;
   if (project.leadId === session.id) return true;
   if (project.members.some((m) => m.userId === session.id)) return true;
+  // Responsable del CLIENTE (productor asignado a la cuenta) ve todos los proyectos de su cliente.
+  if (session.role !== "cliente" && project.client?.members?.some((m) => m.userId === session.id && m.role === "RESPONSABLE")) return true;
   // El "cliente" (portal del cliente) SOLO accede a lo suyo (es lead o miembro): nunca a la rama
   // de proyectos públicos, aunque tenga ver_proyectos. Así no ve proyectos de otros clientes.
   if (!project.isPrivate && session.role !== "cliente" && session.perms.includes("ver_proyectos")) return true;
@@ -52,6 +58,8 @@ export function accessibleProjectWhere(session: SessionUser | null): Record<stri
     { leadId: session.id },
     { members: { some: { userId: session.id } } },
   ];
+  // Responsable del cliente: ve todos los proyectos de los clientes que gestiona (no aplica al portal cliente).
+  if (session.role !== "cliente") or.push({ client: { members: { some: { userId: session.id, role: "RESPONSABLE" } } } });
   // El "cliente" queda acotado a sus proyectos (lead/miembro): no se le añade la rama pública.
   if (session.role !== "cliente" && session.perms.includes("ver_proyectos")) or.push({ isPrivate: false });
   return { archivedAt: null, OR: or };

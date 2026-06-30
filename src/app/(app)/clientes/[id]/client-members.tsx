@@ -3,9 +3,9 @@
 import * as React from "react";
 import { UserPlus, X } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
-import { addClientMember, removeClientMember } from "@/app/(app)/clientes/actions";
+import { addClientMember, removeClientMember, setClientMemberRole } from "@/app/(app)/clientes/actions";
 
-export type ClientMemberItem = { id: string; name: string; initials: string | null; color: string | null };
+export type ClientMemberItem = { id: string; name: string; initials: string | null; color: string | null; role?: string };
 
 export function ClientMembers({
   clientId,
@@ -43,7 +43,21 @@ export function ClientMembers({
           members.map((m) => (
             <div key={m.id} className="flex items-center gap-2.5">
               <UserAvatar initials={m.initials} color={m.color} size="sm" />
-              <span className="flex-1 truncate text-sm">{m.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm">{m.name}</span>
+              {canManage ? (
+                <select
+                  value={m.role === "RESPONSABLE" ? "RESPONSABLE" : "MIEMBRO"}
+                  disabled={pending}
+                  onChange={(e) => run(() => setClientMemberRole(clientId, m.id, e.target.value))}
+                  className="rounded-md border border-border bg-background px-1.5 py-1 text-xs outline-none"
+                  title="Rol en el cliente"
+                >
+                  <option value="RESPONSABLE">Responsable</option>
+                  <option value="MIEMBRO">Miembro</option>
+                </select>
+              ) : m.role === "RESPONSABLE" ? (
+                <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Responsable</span>
+              ) : null}
               {canManage ? (
                 <button
                   type="button"

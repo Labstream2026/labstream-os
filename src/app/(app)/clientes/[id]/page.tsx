@@ -179,7 +179,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
   const memberItems = client.members
     .filter((m) => m.user.role?.key !== "cliente")
-    .map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor }));
+    .map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }));
   // El listado para "Dar acceso" es del EQUIPO (excluye usuarios cliente del portal).
   const team = canManage
     ? await db.user.findMany({ where: { active: true, role: { key: { not: "cliente" } } }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } })

@@ -426,6 +426,9 @@ model ClientMember {
   clientId  String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  // Rol en el cliente: "RESPONSABLE" (productor que gestiona la cuenta y ve sus proyectos) o
+  // "MIEMBRO" (acceso normal). Default MIEMBRO. Permite VARIOS responsables por empresa-cliente.
+  role      String   @default("MIEMBRO")
   createdAt DateTime @default(now())
 
   @@id([clientId, userId])

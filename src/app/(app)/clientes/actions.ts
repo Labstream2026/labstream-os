@@ -304,6 +304,33 @@ export async function removeClientMember(clientId: string, userId: string): Prom
   return { ok: true };
 }
 
+// Marca/desmarca a un miembro del EQUIPO como RESPONSABLE del cliente (productor de la cuenta):
+// gestiona la cuenta y ve todos los proyectos del cliente. Puede haber varios. Solo quien ya
+// gestiona el cliente. Un usuario del portal (rol cliente) nunca puede ser responsable.
+export async function setClientMemberRole(clientId: string, userId: string, role: string): Promise<ClientMemberResult> {
+  const session = await getSession();
+  if (!(await userCanManageClient(clientId, session))) return { ok: false, error: "No autorizado" };
+  const next = role === "RESPONSABLE" ? "RESPONSABLE" : "MIEMBRO";
+  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true, role: { select: { key: true } } } });
+  if (!user) return { ok: false, error: "Usuario inexistente" };
+  if (next === "RESPONSABLE" && user.role?.key === "cliente") return { ok: false, error: "Un usuario del portal cliente no puede ser responsable de la cuenta." };
+  await db.clientMember.upsert({
+    where: { clientId_userId: { clientId, userId } },
+    create: { clientId, userId, role: next },
+    update: { role: next },
+  });
+  await logActivity({
+    action: "client.member.role",
+    summary: next === "RESPONSABLE" ? `marcó a ${user.name} como responsable del cliente` : `quitó a ${user.name} como responsable del cliente`,
+    clientId,
+    entityType: "client",
+    entityId: clientId,
+  });
+  revalidatePath(`/clientes/${clientId}`);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // ─────────────────────────────────────────────
 // USUARIOS CLIENTE (portal): invitar por correo + reenviar invitación.
 // Crea usuarios EXTERNOS con rol "cliente" que entran con correo+contraseña (no por Authentik).
