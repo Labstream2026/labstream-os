@@ -52,6 +52,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "review_changes", label: "Cambios solicitados en un entregable", description: "Cuando se piden cambios internos y hay que rehacer el material.", category: "Entregables y revisiones" },
   { key: "review_checklist", label: "Punto del checklist resuelto", description: "Cuando alguien marca como hecho un cambio del checklist de revisión.", category: "Entregables y revisiones" },
   { key: "review_client", label: "El cliente revisó", description: "Cuando el cliente aprueba o pide cambios desde el portal de revisión.", category: "Entregables y revisiones" },
+  { key: "client_deliverable_ready", label: "Entregable listo (para el cliente)", description: "Avisa al cliente cuando el equipo termina un entregable y queda listo para su revisión.", category: "Entregables y revisiones" },
 
   // ── Chat ──
   { key: "chat_mention", label: "Menciones", description: "Cuando te mencionan (@) en el chat o en una tabla.", category: "Chat" },
@@ -60,6 +61,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
 
   // ── Agenda ──
   { key: "calendar_event", label: "Citas de calendario", description: "Invitaciones, cambios y cancelaciones de citas/eventos.", category: "Agenda" },
+  { key: "client_project_date", label: "Cambio de fecha del proyecto (para el cliente)", description: "Avisa al cliente cuando cambia la fecha de entrega de su proyecto.", category: "Agenda" },
 
   // ── Administración ──
   { key: "admin_role", label: "Cambios de rol y permisos", description: "Cuando cambian tu rol o tus permisos.", category: "Administración", essential: true },

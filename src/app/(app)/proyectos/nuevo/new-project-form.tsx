@@ -15,6 +15,7 @@ export function NewProjectForm({
   wizards,
   initialTemplate,
   initialClient = "",
+  isCliente = false,
 }: {
   clients: Opt[];
   team: Opt[];
@@ -22,6 +23,9 @@ export function NewProjectForm({
   wizards: Record<string, WizardStep[]>;
   initialTemplate: string;
   initialClient?: string;
+  // El cliente (portal) crea/solicita su proyecto: sin asignar responsable ni tareas internas;
+  // en su lugar describe un brief para que el equipo lo configure.
+  isCliente?: boolean;
 }) {
   const [templateKey, setTemplateKey] = React.useState(initialTemplate);
   const steps = wizards[templateKey] ?? [];
@@ -53,14 +57,20 @@ export function NewProjectForm({
         </select>
       </Field>
 
-      <Field label="Responsable del proyecto">
-        <select name="leadId" defaultValue="" className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">
-          <option value="">Sin asignar</option>
-          {team.map((u) => (<option key={u.id} value={u.id}>{u.name}</option>))}
-        </select>
-      </Field>
+      {isCliente ? (
+        <Field label="¿Qué necesitas? (brief)">
+          <textarea name="brief" rows={4} placeholder="Cuéntale al equipo el objetivo, referencias, fechas tentativas…" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+        </Field>
+      ) : (
+        <Field label="Responsable del proyecto">
+          <select name="leadId" defaultValue="" className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">
+            <option value="">Sin asignar</option>
+            {team.map((u) => (<option key={u.id} value={u.id}>{u.name}</option>))}
+          </select>
+        </Field>
+      )}
 
-      {steps.length > 0 ? (
+      {!isCliente && steps.length > 0 ? (
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-sm font-semibold">Configurar la plantilla</p>
           <p className="mb-3 text-xs text-muted-foreground">Asigna responsables y fechas a las tareas clave. Recibirán aviso por correo y en la app.</p>

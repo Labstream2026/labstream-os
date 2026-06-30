@@ -37,6 +37,9 @@ export async function createProject(formData: FormData) {
       create: { projectId: project.id, userId: session.id, role: "GUEST" },
       update: {},
     });
+    // El brief que escribió el cliente queda como descripción del proyecto para que el equipo lo lea.
+    const brief = String(formData.get("brief") ?? "").trim();
+    if (brief) await db.project.update({ where: { id: project.id }, data: { description: brief.slice(0, 1000) } });
   }
 
   await logActivity({
