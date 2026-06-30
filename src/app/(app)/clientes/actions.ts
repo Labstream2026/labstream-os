@@ -290,7 +290,13 @@ export async function addClientMember(clientId: string, userId: string): Promise
 export async function removeClientMember(clientId: string, userId: string): Promise<ClientMemberResult> {
   const session = await getSession();
   if (!(await userCanManageClient(clientId, session))) return { ok: false, error: "No autorizado" };
-  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true, role: { select: { key: true } } } });
+  // Quitar a un USUARIO CLIENTE del portal es gestión de usuarios (más sensible que el acceso de
+  // un interno): exige administrar_usuarios, igual que invitarlos. Quitar internos sigue siendo de
+  // quien gestiona el cliente (admin/editor).
+  if (user?.role?.key === "cliente" && !hasPermission(session, "administrar_usuarios")) {
+    return { ok: false, error: "Solo un administrador puede gestionar usuarios cliente." };
+  }
   await db.clientMember.deleteMany({ where: { clientId, userId } });
   await logActivity({ action: "client.member.remove", summary: `quitó acceso a ${user?.name ?? "un usuario"}`, clientId, entityType: "client", entityId: clientId });
   revalidatePath(`/clientes/${clientId}`);
