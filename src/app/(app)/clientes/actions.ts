@@ -327,13 +327,24 @@ function initialsOf(name: string): string {
 async function sendClientInviteEmail(to: string, name: string, clientName: string, token: string): Promise<boolean> {
   if (!(await isEmailEnabled())) return false;
   const url = `${APP_URL}/invitacion/${token}`;
+  const ORANGE = "#F47A20";
+  const firstName = name.trim().split(/\s+/)[0] || name;
   const html = `
-    <p style="margin:0 0 12px;color:#444;font-size:15px">Hola ${htmlEsc(name)},</p>
-    <p style="margin:0 0 12px;color:#444;font-size:15px">El equipo de Labstream te dio acceso al portal de <strong>${htmlEsc(clientName)}</strong>. Desde ahí podrás seguir tus proyectos: ver el avance y el cronograma, revisar y aprobar los videos finales, subir tus guiones y dejar tu feedback.</p>
-    <p style="margin:0 0 4px;color:#444;font-size:15px">Crea tu contraseña para entrar:</p>
-    ${emailButton("Activar mi acceso", url)}
-    <p style="margin:14px 0 0;color:#999;font-size:12px">El enlace caduca en 7 días. Si no esperabas esta invitación, ignora este correo.</p>`;
-  const r = await sendEmail({ to, subject: `Tu acceso al portal de ${clientName} · Labstream`, html, text: `Activa tu acceso al portal de ${clientName}: ${url}` });
+    <h1 style="margin:0 0 8px;font-size:21px;font-weight:700;color:#111;letter-spacing:-0.3px">Te damos la bienvenida 🎬</h1>
+    <p style="margin:0 0 16px;color:#444;font-size:15px;line-height:1.65">Hola <strong>${htmlEsc(firstName)}</strong>, el equipo de <strong>Labstream Studio</strong> te dio acceso al portal de <strong>${htmlEsc(clientName)}</strong>. Es tu espacio para acompañar tus proyectos de cerca, cuando quieras.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px;background:#faf6f2;border:1px solid #f1e6db;border-radius:12px">
+      <tr><td style="padding:14px 18px;color:#333;font-size:14px;line-height:2">
+        <span style="color:${ORANGE};font-weight:700">✓</span>&nbsp; Sigue el <strong>avance</strong> y el cronograma de tus proyectos<br/>
+        <span style="color:${ORANGE};font-weight:700">✓</span>&nbsp; <strong>Revisa y aprueba</strong> los videos finales<br/>
+        <span style="color:${ORANGE};font-weight:700">✓</span>&nbsp; <strong>Sube</strong> tus guiones y referencias<br/>
+        <span style="color:${ORANGE};font-weight:700">✓</span>&nbsp; Deja <strong>comentarios</strong> y feedback al equipo
+      </td></tr>
+    </table>
+    <p style="margin:0 0 6px;color:#444;font-size:15px">Crea tu contraseña para entrar:</p>
+    ${emailButton("Activar mi acceso  →", url)}
+    <p style="margin:18px 0 0;color:#8a8a8a;font-size:13px;line-height:1.6">Iniciarás sesión con <strong style="color:#555">${htmlEsc(to)}</strong>. El enlace es personal y caduca en 7 días.<br/>Si no esperabas esta invitación, puedes ignorar este correo.</p>`;
+  const text = `Hola ${firstName},\n\nEl equipo de Labstream Studio te dio acceso al portal de ${clientName}: sigue el avance de tus proyectos, revisa y aprueba los videos finales, sube tus guiones y deja tu feedback.\n\nCrea tu contraseña para entrar (iniciaras sesion con ${to}):\n${url}\n\nEl enlace es personal y caduca en 7 dias.`;
+  const r = await sendEmail({ to, subject: `Tu acceso al portal de ${clientName} · Labstream Studio`, html, text });
   return r.ok;
 }
 

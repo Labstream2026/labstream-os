@@ -27,7 +27,7 @@ export function SetPasswordForm({ token, name, email }: { token: string; name: s
   return (
     <form onSubmit={submit} className="space-y-4">
       <div>
-        <p className="text-sm text-muted-foreground">Hola <span className="font-medium text-foreground">{name}</span>, crea tu contraseña para entrar al portal.</p>
+        <p className="text-sm text-muted-foreground">Hola <span className="font-medium text-foreground">{name.trim().split(/\s+/)[0] || name}</span>, crea una contraseña para tu cuenta.</p>
         <p className="mt-1 text-xs text-muted-foreground">Iniciarás sesión con <span className="font-medium">{email}</span>.</p>
       </div>
 

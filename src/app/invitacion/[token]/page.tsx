@@ -19,6 +19,10 @@ export default async function InvitacionPage({ params }: { params: Promise<{ tok
 
   const invalid = !user || user.role?.key !== "cliente" || !user.active;
   const alreadyActive = !invalid && !!user!.passwordHash;
+  // Nombre de la empresa-cliente para personalizar la bienvenida.
+  const clientName = !invalid
+    ? (await db.clientMember.findFirst({ where: { userId: userId! }, orderBy: { createdAt: "asc" }, select: { client: { select: { name: true } } } }))?.client?.name ?? null
+    : null;
 
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10">
@@ -41,7 +45,10 @@ export default async function InvitacionPage({ params }: { params: Promise<{ tok
             </div>
           ) : (
             <>
-              <h1 className="mb-1 text-lg font-semibold">Bienvenido a tu portal</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Te damos la bienvenida 🎬</h1>
+              <p className="mb-4 mt-1 text-sm text-muted-foreground">
+                {clientName ? <>Tu portal de <span className="font-medium text-foreground">{clientName}</span> con Labstream Studio.</> : "Tu portal de proyectos con Labstream Studio."}
+              </p>
               <SetPasswordForm token={token} name={user!.name} email={user!.email} />
             </>
           )}
