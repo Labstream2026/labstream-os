@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
+import { holidayName } from "@/lib/holidays-co";
 
 type Person = { name: string; initials: string | null; color: string | null };
 export type TeamMember = { id: string; name: string; initials: string | null; color: string | null };
@@ -123,6 +124,7 @@ export function MyCalendar({
             const evs = key ? byDay.get(key) ?? [] : [];
             const isToday = key === todayKey;
             const isOver = key != null && overKey === key;
+            const holiday = key ? holidayName(key) : null;
             return (
               <div
                 key={i}
@@ -132,6 +134,7 @@ export function MyCalendar({
                 className={cn(
                   "min-h-[100px] border-b border-l border-border/30 p-1 [&:nth-child(7n+1)]:border-l-0",
                   !d && "bg-muted/20",
+                  holiday && !isToday && "bg-amber-50/70 dark:bg-amber-500/[0.07]",
                   isToday && "bg-rose-50/40 dark:bg-rose-500/[0.05]",
                   isOver && "bg-primary/10 ring-1 ring-inset ring-primary/40",
                   d && canCreate && "cursor-pointer hover:bg-muted/30",
@@ -142,9 +145,14 @@ export function MyCalendar({
                     <div className="mb-1 flex justify-start">
                       <span className={cn(
                         "inline-flex size-6 items-center justify-center rounded-md text-xs",
-                        isToday ? "bg-rose-500 font-semibold text-white" : "font-medium text-muted-foreground",
+                        isToday ? "bg-rose-500 font-semibold text-white" : holiday ? "font-semibold text-amber-700 dark:text-amber-300" : "font-medium text-muted-foreground",
                       )}>{d}</span>
                     </div>
+                    {holiday ? (
+                      <div className="mb-1 truncate rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" title={`Festivo en Colombia: ${holiday}`}>
+                        🎉 {holiday}
+                      </div>
+                    ) : null}
                     <div className="space-y-1">
                       {evs.map((ev) => {
                         const draggable = Boolean(ev.canEdit && ev.eventId);
@@ -211,6 +219,7 @@ export function MyCalendar({
         </span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("shoot").solid }} /> Rodajes</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded" style={{ background: calTone("milestone").solid }} /> Hitos de proyecto</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded bg-amber-300" /> 🎉 Festivos de Colombia</span>
         {canCreate ? <span className="ml-auto">Toca un día para crear · arrastra una cita para moverla.</span> : null}
       </div>
     </div>

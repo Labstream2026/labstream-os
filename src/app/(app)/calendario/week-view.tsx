@@ -6,6 +6,7 @@ import type { CalItem } from "./my-calendar";
 import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
+import { holidayName } from "@/lib/holidays-co";
 
 const HOUR_H = 44; // alto en px de cada hora
 const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTemplateColumns)
@@ -206,10 +207,11 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
             <div />
             {days.map((d) => {
               const isToday = sameDay(d, today);
+              const holiday = holidayName(localDateStr(d));
               return (
-                <div key={d.toISOString()} className={cn("flex items-center justify-center gap-1.5 px-1 py-2 text-center", isToday && "bg-rose-50/60 dark:bg-rose-500/[0.06]")}>
+                <div key={d.toISOString()} title={holiday ? `Festivo en Colombia: ${holiday}` : undefined} className={cn("flex items-center justify-center gap-1.5 px-1 py-2 text-center", holiday && !isToday && "bg-amber-50/70 dark:bg-amber-500/[0.07]", isToday && "bg-rose-50/60 dark:bg-rose-500/[0.06]")}>
                   <span className="text-[11px] uppercase text-muted-foreground">{DAYS[d.getDay()]}</span>
-                  <span className={cn("inline-flex size-6 items-center justify-center rounded-md text-xs", isToday ? "bg-rose-500 font-semibold text-white" : "font-medium text-foreground")}>{d.getDate()}</span>
+                  <span className={cn("inline-flex size-6 items-center justify-center rounded-md text-xs", isToday ? "bg-rose-500 font-semibold text-white" : holiday ? "font-semibold text-amber-700 dark:text-amber-300" : "font-medium text-foreground")}>{d.getDate()}</span>
                 </div>
               );
             })}
@@ -221,8 +223,14 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
             {days.map((d) => {
               const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d));
               const isToday = sameDay(d, today);
+              const holiday = holidayName(localDateStr(d));
               return (
                 <div key={d.toISOString()} className={cn("min-h-8 space-y-1 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
+                  {holiday ? (
+                    <div className="flex w-full items-center gap-1 truncate rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" title={`Festivo en Colombia: ${holiday}`}>
+                      <span className="truncate">🎉 {holiday}</span>
+                    </div>
+                  ) : null}
                   {chips.map((p) => {
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
