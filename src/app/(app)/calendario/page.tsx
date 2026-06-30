@@ -88,6 +88,8 @@ export default async function CalendarioPage() {
   // proyectos privados sin acceso (salvo dueño/responsable).
   const mine = (t: { ownerId: string | null; assigneeId: string | null }) => t.ownerId === session?.id || t.assigneeId === session?.id;
   const tasks = allTasks.filter((t) => {
+    // Cliente: solo tareas de SUS proyectos (nunca tareas del equipo sin proyecto).
+    if (isCliente) return !!t.project && canAccessProject(t.project, session);
     if (t.isPrivate && !mine(t)) return false;
     if (t.project && !mine(t) && !canAccessProject(t.project, session)) return false;
     return true;

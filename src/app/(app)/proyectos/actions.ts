@@ -16,7 +16,10 @@ export async function createProject(formData: FormData) {
   if (!hasPermission(session, "crear_proyectos")) throw new Error("No autorizado");
   const name = String(formData.get("name") ?? "").trim();
   const clientId = String(formData.get("clientId") ?? "");
-  const leadId = String(formData.get("leadId") ?? "") || null;
+  // El responsable (lead) lo asigna el equipo, NO el cliente: ser lead otorga gestión del proyecto
+  // (canManageProject) y del chat. Aunque el formulario del cliente no muestra el campo, el POST es
+  // alcanzable, así que el cliente nunca puede fijarse como lead (se ignora su leadId).
+  const leadId = session?.role === "cliente" ? null : (String(formData.get("leadId") ?? "") || null);
   const templateKey = String(formData.get("templateKey") ?? "");
   if (!name || !clientId) return;
   // No confiar en el clientId del formulario: exigir que el usuario pueda acceder a ese cliente.
