@@ -78,6 +78,7 @@ export default async function ProyectoPage({
           orderBy: { createdAt: "asc" },
           include: {
             owner: { select: { initials: true, avatarColor: true } },
+            reviewers: { select: { userId: true } },
             versions: { include: { uploadedBy: { select: { initials: true, avatarColor: true } } } },
             decisions: { orderBy: { createdAt: "desc" }, take: 12, include: { by: { select: { name: true } } } },
             reviewComments: { orderBy: { createdAt: "asc" } },
@@ -249,6 +250,7 @@ export default async function ProyectoPage({
         dueDate: d.dueDate,
         owner: d.owner,
         reviewerId: d.reviewerId,
+        reviewerIds: d.reviewers.map((r) => r.userId),
         reviewExpiresAt: d.reviewExpiresAt,
         reviewVisits: d.reviewVisits,
         reviewRevoked: !!d.reviewRevokedAt,

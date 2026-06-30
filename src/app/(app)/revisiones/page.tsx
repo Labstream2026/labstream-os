@@ -41,6 +41,7 @@ export default async function RevisionesPage() {
       status: true,
       updatedAt: true,
       reviewerId: true,
+      reviewers: { select: { userId: true } },
       ownerId: true,
       project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
@@ -49,10 +50,13 @@ export default async function RevisionesPage() {
     orderBy: { updatedAt: "desc" },
   });
 
-  // Responsable de la pre-aprobación: el reviewer asignado; si no hay, el lead del proyecto
-  // (y en último caso, el dueño del entregable). Solo a esa persona le sale "pendiente".
-  const responsibleId = (d: (typeof deliverables)[number]) => d.reviewerId ?? d.project.leadId ?? d.ownerId;
-  const pendientes = deliverables.filter((d) => d.status === "REVISION_INTERNA" && responsibleId(d) === session.id);
+  // Responsable de la pre-aprobación: CUALQUIER revisor asignado (co-revisores). Si no hay revisores,
+  // cae al lead del proyecto (y en último caso, al dueño del entregable). A todos esos les sale "pendiente".
+  const isMyResponsibility = (d: (typeof deliverables)[number]) =>
+    d.reviewers.length
+      ? d.reviewers.some((r) => r.userId === session.id)
+      : (d.project.leadId ?? d.ownerId) === session.id;
+  const pendientes = deliverables.filter((d) => d.status === "REVISION_INTERNA" && isMyResponsibility(d));
   const conCliente = deliverables.filter((d) => d.status === "ENVIADO_CLIENTE");
   const cambios = deliverables.filter((d) => d.status === "CORRECCIONES");
 

@@ -900,6 +900,8 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
   const d = await db.deliverable.create({ data: { projectId, name, type: isDeliverableType(type) ? type : "REEL", dueDate, reviewExpiresAt, reviewerId, ownerId: session.id } });
+  // El conjunto de co-revisores refleja el revisor primario al crear (luego se pueden añadir más).
+  if (reviewerId) await db.deliverableReviewer.create({ data: { deliverableId: d.id, userId: reviewerId } });
   await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
 
   // Primera versión opcional en el mismo formulario (link externo o archivo subido).
@@ -930,16 +932,45 @@ export async function createDeliverable(projectId: string, formData: FormData) {
 }
 
 // Asigna/cambia el responsable de la revisión (solo miembros del proyecto).
-export async function setDeliverableReviewer(deliverableId: string, _projectId: string, reviewerId: string | null) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+// Asigna el CONJUNTO de revisores (co-revisores) que pueden pre-aprobar/solicitar cambios en el
+// entregable. Reemplaza los anteriores. Mantiene reviewerId = primero del conjunto (compat/visual).
+// Solo gestores del proyecto. Notifica a los revisores recién añadidos.
+export async function setDeliverableReviewers(deliverableId: string, _projectId: string, userIds: string[]) {
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { name: true, projectId: true, project: { select: accessSelect }, reviewers: { select: { userId: true } } },
+  });
   const session = await getSession();
   if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
-  const valid = await validateProjectMember(deliverable.projectId, reviewerId);
-  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewerId: valid } });
-  if (valid && valid !== session!.id) {
-    await notifyAndEmail(valid, { type: "review", event: "review_reviewer", title: `Eres responsable de revisar: ${deliverable.name}`, body: "Te asignaron como responsable de la revisión de este entregable.", link: `/revisiones/${deliverableId}`, actorId: session?.id });
+  // Solo miembros/responsable del proyecto pueden ser revisores; deduplica y valida.
+  const valid: string[] = [];
+  for (const uid of [...new Set(userIds)]) {
+    const ok = await validateProjectMember(deliverable.projectId, uid);
+    if (ok && !valid.includes(ok)) valid.push(ok);
+  }
+  const before = new Set(deliverable.reviewers.map((r) => r.userId));
+  // Reemplaza el conjunto: quita los que ya no están, agrega los nuevos.
+  await db.deliverableReviewer.deleteMany({ where: { deliverableId, userId: { notIn: valid.length ? valid : ["__none__"] } } });
+  if (valid.length) await db.deliverableReviewer.createMany({ data: valid.map((userId) => ({ deliverableId, userId })), skipDuplicates: true });
+  // reviewerId primario = primero del conjunto (compatibilidad y visualización).
+  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewerId: valid[0] ?? null } });
+  const added = valid.filter((id) => !before.has(id) && id !== session!.id);
+  if (added.length) {
+    await notifyManyAndEmail(added, {
+      type: "review",
+      event: "review_reviewer",
+      title: `Eres revisor de: ${deliverable.name}`,
+      body: "Te asignaron como revisor: puedes pre-aprobar o solicitar cambios en este entregable.",
+      link: `/revisiones/${deliverableId}`,
+      actorId: session?.id,
+    });
   }
   refresh(deliverable.projectId);
+}
+
+// Compat: asignar/cambiar un ÚNICO revisor (lo delega al conjunto de co-revisores).
+export async function setDeliverableReviewer(deliverableId: string, _projectId: string, reviewerId: string | null) {
+  await setDeliverableReviewers(deliverableId, _projectId, reviewerId ? [reviewerId] : []);
 }
 
 // Fija o quita la caducidad del enlace del cliente (vacío = sin caducidad).
@@ -1087,7 +1118,7 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
@@ -1142,9 +1173,11 @@ export async function addDeliverableVersion(
   // responsable del proyecto (lead) y, en último caso, el dueño del entregable. Se excluye a
   // quien subió la versión. (Antes se avisaba a TODOS los administradores → se quitó: la
   // pre-aprobación es del responsable, no de todo el mundo.)
-  const responsible = deliverable.reviewerId ?? deliverable.project.leadId ?? deliverable.ownerId;
-  if (responsible && responsible !== session!.id) {
-    await notifyAndEmail(responsible, {
+  const reviewerIds = deliverable.reviewers.map((r) => r.userId);
+  const recipients = (reviewerIds.length ? reviewerIds : ([deliverable.project.leadId ?? deliverable.ownerId].filter(Boolean) as string[]))
+    .filter((id) => id !== session!.id);
+  if (recipients.length) {
+    await notifyManyAndEmail(recipients, {
       type: "review",
       event: "review_pending",
       title: `Revisión pendiente: ${deliverable.name}`,
@@ -1166,12 +1199,13 @@ export async function internalDecision(
   result: "APROBADO" | "CAMBIOS",
   note?: string,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
-  // Decide el responsable del proyecto/admin O el responsable de revisión asignado.
-  // El gestor del proyecto necesita además aprobar_entregables; el revisor ASIGNADO siempre puede.
+  // Decide el responsable del proyecto/admin O CUALQUIER revisor asignado (co-revisores).
+  // El gestor del proyecto necesita además aprobar_entregables; un revisor asignado siempre puede.
   const mayDecide = !!deliverable && (
     (canManageProject(deliverable.project, session) && hasPermission(session, "aprobar_entregables")) ||
+    deliverable.reviewers.some((r) => r.userId === session?.id) ||
     (!!deliverable.reviewerId && deliverable.reviewerId === session?.id)
   );
   if (!deliverable || !mayDecide) throw new Error("No autorizado");

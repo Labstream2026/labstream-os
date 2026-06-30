@@ -98,9 +98,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     where: {
       status: "REVISION_INTERNA",
       OR: [
-        { reviewerId: session.id },
-        { reviewerId: null, project: { leadId: session.id } },
-        { reviewerId: null, project: { leadId: null }, ownerId: session.id },
+        // Soy co-revisor asignado.
+        { reviewers: { some: { userId: session.id } } },
+        // Sin revisores asignados → cae al lead y, en último caso, al dueño del entregable.
+        { reviewers: { none: {} }, project: { leadId: session.id } },
+        { reviewers: { none: {} }, project: { leadId: null }, ownerId: session.id },
       ],
     },
   });

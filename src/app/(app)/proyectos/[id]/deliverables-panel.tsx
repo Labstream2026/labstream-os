@@ -16,7 +16,8 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setDeliverableReviewer, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
+import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
+import { ReviewersPicker } from "./reviewers-picker";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -57,6 +58,7 @@ type Deliverable = {
   dueDate: Date | string | null;
   owner: { initials: string | null; avatarColor: string | null } | null;
   reviewerId: string | null;
+  reviewerIds: string[]; // co-revisores que pueden pre-aprobar
   reviewExpiresAt: Date | string | null;
   reviewVisits: number;
   reviewRevoked: boolean;
@@ -198,7 +200,6 @@ export function DeliverablesPanel({
   members?: Member[];
   emailEnabled?: boolean;
 }) {
-  const reviewerOptions = [{ value: "", label: "Sin responsable" }, ...members.map((m) => ({ value: m.id, label: m.name }))];
   return (
     <div className="space-y-5">
       {/* Nuevo entregable para revisión: nombre/video, link o archivo, responsable de
@@ -302,8 +303,8 @@ export function DeliverablesPanel({
             {canManage ? (
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs">
                 <span className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground">Responsable de revisión:</span>
-                  <StatusSelect value={d.reviewerId ?? ""} options={reviewerOptions} action={setDeliverableReviewer.bind(null, d.id, projectId)} />
+                  <span className="text-muted-foreground">Revisores (pre-aprueban):</span>
+                  <ReviewersPicker deliverableId={d.id} projectId={projectId} members={members} value={d.reviewerIds} />
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="text-muted-foreground">Caduca el enlace:</span>
