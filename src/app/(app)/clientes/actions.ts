@@ -9,6 +9,8 @@ import { logActivity } from "@/lib/activity";
 import { saveOptimizedImage } from "@/lib/image";
 import { safeExternalUrl } from "@/lib/url";
 import { TONE_MAP } from "@/lib/colors";
+import { sendEmail, emailButton, isEmailEnabled } from "@/lib/email";
+import { signClientInviteToken } from "@/lib/client-invite-token";
 
 // Color de acento válido = clave de la paleta (lib/colors), o null.
 function safeTone(value: string): string | null {
@@ -294,6 +296,104 @@ export async function removeClientMember(clientId: string, userId: string): Prom
   revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// USUARIOS CLIENTE (portal): invitar por correo + reenviar invitación.
+// Crea usuarios EXTERNOS con rol "cliente" que entran con correo+contraseña (no por Authentik).
+// Varias personas pueden pertenecer a un mismo cliente/empresa (ClientMember admite varios).
+// ─────────────────────────────────────────────
+
+const APP_URL = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+
+function htmlEsc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const a = parts[0]?.[0] ?? "";
+  const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return ((a + b) || a).toUpperCase() || "?";
+}
+
+// Envía el correo de invitación con el enlace para fijar contraseña. No lanza: devuelve si se envió.
+async function sendClientInviteEmail(to: string, name: string, clientName: string, token: string): Promise<boolean> {
+  if (!(await isEmailEnabled())) return false;
+  const url = `${APP_URL}/invitacion/${token}`;
+  const html = `
+    <p style="margin:0 0 12px;color:#444;font-size:15px">Hola ${htmlEsc(name)},</p>
+    <p style="margin:0 0 12px;color:#444;font-size:15px">El equipo de Labstream te dio acceso al portal de <strong>${htmlEsc(clientName)}</strong>. Desde ahí podrás seguir tus proyectos: ver el avance y el cronograma, revisar y aprobar los videos finales, subir tus guiones y dejar tu feedback.</p>
+    <p style="margin:0 0 4px;color:#444;font-size:15px">Crea tu contraseña para entrar:</p>
+    ${emailButton("Activar mi acceso", url)}
+    <p style="margin:14px 0 0;color:#999;font-size:12px">El enlace caduca en 7 días. Si no esperabas esta invitación, ignora este correo.</p>`;
+  const r = await sendEmail({ to, subject: `Tu acceso al portal de ${clientName} · Labstream`, html, text: `Activa tu acceso al portal de ${clientName}: ${url}` });
+  return r.ok;
+}
+
+// Invita a una persona del cliente al PORTAL: crea (o reutiliza) su usuario con rol cliente, lo liga
+// a este cliente y le envía el correo para fijar contraseña. Solo admin (crear usuarios es sensible).
+export async function inviteClientUser(
+  clientId: string,
+  name: string,
+  email: string,
+): Promise<{ ok: boolean; error?: string; emailSent?: boolean; reused?: boolean }> {
+  const session = await getSession();
+  if (!hasPermission(session, "administrar_usuarios")) return { ok: false, error: "Solo un administrador puede invitar usuarios." };
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanName) return { ok: false, error: "Escribe el nombre de la persona." };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) return { ok: false, error: "Correo no válido." };
+
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  if (!client) return { ok: false, error: "Cliente inexistente." };
+  const role = await db.role.findUnique({ where: { key: "cliente" }, select: { id: true } });
+  if (!role) return { ok: false, error: "Falta el rol cliente en el sistema." };
+
+  // Reutiliza el usuario si ya existe (por correo). Si existe pero NO es cliente (p. ej. del equipo),
+  // no lo convertimos: el correo ya está en uso por otra cuenta.
+  const existing = await db.user.findUnique({ where: { email: cleanEmail }, select: { id: true, passwordHash: true, role: { select: { key: true } } } });
+  let userId: string;
+  let hasPassword: boolean;
+  let reused = false;
+  if (existing) {
+    if (existing.role?.key !== "cliente") return { ok: false, error: "Ese correo ya pertenece a un usuario del equipo." };
+    userId = existing.id;
+    hasPassword = !!existing.passwordHash;
+    reused = true;
+  } else {
+    const created = await db.user.create({
+      data: { email: cleanEmail, name: cleanName, roleId: role.id, initials: initialsOf(cleanName), avatarColor: "slate" },
+      select: { id: true },
+    });
+    userId = created.id;
+    hasPassword = false;
+  }
+
+  // Ligar al cliente/empresa (idempotente). Varias personas pueden estar en el mismo cliente.
+  await db.clientMember.upsert({ where: { clientId_userId: { clientId, userId } }, create: { clientId, userId }, update: {} });
+
+  // Enviar invitación solo si aún no tiene contraseña (si ya la tiene, basta con haberlo ligado).
+  let emailSent = false;
+  if (!hasPassword) emailSent = await sendClientInviteEmail(cleanEmail, cleanName, client.name, signClientInviteToken(userId));
+
+  await logActivity({ action: "client.user.invite", summary: `invitó a ${cleanName} (${cleanEmail}) al portal del cliente`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
+  revalidatePath("/", "layout");
+  return { ok: true, emailSent, reused };
+}
+
+// Reenvía la invitación (nuevo enlace) a un usuario cliente que aún no ha fijado contraseña.
+export async function resendClientInvite(clientId: string, userId: string): Promise<{ ok: boolean; error?: string; emailSent?: boolean }> {
+  const session = await getSession();
+  if (!hasPermission(session, "administrar_usuarios")) return { ok: false, error: "Solo un administrador puede reenviar invitaciones." };
+  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true, passwordHash: true, role: { select: { key: true } } } });
+  if (!user || user.role?.key !== "cliente") return { ok: false, error: "Usuario inválido." };
+  if (user.passwordHash) return { ok: false, error: "Esa persona ya activó su cuenta." };
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  const emailSent = await sendClientInviteEmail(user.email, user.name, client?.name ?? "Labstream", signClientInviteToken(userId));
+  await logActivity({ action: "client.user.reinvite", summary: `reenvió la invitación a ${user.name}`, clientId, entityType: "client", entityId: clientId });
+  return { ok: true, emailSent };
 }
 
 // ── Archivos del cliente (ligero): enlaces (Drive/web) y rutas de red SMB ──

@@ -1701,16 +1701,18 @@ export async function addProjectMember(projectId: string, userId: string, role: 
     }
   }
   // El usuario debe existir y estar activo (no se invita a ids arbitrarios).
-  const target = await db.user.findUnique({ where: { id: userId }, select: { active: true } });
+  const target = await db.user.findUnique({ where: { id: userId }, select: { active: true, name: true, role: { select: { key: true } } } });
   if (!target?.active) throw new Error("Usuario inválido");
+  // Los usuarios CLIENTE entran SIEMPRE como invitados (GUEST = solo lectura), aunque se les comparta
+  // un proyecto: ven/comentan/suben su guion, pero nunca editan tareas ni gestionan el proyecto.
+  const finalRole = target.role?.key === "cliente" ? "GUEST" : safeRole;
 
   await db.projectMember.upsert({
     where: { projectId_userId: { projectId, userId } },
-    create: { projectId, userId, role: safeRole },
-    update: { role: safeRole },
+    create: { projectId, userId, role: finalRole },
+    update: { role: finalRole },
   });
-  const member = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
-  await logActivity({ action: "member.add", summary: `añadió a ${member?.name ?? "un miembro"} como ${safeRole}`, projectId, entityType: "member", entityId: userId });
+  await logActivity({ action: "member.add", summary: `añadió a ${target.name ?? "un miembro"} como ${finalRole}`, projectId, entityType: "member", entityId: userId });
   refresh(projectId);
 }
 

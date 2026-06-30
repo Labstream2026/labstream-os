@@ -5,6 +5,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
+import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
 import { ClientAppearance } from "./client-appearance";
 import { ClientHeader } from "./client-header";
@@ -41,7 +42,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     where: { id },
     include: {
       _count: { select: { quotes: true } },
-      members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+      members: { include: { user: { select: { id: true, name: true, email: true, initials: true, avatarColor: true, passwordHash: true, role: { select: { key: true } } } } } },
       files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true } },
       projects: {
         where: { archivedAt: null },
@@ -167,16 +168,23 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
   const canManage = canManageClient(client, session);
   const canEdit = canManage || hasPermission(session, "editar_clientes");
-  const memberItems = client.members.map((m) => ({
-    id: m.user.id,
-    name: m.user.name,
-    initials: m.user.initials,
-    color: m.user.avatarColor,
-  }));
+  // Invitar/crear usuarios cliente es sensible → solo admins (administrar_usuarios).
+  const isAdmin = hasPermission(session, "administrar_usuarios");
+
+  // Separamos los miembros del cliente: EQUIPO interno (acceso) vs USUARIOS CLIENTE del portal (rol cliente).
+  const clientUsers: ClientUserItem[] = client.members
+    .filter((m) => m.user.role?.key === "cliente")
+    .map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, initials: m.user.initials, color: m.user.avatarColor, pending: !m.user.passwordHash }))
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+
+  const memberItems = client.members
+    .filter((m) => m.user.role?.key !== "cliente")
+    .map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor }));
+  // El listado para "Dar acceso" es del EQUIPO (excluye usuarios cliente del portal).
   const team = canManage
-    ? await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } })
+    ? await db.user.findMany({ where: { active: true, role: { key: { not: "cliente" } } }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } })
     : [];
-  const memberIds = new Set(memberItems.map((m) => m.id));
+  const memberIds = new Set(client.members.map((m) => m.user.id));
   const addable = team
     .filter((u) => !memberIds.has(u.id))
     .map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }));
@@ -398,6 +406,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     ) : null}
                   </div>
                   <div className="space-y-4 lg:sticky lg:top-4">
+                    {clientUsers.length > 0 || isAdmin ? (
+                      <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
+                    ) : null}
                     <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
                   </div>
                 </div>

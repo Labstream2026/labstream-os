@@ -10,6 +10,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /review: portal de cliente (fase 5).
 // - /cotizacion: vista pública de cotización para el cliente (token firmado).
 // - /p: vista pública de una propuesta para el cliente (token firmado).
+// - /invitacion: el usuario cliente fija su contraseña desde el enlace de invitación (token firmado);
+//   aún no tiene sesión, así que debe ser pública.
 // - /api/proposal-img: imágenes de propuesta (portada/carrusel) para el portal del cliente.
 // - /api/cron: trabajos programados del NAS (protegidos por CRON_SECRET, no por sesión).
 // - /api/review-media: video de Drive proxiado para el portal de revisión (token firmado).
@@ -19,7 +21,7 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /api/v1: API intermedia para servicios externos; se autentica por AppKey (Authorization:
 //   Bearer) en cada ruta vía withApiKey(), NO por la cookie de sesión. Por eso debe quedar fuera
 //   del redirect a /login (si no, una petición con Bearer recibiría el HTML del login).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/whatsapp", "/api/openclaw", "/api/v1"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/whatsapp", "/api/openclaw", "/api/v1"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no
