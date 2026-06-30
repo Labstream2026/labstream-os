@@ -257,7 +257,7 @@ export default async function HomePage() {
     { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
     { key: "raci", label: "RACI del equipo", icon: "🧭", node: <RaciMatrix /> },
     ...(canReports ? [{ key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> }] : []),
-    ...(isAdmin ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
+    ...(isAdmin || hasPermission(session, "gestionar_miembros_proyecto") ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
   ];
 
   return (
