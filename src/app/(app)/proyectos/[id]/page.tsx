@@ -64,7 +64,9 @@ export default async function ProyectoPage({
     db.project.findUnique({
       where: { id },
       include: {
-        client: true,
+        // Incluimos los miembros del cliente (con rol) para reconocer al RESPONSABLE de la cuenta,
+        // que puede abrir/escribir los proyectos de su cliente (canAccessProject lo usa).
+        client: { include: { members: { select: { userId: true, role: true } } } },
         lead: true,
         tasks: {
           orderBy: { position: "asc" },
@@ -107,7 +109,7 @@ export default async function ProyectoPage({
     db.user.findMany({
       where: { active: true },
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, initials: true, avatarColor: true },
+      select: { id: true, name: true, initials: true, avatarColor: true, role: { select: { key: true } } },
     }),
     getTaskLabels(),
     // Citas/reuniones de este proyecto (para el calendario colaborativo del proyecto).
@@ -240,7 +242,8 @@ export default async function ProyectoPage({
       projectId={id}
       canManage={canManageProject(project, session)}
       members={team
-        .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
+        // Co-revisores internos: nunca usuarios del portal cliente (aunque sean miembros GUEST).
+        .filter((t) => (t.id === project.leadId || project.members.some((m) => m.userId === t.id)) && t.role?.key !== "cliente")
         .map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
       deliverables={project.deliverables.map((d) => ({
         id: d.id,

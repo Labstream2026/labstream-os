@@ -883,7 +883,12 @@ async function validateProjectMember(projectId: string, userId: string | null): 
   if (!userId) return null;
   const proj = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, members: { select: { userId: true } } } });
   const allowed = new Set([proj?.leadId, ...(proj?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
-  return allowed.has(userId) ? userId : null;
+  if (!allowed.has(userId)) return null;
+  // Un revisor INTERNO nunca puede ser un usuario del PORTAL CLIENTE (aunque sea miembro GUEST del
+  // proyecto): la pre-aprobación interna es del equipo, no del cliente.
+  const u = await db.user.findUnique({ where: { id: userId }, select: { role: { select: { key: true } } } });
+  if (u?.role?.key === "cliente") return null;
+  return userId;
 }
 
 export async function createDeliverable(projectId: string, formData: FormData) {
@@ -1205,8 +1210,11 @@ export async function internalDecision(
   // El gestor del proyecto necesita además aprobar_entregables; un revisor asignado siempre puede.
   const mayDecide = !!deliverable && (
     (canManageProject(deliverable.project, session) && hasPermission(session, "aprobar_entregables")) ||
-    deliverable.reviewers.some((r) => r.userId === session?.id) ||
-    (!!deliverable.reviewerId && deliverable.reviewerId === session?.id)
+    // Co-revisores internos (NUNCA un usuario del portal cliente, aunque sea miembro GUEST).
+    (session?.role !== "cliente" && (
+      deliverable.reviewers.some((r) => r.userId === session?.id) ||
+      (!!deliverable.reviewerId && deliverable.reviewerId === session?.id)
+    ))
   );
   if (!deliverable || !mayDecide) throw new Error("No autorizado");
   const projectId = deliverable.projectId;

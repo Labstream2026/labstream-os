@@ -20,11 +20,15 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const { deliverableId } = await params;
   const session = await getSession();
   if (!session) redirect("/login");
+  // Espacio de revisión INTERNA del equipo: el portal del cliente no entra (vería versiones sin
+  // pre-aprobar y comentarios internos). Su vista de entregables está en /proyectos/[id].
+  if (session.role === "cliente") redirect("/proyectos");
 
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
     include: {
       project: { select: { id: true, name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } }, client: { select: { name: true } } } },
+      reviewers: { select: { userId: true } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
       reviewComments: { orderBy: { createdAt: "asc" } },
     },
@@ -33,8 +37,8 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   if (!canAccessProject(deliverable.project, session)) notFound();
 
   const canManage = canManageProject(deliverable.project, session);
-  // Puede pre-aprobar el responsable del proyecto/admin O el responsable de revisión asignado.
-  const canDecide = canManage || deliverable.reviewerId === session.id;
+  // Puede pre-aprobar el responsable del proyecto/admin O CUALQUIER co-revisor asignado.
+  const canDecide = canManage || deliverable.reviewers.some((r) => r.userId === session.id) || deliverable.reviewerId === session.id;
   const meta = deliverableStatusMeta(deliverable.status);
 
   // El equipo ve TODAS las versiones (incluidas las pendientes de pre-aprobación).

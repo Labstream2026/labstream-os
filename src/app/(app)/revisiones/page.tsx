@@ -29,6 +29,9 @@ export const dynamic = "force-dynamic";
 export default async function RevisionesPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  // La bandeja de revisión INTERNA es del equipo: el portal del cliente no entra (vería versiones
+  // sin pre-aprobar y comentarios internos de su propio proyecto). Tiene su vista en /proyectos/[id].
+  if (session.role === "cliente") redirect("/proyectos");
 
   const deliverables = await db.deliverable.findMany({
     where: {
