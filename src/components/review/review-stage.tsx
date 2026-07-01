@@ -290,7 +290,7 @@ export function ReviewStage({
           </div>
         ) : null}
 
-        <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} />
+        <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} />
 
         {version?.notes ? (
           <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
@@ -488,12 +488,16 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
   onDrawn: (dataUrl: string | null) => void;
   caption: string;
+  // Orientación del entregable (REEL/SHORT = vertical). El <video> respeta el aspecto real del
+  // archivo, pero el IFRAME (visor de Google/YouTube) no tiene aspecto intrínseco: sin esto,
+  // un video vertical (9:16) se encajaba en un marco 16:9 y se veía diminuto/mal.
+  vertical?: boolean;
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
@@ -699,11 +703,21 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
     );
   }
   // YouTube / Vimeo / Drive (iframe). Para Drive, el conmutador permite pasar a modo captura.
+  // El iframe no tiene aspecto propio: para verticales (9:16) usamos un marco alto y centrado;
+  // para horizontales, 16:9 a todo el ancho. Así el reel no se ve encajado en una caja ancha.
   const isYouTube = version.kind === "youtube";
   return (
     <div>
-      <div className="relative">
-        <iframe ref={ytRef} src={version.src} className="aspect-video w-full rounded-xl border border-border bg-black" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
+      <div className={vertical ? "relative mx-auto w-fit max-w-full" : "relative"}>
+        <iframe
+          ref={ytRef}
+          src={version.src}
+          className={vertical
+            ? "mx-auto block aspect-[9/16] h-[72vh] max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
+            : "aspect-video w-full rounded-xl border border-border bg-black"}
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+        />
         {driveToggle}
         {liveCaption}
         {overlay}
