@@ -310,7 +310,7 @@ export function ReviewStage({
         </div>
         {version?.kind === "drive_file" ? (
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            ℹ️ Se reproduce con el visor de Google (streaming fluido, ideal para masters largos de 2–5 h; la velocidad 1.5×/2× está en su engranaje ⚙). Para guardar el fotograma al comentar y usar la barra de velocidad de la app, activa «📸 Modo captura» (carga el video del mismo origen; en masters pesados tarda). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
+            ℹ️ Se reproduce el video original de Drive (evita el error «se está procesando» del visor de Google, permite comentar con captura del fotograma y usar la barra de velocidad). En masters pesados puede tardar en cargar. Si no se reproduce, usa «▶︎ Ver con Google» (su velocidad va en el engranaje ⚙). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
           </p>
         ) : null}
         {version && (version.kind === "youtube" || version.kind === "vimeo" || version.kind === "drive_folder" || version.kind === "other") ? (
@@ -507,13 +507,15 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   // si solo quiere ver y el master pesado tarda en cargar.
   const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
   const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
-  // Drive arranca con el VISOR DE GOOGLE (streaming fluido, ideal para masters de 2–5 h y con
-  // su propio control de velocidad). El «📸 Modo captura» (video del mismo origen, para
-  // capturar el fotograma y usar la barra de velocidad de la app) es opt-in con un clic.
-  const [captureMode, setCaptureMode] = React.useState(false);
+  // Drive arranca reproduciendo el VIDEO ORIGINAL (proxy del mismo origen): así se evita el
+  // error «este video se está procesando» del visor de Google (que aparece cuando Google aún
+  // no ha transcodificado el master), y de paso permite capturar el fotograma y la barra de
+  // velocidad de la app. Si el original no se puede reproducir (formato no compatible, privado
+  // o pesado), `onError` cae automáticamente al visor de Google. «▶︎ Ver con Google» alterna.
+  const [captureMode, setCaptureMode] = React.useState(isDriveProxyable);
   React.useEffect(() => {
     setDriveProxyFailed(false);
-    setCaptureMode(false);
+    setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
   }, [version]);
 
   // ── Velocidad de reproducción (0.5×–2×) ── se recuerda entre sesiones y se re-aplica al
@@ -710,11 +712,22 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
         speedBar
       ) : (
         // Drive/Vimeo se reproducen en su propio iframe: la velocidad (1.5×, 2×) va en el
-        // engranaje ⚙ de ESE reproductor. Para usar la barra de la app en Drive, activa 📸.
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          ⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor.
-          {driveProxyFailed ? " No se pudo cargar el video para captura (archivo pesado o privado); mostrando el visor de Google." : ""}
-        </p>
+        // engranaje ⚙ de ESE reproductor. Para Drive, ofrecemos volver a reproducir el original.
+        <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+          <p>⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor de Google.</p>
+          {isDriveProxyable ? (
+            driveProxyFailed ? (
+              <p>⚠️ No se pudo reproducir el video original aquí (archivo pesado, privado o formato no compatible). Si el visor de Google también muestra un aviso, descárgalo con «Abrir original ↗».</p>
+            ) : (
+              <p>
+                ▶︎ ¿El video no carga o Google dice que «se está procesando»?{" "}
+                <button type="button" onClick={() => { setDriveProxyFailed(false); setCaptureMode(true); }} className="font-medium text-primary hover:underline">
+                  Reproducir el video original
+                </button>.
+              </p>
+            )
+          ) : null}
+        </div>
       )}
     </div>
   );
