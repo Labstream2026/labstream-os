@@ -179,3 +179,55 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   });
   revalidatePath(`/review/${token}`);
 }
+
+// Decisión del cliente sobre la PORTADA del reel (la imagen que acompaña al video): APROBADA o
+// CAMBIOS. Independiente de la decisión sobre el video. Se ata al archivo de portada actual, así
+// una portada nueva del equipo vuelve a quedar pendiente. Deja una nota en el hilo y avisa al equipo.
+export async function setCoverDecision(token: string, decision: string, name?: string, note?: string) {
+  if (!rateLimit(`cover-decision:${await rlKey(token)}`, 20, 60_000)) {
+    throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
+  }
+  const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true } });
+  if (!d?.coverFileAssetId) throw new Error("Este entregable no tiene una portada para revisar");
+
+  const approved = decision === "APROBADA";
+  const who = (name ?? "").trim().slice(0, 80) || "Cliente";
+  const noteClean = approved ? null : ((note ?? "").trim().slice(0, 1000) || null);
+
+  await db.deliverable.update({
+    where: { id: deliverableId },
+    data: {
+      coverDecisionFor: d.coverFileAssetId,
+      coverDecision: approved ? "APROBADA" : "CAMBIOS",
+      coverDecisionBy: who,
+      coverDecisionAt: new Date(),
+      coverDecisionNote: noteClean,
+    },
+  });
+  // Nota en el hilo para que el equipo lo vea junto al resto de comentarios del cliente.
+  await db.reviewComment.create({
+    data: {
+      deliverableId,
+      authorName: who,
+      body: approved ? "✅ Aprobó la portada del reel." : `✏️ Portada — pidió cambios${noteClean ? `: ${noteClean}` : "."}`,
+      fromClient: true,
+    },
+  });
+  await logActivity({
+    action: approved ? "deliverable.cover_approved" : "deliverable.cover_changes",
+    summary: approved ? `aprobó la portada de «${delName}»` : `pidió cambios en la portada de «${delName}»`,
+    projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${who} (cliente)`,
+  });
+  await notifyManyAndEmail(await projectTeamIds(projectId), {
+    type: "review",
+    event: "review_client",
+    title: approved ? `Cliente aprobó la portada: ${delName}` : `Cliente pidió cambios en la portada: ${delName}`,
+    body: approved ? `${who} aprobó la portada del reel.` : `${who} pidió cambios en la portada${noteClean ? `: ${noteClean}` : "."}`,
+    link: `/revisiones/${deliverableId}`,
+  });
+  revalidatePath(`/review/${token}`);
+}

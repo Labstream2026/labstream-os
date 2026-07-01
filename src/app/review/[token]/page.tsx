@@ -77,8 +77,14 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // visualización se calculan en el servidor (token de archivo para las locales, Drive para enlaces).
   const isPhoto = deliverable.type === "FOTOGRAFIA";
   const photos = deliverable.photos.map((p) => ({ id: p.id, filename: p.filename, src: photoViewSrc(p), pick: p.pick, clientNote: p.clientNote }));
-  // Portada + contenido de publicación (caption/hashtags) que el cliente ve y copia junto al video.
-  const coverSrc = deliverable.coverFileAssetId ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null }) : null;
+  // La PORTADA es propia de los reels (vertical): la aprueba el cliente. En videos horizontales no aplica.
+  const isReel = deliverableOrientation(deliverable.type) === "vertical";
+  const coverSrc = isReel && deliverable.coverFileAssetId ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null }) : null;
+  // Estado de la decisión de portada, atado al archivo actual (una portada nueva vuelve a "pendiente").
+  const coverDecided = coverSrc && deliverable.coverDecisionFor && deliverable.coverDecisionFor === deliverable.coverFileAssetId;
+  const coverStatus = !coverSrc ? null : coverDecided ? (deliverable.coverDecision === "APROBADA" ? "APROBADA" : "CAMBIOS") : "PENDIENTE";
+  const coverDecisionBy = coverDecided ? deliverable.coverDecisionBy : null;
+  const coverDecisionNote = coverDecided && deliverable.coverDecision === "CAMBIOS" ? deliverable.coverDecisionNote : null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -141,6 +147,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             copy={deliverable.copy}
             hashtags={deliverable.hashtags}
             coverSrc={coverSrc}
+            coverStatus={coverStatus}
+            coverDecisionBy={coverDecisionBy}
+            coverDecisionNote={coverDecisionNote}
             downloadUrl={downloadUrl}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,

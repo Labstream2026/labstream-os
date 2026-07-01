@@ -8,6 +8,7 @@ import {
   DELIVERABLE_STATUS,
   DELIVERABLE_TYPE,
   deliverableStatusMeta,
+  deliverableOrientation,
   formatShortDate,
 } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,7 @@ import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
-import { DeliverableContentEditor } from "./deliverable-content-editor";
+import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -171,7 +172,8 @@ function CoverManager({ deliverableId, projectId, canManage, cover }: { delivera
       )}
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 text-xs font-semibold">🖼️ Portada del reel</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">La imagen que acompaña al video entregado (miniatura/portada).</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">La imagen que el cliente aprueba antes de publicar el reel.</p>
+        {cover ? <div className="mt-1.5"><CoverStatusBadge deliverableId={deliverableId} /></div> : null}
         {canManage ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <form action={setDeliverableCover.bind(null, projectId, deliverableId)} className="flex items-center gap-2">
@@ -253,6 +255,8 @@ export function DeliverablesPanel({
         const hasApproved = d.versions.some((v) => v.internalApproved);
         const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(d.id)}`;
         const isPhoto = d.type === "FOTOGRAFIA";
+        // La portada es propia de los reels (vertical). En videos horizontales no aplica.
+        const isVertical = deliverableOrientation(d.type) === "vertical";
         const verCount = isPhoto ? d.photos.length : d.versions.length;
         const comCount = d.comments.length;
         const summaryBits = isPhoto ? `${verCount} foto${verCount === 1 ? "" : "s"}` : `${verCount} versión${verCount === 1 ? "" : "es"}`;
@@ -293,8 +297,8 @@ export function DeliverablesPanel({
               </summary>
               <div className="pt-1">
 
-            {/* Portada del reel (no aplica a galerías de fotos, que tienen su propia cuadrícula) */}
-            {!isPhoto ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
+            {/* Portada: solo para reels (vertical). No aplica a videos horizontales ni a galerías de fotos. */}
+            {isVertical ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
 
             {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
             {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}

@@ -1449,6 +1449,14 @@ model Deliverable {
   // hashtags. Lo edita el equipo y el cliente lo ve (y copia) en su sala de revisión.
   copy      String?
   hashtags  String?
+  // Decisión del CLIENTE sobre la PORTADA del reel (la imagen que acompaña al video). Se guarda
+  // "para qué archivo" fue la decisión (coverDecisionFor = el coverFileAssetId revisado): si el
+  // equipo sube una portada nueva, la decisión deja de aplicar y vuelve a quedar PENDIENTE.
+  coverDecisionFor  String? // coverFileAssetId sobre el que decidió el cliente
+  coverDecision     String? // "APROBADA" | "CAMBIOS"
+  coverDecisionBy   String? // nombre del cliente que decidió
+  coverDecisionAt   DateTime?
+  coverDecisionNote String? // detalle si pidió cambios
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 

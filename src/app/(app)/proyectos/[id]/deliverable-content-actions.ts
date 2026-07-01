@@ -43,3 +43,29 @@ export async function setDeliverableContent(deliverableId: string, copy: string,
   });
   revalidatePath(`/proyectos/${d.projectId}`);
 }
+
+// Estado de la decisión del cliente sobre la PORTADA del reel, para que el equipo lo vea. La
+// decisión se ata al archivo actual: si es sobre otra portada (o no hay), cuenta como PENDIENTE.
+export async function getCoverDecision(
+  deliverableId: string,
+): Promise<{ status: "NONE" | "PENDIENTE" | "APROBADA" | "CAMBIOS"; by: string | null; note: string | null }> {
+  const session = await getSession();
+  if (!session || session.role === "cliente") throw new Error("Sin permiso");
+  const d = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: {
+      coverFileAssetId: true,
+      coverDecisionFor: true,
+      coverDecision: true,
+      coverDecisionBy: true,
+      coverDecisionNote: true,
+      project: { select: projectShapeSelect },
+    },
+  });
+  if (!d) throw new Error("Entregable no encontrado");
+  if (!canWriteProject(d.project, session)) throw new Error("Sin permiso");
+  if (!d.coverFileAssetId) return { status: "NONE", by: null, note: null };
+  const decided = !!d.coverDecisionFor && d.coverDecisionFor === d.coverFileAssetId;
+  const status = !decided ? "PENDIENTE" : d.coverDecision === "APROBADA" ? "APROBADA" : "CAMBIOS";
+  return { status, by: decided ? d.coverDecisionBy : null, note: decided && d.coverDecision === "CAMBIOS" ? d.coverDecisionNote : null };
+}

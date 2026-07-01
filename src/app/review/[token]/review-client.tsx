@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, CheckCircle2, Loader2 } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
-import { addReviewComment, setReviewDecision } from "./actions";
+import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
 
 // Wrapper del portal PÚBLICO del cliente sobre el escenario de revisión compartido.
 // Antes de entrar, un recibimiento de marca pide el nombre UNA sola vez (se recuerda en
@@ -42,12 +42,12 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-// Panel de contenido de publicación: portada + texto/caption + hashtags, con copiar. Lo llena el
-// equipo (Fase B); si no hay nada, no se muestra.
-function ContentPanel({ copy, hashtags, coverSrc }: { copy: string | null; hashtags: string | null; coverSrc: string | null }) {
+// Panel de contenido de publicación: texto/caption + hashtags, con copiar al portapapeles. Lo
+// llena el equipo (Fase B); si no hay nada, no se muestra. La PORTADA vive en su propio panel.
+function ContentPanel({ copy, hashtags }: { copy: string | null; hashtags: string | null }) {
   const hasCopy = !!copy && copy.trim() !== "";
   const hasTags = !!hashtags && hashtags.trim() !== "";
-  if (!hasCopy && !hasTags && !coverSrc) return null;
+  if (!hasCopy && !hasTags) return null;
   const tags = hasTags
     ? hashtags!.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`))
     : [];
@@ -57,34 +57,140 @@ function ContentPanel({ copy, hashtags, coverSrc }: { copy: string | null; hasht
         <h2 className="text-sm font-semibold">Contenido para publicar</h2>
         <p className="text-xs text-muted-foreground">El texto y los hashtags listos para tu publicación.</p>
       </div>
-      <div className="grid gap-4 p-4 sm:grid-cols-[6rem_1fr]">
-        {coverSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={coverSrc} alt="Portada" className="h-40 w-full rounded-lg border border-border object-cover sm:h-32 sm:w-24" />
+      <div className="space-y-4 p-4">
+        {hasCopy ? (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Texto / caption</span>
+              <CopyButton text={copy!} label="Copiar texto" />
+            </div>
+            <p className="whitespace-pre-wrap rounded-lg bg-muted/50 px-3 py-2 text-sm leading-relaxed">{copy}</p>
+          </div>
         ) : null}
-        <div className="min-w-0 space-y-4">
-          {hasCopy ? (
-            <div>
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Texto / caption</span>
-                <CopyButton text={copy!} label="Copiar texto" />
-              </div>
-              <p className="whitespace-pre-wrap rounded-lg bg-muted/50 px-3 py-2 text-sm leading-relaxed">{copy}</p>
+        {hasTags ? (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Hashtags</span>
+              <CopyButton text={tags.join(" ")} label="Copiar hashtags" />
             </div>
-          ) : null}
-          {hasTags ? (
-            <div>
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-muted-foreground">Hashtags</span>
-                <CopyButton text={tags.join(" ")} label="Copiar hashtags" />
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {tags.map((t, i) => (
-                  <span key={i} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{t}</span>
-                ))}
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t, i) => (
+                <span key={i} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{t}</span>
+              ))}
             </div>
-          ) : null}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// Panel de APROBACIÓN de la portada del reel: la imagen + estado + botones Aprobar / Solicitar
+// cambios (con nota). Solo aparece para reels con portada. La decisión se guarda por la server
+// action y se refleja al momento (estado local optimista).
+function CoverApprovalPanel({
+  token,
+  name,
+  coverSrc,
+  initialStatus,
+  initialBy,
+  initialNote,
+}: {
+  token: string;
+  name: string;
+  coverSrc: string;
+  initialStatus: "PENDIENTE" | "APROBADA" | "CAMBIOS";
+  initialBy: string | null;
+  initialNote: string | null;
+}) {
+  const [status, setStatus] = React.useState(initialStatus);
+  const [by, setBy] = React.useState(initialBy);
+  const [note, setNote] = React.useState(initialNote);
+  const [asking, setAsking] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+
+  function decide(decision: "APROBADA" | "CAMBIOS", changeNote?: string) {
+    setError(null);
+    start(async () => {
+      try {
+        await setCoverDecision(token, decision, name, changeNote);
+        setStatus(decision);
+        setBy(name);
+        setNote(decision === "CAMBIOS" ? changeNote?.trim() || null : null);
+        setAsking(false);
+        setDraft("");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo guardar tu decisión.");
+      }
+    });
+  }
+
+  const badge =
+    status === "APROBADA"
+      ? { label: "Aprobada", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
+      : status === "CAMBIOS"
+        ? { label: "Cambios solicitados", cls: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300" }
+        : { label: "Pendiente de tu revisión", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
+
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div>
+          <h2 className="text-sm font-semibold">Portada del reel</h2>
+          <p className="text-xs text-muted-foreground">La imagen que se ve antes de reproducir. Apruébala o pide cambios.</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${badge.cls}`}>{badge.label}</span>
+      </div>
+      <div className="grid gap-4 p-4 sm:grid-cols-[7rem_1fr]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={coverSrc} alt="Portada del reel" className="mx-auto aspect-[9/16] w-28 rounded-lg border border-border object-cover" />
+        <div className="min-w-0">
+          {status === "APROBADA" ? (
+            <div className="flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+              <span>Aprobaste esta portada{by ? `, ${by}` : ""}. El equipo ya puede usarla.</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {status === "CAMBIOS" && note ? (
+                <p className="rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:bg-orange-500/10 dark:text-orange-300">
+                  Pediste: “{note}”. El equipo subirá una portada nueva.
+                </p>
+              ) : null}
+              {asking ? (
+                <div className="space-y-2">
+                  <textarea
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={3}
+                    placeholder="¿Qué te gustaría cambiar en la portada?"
+                    className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => decide("CAMBIOS", draft)} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+                      {pending ? <Loader2 className="size-4 animate-spin" /> : null} Enviar cambios
+                    </button>
+                    <button type="button" onClick={() => { setAsking(false); setDraft(""); }} disabled={pending} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-60">
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => decide("APROBADA")} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+                    {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} Aprobar portada
+                  </button>
+                  <button type="button" onClick={() => setAsking(true)} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-60">
+                    Solicitar cambios
+                  </button>
+                </div>
+              )}
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -106,6 +212,9 @@ export function ReviewClient({
   copy = null,
   hashtags = null,
   coverSrc = null,
+  coverStatus = null,
+  coverDecisionBy = null,
+  coverDecisionNote = null,
   downloadUrl,
 }: {
   token: string;
@@ -124,7 +233,11 @@ export function ReviewClient({
   // Contenido de publicación que el cliente ve y copia junto al video (lo edita el equipo).
   copy?: string | null;
   hashtags?: string | null;
+  // Portada del reel + su estado de aprobación (solo reels con portada).
   coverSrc?: string | null;
+  coverStatus?: "PENDIENTE" | "APROBADA" | "CAMBIOS" | null;
+  coverDecisionBy?: string | null;
+  coverDecisionNote?: string | null;
   downloadUrl: string | null;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
@@ -212,7 +325,17 @@ export function ReviewClient({
         onComment={(fd) => addReviewComment(token, fd)}
         onDecisionIntent={onDecisionIntent}
       />
-      <ContentPanel copy={copy} hashtags={hashtags} coverSrc={coverSrc} />
+      {coverSrc && coverStatus ? (
+        <CoverApprovalPanel
+          token={token}
+          name={name || "Cliente"}
+          coverSrc={coverSrc}
+          initialStatus={coverStatus}
+          initialBy={coverDecisionBy}
+          initialNote={coverDecisionNote}
+        />
+      ) : null}
+      <ContentPanel copy={copy} hashtags={hashtags} />
       {modal ? (
         <DecisionModal
           state={modal}

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { FileText, Hash, Loader2, Check, ChevronRight } from "lucide-react";
-import { getDeliverableContent, setDeliverableContent } from "./deliverable-content-actions";
+import { getDeliverableContent, setDeliverableContent, getCoverDecision } from "./deliverable-content-actions";
 
 // Editor del CONTENIDO de publicación de un entregable (caption/copy + hashtags) para el equipo.
 // Vive dentro del panel de entregables (server component): carga los valores al desplegar (una
@@ -103,4 +103,23 @@ export function DeliverableContentEditor({ deliverableId }: { deliverableId: str
       ) : null}
     </div>
   );
+}
+
+// Badge (solo lectura) del estado de la portada según la decisión del cliente. Se muestra en el
+// gestor de portada del equipo; carga al montar. Si no hay portada o decisión, no aparece.
+export function CoverStatusBadge({ deliverableId }: { deliverableId: string }) {
+  const [state, setState] = React.useState<{ status: string; by: string | null; note: string | null } | null>(null);
+  React.useEffect(() => {
+    let active = true;
+    getCoverDecision(deliverableId).then((s) => { if (active) setState(s); }).catch(() => {});
+    return () => { active = false; };
+  }, [deliverableId]);
+  if (!state || state.status === "NONE") return null;
+  const meta =
+    state.status === "APROBADA"
+      ? { label: state.by ? `Aprobada por ${state.by}` : "Aprobada por el cliente", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }
+      : state.status === "CAMBIOS"
+        ? { label: state.note ? `Cambios: ${state.note}` : "Cambios solicitados", cls: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300" }
+        : { label: "Pendiente de aprobación del cliente", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" };
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.cls}`}>{meta.label}</span>;
 }
