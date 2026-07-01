@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
@@ -37,6 +38,7 @@ export default async function BibliotecaPage() {
       <p className="mt-1 text-sm text-muted-foreground">
         Recursos reutilizables del equipo: música, logos, stock, plantillas… {assets.length} elementos.
       </p>
+      <div className="mt-3"><SectionChatCard section="biblioteca" /></div>
 
       {/* Añadir (solo gestores) */}
       {canManage ? (

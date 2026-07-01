@@ -53,7 +53,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   if (!channel) notFound();
 
   // Acceso: público → equipo; privado → admin/responsable/miembro.
-  if (!canAccessChannel({ isPublic: channel.isPublic, audience: channel.audience, project: channel.project, members: channel.members }, session)) {
+  if (!canAccessChannel({ isPublic: channel.isPublic, audience: channel.audience, section: channel.section, project: channel.project, members: channel.members }, session)) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-8 py-24 text-center">
         <Lock className="size-7 text-muted-foreground" />
@@ -144,6 +144,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
               canManage={canManage}
               type={channel.type}
               channelName={channel.name}
+              section={channel.section}
               members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
               team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
             />
@@ -163,6 +164,11 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
             if (session.role === "cliente") {
               const allowed = new Set<string>([channel.project?.leadId, ...(channel.project?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
               return team.filter((t) => allowed.has(t.id) && !botIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
+            }
+            // Grupo asignado a una DEPENDENCIA: solo se puede etiquetar a quien ESTÁ en el grupo (los
+            // que no tienen acceso a esa sección ni siquiera se pudieron añadir).
+            if (channel.section) {
+              return channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor }));
             }
             // Bots primero (Marcebot arriba en el @), sin repetir si también saliera en el equipo.
             return [...bots, ...team.filter((t) => !botIds.has(t.id))].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));

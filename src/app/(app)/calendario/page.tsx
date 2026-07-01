@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
@@ -164,6 +165,7 @@ export default async function CalendarioPage() {
   return (
     <div className="flex h-full flex-col px-4 py-6 sm:px-6">
       <h1 className="shrink-0 text-3xl font-bold tracking-tight">Calendario del equipo</h1>
+      <div className="mt-2 shrink-0"><SectionChatCard section="calendario" /></div>
       <div className="mt-4 min-h-0 flex-1">
         <CalendarBoard
           items={items}

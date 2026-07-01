@@ -1,5 +1,6 @@
 import type { SessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
+import { sessionHasSectionAccess } from "@/lib/chat-section-access";
 
 // ¿Puede el usuario ver/escribir en este canal?
 // Público → todo el equipo. Privado → admin, responsable o MIEMBRO del proyecto, o invitado al
@@ -9,6 +10,7 @@ export function canAccessChannel(
   channel: {
     isPublic: boolean;
     audience?: string | null;
+    section?: string | null;
     project?: { leadId: string | null; members?: { userId: string }[] } | null;
     members: { userId: string }[];
   },
@@ -16,6 +18,10 @@ export function canAccessChannel(
 ): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
+  // Grupo asignado a una SECCIÓN/dependencia: solo entra quien tiene acceso a esa sección (aunque el
+  // canal sea PÚBLICO). Es la puerta que cierra join/explore (que solo miraban isPublic) → sin esto
+  // un usuario sin permiso de la sección podía auto-unirse a un grupo público asignado a ella.
+  if (channel.section && !sessionHasSectionAccess(channel.section, session)) return false;
   // PORTAL DEL CLIENTE: entra SOLO al canal CON EL CLIENTE (audience "CLIENT") de SU proyecto. El
   // canal INTERNO del equipo (misma proyecto, audience "INTERNAL") queda fuera de su alcance, igual
   // que públicos, DMs y otros proyectos (por eso NO cae al `isPublic` de abajo).
@@ -40,6 +46,7 @@ export async function userCanAccessChannel(
     select: {
       isPublic: true,
       audience: true,
+      section: true,
       project: { select: { leadId: true, members: { select: { userId: true } } } },
       members: { select: { userId: true } },
     },

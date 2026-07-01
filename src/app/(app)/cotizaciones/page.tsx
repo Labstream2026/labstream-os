@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { redirect } from "next/navigation";
 import { Plus, FileText, Sparkles, Eye } from "lucide-react";
 import { db } from "@/lib/db";
@@ -75,6 +76,7 @@ export default async function CotizacionesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Facturación</h1>
           <p className="mt-1 text-sm text-muted-foreground">{proposals.length} propuestas · {quotes.length} cotizaciones</p>
+          <div className="mt-2"><SectionChatCard section="cotizaciones" /></div>
         </div>
         {canCreate ? (
           <div className="flex items-center gap-2">

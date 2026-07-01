@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { ensureProjectChannels } from "@/lib/project-chat";
+import { sessionHasSectionAccess } from "@/lib/chat-section-access";
 
 // Datos de la lista de chats (rail navegador). Compartido por el layout (rail de
 // escritorio) y la página índice (lista a pantalla completa en móvil), para no duplicar
@@ -68,7 +69,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     db.chatChannel.findMany({
       where: { type: "GENERAL", isPublic: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, slug: true, section: true },
     }),
     db.user.findMany({ where: { active: true, NOT: { id: session.id } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
@@ -156,7 +157,11 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   const myChannelIds = new Set(myChannels.map((c) => c.id));
-  const explore = publicChannels.filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId).map((c) => ({ id: c.id, name: c.name }));
+  // Un grupo asignado a una SECCIÓN no se ofrece en "Explorar" a quien no tiene acceso a esa sección
+  // (además de que canAccessChannel bloquea el join): ni siquiera se descubre.
+  const explore = publicChannels
+    .filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId && (!c.section || sessionHasSectionAccess(c.section, session)))
+    .map((c) => ({ id: c.id, name: c.name }));
 
   return { marcebot, daily, dms, clientGroups, groups, explore, team };
 }

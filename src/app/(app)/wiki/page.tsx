@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock } from "lucide-react";
 import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
@@ -89,6 +90,7 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
       <p className="mt-1 mb-6 text-sm text-muted-foreground">
         Toda la información de la empresa: procesos, equipo, clientes, inventario y contraseñas.
       </p>
+      <div className="mb-6"><SectionChatCard section="wiki" /></div>
       <WikiTabs />
 
       {/* Accesos rápidos con conteos en vivo */}

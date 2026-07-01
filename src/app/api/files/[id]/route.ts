@@ -22,7 +22,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           channel: {
             select: {
               isPublic: true,
-              project: { select: { leadId: true } },
+              audience: true,
+              section: true,
+              project: { select: { leadId: true, members: { select: { userId: true } } } },
               members: { select: { userId: true } },
             },
           },

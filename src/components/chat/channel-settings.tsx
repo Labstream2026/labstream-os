@@ -5,7 +5,8 @@ import { Globe, Lock, Plus, X, Crown, Trash2, Pencil, Check } from "lucide-react
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel, renameChannel } from "@/app/(app)/chat/actions";
+import { setChannelVisibility, addChannelMember, removeChannelMember, setChannelMemberRole, deleteChannel, renameChannel, assignChannelToSection } from "@/app/(app)/chat/actions";
+import { CHAT_SECTIONS } from "@/lib/chat-section";
 
 type Member = { id: string; name: string; initials: string | null; color: string | null; role?: string };
 
@@ -17,6 +18,7 @@ export function ChannelSettings({
   canManage,
   type = "GENERAL",
   channelName = "",
+  section = null,
 }: {
   channelId: string;
   isPublic: boolean;
@@ -25,18 +27,33 @@ export function ChannelSettings({
   canManage: boolean;
   type?: string;
   channelName?: string;
+  section?: string | null;
 }) {
   const [pending, start] = React.useTransition();
   const [adding, setAdding] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null); // notificación de error (acceso a sección)
   const { confirm, dialog } = useConfirmDialog();
   const memberIds = new Set(members.map((m) => m.id));
   const candidates = team.filter((u) => !memberIds.has(u.id));
+
+  // Añade a alguien al grupo; si el grupo está asignado a una sección y la persona no tiene acceso,
+  // el servidor lo rechaza y mostramos el error.
+  const addMember = (u: Member) => {
+    setAdding(false);
+    setMsg(null);
+    start(async () => {
+      const r = await addChannelMember(channelId, u.id);
+      if (!r.ok) setMsg(r.error ?? "No se pudo añadir.");
+    });
+  };
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5">
       {dialog}
       {/* Renombrar (solo grupos creados en el chat) */}
       {canManage && type === "GENERAL" ? <RenameControl channelId={channelId} initial={channelName} /> : null}
+      {/* Asignar el grupo a una sección/dependencia (Wiki, Biblioteca…). */}
+      {canManage && type === "GENERAL" ? <SectionAssign channelId={channelId} current={section ?? ""} onError={setMsg} /> : null}
       {/* Visibilidad */}
       <button
         disabled={!canManage || pending}
@@ -130,10 +147,7 @@ export function ChannelSettings({
                 candidates.map((u) => (
                   <button
                     key={u.id}
-                    onClick={() => {
-                      start(() => addChannelMember(channelId, u.id));
-                      setAdding(false);
-                    }}
+                    onClick={() => addMember(u)}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
                     <UserAvatar initials={u.initials} color={u.color} size="sm" />
@@ -145,7 +159,46 @@ export function ChannelSettings({
           ) : null}
         </div>
       ) : null}
+
+      {/* Notificación de error (p. ej. añadir a alguien sin acceso a la sección del grupo). */}
+      {msg ? (
+        <span className="order-last inline-flex w-full items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+          <X className="size-3.5" /> {msg}
+        </span>
+      ) : null}
     </div>
+  );
+}
+
+// Asigna el grupo a una sección/dependencia de la app (Wiki, Biblioteca, Reportes, Cotizaciones,
+// Calendario) — o "Ninguna" para desasignarlo. Una sección tiene un grupo a la vez.
+function SectionAssign({ channelId, current, onError }: { channelId: string; current: string; onError: (m: string | null) => void }) {
+  const [pending, start] = React.useTransition();
+  const [value, setValue] = React.useState(current);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">Sección:</span>
+      <select
+        value={value}
+        disabled={pending}
+        onChange={(e) => {
+          const v = e.target.value;
+          setValue(v);
+          onError(null);
+          start(async () => {
+            const r = await assignChannelToSection(channelId, v || null);
+            if (!r.ok) { onError(r.error ?? "No se pudo asignar."); setValue(current); }
+          });
+        }}
+        className="cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+        title="Asignar este grupo a una sección de la app"
+      >
+        <option value="">Ninguna</option>
+        {Object.entries(CHAT_SECTIONS).map(([k, m]) => (
+          <option key={k} value={k}>{m.label}</option>
+        ))}
+      </select>
+    </span>
   );
 }
 

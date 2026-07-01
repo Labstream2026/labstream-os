@@ -9,6 +9,8 @@ import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
 import { mentionsBot, handleBotMention } from "@/lib/openclaw/bridge";
 import { getOrCreateMarcebotDM, isBotDirectChannel } from "@/lib/marcebot/bot";
+import { CHAT_SECTIONS, sectionMeta } from "@/lib/chat-section";
+import { userHasSectionAccess, sessionHasSectionAccess } from "@/lib/chat-section-access";
 
 // ── Crear canales y mensajes directos ──
 
@@ -21,16 +23,28 @@ export async function createChannel(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim().slice(0, 80);
   if (!name) return;
   const isPublic = formData.get("isPublic") !== "false"; // por defecto público
+  // Sección/dependencia opcional a la que se ASIGNA el grupo (wiki, biblioteca…). Solo se asigna si
+  // quien crea tiene acceso a esa sección.
+  const rawSection = String(formData.get("section") ?? "").trim();
+  const section = rawSection && CHAT_SECTIONS[rawSection] && sessionHasSectionAccess(rawSection, session) ? rawSection : null;
   // Miembros marcados al crear un grupo (multiselección). El creador siempre va como ADMIN.
   const picked = [...new Set(formData.getAll("members").map(String).filter((id) => id && id !== session.id))];
-  const valid = picked.length
+  let valid = picked.length
     ? (await db.user.findMany({ where: { id: { in: picked }, active: true }, select: { id: true } })).map((u) => u.id)
     : [];
+  // Si el grupo se asigna a una sección, solo entran los invitados con acceso a esa sección.
+  if (section) {
+    const checked = await Promise.all(valid.map(async (id) => ({ id, ok: await userHasSectionAccess(id, section) })));
+    valid = checked.filter((c) => c.ok).map((c) => c.id);
+    // Una sección tiene UN grupo a la vez: libera el que estuviera asignado.
+    await db.chatChannel.updateMany({ where: { section }, data: { section: null } });
+  }
   const channel = await db.chatChannel.create({
     data: {
       type: "GENERAL",
       name,
       isPublic,
+      section,
       members: {
         create: [
           { userId: session.id, role: "ADMIN" },
@@ -40,7 +54,30 @@ export async function createChannel(formData: FormData) {
     },
   });
   revalidatePath("/chat");
+  if (section) revalidatePath(CHAT_SECTIONS[section].href);
   redirect(`/chat/${channel.id}`);
+}
+
+// Asigna (o quita, con section=null) un GRUPO a una sección/dependencia de la app. Una sección tiene
+// un solo grupo a la vez. No aplica a canales de proyecto/cliente (ya tienen su chat por defecto).
+export async function assignChannelToSection(channelId: string, section: string | null): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!(await userCanManageChannel(channelId, session))) return { ok: false, error: "No autorizado" };
+  const sec = section && CHAT_SECTIONS[section] ? section : null;
+  if (section && !sec) return { ok: false, error: "Sección inválida" };
+  if (sec && !sessionHasSectionAccess(sec, session)) return { ok: false, error: `No tienes acceso a ${CHAT_SECTIONS[sec].label}.` };
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, projectId: true, clientId: true, slug: true, section: true } });
+  if (!channel) return { ok: false, error: "Canal no encontrado" };
+  // Solo GRUPOS creados por el equipo: no canales de proyecto/cliente (ya tienen su chat) ni los de
+  // sistema con slug (general, estados-equipo).
+  if (channel.type !== "GENERAL" || channel.projectId || channel.clientId || channel.slug) return { ok: false, error: "Solo un grupo se puede asignar a una sección." };
+  if (sec) await db.chatChannel.updateMany({ where: { section: sec }, data: { section: null } }); // una sección, un grupo
+  await db.chatChannel.update({ where: { id: channelId }, data: { section: sec } });
+  revalidatePath("/chat");
+  revalidatePath(`/chat/${channelId}`);
+  if (sec) revalidatePath(CHAT_SECTIONS[sec].href);
+  if (channel.section && CHAT_SECTIONS[channel.section]) revalidatePath(CHAT_SECTIONS[channel.section].href);
+  return { ok: true };
 }
 
 // Borra por completo un grupo del chat (canal GENERAL). Arrastra en cascada sus mensajes,
@@ -564,18 +601,21 @@ export async function renameChannel(channelId: string, name: string) {
   revalidatePath(`/chat/${channelId}`);
 }
 
-export async function addChannelMember(channelId: string, userId: string) {
+export async function addChannelMember(channelId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
-  if (!(await userCanManageChannel(channelId, session))) {
-    throw new Error("No autorizado");
+  if (!(await userCanManageChannel(channelId, session))) return { ok: false, error: "No autorizado" };
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true, section: true } });
+  // Grupo asignado a una DEPENDENCIA: solo se pueden añadir personas con acceso a esa sección.
+  if (channel?.section && !(await userHasSectionAccess(userId, channel.section))) {
+    return { ok: false, error: `Esa persona no tiene acceso a ${sectionMeta(channel.section)?.label ?? channel.section}.` };
   }
   await db.channelMember.upsert({
     where: { channelId_userId: { channelId, userId } },
     create: { channelId, userId },
     update: {},
   });
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true } });
   if (channel?.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
+  return { ok: true };
 }
 
 // Promover/degradar a un miembro como channel-admin (gestiona visibilidad/miembros).

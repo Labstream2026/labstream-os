@@ -8,6 +8,7 @@ import { Hash, Lock, Users, Plus, X, ChevronRight, Building2 } from "lucide-reac
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { createChannel, openMarcebotChat } from "./actions";
+import { CHAT_SECTIONS } from "@/lib/chat-section";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
 
@@ -53,6 +54,13 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
           <select name="isPublic" defaultValue="false" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
             <option value="false">Privado (solo invitados)</option>
             <option value="true">Público (todo el equipo)</option>
+          </select>
+          {/* Asignar el grupo a una sección de la app: solo entran/etiquetan personas con acceso a ella. */}
+          <select name="section" defaultValue="" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+            <option value="">Sin sección (grupo normal)</option>
+            {Object.entries(CHAT_SECTIONS).map(([k, m]) => (
+              <option key={k} value={k}>Asignar a {m.label}</option>
+            ))}
           </select>
           <div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Añadir al grupo</p>

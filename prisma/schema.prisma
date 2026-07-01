@@ -853,6 +853,10 @@ model ChatChannel {
   // invitado). Permite DOS canales por proyecto cuando hay un invitado: uno interno y uno con el
   // cliente. null en el resto (generales, DMs, canal del cliente-empresa).
   audience  String?
+  // Sección/dependencia de la app a la que se ASIGNA un grupo (wiki, biblioteca, reportes,
+  // cotizaciones, calendario). Solo grupos GENERAL; una sección tiene un grupo a la vez. Al asignarlo,
+  // solo se pueden añadir/etiquetar personas con acceso a esa sección. null = grupo/canal normal.
+  section   String?
   client    Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String?         @unique // un canal por cliente
   messages  ChatMessage[]

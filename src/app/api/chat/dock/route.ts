@@ -137,7 +137,7 @@ export async function GET(req: Request) {
     if (!channel) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
 
     const canAccess = canAccessChannel(
-      { isPublic: channel.isPublic, audience: channel.audience, project: channel.project, members: channel.members.map((m) => ({ userId: m.userId })) },
+      { isPublic: channel.isPublic, audience: channel.audience, section: channel.section, project: channel.project, members: channel.members.map((m) => ({ userId: m.userId })) },
       session,
     );
     const canManage =
