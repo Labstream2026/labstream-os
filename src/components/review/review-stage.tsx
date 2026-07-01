@@ -107,6 +107,13 @@ export function ReviewStage({
   const [vIdx, setVIdx] = React.useState(0);
   const version = versions[vIdx] ?? versions[0];
   const playerRef = React.useRef<PlayerApi | null>(null);
+  // Capacidades EN VIVO del reproductor (las reporta MediaViewer): si de verdad se puede capturar el
+  // fotograma y/o leer el segundo AHORA. En modo iframe (Drive/Vimeo sin proxy) no se puede, y así la
+  // UI no promete lo que no va a cumplir.
+  const [caps, setCaps] = React.useState({ frame: false, time: false });
+  const captureHint = caps.frame && caps.time
+    ? "el segundo y una captura del fotograma"
+    : caps.time ? "el segundo" : caps.frame ? "una captura del fotograma" : null;
 
   const [name, setName] = React.useState(defaultName);
   const [body, setBody] = React.useState("");
@@ -188,7 +195,7 @@ export function ReviewStage({
   // video (y lo pausa). Así, si el cliente reproduce y luego vuelve a escribir, la captura se
   // actualiza al nuevo punto en vez de quedarse con la inicial.
   const onCommentFocus = () => {
-    if (version?.timecodeCapable) grabTime();
+    if (caps.time) grabTime();
   };
 
   // Comentario anclado a un momento: captura automática del frame + el texto encima.
@@ -290,7 +297,7 @@ export function ReviewStage({
           </div>
         ) : null}
 
-        <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} />
+        <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} />
 
         {version?.notes ? (
           <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
@@ -352,7 +359,11 @@ export function ReviewStage({
         </div>
         <div className="mb-3 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
           {moments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Pausa el video donde quieras y escribe un comentario: se guarda el segundo y una captura del fotograma.</p>
+            <p className="text-sm text-muted-foreground">
+              {captureHint
+                ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
+                : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
+            </p>
           ) : (
             moments.map((c) => (
               <div key={c.id} className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"}`}>
@@ -402,15 +413,15 @@ export function ReviewStage({
           {!fixedName ? (
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           ) : null}
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder="Escribe sobre el video… al comentar se guarda el segundo y la captura del fotograma" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <div className="flex items-center justify-between gap-2">
             {/* El segundo se fija automáticamente: al enfocar el cuadro (se pausa el video)
                 o, si no, en el momento de comentar. Ya no hay botón «Marcar momento». */}
             <span className="text-[11px] text-muted-foreground">
-              {version?.timecodeCapable
+              {captureHint
                 ? tc != null
-                  ? `⏱ Se guardará en ${fmtTime(tc)} + captura del fotograma`
-                  : "⏱ Se guardará el segundo + captura al comentar"
+                  ? `⏱ Se guardará en ${fmtTime(tc)}${caps.frame ? " + captura del fotograma" : ""}`
+                  : `⏱ Se guardará ${captureHint} al comentar`
                 : ""}
             </span>
             <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
@@ -488,12 +499,15 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
   onDrawn: (dataUrl: string | null) => void;
   caption: string;
+  // Reporta al padre si AHORA se puede capturar el fotograma (frame) y/o leer el segundo (time),
+  // según el modo real (proxy same-origin vs iframe cross-origin).
+  onCapabilities?: (c: { frame: boolean; time: boolean }) => void;
   // Orientación del entregable (REEL/SHORT = vertical). El <video> respeta el aspecto real del
   // archivo, pero el IFRAME (visor de Google/YouTube) no tiene aspecto intrínseco: sin esto,
   // un video vertical (9:16) se encajaba en un marco 16:9 y se veía diminuto/mal.
@@ -511,6 +525,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // si solo quiere ver y el master pesado tarda en cargar.
   const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
   const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
+  // Reintentos del video proxiado antes de rendirse al iframe: un error transitorio de arranque del
+  // stream no debe bajar al visor de Google (donde no se captura el fotograma ni el segundo).
+  const proxyRetries = React.useRef(0);
   // Drive arranca reproduciendo el VIDEO ORIGINAL (proxy del mismo origen): así se evita el
   // error «este video se está procesando» del visor de Google (que aparece cuando Google aún
   // no ha transcodificado el master), y de paso permite capturar el fotograma y la barra de
@@ -519,6 +536,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const [captureMode, setCaptureMode] = React.useState(isDriveProxyable);
   React.useEffect(() => {
     setDriveProxyFailed(false);
+    proxyRetries.current = 0;
     setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
   }, [version]);
 
@@ -546,6 +564,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
     version?.kind === "video" || usingProxy ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
   const canCapture = version?.kind === "video" || version?.kind === "image" || usingProxy;
+  // El segundo (timecode) se puede leer en un <video> del mismo origen (subido/proxy) y en YouTube
+  // (vía su IFrame API); NO en el iframe de Drive/Vimeo. Se reporta al padre para no prometer de más.
+  const canTimecode = version?.kind === "video" || usingProxy || version?.kind === "youtube";
+  React.useEffect(() => {
+    onCapabilities?.({ frame: canCapture, time: canTimecode });
+  }, [canCapture, canTimecode, onCapabilities]);
 
   // ── Recuerda la posición de reproducción por video ──
   // Al cambiar de pestaña (o recargar en la misma sesión) el <video> se vuelve a montar y
@@ -556,7 +580,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const posKey = version ? `ui:vpos:${(version.proxySrc || version.src || "").split("?")[0]}` : null;
   const posRestored = React.useRef(false);
   const lastSaveRef = React.useRef(0);
-  React.useEffect(() => { posRestored.current = false; }, [posKey]);
+  // Reinicia la marca de "ya restaurado" cuando cambia el video O cuando (re)entramos en modo
+  // captura: así, si el <video> del mismo origen se re-monta, retoma la posición guardada en vez
+  // de arrancar en 0 (el iframe de Google sí reinicia, pero el proxy no debe).
+  React.useEffect(() => { posRestored.current = false; }, [posKey, usingProxy]);
   const savePos = React.useCallback((force = false) => {
     const v = videoRef.current;
     if (!v || !posKey) return;
@@ -657,7 +684,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const driveToggle = isDriveProxyable && !drawOpen ? (
     <button
       type="button"
-      onClick={() => { setDriveProxyFailed(false); setCaptureMode((m) => !m); }}
+      onClick={() => { setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode((m) => !m); }}
       title={captureMode ? "Volver al reproductor de Google (más rápido)" : "Cargar el video para poder capturar el fotograma"}
       className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white shadow hover:bg-black/85"
     >
@@ -676,9 +703,21 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             src={usingProxy ? version.proxySrc! : version.src}
             controls
             crossOrigin={usingProxy ? undefined : "anonymous"}
-            // Si el video proxiado de Drive falla (archivo pesado/privado), vuelve al visor
-            // de Google en vez de dejar un reproductor roto.
-            onError={() => { if (usingProxy) { setDriveProxyFailed(true); setCaptureMode(false); } }}
+            // Si el video proxiado de Drive falla, REINTENTA una vez (errores transitorios / arranque
+            // del stream) antes de caer al visor de Google —donde no se puede capturar el fotograma ni
+            // el segundo—. Solo tras un fallo real y repetido baja al iframe.
+            onError={() => {
+              if (!usingProxy) return;
+              const v = videoRef.current;
+              if (v && proxyRetries.current < 1) {
+                proxyRetries.current += 1;
+                const s = v.src;
+                v.removeAttribute("src"); v.load();
+                window.setTimeout(() => { if (videoRef.current) { videoRef.current.src = s; videoRef.current.load(); } }, 600);
+                return;
+              }
+              setDriveProxyFailed(true); setCaptureMode(false);
+            }}
             onLoadedMetadata={(e) => { restorePos(); e.currentTarget.playbackRate = rateRef.current; }}
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
             onTimeUpdate={() => savePos()}
@@ -735,7 +774,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             ) : (
               <p>
                 ▶︎ ¿El video no carga o Google dice que «se está procesando»?{" "}
-                <button type="button" onClick={() => { setDriveProxyFailed(false); setCaptureMode(true); }} className="font-medium text-primary hover:underline">
+                <button type="button" onClick={() => { setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode(true); }} className="font-medium text-primary hover:underline">
                   Reproducir el video original
                 </button>.
               </p>
@@ -877,7 +916,12 @@ function composite(
   const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
   const g = cv.getContext("2d"); if (!g) return null;
   let drew = false;
-  if (source && natW) { try { g.drawImage(source, 0, 0, cw, ch); drew = true; } catch { /* CORS */ } }
+  if (source && natW) { try { g.drawImage(source, 0, 0, cw, ch); drew = true; } catch { /* lienzo contaminado por CORS */ } }
+  // Sin fotograma real (fuente ausente, o bloqueada por CORS) y sin texto que mostrar: NO fabricamos
+  // un frame NEGRO con solo los trazos encima (era el bug de la «captura en negro» al anotar sobre el
+  // iframe de Google). Devolvemos null para no guardar una captura sin sentido; el usuario tiene la
+  // opción de pegar/subir una captura del momento para anotarla.
+  if (!drew && !caption) return null;
   if (!drew) { g.fillStyle = "#0f172a"; g.fillRect(0, 0, cw, ch); }
   // Trazos (escalados desde el tamaño del lienzo en pantalla al del canvas final).
   if (strokes.length && box.w && box.h) {
