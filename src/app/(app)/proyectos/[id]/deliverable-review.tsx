@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Check, X, Eye, Link2Off, Link2, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatTimecode } from "@/lib/ui";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, resolveReviewComment, replyToReview } from "./actions";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
@@ -90,12 +91,6 @@ export function ReviewLinkBar({
       ) : null}
     </div>
   );
-}
-
-function fmtTime(s: number) {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 export type ReviewThreadComment = {
@@ -198,7 +193,7 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="text-xs font-medium">{c.authorName}</span>
                               {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                              {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{fmtTime(c.timecode)}</span> : null}
+                              {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{formatTimecode(c.timecode)}</span> : null}
                               {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
                             </div>
                             <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>

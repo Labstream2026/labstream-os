@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
+import { formatTimecode } from "@/lib/ui";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -49,13 +50,16 @@ type PlayerApi = {
   // Captura el fotograma actual (+ caption opcional quemado) en un JPEG; null si la
   // fuente no es del mismo origen (YouTube/Vimeo/Drive sin proxy → CORS).
   capture: (caption?: string) => string | null;
+  // Fija la velocidad de reproducción (0.5×–2×). Aplica al <video> del mismo origen y a
+  // YouTube; noop en imagen y en iframes de Drive/Vimeo (usan su propio control).
+  setRate: (rate: number) => void;
 };
 
-function fmtTime(s: number) {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${String(sec).padStart(2, "0")}`;
-}
+// Velocidades de reproducción ofrecidas en la barra del reproductor.
+const PLAYBACK_RATES = [0.5, 1, 1.25, 1.5, 2] as const;
+const RATE_KEY = "review_rate";
+
+const fmtTime = formatTimecode;
 
 export function ReviewStage({
   versions,
@@ -306,7 +310,7 @@ export function ReviewStage({
         </div>
         {version?.kind === "drive_file" ? (
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            ℹ️ Por defecto se reproduce con el visor de Google (rápido). Para guardar el fotograma al comentar, activa «📸 Modo captura» (carga el video del mismo origen; en masters pesados tarda). Alternativa más ágil: sube un archivo liviano de revisión en «+ Versión».
+            ℹ️ Se reproduce con el visor de Google (streaming fluido, ideal para masters largos de 2–5 h; la velocidad 1.5×/2× está en su engranaje ⚙). Para guardar el fotograma al comentar y usar la barra de velocidad de la app, activa «📸 Modo captura» (carga el video del mismo origen; en masters pesados tarda). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
           </p>
         ) : null}
         {version && (version.kind === "youtube" || version.kind === "vimeo" || version.kind === "drive_folder" || version.kind === "other") ? (
@@ -503,11 +507,33 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   // si solo quiere ver y el master pesado tarda en cargar.
   const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
   const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
-  const [captureMode, setCaptureMode] = React.useState(isDriveProxyable);
+  // Drive arranca con el VISOR DE GOOGLE (streaming fluido, ideal para masters de 2–5 h y con
+  // su propio control de velocidad). El «📸 Modo captura» (video del mismo origen, para
+  // capturar el fotograma y usar la barra de velocidad de la app) es opt-in con un clic.
+  const [captureMode, setCaptureMode] = React.useState(false);
   React.useEffect(() => {
     setDriveProxyFailed(false);
-    setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
+    setCaptureMode(false);
   }, [version]);
+
+  // ── Velocidad de reproducción (0.5×–2×) ── se recuerda entre sesiones y se re-aplica al
+  // (re)cargar el video o al cambiar de versión.
+  const [rate, setRate] = React.useState(1);
+  // Espejo en ref para que callbacks de larga vida (onReady de YouTube, que puede dispararse
+  // al recrearse el iframe) lean SIEMPRE la velocidad actual, no la capturada en el cierre.
+  const rateRef = React.useRef(rate);
+  rateRef.current = rate;
+  React.useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(RATE_KEY));
+      if ((PLAYBACK_RATES as readonly number[]).includes(saved)) setRate(saved);
+    } catch { /* noop */ }
+  }, []);
+  const applyRate = (r: number) => {
+    setRate(r);
+    try { localStorage.setItem(RATE_KEY, String(r)); } catch { /* noop */ }
+    apiRef.current?.setRate(r);
+  };
 
   const usingProxy = isDriveProxyable && captureMode && !driveProxyFailed;
   // Elemento del mismo origen del que SÍ se puede leer el fotograma.
@@ -559,18 +585,22 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
         seek: (t) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.play().catch(() => {}); } },
         pause: () => { videoRef.current?.pause(); },
         capture: cap,
+        setRate: (r) => { if (videoRef.current) videoRef.current.playbackRate = r; },
       };
+      // Re-aplica la velocidad elegida al reconstruirse la API (cambio de versión / captura).
+      if (videoRef.current) videoRef.current.playbackRate = rateRef.current;
     } else if (version.kind === "image") {
-      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: cap };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: cap, setRate: () => {} };
     } else if (version.kind === "youtube") {
       apiRef.current = {
         getTime: () => { try { return ytPlayer.current?.getCurrentTime?.() ?? null; } catch { return null; } },
         seek: (t) => { try { ytPlayer.current?.seekTo?.(t, true); } catch { /* noop */ } },
         pause: () => { try { ytPlayer.current?.pauseVideo?.(); } catch { /* noop */ } },
         capture: () => null,
+        setRate: (r) => { try { ytPlayer.current?.setPlaybackRate?.(r); } catch { /* noop */ } },
       };
     } else {
-      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: () => null };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: () => null, setRate: () => {} };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, apiRef, usingProxy]);
@@ -580,7 +610,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
     if (version?.kind !== "youtube" || !ytRef.current) return;
     let cancelled = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const make = () => { if (!cancelled && (window as any).YT && ytRef.current) ytPlayer.current = new (window as any).YT.Player(ytRef.current); };
+    const make = () => {
+      if (cancelled || !(window as any).YT || !ytRef.current) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ytPlayer.current = new (window as any).YT.Player(ytRef.current, {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        events: { onReady: (e: any) => { try { e.target.setPlaybackRate(rateRef.current); } catch { /* noop */ } } },
+      });
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((window as any).YT?.Player) make();
     else {
@@ -596,6 +633,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       (window as any).onYouTubeIframeAPIReady = () => { prev?.(); make(); };
     }
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
   if (!version || version.kind === "none" || !version.src) {
@@ -609,35 +647,44 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       <span className="text-sm font-medium text-white drop-shadow">{caption.trim()}</span>
     </div>
   ) : null;
-  // Conmutador Drive: ver con Google (rápido) ↔ modo captura (video proxiado).
+  // Conmutador Drive: ver con Google (rápido) ↔ modo captura (video proxiado). Al alternar
+  // se limpia el fallo previo, para poder reintentar el modo captura.
   const driveToggle = isDriveProxyable && !drawOpen ? (
     <button
       type="button"
-      onClick={() => setCaptureMode((m) => !m)}
+      onClick={() => { setDriveProxyFailed(false); setCaptureMode((m) => !m); }}
       title={captureMode ? "Volver al reproductor de Google (más rápido)" : "Cargar el video para poder capturar el fotograma"}
       className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white shadow hover:bg-black/85"
     >
       {captureMode ? "▶︎ Ver con Google" : "📸 Modo captura"}
     </button>
   ) : null;
+  // Barra de velocidad de la app (aplica al <video> del mismo origen y a YouTube).
+  const speedBar = <SpeedBar rate={rate} onRate={applyRate} />;
 
   if (version.kind === "video" || usingProxy) {
     return (
-      <div className="relative mx-auto w-fit max-w-full">
-        <video
-          ref={videoRef}
-          src={usingProxy ? version.proxySrc! : version.src}
-          controls
-          crossOrigin={usingProxy ? undefined : "anonymous"}
-          onError={() => { if (usingProxy) setDriveProxyFailed(true); }}
-          onLoadedMetadata={restorePos}
-          onTimeUpdate={() => savePos()}
-          onPause={() => savePos(true)}
-          className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
-        />
-        {driveToggle}
-        {liveCaption}
-        {overlay}
+      <div>
+        <div className="relative mx-auto w-fit max-w-full">
+          <video
+            ref={videoRef}
+            src={usingProxy ? version.proxySrc! : version.src}
+            controls
+            crossOrigin={usingProxy ? undefined : "anonymous"}
+            // Si el video proxiado de Drive falla (archivo pesado/privado), vuelve al visor
+            // de Google en vez de dejar un reproductor roto.
+            onError={() => { if (usingProxy) { setDriveProxyFailed(true); setCaptureMode(false); } }}
+            onLoadedMetadata={(e) => { restorePos(); e.currentTarget.playbackRate = rateRef.current; }}
+            onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
+            onTimeUpdate={() => savePos()}
+            onPause={() => savePos(true)}
+            className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
+          />
+          {driveToggle}
+          {liveCaption}
+          {overlay}
+        </div>
+        {speedBar}
       </div>
     );
   }
@@ -651,12 +698,45 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
     );
   }
   // YouTube / Vimeo / Drive (iframe). Para Drive, el conmutador permite pasar a modo captura.
+  const isYouTube = version.kind === "youtube";
   return (
-    <div className="relative">
-      <iframe ref={ytRef} src={version.src} className="aspect-video w-full rounded-xl border border-border bg-black" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
-      {driveToggle}
-      {liveCaption}
-      {overlay}
+    <div>
+      <div className="relative">
+        <iframe ref={ytRef} src={version.src} className="aspect-video w-full rounded-xl border border-border bg-black" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
+        {driveToggle}
+        {liveCaption}
+        {overlay}
+      </div>
+      {isYouTube ? (
+        speedBar
+      ) : (
+        // Drive/Vimeo se reproducen en su propio iframe: la velocidad (1.5×, 2×) va en el
+        // engranaje ⚙ de ESE reproductor. Para usar la barra de la app en Drive, activa 📸.
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          ⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor.
+          {driveProxyFailed ? " No se pudo cargar el video para captura (archivo pesado o privado); mostrando el visor de Google." : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Barra compacta de velocidad de reproducción (0.5×–2×) para el reproductor de la app.
+function SpeedBar({ rate, onRate }: { rate: number; onRate: (r: number) => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] font-medium text-muted-foreground">Velocidad</span>
+      {PLAYBACK_RATES.map((r) => (
+        <button
+          key={r}
+          type="button"
+          onClick={() => onRate(r)}
+          aria-pressed={r === rate}
+          className={`rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors ${r === rate ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:bg-accent"}`}
+        >
+          {r}×
+        </button>
+      ))}
     </div>
   );
 }

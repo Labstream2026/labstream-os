@@ -151,6 +151,17 @@ export function deliverableOrientation(type: string | null | undefined): MediaOr
   return type === "REEL" || type === "SHORT" ? "vertical" : "horizontal";
 }
 
+// Segundo de un video → "m:ss" o, para masters largos (≥ 1 h, videos de 2–5 h), "h:mm:ss".
+// Se usa en los timecodes de los comentarios de revisión. Puro: cliente y servidor.
+export function formatTimecode(totalSeconds: number | null | undefined): string {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 export const FILE_KIND_LABEL: Record<string, string> = {
   LOCAL: "Archivo",
   DRIVE: "Google Drive",

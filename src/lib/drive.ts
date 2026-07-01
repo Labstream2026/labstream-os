@@ -58,7 +58,61 @@ function decodeHtml(s: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"');
+    .replace(/&quot;/g, '"')
+    // Entidades numéricas (hex y decimal): los tokens de confirmación de Drive pueden traer
+    // caracteres como '-' o '@' escapados así (&#45;, &#x40;).
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => { const n = parseInt(h, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : m; })
+    .replace(/&#(\d+);/g, (m, d) => { const n = parseInt(d, 10); return n <= 0x10ffff ? String.fromCodePoint(n) : m; });
+}
+
+// Descarga robusta de un archivo de Drive por su id, devolviendo bytes reproducibles.
+// Para archivos GRANDES (masters de varias horas) el endpoint de descarga responde primero
+// una página HTML de confirmación (aviso de antivirus «no se pudo analizar») con un token
+// `confirm`/`uuid`: la parseamos del formulario y reintentamos la descarga real. `&confirm=t`
+// por sí solo NO basta en archivos grandes. Preserva el header Range (seek en videos largos).
+const DRIVE_DL = "https://drive.usercontent.google.com/download";
+
+export async function fetchDriveDownload(id: string, range?: string): Promise<Response> {
+  const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0" };
+  if (range) headers.Range = range;
+  const first = await fetch(`${DRIVE_DL}?id=${encodeURIComponent(id)}&export=download`, { headers, redirect: "follow" });
+  const ctype = first.headers.get("content-type") || "";
+  if (!ctype.includes("text/html")) return first; // ya son bytes (206/200)
+  // Página de confirmación → arma el querystring real del formulario y reintenta.
+  const qs = parseConfirmForm(await first.text(), id);
+  if (!qs) return first; // sin token reconocible: el llamador devolverá 502
+  return fetch(`${DRIVE_DL}?${qs}`, { headers, redirect: "follow" });
+}
+
+// Extrae los inputs ocultos del formulario de confirmación de Drive (id, export, confirm,
+// uuid, at…) y arma el querystring de la descarga real. Se acota al <form id="download-form">
+// para no capturar inputs ajenos; respaldo: busca confirm/uuid sueltos en el HTML.
+function parseConfirmForm(html: string, id: string): string | null {
+  const form = html.match(/<form[^>]*\bid="download-form"[^>]*>([\s\S]*?)<\/form>/i);
+  const scope = form ? form[1] : html;
+  const p = new URLSearchParams();
+  for (const tag of scope.match(/<input\b[^>]*>/gi) ?? []) {
+    const name = tag.match(/\bname="([^"]*)"/i)?.[1];
+    if (!name) continue;
+    p.set(name, decodeHtml(tag.match(/\bvalue="([^"]*)"/i)?.[1] ?? ""));
+  }
+  // El token `confirm` es el crítico. Si el formulario NO lo trae como input (aunque traiga
+  // otros: uuid, at, export…), búscalo suelto en el HTML. Guardar solo por «form sin inputs»
+  // dejaba pasar descargas sin confirm → HTML de nuevo → 502.
+  if (!p.has("confirm")) {
+    const confirm = html.match(/[?&]confirm=([\w-]+)/)?.[1];
+    if (confirm) {
+      p.set("confirm", confirm);
+      if (!p.has("uuid")) {
+        const uuid = html.match(/[?&]uuid=([\w-]+)/)?.[1];
+        if (uuid) p.set("uuid", uuid);
+      }
+    }
+  }
+  if (![...p.keys()].length) return null; // nada aprovechable
+  if (!p.has("id")) p.set("id", id);
+  if (!p.has("export")) p.set("export", "download");
+  return p.toString();
 }
 
 // Adivina el tipo MIME reproducible a partir del nombre de archivo (para servir por el proxy).

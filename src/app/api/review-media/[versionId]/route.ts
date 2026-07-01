@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { verifyReviewMediaToken } from "@/lib/review-token";
-import { resolveDriveMediaFile, guessDriveMime } from "@/lib/drive";
+import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,13 +33,13 @@ export async function GET(
   const media = await resolveDriveMediaFile(version.fileUrl);
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });
 
-  // Endpoint de descarga directa que evita el interstitial de análisis de virus.
-  const driveUrl = `https://drive.usercontent.google.com/download?id=${media.id}&export=download&confirm=t`;
+  // Descarga directa, resolviendo el interstitial de análisis de virus para archivos
+  // grandes (masters de varias horas) y preservando Range para el seek.
   const range = req.headers.get("range") || undefined;
 
   let upstream: Response;
   try {
-    upstream = await fetch(driveUrl, { headers: range ? { Range: range } : {}, redirect: "follow" });
+    upstream = await fetchDriveDownload(media.id, range);
   } catch {
     return new Response("No se pudo contactar con Drive", { status: 502 });
   }
