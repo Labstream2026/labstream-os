@@ -23,6 +23,7 @@ export function ProfileForm({
   eps,
   arl,
   birthDate,
+  isCliente = false,
 }: {
   name: string;
   email: string;
@@ -34,6 +35,9 @@ export function ProfileForm({
   eps?: string | null;
   arl?: string | null;
   birthDate?: string | null; // ISO o ""
+  // El portal cliente (usuario invitado) personaliza su identidad (nombre, iniciales, color,
+  // foto) pero NO ve los datos de colaborador (cédula/EPS/ARL/nacimiento), que son laborales.
+  isCliente?: boolean;
 }) {
   // Fecha de nacimiento en formato YYYY-MM-DD para el input + edad calculada.
   const birthInput = birthDate ? birthDate.slice(0, 10) : "";
@@ -150,7 +154,8 @@ export function ProfileForm({
           </div>
         </div>
 
-        {/* Datos del colaborador */}
+        {/* Datos del colaborador (solo equipo interno; el portal cliente no los usa). */}
+        {!isCliente ? (
         <div className="border-t border-border pt-4">
           <p className="mb-3 text-sm font-semibold">Mis datos</p>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
@@ -172,6 +177,7 @@ export function ProfileForm({
             </label>
           </div>
         </div>
+        ) : null}
 
         {/* Guardar */}
         <div className="flex items-center gap-3 border-t border-border pt-4">

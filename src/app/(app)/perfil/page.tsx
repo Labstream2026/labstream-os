@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
+import { getSession } from "@/lib/auth";
 import { getUserPreference } from "@/lib/user-preference";
 import { getAllUserNotifPrefs } from "@/lib/user-notif-prefs";
 import { ProfileForm } from "./profile-form";
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 export default async function PerfilPage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
+  const session = await getSession();
+  const isCliente = session?.role === "cliente";
   const [prefs, notifPrefs] = await Promise.all([getUserPreference(me.id), getAllUserNotifPrefs(me.id)]);
 
   return (
@@ -30,6 +33,7 @@ export default async function PerfilPage() {
         eps={me.eps}
         arl={me.arl}
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
+        isCliente={isCliente}
       />
       <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} />
       <NotificationPrefsForm prefs={notifPrefs} />

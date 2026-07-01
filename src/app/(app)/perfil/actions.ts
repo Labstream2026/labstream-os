@@ -86,10 +86,13 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
   const birthRaw = String(formData.get("birthDate") ?? "").trim();
   const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(birthRaw) ? new Date(`${birthRaw}T12:00:00.000Z`) : null;
 
+  // El portal cliente no maneja datos laborales (cédula/EPS/ARL/nacimiento) y su formulario no los
+  // muestra: no los tocamos para no borrarlos por accidente si el formulario cambia.
+  const isCliente = session.role === "cliente";
   await db.user.update({
     where: { id: session.id },
     // El nombre solo se actualiza si vino no vacío (el usuario puede ajustarlo/acortarlo).
-    data: { title, initials, avatarColor: color, cedula, eps, arl, birthDate, ...(name ? { name } : {}) },
+    data: { title, initials, avatarColor: color, ...(name ? { name } : {}), ...(isCliente ? {} : { cedula, eps, arl, birthDate }) },
   });
   await resignSession(session.id);
 

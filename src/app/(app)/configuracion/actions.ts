@@ -13,6 +13,7 @@ import { syncAllCalendars } from "@/lib/calendar-sync";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { permissionLabel, ALL_PERMISSION_KEYS } from "@/lib/permissions";
+import { AVATAR_COLORS } from "@/lib/ui";
 
 export type AdminActionResult = { ok: boolean; error?: string };
 
@@ -485,6 +486,19 @@ export async function setUserGender(userId: string, gender: string | null): Prom
   const value = gender === "M" || gender === "F" ? gender : null;
   await db.user.update({ where: { id: userId }, data: { gender: value } });
   revalidatePath("/configuracion");
+  return { ok: true };
+}
+
+// El admin asigna el COLOR de un usuario para identificarlo: tiñe su avatar y sus notificaciones
+// (franja + tinte en la campana). Se valida contra la paleta. revalida "/" para que el avatar y
+// los avisos se repinten donde aparezcan.
+export async function setUserColor(userId: string, color: string): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  if (!Object.keys(AVATAR_COLORS).includes(color)) return { ok: false, error: "Color inválido" };
+  await db.user.update({ where: { id: userId }, data: { avatarColor: color } });
+  revalidatePath("/configuracion");
+  revalidatePath("/");
   return { ok: true };
 }
 

@@ -121,6 +121,10 @@ function canEditTaskMeta(
   // Admin y PRODUCTOR gestionan las tareas de todo el equipo (fechas, hora, prioridad).
   if (session.role === "admin" || session.role === "productor") return true;
   if (task.ownerId === session.id) return true;
+  // Portal cliente = colaborador completo en SU proyecto: con gestionar_cronograma gestiona las
+  // fechas/prioridad de las tareas del proyecto. ensureAccessVia ya validó membresía + permiso
+  // antes de llegar aquí, así que el alcance queda acotado a sus proyectos.
+  if (session.role === "cliente" && hasPermission(session, "gestionar_cronograma")) return true;
   return !!task.project && canManageProject(task.project, session);
 }
 

@@ -18,6 +18,22 @@ export function avatarColor(key?: string | null) {
   return AVATAR_COLORS[key ?? "slate"] ?? AVATAR_COLORS.slate;
 }
 
+// Franja lateral + tinte suave por color de usuario, para PINTAR filas con la identidad de la
+// persona (notificaciones y afines). Clases literales para que Tailwind las detecte al escanear.
+export const AVATAR_TINT: Record<string, { stripe: string; wash: string }> = {
+  indigo: { stripe: "border-indigo-500", wash: "bg-indigo-500/10" },
+  emerald: { stripe: "border-emerald-500", wash: "bg-emerald-500/10" },
+  violet: { stripe: "border-violet-500", wash: "bg-violet-500/10" },
+  cyan: { stripe: "border-cyan-500", wash: "bg-cyan-500/10" },
+  amber: { stripe: "border-amber-500", wash: "bg-amber-500/10" },
+  rose: { stripe: "border-rose-500", wash: "bg-rose-500/10" },
+  orange: { stripe: "border-orange-500", wash: "bg-orange-500/10" },
+  slate: { stripe: "border-slate-400", wash: "bg-slate-400/10" },
+};
+export function avatarTint(key?: string | null) {
+  return AVATAR_TINT[key ?? "slate"] ?? AVATAR_TINT.slate;
+}
+
 // Hex de cada color de avatar (Tailwind 500), para fondos en línea (p. ej. colorear los
 // bloques del calendario por persona, donde se usa style={{ background }} y no clases).
 export const AVATAR_HEX: Record<string, string> = {

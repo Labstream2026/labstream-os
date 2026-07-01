@@ -12,7 +12,7 @@ import { CleanupNamesButton } from "./cleanup-names-button";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
-import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureClienteDefaults, ensureClienteWriteDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
 import { NotificationSettingsPanel } from "./notification-settings-panel";
@@ -67,6 +67,7 @@ export default async function ConfiguracionPage() {
   await ensureNotasDefault();
   await ensureClienteDefaults();
   await ensureClienteWriteDefaults();
+  await ensureClienteCollabDefaults();
 
   const [roles, users, me] = await Promise.all([
     db.role.findMany({
@@ -146,6 +147,7 @@ export default async function ConfiguracionPage() {
                 active={u.active}
                 isGuest={u.isGuest}
                 gender={u.gender}
+                color={u.avatarColor}
                 whatsappPhone={u.whatsappPhone}
                 whatsappCommand={u.whatsappCommand}
                 roles={roleOptions}

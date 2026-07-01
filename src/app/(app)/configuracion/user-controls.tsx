@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Trash2, MessageCircle } from "lucide-react";
-import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, deleteUser } from "./actions";
+import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, setUserColor, deleteUser } from "./actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AVATAR_COLORS } from "@/lib/ui";
+import { cn } from "@/lib/utils";
 
 export function UserControls({
   userId,
@@ -12,6 +14,7 @@ export function UserControls({
   active,
   isGuest,
   gender,
+  color,
   whatsappPhone,
   whatsappCommand,
   roles,
@@ -23,6 +26,7 @@ export function UserControls({
   active: boolean;
   isGuest: boolean;
   gender: string | null;
+  color: string | null;
   whatsappPhone: string | null;
   whatsappCommand: boolean;
   roles: { key: string; name: string }[];
@@ -30,6 +34,7 @@ export function UserControls({
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [col, setCol] = useState(color ?? "slate");
   const { confirm, dialog } = useConfirmDialog();
 
   // Estado local de los campos de WhatsApp (número + permiso de comandar).
@@ -173,6 +178,28 @@ export function UserControls({
         >
           {command ? "Comanda ✓" : "No comanda"}
         </button>
+      </div>
+
+      {/* Color de identificación: tiñe el avatar y las notificaciones de la persona. */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-muted-foreground">Color:</span>
+        <div className="flex items-center gap-1">
+          {Object.keys(AVATAR_COLORS).map((k) => (
+            <button
+              key={k}
+              type="button"
+              disabled={pending}
+              onClick={() => { setCol(k); run(() => setUserColor(userId, k)); }}
+              aria-label={`Color ${k}`}
+              title={k}
+              className={cn(
+                "size-4 rounded-full transition-transform hover:scale-110 disabled:opacity-50",
+                AVATAR_COLORS[k].split(" ")[0],
+                col === k ? "ring-2 ring-offset-1 ring-offset-card ring-foreground/60" : "",
+              )}
+            />
+          ))}
+        </div>
       </div>
 
       {error ? <p className="text-[11px] text-destructive">{error}</p> : null}

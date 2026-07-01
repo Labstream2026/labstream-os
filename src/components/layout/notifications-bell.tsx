@@ -6,6 +6,7 @@ import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Us
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
+import { avatarTint } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { markAllNotificationsRead, markNotificationRead, deleteNotification } from "@/lib/notify-actions";
 import {
@@ -133,6 +134,11 @@ function NotifRow({ n, onPick, onDelete, showActor }: { n: NotificationItem; onP
     if (n.link) router.push(n.link);
   };
 
+  // "Pinta" la fila con el color del usuario que la originó: franja lateral + tinte suave, para
+  // identificar de un vistazo de quién es el aviso. Los avisos del sistema (sin actor) conservan
+  // el fondo neutro y solo marcan «sin leer».
+  const tint = n.actor?.color ? avatarTint(n.actor.color) : null;
+
   return (
     <div className="group/row relative border-b border-border last:border-0">
       {/* Fondo de "borrar" que asoma al deslizar la fila. */}
@@ -151,7 +157,7 @@ function NotifRow({ n, onPick, onDelete, showActor }: { n: NotificationItem; onP
         style={{ transform: `translateX(${dx}px)`, opacity: removing ? 0 : 1, transition: swiping.current ? "none" : "transform .2s ease, opacity .15s ease" }}
         className={cn(
           "relative flex cursor-pointer items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-accent",
-          n.read ? "bg-popover" : "bg-primary/5",
+          tint ? cn("border-l-4", tint.stripe, tint.wash) : n.read ? "bg-popover" : "bg-primary/5",
         )}
       >
         <NotifAvatar n={n} />
@@ -389,9 +395,11 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                   {tab === "sinleer" ? "Estás al día. Sin pendientes. 🎉" : "Sin notificaciones"}
                 </p>
               ) : tab === "persona" ? (
-                personGroups.map((g, i) => (
+                personGroups.map((g, i) => {
+                  const gtint = g.actor?.color ? avatarTint(g.actor.color) : null;
+                  return (
                   <div key={i} className="border-b border-border last:border-0">
-                    <div className="flex items-center gap-2 bg-muted/40 px-4 py-1.5">
+                    <div className={cn("flex items-center gap-2 px-4 py-1.5", gtint ? cn("border-l-4", gtint.stripe, gtint.wash) : "bg-muted/40")}>
                       {g.actor ? (
                         <UserAvatar initials={g.actor.initials} name={g.actor.name} color={g.actor.color} url={g.actor.url} size="sm" />
                       ) : (
@@ -406,7 +414,8 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                       <NotifRow key={n.id} n={n} onPick={onPick} onDelete={deleteOne} showActor={false} />
                     ))}
                   </div>
-                ))
+                  );
+                })
               ) : (
                 buckets.map((bk) => (
                   <div key={bk.label}>

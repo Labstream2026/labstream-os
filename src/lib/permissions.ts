@@ -123,9 +123,11 @@ const LEGACY_KEYS = new Set([
 const CLIENTE_PORTAL_PERMS = [
   "ver_proyectos", "crear_proyectos", "ver_archivos", "subir_archivos",
   "ver_calendario", "comentar", "aprobar_cliente",
-  // El cliente participa activamente en SU proyecto: crea/edita tareas y crea citas en el calendario.
-  // El alcance sigue acotado por membresía + GUEST (no toca entregables internos, equipos ni ajustes).
-  "crear_tareas", "editar_tareas", "gestionar_calendario",
+  // El cliente es COLABORADOR COMPLETO en SU proyecto: crea, edita y borra tareas, gestiona las
+  // fechas del cronograma, crea citas y sube/borra sus archivos. El alcance sigue acotado por
+  // membresía + GUEST (no toca entregables internos, equipos ni ajustes del proyecto).
+  "crear_tareas", "editar_tareas", "eliminar_tareas", "gestionar_cronograma",
+  "gestionar_calendario", "eliminar_archivos",
 ];
 
 // Conjunto sensato de permisos por rol del sistema, para POBLAR los roles con los
@@ -308,6 +310,24 @@ export async function ensureClienteWriteDefaults(): Promise<void> {
   const already = await db.rolePermission.count({ where: { roleId: role.id, permission: { key: "crear_tareas" } } });
   if (already > 0) return;
   const perms = await db.permission.findMany({ where: { key: { in: CLIENTE_WRITE_PERMS } }, select: { id: true } });
+  if (!perms.length) return;
+  await db.rolePermission.createMany({
+    data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
+    skipDuplicates: true,
+  });
+}
+
+// El rol cliente pasó a "colaborador completo" en SU proyecto: además de crear/editar, puede
+// BORRAR tareas, gestionar las FECHAS del cronograma y BORRAR sus archivos. Concede esos permisos
+// la PRIMERA vez (idempotente: si ya tiene eliminar_tareas, asume que corrió). El alcance sigue
+// acotado por membresía + GUEST (no toca entregables internos, equipos ni ajustes del proyecto).
+const CLIENTE_COLLAB_PERMS = ["eliminar_tareas", "gestionar_cronograma", "eliminar_archivos"];
+export async function ensureClienteCollabDefaults(): Promise<void> {
+  const role = await db.role.findUnique({ where: { key: "cliente" }, select: { id: true } });
+  if (!role) return;
+  const already = await db.rolePermission.count({ where: { roleId: role.id, permission: { key: "eliminar_tareas" } } });
+  if (already > 0) return;
+  const perms = await db.permission.findMany({ where: { key: { in: CLIENTE_COLLAB_PERMS } }, select: { id: true } });
   if (!perms.length) return;
   await db.rolePermission.createMany({
     data: perms.map((p) => ({ roleId: role.id, permissionId: p.id })),
