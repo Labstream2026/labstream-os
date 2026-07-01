@@ -137,7 +137,6 @@ function DeliverableCard({ d, canApprove, canComment }: { d: ClientDeliverable; 
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{d.name}</h3>
           <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", st.className)}>{st.label}</span>
-          {d.dueDate ? <span className="text-xs text-muted-foreground">· entrega {new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short" }).format(new Date(d.dueDate))}</span> : null}
         </div>
 
         {/* Acciones */}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { deliverableStatusMeta, DELIVERABLE_TYPE, formatShortDate } from "@/lib/ui";
+import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
 // Un entregable aplanado: trae consigo el proyecto al que pertenece para mostrarlo
@@ -94,7 +94,6 @@ export function ClientDeliverables({ deliverables }: { deliverables: ClientDeliv
                       {" · "}
                       {DELIVERABLE_TYPE[d.type] ?? d.type}
                       {d.versionNumber ? ` · v${d.versionNumber}` : " · sin versión"}
-                      {d.dueDate ? ` · vence ${formatShortDate(d.dueDate)}` : ""}
                     </p>
                   </div>
                   <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-medium", meta.className)}>

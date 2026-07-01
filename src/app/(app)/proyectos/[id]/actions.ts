@@ -14,7 +14,7 @@ import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
-import { deliverableStatusMeta } from "@/lib/ui";
+import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
@@ -896,15 +896,13 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const type = String(formData.get("type") ?? "REEL");
-  const dueRaw = String(formData.get("dueDate") ?? "").trim();
-  const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null;
   // Caducidad opcional del enlace del cliente (si no se indica, no caduca).
   const expRaw = String(formData.get("reviewExpiresAt") ?? "").trim();
   const reviewExpiresAt = expRaw ? new Date(`${expRaw}T23:59:59.000Z`) : null;
   // Responsable de la revisión: solo se acepta si es miembro/responsable del proyecto.
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
-  const d = await db.deliverable.create({ data: { projectId, name, type: isDeliverableType(type) ? type : "REEL", dueDate, reviewExpiresAt, reviewerId, ownerId: session.id } });
+  const d = await db.deliverable.create({ data: { projectId, name, type: isDeliverableType(type) ? type : "REEL", reviewExpiresAt, reviewerId, ownerId: session.id } });
   // El conjunto de co-revisores refleja el revisor primario al crear (luego se pueden añadir más).
   if (reviewerId) await db.deliverableReviewer.create({ data: { deliverableId: d.id, userId: reviewerId } });
   await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
@@ -1115,6 +1113,18 @@ export async function setDeliverableStatus(id: string, _projectId: string, statu
   const projectId = await ensureAccessVia(deliverable, null);
   await db.deliverable.update({ where: { id }, data: { status } });
   await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${deliverableStatusMeta(status).label}`, projectId, entityType: "deliverable", entityId: id });
+  refresh(projectId);
+}
+
+// Formato/tipo de un entregable: EDITABLE después de publicarlo (p. ej. cambiar de vertical a
+// horizontal). El tipo define la orientación de la revisión (ver deliverableOrientation). Se
+// valida contra el enum. Mismo alcance de acceso que cambiar el estado.
+export async function setDeliverableType(id: string, _projectId: string, type: string) {
+  if (!isDeliverableType(type)) throw new Error("Tipo inválido");
+  const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(deliverable, null);
+  await db.deliverable.update({ where: { id }, data: { type } });
+  await logActivity({ action: "deliverable.type", summary: `cambió el formato del entregable «${deliverable!.name}» a ${DELIVERABLE_TYPE[type] ?? type}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
 }
 

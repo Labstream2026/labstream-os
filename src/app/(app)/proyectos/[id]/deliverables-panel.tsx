@@ -16,7 +16,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, addDeliverableVersion, setDeliverableDueDate, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
+import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -82,6 +82,8 @@ type Deliverable = {
 };
 
 const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({ value, label: m.label }));
+// Formatos editables después de publicar (vertical / horizontal / foto…): mismas opciones que al crear.
+const TYPE_OPTIONS = Object.entries(DELIVERABLE_TYPE).map(([value, label]) => ({ value, label }));
 
 const PICK_META: Record<string, { label: string; cls: string }> = {
   ME_GUSTA: { label: "♥ Le gusta", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
@@ -237,10 +239,6 @@ export function DeliverablesPanel({
             Caduca el enlace (opcional)
             <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
           </label>
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Fecha de entrega
-            <input name="dueDate" type="date" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
-          </label>
           <SubmitButton pendingText="Subiendo…" className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
         </div>
         <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
@@ -273,8 +271,6 @@ export function DeliverablesPanel({
                     <ClipboardCheck className="size-3.5" /> Revisar
                   </Link>
                 ) : null}
-                <span className="text-[11px] text-muted-foreground">🏁 Entrega</span>
-                <DateInput name="dueDate" value={toDateInputValue(d.dueDate)} action={setDeliverableDueDate.bind(null, d.id, projectId)} title="Fecha de entrega" />
                 <StatusSelect value={d.status} options={STATUS_OPTIONS} action={setDeliverableStatus.bind(null, d.id, projectId)} className={cn("border-0", deliverableStatusMeta(d.status).className)} />
                 {canManage ? (
                   <form action={deleteDeliverable.bind(null, d.id, projectId)}>
@@ -299,9 +295,15 @@ export function DeliverablesPanel({
             {/* Portada del reel (no aplica a galerías de fotos, que tienen su propia cuadrícula) */}
             {!isPhoto ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
 
-            {/* Responsable de la revisión + caducidad del enlace (editable por el responsable) */}
+            {/* Formato + responsable de la revisión + caducidad del enlace (editable por el responsable) */}
             {canManage ? (
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Formato:</span>
+                  {/* Se puede cambiar DESPUÉS de publicar (vertical / horizontal / foto). Define la
+                      orientación de la revisión. */}
+                  <StatusSelect value={d.type} options={TYPE_OPTIONS} action={setDeliverableType.bind(null, d.id, projectId)} />
+                </span>
                 <span className="flex items-center gap-1.5">
                   <span className="text-muted-foreground">Revisores (pre-aprueban):</span>
                   <ReviewersPicker deliverableId={d.id} projectId={projectId} members={members} value={d.reviewerIds} />
