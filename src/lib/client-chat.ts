@@ -1,8 +1,11 @@
 import { db } from "@/lib/db";
 
-// Canal de chat de un cliente: reúne a TODOS los que trabajan en cualquiera de
-// sus proyectos (responsables + miembros). La membresía se sincroniza cada vez
-// que se abre el chat, así siempre refleja quién está en los proyectos del cliente.
+// Canal de chat de un cliente/empresa (vista del EQUIPO): reúne a TODOS los del equipo que trabajan
+// en cualquiera de sus proyectos (responsables + miembros) MÁS los que estén ligados directamente al
+// cliente (ClientMember). Es un canal interno del equipo para coordinar la cuenta: NO incluye a los
+// usuarios del PORTAL CLIENTE (esos hablan con el equipo en el canal "con el cliente" de cada
+// proyecto). La membresía se sincroniza cada vez que se abre, así siempre refleja quién está en la
+// cuenta sin gestión manual.
 export async function getOrCreateClientChannel(clientId: string): Promise<string | null> {
   const client = await db.client.findUnique({ where: { id: clientId }, select: { id: true, name: true } });
   if (!client) return null;
@@ -15,16 +18,24 @@ export async function getOrCreateClientChannel(clientId: string): Promise<string
     });
   }
 
-  // Unión de responsables + miembros de todos los proyectos del cliente.
-  const projects = await db.project.findMany({
-    where: { clientId },
-    select: { leadId: true, members: { select: { userId: true } } },
-  });
-  const userIds = new Set<string>();
+  // Unión de: responsables + miembros de todos los proyectos del cliente, y los ligados al cliente
+  // (ClientMember). Se EXCLUYE a los usuarios del portal (rol cliente): este canal es del equipo.
+  const [projects, clientMembers] = await Promise.all([
+    db.project.findMany({ where: { clientId }, select: { leadId: true, members: { select: { userId: true } } } }),
+    db.clientMember.findMany({ where: { clientId }, select: { userId: true } }),
+  ]);
+  const candidateIds = new Set<string>();
   for (const p of projects) {
-    if (p.leadId) userIds.add(p.leadId);
-    for (const m of p.members) userIds.add(m.userId);
+    if (p.leadId) candidateIds.add(p.leadId);
+    for (const m of p.members) candidateIds.add(m.userId);
   }
+  for (const m of clientMembers) candidateIds.add(m.userId);
+
+  // Filtra fuera a los usuarios del portal cliente (no participan en el canal interno del equipo).
+  const clientePortal = new Set(
+    (await db.user.findMany({ where: { id: { in: [...candidateIds] }, role: { key: "cliente" } }, select: { id: true } })).map((u) => u.id),
+  );
+  const userIds = new Set([...candidateIds].filter((id) => !clientePortal.has(id)));
 
   // Sincroniza la membresía del canal a esa unión exacta.
   const current = await db.channelMember.findMany({ where: { channelId: channel.id }, select: { userId: true } });

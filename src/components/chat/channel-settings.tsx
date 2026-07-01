@@ -35,6 +35,10 @@ export function ChannelSettings({
   const { confirm, dialog } = useConfirmDialog();
   const memberIds = new Set(members.map((m) => m.id));
   const candidates = team.filter((u) => !memberIds.has(u.id));
+  // Canales de PROYECTO/CLIENTE: la membresía se DERIVA del equipo del proyecto/cliente (estar en el
+  // proyecto ES estar en el chat). No se invita ni se saca a mano, y son siempre privados a ese
+  // equipo. Se muestran los miembros de solo lectura, sin controles de invitar/quitar/visibilidad.
+  const autoMembers = type === "PROJECT" || type === "CLIENT";
 
   // Añade a alguien al grupo; si el grupo está asignado a una sección y la persona no tiene acceso,
   // el servidor lo rechaza y mostramos el error.
@@ -54,22 +58,28 @@ export function ChannelSettings({
       {canManage && type === "GENERAL" ? <RenameControl channelId={channelId} initial={channelName} /> : null}
       {/* Asignar el grupo a una sección/dependencia (Wiki, Biblioteca…). */}
       {canManage && type === "GENERAL" ? <SectionAssign channelId={channelId} current={section ?? ""} onError={setMsg} /> : null}
-      {/* Visibilidad */}
-      <button
-        disabled={!canManage || pending}
-        onClick={() => start(() => setChannelVisibility(channelId, !isPublic))}
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-          isPublic
-            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-            : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-          (!canManage || pending) && "opacity-70",
-        )}
-        title={canManage ? "Cambiar visibilidad" : undefined}
-      >
-        {isPublic ? <Globe className="size-3.5" /> : <Lock className="size-3.5" />}
-        {isPublic ? "Público para el equipo" : "Privado · solo invitados"}
-      </button>
+      {/* Visibilidad (los canales de proyecto/cliente son siempre privados a su equipo, no editable) */}
+      {autoMembers ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+          <Lock className="size-3.5" /> Privado · equipo del proyecto
+        </span>
+      ) : (
+        <button
+          disabled={!canManage || pending}
+          onClick={() => start(() => setChannelVisibility(channelId, !isPublic))}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+            isPublic
+              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+            (!canManage || pending) && "opacity-70",
+          )}
+          title={canManage ? "Cambiar visibilidad" : undefined}
+        >
+          {isPublic ? <Globe className="size-3.5" /> : <Lock className="size-3.5" />}
+          {isPublic ? "Público para el equipo" : "Privado · solo invitados"}
+        </button>
+      )}
 
       <span className="text-xs text-muted-foreground">·</span>
 
@@ -88,7 +98,7 @@ export function ChannelSettings({
               {m.role === "ADMIN" ? (
                 <Crown className="absolute -left-1 -top-1.5 size-3 text-amber-500" />
               ) : null}
-              {canManage ? (
+              {canManage && !autoMembers ? (
                 <>
                   <button
                     onClick={() => start(() => setChannelMemberRole(channelId, m.id, m.role !== "ADMIN"))}
@@ -110,9 +120,16 @@ export function ChannelSettings({
           ))}
         </div>
         <span className="text-xs text-muted-foreground">
-          {members.length === 0 ? "Sin invitados" : `${members.length} invitado${members.length === 1 ? "" : "s"}`}
+          {autoMembers
+            ? members.length === 0 ? "Sin miembros" : `${members.length} del equipo`
+            : members.length === 0 ? "Sin invitados" : `${members.length} invitado${members.length === 1 ? "" : "s"}`}
         </span>
       </div>
+
+      {/* Los canales de proyecto/cliente siguen al equipo: se aclara que no se invita a mano. */}
+      {autoMembers ? (
+        <span className="text-xs text-muted-foreground">· Los miembros siguen al equipo del proyecto</span>
+      ) : null}
 
       {/* Borrar grupo (solo canales generales; los de proyecto/cliente se borran con su entidad) */}
       {canManage && type === "GENERAL" ? (
@@ -130,8 +147,8 @@ export function ChannelSettings({
         </button>
       ) : null}
 
-      {/* Añadir miembro */}
-      {canManage ? (
+      {/* Añadir miembro (no en canales de proyecto/cliente: su membresía sigue al equipo) */}
+      {canManage && !autoMembers ? (
         <div className="relative ml-auto">
           <button
             onClick={() => setAdding((v) => !v)}

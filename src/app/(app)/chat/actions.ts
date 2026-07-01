@@ -148,6 +148,10 @@ export async function openMarcebotChat() {
 export async function joinChannel(channelId: string) {
   const session = await getSession();
   if (!session || !(await userCanAccessChannel(channelId, session))) throw new Error("No autorizado");
+  // Los canales de PROYECTO/CLIENTE no se unen a mano: su membresía la deriva ensureProjectChannels
+  // del equipo del proyecto. Unirse crearía una fila que la siguiente sincronización quitaría.
+  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
+  if (ch?.type === "PROJECT" || ch?.type === "CLIENT") return;
   await db.channelMember.upsert({
     where: { channelId_userId: { channelId, userId: session.id } },
     create: { channelId, userId: session.id },
@@ -159,6 +163,10 @@ export async function joinChannel(channelId: string) {
 export async function leaveChannel(channelId: string) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  // Igual que al unirse: no se sale a mano de un canal de proyecto/cliente (se sale saliendo del
+  // proyecto). Evita que un miembro —incluido el cliente— se quite su propia fila del canal.
+  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
+  if (ch?.type === "PROJECT" || ch?.type === "CLIENT") return;
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }

@@ -75,6 +75,11 @@ export async function handleBotMention(channelId: string, userId: string, parent
     // responde). Se resuelve el rol por el userId que disparó la mención.
     const invoker = await db.user.findUnique({ where: { id: userId }, select: { role: { select: { key: true } } } });
     if (invoker?.role?.key === "cliente") return;
+    // El chat CON EL CLIENTE (audience "CLIENT") es solo entre el equipo del proyecto y el cliente:
+    // el asistente interno NO habla ahí aunque un miembro del equipo lo @mencione (evita que el bot
+    // interno responda delante del cliente). Se corta de raíz para todos los que escriben.
+    const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { audience: true } });
+    if (ch?.audience === "CLIENT") return;
     const bot = await ensureMarcebot();
     publishTyping(channelId, bot.id, MARCEBOT_NAME);
 

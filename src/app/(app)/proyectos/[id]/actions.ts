@@ -1775,8 +1775,9 @@ export async function addProjectMember(projectId: string, userId: string, role: 
     update: { role: finalRole },
   });
   await logActivity({ action: "member.add", summary: `añadió a ${target.name ?? "un miembro"} como ${finalRole}`, projectId, entityType: "member", entityId: userId });
-  // Al invitar a un CLIENTE se activa el chat "con el cliente" del proyecto (además del interno).
-  if (target.role?.key === "cliente") await ensureProjectChannels(projectId);
+  // Estar en el proyecto ES estar en su chat: sincroniza la membresía de los canales (interno y, si
+  // hay invitado, el "con el cliente"). Al invitar a un CLIENTE se crea además el canal con el cliente.
+  await ensureProjectChannels(projectId);
   refresh(projectId);
 }
 
@@ -1789,6 +1790,8 @@ export async function removeProjectMember(projectId: string, userId: string) {
     });
   const member = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
   await logActivity({ action: "member.remove", summary: `quitó a ${member?.name ?? "un miembro"} del proyecto`, projectId, entityType: "member", entityId: userId });
+  // Al salir del proyecto también sale del chat: re-sincroniza la membresía de los canales.
+  await ensureProjectChannels(projectId);
   refresh(projectId);
 }
 

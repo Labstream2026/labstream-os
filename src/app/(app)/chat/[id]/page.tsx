@@ -108,9 +108,17 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
             <Lock className="size-5 shrink-0 text-amber-600" />
           )}
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
-          {isMember ? <MuteToggle channelId={id} muted={channel.members.find((m) => m.user.id === session.id)?.muted ?? false} /> : null}
-          {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
-          {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
+          {/* Canales de proyecto/cliente: la membresía sigue al equipo del proyecto, no se une/sale a mano. */}
+          {(() => {
+            const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT";
+            return (
+              <>
+                {isMember ? <MuteToggle channelId={id} muted={channel.members.find((m) => m.user.id === session.id)?.muted ?? false} /> : null}
+                {!isDM && !isAuto && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
+                {!isDM && !isAuto && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
+              </>
+            );
+          })()}
         </div>
 
         {/* Pestañas Interno / Con el cliente (solo el equipo; el invitado ve solo su chat). */}
@@ -159,9 +167,11 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
             const botIds = new Set(bots.map((b) => b.id));
-            // El PORTAL CLIENTE solo ve/menciona al EQUIPO de SU proyecto (no toda la empresa ni al
-            // bot interno). Se acota a los miembros/responsable del proyecto de ESTE canal.
-            if (session.role === "cliente") {
+            // El chat CON EL CLIENTE (audience "CLIENT") "solo habla con el equipo del proyecto": la
+            // lista de menciones se acota al responsable + miembros de ESTE proyecto (equipo + el
+            // invitado), sin toda la empresa ni el bot interno (Marcebot). Igual para el PORTAL
+            // CLIENTE, que solo alcanza este canal.
+            if (session.role === "cliente" || channel.audience === "CLIENT") {
               const allowed = new Set<string>([channel.project?.leadId, ...(channel.project?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
               return team.filter((t) => allowed.has(t.id) && !botIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
             }
