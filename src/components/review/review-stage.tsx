@@ -522,7 +522,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   // Espejo en ref para que callbacks de larga vida (onReady de YouTube, que puede dispararse
   // al recrearse el iframe) lean SIEMPRE la velocidad actual, no la capturada en el cierre.
   const rateRef = React.useRef(rate);
-  rateRef.current = rate;
+  React.useEffect(() => { rateRef.current = rate; }, [rate]);
   React.useEffect(() => {
     try {
       const saved = Number(localStorage.getItem(RATE_KEY));
@@ -609,8 +609,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
   React.useEffect(() => {
     if (version?.kind !== "youtube" || !ytRef.current) return;
     let cancelled = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const make = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (cancelled || !(window as any).YT || !ytRef.current) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ytPlayer.current = new (window as any).YT.Player(ytRef.current, {
@@ -633,7 +633,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption }: {
       (window as any).onYouTubeIframeAPIReady = () => { prev?.(); make(); };
     }
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
   if (!version || version.kind === "none" || !version.src) {
