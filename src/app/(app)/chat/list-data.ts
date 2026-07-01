@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
+import { ensureProjectChannels } from "@/lib/project-chat";
 
 // Datos de la lista de chats (rail navegador). Compartido por el layout (rail de
 // escritorio) y la página índice (lista a pantalla completa en móvil), para no duplicar
@@ -163,8 +164,14 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
 // Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
 // con el equipo), agrupados por su cliente. Sin canales públicos, DMs, explorar ni lista del equipo.
 async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
+  // Asegura el canal CON EL CLIENTE en cada proyecto del invitado (incluye los que ya existían
+  // antes de esta función). Solo crea lo que falte.
+  const myProjects = await db.projectMember.findMany({ where: { userId: session.id }, select: { projectId: true } });
+  await Promise.all(myProjects.map((m) => ensureProjectChannels(m.projectId)));
+
   const channels = await db.chatChannel.findMany({
-    where: { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+    // El invitado SOLO ve el canal "CLIENT" (con el cliente); nunca el interno del equipo.
+    where: { type: "PROJECT", audience: "CLIENT", project: { members: { some: { userId: session.id } } } },
     orderBy: { createdAt: "desc" },
     include: {
       members: { select: { userId: true } },

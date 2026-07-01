@@ -68,6 +68,7 @@ export async function instantiateTemplate(
   await db.chatChannel.create({
     data: {
       type: "PROJECT",
+      audience: "INTERNAL", // canal del EQUIPO; el canal con el cliente se crea al invitar a uno
       name: opts.name,
       projectId: project.id,
       isPublic: false,

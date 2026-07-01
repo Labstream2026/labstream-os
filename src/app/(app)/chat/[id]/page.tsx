@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { cn } from "@/lib/utils";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
+import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
 import { MuteToggle } from "@/components/chat/mute-toggle";
@@ -10,7 +12,7 @@ import { MARCEBOT_EMAIL, MARCEBOT_NAME } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, ChevronLeft } from "lucide-react";
+import { Hash, Lock, ChevronLeft, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +53,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   if (!channel) notFound();
 
   // Acceso: público → equipo; privado → admin/responsable/miembro.
-  if (!canAccessChannel({ isPublic: channel.isPublic, project: channel.project, members: channel.members }, session)) {
+  if (!canAccessChannel({ isPublic: channel.isPublic, audience: channel.audience, project: channel.project, members: channel.members }, session)) {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-8 py-24 text-center">
         <Lock className="size-7 text-muted-foreground" />
@@ -75,6 +77,16 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   // Match robusto: por bandera de sistema, por email canónico o por nombre, para que aparezca
   // aunque el registro de prod no tenga `isSystemBot` puesto o use otro email.
   const bots = await db.user.findMany({ where: { OR: [{ isSystemBot: true }, { email: MARCEBOT_EMAIL }, { name: MARCEBOT_NAME }] }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
+
+  // Pestañas de audiencia: en un canal de PROYECTO con dos audiencias (interno del equipo + con el
+  // cliente), el EQUIPO ve pestañas para saltar entre ambos. El invitado no las ve (solo alcanza el
+  // canal "con el cliente"). ensureProjectChannels crea el canal con el cliente si hay un invitado.
+  let audienceTabs: { id: string; audience: string | null }[] = [];
+  if (channel.type === "PROJECT" && channel.projectId && session.role !== "cliente") {
+    await ensureProjectChannels(channel.projectId);
+    const chans = await db.chatChannel.findMany({ where: { projectId: channel.projectId, type: "PROJECT" }, select: { id: true, audience: true } });
+    if (chans.length > 1) audienceTabs = chans.sort((a, b) => (a.audience === "INTERNAL" ? -1 : 1));
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -100,6 +112,29 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           {!isDM && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
           {!isDM && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
         </div>
+
+        {/* Pestañas Interno / Con el cliente (solo el equipo; el invitado ve solo su chat). */}
+        {audienceTabs.length > 1 ? (
+          <div className="mt-2 flex gap-1">
+            {audienceTabs.map((t) => {
+              const active = t.id === id;
+              const isClient = t.audience === "CLIENT";
+              return (
+                <Link
+                  key={t.id}
+                  href={`/chat/${t.id}`}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
+                  )}
+                >
+                  {isClient ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
+                  {isClient ? "Con el cliente" : "Interno"}
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
 
         {canManage ? (
           <div className="mt-2">

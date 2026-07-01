@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 export function canAccessChannel(
   channel: {
     isPublic: boolean;
+    audience?: string | null;
     project?: { leadId: string | null; members?: { userId: string }[] } | null;
     members: { userId: string }[];
   },
@@ -15,11 +16,11 @@ export function canAccessChannel(
 ): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
-  // PORTAL DEL CLIENTE: entra al chat de SU proyecto (para hablar con el equipo), pero SOLO a ese —
-  // el canal de proyecto donde es miembro/responsable. Nada de canales públicos, DMs ni otros
-  // proyectos (por eso NO cae al `isPublic` de abajo). Un canal de proyecto tiene `channel.project`.
+  // PORTAL DEL CLIENTE: entra SOLO al canal CON EL CLIENTE (audience "CLIENT") de SU proyecto. El
+  // canal INTERNO del equipo (misma proyecto, audience "INTERNAL") queda fuera de su alcance, igual
+  // que públicos, DMs y otros proyectos (por eso NO cae al `isPublic` de abajo).
   if (session.role === "cliente") {
-    return !!channel.project && (channel.project.leadId === session.id || (channel.project.members?.some((m) => m.userId === session.id) ?? false));
+    return channel.audience === "CLIENT" && !!channel.project && (channel.project.leadId === session.id || (channel.project.members?.some((m) => m.userId === session.id) ?? false));
   }
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;
@@ -38,6 +39,7 @@ export async function userCanAccessChannel(
     where: { id: channelId },
     select: {
       isPublic: true,
+      audience: true,
       project: { select: { leadId: true, members: { select: { userId: true } } } },
       members: { select: { userId: true } },
     },

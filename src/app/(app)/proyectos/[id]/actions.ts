@@ -16,6 +16,7 @@ import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { validateAssignee } from "@/lib/task-assign";
+import { ensureProjectChannels } from "@/lib/project-chat";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
@@ -1774,6 +1775,8 @@ export async function addProjectMember(projectId: string, userId: string, role: 
     update: { role: finalRole },
   });
   await logActivity({ action: "member.add", summary: `añadió a ${target.name ?? "un miembro"} como ${finalRole}`, projectId, entityType: "member", entityId: userId });
+  // Al invitar a un CLIENTE se activa el chat "con el cliente" del proyecto (además del interno).
+  if (target.role?.key === "cliente") await ensureProjectChannels(projectId);
   refresh(projectId);
 }
 

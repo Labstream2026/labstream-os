@@ -528,7 +528,7 @@ model Project {
   deliverables Deliverable[]
   folders      ProjectFolder[]
   files        FileAsset[]
-  channel      ChatChannel?
+  channels     ChatChannel[] // interno (solo equipo) + con el cliente (cuando hay invitado)
   events       CalendarEvent[]
   tables       DataTable[]
   members      ProjectMember[]
@@ -848,13 +848,19 @@ model ChatChannel {
   slug      String?         @unique // canales generales: "general", "estados-equipo"
   isPublic  Boolean         @default(true) // público a todo el equipo o solo a invitados
   project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId String?         @unique // un canal por proyecto
+  projectId String?         // un canal por proyecto y audiencia (ver @@unique)
+  // Audiencia de un canal de PROYECTO: "INTERNAL" (solo el equipo) o "CLIENT" (equipo + el cliente
+  // invitado). Permite DOS canales por proyecto cuando hay un invitado: uno interno y uno con el
+  // cliente. null en el resto (generales, DMs, canal del cliente-empresa).
+  audience  String?
   client    Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String?         @unique // un canal por cliente
   messages  ChatMessage[]
   members   ChannelMember[]
   polls     Poll[]
   createdAt DateTime        @default(now())
+
+  @@unique([projectId, audience])
 }
 
 // Rol dentro de un canal (estilo Mattermost): ADMIN gestiona el canal

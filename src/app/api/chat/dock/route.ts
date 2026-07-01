@@ -124,18 +124,20 @@ export async function GET(req: Request) {
   }
 
   // ── Canal de proyecto ────────────────────────────────────────────
+  // El dock es del EQUIPO (el cliente ya salió arriba): sirve el canal INTERNO del proyecto (no el
+  // canal con el cliente). `audience: not CLIENT` cubre también canales heredados (audience null).
   if (projectId) {
     const channel = await db.chatChannel.findFirst({
-      where: { projectId },
+      where: { projectId, audience: { not: "CLIENT" } },
       include: {
-        project: { select: { leadId: true } },
+        project: { select: { leadId: true, members: { select: { userId: true } } } },
         members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
       },
     });
     if (!channel) return NextResponse.json({ channel: null, canAccess: false, messages: [] });
 
     const canAccess = canAccessChannel(
-      { isPublic: channel.isPublic, project: channel.project, members: channel.members.map((m) => ({ userId: m.userId })) },
+      { isPublic: channel.isPublic, audience: channel.audience, project: channel.project, members: channel.members.map((m) => ({ userId: m.userId })) },
       session,
     );
     const canManage =
