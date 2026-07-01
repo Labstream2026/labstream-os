@@ -28,11 +28,12 @@ export function BottomNav({
   const pathname = usePathname();
   const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
 
-  // El portal del cliente solo navega entre SUS proyectos y el calendario (sin Inicio/Tareas/Chat).
+  // El portal del cliente navega entre SUS proyectos, el calendario y el chat de su proyecto.
   const links = isCliente
     ? [
         { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
         { href: "/calendario", label: "Calendario", icon: CalendarDays, match: (p: string) => p.startsWith("/calendario") },
+        { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },
       ]
     : [
         { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },

@@ -68,7 +68,7 @@ export async function createMyTask(formData: FormData) {
   if (!session) throw new Error("No autorizado");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
-  const assigneeId = String(formData.get("assigneeId") ?? "") || session.id;
+  let assigneeId = String(formData.get("assigneeId") ?? "") || session.id;
   const priority = String(formData.get("priority") ?? "MEDIA");
   const isPrivate = formData.get("isPrivate") === "on" || formData.get("isPrivate") === "true";
   // Toda tarea lleva inicio y fin: el formulario los exige. Si no llegan (automatismos/API),
@@ -79,9 +79,13 @@ export async function createMyTask(formData: FormData) {
   const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
   const description = String(formData.get("description") ?? "").trim() || null;
 
-  if (assigneeId !== session.id) {
-    const target = await db.user.findUnique({ where: { id: assigneeId }, select: { active: true } });
-    if (!target?.active) throw new Error("Usuario inválido");
+  // El PORTAL CLIENTE solo se crea tareas personales para SÍ MISMO (no asigna a otros). Para el
+  // resto, el responsable debe existir, estar activo y NO ser un usuario del portal cliente.
+  if (session.role === "cliente") {
+    assigneeId = session.id;
+  } else if (assigneeId !== session.id) {
+    const target = await db.user.findUnique({ where: { id: assigneeId }, select: { active: true, role: { select: { key: true } } } });
+    if (!target?.active || target.role?.key === "cliente") throw new Error("Usuario inválido");
   }
 
   const task = await db.task.create({

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canWriteProject } from "@/lib/project-access";
+import { validateAssignee } from "@/lib/task-assign";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
 import { dayUTC } from "@/lib/equipos";
@@ -124,11 +125,9 @@ export async function togglePacked(reservationId: string, packed: boolean) {
 // ── Asignar responsable (crea/actualiza una tarea espejo en "Mis tareas" + avisa) ──
 export async function setPlanAssignee(planId: string, assigneeId: string) {
   const { session, plan } = await ensurePlanWrite(planId);
-  const newId = assigneeId || null;
-  if (newId) {
-    const u = await db.user.findUnique({ where: { id: newId }, select: { active: true } });
-    if (!u?.active) throw new Error("Usuario inválido");
-  }
+  // El responsable debe ser del EQUIPO (nunca un cliente): la tarea espejo en "Mis tareas" no puede
+  // quedar asignada a un usuario del portal cliente.
+  const newId = await validateAssignee(plan.projectId, assigneeId || null, session);
   await db.equipmentPlan.update({ where: { id: planId }, data: { assigneeId: newId } });
 
   if (newId) {

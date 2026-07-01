@@ -143,7 +143,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
       isAdmin={session.role === "admin"}
       isCliente={session.role === "cliente"}
-      dockTeam={dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+      dockTeam={session.role === "cliente" ? [] : dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
       reviewPending={reviewPending}
       initialSidebarCollapsed={prefs.sidebarCollapsed}

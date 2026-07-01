@@ -3,6 +3,7 @@ import type { SessionUser } from "@/lib/session";
 import { getLiveAuthState } from "@/lib/permissions";
 import { hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere, canWriteProject, canAccessProject } from "@/lib/project-access";
+import { validateAssignee } from "@/lib/task-assign";
 import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { readBuffer } from "@/lib/storage";
@@ -794,7 +795,10 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (str(args.assignee)) {
         const u = await resolveUser(session, args.assignee);
         if (!u) return `No encontré a la persona "${str(args.assignee)}".`;
-        assigneeId = u.id;
+        // El responsable debe ser del equipo (nunca un cliente); si quien pide es un cliente, solo
+        // su equipo del proyecto. (El cliente además no llega aquí: no comanda a Marcebot.)
+        assigneeId = await validateAssignee(projectId, u.id, session);
+        if (!assigneeId) return `No puedo asignarle la tarea a "${u.name}".`;
       }
       const priority = await validPriority(args.priority);
       // Toda tarea lleva inicio y fin (def. hoy si no se indica).
@@ -837,7 +841,10 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (str(args.assignee)) {
         const u = await resolveUser(session, args.assignee);
         if (!u) return `No encontré a la persona "${str(args.assignee)}".`;
-        assigneeId = u.id;
+        // El responsable debe ser del equipo (nunca un cliente); si quien pide es un cliente, solo
+        // su equipo del proyecto. (El cliente además no llega aquí: no comanda a Marcebot.)
+        assigneeId = await validateAssignee(projectId, u.id, session);
+        if (!assigneeId) return `No puedo asignarle la tarea a "${u.name}".`;
       }
       const interval = Math.max(1, num(args.interval) ?? 1);
       const weekdays = frequency === "WEEKLY" ? parseWeekdays(args.weekdays) : null;

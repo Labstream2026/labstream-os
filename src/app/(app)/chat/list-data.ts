@@ -37,6 +37,9 @@ export type ChatListData = {
 };
 
 export async function getChatListData(session: SessionUser): Promise<ChatListData> {
+  // El PORTAL DEL CLIENTE solo ve el chat de SU(S) proyecto(s): nada de canales públicos, DMs,
+  // explorar ni la lista de personas del equipo (serían fugas). Se resuelve aparte.
+  if (session.role === "cliente") return getClienteChatList(session);
   const isAdmin = session.role === "admin";
   // El rail muestra: canales donde soy miembro (DMs, grupos, chats a los que me uní) Y, además,
   // los chats de PROYECTO/CLIENTE que PUEDO ver aunque no me hayan invitado al canal: admin ve
@@ -155,4 +158,50 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const explore = publicChannels.filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId).map((c) => ({ id: c.id, name: c.name }));
 
   return { marcebot, daily, dms, clientGroups, groups, explore, team };
+}
+
+// Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
+// con el equipo), agrupados por su cliente. Sin canales públicos, DMs, explorar ni lista del equipo.
+async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
+  const channels = await db.chatChannel.findMany({
+    where: { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      members: { select: { userId: true } },
+      project: { select: { client: { select: { id: true, name: true, emoji: true } } } },
+    },
+  });
+  const unreadRows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
+    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
+    FROM "ChatMessage" m
+    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${session.id}
+    WHERE m."parentId" IS NULL
+      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
+      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
+    GROUP BY m."channelId"
+  `;
+  const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
+
+  const clientMap = new Map<string, ChatClientGroup>();
+  const groups: ChatListRow[] = [];
+  for (const c of channels) {
+    const row: ChatListRow = { id: c.id, name: c.name, initials: null, color: null, isPublic: c.isPublic, isDM: false, unread: unread.get(c.id) ?? 0, meta: `${c.members.length} miembros` };
+    const client = c.project?.client ?? null;
+    if (!client) { groups.push(row); continue; }
+    let g = clientMap.get(client.id);
+    if (!g) { g = { clientId: client.id, clientName: client.name, emoji: client.emoji, channels: [], unread: 0 }; clientMap.set(client.id, g); }
+    g.channels.push(row);
+    g.unread += row.unread;
+  }
+  const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
+
+  return {
+    marcebot: { channelId: null, unread: 0 },
+    daily: { channelId: null, name: "Chat del día", unread: 0 },
+    dms: [],
+    clientGroups,
+    groups,
+    explore: [],
+    team: [],
+  };
 }

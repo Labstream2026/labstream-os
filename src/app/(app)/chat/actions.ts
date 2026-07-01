@@ -66,6 +66,8 @@ export async function deleteChannel(channelId: string) {
 export async function openDirectMessage(otherUserId: string) {
   const session = await getSession();
   if (!session) throw new Error("No autorizado");
+  // El portal cliente solo usa el chat de SU proyecto: no abre DMs con personas del equipo.
+  if (session.role === "cliente") throw new Error("No autorizado");
   if (otherUserId === session.id) return;
   const other = await db.user.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, active: true, isSystemBot: true } });
   if (!other?.active) throw new Error("Usuario inválido");

@@ -68,6 +68,13 @@ async function postBotMessage(bot: BotUser, channelId: string, body: string, par
 export async function handleBotMention(channelId: string, userId: string, parentId: string | null = null, messageId: string | null = null): Promise<void> {
   try {
     if (!(await getOpenClawConfig())) return; // integración apagada → silencio
+    // El PORTAL DEL CLIENTE no comanda a Marcebot: es el asistente INTERNO (consulta clientes,
+    // cotizaciones, facturas, wiki/contraseñas, archivos de todo el equipo, envía mensajes al
+    // equipo, crea/asigna tareas…). Ahora que el cliente entra al chat de su proyecto, podría
+    // @mencionarlo; este guard corta TODO ese acceso de un solo lugar (el bot simplemente no le
+    // responde). Se resuelve el rol por el userId que disparó la mención.
+    const invoker = await db.user.findUnique({ where: { id: userId }, select: { role: { select: { key: true } } } });
+    if (invoker?.role?.key === "cliente") return;
     const bot = await ensureMarcebot();
     publishTyping(channelId, bot.id, MARCEBOT_NAME);
 

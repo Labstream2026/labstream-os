@@ -122,8 +122,14 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
-            // Bots primero (Marcebot arriba en el @), sin repetir si también saliera en el equipo.
             const botIds = new Set(bots.map((b) => b.id));
+            // El PORTAL CLIENTE solo ve/menciona al EQUIPO de SU proyecto (no toda la empresa ni al
+            // bot interno). Se acota a los miembros/responsable del proyecto de ESTE canal.
+            if (session.role === "cliente") {
+              const allowed = new Set<string>([channel.project?.leadId, ...(channel.project?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
+              return team.filter((t) => allowed.has(t.id) && !botIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
+            }
+            // Bots primero (Marcebot arriba en el @), sin repetir si también saliera en el equipo.
             return [...bots, ...team.filter((t) => !botIds.has(t.id))].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
           })()}
           initialMessages={[...channel.messages].reverse().map((m) => ({

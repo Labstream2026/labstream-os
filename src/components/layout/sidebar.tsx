@@ -60,7 +60,8 @@ const NAV = [
 ];
 
 // Superficies internas que el portal del cliente NO ve (solo ve sus proyectos y el calendario).
-const CLIENTE_HIDDEN_NAV = new Set(["/", "/mis-tareas", "/notas", "/chat", "/revisiones"]);
+// El cliente SÍ ve Chats (solo el de su proyecto; el rail se acota en getChatListData).
+const CLIENTE_HIDDEN_NAV = new Set(["/", "/mis-tareas", "/notas", "/revisiones"]);
 
 export function Sidebar({
   user,

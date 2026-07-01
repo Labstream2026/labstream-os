@@ -15,6 +15,7 @@ import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
+import { validateAssignee } from "@/lib/task-assign";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
@@ -130,10 +131,10 @@ function canEditTaskMeta(
 
 // ── Tareas ──
 export async function createTask(projectId: string, formData: FormData) {
-  await ensureProjectAccess(projectId, "crear_tareas");
+  const session = await ensureProjectAccess(projectId, "crear_tareas");
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
-  const assigneeId = String(formData.get("assigneeId") ?? "") || null;
+  const assigneeId = await validateAssignee(projectId, String(formData.get("assigneeId") ?? "") || null, session);
   const priority = String(formData.get("priority") ?? "MEDIA");
   const stage = String(formData.get("stage") ?? "").trim() || null; // fase/columna del tablero
   // Toda tarea lleva inicio y fin: el formulario los exige. Si por alguna vía no llegan
@@ -146,7 +147,6 @@ export async function createTask(projectId: string, formData: FormData) {
   // Hora de finalización OBLIGATORIA al crear: si no llega una válida, por defecto 9:00 am.
   const dueTimeRaw = String(formData.get("dueTime") ?? "").trim();
   const dueTime = /^\d{1,2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "09:00";
-  const session = await getSession();
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
     data: {
@@ -239,11 +239,9 @@ export async function setTaskAssignee(taskId: string, _projectId: string, assign
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   const session = await getSession();
-  const newId = assigneeId || null;
-  if (newId) {
-    const target = await db.user.findUnique({ where: { id: newId }, select: { active: true } });
-    if (!target?.active) throw new Error("Usuario inválido");
-  }
+  // El responsable debe ser del equipo (nunca un cliente); si quien reasigna es un cliente, solo a
+  // personas de su proyecto. validateAssignee ya exige que esté activo.
+  const newId = await validateAssignee(projectId, assigneeId || null, session);
   const prevId = task!.assigneeId ?? null;
   if (prevId === newId) return;
   await db.task.update({ where: { id: taskId }, data: { assigneeId: newId, assignedById: session?.id ?? null } });
@@ -467,11 +465,12 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
   const newDueTime = newDue ? (/^\d{1,2}:\d{2}$/.test(tRaw) ? tRaw : "09:00") : null;
   const newDesc = descRaw.trim() ? descRaw : null;
 
-  // El responsable elegido debe existir y estar activo.
+  // El responsable elegido debe existir, estar activo y ser del EQUIPO (nunca un usuario del portal
+  // cliente: los clientes no son responsables de tareas).
   let newName: string | null = null;
   if (newAssigneeId) {
-    const u = await db.user.findUnique({ where: { id: newAssigneeId }, select: { name: true, active: true } });
-    if (!u?.active) return { ok: false, error: "El responsable elegido no es válido." };
+    const u = await db.user.findUnique({ where: { id: newAssigneeId }, select: { name: true, active: true, role: { select: { key: true } } } });
+    if (!u?.active || u.role?.key === "cliente") return { ok: false, error: "El responsable elegido no es válido." };
     newName = u.name;
   }
 

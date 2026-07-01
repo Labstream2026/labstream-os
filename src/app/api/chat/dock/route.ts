@@ -71,6 +71,10 @@ function shape(messages: RawMessage[], myVotes: Map<string, string>) {
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "unauth" }, { status: 401 });
+  // El PORTAL CLIENTE no usa el dock de chat del equipo (DMs / canales de cliente). Su único chat
+  // es el de SU proyecto, vía /chat. Sin este guard, un cliente podía crear/abrir un DM con
+  // cualquier persona del equipo llamando directo a ?dm=<id>.
+  if (session.role === "cliente") return NextResponse.json({ channel: null, canAccess: false, messages: [] });
   // El admin ve los mensajes borrados (en gris) para seguimiento; los demás no.
   const adminAll = session.role === "admin";
   const msgWhere = (channelId: string) => ({ channelId, ...(adminAll ? {} : { deletedAt: null }) });

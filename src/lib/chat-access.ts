@@ -15,9 +15,12 @@ export function canAccessChannel(
 ): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
-  // El PORTAL DEL CLIENTE no usa el chat del equipo (es interno). Aunque sea miembro GUEST de su
-  // proyecto, no entra al canal del proyecto ni a los públicos. La barra lo oculta; esto lo impone.
-  if (session.role === "cliente") return false;
+  // PORTAL DEL CLIENTE: entra al chat de SU proyecto (para hablar con el equipo), pero SOLO a ese —
+  // el canal de proyecto donde es miembro/responsable. Nada de canales públicos, DMs ni otros
+  // proyectos (por eso NO cae al `isPublic` de abajo). Un canal de proyecto tiene `channel.project`.
+  if (session.role === "cliente") {
+    return !!channel.project && (channel.project.leadId === session.id || (channel.project.members?.some((m) => m.userId === session.id) ?? false));
+  }
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;
   if (channel.project?.members?.some((m) => m.userId === session.id)) return true;

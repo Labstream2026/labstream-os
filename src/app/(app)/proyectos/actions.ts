@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { instantiateTemplate } from "@/lib/provisioning";
+import { validateAssignee } from "@/lib/task-assign";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
 
@@ -63,7 +64,9 @@ export async function createProject(formData: FormData) {
     if (!a.taskTitle || (!a.assigneeId && !a.dueDate)) continue;
     const task = await db.task.findFirst({ where: { projectId: project.id, title: a.taskTitle }, select: { id: true } });
     if (!task) continue;
-    const assigneeId = a.assigneeId || null;
+    // El responsable del wizard debe ser del equipo (nunca un cliente; si quien crea es un cliente,
+    // solo su equipo del proyecto). Evita que un cliente asigne tareas a cualquiera al crear proyecto.
+    const assigneeId = await validateAssignee(project.id, a.assigneeId || null, session);
     const dueDate = a.dueDate ? new Date(`${a.dueDate}T12:00:00.000Z`) : null;
     await db.task.update({
       where: { id: task.id },

@@ -130,6 +130,12 @@ export default async function ProyectoPage({
   const isCliente = session?.role === "cliente";
   const canUploadFiles = canWriteProject(project, session) || (isCliente && hasPermission(session, "subir_archivos"));
 
+  // Posibles RESPONSABLES de una tarea: SIEMPRE del equipo (nunca usuarios del portal cliente).
+  // Para el portal cliente, además solo su equipo del proyecto (no la lista completa de la empresa).
+  const teamForTasks = team.filter(
+    (t) => t.role?.key !== "cliente" && (!isCliente || t.id === project.leadId || project.members.some((m) => m.userId === t.id)),
+  );
+
   // Acceso al proyecto: público → equipo con ver_proyectos; privado → responsable/miembros/admin.
   if (!canAccessProject(project, session)) {
     return (
@@ -457,13 +463,13 @@ export default async function ProyectoPage({
                       key: "tablero",
                       label: "Tablero",
                       icon: "🗂️",
-                      node: <TasksBoard projectId={id} team={team} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
+                      node: <TasksBoard projectId={id} team={teamForTasks} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                     },
                     {
                       key: "lista",
                       label: "Lista",
                       icon: "☰",
-                      node: <TasksList projectId={id} team={team} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
+                      node: <TasksList projectId={id} team={teamForTasks} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                     },
                   ]}
                 />
