@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ListChecks, LayoutGrid, MessageSquare, CalendarDays, Menu } from "lucide-react";
+import { Home, Inbox, ListChecks, LayoutGrid, MessageSquare, CalendarDays, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
@@ -31,6 +31,7 @@ export function BottomNav({
   // El portal del cliente navega entre SUS proyectos, el calendario y el chat de su proyecto.
   const links = isCliente
     ? [
+        { href: "/mis-entregas", label: "Entregas", icon: Inbox, match: (p: string) => p.startsWith("/mis-entregas") },
         { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
         { href: "/calendario", label: "Calendario", icon: CalendarDays, match: (p: string) => p.startsWith("/calendario") },
         { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },

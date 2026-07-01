@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
+  Inbox,
   ListChecks,
   MessagesSquare,
   LayoutGrid,
@@ -49,7 +50,9 @@ export type SidebarClient = {
   projects: SidebarProject[];
 };
 
-const NAV = [
+const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; clienteOnly?: boolean }[] = [
+  // Solo el portal del cliente: su sala de entregas es lo primero que ve.
+  { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, clienteOnly: true },
   { href: "/", label: "Inicio", icon: Home },
   { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
   { href: "/notas", label: "Notas", icon: StickyNote },
@@ -205,6 +208,8 @@ export function Sidebar({
         {NAV.map((item) => {
           if (item.href === "/calendario" && !canCalendar) return null;
           if (item.href === "/timeline" && !canTimeline) return null;
+          // "Mis entregas" es exclusivo del portal del cliente; al equipo no le aparece.
+          if (item.clienteOnly && !isCliente) return null;
           // El portal del cliente solo ve sus proyectos y el calendario: ocultamos las superficies
           // internas (Inicio, Mis tareas, Notas, Chats, Proyectos a revisar).
           if (isCliente && CLIENTE_HIDDEN_NAV.has(item.href)) return null;
@@ -214,7 +219,7 @@ export function Sidebar({
           let label = item.label;
           if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; }
           const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
-          const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : pathname === href;
+          const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : item.href === "/mis-entregas" ? pathname.startsWith("/mis-entregas") : pathname === href;
           return navRow(href, label, item.icon, active, badge);
         })}
       </nav>
