@@ -20,6 +20,7 @@ import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
+import { DeliverableRenditions } from "./deliverable-renditions";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -302,6 +303,9 @@ export function DeliverablesPanel({
 
             {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
             {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}
+
+            {/* Archivos finales por formato (centro de descargas del cliente) */}
+            {canManage ? <DeliverableRenditions deliverableId={d.id} /> : null}
 
             {/* Formato + responsable de la revisión + caducidad del enlace (editable por el responsable) */}
             {canManage ? (

@@ -37,6 +37,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       // servidor por este enlace público. La bandeja interna /revisiones los muestra todos.
       reviewComments: { where: { fromClient: true }, orderBy: { createdAt: "asc" } },
       photos: { orderBy: { position: "asc" } },
+      // Archivos finales por formato (centro de descargas del cliente).
+      renditions: { orderBy: { position: "asc" }, select: { id: true, format: true, label: true, url: true } },
     },
   });
   if (!deliverable) return <PublicLinkInvalid />;
@@ -150,6 +152,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             coverStatus={coverStatus}
             coverDecisionBy={coverDecisionBy}
             coverDecisionNote={coverDecisionNote}
+            renditions={deliverable.renditions}
             downloadUrl={downloadUrl}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,

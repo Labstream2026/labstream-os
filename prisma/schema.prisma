@@ -1443,6 +1443,7 @@ model Deliverable {
   tasks     Task[]
   reviewComments ReviewComment[]
   decisions DeliverableDecision[]
+  renditions DeliverableRendition[]
   // Enlace de revisión del cliente: único por entregable, con visitas y revocación.
   reviewVisits        Int       @default(0)
   reviewRevokedAt     DateTime? // si está puesto, el portal del cliente queda inválido
@@ -1604,6 +1605,22 @@ model DeliverableDecision {
   createdAt     DateTime       @default(now())
 
   @@index([deliverableId, createdAt])
+}
+
+// Archivo final ENTREGABLE por FORMATO (Instagram Reel, TikTok, YouTube Shorts, web, streaming…).
+// Es el "centro de descargas" que ve el cliente cuando la pieza está lista: cada formato apunta a
+// un enlace de descarga (Drive/URL, o la URL de un archivo del NAS). Lo gestiona el equipo.
+model DeliverableRendition {
+  id            String      @id @default(cuid())
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  deliverableId String
+  format        String // clave del formato: INSTAGRAM_REEL | TIKTOK | YT_SHORTS | WEB | STREAMING | OTRO
+  label         String? // etiqueta visible opcional (p. ej. "1080×1920")
+  url           String // enlace de descarga (Drive / URL directa / archivo del NAS)
+  position      Int         @default(0)
+  createdAt     DateTime    @default(now())
+
+  @@index([deliverableId])
 }
 
 // ─────────────────────────────────────────────

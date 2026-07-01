@@ -5,6 +5,7 @@ import { Copy, Check, CheckCircle2, Loader2 } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
 import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
+import { DownloadCenter, type Rendition } from "./download-center";
 
 // Wrapper del portal PÚBLICO del cliente sobre el escenario de revisión compartido.
 // Antes de entrar, un recibimiento de marca pide el nombre UNA sola vez (se recuerda en
@@ -215,6 +216,7 @@ export function ReviewClient({
   coverStatus = null,
   coverDecisionBy = null,
   coverDecisionNote = null,
+  renditions = [],
   downloadUrl,
 }: {
   token: string;
@@ -238,6 +240,8 @@ export function ReviewClient({
   coverStatus?: "PENDIENTE" | "APROBADA" | "CAMBIOS" | null;
   coverDecisionBy?: string | null;
   coverDecisionNote?: string | null;
+  // Archivos finales por formato (centro de descargas del cliente).
+  renditions?: Rendition[];
   downloadUrl: string | null;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
@@ -336,6 +340,7 @@ export function ReviewClient({
         />
       ) : null}
       <ContentPanel copy={copy} hashtags={hashtags} />
+      <DownloadCenter renditions={renditions} />
       {modal ? (
         <DecisionModal
           state={modal}
