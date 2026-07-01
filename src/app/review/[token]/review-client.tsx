@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Copy, Check } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
 import { addReviewComment, setReviewDecision } from "./actions";
@@ -24,6 +25,72 @@ type ModalState =
   | { phase: "done"; result: Outcome }
   | { phase: "error"; result: Outcome; message: string };
 
+// Botón de "copiar al portapapeles" con confirmación breve.
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1800); } catch { /* sin portapapeles */ }
+      }}
+      className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      {done ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+      {done ? "Copiado" : label}
+    </button>
+  );
+}
+
+// Panel de contenido de publicación: portada + texto/caption + hashtags, con copiar. Lo llena el
+// equipo (Fase B); si no hay nada, no se muestra.
+function ContentPanel({ copy, hashtags, coverSrc }: { copy: string | null; hashtags: string | null; coverSrc: string | null }) {
+  const hasCopy = !!copy && copy.trim() !== "";
+  const hasTags = !!hashtags && hashtags.trim() !== "";
+  if (!hasCopy && !hasTags && !coverSrc) return null;
+  const tags = hasTags
+    ? hashtags!.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`))
+    : [];
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="border-b border-border px-4 py-2.5">
+        <h2 className="text-sm font-semibold">Contenido para publicar</h2>
+        <p className="text-xs text-muted-foreground">El texto y los hashtags listos para tu publicación.</p>
+      </div>
+      <div className="grid gap-4 p-4 sm:grid-cols-[6rem_1fr]">
+        {coverSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverSrc} alt="Portada" className="h-40 w-full rounded-lg border border-border object-cover sm:h-32 sm:w-24" />
+        ) : null}
+        <div className="min-w-0 space-y-4">
+          {hasCopy ? (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Texto / caption</span>
+                <CopyButton text={copy!} label="Copiar texto" />
+              </div>
+              <p className="whitespace-pre-wrap rounded-lg bg-muted/50 px-3 py-2 text-sm leading-relaxed">{copy}</p>
+            </div>
+          ) : null}
+          {hasTags ? (
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Hashtags</span>
+                <CopyButton text={tags.join(" ")} label="Copiar hashtags" />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((t, i) => (
+                  <span key={i} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{t}</span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ReviewClient({
   token,
   versions,
@@ -36,6 +103,9 @@ export function ReviewClient({
   projectEmoji,
   clientName,
   sessionName = null,
+  copy = null,
+  hashtags = null,
+  coverSrc = null,
   downloadUrl,
 }: {
   token: string;
@@ -51,6 +121,10 @@ export function ReviewClient({
   // Nombre de la sesión (usuario invitado de la app): si viene, saltamos la bienvenida y no
   // le pedimos el nombre; los visitantes por enlace público (sin sesión) sí pasan por ella.
   sessionName?: string | null;
+  // Contenido de publicación que el cliente ve y copia junto al video (lo edita el equipo).
+  copy?: string | null;
+  hashtags?: string | null;
+  coverSrc?: string | null;
   downloadUrl: string | null;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
@@ -138,6 +212,7 @@ export function ReviewClient({
         onComment={(fd) => addReviewComment(token, fd)}
         onDecisionIntent={onDecisionIntent}
       />
+      <ContentPanel copy={copy} hashtags={hashtags} coverSrc={coverSrc} />
       {modal ? (
         <DecisionModal
           state={modal}

@@ -18,6 +18,7 @@ import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
+import { DeliverableContentEditor } from "./deliverable-content-editor";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -294,6 +295,9 @@ export function DeliverablesPanel({
 
             {/* Portada del reel (no aplica a galerías de fotos, que tienen su propia cuadrícula) */}
             {!isPhoto ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
+
+            {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
+            {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}
 
             {/* Formato + responsable de la revisión + caducidad del enlace (editable por el responsable) */}
             {canManage ? (

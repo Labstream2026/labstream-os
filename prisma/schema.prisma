@@ -1439,6 +1439,10 @@ model Deliverable {
   // Caducidad opcional del enlace del cliente. NULL = sin caducidad (no expira).
   reviewExpiresAt     DateTime?
   reviewAllowDrawings Boolean   @default(false) // habilita el modo dibujos/anotación
+  // Contenido de publicación que acompaña a la pieza: el texto/caption listo para pegar y los
+  // hashtags. Lo edita el equipo y el cliente lo ve (y copia) en su sala de revisión.
+  copy      String?
+  hashtags  String?
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 

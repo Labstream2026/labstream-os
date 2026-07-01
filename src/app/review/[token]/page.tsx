@@ -77,6 +77,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // visualización se calculan en el servidor (token de archivo para las locales, Drive para enlaces).
   const isPhoto = deliverable.type === "FOTOGRAFIA";
   const photos = deliverable.photos.map((p) => ({ id: p.id, filename: p.filename, src: photoViewSrc(p), pick: p.pick, clientNote: p.clientNote }));
+  // Portada + contenido de publicación (caption/hashtags) que el cliente ve y copia junto al video.
+  const coverSrc = deliverable.coverFileAssetId ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null }) : null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -136,6 +138,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             projectEmoji={deliverable.project.emoji}
             clientName={deliverable.project.client?.name ?? null}
             sessionName={sessionName}
+            copy={deliverable.copy}
+            hashtags={deliverable.hashtags}
+            coverSrc={coverSrc}
             downloadUrl={downloadUrl}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,
