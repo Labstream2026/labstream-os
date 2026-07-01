@@ -40,8 +40,8 @@ export default async function HomePage() {
   if (!me) redirect("/login");
   const session = await getSession();
 
-  // El portal del cliente no tiene Inicio: entra directo a sus proyectos.
-  if (session?.role === "cliente") redirect("/proyectos");
+  // El portal del cliente no tiene Inicio: entra directo a su sala de entregas.
+  if (session?.role === "cliente") redirect("/mis-entregas");
 
   // Admin: el Inicio muestra las tareas de TODO el equipo (no solo las propias).
   const isAdmin = hasPermission(session, "administrar_usuarios");
