@@ -35,6 +35,7 @@ export function ReviewClient({
   projectName,
   projectEmoji,
   clientName,
+  sessionName = null,
   downloadUrl,
 }: {
   token: string;
@@ -47,6 +48,9 @@ export function ReviewClient({
   projectName: string;
   projectEmoji: string | null;
   clientName: string | null;
+  // Nombre de la sesión (usuario invitado de la app): si viene, saltamos la bienvenida y no
+  // le pedimos el nombre; los visitantes por enlace público (sin sesión) sí pasan por ella.
+  sessionName?: string | null;
   downloadUrl: string | null;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
@@ -56,10 +60,16 @@ export function ReviewClient({
   const [pending, start] = React.useTransition();
 
   React.useEffect(() => {
+    // Usuario invitado con sesión: entramos directo con su nombre, sin recibimiento.
+    if (sessionName && sessionName.trim()) {
+      setName(sessionName.trim());
+      setEntered(true);
+      return;
+    }
     const saved = (localStorage.getItem(NAME_KEY) || "").trim();
     setName(saved);
     if (saved) setEntered(true);
-  }, []);
+  }, [sessionName]);
 
   function enter(e: React.FormEvent) {
     e.preventDefault();
@@ -111,7 +121,9 @@ export function ReviewClient({
         <span className="text-muted-foreground">
           Revisando como <span className="font-medium text-foreground">{name}</span>
         </span>
-        <button onClick={changeName} className="text-xs font-medium text-primary hover:underline">Cambiar</button>
+        {sessionName ? null : (
+          <button onClick={changeName} className="text-xs font-medium text-primary hover:underline">Cambiar</button>
+        )}
       </div>
       <ReviewStage
         mode="client"

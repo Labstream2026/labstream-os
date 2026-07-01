@@ -1,4 +1,7 @@
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
 import { verifyReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
@@ -7,6 +10,14 @@ import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
 import { PhotoGallery } from "./photo-gallery";
+
+// Estado con la voz del cliente (no la etiqueta interna del equipo) para la cabecera de la sala.
+const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
+  ENVIADO_CLIENTE: { label: "Para tu revisión", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" },
+  CORRECCIONES: { label: "Cambios enviados", className: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300" },
+  APROBADO: { label: "Aprobado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
+  ENTREGADO: { label: "Entregado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
+};
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,6 +62,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // Compuerta bloqueante: el cliente solo ve versiones aprobadas internamente.
   const approved = deliverable.versions.filter((v) => v.internalApproved);
   const meta = deliverableStatusMeta(deliverable.status);
+  const statusPill = CLIENT_STATUS[deliverable.status] ?? meta;
+  // Si quien visita tiene sesión de cliente (usuario invitado de la app), le ofrecemos volver a
+  // su sala y le evitamos el paso de "¿cómo te llamas?" (ya sabemos quién es).
+  const session = await getSession();
+  const backHref = session?.role === "cliente" ? "/mis-entregas" : null;
+  const sessionName = session?.role === "cliente" ? session.name : null;
 
   const versions = await buildStageVersions(approved);
   // Enlace de descarga al aprobar: la fuente de la última versión aprobada (Drive o archivo).
@@ -65,6 +82,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     <div className="min-h-screen bg-muted/30">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
+          {backHref ? (
+            <Link
+              href={backHref}
+              title="Volver a tus entregas"
+              aria-label="Volver a tus entregas"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+          ) : null}
           <Logo className="h-6" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{deliverable.name}</p>
@@ -73,7 +100,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               {deliverable.project.client ? ` · ${deliverable.project.client.name}` : ""}
             </p>
           </div>
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${statusPill.className}`}>{statusPill.label}</span>
         </div>
       </header>
 
@@ -108,6 +135,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             projectName={deliverable.project.name}
             projectEmoji={deliverable.project.emoji}
             clientName={deliverable.project.client?.name ?? null}
+            sessionName={sessionName}
             downloadUrl={downloadUrl}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,
