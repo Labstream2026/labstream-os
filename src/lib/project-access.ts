@@ -1,6 +1,15 @@
 import type { SessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
 
+// Roles con acceso TOTAL a proyectos y clientes (como los admins): el productor coordina la
+// producción, así que ve todos los clientes/proyectos y puede gestionarlos (añadir colaboradores,
+// ajustes). Se centraliza aquí para que las 5 funciones de acceso lo traten igual.
+const FULL_ACCESS_ROLES = new Set(["admin", "productor"]);
+function hasFullAccess(session: SessionUser | null): boolean {
+  return !!session && FULL_ACCESS_ROLES.has(session.role);
+}
+export { hasFullAccess };
+
 type ProjectShape = {
   isPrivate: boolean;
   leadId: string | null;
@@ -15,7 +24,7 @@ type ProjectShape = {
 // Público → todo el equipo con permiso ver_proyectos. Privado → admin, responsable o miembro.
 export function canAccessProject(project: ProjectShape, session: SessionUser | null): boolean {
   if (!session) return false;
-  if (session.role === "admin") return true;
+  if (hasFullAccess(session)) return true; // admin y productor ven todos los proyectos
   if (project.leadId === session.id) return true;
   if (project.members.some((m) => m.userId === session.id)) return true;
   // Responsable del CLIENTE (productor asignado a la cuenta) ve todos los proyectos de su cliente.
@@ -41,7 +50,7 @@ export function canWriteProject(project: ProjectShape, session: SessionUser | nu
 // proyecto o un miembro con rol OWNER.
 export function canManageProject(project: ProjectShape, session: SessionUser | null): boolean {
   if (!session) return false;
-  if (session.role === "admin") return true;
+  if (hasFullAccess(session)) return true; // admin y productor gestionan (añadir colaboradores, ajustes)
   if (project.leadId === session.id) return true;
   if (session.role === "editor" && canAccessProject(project, session)) return true;
   return project.members.some((m) => m.userId === session.id && m.role === "OWNER");
@@ -53,7 +62,8 @@ export function canManageProject(project: ProjectShape, session: SessionUser | n
 export function accessibleProjectWhere(session: SessionUser | null): Record<string, unknown> {
   if (!session) return { id: "__none__" }; // nada
   // Los proyectos archivados (papelera) nunca salen en las listas normales.
-  if (session.role === "admin") return { archivedAt: null };
+  if (hasFullAccess(session)) return { archivedAt: null }; // admin y productor: todos
+
   const or: Record<string, unknown>[] = [
     { leadId: session.id },
     { members: { some: { userId: session.id } } },
