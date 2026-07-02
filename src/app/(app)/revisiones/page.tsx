@@ -46,7 +46,7 @@ export default async function RevisionesPage() {
       reviewerId: true,
       reviewers: { select: { userId: true } },
       ownerId: true,
-      project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { name: true } } } },
+      project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { id: true, name: true, photoUrl: true } } } },
       versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
       _count: { select: { reviewComments: true } },
     },
@@ -96,7 +96,7 @@ type Item = {
   name: string;
   status: string;
   updatedAt: Date;
-  project: { id: string; name: string; emoji: string | null; client: { name: string } | null };
+  project: { id: string; name: string; emoji: string | null; client: { id: string; name: string; photoUrl: string | null } | null };
   versions: { number: number; createdAt: Date; uploadedBy: { name: string; initials: string | null; avatarColor: string | null } | null }[];
   _count: { reviewComments: number };
 };
@@ -132,9 +132,14 @@ function Group({ title, Icon, accent, cta, items }: { title: string; Icon: React
               href={`/revisiones/${d.id}`}
               className="group flex items-stretch gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40 hover:bg-accent/30"
             >
-              {/* Miniatura: marco con icono + número de versión (sin imagen para no romper la vista). */}
-              <div className="relative flex h-[52px] w-[74px] shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
-                <Film className="size-5 text-muted-foreground" />
+              {/* Miniatura: foto del cliente si tiene; si no, el icono Film. El badge v{n} siempre encima. */}
+              <div className="relative flex h-[52px] w-[74px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
+                {d.project.client?.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`/api/client-asset/photo/${d.project.client.id}`} alt="" className="h-full w-full rounded-lg object-cover" />
+                ) : (
+                  <Film className="size-5 text-muted-foreground" />
+                )}
                 {v ? <span className="absolute bottom-1 right-1 rounded border border-border bg-card/90 px-1 text-[10px] leading-tight text-muted-foreground">v{v.number}</span> : null}
               </div>
 

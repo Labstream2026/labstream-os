@@ -17,7 +17,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, setDeliverableCover, removeDeliverableCover } from "./actions";
+import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { DeliverableRenditions } from "./deliverable-renditions";
@@ -155,44 +155,6 @@ function sourceLabel(v: Version): string | null {
   return s ? SOURCE_LABEL[s.type] : null;
 }
 
-// Portada del reel: imagen que acompaña al video entregado. El equipo la sube/cambia/quita.
-// Solo para entregables de video (no para galerías de fotos, que tienen su propia cuadrícula).
-function CoverManager({ deliverableId, projectId, canManage, cover }: { deliverableId: string; projectId: string; canManage: boolean; cover: { src: string; full: string } | null }) {
-  if (!cover && !canManage) return null;
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border p-3">
-      {cover ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <a href={cover.full} data-lightbox rel="noreferrer" title="Ver portada a tamaño completo" className="shrink-0 cursor-zoom-in">
-          <img src={cover.src} alt="Portada del reel" className="h-20 w-32 rounded-md border border-border object-cover" />
-        </a>
-      ) : (
-        <div className="flex h-20 w-32 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
-          <ImagePlus className="size-5" />
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 text-xs font-semibold">🖼️ Portada del reel</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">La imagen que el cliente aprueba antes de publicar el reel.</p>
-        {cover ? <div className="mt-1.5"><CoverStatusBadge deliverableId={deliverableId} /></div> : null}
-        {canManage ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <form action={setDeliverableCover.bind(null, projectId, deliverableId)} className="flex items-center gap-2">
-              <input type="file" name="cover" accept="image/*" required className="max-w-44 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
-              <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90">{cover ? "Cambiar" : "Subir portada"}</SubmitButton>
-            </form>
-            {cover ? (
-              <form action={removeDeliverableCover.bind(null, projectId, deliverableId)}>
-                <SubmitButton pendingText="Quitando…" className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-destructive">Quitar</SubmitButton>
-              </form>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export function DeliverablesPanel({
   projectId,
   canManage = false,
@@ -227,9 +189,14 @@ export function DeliverablesPanel({
             </select>
           </label>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <input type="file" name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
+          {/* Portada opcional (imagen que acompaña al reel); el cliente la aprueba en su sala */}
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Portada (reels)
+            <input type="file" name="cover" accept="image/*" title="Imagen de portada que acompaña al reel (opcional)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
+          </label>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
@@ -298,9 +265,24 @@ export function DeliverablesPanel({
               </summary>
               <div className="pt-1">
 
-            {/* Portada: solo para reels (vertical). En horizontales solo aparece si quedó una
-                portada huérfana (subida cuando era reel), para poder quitarla. */}
-            {isVertical || d.cover ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
+            {/* Portada del reel: se adjunta desde los formularios de subida (crear / + Versión).
+                Aquí solo se muestra si existe (reels verticales, o huérfana en horizontales para
+                poder quitarla), con su estado de aprobación del cliente. */}
+            {(isVertical || d.cover) && d.cover ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <a href={d.cover.full} data-lightbox rel="noreferrer" title="Ver portada a tamaño completo" className="shrink-0 cursor-zoom-in">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={d.cover.src} alt="Portada del reel" className="h-10 w-7 rounded border border-border object-cover" />
+                </a>
+                <span className="text-muted-foreground">Portada</span>
+                <CoverStatusBadge deliverableId={d.id} />
+                {canManage ? (
+                  <form action={removeDeliverableCover.bind(null, projectId, d.id)}>
+                    <SubmitButton pendingText="Quitando…" className="text-xs text-muted-foreground hover:text-destructive">Quitar</SubmitButton>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
             {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}
@@ -414,6 +396,11 @@ export function DeliverablesPanel({
                   <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <input type="file" name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  {/* Portada opcional adjunta a la versión (reemplaza la anterior si existía) */}
+                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground" title="Imagen de portada que acompaña al reel (opcional)">
+                    Portada (reels)
+                    <input type="file" name="cover" accept="image/*" className="max-w-44 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  </label>
                   <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">+ Versión</button>
                 </form>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>

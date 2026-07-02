@@ -935,6 +935,12 @@ export async function createDeliverable(projectId: string, formData: FormData) {
       await notifyAndEmail(responsible, { type: "review", event: "review_pending", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}`, actorId: session.id });
     }
   }
+
+  // Portada opcional adjunta en el mismo formulario (imagen que acompaña al reel).
+  const cover = formData.get("cover");
+  if (cover instanceof File && cover.size > 0) {
+    await saveDeliverableCover({ projectId, deliverableId: d.id, deliverableName: name, prevCoverId: null, file: cover, uploadedById: session.id });
+  }
   refresh(projectId);
 }
 
@@ -1064,6 +1070,33 @@ export async function deleteDeliverablePhoto(photoId: string, projectId: string)
   refresh(projectId);
 }
 
+// Lógica compartida de guardado de la PORTADA (validación + WebP en el NAS + coverFileAssetId).
+// La usan setDeliverableCover y los formularios de subida (createDeliverable / addDeliverableVersion)
+// que adjuntan la portada opcionalmente. La autorización la hace cada acción ANTES de llamar aquí.
+async function saveDeliverableCover(opts: {
+  projectId: string;
+  deliverableId: string;
+  deliverableName: string;
+  prevCoverId: string | null; // portada anterior a reemplazar (se borra para no dejar huérfanos)
+  file: File;
+  uploadedById: string;
+}): Promise<void> {
+  const { projectId, deliverableId, deliverableName, prevCoverId, file, uploadedById } = opts;
+  if (file.size > MAX_UPLOAD || BLOCKED_EXT.test(file.name) || !isOptimizableImage(file.name, file.type)) {
+    throw new Error("La portada debe ser una imagen (JPG, PNG o WebP).");
+  }
+  const buf = Buffer.from(await file.arrayBuffer());
+  const asset = await db.fileAsset.create({ data: { projectId, name: file.name, kind: "LOCAL", path: "", mime: mimeFor(file.name, file.type), size: buf.length, uploadedById } });
+  const rel = await saveBufferWithPreview(`project/${projectId}/portadas`, `${asset.id}-${file.name}`, buf, file.type);
+  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+
+  await db.deliverable.update({ where: { id: deliverableId }, data: { coverFileAssetId: asset.id } });
+  // Borra la portada anterior para no dejar archivos huérfanos.
+  if (prevCoverId) await db.fileAsset.delete({ where: { id: prevCoverId } }).catch(() => {});
+
+  await logActivity({ action: "deliverable.cover", summary: `actualizó la portada del entregable «${deliverableName}»`, projectId, entityType: "deliverable", entityId: deliverableId });
+}
+
 // Sube/reemplaza la PORTADA del entregable (la imagen que acompaña al reel/video). Imagen
 // optimizada a WebP en el NAS; se sirve por /api/files-asset. Solo gestores con subir_archivos.
 export async function setDeliverableCover(projectId: string, deliverableId: string, formData: FormData) {
@@ -1077,20 +1110,7 @@ export async function setDeliverableCover(projectId: string, deliverableId: stri
 
   const file = formData.get("cover");
   if (!(file instanceof File) || file.size === 0) throw new Error("Sube una imagen para la portada.");
-  if (file.size > MAX_UPLOAD || BLOCKED_EXT.test(file.name) || !isOptimizableImage(file.name, file.type)) {
-    throw new Error("La portada debe ser una imagen (JPG, PNG o WebP).");
-  }
-  const buf = Buffer.from(await file.arrayBuffer());
-  const asset = await db.fileAsset.create({ data: { projectId, name: file.name, kind: "LOCAL", path: "", mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id } });
-  const rel = await saveBufferWithPreview(`project/${projectId}/portadas`, `${asset.id}-${file.name}`, buf, file.type);
-  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
-
-  const prevId = deliverable.coverFileAssetId;
-  await db.deliverable.update({ where: { id: deliverableId }, data: { coverFileAssetId: asset.id } });
-  // Borra la portada anterior para no dejar archivos huérfanos.
-  if (prevId) await db.fileAsset.delete({ where: { id: prevId } }).catch(() => {});
-
-  await logActivity({ action: "deliverable.cover", summary: `actualizó la portada del entregable «${deliverable.name}»`, projectId, entityType: "deliverable", entityId: deliverableId });
+  await saveDeliverableCover({ projectId, deliverableId, deliverableName: deliverable.name, prevCoverId: deliverable.coverFileAssetId, file, uploadedById: session.id });
   refresh(projectId);
 }
 
@@ -1137,7 +1157,7 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, coverFileAssetId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
@@ -1204,6 +1224,12 @@ export async function addDeliverableVersion(
       link: `/revisiones/${deliverableId}`,
       actorId: session!.id,
     });
+  }
+
+  // Portada opcional adjunta en el mismo formulario (reemplaza la anterior si existía).
+  const cover = formData.get("cover");
+  if (cover instanceof File && cover.size > 0) {
+    await saveDeliverableCover({ projectId: deliverable.projectId, deliverableId, deliverableName: deliverable.name, prevCoverId: deliverable.coverFileAssetId, file: cover, uploadedById: session!.id });
   }
   refresh(deliverable.projectId);
 }

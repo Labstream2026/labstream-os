@@ -1,3 +1,4 @@
+import type * as React from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
@@ -12,6 +13,7 @@ import { ReviewClient } from "./review-client";
 import { PhotoGallery } from "./photo-gallery";
 import { PhotoDecision } from "./photo-decision";
 import { DownloadCenter } from "./download-center";
+import { ReviewOnboarding } from "./review-onboarding";
 
 // Estado con la voz del cliente (no la etiqueta interna del equipo) para la cabecera de la sala.
 const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
@@ -20,6 +22,40 @@ const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
   APROBADO: { label: "Aprobado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
   ENTREGADO: { label: "Entregado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
 };
+
+// ── Tema «Estudio» de la sala del cliente ──
+// SOLO esta ruta: gris casi negro elegante + acento en el naranja de la marca. Se aplica con la
+// clase `dark` (activa las variantes dark: del motor) y un override de tokens en línea, así TODO
+// el motor de revisión se retiñe sin tocar su código ni afectar a la bandeja interna del equipo.
+const ROOM_VARS = {
+  "--background": "240 5% 8%",
+  "--foreground": "0 0% 95%",
+  "--card": "240 5% 11%",
+  "--card-foreground": "0 0% 95%",
+  "--primary": "25 95% 53%", // naranja Labstream
+  "--primary-foreground": "0 0% 100%",
+  "--secondary": "240 5% 16%",
+  "--secondary-foreground": "0 0% 92%",
+  "--muted": "240 5% 14%",
+  "--muted-foreground": "240 5% 66%",
+  "--accent": "240 5% 16%",
+  "--accent-foreground": "0 0% 95%",
+  "--border": "240 5% 20%",
+  "--input": "240 5% 24%",
+  "--ring": "25 95% 53%",
+} as React.CSSProperties;
+
+// Cascarón de la sala: fondo carbón, resplandores naranjas suaves (le dan materia al efecto
+// glass) y el scope oscuro. Lo usan la sala y sus pantallas de aviso, para una sola estética.
+function RoomShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="dark relative min-h-screen overflow-x-clip bg-background text-foreground" style={ROOM_VARS}>
+      <div aria-hidden className="pointer-events-none absolute -top-32 right-[-10%] size-96 rounded-full bg-primary/15 blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute bottom-[-6rem] left-[-8%] size-80 rounded-full bg-primary/10 blur-3xl" />
+      {children}
+    </div>
+  );
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,14 +85,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const expired = deliverable.reviewExpiresAt ? deliverable.reviewExpiresAt.getTime() < Date.now() : false;
   if (deliverable.reviewRevokedAt || expired) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6 text-center">
-        <div className="max-w-md">
-          <h1 className="text-xl font-bold">Enlace no disponible</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {expired ? "Este enlace de revisión ha caducado. Pide uno nuevo a tu productor." : "Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor."}
-          </p>
+      <RoomShell>
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <div className="max-w-md rounded-2xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur-xl">
+            <Logo className="mx-auto h-6" />
+            <h1 className="mt-4 text-xl font-bold">Enlace no disponible</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {expired ? "Este enlace de revisión ha caducado. Pide uno nuevo a tu productor." : "Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor."}
+            </p>
+          </div>
         </div>
-      </div>
+      </RoomShell>
     );
   }
 
@@ -65,15 +104,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // interna, el enlace muestra un aviso amable en vez del material (y sin etiquetas internas).
   if (!CLIENT_STATUS[deliverable.status]) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6 text-center">
-        <div className="max-w-md">
-          <div className="text-4xl">🎬</div>
-          <h1 className="mt-3 text-xl font-bold">Estamos trabajando en tu material</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            El equipo está preparando una nueva versión. Te avisaremos en cuanto esté lista para tu revisión.
-          </p>
+      <RoomShell>
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <div className="max-w-md rounded-2xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur-xl">
+            <div className="text-4xl">🎬</div>
+            <h1 className="mt-3 text-xl font-bold">Estamos trabajando en tu material</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              El equipo está preparando una nueva versión. Te avisaremos en cuanto esté lista para tu revisión.
+            </p>
+          </div>
         </div>
-      </div>
+      </RoomShell>
     );
   }
 
@@ -107,15 +148,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const coverDecisionNote = coverDecided && deliverable.coverDecision === "CAMBIOS" ? deliverable.coverDecisionNote : null;
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="border-b border-border bg-card">
+    <RoomShell>
+      {/* Cabecera «glass»: logo + pieza + estado, flotando sobre el carbón. */}
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-white/[0.04] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           {backHref ? (
             <Link
               href={backHref}
               title="Volver a tus entregas"
               aria-label="Volver a tus entregas"
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
             </Link>
@@ -132,14 +174,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-6">
-        <div className="mb-4">
-          <h1 className="text-xl font-bold tracking-tight">Revisión del cliente</h1>
-          <p className="text-sm text-muted-foreground">
-            {isPhoto ? "Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una." : "Revisa el material, deja comentarios y aprueba o solicita cambios."}
-          </p>
-        </div>
-
+      <main className="relative mx-auto max-w-5xl px-6 py-6">
         {isPhoto ? (
           photos.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
@@ -147,10 +182,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             </div>
           ) : (
             <>
+              <p className="mb-4 text-sm text-muted-foreground">Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una.</p>
               <PhotoGallery token={token} photos={photos} />
               {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato. */}
               <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} />
               <DownloadCenter renditions={deliverable.renditions} />
+              <ReviewOnboarding isPhoto />
             </>
           )
         ) : versions.length === 0 ? (
@@ -194,6 +231,6 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
           />
         )}
       </main>
-    </div>
+    </RoomShell>
   );
 }

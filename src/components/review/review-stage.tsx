@@ -75,6 +75,7 @@ export function ReviewStage({
   fixedName = false,
   decision,
   canDecide = true,
+  mediaTabs,
   onComment,
   onDecision,
   onDecisionIntent,
@@ -95,6 +96,10 @@ export function ReviewStage({
   fixedName?: boolean; // si true, no se muestra el campo de nombre
   decision: { approveLabel: string; changesLabel: string } | null; // null = sin botones
   canDecide?: boolean;
+  // Pestañas del VISOR (conmutador bajo el material): además del video («Reel»), contenidos
+  // alternos como la portada o el copy. Al cambiar de pestaña el video se OCULTA sin
+  // desmontarse (conserva posición y buffer). Pensado para el portal del cliente.
+  mediaTabs?: { key: string; label: string; content: React.ReactNode }[];
   onComment: (fd: FormData) => Promise<void>;
   onDecision?: (result: "APROBADO" | "CAMBIOS", note: string, name: string, versionNumber: number) => Promise<void>;
   // Portal del cliente: en vez de decidir con diálogos nativos (confirm/prompt), avisa al
@@ -121,6 +126,8 @@ export function ReviewStage({
   const [name, setName] = React.useState(defaultName);
   const [body, setBody] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
+  // Pestaña activa del visor ("media" = el video; o la key de una mediaTab: portada, copy…).
+  const [mediaTab, setMediaTab] = React.useState("media");
   // Error al enviar un comentario (rate limit, red…): se muestra en línea y NO tumba la página
   // ni aplica el estado optimista; lo escrito se conserva para reintentar.
   const [sendError, setSendError] = React.useState<string | null>(null);
@@ -315,33 +322,70 @@ export function ReviewStage({
           </div>
         ) : null}
 
-        <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} />
+        {/* Pestaña «media» (el video): se OCULTA con CSS al cambiar de pestaña, sin desmontar,
+            para conservar la posición de reproducción y el buffer. */}
+        <div className={mediaTab === "media" ? undefined : "hidden"}>
+          <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} />
 
-        {version?.notes ? (
-          <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
-        ) : null}
+          {version?.notes ? (
+            <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
+          ) : null}
 
-        {/* Herramientas */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {version?.openUrl ? (
-            <a href={version.openUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir original ↗</a>
+          {/* Herramientas */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {version?.openUrl ? (
+              <a href={version.openUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir original ↗</a>
+            ) : null}
+            {allowDrawings ? (
+              <button onClick={() => setDrawOpen((o) => !o)} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${drawOpen ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-accent"}`}>
+                {drawOpen ? "✏️ Dibujando — toca el material" : "✏️ Dibujar / anotar"}
+              </button>
+            ) : null}
+            {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
+          </div>
+          {version?.kind === "drive_file" ? (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              ℹ️ Se reproduce el video original de Drive (evita el error «se está procesando» del visor de Google, permite comentar con captura del fotograma y usar la barra de velocidad). En masters pesados puede tardar en cargar. Si no se reproduce, usa «▶︎ Ver con Google» (su velocidad va en el engranaje ⚙). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
+            </p>
           ) : null}
-          {allowDrawings ? (
-            <button onClick={() => setDrawOpen((o) => !o)} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${drawOpen ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-accent"}`}>
-              {drawOpen ? "✏️ Dibujando — toca el material" : "✏️ Dibujar / anotar"}
-            </button>
+          {version?.kind === "youtube" || version?.kind === "vimeo" ? (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              ℹ️ Al comentar se guarda el segundo, pero esta fuente no permite capturar el fotograma automáticamente. Para anotar la imagen usa ✏️ Dibujar (pega o sube una captura). Para captura automática, sube el video o usa un enlace de archivo de Drive.
+            </p>
           ) : null}
-          {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
+          {version && (version.kind === "drive_folder" || version.kind === "other") ? (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma ni del segundo. Para anotar, usa ✏️ Dibujar (pega o sube una captura).
+            </p>
+          ) : null}
         </div>
-        {version?.kind === "drive_file" ? (
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            ℹ️ Se reproduce el video original de Drive (evita el error «se está procesando» del visor de Google, permite comentar con captura del fotograma y usar la barra de velocidad). En masters pesados puede tardar en cargar. Si no se reproduce, usa «▶︎ Ver con Google» (su velocidad va en el engranaje ⚙). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
-          </p>
-        ) : null}
-        {version && (version.kind === "youtube" || version.kind === "vimeo" || version.kind === "drive_folder" || version.kind === "other") ? (
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma. Para anotar, usa ✏️ Dibujar (pega o sube una captura). Para captura automática, sube el video o usa un enlace de archivo de Drive.
-          </p>
+
+        {/* Contenidos alternos del visor (portada, copy…): mismos ocultos por CSS. */}
+        {mediaTabs?.map((t) => (
+          <div key={t.key} className={mediaTab === t.key ? undefined : "hidden"}>{t.content}</div>
+        ))}
+
+        {/* Conmutador del visor (solo si hay pestañas alternas): Reel · Portada · Copy. */}
+        {mediaTabs && mediaTabs.length > 0 ? (
+          <div className="mt-3 flex rounded-xl bg-muted/60 p-1">
+            <button
+              type="button"
+              onClick={() => setMediaTab("media")}
+              className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${mediaTab === "media" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {orientation === "vertical" ? "Reel" : "Video"}
+            </button>
+            {mediaTabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => { setMediaTab(t.key); setDrawOpen(false); playerRef.current?.pause(); }}
+                className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${mediaTab === t.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         ) : null}
 
         {/* Decisión */}
@@ -537,6 +581,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const ytRef = React.useRef<HTMLIFrameElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ytPlayer = React.useRef<any>(null);
+  // Vimeo: su Player API (postMessage) sí permite leer el segundo del iframe. getCurrentTime es
+  // asíncrono, así que espejamos el tiempo con el evento timeupdate y getTime lo lee al instante.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vimeoPlayer = React.useRef<any>(null);
+  const vimeoTime = React.useRef<number | null>(null);
   // Para Drive ofrecemos DOS modos: «modo captura» (video proxiado del mismo origen, que
   // SÍ permite capturar el fotograma) y ver con el reproductor de Google (iframe, rápido,
   // ideal solo para ver masters pesados). Por DEFECTO arranca en modo captura, porque la
@@ -586,9 +635,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
     version?.kind === "video" || usingProxy ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
   const canCapture = version?.kind === "video" || version?.kind === "image" || usingProxy;
-  // El segundo (timecode) se puede leer en un <video> del mismo origen (subido/proxy) y en YouTube
-  // (vía su IFrame API); NO en el iframe de Drive/Vimeo. Se reporta al padre para no prometer de más.
-  const canTimecode = version?.kind === "video" || usingProxy || version?.kind === "youtube";
+  // El segundo (timecode) se puede leer en un <video> del mismo origen (subido/proxy), en YouTube
+  // (IFrame API) y en Vimeo (Player API); NO en el iframe de Drive. Se reporta al padre.
+  const canTimecode = version?.kind === "video" || usingProxy || version?.kind === "youtube" || version?.kind === "vimeo";
   React.useEffect(() => {
     onCapabilities?.({ frame: canCapture, time: canTimecode });
   }, [canCapture, canTimecode, onCapabilities]);
@@ -654,6 +703,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         capture: () => null,
         setRate: (r) => { try { ytPlayer.current?.setPlaybackRate?.(r); } catch { /* noop */ } },
       };
+    } else if (version.kind === "vimeo") {
+      apiRef.current = {
+        getTime: () => vimeoTime.current,
+        seek: (t) => { try { vimeoPlayer.current?.setCurrentTime?.(t); vimeoPlayer.current?.play?.(); } catch { /* noop */ } },
+        pause: () => { try { vimeoPlayer.current?.pause?.(); } catch { /* noop */ } },
+        capture: () => null,
+        setRate: (r) => { try { vimeoPlayer.current?.setPlaybackRate?.(r); } catch { /* noop */ } },
+      };
     } else {
       apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: () => null, setRate: () => {} };
     }
@@ -688,6 +745,39 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       (window as any).onYouTubeIframeAPIReady = () => { prev?.(); make(); };
     }
     return () => { cancelled = true; };
+  }, [version]);
+
+  // Carga la Player API de Vimeo (para leer el segundo del iframe vía postMessage).
+  React.useEffect(() => {
+    if (version?.kind !== "vimeo" || !ytRef.current) return;
+    let cancelled = false;
+    vimeoTime.current = null;
+    const make = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (cancelled || !(window as any).Vimeo?.Player || !ytRef.current) return;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const p = new (window as any).Vimeo.Player(ytRef.current);
+        vimeoPlayer.current = p;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        p.on("timeupdate", (d: any) => { vimeoTime.current = typeof d?.seconds === "number" ? d.seconds : vimeoTime.current; });
+        p.ready().then(() => { try { p.setPlaybackRate(rateRef.current); } catch { /* planes sin control de velocidad */ } }).catch(() => {});
+      } catch { /* iframe aún no listo */ }
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).Vimeo?.Player) make();
+    else {
+      const id = "vimeo-player-api";
+      const existing = document.getElementById(id) as HTMLScriptElement | null;
+      if (existing) existing.addEventListener("load", make, { once: true });
+      else {
+        const s = document.createElement("script");
+        s.id = id; s.src = "https://player.vimeo.com/api/player.js";
+        s.addEventListener("load", make, { once: true });
+        document.body.appendChild(s);
+      }
+    }
+    return () => { cancelled = true; vimeoPlayer.current = null; };
   }, [version]);
 
   if (!version || version.kind === "none" || !version.src) {
@@ -733,7 +823,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onError={() => {
               if (!usingProxy) return;
               const v = videoRef.current;
-              if (v && proxyRetries.current < 1) {
+              if (v && proxyRetries.current < 2) {
                 proxyRetries.current += 1;
                 const s = v.src;
                 v.removeAttribute("src"); v.load();
@@ -794,11 +884,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         {liveCaption}
         {overlay}
       </div>
-      {isYouTube ? (
+      {isYouTube || version.kind === "vimeo" ? (
+        // YouTube y Vimeo exponen API de velocidad → barra de la app.
         speedBar
       ) : (
-        // Drive/Vimeo se reproducen en su propio iframe: la velocidad (1.5×, 2×) va en el
-        // engranaje ⚙ de ESE reproductor. Para Drive, ofrecemos volver a reproducir el original.
+        // Drive se reproduce en su propio iframe: la velocidad (1.5×, 2×) va en el
+        // engranaje ⚙ de ESE reproductor. Ofrecemos volver a reproducir el original.
         <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
           <p>⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor de Google.</p>
           {isDriveProxyable ? (

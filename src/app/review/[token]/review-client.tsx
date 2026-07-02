@@ -6,6 +6,7 @@ import { ReviewStage, type StageVersion, type StageComment } from "@/components/
 import { Logo } from "@/components/brand/logo";
 import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
 import { DownloadCenter, type Rendition } from "./download-center";
+import { ReviewOnboarding } from "./review-onboarding";
 
 // Wrapper del portal PÚBLICO del cliente sobre el escenario de revisión compartido.
 // Antes de entrar, un recibimiento de marca pide el nombre UNA sola vez (se recuerda en
@@ -53,7 +54,7 @@ function ContentPanel({ copy, hashtags }: { copy: string | null; hashtags: strin
     ? [...new Set(hashtags!.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`)))]
     : [];
   return (
-    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="border-b border-border px-4 py-2.5">
         <h2 className="text-sm font-semibold">Contenido para publicar</h2>
         <p className="text-xs text-muted-foreground">El texto y los hashtags listos para tu publicación.</p>
@@ -139,7 +140,7 @@ function CoverApprovalPanel({
         : { label: "Pendiente de tu revisión", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
 
   return (
-    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
         <div>
           <h2 className="text-sm font-semibold">Portada del reel</h2>
@@ -311,9 +312,35 @@ export function ReviewClient({
     return <Welcome draft={draft} setDraft={setDraft} onEnter={enter} deliverableName={deliverableName} projectName={projectName} projectEmoji={projectEmoji} clientName={clientName} />;
   }
 
+  // ── Pestañas del visor (conmutador bajo el material) ──
+  // Reel/Video · Portada (solo reels con portada) · Copy. Los paneles se MUDAN del final de la
+  // página a estas pestañas: el cliente se centra en las correcciones y cambia cuando quiere.
+  const mediaTabs = [
+    ...(coverSrc && coverStatus
+      ? [{
+          key: "portada",
+          label: "Portada",
+          content: (
+            <CoverApprovalPanel
+              token={token}
+              name={name || "Cliente"}
+              coverSrc={coverSrc}
+              coverForId={coverForId}
+              initialStatus={coverStatus}
+              initialBy={coverDecisionBy}
+              initialNote={coverDecisionNote}
+            />
+          ),
+        }]
+      : []),
+    ...((copy && copy.trim()) || (hashtags && hashtags.trim())
+      ? [{ key: "copy", label: "Copy", content: <ContentPanel copy={copy} hashtags={hashtags} /> }]
+      : []),
+  ];
+
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+      <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm backdrop-blur-xl">
         <span className="text-muted-foreground">
           Revisando como <span className="font-medium text-foreground">{name}</span>
         </span>
@@ -331,22 +358,12 @@ export function ReviewClient({
         defaultName={name || "Cliente"}
         fixedName
         decision={{ approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
+        mediaTabs={mediaTabs.length ? mediaTabs : undefined}
         onComment={(fd) => addReviewComment(token, fd)}
         onDecisionIntent={onDecisionIntent}
       />
-      {coverSrc && coverStatus ? (
-        <CoverApprovalPanel
-          token={token}
-          name={name || "Cliente"}
-          coverSrc={coverSrc}
-          coverForId={coverForId}
-          initialStatus={coverStatus}
-          initialBy={coverDecisionBy}
-          initialNote={coverDecisionNote}
-        />
-      ) : null}
-      <ContentPanel copy={copy} hashtags={hashtags} />
       <DownloadCenter renditions={renditions} />
+      <ReviewOnboarding />
       {modal ? (
         <DecisionModal
           state={modal}
