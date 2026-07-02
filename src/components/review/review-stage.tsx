@@ -317,18 +317,24 @@ export function ReviewStage({
   const [immersive, setImmersive] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [sheetSent, setSheetSent] = React.useState(false);
-  const [nowT, setNowT] = React.useState(0);
-  const [durT, setDurT] = React.useState(0);
-  const [paused, setPaused] = React.useState(true);
-  const [dotPop, setDotPop] = React.useState<{ pct: number; author: string; body: string } | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const toastTimer = React.useRef<number | null>(null);
-  const popTimer = React.useRef<number | null>(null);
   const sentTcRef = React.useRef<number | null>(null);
   const sheetRef = React.useRef<HTMLDivElement>(null);
   // <video> del mismo origen (subido/proxy): frame + time a la vez. Solo ahí controlamos
   // play/pausa con el toque; los iframes (YouTube/Vimeo/Drive) conservan sus controles.
   const sameOriginVideo = caps.frame && caps.time;
+  // Momentos con timecode de la versión actual, para los puntos de la barra del HUD.
+  // Memoizado (y el HUD es React.memo): escribir en la hoja NO re-renderiza el HUD.
+  const dotMoments = React.useMemo(
+    () =>
+      merged
+        .filter((c) => !c.isNote && c.timecode != null && (c.versionNumber == null || c.versionNumber === version?.number))
+        .sort((a, b) => (a.timecode ?? 0) - (b.timecode ?? 0))
+        .map((c) => ({ id: c.id, timecode: c.timecode!, authorName: c.authorName, body: c.body, fromClient: c.fromClient })),
+    [merged, version],
+  );
+  const closeSheet = React.useCallback(() => setSheetOpen(false), []);
 
   // En celular, el CLIENTE entra DIRECTO en inmersivo (el tour de bienvenida renderiza con
   // z-index por encima del overlay, así que en la primera visita se ve el tour y al cerrarlo
@@ -339,19 +345,6 @@ export function ReviewStage({
       if (window.matchMedia("(max-width: 768px)").matches) setImmersive(true);
     } catch { /* noop */ }
   }, [immersiveCapable, mode]);
-
-  // Reloj del reproductor (progreso + estado de pausa) mientras el overlay está abierto.
-  React.useEffect(() => {
-    if (!immersive) return;
-    const id = window.setInterval(() => {
-      const api = playerRef.current;
-      setNowT(api?.getTime() ?? 0);
-      const d = api?.getDuration() ?? 0;
-      setDurT(d > 0 ? d : 0);
-      setPaused(api?.isPaused() ?? true);
-    }, 250);
-    return () => window.clearInterval(id);
-  }, [immersive]);
 
   // Bloquea el scroll del fondo mientras el overlay cubre la pantalla.
   React.useEffect(() => {
@@ -380,8 +373,8 @@ export function ReviewStage({
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2400);
   };
-  const openSheet = () => { setDotPop(null); grabTime(); setSheetOpen(true); };
-  const exitImmersive = () => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); setDotPop(null); };
+  const openSheet = () => { grabTime(); setSheetOpen(true); };
+  const exitImmersive = () => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); };
   const sendFromSheet = () => {
     if (!body.trim() && !drawing) return;
     sentTcRef.current = playerRef.current?.getTime() ?? tc;
@@ -399,12 +392,6 @@ export function ReviewStage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetSent, pending, sendError]);
-  const showDotPop = (pct: number, author: string, bodyText: string) => {
-    setDotPop({ pct, author, body: bodyText });
-    if (popTimer.current != null) window.clearTimeout(popTimer.current);
-    popTimer.current = window.setTimeout(() => setDotPop(null), 4000);
-  };
-
   return (
     <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
       {confirmDialog}
@@ -434,29 +421,22 @@ export function ReviewStage({
 
             {immersive ? (
               <>
-                {/* Toque en el video = pausa/reanuda (solo <video> del mismo origen; los iframes
-                    de YouTube/Vimeo/Drive conservan sus propios controles). También cierra la
-                    hoja o la burbuja de un punto si estaban abiertas. */}
-                {sameOriginVideo && !drawOpen ? (
-                  <button
-                    type="button"
-                    aria-label={paused ? "Reproducir" : "Pausar"}
-                    onClick={() => {
-                      if (sheetOpen) { setSheetOpen(false); return; }
-                      if (dotPop) { setDotPop(null); return; }
-                      const api = playerRef.current;
-                      if (api?.isPaused()) api.play(); else api?.pause();
-                    }}
-                    className="absolute inset-0 z-10 cursor-default"
-                  />
-                ) : null}
-                {sameOriginVideo && paused && !sheetOpen && !drawOpen ? (
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
-                ) : null}
+                {/* HUD (toque de pausa, barra de progreso 60fps, puntos, popover): componente
+                    memoizado APARTE que escribe el progreso directo al DOM con rAF — cero
+                    re-renders del escenario por frame (el poll de estado anterior re-renderizaba
+                    todo 4 veces/segundo y daba tirones en celular). */}
+                <ImmersiveHud
+                  playerRef={playerRef}
+                  canTap={sameOriginVideo}
+                  drawOpen={drawOpen}
+                  sheetOpen={sheetOpen}
+                  onCloseSheet={closeSheet}
+                  moments={dotMoments}
+                />
 
                 {/* Barra superior: salir + versión */}
                 <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 bg-gradient-to-b from-black/60 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
-                  <button type="button" onClick={exitImmersive} aria-label="Salir de pantalla completa" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm text-white backdrop-blur hover:bg-white/25">✕</button>
+                  <button type="button" onClick={exitImmersive} aria-label="Salir de pantalla completa" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black/45 text-sm text-white hover:bg-black/65">✕</button>
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-white">Revisión · v{version?.number ?? 1}</p>
                     <p className="text-[11px] text-white/60">Toca la burbuja para corregir</p>
@@ -468,59 +448,11 @@ export function ReviewStage({
                   <button type="button" onClick={openSheet} aria-label="Agregar corrección" className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-12 items-center justify-center rounded-full bg-primary text-xl text-primary-foreground shadow-lg hover:bg-primary/90">💬</button>
                 ) : null}
 
-                {/* Progreso + puntos de corrección (cuando la fuente expone tiempo y duración) */}
-                {caps.time && durT > 0 ? (
-                  <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8">
-                    <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
-                      <span className="font-mono text-white/85">{fmtTime(nowT)}</span>
-                      <span className="font-mono text-white/50">{fmtTime(durT)}</span>
-                    </div>
-                    <div
-                      className="relative h-4 cursor-pointer"
-                      onClick={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect();
-                        const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * durT;
-                        playerRef.current?.seek(t);
-                      }}
-                    >
-                      <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/25">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (nowT / durT) * 100)}%` }} />
-                      </div>
-                      {allMoments.filter((c) => c.timecode != null).map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          aria-label={`Corrección en ${fmtTime(c.timecode!)}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            playerRef.current?.seek(c.timecode!);
-                            playerRef.current?.pause();
-                            showDotPop((c.timecode! / durT) * 100, c.authorName, c.body);
-                          }}
-                          className="absolute top-1/2 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-                          style={{ left: `${Math.min(99, (c.timecode! / durT) * 100)}%` }}
-                        >
-                          <span className={`block size-2.5 rounded-full ring-2 ring-black/40 ${c.fromClient ? "bg-primary" : "bg-white"}`} />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Burbuja de un punto tocado (comentario existente) */}
-                {dotPop ? (
-                  <div
-                    className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 w-56 max-w-[80vw] rounded-xl border border-white/15 bg-black/85 px-3 py-2 backdrop-blur"
-                    style={{ left: `clamp(0.75rem, calc(${dotPop.pct}% - 7rem), calc(100% - 14.75rem))` }}
-                  >
-                    <p className="text-[11px] font-medium text-primary">{dotPop.author}</p>
-                    <p className="mt-0.5 line-clamp-3 text-xs text-white/90">{dotPop.body}</p>
-                  </div>
-                ) : null}
-
                 {/* Hoja de corrección: el segundo va congelado y la captura del fotograma se
                     adjunta AUTOMÁTICAMENTE al enviar; dibujar es lo único opcional. */}
-                <div ref={sheetRef} className={`absolute inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-white/10 bg-zinc-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur transition-transform duration-200 ${sheetOpen ? "translate-y-0" : "pointer-events-none translate-y-[110%]"}`}>
+                {/* Fondo sólido (sin backdrop-blur): desenfocar un video en movimiento es caro
+                    en la GPU del celular y producía tirones. */}
+                <div ref={sheetRef} className={`absolute inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-white/10 bg-zinc-900 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 transition-transform duration-200 ${sheetOpen ? "translate-y-0" : "pointer-events-none translate-y-[110%]"}`}>
                   <div className="mx-auto mb-2 h-1 w-9 rounded-full bg-white/25" />
                   <p className="text-[13px] font-medium text-white">
                     Corrección{tc != null ? <> en <span className="font-mono text-primary">{fmtTime(tc)}</span></> : null}
@@ -548,7 +480,7 @@ export function ReviewStage({
                 {/* Controles del dibujo (el lienzo es el DrawOverlay de siempre, sobre el frame pausado) */}
                 {drawOpen ? (
                   <div className="absolute inset-x-0 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex justify-center gap-2">
-                    <button type="button" onClick={() => { setDrawing(null); setDrawOpen(false); setSheetOpen(true); }} className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25">Cancelar</button>
+                    <button type="button" onClick={() => { setDrawing(null); setDrawOpen(false); setSheetOpen(true); }} className="rounded-full bg-black/55 px-4 py-2 text-sm font-medium text-white hover:bg-black/70">Cancelar</button>
                     <button type="button" onClick={() => { setDrawOpen(false); setSheetOpen(true); }} className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Listo</button>
                   </div>
                 ) : null}
@@ -802,6 +734,138 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
     </div>
   );
 }
+
+// ── HUD del modo inmersivo (toque de pausa + barra de progreso + puntos de corrección) ──
+// Vive APARTE del escenario y actualiza el progreso ESCRIBIENDO DIRECTO al DOM con
+// requestAnimationFrame (transform: scaleX + textContent): 60fps sin un solo re-render de
+// React por frame. El estado de React solo cambia cuando cambia la PAUSA o la DURACIÓN.
+// React.memo + props memoizadas en el padre → escribir en la hoja tampoco lo re-renderiza.
+type HudMoment = { id: string; timecode: number; authorName: string; body: string; fromClient: boolean };
+const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheetOpen, drawOpen, onCloseSheet, moments }: {
+  playerRef: React.MutableRefObject<PlayerApi | null>;
+  // <video> del mismo origen: el toque pausa/reanuda. Iframes (YouTube/Vimeo/Drive) usan
+  // sus propios controles y NO se les roba el toque.
+  canTap: boolean;
+  sheetOpen: boolean;
+  drawOpen: boolean;
+  onCloseSheet: () => void;
+  moments: HudMoment[];
+}) {
+  const [durT, setDurT] = React.useState(0);
+  const [paused, setPaused] = React.useState(true);
+  const [dotPop, setDotPop] = React.useState<{ pct: number; author: string; body: string } | null>(null);
+  const fillRef = React.useRef<HTMLDivElement>(null);
+  const tcRef = React.useRef<HTMLSpanElement>(null);
+  const durRef = React.useRef(0);
+  const pausedRef = React.useRef(true);
+  const popTimer = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    let raf = 0;
+    let lastTc = "";
+    const sync = () => {
+      const api = playerRef.current;
+      const t = api?.getTime() ?? 0;
+      const d = api?.getDuration() ?? 0;
+      // Barra y timecode directo al DOM (sin estado): fluido y barato.
+      if (fillRef.current) fillRef.current.style.transform = `scaleX(${d > 0 ? Math.min(1, t / d) : 0})`;
+      const txt = fmtTime(t);
+      if (tcRef.current && txt !== lastTc) { lastTc = txt; tcRef.current.textContent = txt; }
+      // Estado de React SOLO cuando cambia de verdad (aparece la duración / play↔pausa).
+      if (d > 0 && Math.abs(d - durRef.current) > 0.5) { durRef.current = d; setDurT(d); }
+      const p = api?.isPaused() ?? true;
+      if (p !== pausedRef.current) { pausedRef.current = p; setPaused(p); }
+    };
+    const loop = () => { sync(); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    // Respaldo de baja frecuencia: rAF se SUSPENDE con la pestaña oculta (y en algunos
+    // webviews no dispara); este intervalo mantiene la barra y el estado al día igual.
+    const fallback = window.setInterval(sync, 500);
+    return () => { cancelAnimationFrame(raf); window.clearInterval(fallback); };
+  }, [playerRef]);
+
+  // La hoja o el lienzo tapan el HUD: se cierra la burbujita del punto si estaba abierta.
+  React.useEffect(() => { if (sheetOpen || drawOpen) setDotPop(null); }, [sheetOpen, drawOpen]);
+  React.useEffect(() => () => { if (popTimer.current != null) window.clearTimeout(popTimer.current); }, []);
+
+  const showDotPop = (pct: number, author: string, bodyText: string) => {
+    setDotPop({ pct, author, body: bodyText });
+    if (popTimer.current != null) window.clearTimeout(popTimer.current);
+    popTimer.current = window.setTimeout(() => setDotPop(null), 4000);
+  };
+
+  return (
+    <>
+      {/* Toque en el video = pausa/reanuda; también cierra la hoja o la burbujita. */}
+      {canTap && !drawOpen ? (
+        <button
+          type="button"
+          aria-label={paused ? "Reproducir" : "Pausar"}
+          onClick={() => {
+            if (sheetOpen) { onCloseSheet(); return; }
+            if (dotPop) { setDotPop(null); return; }
+            const api = playerRef.current;
+            if (api?.isPaused()) api.play(); else api?.pause();
+          }}
+          className="absolute inset-0 z-10 cursor-default"
+        />
+      ) : null}
+      {canTap && paused && !sheetOpen && !drawOpen ? (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
+      ) : null}
+
+      {/* Progreso + puntos de corrección (cuando la fuente expone la duración) */}
+      {durT > 0 ? (
+        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8">
+          <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
+            <span ref={tcRef} className="font-mono text-white/85">0:00</span>
+            <span className="font-mono text-white/50">{fmtTime(durT)}</span>
+          </div>
+          <div
+            className="relative h-4 cursor-pointer"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * durRef.current;
+              playerRef.current?.seek(t);
+            }}
+          >
+            <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-full bg-white/25">
+              <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-primary" style={{ transform: "scaleX(0)" }} />
+            </div>
+            {moments.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-label={`Corrección en ${fmtTime(c.timecode)}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playerRef.current?.seek(c.timecode);
+                  playerRef.current?.pause();
+                  showDotPop((c.timecode / durT) * 100, c.authorName, c.body);
+                }}
+                className="absolute top-1/2 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+                style={{ left: `${Math.min(99, (c.timecode / durT) * 100)}%` }}
+              >
+                <span className={`block size-2.5 rounded-full ring-2 ring-black/40 ${c.fromClient ? "bg-primary" : "bg-white"}`} />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Burbujita de un punto tocado (comentario existente) */}
+      {dotPop ? (
+        <div
+          className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 w-56 max-w-[80vw] rounded-xl border border-white/15 bg-zinc-900 px-3 py-2"
+          style={{ left: `clamp(0.75rem, calc(${dotPop.pct}% - 7rem), calc(100% - 14.75rem))` }}
+        >
+          <p className="text-[11px] font-medium text-primary">{dotPop.author}</p>
+          <p className="mt-0.5 line-clamp-3 text-xs text-white/90">{dotPop.body}</p>
+        </div>
+      ) : null}
+    </>
+  );
+});
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
 function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false }: {
