@@ -77,9 +77,15 @@ export async function resolveApiKey(req: NextRequest): Promise<Resolved> {
     // Sin scopes → la key hereda TODO lo del usuario (incluido el bypass de admin si lo es).
     effective = session;
   } else {
-    // Con scopes → permisos = intersección, y se DEGRADA el rol para que no aplique el bypass admin.
+    // Con scopes → permisos = intersección. El rol solo se degrada para el ADMIN (el único con
+    // bypass incondicional en hasPermission); los DEMÁS roles se conservan porque llevan
+    // RESTRICCIONES específicas que viven en comparaciones de rol —p. ej. las del portal cliente
+    // en accessibleProjectWhere/canAccessProject (rama de proyectos públicos), validateAssignee
+    // (solo asigna a su equipo) y la visibilidad de eventos—. Degradar a un cliente a "_apikey"
+    // BORRABA esas restricciones y su key scoped veía MÁS que él en la app. Degradar el rol debe
+    // quitar privilegios, nunca quitar restricciones.
     const perms = key.scopes.filter((s) => userPerms.includes(s));
-    effective = { ...session, role: SCOPED_ROLE, perms };
+    effective = { ...session, role: session.role === "admin" ? SCOPED_ROLE : session.role, perms };
   }
 
   return { ok: true, ctx: { session: effective, key, readOnly: key.readOnly } };

@@ -1,4 +1,4 @@
-import { QuoteStatus, InvoiceStatus, ProposalStatus, DeliverableStatus, ColumnType, DeliverableType, ProjectRole } from "@prisma/client";
+import { QuoteStatus, InvoiceStatus, ProposalStatus, DeliverableStatus, ColumnType, DeliverableType, ProjectRole, ProjectStatus } from "@prisma/client";
 
 // Type-guards para estados que llegan como string (de un form/acción pública) y se escriben
 // en un enum de Prisma. Validan contra los valores REALES del enum y, de paso, ESTRECHAN el
@@ -16,3 +16,4 @@ export const isDeliverableStatus = makeStatusGuard(DeliverableStatus);
 export const isColumnType = makeStatusGuard(ColumnType);
 export const isDeliverableType = makeStatusGuard(DeliverableType);
 export const isProjectRole = makeStatusGuard(ProjectRole);
+export const isProjectStatus = makeStatusGuard(ProjectStatus);
