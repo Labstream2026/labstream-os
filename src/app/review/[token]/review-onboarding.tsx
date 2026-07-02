@@ -31,12 +31,14 @@ export function ReviewOnboarding({ isPhoto = false }: { isPhoto?: boolean }) {
       ]
     : [
         { n: 1, t: "Acá está tu video — reprodúcelo" },
-        { n: 2, t: "Acá comentas — se guarda el segundo exacto" },
-        { n: 3, t: "Y con ✏️ dibujas sobre la imagen" },
+        { n: 2, t: "Comenta con la burbuja 💬 — el segundo y el fotograma se guardan solos" },
+        { n: 3, t: "Y si quieres, con ✏️ dibujas sobre la imagen" },
       ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+    // z-[80]: por ENCIMA del modo inmersivo (z-[60]) — en la primera visita móvil el tour se
+    // ve sobre la pantalla completa y, al cerrarlo, el cliente ya queda dentro del reel.
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.07] p-6 shadow-2xl backdrop-blur-2xl">
         <Logo className="h-6" />
         <h2 className="mt-4 text-lg font-semibold text-foreground">Así de fácil funciona 👋</h2>

@@ -308,12 +308,12 @@ export function ReviewStage({
   const decided = status === "APROBADO" || status === "ENTREGADO";
   const vertical = orientation === "vertical";
 
-  // ── Modo inmersivo (portal del cliente, reels verticales) ──
+  // ── Modo inmersivo (reels verticales; portal del cliente Y pre-aprobación interna) ──
   // El video ocupa TODA la pantalla (overlay fijo, tipo TikTok) y se corrige sin salir de él:
   // la burbuja pausa el video, congela el segundo y abre una hoja compacta. Al enviar, la
   // captura del fotograma es AUTOMÁTICA (capture() del reproductor, con el texto quemado);
   // dibujar es lo único opcional. Las correcciones existentes son puntos en la barra.
-  const immersiveCapable = mode === "client" && vertical;
+  const immersiveCapable = vertical;
   const [immersive, setImmersive] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [sheetSent, setSheetSent] = React.useState(false);
@@ -330,13 +330,15 @@ export function ReviewStage({
   // play/pausa con el toque; los iframes (YouTube/Vimeo/Drive) conservan sus controles.
   const sameOriginVideo = caps.frame && caps.time;
 
-  // En celular entra DIRECTO en inmersivo. Solo tras haber visto el tour, para no taparlo.
+  // En celular, el CLIENTE entra DIRECTO en inmersivo (el tour de bienvenida renderiza con
+  // z-index por encima del overlay, así que en la primera visita se ve el tour y al cerrarlo
+  // ya está en pantalla completa). El equipo (pre-aprobación interna) entra con el botón.
   React.useEffect(() => {
-    if (!immersiveCapable) return;
+    if (!immersiveCapable || mode !== "client") return;
     try {
-      if (localStorage.getItem("review_tour_v1") && window.matchMedia("(max-width: 768px)").matches) setImmersive(true);
+      if (window.matchMedia("(max-width: 768px)").matches) setImmersive(true);
     } catch { /* noop */ }
-  }, [immersiveCapable]);
+  }, [immersiveCapable, mode]);
 
   // Reloj del reproductor (progreso + estado de pausa) mientras el overlay está abierto.
   React.useEffect(() => {
