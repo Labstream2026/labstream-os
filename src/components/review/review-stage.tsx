@@ -50,6 +50,11 @@ type PlayerApi = {
   getTime: () => number | null;
   seek: (t: number) => void;
   pause: () => void;
+  play: () => void;
+  // Duración total del material (barra de progreso del modo inmersivo); null si la fuente
+  // no la expone (iframe de Drive, imagen…).
+  getDuration: () => number | null;
+  isPaused: () => boolean;
   // Captura el fotograma actual (+ caption opcional quemado) en un JPEG; null si la
   // fuente no es del mismo origen (YouTube/Vimeo/Drive sin proxy → CORS).
   capture: (caption?: string) => string | null;
@@ -303,6 +308,101 @@ export function ReviewStage({
   const decided = status === "APROBADO" || status === "ENTREGADO";
   const vertical = orientation === "vertical";
 
+  // ── Modo inmersivo (portal del cliente, reels verticales) ──
+  // El video ocupa TODA la pantalla (overlay fijo, tipo TikTok) y se corrige sin salir de él:
+  // la burbuja pausa el video, congela el segundo y abre una hoja compacta. Al enviar, la
+  // captura del fotograma es AUTOMÁTICA (capture() del reproductor, con el texto quemado);
+  // dibujar es lo único opcional. Las correcciones existentes son puntos en la barra.
+  const immersiveCapable = mode === "client" && vertical;
+  const [immersive, setImmersive] = React.useState(false);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [sheetSent, setSheetSent] = React.useState(false);
+  const [nowT, setNowT] = React.useState(0);
+  const [durT, setDurT] = React.useState(0);
+  const [paused, setPaused] = React.useState(true);
+  const [dotPop, setDotPop] = React.useState<{ pct: number; author: string; body: string } | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+  const toastTimer = React.useRef<number | null>(null);
+  const popTimer = React.useRef<number | null>(null);
+  const sentTcRef = React.useRef<number | null>(null);
+  const sheetRef = React.useRef<HTMLDivElement>(null);
+  // <video> del mismo origen (subido/proxy): frame + time a la vez. Solo ahí controlamos
+  // play/pausa con el toque; los iframes (YouTube/Vimeo/Drive) conservan sus controles.
+  const sameOriginVideo = caps.frame && caps.time;
+
+  // En celular entra DIRECTO en inmersivo. Solo tras haber visto el tour, para no taparlo.
+  React.useEffect(() => {
+    if (!immersiveCapable) return;
+    try {
+      if (localStorage.getItem("review_tour_v1") && window.matchMedia("(max-width: 768px)").matches) setImmersive(true);
+    } catch { /* noop */ }
+  }, [immersiveCapable]);
+
+  // Reloj del reproductor (progreso + estado de pausa) mientras el overlay está abierto.
+  React.useEffect(() => {
+    if (!immersive) return;
+    const id = window.setInterval(() => {
+      const api = playerRef.current;
+      setNowT(api?.getTime() ?? 0);
+      const d = api?.getDuration() ?? 0;
+      setDurT(d > 0 ? d : 0);
+      setPaused(api?.isPaused() ?? true);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [immersive]);
+
+  // Bloquea el scroll del fondo mientras el overlay cubre la pantalla.
+  React.useEffect(() => {
+    if (!immersive) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [immersive]);
+
+  // La hoja sube con el teclado del celular: iOS no redimensiona los `fixed`, así que se
+  // compensa con visualViewport (la hoja queda pegada al borde superior del teclado).
+  React.useEffect(() => {
+    if (!sheetOpen) return;
+    const vv = window.visualViewport;
+    const el = sheetRef.current;
+    if (!vv || !el) return;
+    const onResize = () => { el.style.bottom = `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`; };
+    onResize();
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => { vv.removeEventListener("resize", onResize); vv.removeEventListener("scroll", onResize); el.style.bottom = "0px"; };
+  }, [sheetOpen]);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2400);
+  };
+  const openSheet = () => { setDotPop(null); grabTime(); setSheetOpen(true); };
+  const exitImmersive = () => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); setDotPop(null); };
+  const sendFromSheet = () => {
+    if (!body.trim() && !drawing) return;
+    sentTcRef.current = playerRef.current?.getTime() ?? tc;
+    setSheetSent(true);
+    submitMoment();
+  };
+  // Cierra la hoja cuando el envío (optimista) termina sin error, avisa y reanuda el video.
+  React.useEffect(() => {
+    if (!sheetSent || pending) return;
+    setSheetSent(false);
+    if (!sendError) {
+      setSheetOpen(false);
+      showToast(`✓ Corrección enviada${sentTcRef.current != null ? ` en ${fmtTime(sentTcRef.current)}` : ""}`);
+      playerRef.current?.play();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetSent, pending, sendError]);
+  const showDotPop = (pct: number, author: string, bodyText: string) => {
+    setDotPop({ pct, author, body: bodyText });
+    if (popTimer.current != null) window.clearTimeout(popTimer.current);
+    popTimer.current = window.setTimeout(() => setDotPop(null), 4000);
+  };
+
   return (
     <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
       {confirmDialog}
@@ -323,16 +423,154 @@ export function ReviewStage({
         ) : null}
 
         {/* Pestaña «media» (el video): se OCULTA con CSS al cambiar de pestaña, sin desmontar,
-            para conservar la posición de reproducción y el buffer. */}
-        <div className={mediaTab === "media" ? undefined : "hidden"}>
-          <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} />
+            para conservar la posición de reproducción y el buffer. En modo inmersivo el MISMO
+            contenedor pasa a overlay fijo (solo cambian clases → el video no se re-monta ni
+            pierde la posición). */}
+        <div className={mediaTab !== "media" ? "hidden" : immersive ? "fixed inset-0 z-[60] bg-black" : undefined}>
+          <div className={immersive ? "relative h-full w-full" : "relative"}>
+            <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} immersive={immersive} />
 
+            {immersive ? (
+              <>
+                {/* Toque en el video = pausa/reanuda (solo <video> del mismo origen; los iframes
+                    de YouTube/Vimeo/Drive conservan sus propios controles). También cierra la
+                    hoja o la burbuja de un punto si estaban abiertas. */}
+                {sameOriginVideo && !drawOpen ? (
+                  <button
+                    type="button"
+                    aria-label={paused ? "Reproducir" : "Pausar"}
+                    onClick={() => {
+                      if (sheetOpen) { setSheetOpen(false); return; }
+                      if (dotPop) { setDotPop(null); return; }
+                      const api = playerRef.current;
+                      if (api?.isPaused()) api.play(); else api?.pause();
+                    }}
+                    className="absolute inset-0 z-10 cursor-default"
+                  />
+                ) : null}
+                {sameOriginVideo && paused && !sheetOpen && !drawOpen ? (
+                  <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
+                ) : null}
+
+                {/* Barra superior: salir + versión */}
+                <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 bg-gradient-to-b from-black/60 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
+                  <button type="button" onClick={exitImmersive} aria-label="Salir de pantalla completa" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm text-white backdrop-blur hover:bg-white/25">✕</button>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-white">Revisión · v{version?.number ?? 1}</p>
+                    <p className="text-[11px] text-white/60">Toca la burbuja para corregir</p>
+                  </div>
+                </div>
+
+                {/* Burbuja flotante: pausa, congela el segundo y abre la hoja de corrección */}
+                {!sheetOpen && !drawOpen ? (
+                  <button type="button" onClick={openSheet} aria-label="Agregar corrección" className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-12 items-center justify-center rounded-full bg-primary text-xl text-primary-foreground shadow-lg hover:bg-primary/90">💬</button>
+                ) : null}
+
+                {/* Progreso + puntos de corrección (cuando la fuente expone tiempo y duración) */}
+                {caps.time && durT > 0 ? (
+                  <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8">
+                    <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
+                      <span className="font-mono text-white/85">{fmtTime(nowT)}</span>
+                      <span className="font-mono text-white/50">{fmtTime(durT)}</span>
+                    </div>
+                    <div
+                      className="relative h-4 cursor-pointer"
+                      onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * durT;
+                        playerRef.current?.seek(t);
+                      }}
+                    >
+                      <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/25">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (nowT / durT) * 100)}%` }} />
+                      </div>
+                      {allMoments.filter((c) => c.timecode != null).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          aria-label={`Corrección en ${fmtTime(c.timecode!)}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playerRef.current?.seek(c.timecode!);
+                            playerRef.current?.pause();
+                            showDotPop((c.timecode! / durT) * 100, c.authorName, c.body);
+                          }}
+                          className="absolute top-1/2 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+                          style={{ left: `${Math.min(99, (c.timecode! / durT) * 100)}%` }}
+                        >
+                          <span className={`block size-2.5 rounded-full ring-2 ring-black/40 ${c.fromClient ? "bg-primary" : "bg-white"}`} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Burbuja de un punto tocado (comentario existente) */}
+                {dotPop ? (
+                  <div
+                    className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 w-56 max-w-[80vw] rounded-xl border border-white/15 bg-black/85 px-3 py-2 backdrop-blur"
+                    style={{ left: `clamp(0.75rem, calc(${dotPop.pct}% - 7rem), calc(100% - 14.75rem))` }}
+                  >
+                    <p className="text-[11px] font-medium text-primary">{dotPop.author}</p>
+                    <p className="mt-0.5 line-clamp-3 text-xs text-white/90">{dotPop.body}</p>
+                  </div>
+                ) : null}
+
+                {/* Hoja de corrección: el segundo va congelado y la captura del fotograma se
+                    adjunta AUTOMÁTICAMENTE al enviar; dibujar es lo único opcional. */}
+                <div ref={sheetRef} className={`absolute inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-white/10 bg-zinc-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur transition-transform duration-200 ${sheetOpen ? "translate-y-0" : "pointer-events-none translate-y-[110%]"}`}>
+                  <div className="mx-auto mb-2 h-1 w-9 rounded-full bg-white/25" />
+                  <p className="text-[13px] font-medium text-white">
+                    Corrección{tc != null ? <> en <span className="font-mono text-primary">{fmtTime(tc)}</span></> : null}
+                  </p>
+                  <p className="mb-2 text-[11px] text-white/55">
+                    {caps.frame ? "La captura del fotograma se adjunta automáticamente." : caps.time ? "Se guarda el segundo; esta fuente no permite capturar la imagen." : "Se guarda como comentario del video."}
+                  </p>
+                  {!fixedName ? (
+                    <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="mb-2 w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:ring-2 focus:ring-primary" />
+                  ) : null}
+                  <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} placeholder="Escribe tu corrección…" className="w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:ring-2 focus:ring-primary" />
+                  {drawing ? <p className="mt-1 text-[11px] text-emerald-300">✏️ Dibujo adjunto</p> : null}
+                  {sendError ? <p className="mt-1 text-[11px] text-red-300">{sendError}</p> : null}
+                  <div className="mt-2 flex items-center gap-2">
+                    {allowDrawings ? (
+                      <button type="button" onClick={() => { setSheetOpen(false); setDrawOpen(true); }} className="rounded-full bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20">✏️ Dibujar</button>
+                    ) : null}
+                    <button type="button" onClick={() => setSheetOpen(false)} className="rounded-full px-3 py-2 text-xs font-medium text-white/60 hover:text-white">Cancelar</button>
+                    <button type="button" onClick={sendFromSheet} disabled={pending || (!body.trim() && !drawing)} className="ml-auto rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                      {pending ? "Enviando…" : "Enviar"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Controles del dibujo (el lienzo es el DrawOverlay de siempre, sobre el frame pausado) */}
+                {drawOpen ? (
+                  <div className="absolute inset-x-0 bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-40 flex justify-center gap-2">
+                    <button type="button" onClick={() => { setDrawing(null); setDrawOpen(false); setSheetOpen(true); }} className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25">Cancelar</button>
+                    <button type="button" onClick={() => { setDrawOpen(false); setSheetOpen(true); }} className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Listo</button>
+                  </div>
+                ) : null}
+
+                {toast ? (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-50 flex justify-center">
+                    <span className="rounded-full bg-black/80 px-3.5 py-1.5 text-xs font-medium text-white">{toast}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          {!immersive ? (
+            <>
           {version?.notes ? (
             <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
           ) : null}
 
           {/* Herramientas */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {immersiveCapable ? (
+              <button onClick={() => setImmersive(true)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Ver el reel a pantalla completa y corregir con la burbuja">⛶ Pantalla completa</button>
+            ) : null}
             {version?.openUrl ? (
               <a href={version.openUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir original ↗</a>
             ) : null}
@@ -357,6 +595,8 @@ export function ReviewStage({
             <p className="mt-1.5 text-[11px] text-muted-foreground">
               ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma ni del segundo. Para anotar, usa ✏️ Dibujar (pega o sube una captura).
             </p>
+          ) : null}
+            </>
           ) : null}
         </div>
 
@@ -562,7 +802,7 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
@@ -575,6 +815,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // archivo, pero el IFRAME (visor de Google/YouTube) no tiene aspecto intrínseco: sin esto,
   // un video vertical (9:16) se encajaba en un marco 16:9 y se veía diminuto/mal.
   vertical?: boolean;
+  // Modo inmersivo (pantalla completa del portal): el material llena el contenedor (sin marco
+  // ni controles nativos en el <video>; la barra y el toque los pone el overlay del padre).
+  immersive?: boolean;
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
@@ -586,6 +829,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vimeoPlayer = React.useRef<any>(null);
   const vimeoTime = React.useRef<number | null>(null);
+  // Duración y estado de pausa espejados desde los eventos (getDuration/getPaused son asíncronos).
+  const vimeoDur = React.useRef<number | null>(null);
+  const vimeoPaused = React.useRef(true);
   // Para Drive ofrecemos DOS modos: «modo captura» (video proxiado del mismo origen, que
   // SÍ permite capturar el fotograma) y ver con el reproductor de Google (iframe, rápido,
   // ideal solo para ver masters pesados). Por DEFECTO arranca en modo captura, porque la
@@ -688,18 +934,25 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         getTime: () => videoRef.current?.currentTime ?? null,
         seek: (t) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.play().catch(() => {}); } },
         pause: () => { videoRef.current?.pause(); },
+        play: () => { videoRef.current?.play().catch(() => {}); },
+        getDuration: () => { const d = videoRef.current?.duration; return d && Number.isFinite(d) ? d : null; },
+        isPaused: () => videoRef.current?.paused ?? true,
         capture: cap,
         setRate: (r) => { if (videoRef.current) videoRef.current.playbackRate = r; },
       };
       // Re-aplica la velocidad elegida al reconstruirse la API (cambio de versión / captura).
       if (videoRef.current) videoRef.current.playbackRate = rateRef.current;
     } else if (version.kind === "image") {
-      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: cap, setRate: () => {} };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, play: () => {}, getDuration: () => null, isPaused: () => true, capture: cap, setRate: () => {} };
     } else if (version.kind === "youtube") {
       apiRef.current = {
         getTime: () => { try { return ytPlayer.current?.getCurrentTime?.() ?? null; } catch { return null; } },
         seek: (t) => { try { ytPlayer.current?.seekTo?.(t, true); } catch { /* noop */ } },
         pause: () => { try { ytPlayer.current?.pauseVideo?.(); } catch { /* noop */ } },
+        play: () => { try { ytPlayer.current?.playVideo?.(); } catch { /* noop */ } },
+        getDuration: () => { try { const d = ytPlayer.current?.getDuration?.(); return d && d > 0 ? d : null; } catch { return null; } },
+        // Estado 1 = reproduciendo (IFrame API); cualquier otro se trata como pausado.
+        isPaused: () => { try { return ytPlayer.current?.getPlayerState?.() !== 1; } catch { return true; } },
         capture: () => null,
         setRate: (r) => { try { ytPlayer.current?.setPlaybackRate?.(r); } catch { /* noop */ } },
       };
@@ -708,11 +961,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         getTime: () => vimeoTime.current,
         seek: (t) => { try { vimeoPlayer.current?.setCurrentTime?.(t); vimeoPlayer.current?.play?.(); } catch { /* noop */ } },
         pause: () => { try { vimeoPlayer.current?.pause?.(); } catch { /* noop */ } },
+        play: () => { try { vimeoPlayer.current?.play?.(); } catch { /* noop */ } },
+        getDuration: () => vimeoDur.current,
+        isPaused: () => vimeoPaused.current,
         capture: () => null,
         setRate: (r) => { try { vimeoPlayer.current?.setPlaybackRate?.(r); } catch { /* noop */ } },
       };
     } else {
-      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, capture: () => null, setRate: () => {} };
+      apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, play: () => {}, getDuration: () => null, isPaused: () => true, capture: () => null, setRate: () => {} };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, apiRef, usingProxy]);
@@ -752,6 +1008,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     if (version?.kind !== "vimeo" || !ytRef.current) return;
     let cancelled = false;
     vimeoTime.current = null;
+    vimeoDur.current = null;
+    vimeoPaused.current = true;
     const make = () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (cancelled || !(window as any).Vimeo?.Player || !ytRef.current) return;
@@ -760,7 +1018,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         const p = new (window as any).Vimeo.Player(ytRef.current);
         vimeoPlayer.current = p;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        p.on("timeupdate", (d: any) => { vimeoTime.current = typeof d?.seconds === "number" ? d.seconds : vimeoTime.current; });
+        p.on("timeupdate", (d: any) => {
+          vimeoTime.current = typeof d?.seconds === "number" ? d.seconds : vimeoTime.current;
+          if (typeof d?.duration === "number" && d.duration > 0) vimeoDur.current = d.duration;
+        });
+        p.on("play", () => { vimeoPaused.current = false; });
+        p.on("pause", () => { vimeoPaused.current = true; });
         p.ready().then(() => { try { p.setPlaybackRate(rateRef.current); } catch { /* planes sin control de velocidad */ } }).catch(() => {});
       } catch { /* iframe aún no listo */ }
     };
@@ -785,9 +1048,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   }
 
   const overlay = drawOpen ? <DrawOverlay captureEl={captureEl} canCapture={canCapture} onResult={onDrawn} /> : null;
-  // Subtítulo en vivo del comentario que se está escribiendo, encima del video.
+  // Subtítulo en vivo del comentario que se está escribiendo, encima del video. En inmersivo
+  // sube para no chocar con la barra de progreso del overlay.
   const liveCaption = !drawOpen && caption.trim() ? (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8">
+    <div className={`pointer-events-none absolute inset-x-0 z-20 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8 ${immersive ? "bottom-16" : "bottom-0"}`}>
       <span className="text-sm font-medium text-white drop-shadow">{caption.trim()}</span>
     </div>
   ) : null;
@@ -808,12 +1072,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
 
   if (version.kind === "video" || usingProxy) {
     return (
-      <div>
-        <div className="relative mx-auto w-fit max-w-full">
+      <div className={immersive ? "h-full w-full" : undefined}>
+        <div className={immersive ? "relative h-full w-full" : "relative mx-auto w-fit max-w-full"}>
           <video
             ref={videoRef}
             src={usingProxy ? version.proxySrc! : version.src}
-            controls
+            controls={!immersive}
+            playsInline
             // SIN crossOrigin: con "anonymous", un MP4 externo sin cabeceras CORS no reproduce NADA.
             // Sin el atributo siempre reproduce; si la fuente es de otro origen, la captura del
             // fotograma simplemente devuelve null (composite lo maneja) en vez de romper el video.
@@ -842,24 +1107,24 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
             onTimeUpdate={() => savePos()}
             onPause={() => savePos(true)}
-            className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
+            className={immersive ? "block h-full w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"}
           />
-          {driveToggle}
+          {immersive ? null : driveToggle}
           {liveCaption}
           {overlay}
         </div>
-        {speedBar}
+        {immersive ? null : speedBar}
       </div>
     );
   }
   if (version.kind === "image") {
     return (
-      <div className="relative mx-auto w-fit max-w-full">
+      <div className={immersive ? "relative flex h-full w-full items-center justify-center" : "relative mx-auto w-fit max-w-full"}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {/* Sin crossOrigin: con "anonymous", una imagen externa sin CORS no CARGA. Sin el
             atributo siempre se ve; si es de otro origen, la captura devuelve null y queda
             el camino de pegar/subir una captura para anotar. */}
-        <img ref={imgRef} src={version.src} alt="Material" className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border" />
+        <img ref={imgRef} src={version.src} alt="Material" className={immersive ? "block max-h-full max-w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border"} />
         {overlay}
       </div>
     );
@@ -869,22 +1134,24 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // para horizontales, 16:9 a todo el ancho. Así el reel no se ve encajado en una caja ancha.
   const isYouTube = version.kind === "youtube";
   return (
-    <div>
-      <div className={vertical ? "relative mx-auto w-fit max-w-full" : "relative"}>
+    <div className={immersive ? "h-full w-full" : undefined}>
+      <div className={immersive ? "relative h-full w-full" : vertical ? "relative mx-auto w-fit max-w-full" : "relative"}>
         <iframe
           ref={ytRef}
           src={version.src}
-          className={vertical
-            ? "mx-auto block aspect-[9/16] h-[72vh] max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
-            : "aspect-video w-full rounded-xl border border-border bg-black"}
+          className={immersive
+            ? "block h-full w-full border-0 bg-black"
+            : vertical
+              ? "mx-auto block aspect-[9/16] h-[72vh] max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"
+              : "aspect-video w-full rounded-xl border border-border bg-black"}
           allow="autoplay; fullscreen; picture-in-picture"
           allowFullScreen
         />
-        {driveToggle}
+        {immersive ? null : driveToggle}
         {liveCaption}
         {overlay}
       </div>
-      {isYouTube || version.kind === "vimeo" ? (
+      {immersive ? null : isYouTube || version.kind === "vimeo" ? (
         // YouTube y Vimeo exponen API de velocidad → barra de la app.
         speedBar
       ) : (
