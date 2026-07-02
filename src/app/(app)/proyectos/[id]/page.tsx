@@ -248,9 +248,16 @@ export default async function ProyectoPage({
       projectId={id}
       canManage={canManageProject(project, session)}
       members={team
-        // Co-revisores internos: nunca usuarios del portal cliente (aunque sean miembros GUEST).
-        .filter((t) => (t.id === project.leadId || project.members.some((m) => m.userId === t.id)) && t.role?.key !== "cliente")
-        .map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+        // Miembros del proyecto (incluye clientes invitados): elegir a un CLIENTE como
+        // responsable de la revisión activa la revisión DIRECTA — sus versiones van derecho
+        // a su portal, sin pasar por la pre-aprobación interna.
+        .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
+        .map((t) => ({
+          id: t.id,
+          name: t.role?.key === "cliente" ? `${t.name} · cliente (revisión directa)` : t.name,
+          initials: t.initials,
+          color: t.avatarColor,
+        }))}
       deliverables={project.deliverables.map((d) => ({
         id: d.id,
         name: d.name,

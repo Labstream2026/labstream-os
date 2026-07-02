@@ -19,6 +19,7 @@ import { validateAssignee } from "@/lib/task-assign";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
+import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } from "@/lib/deliverable-tasks";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import type { SessionUser } from "@/lib/session";
 
@@ -888,11 +889,18 @@ async function validateProjectMember(projectId: string, userId: string | null): 
   const proj = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, members: { select: { userId: true } } } });
   const allowed = new Set([proj?.leadId, ...(proj?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
   if (!allowed.has(userId)) return null;
-  // Un revisor INTERNO nunca puede ser un usuario del PORTAL CLIENTE (aunque sea miembro GUEST del
-  // proyecto): la pre-aprobación interna es del equipo, no del cliente.
-  const u = await db.user.findUnique({ where: { id: userId }, select: { role: { select: { key: true } } } });
-  if (u?.role?.key === "cliente") return null;
+  // Un usuario del PORTAL CLIENTE (miembro invitado) SÍ puede ser el responsable de la
+  // revisión: en ese caso el flujo es DIRECTO — las versiones no pasan por la compuerta
+  // interna, van derecho a su portal y él aprueba/pide cambios desde ahí (trabaja mano a
+  // mano con el editor). La decisión interna (/revisiones) sigue vetada para clientes.
   return userId;
+}
+
+// ¿El usuario es del portal cliente? Define el flujo DIRECTO de revisión (sin compuerta interna).
+async function memberIsClient(userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+  const u = await db.user.findUnique({ where: { id: userId }, select: { role: { select: { key: true } } } });
+  return u?.role?.key === "cliente";
 }
 
 export async function createDeliverable(projectId: string, formData: FormData) {
@@ -925,14 +933,34 @@ export async function createDeliverable(projectId: string, formData: FormData) {
       await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
       fileAssetId = asset.id;
     }
-    await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, uploadedById: session.id, internalApproved: false } });
-    await db.deliverable.update({ where: { id: d.id }, data: { status: "REVISION_INTERNA" } });
-    await logActivity({ action: "deliverable.version", summary: `subió la v1 de «${name}» (pendiente de pre-aprobación interna)`, projectId, entityType: "deliverable", entityId: d.id });
+    // Revisor CLIENTE (miembro invitado) = revisión DIRECTA: la v1 no pasa por la compuerta
+    // interna; queda aprobada de una y va derecho al portal del cliente.
+    const directToClient = await memberIsClient(reviewerId);
+    await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
+    await db.deliverable.update({ where: { id: d.id }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
+    await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la v1 de «${name}» (enviada DIRECTO al cliente para revisión)` : `subió la v1 de «${name}» (pendiente de pre-aprobación interna)`, projectId, entityType: "deliverable", entityId: d.id });
     const lead = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, name: true } });
-    // Solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el lead del proyecto.
-    const responsible = reviewerId ?? lead?.leadId ?? null;
-    if (responsible && responsible !== session.id) {
-      await notifyAndEmail(responsible, { type: "review", event: "review_pending", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}`, actorId: session.id });
+    if (directToClient && reviewerId) {
+      // Directo al portal del cliente: notificación con SU enlace (no /revisiones, que no puede abrir).
+      await notifyAndEmail(reviewerId, { type: "review", event: "client_deliverable_ready", title: `Tu entregable está listo: ${name}`, body: `El equipo subió «${name}» en «${lead?.name ?? ""}». Ya puedes verlo, comentarlo y aprobarlo.`, link: `/mis-entregas/${projectId}`, actorId: session.id });
+    } else {
+      // Solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el lead del proyecto.
+      const responsible = reviewerId ?? lead?.leadId ?? null;
+      if (responsible && responsible !== session.id) {
+        await notifyAndEmail(responsible, { type: "review", event: "review_pending", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}`, actorId: session.id });
+      }
+      // Tarea REAL en el tablero (fase Postproducción) para el responsable de la revisión,
+      // con la caducidad del enlace como fecha límite: la pre-aprobación no queda solo en
+      // una notificación.
+      await createDeliverableAutoTask({
+        projectId,
+        deliverableId: d.id,
+        title: autoTaskTitles.review(name, 1),
+        description: `Revisa la v1 y pre-apruébala o solicita cambios en /revisiones. Al decidir, esta tarea se completa sola.`,
+        assigneeId: responsible,
+        dueDate: reviewExpiresAt,
+        actorId: session.id,
+      });
     }
   }
 
@@ -969,14 +997,30 @@ export async function setDeliverableReviewers(deliverableId: string, _projectId:
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewerId: valid[0] ?? null } });
   const added = valid.filter((id) => !before.has(id) && id !== session!.id);
   if (added.length) {
-    await notifyManyAndEmail(added, {
-      type: "review",
-      event: "review_reviewer",
-      title: `Eres revisor de: ${deliverable.name}`,
-      body: "Te asignaron como revisor: puedes pre-aprobar o solicitar cambios en este entregable.",
-      link: `/revisiones/${deliverableId}`,
-      actorId: session?.id,
-    });
+    // A los revisores CLIENTE (revisión directa) se les enlaza SU portal, no /revisiones.
+    const addedUsers = await db.user.findMany({ where: { id: { in: added } }, select: { id: true, role: { select: { key: true } } } });
+    const clientAdded = addedUsers.filter((u) => u.role?.key === "cliente").map((u) => u.id);
+    const teamAdded = added.filter((id) => !clientAdded.includes(id));
+    if (teamAdded.length) {
+      await notifyManyAndEmail(teamAdded, {
+        type: "review",
+        event: "review_reviewer",
+        title: `Eres revisor de: ${deliverable.name}`,
+        body: "Te asignaron como revisor: puedes pre-aprobar o solicitar cambios en este entregable.",
+        link: `/revisiones/${deliverableId}`,
+        actorId: session?.id,
+      });
+    }
+    if (clientAdded.length) {
+      await notifyManyAndEmail(clientAdded, {
+        type: "review",
+        event: "review_reviewer",
+        title: `Revisarás directamente: ${deliverable.name}`,
+        body: "El equipo te enviará las versiones directo a tu portal para que las revises, comentes y apruebes.",
+        link: `/mis-entregas/${deliverable.projectId}`,
+        actorId: session?.id,
+      });
+    }
   }
   refresh(deliverable.projectId);
 }
@@ -1157,7 +1201,7 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, coverFileAssetId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, coverFileAssetId: true, reviewExpiresAt: true, reviewers: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
@@ -1193,6 +1237,10 @@ export async function addDeliverableVersion(
     fileAssetId = asset.id;
   }
 
+  // Revisión DIRECTA: si TODOS los revisores asignados son usuarios del portal cliente
+  // (miembros invitados), la versión no pasa por la compuerta interna — queda aprobada y
+  // va derecho al portal del cliente, que trabaja los cambios directamente con el editor.
+  const directToClient = deliverable.reviewers.length > 0 && deliverable.reviewers.every((r) => r.user.role?.key === "cliente");
   await db.deliverableVersion.create({
     data: {
       deliverableId,
@@ -1201,27 +1249,56 @@ export async function addDeliverableVersion(
       fileUrl,
       fileAssetId,
       uploadedById: session!.id,
-      // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla).
-      internalApproved: false,
+      // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla), salvo
+      // en revisión directa (revisor = cliente).
+      internalApproved: directToClient,
+      internalApprovedAt: directToClient ? new Date() : null,
     },
   });
-  // La nueva versión pasa a revisión interna (compuerta bloqueante).
-  await db.deliverable.update({ where: { id: deliverableId }, data: { status: "REVISION_INTERNA" } });
-  await logActivity({ action: "deliverable.version", summary: `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
-  // Aviso DIRIGIDO solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el
-  // responsable del proyecto (lead) y, en último caso, el dueño del entregable. Se excluye a
-  // quien subió la versión. (Antes se avisaba a TODOS los administradores → se quitó: la
-  // pre-aprobación es del responsable, no de todo el mundo.)
+  // La nueva versión pasa a revisión interna (compuerta bloqueante) o directo al cliente.
+  await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
+  await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la versión v${number} de «${deliverable.name}» (enviada DIRECTO al cliente para revisión)` : `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  // Esta versión ES la corrección: cierra las tareas «Corregir …» abiertas del entregable.
+  await closeDeliverableAutoTasks(deliverableId, ["fix"]);
   const reviewerIds = deliverable.reviewers.map((r) => r.userId);
-  const recipients = (reviewerIds.length ? reviewerIds : ([deliverable.project.leadId ?? deliverable.ownerId].filter(Boolean) as string[]))
-    .filter((id) => id !== session!.id);
-  if (recipients.length) {
-    await notifyManyAndEmail(recipients, {
-      type: "review",
-      event: "review_pending",
-      title: `Revisión pendiente: ${deliverable.name}`,
-      body: `${session!.name} subió la v${number} en «${deliverable.project.name}». Revísala y pre-apruébala o solicita cambios.`,
-      link: `/revisiones/${deliverableId}`,
+  if (directToClient) {
+    // Directo al portal: aviso al cliente-revisor con SU enlace (no /revisiones).
+    const clientRecipients = reviewerIds.filter((id) => id !== session!.id);
+    if (clientRecipients.length) {
+      await notifyManyAndEmail(clientRecipients, {
+        type: "review",
+        event: "client_deliverable_ready",
+        title: `Nueva versión lista: ${deliverable.name}`,
+        body: `El equipo subió la v${number} en «${deliverable.project.name}». Ya puedes verla, comentarla y aprobarla.`,
+        link: `/mis-entregas/${deliverable.projectId}`,
+        actorId: session!.id,
+      });
+    }
+  } else {
+    // Aviso DIRIGIDO solo al RESPONSABLE de la revisión: el reviewer asignado; si no hay, el
+    // responsable del proyecto (lead) y, en último caso, el dueño del entregable. Se excluye a
+    // quien subió la versión. (Antes se avisaba a TODOS los administradores → se quitó: la
+    // pre-aprobación es del responsable, no de todo el mundo.)
+    const recipients = (reviewerIds.length ? reviewerIds : ([deliverable.project.leadId ?? deliverable.ownerId].filter(Boolean) as string[]))
+      .filter((id) => id !== session!.id);
+    if (recipients.length) {
+      await notifyManyAndEmail(recipients, {
+        type: "review",
+        event: "review_pending",
+        title: `Revisión pendiente: ${deliverable.name}`,
+        body: `${session!.name} subió la v${number} en «${deliverable.project.name}». Revísala y pre-apruébala o solicita cambios.`,
+        link: `/revisiones/${deliverableId}`,
+        actorId: session!.id,
+      });
+    }
+    // Tarea de pre-aprobación al responsable (caducidad del enlace = fecha límite).
+    await createDeliverableAutoTask({
+      projectId: deliverable.projectId,
+      deliverableId,
+      title: autoTaskTitles.review(deliverable.name, number),
+      description: `Revisa la v${number} y pre-apruébala o solicita cambios en /revisiones. Al decidir, esta tarea se completa sola.`,
+      assigneeId: reviewerIds[0] ?? deliverable.project.leadId ?? deliverable.ownerId,
+      dueDate: deliverable.reviewExpiresAt,
       actorId: session!.id,
     });
   }
@@ -1244,7 +1321,7 @@ export async function internalDecision(
   result: "APROBADO" | "CAMBIOS",
   note?: string,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewExpiresAt: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Decide el responsable del proyecto/admin O CUALQUIER revisor asignado (co-revisores).
   // El gestor del proyecto necesita además aprobar_entregables; un revisor asignado siempre puede.
@@ -1294,6 +1371,33 @@ export async function internalDecision(
     entityType: "deliverable",
     entityId: deliverableId,
   });
+  // ── Tareas del flujo ── la decisión COMPLETA la tarea «Pre-aprobar …» del revisor, y crea
+  // la siguiente tarea a quien subió la versión: «Corregir …» (cambios) o «Entregar al
+  // cliente …» (aprobada). Así el requisito nunca queda a medias con solo una notificación.
+  const version = await db.deliverableVersion.findFirst({ where: { deliverableId, number: versionNumber }, select: { uploadedById: true } });
+  const uploaderId = version?.uploadedById ?? deliverable.ownerId ?? deliverable.project.leadId;
+  await closeDeliverableAutoTasks(deliverableId, ["review"]);
+  if (approved) {
+    await createDeliverableAutoTask({
+      projectId,
+      deliverableId,
+      title: autoTaskTitles.deliver(deliverable.name, versionNumber),
+      description: "La versión quedó pre-aprobada y ya está en el portal del cliente. Comparte el enlace de revisión y completa portada, copy y descargas si faltan. Cuando el cliente decida, esta tarea se completa sola.",
+      assigneeId: uploaderId,
+      dueDate: deliverable.reviewExpiresAt,
+      actorId: session!.id,
+    });
+  } else {
+    await createDeliverableAutoTask({
+      projectId,
+      deliverableId,
+      title: autoTaskTitles.fix(deliverable.name, versionNumber),
+      description: `Aplica los cambios solicitados${note ? `: ${note.slice(0, 300)}` : ""}. El checklist con capturas está en el entregable. Al subir la nueva versión, esta tarea se completa sola.`,
+      assigneeId: uploaderId,
+      dueDate: deliverable.reviewExpiresAt,
+      actorId: session!.id,
+    });
+  }
   // Al solicitar cambios, avisa a TODO el equipo del proyecto (responsable + miembros +
   // dueño del entregable) para que rehagan el material. Incluye cuántos cambios hay
   // pendientes y enlaza al workspace (donde está el checklist con capturas). Excluye a

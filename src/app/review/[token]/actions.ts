@@ -7,6 +7,7 @@ import { verifyReviewToken } from "@/lib/review-token";
 import { logActivity } from "@/lib/activity";
 import { notifyManyAndEmail } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
+import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } from "@/lib/deliverable-tasks";
 
 // Construye una clave de rate-limit a partir del token (autorización del portal) y, si está
 // disponible, la IP del cliente. Así un token filtrado no puede usarse para inundar la BD
@@ -202,6 +203,31 @@ export async function setReviewDecision(token: string, decision: string, name?: 
     body: approved ? `${who} aprobó el entregable.` : `${who} solicitó cambios. Revisa sus comentarios.`,
     link: `/revisiones/${deliverableId}`,
   });
+  // ── Tareas del flujo ── la decisión del cliente COMPLETA las tareas abiertas del ciclo
+  // («Entregar al cliente …» y las de revisión); si pidió cambios, crea una tarea REAL
+  // «Corregir … (cambios del cliente)» a quien subió la última versión — el requisito no
+  // queda a medias con solo la notificación.
+  const flowInfo = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: {
+      ownerId: true,
+      reviewExpiresAt: true,
+      project: { select: { leadId: true } },
+      versions: { orderBy: { number: "desc" }, take: 1, select: { uploadedById: true, number: true } },
+    },
+  });
+  await closeDeliverableAutoTasks(deliverableId, approved ? ["deliver", "review", "fix"] : ["deliver", "review"]);
+  if (!approved && flowInfo) {
+    await createDeliverableAutoTask({
+      projectId,
+      deliverableId,
+      title: autoTaskTitles.fix(delName, versionNumber ?? flowInfo.versions[0]?.number ?? null, true),
+      description: `El cliente (${who}) solicitó cambios${noteClean ? `: ${noteClean.slice(0, 300)}` : ""}. Sus comentarios con capturas están en el entregable. Al subir la nueva versión, esta tarea se completa sola.`,
+      assigneeId: flowInfo.versions[0]?.uploadedById ?? flowInfo.ownerId ?? flowInfo.project.leadId,
+      dueDate: flowInfo.reviewExpiresAt,
+      actorId: null,
+    });
+  }
   revalidatePath(`/review/${token}`);
 }
 
