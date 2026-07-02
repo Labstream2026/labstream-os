@@ -21,6 +21,7 @@ import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliver
 import { ReviewersPicker } from "./reviewers-picker";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { DeliverableRenditions } from "./deliverable-renditions";
+import { TypeAndCoverFields } from "./deliverable-create-fields";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -174,7 +175,7 @@ export function DeliverablesPanel({
           revisión (solo miembros), caducidad opcional del enlace y fecha de entrega. */}
       <form
         action={createDeliverable.bind(null, projectId)}
-        className="space-y-2.5 rounded-xl border border-border bg-card p-4"
+        className="space-y-3 rounded-xl border border-border bg-card p-4"
       >
         <p className="text-sm font-semibold">Subir para revisión</p>
         <div className="flex flex-wrap items-end gap-2">
@@ -182,21 +183,12 @@ export function DeliverablesPanel({
             Nombre
             <input name="name" required placeholder="Nombre del proyecto o video…" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring" />
           </label>
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Tipo de contenido
-            <select name="type" defaultValue="REEL" title="Define el formato de revisión: vertical (9:16), horizontal (16:9) o galería de fotos" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
-              {Object.entries(DELIVERABLE_TYPE).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
-            </select>
-          </label>
+          {/* Tipo + portada (la portada solo aparece si el tipo es reel) */}
+          <TypeAndCoverFields options={Object.entries(DELIVERABLE_TYPE)} />
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <input type="file" name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
-          {/* Portada opcional (imagen que acompaña al reel); el cliente la aprueba en su sala */}
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Portada (reels)
-            <input type="file" name="cover" accept="image/*" title="Imagen de portada que acompaña al reel (opcional)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
-          </label>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
@@ -207,7 +199,7 @@ export function DeliverablesPanel({
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Caduca el enlace (opcional)
+            Caduca el enlace <span className="font-normal text-muted-foreground/70">· opcional</span>
             <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
           </label>
           <SubmitButton pendingText="Subiendo…" className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
@@ -265,14 +257,38 @@ export function DeliverablesPanel({
               </summary>
               <div className="pt-1">
 
-            {/* Portada del reel: se adjunta desde los formularios de subida (crear / + Versión).
-                Aquí solo se muestra si existe (reels verticales, o huérfana en horizontales para
-                poder quitarla), con su estado de aprobación del cliente. */}
-            {(isVertical || d.cover) && d.cover ? (
+            {/* Extras del reel (portada + copy/hashtags): solo aplican a los reels, igual que en la
+                sala del cliente. En horizontales/fotos no se muestran para dejar la vista más limpia. */}
+            {isVertical ? (
+              <div className="mt-3 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Extras del reel</p>
+                {/* Portada: se adjunta al subir una versión; aquí se ve su estado de aprobación del cliente. */}
+                {d.cover ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <a href={d.cover.full} data-lightbox rel="noreferrer" title="Ver portada a tamaño completo" className="shrink-0 cursor-zoom-in">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={d.cover.src} alt="Portada del reel" className="h-10 w-7 rounded border border-border object-cover" />
+                    </a>
+                    <span className="text-muted-foreground">Portada</span>
+                    <CoverStatusBadge deliverableId={d.id} />
+                    {canManage ? (
+                      <form action={removeDeliverableCover.bind(null, projectId, d.id)}>
+                        <SubmitButton pendingText="Quitando…" className="text-xs text-muted-foreground hover:text-destructive">Quitar</SubmitButton>
+                      </form>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Sin portada. Adjúntala al subir una versión.</p>
+                )}
+                {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
+                {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}
+              </div>
+            ) : d.cover ? (
+              // Horizontal/foto con portada huérfana: solo dejar quitarla, sin la sección de extras.
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                 <a href={d.cover.full} data-lightbox rel="noreferrer" title="Ver portada a tamaño completo" className="shrink-0 cursor-zoom-in">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={d.cover.src} alt="Portada del reel" className="h-10 w-7 rounded border border-border object-cover" />
+                  <img src={d.cover.src} alt="Portada" className="h-10 w-7 rounded border border-border object-cover" />
                 </a>
                 <span className="text-muted-foreground">Portada</span>
                 <CoverStatusBadge deliverableId={d.id} />
@@ -283,9 +299,6 @@ export function DeliverablesPanel({
                 ) : null}
               </div>
             ) : null}
-
-            {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
-            {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}
 
             {/* Archivos finales por formato (centro de descargas del cliente) */}
             {canManage ? <DeliverableRenditions deliverableId={d.id} /> : null}
@@ -396,11 +409,13 @@ export function DeliverablesPanel({
                   <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <input type="file" name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
-                  {/* Portada opcional adjunta a la versión (reemplaza la anterior si existía) */}
-                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground" title="Imagen de portada que acompaña al reel (opcional)">
-                    Portada (reels)
-                    <input type="file" name="cover" accept="image/*" className="max-w-44 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
-                  </label>
+                  {/* Portada opcional adjunta a la versión (solo reels; reemplaza la anterior si existía) */}
+                  {isVertical ? (
+                    <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground" title="Imagen de portada que acompaña al reel (opcional)">
+                      Portada
+                      <input type="file" name="cover" accept="image/*" className="max-w-44 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                    </label>
+                  ) : null}
                   <button className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">+ Versión</button>
                 </form>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>

@@ -8,6 +8,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { photoViewSrc } from "@/lib/deliverable-photo";
 import { DELIVERABLE_TYPE, deliverableOrientation } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { CoverThumb } from "./cover-thumb";
 
 export const dynamic = "force-dynamic";
 
@@ -116,15 +117,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                       href={`/review/${token}`}
                       className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40"
                     >
-                      <div className={cn("relative w-full overflow-hidden bg-foreground/90", vertical ? "aspect-[9/14]" : "aspect-video")}>
-                        {cover ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={cover} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center bg-muted">
-                            {isPhoto ? <ImageIcon className="size-7 text-muted-foreground" /> : <Play className="size-7 text-muted-foreground" />}
-                          </div>
-                        )}
+                      <div className={cn("relative w-full overflow-hidden bg-muted", vertical ? "aspect-[9/14]" : "aspect-video")}>
+                        {/* Base: ícono de video/foto. Si hay portada la imagen lo tapa; si la portada
+                            no carga (archivo ausente), este ícono queda de fallback y no una imagen rota. */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          {isPhoto ? <ImageIcon className="size-7 text-muted-foreground" /> : <Play className="size-7 text-muted-foreground" />}
+                        </div>
+                        {cover ? <CoverThumb src={cover} /> : null}
                         <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
                           <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-foreground shadow-lg">
                             <Play className="size-5 translate-x-0.5 fill-current" />
