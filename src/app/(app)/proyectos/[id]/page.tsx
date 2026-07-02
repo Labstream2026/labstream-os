@@ -327,7 +327,12 @@ export default async function ProyectoPage({
             dueDate: d.dueDate ? d.dueDate.toISOString() : null,
             cover: d.coverFileAssetId ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) } : null,
             finalVersion: fv ? { number: fv.number, href: fv.fileAssetId ? `/api/files-asset/${fv.fileAssetId}` : fv.fileUrl } : null,
-            comments: d.reviewComments.map((c) => ({ id: c.id, authorName: c.authorName, body: c.body, fromClient: c.fromClient, createdAt: c.createdAt.toISOString() })),
+            // El cliente solo ve SUS comentarios y las respuestas del equipo dirigidas a él;
+            // los comentarios internos de pre-aprobación (fromClient=false sin visibleToClient)
+            // NUNCA se le mandan.
+            comments: d.reviewComments
+              .filter((c) => c.fromClient || c.visibleToClient)
+              .map((c) => ({ id: c.id, authorName: c.authorName, body: c.body, fromClient: c.fromClient, createdAt: c.createdAt.toISOString() })),
           };
         })
     : [];

@@ -298,8 +298,9 @@ export function DeliverablesPanel({
               </summary>
               <div className="pt-1">
 
-            {/* Portada: solo para reels (vertical). No aplica a videos horizontales ni a galerías de fotos. */}
-            {isVertical ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
+            {/* Portada: solo para reels (vertical). En horizontales solo aparece si quedó una
+                portada huérfana (subida cuando era reel), para poder quitarla. */}
+            {isVertical || d.cover ? <CoverManager deliverableId={d.id} projectId={projectId} canManage={canManage} cover={d.cover} /> : null}
 
             {/* Copy + hashtags que el cliente verá y podrá copiar en su sala de revisión */}
             {canManage ? <DeliverableContentEditor deliverableId={d.id} /> : null}

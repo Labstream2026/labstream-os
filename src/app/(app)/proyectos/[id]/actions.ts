@@ -1246,7 +1246,8 @@ export async function internalDecision(
       event: "client_deliverable_ready",
       title: `Tu entregable está listo: ${deliverable.name}`,
       body: `El equipo terminó «${deliverable.name}» en «${deliverable.project.name}». Ya puedes verlo, comentarlo y aprobarlo.`,
-      link: `/proyectos/${projectId}?tab=entregables`,
+      // A su SALA de entregas (con reproductor, portada, copy y descargas), no a la vista antigua.
+      link: `/mis-entregas/${projectId}`,
       actorId: session!.id,
     });
   } else {
@@ -1392,8 +1393,10 @@ export async function replyToReview(deliverableId: string, _projectId: string, f
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   if (!body) return;
   const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
+  // visibleToClient: es una respuesta DIRIGIDA al cliente → el portal público la incluye
+  // (a diferencia de los comentarios internos de pre-aprobación, que nunca salen).
   await db.reviewComment.create({
-    data: { deliverableId, authorName: me?.name ?? "Equipo", body, fromClient: false },
+    data: { deliverableId, authorName: me?.name ?? "Equipo", body, fromClient: false, visibleToClient: true },
   });
   await logActivity({ action: "deliverable.team_reply", summary: `respondió en la revisión de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   refresh(deliverable.projectId);

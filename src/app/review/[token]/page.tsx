@@ -10,6 +10,8 @@ import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
 import { PhotoGallery } from "./photo-gallery";
+import { PhotoDecision } from "./photo-decision";
+import { DownloadCenter } from "./download-center";
 
 // Estado con la voz del cliente (no la etiqueta interna del equipo) para la cabecera de la sala.
 const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
@@ -32,10 +34,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     include: {
       project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
-      // El portal del cliente SOLO carga los comentarios del cliente (fromClient). Los
-      // comentarios INTERNOS del equipo (pre-aprobación, fromClient=false) nunca salen del
-      // servidor por este enlace público. La bandeja interna /revisiones los muestra todos.
-      reviewComments: { where: { fromClient: true }, orderBy: { createdAt: "asc" } },
+      // El portal del cliente SOLO carga los comentarios del cliente (fromClient) y las
+      // RESPUESTAS del equipo dirigidas a él (visibleToClient, las de «Responder al cliente»).
+      // Los comentarios INTERNOS de pre-aprobación nunca salen del servidor por este enlace.
+      reviewComments: { where: { OR: [{ fromClient: true }, { visibleToClient: true }] }, orderBy: { createdAt: "asc" } },
       photos: { orderBy: { position: "asc" } },
       // Archivos finales por formato (centro de descargas del cliente).
       renditions: { orderBy: { position: "asc" }, select: { id: true, format: true, label: true, url: true } },
@@ -58,13 +60,29 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     );
   }
 
+  // Compuerta de ESTADO: el cliente solo ve la pieza cuando está de cara a él (enviada,
+  // con cambios, aprobada o entregada). Si el equipo la regresó a producción/edición/revisión
+  // interna, el enlace muestra un aviso amable en vez del material (y sin etiquetas internas).
+  if (!CLIENT_STATUS[deliverable.status]) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6 text-center">
+        <div className="max-w-md">
+          <div className="text-4xl">🎬</div>
+          <h1 className="mt-3 text-xl font-bold">Estamos trabajando en tu material</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            El equipo está preparando una nueva versión. Te avisaremos en cuanto esté lista para tu revisión.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Cuenta una visita (no bloquea el render si falla).
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewVisits: { increment: 1 } } }).catch(() => {});
 
   // Compuerta bloqueante: el cliente solo ve versiones aprobadas internamente.
   const approved = deliverable.versions.filter((v) => v.internalApproved);
-  const meta = deliverableStatusMeta(deliverable.status);
-  const statusPill = CLIENT_STATUS[deliverable.status] ?? meta;
+  const statusPill = CLIENT_STATUS[deliverable.status];
   // Si quien visita tiene sesión de cliente (usuario invitado de la app), le ofrecemos volver a
   // su sala y le evitamos el paso de "¿cómo te llamas?" (ya sabemos quién es).
   const session = await getSession();
@@ -128,7 +146,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               Aún no hay fotos para revisar. En cuanto el equipo las suba, las verás aquí para elegir.
             </div>
           ) : (
-            <PhotoGallery token={token} photos={photos} />
+            <>
+              <PhotoGallery token={token} photos={photos} />
+              {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato. */}
+              <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} />
+              <DownloadCenter renditions={deliverable.renditions} />
+            </>
           )
         ) : versions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
@@ -150,6 +173,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             hashtags={deliverable.hashtags}
             coverSrc={coverSrc}
             coverStatus={coverStatus}
+            coverForId={deliverable.coverFileAssetId}
             coverDecisionBy={coverDecisionBy}
             coverDecisionNote={coverDecisionNote}
             renditions={deliverable.renditions}
@@ -163,6 +187,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               drawing: (c.drawingData as { image?: string } | null) ?? null,
               isNote: c.isNote,
               fromClient: c.fromClient,
+              visibleToClient: c.visibleToClient,
               resolved: c.resolved,
               createdAt: c.createdAt.toISOString(),
             }))}

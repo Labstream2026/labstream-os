@@ -44,7 +44,8 @@ export async function addRendition(deliverableId: string, format: string, url: s
   if (!canWriteProject(d.project, session)) throw new Error("Sin permiso");
 
   const cleanUrl = url.trim();
-  if (!(cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") || cleanUrl.startsWith("/"))) {
+  // "//" (protocolo-relativo) queda excluido a propósito: parece ruta local pero apunta a otro dominio.
+  if (!(cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") || (cleanUrl.startsWith("/") && !cleanUrl.startsWith("//")))) {
     throw new Error("Enlace no válido");
   }
   const cleanFormat = RENDITION_FORMAT_KEYS.includes(format) ? format : "OTRO";

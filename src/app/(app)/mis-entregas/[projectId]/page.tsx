@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { ArrowLeft, Play, MessageSquare, CheckCircle2, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Play, MessageSquare, CheckCircle2, Clock, Image as ImageIcon } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
@@ -53,7 +53,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
           dueDate: true,
           coverFileAssetId: true,
           versions: { where: { internalApproved: true }, orderBy: { number: "desc" }, take: 1, select: { number: true } },
-          reviewComments: { where: { fromClient: true }, select: { id: true } },
+          reviewComments: { where: { OR: [{ fromClient: true }, { visibleToClient: true }] }, select: { id: true } },
         },
       },
     },
@@ -103,9 +103,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                   const st = STATUS[d.status] ?? { label: d.status, className: "bg-muted text-muted-foreground" };
                   const vertical = deliverableOrientation(d.type) === "vertical";
                   const isPhoto = d.type === "FOTOGRAFIA";
-                  const cover = d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null;
+                  // La portada es propia de los reels (vertical): en horizontales no se usa de miniatura.
+                  const cover = vertical && d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null;
                   const v = d.versions[0];
                   const token = signReviewToken(d.id);
+                  const due = d.dueDate && (d.status === "ENVIADO_CLIENTE" || d.status === "CORRECCIONES")
+                    ? new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short" }).format(d.dueDate)
+                    : null;
                   return (
                     <Link
                       key={d.id}
@@ -135,7 +139,14 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                       </div>
                       <div className="flex flex-col gap-1.5 p-2.5">
                         <p className="truncate text-xs font-medium">{d.name}</p>
-                        <span className={cn("inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium", st.className)}>{st.label}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={cn("inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium", st.className)}>{st.label}</span>
+                          {due ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <Clock className="size-3" /> Revisar antes del {due}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </Link>
                   );

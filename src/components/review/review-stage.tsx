@@ -36,6 +36,9 @@ export type StageComment = {
   drawing: { image?: string } | null;
   isNote: boolean;
   fromClient: boolean;
+  // Respuesta del equipo DIRIGIDA al cliente («Responder al cliente»): pasa la defensa del
+  // modo cliente, a diferencia de los comentarios internos de pre-aprobación.
+  visibleToClient?: boolean;
   resolved?: boolean;
   // Sellado: si está en true, el comentario ya se envió («Solicitar cambios») y no se
   // puede editar ni borrar. Los borradores (false/undefined) sí, en el modo interno.
@@ -118,6 +121,9 @@ export function ReviewStage({
   const [name, setName] = React.useState(defaultName);
   const [body, setBody] = React.useState("");
   const [noteBody, setNoteBody] = React.useState("");
+  // Error al enviar un comentario (rate limit, red…): se muestra en línea y NO tumba la página
+  // ni aplica el estado optimista; lo escrito se conserva para reintentar.
+  const [sendError, setSendError] = React.useState<string | null>(null);
   const [tc, setTc] = React.useState<number | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
@@ -167,7 +173,8 @@ export function ReviewStage({
       .filter((c) => !deletedIds.has(c.id))
       // Defensa en profundidad: en el portal del CLIENTE nunca se muestran los comentarios
       // internos del equipo (fromClient=false), aunque por error llegaran al componente.
-      .filter((c) => mode !== "client" || c.fromClient)
+      // Las respuestas dirigidas al cliente (visibleToClient) sí pasan.
+      .filter((c) => mode !== "client" || c.fromClient || c.visibleToClient)
       .map((c) => {
         let next = c;
         if (c.id in resolvedOverride) next = { ...next, resolved: resolvedOverride[c.id] };
@@ -227,10 +234,15 @@ export function ReviewStage({
       resolved: false,
       createdAt: new Date().toISOString(),
     };
+    setSendError(null);
     start(async () => {
-      await onComment(fd);
-      setLocalComments((prev) => [...prev, optimistic]);
-      setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
+      try {
+        await onComment(fd);
+        setLocalComments((prev) => [...prev, optimistic]);
+        setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
+      } catch (e) {
+        setSendError(e instanceof Error ? e.message : "No se pudo enviar el comentario. Inténtalo de nuevo.");
+      }
     });
   };
 
@@ -255,10 +267,15 @@ export function ReviewStage({
       resolved: false,
       createdAt: new Date().toISOString(),
     };
+    setSendError(null);
     start(async () => {
-      await onComment(fd);
-      setLocalComments((prev) => [...prev, optimistic]);
-      setNoteBody("");
+      try {
+        await onComment(fd);
+        setLocalComments((prev) => [...prev, optimistic]);
+        setNoteBody("");
+      } catch (e) {
+        setSendError(e instanceof Error ? e.message : "No se pudo enviar la nota. Inténtalo de nuevo.");
+      }
     });
   };
 
@@ -275,7 +292,8 @@ export function ReviewStage({
     start(() => onDecision(result, note, name || defaultName, version?.number ?? 0));
   };
 
-  const decided = status === "APROBADO";
+  // Aprobado O entregado: la decisión ya está tomada; no se ofrecen botones que fallarían.
+  const decided = status === "APROBADO" || status === "ENTREGADO";
   const vertical = orientation === "vertical";
 
   return (
@@ -428,6 +446,7 @@ export function ReviewStage({
               {pending ? "Enviando…" : "Comentar"}
             </button>
           </div>
+          {sendError ? <p className="text-xs text-destructive">{sendError}</p> : null}
         </div>
         </div>
 
@@ -528,6 +547,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Reintentos del video proxiado antes de rendirse al iframe: un error transitorio de arranque del
   // stream no debe bajar al visor de Google (donde no se captura el fotograma ni el segundo).
   const proxyRetries = React.useRef(0);
+  // Timer del reintento: se cancela al cambiar de versión/modo para no restaurar un src viejo.
+  const retryTimer = React.useRef<number | null>(null);
   // Drive arranca reproduciendo el VIDEO ORIGINAL (proxy del mismo origen): así se evita el
   // error «este video se está procesando» del visor de Google (que aparece cuando Google aún
   // no ha transcodificado el master), y de paso permite capturar el fotograma y la barra de
@@ -537,6 +558,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   React.useEffect(() => {
     setDriveProxyFailed(false);
     proxyRetries.current = 0;
+    if (retryTimer.current != null) { window.clearTimeout(retryTimer.current); retryTimer.current = null; }
     setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
   }, [version]);
 
@@ -702,7 +724,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             ref={videoRef}
             src={usingProxy ? version.proxySrc! : version.src}
             controls
-            crossOrigin={usingProxy ? undefined : "anonymous"}
+            // SIN crossOrigin: con "anonymous", un MP4 externo sin cabeceras CORS no reproduce NADA.
+            // Sin el atributo siempre reproduce; si la fuente es de otro origen, la captura del
+            // fotograma simplemente devuelve null (composite lo maneja) en vez de romper el video.
             // Si el video proxiado de Drive falla, REINTENTA una vez (errores transitorios / arranque
             // del stream) antes de caer al visor de Google —donde no se puede capturar el fotograma ni
             // el segundo—. Solo tras un fallo real y repetido baja al iframe.
@@ -713,7 +737,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
                 proxyRetries.current += 1;
                 const s = v.src;
                 v.removeAttribute("src"); v.load();
-                window.setTimeout(() => { if (videoRef.current) { videoRef.current.src = s; videoRef.current.load(); } }, 600);
+                retryTimer.current = window.setTimeout(() => {
+                  retryTimer.current = null;
+                  // Solo restaura si seguimos en la MISMA versión/modo (el src esperado no cambió).
+                  if (videoRef.current && version?.proxySrc && s.includes(version.proxySrc)) {
+                    videoRef.current.src = s; videoRef.current.load();
+                  }
+                }, 600);
                 return;
               }
               setDriveProxyFailed(true); setCaptureMode(false);
@@ -736,7 +766,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     return (
       <div className="relative mx-auto w-fit max-w-full">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img ref={imgRef} src={version.src} crossOrigin="anonymous" alt="Material" className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border" />
+        {/* Sin crossOrigin: con "anonymous", una imagen externa sin CORS no CARGA. Sin el
+            atributo siempre se ve; si es de otro origen, la captura devuelve null y queda
+            el camino de pegar/subir una captura para anotar. */}
+        <img ref={imgRef} src={version.src} alt="Material" className="block max-h-[80vh] w-auto max-w-full rounded-xl border border-border" />
         {overlay}
       </div>
     );

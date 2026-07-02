@@ -32,13 +32,18 @@ async function projectTeamIds(projectId: string): Promise<string[]> {
 // Acciones del portal PÚBLICO de revisión. La autorización es el token firmado
 // (no hay sesión); el deliverableId siempre se deriva del token, nunca del cliente.
 
-// Comprueba que el entregable existe y su enlace no está revocado.
+// Estados en los que la pieza está DE CARA AL CLIENTE. Fuera de ellos (en producción, edición o
+// revisión interna) el portal no muestra material ni acepta acciones, aunque el enlace siga vivo.
+const CLIENT_STATES = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"]);
+
+// Comprueba que el entregable existe, su enlace no está revocado y su estado es de cliente.
 async function resolveDeliverable(token: string) {
   const deliverableId = verifyReviewToken(token);
   if (!deliverableId) throw new Error("Enlace inválido");
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, reviewRevokedAt: true, reviewExpiresAt: true } });
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, status: true, reviewRevokedAt: true, reviewExpiresAt: true } });
   if (!d || d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
   if (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()) throw new Error("El enlace de revisión ha caducado");
+  if (!CLIENT_STATES.has(d.status)) throw new Error("El material está en revisión interna del equipo. Vuelve cuando te avisen.");
   return d;
 }
 
@@ -102,6 +107,17 @@ export async function addReviewComment(token: string, formData: FormData) {
     entityId: deliverableId,
     actorName: `${authorName} (cliente)`,
   });
+  // Aviso DIRIGIDO (in-app + correo) al equipo, con tope: máximo un correo cada 10 minutos por
+  // entregable, para que una ronda de 10 comentarios seguidos no dispare 10 correos.
+  if (rateLimit(`review-comment-mail:${deliverableId}`, 1, 10 * 60_000)) {
+    await notifyManyAndEmail(await projectTeamIds(projectId), {
+      type: "review",
+      event: "review_client",
+      title: `Cliente comentó: ${name}`,
+      body: `${authorName} dejó comentarios en la revisión. Ábrela para verlos.`,
+      link: `/revisiones/${deliverableId}`,
+    });
+  }
   // No revalidamos la página: el comentario se muestra de forma optimista en el cliente
   // (ReviewStage) para que el reproductor de video NO se reinicie al comentar.
 }
@@ -123,7 +139,7 @@ export async function setPhotoPick(token: string, photoId: string, pick: string,
   });
 }
 
-export async function setReviewDecision(token: string, decision: string, name?: string) {
+export async function setReviewDecision(token: string, decision: string, name?: string, note?: string) {
   if (!rateLimit(`review-decision:${await rlKey(token)}`, 20, 60_000)) {
     throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
   }
@@ -131,32 +147,41 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   const approved = decision === "APROBADO";
   const status = approved ? "APROBADO" : "CORRECCIONES";
   const who = (name ?? "").trim().slice(0, 80) || "Cliente";
+  const noteClean = approved ? null : ((note ?? "").trim().slice(0, 1000) || null);
 
   // Solo se decide sobre un entregable abierto a revisión del cliente. Si ya está
   // APROBADO o ENTREGADO, el cliente no puede reabrirlo pidiendo cambios.
-  const current = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true } });
+  const current = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true, type: true } });
   if (!current || (current.status !== "ENVIADO_CLIENTE" && current.status !== "CORRECCIONES")) {
     throw new Error("Este entregable ya no está disponible para decidir");
   }
 
-  // Solo se decide sobre material que el equipo ya aprobó internamente.
-  const latestApproved = await db.deliverableVersion.findFirst({
-    where: { deliverableId, internalApproved: true },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
-  if (!latestApproved) throw new Error("Aún no hay una versión disponible para decidir");
+  // Solo se decide sobre material que el equipo ya aprobó internamente. Las galerías de
+  // FOTOGRAFIA no tienen versiones: ahí basta con que haya fotos que revisar.
+  let versionNumber: number | null = null;
+  if (current.type === "FOTOGRAFIA") {
+    const photoCount = await db.deliverablePhoto.count({ where: { deliverableId } });
+    if (!photoCount) throw new Error("Aún no hay fotos disponibles para decidir");
+  } else {
+    const latestApproved = await db.deliverableVersion.findFirst({
+      where: { deliverableId, internalApproved: true },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    if (!latestApproved) throw new Error("Aún no hay una versión disponible para decidir");
+    versionNumber = latestApproved.number;
+  }
 
   await db.deliverable.update({ where: { id: deliverableId }, data: { status: status as never } });
   await db.deliverableDecision.create({
-    data: { deliverableId, versionNumber: latestApproved.number, stage: "CLIENTE", result: approved ? "APROBADO" : "CAMBIOS", byName: who },
+    data: { deliverableId, versionNumber, stage: "CLIENTE", result: approved ? "APROBADO" : "CAMBIOS", byName: who, note: noteClean },
   });
   await db.reviewComment.create({
     data: {
       deliverableId,
       authorName: who,
-      body: approved ? "✅ Aprobó el entregable." : "✏️ Solicitó cambios.",
-      versionNumber: latestApproved.number,
+      body: approved ? "✅ Aprobó el entregable." : `✏️ Solicitó cambios${noteClean ? `: ${noteClean}` : "."}`,
+      versionNumber,
       fromClient: true,
     },
   });
@@ -183,13 +208,20 @@ export async function setReviewDecision(token: string, decision: string, name?: 
 // Decisión del cliente sobre la PORTADA del reel (la imagen que acompaña al video): APROBADA o
 // CAMBIOS. Independiente de la decisión sobre el video. Se ata al archivo de portada actual, así
 // una portada nueva del equipo vuelve a quedar pendiente. Deja una nota en el hilo y avisa al equipo.
-export async function setCoverDecision(token: string, decision: string, name?: string, note?: string) {
+export async function setCoverDecision(token: string, decision: string, name?: string, note?: string, expectedFor?: string) {
   if (!rateLimit(`cover-decision:${await rlKey(token)}`, 20, 60_000)) {
     throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
   }
   const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true } });
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true, type: true } });
   if (!d?.coverFileAssetId) throw new Error("Este entregable no tiene una portada para revisar");
+  // La portada es propia de los REELS (vertical); en horizontales no hay decisión de portada.
+  if (!(d.type === "REEL" || d.type === "SHORT")) throw new Error("Este entregable no tiene portada para aprobar");
+  // Anti-carrera: la decisión aplica a la portada que el cliente VIO. Si el equipo subió una
+  // nueva mientras tanto, se rechaza para que no quede aprobada una portada distinta sin verla.
+  if (expectedFor && expectedFor !== d.coverFileAssetId) {
+    throw new Error("La portada cambió mientras revisabas. Recarga la página para ver la nueva.");
+  }
 
   const approved = decision === "APROBADA";
   const who = (name ?? "").trim().slice(0, 80) || "Cliente";

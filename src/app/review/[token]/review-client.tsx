@@ -50,7 +50,7 @@ function ContentPanel({ copy, hashtags }: { copy: string | null; hashtags: strin
   const hasTags = !!hashtags && hashtags.trim() !== "";
   if (!hasCopy && !hasTags) return null;
   const tags = hasTags
-    ? hashtags!.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`))
+    ? [...new Set(hashtags!.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`)))]
     : [];
   return (
     <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
@@ -93,6 +93,7 @@ function CoverApprovalPanel({
   token,
   name,
   coverSrc,
+  coverForId,
   initialStatus,
   initialBy,
   initialNote,
@@ -100,6 +101,8 @@ function CoverApprovalPanel({
   token: string;
   name: string;
   coverSrc: string;
+  // Identidad de la portada que el cliente está VIENDO: la decisión se ata a ella (anti-carrera).
+  coverForId: string | null;
   initialStatus: "PENDIENTE" | "APROBADA" | "CAMBIOS";
   initialBy: string | null;
   initialNote: string | null;
@@ -116,7 +119,7 @@ function CoverApprovalPanel({
     setError(null);
     start(async () => {
       try {
-        await setCoverDecision(token, decision, name, changeNote);
+        await setCoverDecision(token, decision, name, changeNote, coverForId ?? undefined);
         setStatus(decision);
         setBy(name);
         setNote(decision === "CAMBIOS" ? changeNote?.trim() || null : null);
@@ -214,6 +217,7 @@ export function ReviewClient({
   hashtags = null,
   coverSrc = null,
   coverStatus = null,
+  coverForId = null,
   coverDecisionBy = null,
   coverDecisionNote = null,
   renditions = [],
@@ -238,6 +242,7 @@ export function ReviewClient({
   // Portada del reel + su estado de aprobación (solo reels con portada).
   coverSrc?: string | null;
   coverStatus?: "PENDIENTE" | "APROBADA" | "CAMBIOS" | null;
+  coverForId?: string | null;
   coverDecisionBy?: string | null;
   coverDecisionNote?: string | null;
   // Archivos finales por formato (centro de descargas del cliente).
@@ -334,6 +339,7 @@ export function ReviewClient({
           token={token}
           name={name || "Cliente"}
           coverSrc={coverSrc}
+          coverForId={coverForId}
           initialStatus={coverStatus}
           initialBy={coverDecisionBy}
           initialNote={coverDecisionNote}
@@ -346,6 +352,7 @@ export function ReviewClient({
           state={modal}
           pending={pending}
           downloadUrl={downloadUrl}
+          homeHref={sessionName ? "/mis-entregas" : SITE_URL}
           onConfirm={() => confirmDecision(modal.result)}
           onCancel={() => setModal(null)}
         />
@@ -362,18 +369,21 @@ function DecisionModal({
   state,
   pending,
   downloadUrl,
+  homeHref = SITE_URL,
   onConfirm,
   onCancel,
 }: {
   state: ModalState;
   pending: boolean;
   downloadUrl: string | null;
+  // A dónde volver al cerrar: su sala de entregas (usuario invitado con sesión) o el sitio público.
+  homeHref?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const approved = state.result === "APROBADO";
-  // Destino final al cerrar: descarga (si aprobó y hay enlace) o el sitio público.
-  const target = approved && downloadUrl ? downloadUrl : SITE_URL;
+  // Destino final al cerrar: descarga (si aprobó y hay enlace) o "su casa" (sala / sitio público).
+  const target = approved && downloadUrl ? downloadUrl : homeHref;
 
   // Al mostrar el mensaje de cierre, redirige solo tras unos segundos (deja leer el
   // mensaje y, si aprobó, ver el botón de descarga).
@@ -440,7 +450,7 @@ function DecisionModal({
                     ⬇️ Descargar de Google Drive
                   </a>
                 ) : (
-                  <a href={SITE_URL} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                  <a href={homeHref} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
                     Ir a labstreamsas.com →
                   </a>
                 )}
@@ -454,7 +464,7 @@ function DecisionModal({
                   En Labstream estamos comprometidos con que tu video quede perfecto. Ya notificamos a tu equipo con tus
                   ajustes y nos pondremos a trabajar en ellos.
                 </p>
-                <a href={SITE_URL} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+                <a href={homeHref} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
                   Ir a labstreamsas.com →
                 </a>
                 <p className="mt-3 text-[11px] text-muted-foreground">Te redirigiremos en unos segundos…</p>

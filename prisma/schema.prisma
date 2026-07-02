@@ -1550,6 +1550,9 @@ model ReviewComment {
   isNote        Boolean     @default(false)
   resolved      Boolean     @default(false)
   fromClient    Boolean     @default(true) // true = cliente; false = comentario del equipo (revisión interna)
+  // Respuesta del equipo dirigida AL CLIENTE (replyToReview): se muestra en el portal público,
+  // a diferencia de los comentarios internos de pre-aprobación (fromClient=false y esto en false).
+  visibleToClient Boolean   @default(false)
   // Bloqueo: mientras es NULL el comentario interno es un borrador editable/borrable en el
   // workspace de pre-aprobación. Al «Solicitar cambios» se sella (queda inmutable) y es lo
   // que llega como checklist a la pestaña de Entregables.
