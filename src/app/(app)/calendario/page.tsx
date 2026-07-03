@@ -97,10 +97,15 @@ export default async function CalendarioPage() {
   });
 
   const items: CalItem[] = [
-    ...events.map((e) => ({
+    ...events.map((e) => {
+    // ¿El usuario actual es invitado de esta cita? → puede responder (RSVP) con su estado actual.
+    const mine = e.attendees.find((a) => a.userId === meId);
+    return {
       id: `e-${e.id}`,
       eventId: e.id,
       canEdit: e.createdById === session?.id && e.source === "app",
+      canRsvp: Boolean(mine) && e.source === "app",
+      myStatus: mine?.status ?? null,
       attendeeIds: e.attendees.map((a) => a.userId),
       title: e.title,
       date: e.start.toISOString(),
@@ -117,7 +122,8 @@ export default async function CalendarioPage() {
       guests: e.guests.map((g) => g.email),
       attendees: e.attendees.map((a) => ({ name: a.user.name, initials: a.user.initials, color: a.user.avatarColor })),
       link: e.projectId ? `/proyectos/${e.projectId}` : null,
-    })),
+    };
+    }),
     // Tareas con fecha de entrega (con hora si la tienen → bloque a esa hora; si no, todo el día).
     ...tasks.filter((t) => t.dueDate).map((t) => {
       const timed = dueDateTimeISO(t.dueDate!, t.dueTime);
@@ -171,6 +177,7 @@ export default async function CalendarioPage() {
           items={items}
           onCreate={createMyEvent}
           detailMode="dock"
+          shell
           team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
           timelineNode={timelineNode}
         />

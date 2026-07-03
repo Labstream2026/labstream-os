@@ -52,6 +52,9 @@ export type IcsEvent = {
   attendeeName?: string;
   // …o varios (sincronización de eventos de equipo).
   attendees?: IcsAttendee[];
+  // Recordatorio (VALARM) en minutos antes del inicio. undefined = 15 (compatibilidad);
+  // null = SIN recordatorio.
+  reminderMinutes?: number | null;
   method?: "REQUEST" | "PUBLISH" | "CANCEL";
   // Marca de actualización; al subir cambios conviene incrementarla (Synology
   // respeta SEQUENCE para saber que es una versión más nueva).
@@ -103,10 +106,11 @@ export function buildIcs(e: IcsEvent): string {
   // Estado del evento: cancelado (al borrar/cancelar) o confirmado.
   lines.push(`STATUS:${e.method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`);
 
-  // Recordatorio 15 min antes en eventos con hora (citas/reuniones): mejora la
-  // experiencia en Synology/móvil sin que el usuario configure nada.
-  if (!e.allDay) {
-    lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(e.title)}`, "TRIGGER:-PT15M", "END:VALARM");
+  // Recordatorio configurable (minutos antes) en eventos con hora. undefined = 15 min
+  // (compatibilidad con llamadores viejos); null = la cita se creó SIN recordatorio.
+  const reminder = e.reminderMinutes === undefined ? 15 : e.reminderMinutes;
+  if (!e.allDay && reminder != null && reminder > 0) {
+    lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(e.title)}`, `TRIGGER:-PT${Math.round(reminder)}M`, "END:VALARM");
   }
 
   lines.push("END:VEVENT", "END:VCALENDAR");

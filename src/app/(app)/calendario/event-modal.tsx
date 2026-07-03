@@ -18,6 +18,9 @@ export type EventModalState =
       location: string;
       attendeeIds: string[];
       guests: string[];
+      // Recordatorio actual en minutos (null = sin recordatorio). Opcional para
+      // compatibilidad con los emisores que aún no lo pasan.
+      reminderMinutes?: number | null;
     };
 
 // Modal único para crear o editar una cita: título, hora inicio/fin, descripción y
@@ -64,6 +67,23 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
             <span className="text-xs text-muted-foreground">(vacío = todo el día)</span>
           </div>
           <input name="location" placeholder="Lugar o enlace de reunión (Meet/Zoom)" defaultValue={isEdit ? state.location : ""} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          {/* Recordatorio estilo Google: aviso in-app/push antes de la cita (y VALARM en Synology). */}
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">🔔 Recordatorio</span>
+            <select
+              name="reminderMinutes"
+              defaultValue={String(isEdit ? (state.reminderMinutes === null ? 0 : state.reminderMinutes ?? 15) : 15)}
+              className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            >
+              <option value="0">Sin recordatorio</option>
+              <option value="5">5 minutos antes</option>
+              <option value="10">10 minutos antes</option>
+              <option value="15">15 minutos antes</option>
+              <option value="30">30 minutos antes</option>
+              <option value="60">1 hora antes</option>
+              <option value="1440">1 día antes</option>
+            </select>
+          </label>
           <textarea name="description" rows={2} placeholder="Descripción / notas (opcional)" defaultValue={isEdit ? state.description : ""} className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Invitar por correo (clientes/externos)</label>

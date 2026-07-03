@@ -82,10 +82,16 @@ type Drag = {
 };
 type Live = { dayIndex: number; topMin: number; endMin: number; moved: boolean };
 
-export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy }) {
+export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo", anchor: anchorProp, onAnchorChange, days: dayCountProp = 7 }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy; anchor?: Date; onAnchorChange?: (d: Date) => void; days?: number }) {
   // Color efectivo de un bloque: por persona (responsable) o por tipo (fallback).
   const blockColor = (it: CalItem, solid: string) => (colorBy === "persona" ? personColor(it) ?? solid : solid);
-  const [anchor, setAnchor] = React.useState(() => new Date());
+  // Nº de columnas: 7 (Semana) o 1 (Día). El calendario "shell" controla la fecha ancla; los
+  // calendarios embebidos (proyecto/cliente) la manejan internamente.
+  const dayCount = dayCountProp === 1 ? 1 : 7;
+  const [internalAnchor, setInternalAnchor] = React.useState(() => new Date());
+  const anchor = anchorProp ?? internalAnchor;
+  const controlled = Boolean(onAnchorChange);
+  const commitAnchor = (d: Date) => { if (onAnchorChange) onAnchorChange(d); else setInternalAnchor(d); };
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const gridRef = React.useRef<HTMLDivElement>(null);
@@ -97,8 +103,8 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
   const liveRef = React.useRef<Live | null>(null);
   const suppressClick = React.useRef(false);
 
-  const weekStart = startOfWeek(anchor);
-  const days = Array.from({ length: 7 }, (_, i) => {
+  const weekStart = dayCount === 7 ? startOfWeek(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  const days = Array.from({ length: dayCount }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + i);
     return d;
@@ -121,7 +127,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
     e.preventDefault();
     e.stopPropagation();
     const rect = gridRef.current.getBoundingClientRect();
-    const colW = (rect.width - GUTTER) / 7;
+    const colW = (rect.width - GUTTER) / dayCount;
     const init: Live = { dayIndex, topMin: p.topMin, endMin: p.endMin, moved: false };
     liveRef.current = init;
     setPreview(init);
@@ -137,7 +143,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
       if (drag.mode === "move") {
         topMin = Math.max(0, Math.min(1440 - drag.origDur, drag.origTopMin + dyMin));
         endMin = topMin + drag.origDur;
-        dayIndex = Math.max(0, Math.min(6, Math.floor((e.clientX - drag.gridLeft) / drag.colW)));
+        dayIndex = Math.max(0, Math.min(dayCount - 1, Math.floor((e.clientX - drag.gridLeft) / drag.colW)));
       } else {
         endMin = Math.max(drag.origTopMin + SNAP, Math.min(1440, drag.origTopMin + drag.origDur + dyMin));
       }
@@ -180,30 +186,34 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
 
   const dragItem = drag ? parsed.find((p) => p.it.id === drag.id)?.it : null;
 
-  const monthLabel = new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(weekStart);
-  const shift = (weeks: number) => setAnchor((a) => { const d = new Date(a); d.setDate(d.getDate() + weeks * 7); return d; });
+  const monthLabel = dayCount === 1
+    ? new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long" }).format(anchor)
+    : new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(weekStart);
+  const shift = (n: number) => { const d = new Date(anchor); d.setDate(d.getDate() + n * dayCount); commitAnchor(d); };
 
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
   return (
     <div className="flex h-full flex-col">
+      {controlled ? null : (
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <h3 className="text-sm font-semibold capitalize">{monthLabel}</h3>
         <div className="flex items-center gap-1">
           <button onClick={() => shift(-1)} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
-          <button onClick={() => setAnchor(new Date())} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
+          <button onClick={() => commitAnchor(new Date())} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
           <button onClick={() => shift(1)} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">→</button>
         </div>
       </div>
+      )}
 
       {/* Rejilla a borde completo que llena el alto disponible (estilo Notion).
           En móvil hace scroll HORIZONTAL: con 7 columnas + horas, por debajo de ~680px las
           columnas quedarían ilegibles, así que el ancho mínimo fuerza el scroll lateral y las
           tres rejillas (cabecera, todo-el-día y horas) se desplazan juntas y alineadas. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden border-t border-border/50 bg-card">
-        <div className="flex min-h-0 min-w-[680px] flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col" style={{ minWidth: dayCount === 7 ? 680 : undefined }}>
           {/* Cabecera de días */}
-          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
             <div />
             {days.map((d) => {
               const isToday = sameDay(d, today);
@@ -218,7 +228,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
           </div>
 
           {/* Franja "todo el día" (tareas, rodajes, eventos all-day) */}
-          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))" }}>
+          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
             <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
               const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d));
@@ -248,7 +258,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
 
           {/* Rejilla de horas (scroll, llena el alto disponible) */}
           <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", drag && "select-none")}>
-            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: "44px repeat(7, minmax(0,1fr))", height: 24 * HOUR_H }}>
+            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))`, height: 24 * HOUR_H }}>
               {/* Columna de horas */}
               <div className="relative">
                 {hours.map((h) => (
@@ -334,8 +344,8 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo" 
                       className="pointer-events-none absolute z-30 flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-[11px] leading-tight text-white shadow-lg ring-2 ring-white/70"
                       style={{
                         top, height,
-                        left: `calc(${GUTTER}px + ${preview.dayIndex} * ((100% - ${GUTTER}px) / 7) + 2px)`,
-                        width: `calc((100% - ${GUTTER}px) / 7 - 4px)`,
+                        left: `calc(${GUTTER}px + ${preview.dayIndex} * ((100% - ${GUTTER}px) / ${dayCount}) + 2px)`,
+                        width: `calc((100% - ${GUTTER}px) / ${dayCount} - 4px)`,
                         background: t.solid,
                       }}
                     >

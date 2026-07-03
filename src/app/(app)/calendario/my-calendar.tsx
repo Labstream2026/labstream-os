@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
@@ -33,6 +33,9 @@ export type CalItem = {
   eventId?: string; // id real del evento (sin prefijo)
   canEdit?: boolean; // el usuario actual lo creó y es un evento de la app
   attendeeIds?: string[]; // ids de los asistentes actuales
+  // ── RSVP (solo eventos donde el usuario actual es invitado) ──
+  canRsvp?: boolean; // el usuario actual es asistente de esta cita → puede responder
+  myStatus?: string | null; // su respuesta actual: ACCEPTED | DECLINED | TENTATIVE | null (sin responder)
 };
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -50,14 +53,27 @@ export function MyCalendar({
   items,
   canCreate = false,
   colorBy = "tipo",
+  anchor,
+  onAnchorChange,
 }: {
   items: CalItem[];
   canCreate?: boolean;
   colorBy?: ColorBy;
+  // Fecha ancla controlada por el calendario "shell" (mini-calendario / barra superior).
+  // Si se pasa `onAnchorChange`, la barra propia de esta vista se oculta (la controla el shell).
+  anchor?: Date;
+  onAnchorChange?: (d: Date) => void;
 }) {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
+  const controlled = Boolean(onAnchorChange);
+  const [year, setYear] = useState(() => anchor?.getFullYear() ?? now.getFullYear());
+  const [month, setMonth] = useState(() => anchor?.getMonth() ?? now.getMonth());
+  // Cuando el shell cambia la fecha ancla (p. ej. desde el mini-calendario), la ventana mensual
+  // salta a ese mes.
+  useEffect(() => {
+    if (anchor) { setYear(anchor.getFullYear()); setMonth(anchor.getMonth()); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor?.getFullYear(), anchor?.getMonth()]);
   const [overKey, setOverKey] = useState<string | null>(null);
   const dragItem = useRef<CalItem | null>(null);
   const [, startMove] = useTransition();
@@ -188,6 +204,7 @@ export function MyCalendar({
 
   return (
     <div className="flex h-full flex-col">
+      {controlled ? null : (
       <div className="flex shrink-0 items-center justify-between pb-2">
         <h3 className="text-sm font-semibold capitalize">{rangeLabel}</h3>
         <div className="flex items-center gap-1">
@@ -196,6 +213,7 @@ export function MyCalendar({
           <button type="button" onClick={next} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">→</button>
         </div>
       </div>
+      )}
 
       {/* Ventana continua de 6 meses con scroll propio; cabecera de día fija arriba (estilo Notion). */}
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 bg-card">

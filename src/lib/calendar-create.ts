@@ -30,6 +30,9 @@ export type CreateEventInput = {
   attendeeIds?: string[]; // ids de usuario a invitar (el creador se incluye siempre)
   guestEmails?: string[]; // invitados externos por correo
   projectId?: string | null; // el llamador ya validó el acceso
+  // Recordatorio en minutos antes del inicio (aviso in-app + VALARM en Synology).
+  // undefined = 15 por defecto; null o 0 = sin recordatorio.
+  reminderMinutes?: number | null;
 };
 
 export type CreateEventResult = { id: string; start: Date; allDay: boolean; invitedCount: number };
@@ -66,6 +69,8 @@ export async function createCalendarEventCore(input: CreateEventInput): Promise<
       source: "app",
       projectId,
       createdById: input.creatorId,
+      // Recordatorio: 15 min por defecto; null/0 = sin recordatorio.
+      reminderMinutes: input.reminderMinutes === undefined ? 15 : input.reminderMinutes || null,
       attendees: { create: [...validIds].map((userId) => ({ userId })) },
       guests: { create: guestEmails.map((email) => ({ email })) },
     },

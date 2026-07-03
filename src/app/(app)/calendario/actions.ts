@@ -18,6 +18,15 @@ function parseGuestEmails(formData: FormData): string[] {
   return [...new Set(raw.filter((e) => EMAIL_RE.test(e)))];
 }
 
+// Parsea el recordatorio del formulario: "" (sin campo) = undefined (default), "0" = sin
+// recordatorio (null), "N" = N minutos antes (acotado a 1–1440).
+function parseReminder(formData: FormData): number | null | undefined {
+  if (!formData.has("reminderMinutes")) return undefined;
+  const n = Number(String(formData.get("reminderMinutes") ?? "").trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(1440, Math.round(n));
+}
+
 // Crea una cita/reunión del equipo. Vive en la BD; si hay asistentes con Synology
 // conectado, se escribe en su calendario y se les notifica (app + correo).
 export async function createMyEvent(formData: FormData): Promise<void> {
@@ -55,6 +64,7 @@ export async function createMyEvent(formData: FormData): Promise<void> {
     attendeeIds,
     guestEmails,
     projectId,
+    reminderMinutes: parseReminder(formData),
   });
 }
 
@@ -101,10 +111,16 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   const addedGuests = guestEmails.filter((e) => !beforeGuests.has(e));
   const removedGuests = [...beforeGuests].filter((e) => !guestEmails.includes(e));
 
+  const reminder = parseReminder(formData);
+  // Si la cita cambió de fecha/hora, se limpia la marca del recordatorio para que el
+  // scheduler vuelva a avisar en el nuevo horario.
+  const timeChanged = event.start.getTime() !== start.getTime() || (event.end?.getTime() ?? null) !== (end?.getTime() ?? null);
   await db.calendarEvent.update({
     where: { id: eventId },
     data: {
       title, description: description || null, location: location || null, start, end, allDay,
+      ...(reminder !== undefined ? { reminderMinutes: reminder } : {}),
+      ...(timeChanged ? { reminderSentAt: null } : {}),
       attendees: {
         deleteMany: removed.length ? { userId: { in: removed } } : undefined,
         create: added.map((userId) => ({ userId })),
@@ -186,7 +202,8 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   if (Number.isNaN(start.getTime())) return;
   const end = endIso ? new Date(endIso) : null;
   if (end && (Number.isNaN(end.getTime()) || end <= start)) return;
-  await db.calendarEvent.update({ where: { id: eventId }, data: { start, end } });
+  // Cambió el horario → el recordatorio vuelve a estar pendiente.
+  await db.calendarEvent.update({ where: { id: eventId }, data: { start, end, reminderSentAt: null } });
   await pushEventToParticipants(eventId);
   // Avisar a los asistentes (menos a mí) que la cita se movió.
   const when = event.allDay
@@ -223,5 +240,47 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
   // Quitarlo de Synology (necesita los EventSyncRef, que se borran en cascada).
   await removeEventFromParticipants(eventId);
   await db.calendarEvent.delete({ where: { id: eventId } });
+  revalidatePath("/calendario");
+}
+
+// ── RSVP: responder una invitación (¿Asistirás? Sí / No / Tal vez) ──
+// Cualquier ASISTENTE de la cita puede responder por sí mismo. Guarda el estado en
+// CalendarAttendee.status, avisa al organizador y re-escribe el .ics en los Synology
+// conectados para que el PARTSTAT refleje la respuesta también allá.
+const RSVP_STATUSES = new Set(["ACCEPTED", "DECLINED", "TENTATIVE"]);
+const RSVP_LABEL: Record<string, string> = { ACCEPTED: "asistirá", DECLINED: "no asistirá", TENTATIVE: "tal vez asista" };
+
+export async function respondToEvent(eventId: string, status: string): Promise<void> {
+  const session = await getSession();
+  if (!session) noAutorizado();
+  if (!RSVP_STATUSES.has(status)) return;
+  const attendee = await db.calendarAttendee.findUnique({
+    where: { eventId_userId: { eventId, userId: session!.id } },
+    select: { status: true, event: { select: { title: true, start: true, allDay: true, createdById: true, source: true } } },
+  });
+  // Solo los invitados de la cita responden (y solo por sí mismos).
+  if (!attendee) noAutorizado();
+  if (attendee!.status === status) return;
+  await db.calendarAttendee.update({
+    where: { eventId_userId: { eventId, userId: session!.id } },
+    data: { status },
+  });
+  // Avisar al organizador (si no soy yo mismo).
+  const ev = attendee!.event;
+  if (ev.createdById && ev.createdById !== session!.id) {
+    const when = ev.allDay
+      ? new Date(ev.start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
+      : new Date(ev.start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    await notifyAndEmail(ev.createdById, {
+      type: "event",
+      event: "calendar_event",
+      title: `${session!.name} ${RSVP_LABEL[status]}: ${ev.title}`,
+      body: `Respondió a tu invitación · ${when}`,
+      link: "/calendario",
+      actorId: session!.id,
+    }).catch(() => null);
+  }
+  // Re-subir el .ics con el PARTSTAT actualizado (solo aplica a citas de la app).
+  if (ev.source === "app") await pushEventToParticipants(eventId).catch(() => null);
   revalidatePath("/calendario");
 }

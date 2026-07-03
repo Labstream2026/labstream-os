@@ -4,8 +4,9 @@ import * as React from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarHex } from "@/lib/ui";
+import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { deleteMyEvent } from "./actions";
+import { deleteMyEvent, respondToEvent } from "./actions";
 
 // Modo de color del calendario: por tipo (cita/tarea/rodaje) o por persona responsable.
 export type ColorBy = "tipo" | "persona";
@@ -79,6 +80,16 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
               : item.location}
           </p>
         ) : null}
+        {/* Botón prominente para unirse cuando el lugar es un enlace de reunión (Meet/Zoom). */}
+        {item.location && /^https?:\/\//.test(item.location) ? (
+          <a href={item.location} target="_blank" rel="noopener noreferrer" className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+            🎥 Unirse a la reunión
+          </a>
+        ) : null}
+        {/* RSVP: solo si el usuario actual es invitado de esta cita (Sí / Tal vez / No). */}
+        {item.kind === "event" && item.canRsvp && item.eventId ? (
+          <RsvpBar eventId={item.eventId} myStatus={item.myStatus} />
+        ) : null}
         {item.description ? <p className="whitespace-pre-wrap rounded-md bg-muted/40 p-2 text-sm text-foreground/90">{item.description}</p> : null}
         {item.guests && item.guests.length > 0 ? (
           <div>
@@ -106,6 +117,45 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
           <a href={item.link} className="inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Abrir</a>
         ) : null}
         {item.canEdit && item.eventId ? <EventControls item={item} onClose={onClose} /> : null}
+      </div>
+    </div>
+  );
+}
+
+// Barra de RSVP (¿asistirás?) para el invitado de una cita: Sí / Tal vez / No. Llama al server
+// action respondToEvent, que actualiza CalendarAttendee.status, avisa al organizador y re-escribe
+// el .ics (PARTSTAT) en los Synology conectados. Optimista: marca la respuesta al instante.
+const RSVP_OPTS: { key: string; label: string; icon: string; on: string }[] = [
+  { key: "ACCEPTED", label: "Sí", icon: "✓", on: "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  { key: "TENTATIVE", label: "Tal vez", icon: "?", on: "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300" },
+  { key: "DECLINED", label: "No", icon: "✕", on: "border-rose-500 bg-rose-500/10 text-rose-700 dark:text-rose-300" },
+];
+
+function RsvpBar({ eventId, myStatus }: { eventId: string; myStatus?: string | null }) {
+  const [pending, start] = React.useTransition();
+  const [choice, setChoice] = React.useState<string | null>(myStatus ?? null);
+  React.useEffect(() => { setChoice(myStatus ?? null); }, [myStatus]);
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-2">
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">¿Asistirás?</p>
+      <div className="flex items-center gap-1.5">
+        {RSVP_OPTS.map((o) => {
+          const active = choice === o.key;
+          return (
+            <button
+              key={o.key}
+              type="button"
+              disabled={pending}
+              onClick={() => { setChoice(o.key); start(async () => { await respondToEvent(eventId, o.key); }); }}
+              className={cn(
+                "flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60",
+                active ? o.on : "border-border text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {o.icon} {o.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

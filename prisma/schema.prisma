@@ -1037,6 +1037,12 @@ model CalendarEvent {
   createdBy   User?              @relation("EventCreator", fields: [createdById], references: [id])
   createdById String?
   attendees   CalendarAttendee[]
+  // Recordatorio configurable: minutos antes del inicio para avisar a los asistentes
+  // (in-app + push). null = sin recordatorio. También parametriza el VALARM del .ics.
+  reminderMinutes Int?           @default(15)
+  // Cuándo se DISPARÓ el recordatorio (anti-duplicado del scheduler). Se limpia si la
+  // cita cambia de fecha/hora, para volver a avisar en el nuevo horario.
+  reminderSentAt  DateTime?
   // ── Sincronización con Synology Calendar (CalDAV) ──
   // uid iCalendar estable (mismo en app y en Synology) para casar ida/vuelta.
   uid         String?            @unique

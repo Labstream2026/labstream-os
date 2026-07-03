@@ -40,12 +40,18 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
 
   const participants = new Map<string, { name: string; email: string }>();
   if (event.createdBy?.email) participants.set(event.createdBy.id, { name: event.createdBy.name, email: event.createdBy.email });
+  // Estado RSVP por usuario (PENDING|ACCEPTED|DECLINED|TENTATIVE) → PARTSTAT del .ics,
+  // para que la respuesta dada en la app se VEA también en Synology.
+  const rsvpByUser = new Map<string, string>();
   for (const a of event.attendees) {
     if (a.user.email) participants.set(a.user.id, { name: a.user.name, email: a.user.email });
+    rsvpByUser.set(a.user.id, a.status);
   }
-  // Lista de ATTENDEE para el .ics: internos + invitados externos (clientes).
+  const toPartstat = (s?: string) =>
+    s === "ACCEPTED" || s === "DECLINED" || s === "TENTATIVE" ? s : "NEEDS-ACTION";
+  // Lista de ATTENDEE para el .ics: internos (con su RSVP) + invitados externos (clientes).
   const icsAttendees: IcsAttendee[] = [
-    ...[...participants.values()].map((p) => ({ email: p.email, name: p.name })),
+    ...[...participants.entries()].map(([id, p]) => ({ email: p.email, name: p.name, status: toPartstat(rsvpByUser.get(id)) })),
     ...event.guests.map((g) => ({ email: g.email, name: g.name ?? undefined })),
   ];
   const conns = await activeConnections([...participants.keys()]);
@@ -71,6 +77,8 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
         organizerName: organizer?.name,
         organizerEmail: organizer?.email,
         attendees: icsAttendees,
+        // Recordatorio configurable de la cita → VALARM (null = sin alarma en Synology).
+        reminderMinutes: event.reminderMinutes,
         method: "REQUEST",
         sequence: 0,
       });
