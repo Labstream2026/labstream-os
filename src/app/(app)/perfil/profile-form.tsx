@@ -2,9 +2,12 @@
 
 import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
+import { AVATAR_COLORS } from "@/lib/ui";
 import { updateMyProfile, updateMyAvatar, removeMyAvatar } from "./actions";
 
-const COLORS = ["indigo", "emerald", "violet", "cyan", "amber", "rose", "orange", "slate"];
+// Paleta central (20 colores predefinidos): derivada de AVATAR_COLORS para que el selector
+// del perfil y el del panel admin muestren SIEMPRE los mismos colores.
+const COLORS = Object.keys(AVATAR_COLORS);
 
 // Formatea una cédula con separador de miles en punto (estilo Colombia): "1000" → "1.000".
 function formatCedula(v: string): string {

@@ -6,7 +6,7 @@ import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Us
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
-import { avatarTint } from "@/lib/ui";
+import { avatarTint, avatarHex } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { markAllNotificationsRead, markNotificationRead, deleteNotification } from "@/lib/notify-actions";
 import {
@@ -167,7 +167,12 @@ function NotifRow({ n, onPick, onDelete, showActor }: { n: NotificationItem; onP
             <span suppressHydrationWarning className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
           </div>
           {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{n.body}</p> : null}
-          {showActor && n.actor ? <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{n.actor.name}</p> : null}
+          {/* Nombre del autor EN SU COLOR: identidad visual consistente en las tres pestañas. */}
+          {showActor && n.actor ? (
+            <p className="mt-0.5 text-[11px] font-semibold" style={n.actor.color ? { color: avatarHex(n.actor.color) } : undefined}>
+              {n.actor.name}
+            </p>
+          ) : null}
         </div>
         {!n.read ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
         {/* Borrar — escritorio: aparece al pasar el cursor; móvil: se usa el deslizamiento. */}
@@ -407,7 +412,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                           <Bell className="size-3" />
                         </span>
                       )}
-                      <span className="text-xs font-semibold">{g.actor ? g.actor.name : "Sistema"}</span>
+                      <span className="text-xs font-semibold" style={g.actor?.color ? { color: avatarHex(g.actor.color) } : undefined}>{g.actor ? g.actor.name : "Sistema"}</span>
                       <span className="text-[10px] text-muted-foreground">· {g.items.length}</span>
                     </div>
                     {g.items.map((n) => (

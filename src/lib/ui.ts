@@ -3,15 +3,30 @@
 
 import { resolveProjectStatus } from "@/lib/project-status";
 
+// Paleta de identidad del usuario: 20 colores PREDEFINIDOS (sin selector libre) para que
+// cada persona del equipo tenga el suyo. Las TRES tablas (COLORS/TINT/HEX) deben compartir
+// exactamente las mismas claves.
 export const AVATAR_COLORS: Record<string, string> = {
-  indigo: "bg-indigo-500 text-white",
-  emerald: "bg-emerald-500 text-white",
-  violet: "bg-violet-500 text-white",
-  cyan: "bg-cyan-500 text-white",
-  amber: "bg-amber-500 text-white",
-  rose: "bg-rose-500 text-white",
+  red: "bg-red-500 text-white",
   orange: "bg-orange-500 text-white",
+  amber: "bg-amber-500 text-white",
+  yellow: "bg-yellow-500 text-yellow-950",
+  lime: "bg-lime-500 text-lime-950",
+  green: "bg-green-500 text-white",
+  emerald: "bg-emerald-500 text-white",
+  teal: "bg-teal-500 text-white",
+  cyan: "bg-cyan-500 text-white",
+  sky: "bg-sky-500 text-white",
+  blue: "bg-blue-500 text-white",
+  indigo: "bg-indigo-500 text-white",
+  violet: "bg-violet-500 text-white",
+  purple: "bg-purple-500 text-white",
+  fuchsia: "bg-fuchsia-500 text-white",
+  pink: "bg-pink-500 text-white",
+  rose: "bg-rose-500 text-white",
   slate: "bg-slate-500 text-white",
+  stone: "bg-stone-500 text-white",
+  zinc: "bg-zinc-600 text-white",
 };
 
 export function avatarColor(key?: string | null) {
@@ -21,14 +36,26 @@ export function avatarColor(key?: string | null) {
 // Franja lateral + tinte suave por color de usuario, para PINTAR filas con la identidad de la
 // persona (notificaciones y afines). Clases literales para que Tailwind las detecte al escanear.
 export const AVATAR_TINT: Record<string, { stripe: string; wash: string }> = {
-  indigo: { stripe: "border-indigo-500", wash: "bg-indigo-500/10" },
-  emerald: { stripe: "border-emerald-500", wash: "bg-emerald-500/10" },
-  violet: { stripe: "border-violet-500", wash: "bg-violet-500/10" },
-  cyan: { stripe: "border-cyan-500", wash: "bg-cyan-500/10" },
-  amber: { stripe: "border-amber-500", wash: "bg-amber-500/10" },
-  rose: { stripe: "border-rose-500", wash: "bg-rose-500/10" },
+  red: { stripe: "border-red-500", wash: "bg-red-500/10" },
   orange: { stripe: "border-orange-500", wash: "bg-orange-500/10" },
+  amber: { stripe: "border-amber-500", wash: "bg-amber-500/10" },
+  yellow: { stripe: "border-yellow-500", wash: "bg-yellow-500/10" },
+  lime: { stripe: "border-lime-500", wash: "bg-lime-500/10" },
+  green: { stripe: "border-green-500", wash: "bg-green-500/10" },
+  emerald: { stripe: "border-emerald-500", wash: "bg-emerald-500/10" },
+  teal: { stripe: "border-teal-500", wash: "bg-teal-500/10" },
+  cyan: { stripe: "border-cyan-500", wash: "bg-cyan-500/10" },
+  sky: { stripe: "border-sky-500", wash: "bg-sky-500/10" },
+  blue: { stripe: "border-blue-500", wash: "bg-blue-500/10" },
+  indigo: { stripe: "border-indigo-500", wash: "bg-indigo-500/10" },
+  violet: { stripe: "border-violet-500", wash: "bg-violet-500/10" },
+  purple: { stripe: "border-purple-500", wash: "bg-purple-500/10" },
+  fuchsia: { stripe: "border-fuchsia-500", wash: "bg-fuchsia-500/10" },
+  pink: { stripe: "border-pink-500", wash: "bg-pink-500/10" },
+  rose: { stripe: "border-rose-500", wash: "bg-rose-500/10" },
   slate: { stripe: "border-slate-400", wash: "bg-slate-400/10" },
+  stone: { stripe: "border-stone-500", wash: "bg-stone-500/10" },
+  zinc: { stripe: "border-zinc-500", wash: "bg-zinc-500/10" },
 };
 export function avatarTint(key?: string | null) {
   return AVATAR_TINT[key ?? "slate"] ?? AVATAR_TINT.slate;
@@ -37,14 +64,26 @@ export function avatarTint(key?: string | null) {
 // Hex de cada color de avatar (Tailwind 500), para fondos en línea (p. ej. colorear los
 // bloques del calendario por persona, donde se usa style={{ background }} y no clases).
 export const AVATAR_HEX: Record<string, string> = {
-  indigo: "#6366f1",
-  emerald: "#10b981",
-  violet: "#8b5cf6",
-  cyan: "#06b6d4",
-  amber: "#f59e0b",
-  rose: "#f43f5e",
+  red: "#ef4444",
   orange: "#f97316",
+  amber: "#f59e0b",
+  yellow: "#eab308",
+  lime: "#84cc16",
+  green: "#22c55e",
+  emerald: "#10b981",
+  teal: "#14b8a6",
+  cyan: "#06b6d4",
+  sky: "#0ea5e9",
+  blue: "#3b82f6",
+  indigo: "#6366f1",
+  violet: "#8b5cf6",
+  purple: "#a855f7",
+  fuchsia: "#d946ef",
+  pink: "#ec4899",
+  rose: "#f43f5e",
   slate: "#64748b",
+  stone: "#78716c",
+  zinc: "#52525b",
 };
 
 export function avatarHex(key?: string | null): string {
