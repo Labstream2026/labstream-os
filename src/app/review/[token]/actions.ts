@@ -69,8 +69,10 @@ export async function addReviewComment(token: string, formData: FormData) {
   if (drawingRaw) {
     try {
       const parsed = JSON.parse(drawingRaw);
-      // Límite de tamaño defensivo (captura + trazos) para no abusar de la BD.
-      if (drawingRaw.length <= 400_000) {
+      // Límite de tamaño defensivo (captura + trazos) para no abusar de la BD. El cliente
+      // (composite()) ya recomprime el fotograma para caber bajo este tope, así que en la
+      // práctica no se descarta ninguna captura legítima; solo frena un abuso real.
+      if (drawingRaw.length <= 500_000) {
         // El dibujo se renderiza luego como <img src={drawingData.image}> en la sesión
         // del equipo. Solo aceptamos imágenes data: (png/jpeg/webp); cualquier otro
         // esquema (http(s):, javascript:, …) se descarta para evitar balizas de rastreo
@@ -140,11 +142,21 @@ export async function setPhotoPick(token: string, photoId: string, pick: string,
   });
 }
 
-export async function setReviewDecision(token: string, decision: string, name?: string, note?: string) {
+// Devuelve un resultado TIPADO (no lanza) para los fallos esperados/de cara al usuario: en
+// producción Next.js REDACTA el mensaje de un Error lanzado desde una server action (el cliente
+// recibiría un texto genérico en inglés). Devolviendo { ok, message } el copy en español llega
+// intacto al modal de decisión del cliente.
+export async function setReviewDecision(token: string, decision: string, name?: string, note?: string): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!rateLimit(`review-decision:${await rlKey(token)}`, 20, 60_000)) {
-    throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
+    return { ok: false, message: "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo." };
   }
-  const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
+  let deliverableId: string, delName: string, projectId: string;
+  try {
+    const d = await resolveDeliverable(token);
+    deliverableId = d.id; delName = d.name; projectId = d.projectId;
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "El enlace de revisión ya no está disponible." };
+  }
   const approved = decision === "APROBADO";
   const status = approved ? "APROBADO" : "CORRECCIONES";
   const who = (name ?? "").trim().slice(0, 80) || "Cliente";
@@ -154,7 +166,7 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   // APROBADO o ENTREGADO, el cliente no puede reabrirlo pidiendo cambios.
   const current = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true, type: true } });
   if (!current || (current.status !== "ENVIADO_CLIENTE" && current.status !== "CORRECCIONES")) {
-    throw new Error("Este entregable ya no está disponible para decidir");
+    return { ok: false, message: "Este entregable ya no está disponible para decidir. Recarga la página." };
   }
 
   // Solo se decide sobre material que el equipo ya aprobó internamente. Las galerías de
@@ -162,14 +174,14 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   let versionNumber: number | null = null;
   if (current.type === "FOTOGRAFIA") {
     const photoCount = await db.deliverablePhoto.count({ where: { deliverableId } });
-    if (!photoCount) throw new Error("Aún no hay fotos disponibles para decidir");
+    if (!photoCount) return { ok: false, message: "Aún no hay fotos disponibles para decidir." };
   } else {
     const latestApproved = await db.deliverableVersion.findFirst({
       where: { deliverableId, internalApproved: true },
       orderBy: { number: "desc" },
       select: { number: true },
     });
-    if (!latestApproved) throw new Error("Aún no hay una versión disponible para decidir");
+    if (!latestApproved) return { ok: false, message: "Aún no hay una versión disponible para decidir." };
     versionNumber = latestApproved.number;
   }
 
@@ -229,6 +241,7 @@ export async function setReviewDecision(token: string, decision: string, name?: 
     });
   }
   revalidatePath(`/review/${token}`);
+  return { ok: true };
 }
 
 // Decisión del cliente sobre la PORTADA del reel (la imagen que acompaña al video): APROBADA o

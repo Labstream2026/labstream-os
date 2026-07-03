@@ -294,8 +294,11 @@ export function ReviewClient({
     setModal({ phase: "sending", result });
     start(async () => {
       try {
-        await setReviewDecision(token, result === "APROBADO" ? "APROBADO" : "CORRECCIONES", name || "Cliente");
-        setModal({ phase: "done", result });
+        // La acción devuelve un resultado TIPADO (no lanza) para que su mensaje en español
+        // llegue intacto (en producción Next redacta los Error lanzados desde server actions).
+        const r = await setReviewDecision(token, result === "APROBADO" ? "APROBADO" : "CORRECCIONES", name || "Cliente");
+        if (r.ok) setModal({ phase: "done", result });
+        else setModal({ phase: "error", result, message: r.message });
       } catch (e) {
         setModal({ phase: "error", result, message: e instanceof Error ? e.message : "No pudimos registrar tu decisión. Inténtalo de nuevo." });
       }

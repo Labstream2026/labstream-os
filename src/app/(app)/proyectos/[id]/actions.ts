@@ -1551,7 +1551,9 @@ export async function addInternalReviewComment(deliverableId: string, formData: 
   if (!isNote && drawingRaw) {
     try {
       const parsed = JSON.parse(drawingRaw);
-      if (drawingRaw.length <= 400_000) drawingData = parsed;
+      // El cliente (composite()) recomprime el fotograma para caber bajo este tope; subirlo a
+      // 500 000 evita descartar en silencio la captura de un reel vertical recargado.
+      if (drawingRaw.length <= 500_000) drawingData = parsed;
     } catch {
       /* ignora dibujos malformados */
     }

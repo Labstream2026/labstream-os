@@ -646,7 +646,7 @@ export function ReviewStage({
                   {editingId === c.id ? (
                     <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
                   ) : (
-                    <p className={`mt-1 whitespace-pre-wrap ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
+                    <p className={`mt-1 whitespace-pre-wrap break-words ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
                   )}
                   {c.drawing?.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -699,7 +699,7 @@ export function ReviewStage({
                   {editingId === c.id ? (
                     <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
                   ) : (
-                    <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-foreground/90">{c.body}</p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-foreground/90">{c.body}</p>
                   )}
                 </div>
               ))
@@ -1435,6 +1435,9 @@ function DrawOverlay({ captureEl, canCapture, onResult }: {
 
   const loadBg = (file: File | Blob | null) => {
     if (!file) return;
+    // Evita leer en memoria imágenes enormes (cuelgue/jank en celular). El fotograma final se
+    // recomprime a ≤1280 px en composite(), así que 8 MB de fuente sobran de largo.
+    if (file.size > 8_000_000) { window.alert("Esa imagen es muy pesada (máx 8 MB). Usa una captura más liviana."); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result);
@@ -1532,7 +1535,19 @@ function composite(
     g.fillStyle = "#ffffff"; g.textBaseline = "top";
     lines.forEach((ln, i) => g.fillText(ln, fs, ch - barH + padY + i * (fs * 1.25)));
   }
-  try { return cv.toDataURL("image/jpeg", 0.72); } catch { return null; }
+  // El fotograma debe caber bajo el tope del servidor (JSON con la imagen en base64 ≤ 500 000).
+  // Los reels VERTICALES (1080×1920) NO se reducen por ancho (1080 < 1280), así que un fotograma
+  // recargado puede pasarse; si se pasa, se baja la calidad hasta que quepa. Así lo que ve el
+  // cliente (UI optimista) es EXACTAMENTE lo que guarda el servidor (antes se descartaba en
+  // silencio y el fotograma «desaparecía» al recargar).
+  const CAP = 480_000; // margen bajo el tope de 500 000 del servidor (holgura para el resto del JSON)
+  try {
+    for (const q of [0.72, 0.6, 0.5, 0.4]) {
+      const url = cv.toDataURL("image/jpeg", q);
+      if (url.length <= CAP) return url;
+    }
+    return cv.toDataURL("image/jpeg", 0.32);
+  } catch { return null; }
 }
 
 function wrapText(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
