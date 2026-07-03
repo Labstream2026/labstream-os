@@ -37,11 +37,39 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   ].filter((g) => g.items.length > 0);
   const showActionable = hasActionable(p) || chaseCount(chases) > 0 || leadEsc.length > 0;
 
-  const pills: { label: string; tone: string; href: string }[] = [];
-  if (p.overdue.length) pills.push({ label: `🔴 ${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"}`, tone: "text-rose-700 bg-rose-50 dark:bg-rose-500/10 dark:text-rose-300", href: "/mis-tareas" });
-  if (p.today.length) pills.push({ label: `🟡 ${p.today.length} para hoy`, tone: "text-amber-700 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300", href: "/mis-tareas" });
-  if (p.eventsToday.length) pills.push({ label: `📅 ${p.eventsToday.length} cita${p.eventsToday.length === 1 ? "" : "s"}`, tone: "text-sky-700 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300", href: "/calendario" });
-  if (p.shootsToday.length) pills.push({ label: `🎬 ${p.shootsToday.length} rodaje${p.shootsToday.length === 1 ? "" : "s"}`, tone: "text-violet-700 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300", href: "/calendario" });
+  // Chips DESPLEGABLES: tocar el chip abre la lista completa de esos pendientes, y cada
+  // uno enlaza a su detalle (la tarea en su proyecto, o Mis tareas si es personal). Antes
+  // el chip solo navegaba a la lista general y no se veía CUÁLES eran.
+  const taskHref = (t: { projectId: string | null }) => (t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas");
+  const groups: { key: string; label: string; tone: string; items: { id: string; text: string; href: string }[]; more: { label: string; href: string } }[] = [];
+  if (p.overdue.length) groups.push({
+    key: "overdue",
+    label: `🔴 ${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"}`,
+    tone: "text-rose-700 bg-rose-50 dark:bg-rose-500/10 dark:text-rose-300",
+    items: p.overdue.map((t) => ({ id: t.id, text: `${t.title}${t.due ? ` — venció ${bogotaShortDate(t.due)}` : ""}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
+    more: { label: "Ver en Mis tareas →", href: "/mis-tareas" },
+  });
+  if (p.today.length) groups.push({
+    key: "today",
+    label: `🟡 ${p.today.length} para hoy`,
+    tone: "text-amber-700 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-300",
+    items: p.today.map((t) => ({ id: t.id, text: `${t.title}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
+    more: { label: "Ver en Mis tareas →", href: "/mis-tareas" },
+  });
+  if (p.eventsToday.length) groups.push({
+    key: "events",
+    label: `📅 ${p.eventsToday.length} cita${p.eventsToday.length === 1 ? "" : "s"}`,
+    tone: "text-sky-700 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300",
+    items: p.eventsToday.map((e) => ({ id: e.id, text: `${bogotaTime(e.start)} — ${e.title}`, href: "/calendario" })),
+    more: { label: "Ver calendario →", href: "/calendario" },
+  });
+  if (p.shootsToday.length) groups.push({
+    key: "shoots",
+    label: `🎬 ${p.shootsToday.length} rodaje${p.shootsToday.length === 1 ? "" : "s"}`,
+    tone: "text-violet-700 bg-violet-50 dark:bg-violet-500/10 dark:text-violet-300",
+    items: p.shootsToday.map((t) => ({ id: t.id, text: `${t.title}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
+    more: { label: "Ver calendario →", href: "/calendario" },
+  });
 
   return (
     <section className="mt-8">
@@ -75,26 +103,35 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
                 <p className="mt-1 text-sm">
                   ¡Hola, {voc}! Esto es lo que tienes en el radar, {firstName}:
                 </p>
-                {pills.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {pills.map((pill) => (
-                      <Link key={pill.label} href={pill.href} className={`rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 ${pill.tone}`}>
-                        {pill.label}
-                      </Link>
+                {groups.length ? (
+                  <div className="mt-3 space-y-1.5">
+                    {groups.map((g) => (
+                      <details key={g.key} className="group/pend">
+                        <summary className={`inline-flex cursor-pointer list-none items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 ${g.tone}`}>
+                          {g.label}
+                          <span className="text-[10px] opacity-70 transition-transform group-open/pend:rotate-90">›</span>
+                        </summary>
+                        <ul className="mt-1.5 space-y-1 rounded-lg border border-border/60 bg-card/70 p-2 pl-3">
+                          {g.items.map((it) => (
+                            <li key={it.id}>
+                              <Link href={it.href} className="block truncate text-sm text-foreground/90 hover:text-primary hover:underline" title="Abrir el detalle">
+                                • {it.text}
+                              </Link>
+                            </li>
+                          ))}
+                          <li>
+                            <Link href={g.more.href} className="text-xs font-medium text-primary hover:underline">{g.more.label}</Link>
+                          </li>
+                        </ul>
+                      </details>
                     ))}
                   </div>
                 ) : null}
 
-                {(p.imminent.length > 0 || p.overdue.length > 0 || p.eventsToday.length > 0) ? (
+                {p.imminent.length > 0 ? (
                   <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
                     {p.imminent.slice(0, 1).map((e) => (
-                      <li key={e.id} className="text-[#F47A20]">⏰ "{e.title}" arranca a las {bogotaTime(e.start)}</li>
-                    ))}
-                    {p.overdue.slice(0, 2).map((t) => (
-                      <li key={t.id} className="truncate">🔴 {t.title}{t.due ? ` — venció ${bogotaShortDate(t.due)}` : ""}</li>
-                    ))}
-                    {p.eventsToday.slice(0, 2).map((e) => (
-                      <li key={e.id} className="truncate">📅 {bogotaTime(e.start)} — {e.title}</li>
+                      <li key={e.id} className="text-[#F47A20]">⏰ «{e.title}» arranca a las {bogotaTime(e.start)}</li>
                     ))}
                   </ul>
                 ) : null}

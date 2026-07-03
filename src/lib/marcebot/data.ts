@@ -5,7 +5,7 @@ import { bogotaDayStart } from "./time";
 // Lectura de pendientes para Marcebot. Funciones puras (sin "use server"): las usan
 // tanto el cron como la tarjeta del Inicio.
 
-export type TaskLite = { id: string; title: string; due: Date | null; project: string | null };
+export type TaskLite = { id: string; title: string; due: Date | null; project: string | null; projectId: string | null };
 export type EventLite = { id: string; title: string; start: Date };
 
 export type UserPendientes = {
@@ -46,12 +46,12 @@ export async function getUserPendientes(
     db.task.findMany({
       where: { status: { in: openKeys }, dueDate: { lt: weekEnd }, ...mine },
       orderBy: { dueDate: "asc" },
-      select: { id: true, title: true, dueDate: true, project: { select: { name: true } } },
+      select: { id: true, title: true, dueDate: true, project: { select: { id: true, name: true } } },
     }),
     db.task.findMany({
       where: { status: { in: openKeys }, shootDate: { gte: todayStart, lt: tomorrow }, ...mine },
       orderBy: { shootDate: "asc" },
-      select: { id: true, title: true, shootDate: true, project: { select: { name: true } } },
+      select: { id: true, title: true, shootDate: true, project: { select: { id: true, name: true } } },
     }),
     db.calendarEvent.findMany({
       where: { start: { gte: todayStart, lt: tomorrow }, OR: [{ createdById: userId }, { attendees: { some: { userId } } }] },
@@ -64,7 +64,7 @@ export async function getUserPendientes(
   const today: TaskLite[] = [];
   const soon: TaskLite[] = [];
   for (const t of tasks) {
-    const lite: TaskLite = { id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project) };
+    const lite: TaskLite = { id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project), projectId: t.project?.id ?? null };
     const d = t.dueDate!;
     if (d < todayStart) overdue.push(lite);
     else if (d < tomorrow) today.push(lite);
@@ -79,7 +79,7 @@ export async function getUserPendientes(
     overdue,
     today,
     soon,
-    shootsToday: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project) })),
+    shootsToday: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project), projectId: s.project?.id ?? null })),
     eventsToday,
     imminent,
   };
@@ -91,9 +91,9 @@ export async function getUserDoneToday(userId: string, now: Date = new Date()): 
   const rows = await db.task.findMany({
     where: { completedAt: { gte: todayStart, lte: now }, OR: [{ assigneeId: userId }, { ownerId: userId }] },
     orderBy: { completedAt: "asc" },
-    select: { id: true, title: true, completedAt: true, project: { select: { name: true } } },
+    select: { id: true, title: true, completedAt: true, project: { select: { id: true, name: true } } },
   });
-  return rows.map((t) => ({ id: t.id, title: t.title, due: t.completedAt, project: projectName(t.project) }));
+  return rows.map((t) => ({ id: t.id, title: t.title, due: t.completedAt, project: projectName(t.project), projectId: t.project?.id ?? null }));
 }
 
 export type PersonOverdue = { name: string; count: number };
@@ -120,17 +120,17 @@ export async function getTeamSummary(openKeys: string[], now: Date = new Date())
     db.task.findMany({
       where: { status: { in: openKeys }, assigneeId: null, dueDate: { gte: todayStart, lt: twoWeeks } },
       orderBy: { dueDate: "asc" },
-      select: { id: true, title: true, dueDate: true, project: { select: { name: true } } },
+      select: { id: true, title: true, dueDate: true, project: { select: { id: true, name: true } } },
     }),
     db.deliverable.findMany({
       where: { dueDate: { gte: todayStart, lt: weekEnd } },
       orderBy: { dueDate: "asc" },
-      select: { id: true, name: true, dueDate: true, project: { select: { name: true } } },
+      select: { id: true, name: true, dueDate: true, project: { select: { id: true, name: true } } },
     }),
     db.task.findMany({
       where: { shootDate: { gte: todayStart, lt: weekEnd } },
       orderBy: { shootDate: "asc" },
-      select: { id: true, title: true, shootDate: true, project: { select: { name: true } } },
+      select: { id: true, title: true, shootDate: true, project: { select: { id: true, name: true } } },
     }),
   ]);
 
@@ -146,8 +146,8 @@ export async function getTeamSummary(openKeys: string[], now: Date = new Date())
   return {
     overdueTotal: overdueTasks.length,
     byPerson,
-    unassigned: unassigned.map((t) => ({ id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project) })),
-    deliveries: deliveries.map((d) => ({ id: d.id, title: d.name, due: d.dueDate, project: projectName(d.project) })),
-    shoots: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project) })),
+    unassigned: unassigned.map((t) => ({ id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project), projectId: t.project?.id ?? null })),
+    deliveries: deliveries.map((d) => ({ id: d.id, title: d.name, due: d.dueDate, project: projectName(d.project), projectId: d.project?.id ?? null })),
+    shoots: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project), projectId: s.project?.id ?? null })),
   };
 }

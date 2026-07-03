@@ -30,6 +30,14 @@ function saludoHora(now: Date): string {
   return "Buenas noches";
 }
 
+// Base pública de la app para armar ENLACES en los mensajes (el chat convierte las URLs
+// crudas en enlaces clicables): cada pendiente lleva su link para entrar directo.
+const APP_BASE = (process.env.NEXTAUTH_URL || "").replace(/\/+$/, "");
+function taskUrl(t: TaskLite): string {
+  if (!APP_BASE) return "";
+  return t.projectId ? `${APP_BASE}/proyectos/${t.projectId}?tab=tareas` : `${APP_BASE}/mis-tareas`;
+}
+
 function bullet(t: TaskLite, opts?: { showDue?: boolean; overdue?: boolean; now?: Date }): string {
   const proj = t.project ? ` · ${t.project}` : "";
   let due = "";
@@ -37,7 +45,8 @@ function bullet(t: TaskLite, opts?: { showDue?: boolean; overdue?: boolean; now?
     if (opts?.overdue && opts.now) due = ` — ${duePhrase(t.due, opts.now)}`;
     else if (opts?.showDue) due = ` (vence ${bogotaShortDate(t.due)})`;
   }
-  return `   • ${t.title}${proj}${due}`;
+  const url = taskUrl(t);
+  return `   • ${t.title}${proj}${due}${url ? `\n     ${url}` : ""}`;
 }
 
 function eventLine(e: EventLite): string {
@@ -154,6 +163,7 @@ export function composePersonal(opts: {
   if (p.eventsToday.length) {
     lines.push(`📅 ${p.eventsToday.length === 1 ? "Tienes 1 cita" : `Tienes ${p.eventsToday.length} citas`}:`);
     p.eventsToday.slice(0, 4).forEach((e) => lines.push(eventLine(e)));
+    if (APP_BASE) lines.push(`     ${APP_BASE}/calendario`);
     lines.push("");
   }
 

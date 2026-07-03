@@ -3,12 +3,11 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { getSession, hasPermission } from "@/lib/auth";
-import { accessibleClientWhere } from "@/lib/client-access";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, accessibleProjectWhere } from "@/lib/project-access";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "./timeline/global-timeline";
 import { MarcebotCard } from "./marcebot-card";
-import { formatShortDate } from "@/lib/ui";
+import { formatShortDate, avatarHex } from "@/lib/ui";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
@@ -50,8 +49,23 @@ export default async function HomePage() {
   // allí al entrar en "/". (Se configura en el Perfil; lista blanca de rutas.)
   const prefs = await getUserPreference(me.id);
   if (prefs.startPage && prefs.startPage !== "/") redirect(prefs.startPage);
-  const [clients, projects, blocked, myTasks] = await Promise.all([
-    db.client.findMany({ where: { AND: [accessibleClientWhere(session), { isActive: true }] }, orderBy: { name: "asc" }, include: { _count: { select: { projects: { where: { archivedAt: null } } } } } }),
+  const [recentActivity, projects, blocked, myTasks] = await Promise.all([
+    // Actividad reciente de los proyectos VISIBLES para el usuario (reemplaza al antiguo
+    // bloque de Clientes, que era redundante con la página de Clientes del menú).
+    db.activityLog.findMany({
+      where: { project: accessibleProjectWhere(session) },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        summary: true,
+        actorName: true,
+        createdAt: true,
+        projectId: true,
+        project: { select: { name: true, emoji: true } },
+        user: { select: { name: true, avatarColor: true, initials: true } },
+      },
+    }),
     db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),
     db.project.count({ where: { status: "PAUSADO", archivedAt: null } }),
     db.task.findMany({
@@ -62,8 +76,6 @@ export default async function HomePage() {
       include: { project: { select: { id: true, name: true, emoji: true } } },
     }),
   ]);
-  // Orden alfabético real de los clientes: insensible a mayúsculas/acentos y con reglas del español.
-  clients.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 
   const myTaskCount = await db.task.count({ where: isAdmin ? { status: { in: OPEN as never } } : { assigneeId: me.id, status: { in: OPEN as never } } });
 
@@ -220,31 +232,46 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* Actividad reciente (reemplaza al bloque de Clientes, redundante con el menú):
+            últimos movimientos del equipo en los proyectos que el usuario puede ver. */}
         <section>
           <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">Clientes</h2>
+            <h2 className="text-lg font-semibold">Actividad reciente</h2>
             <Link href="/proyectos" className="text-sm font-medium text-primary hover:underline">
               Ver proyectos
             </Link>
           </div>
           <div className="space-y-2">
-            {clients.map((c) => (
-              <Link
-                key={c.id}
-                href={`/clientes/${c.id}`}
-                className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
-              >
-                <span className="flex size-10 items-center justify-center rounded-lg bg-muted text-lg">
-                  {c.emoji ?? "🏢"}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{c.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {c._count.projects} proyecto{c._count.projects === 1 ? "" : "s"} · {c.description}
-                  </p>
-                </div>
-              </Link>
-            ))}
+            {recentActivity.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aún no hay movimientos en tus proyectos.</p>
+            ) : (
+              recentActivity.map((a) => (
+                <Link
+                  key={a.id}
+                  href={a.projectId ? `/proyectos/${a.projectId}?tab=actividad` : "/proyectos"}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 transition-colors hover:border-primary/40"
+                >
+                  <span
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                    style={{ background: avatarHex(a.user?.avatarColor) }}
+                  >
+                    {a.user?.initials ?? "•"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">
+                      <span className="font-medium" style={{ color: avatarHex(a.user?.avatarColor) }}>
+                        {a.user?.name ?? a.actorName ?? "Alguien"}
+                      </span>{" "}
+                      {a.summary}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {a.project ? `${a.project.emoji ?? "📁"} ${a.project.name} · ` : ""}
+                      {formatShortDate(a.createdAt)}
+                    </p>
+                  </div>
+                </Link>
+              ))
+            )}
           </div>
         </section>
       </div>
