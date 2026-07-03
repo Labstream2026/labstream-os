@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -33,17 +34,17 @@ const accessSelect = {
 // (revealCell) pasan write=false explícitamente.
 async function ensureTableAccess(tableId: string, write = true): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const t = await db.dataTable.findUnique({
     where: { id: tableId },
     select: { projectId: true, project: { select: accessSelect } },
   });
-  if (!t) throw new Error("No autorizado");
+  if (!t) noAutorizado();
   if (t.project) {
-    if (!canAccessProject(t.project, session)) throw new Error("No autorizado");
+    if (!canAccessProject(t.project, session)) noAutorizado();
   } else {
     // Tablas de wiki o globales (inventario/ubicación): solo equipo interno (no invitados).
-    if (!(await canSeeWiki(session))) throw new Error("No autorizado");
+    if (!(await canSeeWiki(session))) noAutorizado();
     // Y MODIFICARLAS exige editar_wiki (no basta con poder ver la wiki).
     if (write && !hasPermission(session, "editar_wiki")) throw new Error("No tienes permiso para editar la wiki.");
   }
@@ -52,13 +53,13 @@ async function ensureTableAccess(tableId: string, write = true): Promise<void> {
 // Acceso vía columna o fila (resuelven su tableId primero).
 async function ensureColumnAccess(columnId: string, write = true): Promise<string> {
   const col = await db.dataColumn.findUnique({ where: { id: columnId }, select: { tableId: true } });
-  if (!col) throw new Error("No autorizado");
+  if (!col) noAutorizado();
   await ensureTableAccess(col.tableId, write);
   return col.tableId;
 }
 async function ensureRowAccess(rowId: string, write = true): Promise<string> {
   const row = await db.dataRow.findUnique({ where: { id: rowId }, select: { tableId: true } });
-  if (!row) throw new Error("No autorizado");
+  if (!row) noAutorizado();
   await ensureTableAccess(row.tableId, write);
   return row.tableId;
 }
@@ -66,7 +67,7 @@ async function ensureRowAccess(rowId: string, write = true): Promise<string> {
 async function ensureProjectAccess(projectId: string): Promise<void> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project || !canAccessProject(project, session)) throw new Error("No autorizado");
+  if (!project || !canAccessProject(project, session)) noAutorizado();
 }
 
 async function revalidateForTable(tableId: string) {
@@ -119,7 +120,7 @@ export async function deleteTable(tableId: string): Promise<void> {
 
 export async function createTableForWiki(wikiPageId: string, formData: FormData): Promise<void> {
   const session = await getSession();
-  if (!session || !(await canSeeWiki(session)) || !hasPermission(session, "editar_wiki")) throw new Error("No autorizado");
+  if (!session || !(await canSeeWiki(session)) || !hasPermission(session, "editar_wiki")) noAutorizado();
   const name = String(formData.get("name") ?? "").trim() || "Tabla";
   await db.dataTable.create({ data: { name, wikiPageId, ...DEFAULT_TABLE } });
   revalidatePath(`/wiki/${wikiPageId}`);

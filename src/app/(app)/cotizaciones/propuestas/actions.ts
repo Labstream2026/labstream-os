@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import crypto from "node:crypto";
 import sanitizeHtml from "sanitize-html";
 import { revalidatePath } from "next/cache";
@@ -18,7 +19,7 @@ import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
 async function requirePerm(key: string) {
   const session = await getSession();
-  if (!hasPermission(session, key)) throw new Error("No autorizado");
+  if (!hasPermission(session, key)) noAutorizado();
   return session!;
 }
 
@@ -30,11 +31,11 @@ async function ensureProposalAccess(id: string): Promise<void> {
   const p = await db.proposal.findUnique({ where: { id }, select: { clientId: true, createdById: true } });
   if (!p) throw new Error("Propuesta inexistente");
   if (p.clientId) {
-    if (!(await userCanAccessClient(p.clientId, session))) throw new Error("No autorizado");
+    if (!(await userCanAccessClient(p.clientId, session))) noAutorizado();
     return;
   }
   // Sin cliente: solo el autor o un admin.
-  if (p.createdById !== session?.id && session?.role !== "admin") throw new Error("No autorizado");
+  if (p.createdById !== session?.id && session?.role !== "admin") noAutorizado();
 }
 
 function refresh(id?: string) {
@@ -181,7 +182,7 @@ export async function updateProposalMeta(
   if (data.clientId !== undefined) {
     // Reasignar a un cliente exige poder acceder a ESE cliente (si no, sería reasignar
     // la propuesta a un cliente ajeno conociendo el id). Desvincular (null) sí se permite.
-    if (data.clientId && !(await userCanAccessClient(data.clientId, session))) throw new Error("No autorizado");
+    if (data.clientId && !(await userCanAccessClient(data.clientId, session))) noAutorizado();
     patch.clientId = data.clientId || null;
   }
   await db.proposal.update({ where: { id }, data: patch });

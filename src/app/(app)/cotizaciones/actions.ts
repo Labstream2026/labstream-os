@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -11,7 +12,7 @@ import { isQuoteStatus } from "@/lib/enum-guards";
 
 async function requirePerm(key: string) {
   const session = await getSession();
-  if (!hasPermission(session, key)) throw new Error("No autorizado");
+  if (!hasPermission(session, key)) noAutorizado();
   return session!;
 }
 
@@ -21,7 +22,7 @@ async function requirePerm(key: string) {
 async function ensureQuoteAccess(quoteId: string): Promise<void> {
   const session = await getSession();
   const q = await db.quote.findUnique({ where: { id: quoteId }, select: { clientId: true } });
-  if (!q || !(await userCanAccessClient(q.clientId, session))) throw new Error("No autorizado");
+  if (!q || !(await userCanAccessClient(q.clientId, session))) noAutorizado();
 }
 
 function refresh(id?: string) {
@@ -47,7 +48,7 @@ export async function createQuote(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "") || null;
   const recipientName = String(formData.get("recipientName") ?? "").trim() || null;
   if (!clientId) throw new Error("Falta el cliente");
-  if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
+  if (!(await userCanAccessClient(clientId, session))) noAutorizado();
 
   // El imprevisto por defecto sale de los ajustes globales (oculto al cliente). El IVA
   // también, para que una cotización nueva ya traiga los porcentajes de la empresa.
@@ -204,7 +205,7 @@ export async function applyPackageToQuote(quoteId: string, packageId: string) {
 
 export async function deleteServicePackage(quoteId: string, packageId: string) {
   const session = await getSession();
-  if (!hasPermission(session, "crear_cotizaciones")) throw new Error("No autorizado");
+  if (!hasPermission(session, "crear_cotizaciones")) noAutorizado();
   const pkg = await db.servicePackage.findUnique({ where: { id: packageId }, select: { createdById: true } });
   if (!pkg) return;
   if (session!.role !== "admin" && pkg.createdById !== session!.id) throw new Error("Solo el creador o un admin puede borrar el paquete.");

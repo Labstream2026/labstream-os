@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -55,7 +56,7 @@ const accessSelect = {
 async function ensureProjectAccess(projectId: string, perm?: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project) throw new Error("No autorizado");
+  if (!project) noAutorizado();
   if (!canWriteProject(project, session)) {
     // Excepción para el PORTAL DEL CLIENTE: un cliente (miembro GUEST de su proyecto) es de solo
     // lectura para casi todo, PERO puede ejecutar acciones para las que tiene permiso explícito
@@ -63,10 +64,10 @@ async function ensureProjectAccess(projectId: string, perm?: string): Promise<Se
     // sigue bloqueado porque su rol no tiene esos permisos. Las subidas de VERSIONES de entregable
     // llevan además su propio canWriteProject, así que siguen siendo solo del equipo.
     const isClienteMember = session?.role === "cliente" && perm != null && project.members.some((m) => m.userId === session.id);
-    if (!(isClienteMember && hasPermission(session, perm!))) throw new Error("No autorizado");
+    if (!(isClienteMember && hasPermission(session, perm!))) noAutorizado();
   }
   // Además del acceso al proyecto, exige el permiso del catálogo si se indica (admin pasa por bypass).
-  if (perm && !hasPermission(session, perm)) throw new Error("No autorizado");
+  if (perm && !hasPermission(session, perm)) noAutorizado();
   return session!;
 }
 
@@ -81,25 +82,25 @@ type WithProject = {
 } | null;
 async function ensureAccessVia(resource: WithProject, perm: string | null = "editar_tareas"): Promise<string | null> {
   const session = await getSession();
-  if (!resource || !session) throw new Error("No autorizado");
+  if (!resource || !session) noAutorizado();
   if (resource.project) {
     if (!canWriteProject(resource.project, session)) {
       // Cliente (portal): puede operar tareas de SU proyecto para las que tiene permiso explícito
       // (crear/editar tareas), aunque como GUEST sea de solo lectura para el resto (entregables,
       // equipos, brief siguen bloqueados porque su rol no tiene esos permisos).
       const isClienteMember = session.role === "cliente" && perm != null && resource.project.members.some((m) => m.userId === session.id);
-      if (!(isClienteMember && hasPermission(session, perm))) throw new Error("No autorizado");
+      if (!(isClienteMember && hasPermission(session, perm))) noAutorizado();
     }
   } else {
     const ok = session.role === "admin" || resource.ownerId === session.id || resource.assigneeId === session.id;
-    if (!ok) throw new Error("No autorizado");
+    if (!ok) noAutorizado();
   }
   // Permiso del catálogo (por defecto editar_tareas) con BYPASS para el dueño o el asignado de
   // la propia tarea: un colaborador siempre puede editar/mover SU tarea aunque su rol no tenga
   // el permiso; para tareas de OTROS sí se exige. `perm: null` lo desactiva (getters, etc.).
   if (perm && !hasPermission(session, perm)) {
     const mine = resource.ownerId === session.id || resource.assigneeId === session.id;
-    if (!mine) throw new Error("No autorizado");
+    if (!mine) noAutorizado();
   }
   return resource.projectId;
 }
@@ -574,10 +575,10 @@ export async function logTime(taskId: string, _projectId: string, formData: Form
 
 export async function deleteTimeEntry(entryId: string): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const entry = await db.timeEntry.findUnique({ where: { id: entryId }, select: { userId: true, task: { select: { projectId: true } } } });
   if (!entry) return;
-  if (!(session.role === "admin" || entry.userId === session.id)) throw new Error("No autorizado");
+  if (!(session.role === "admin" || entry.userId === session.id)) noAutorizado();
   await db.timeEntry.delete({ where: { id: entryId } });
   refresh(entry.task.projectId);
 }
@@ -873,10 +874,10 @@ export async function addTaskComment(taskId: string, _projectId: string, formDat
 // Borra un comentario propio (o admin).
 export async function deleteTaskComment(commentId: string): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const c = await db.taskComment.findUnique({ where: { id: commentId }, select: { authorId: true, task: { select: { projectId: true } } } });
   if (!c) return;
-  if (!(session.role === "admin" || c.authorId === session.id)) throw new Error("No autorizado");
+  if (!(session.role === "admin" || c.authorId === session.id)) noAutorizado();
   await db.taskComment.delete({ where: { id: commentId } });
   refresh(c.task.projectId);
 }
@@ -982,7 +983,7 @@ export async function setDeliverableReviewers(deliverableId: string, _projectId:
     select: { name: true, projectId: true, project: { select: accessSelect }, reviewers: { select: { userId: true } } },
   });
   const session = await getSession();
-  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
   // Solo miembros/responsable del proyecto pueden ser revisores; deduplica y valida.
   const valid: string[] = [];
   for (const uid of [...new Set(userIds)]) {
@@ -1035,7 +1036,7 @@ export async function setDeliverableReviewer(deliverableId: string, _projectId: 
 export async function setReviewExpiry(deliverableId: string, _projectId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
   const dateStr = String(formData.get("reviewExpiresAt") ?? "").trim();
   const exp = dateStr ? new Date(`${dateStr}T23:59:59.000Z`) : null;
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewExpiresAt: exp } });
@@ -1047,7 +1048,7 @@ export async function setReviewExpiry(deliverableId: string, _projectId: string,
 export async function deleteDeliverable(deliverableId: string, _projectId: string) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
   await db.deliverable.delete({ where: { id: deliverableId } });
   await logActivity({ action: "deliverable.delete", summary: `eliminó el entregable «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable" });
   refresh(deliverable.projectId);
@@ -1062,8 +1063,8 @@ export async function addDeliverablePhotos(projectId: string, deliverableId: str
     where: { id: deliverableId },
     select: { name: true, projectId: true, project: { select: accessSelect } },
   });
-  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
-  if (!canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || deliverable.projectId !== projectId) noAutorizado();
+  if (!canWriteProject(deliverable.project, session)) noAutorizado();
 
   // La posición continúa después de la última foto existente.
   const last = await db.deliverablePhoto.findFirst({ where: { deliverableId }, orderBy: { position: "desc" }, select: { position: true } });
@@ -1105,9 +1106,9 @@ export async function deleteDeliverablePhoto(photoId: string, projectId: string)
     where: { id: photoId },
     select: { fileAssetId: true, deliverable: { select: { projectId: true, project: { select: accessSelect } } } },
   });
-  if (!photo || photo.deliverable.projectId !== projectId) throw new Error("No autorizado");
+  if (!photo || photo.deliverable.projectId !== projectId) noAutorizado();
   const session = await getSession();
-  if (!canManageProject(photo.deliverable.project, session)) throw new Error("No autorizado");
+  if (!canManageProject(photo.deliverable.project, session)) noAutorizado();
   await db.deliverablePhoto.delete({ where: { id: photoId } });
   // El registro de la foto no cascada al FileAsset (es al revés); lo borramos aquí si era local.
   if (photo.fileAssetId) await db.fileAsset.delete({ where: { id: photo.fileAssetId } }).catch(() => {});
@@ -1149,8 +1150,8 @@ export async function setDeliverableCover(projectId: string, deliverableId: stri
     where: { id: deliverableId },
     select: { name: true, projectId: true, coverFileAssetId: true, project: { select: accessSelect } },
   });
-  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
-  if (!canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || deliverable.projectId !== projectId) noAutorizado();
+  if (!canWriteProject(deliverable.project, session)) noAutorizado();
 
   const file = formData.get("cover");
   if (!(file instanceof File) || file.size === 0) throw new Error("Sube una imagen para la portada.");
@@ -1165,8 +1166,8 @@ export async function removeDeliverableCover(projectId: string, deliverableId: s
     where: { id: deliverableId },
     select: { projectId: true, coverFileAssetId: true, project: { select: accessSelect } },
   });
-  if (!deliverable || deliverable.projectId !== projectId) throw new Error("No autorizado");
-  if (!canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || deliverable.projectId !== projectId) noAutorizado();
+  if (!canManageProject(deliverable.project, session)) noAutorizado();
   const prevId = deliverable.coverFileAssetId;
   await db.deliverable.update({ where: { id: deliverableId }, data: { coverFileAssetId: null } });
   if (prevId) await db.fileAsset.delete({ where: { id: prevId } }).catch(() => {});
@@ -1205,8 +1206,8 @@ export async function addDeliverableVersion(
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
-  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
-  if (!hasPermission(session, "subir_archivos") && deliverable.ownerId !== session!.id) throw new Error("No autorizado");
+  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
+  if (!hasPermission(session, "subir_archivos") && deliverable.ownerId !== session!.id) noAutorizado();
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({
@@ -1333,7 +1334,7 @@ export async function internalDecision(
       (!!deliverable.reviewerId && deliverable.reviewerId === session?.id)
     ))
   );
-  if (!deliverable || !mayDecide) throw new Error("No autorizado");
+  if (!deliverable || !mayDecide) noAutorizado();
   const projectId = deliverable.projectId;
   const approved = result === "APROBADO";
 
@@ -1426,7 +1427,7 @@ export async function internalDecision(
 export async function setReviewRevoked(deliverableId: string, _projectId: string, revoked: boolean) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewRevokedAt: revoked ? new Date() : null } });
   await logActivity({ action: "deliverable.review_link", summary: revoked ? `revocó el enlace de revisión de «${deliverable.name}»` : `reactivó el enlace de revisión de «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   refresh(deliverable.projectId);
@@ -1436,7 +1437,7 @@ export async function setReviewRevoked(deliverableId: string, _projectId: string
 export async function setReviewDrawings(deliverableId: string, _projectId: string, allow: boolean) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canManageProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewAllowDrawings: allow } });
   refresh(deliverable.projectId);
 }
@@ -1454,7 +1455,7 @@ export async function resolveReviewComment(commentId: string, _projectId: string
     },
   });
   const session = await getSession();
-  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
   await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
   if (resolved) {
     const change = c.body.replace(/^\(anotación\)$/, "anotación").slice(0, 80);
@@ -1494,9 +1495,9 @@ async function reviewCommentForMutation(commentId: string) {
 export async function editReviewComment(commentId: string, _projectId: string, body: string) {
   const c = await reviewCommentForMutation(commentId);
   const session = await getSession();
-  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
   const mine = c.authorUserId === session!.id;
-  if (!mine && !canManageProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
   if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede editar.");
   const next = body.trim().slice(0, 4000);
   if (!next) throw new Error("El comentario no puede quedar vacío.");
@@ -1508,9 +1509,9 @@ export async function editReviewComment(commentId: string, _projectId: string, b
 export async function deleteReviewComment(commentId: string, _projectId: string) {
   const c = await reviewCommentForMutation(commentId);
   const session = await getSession();
-  if (!c || !canWriteProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
   const mine = c.authorUserId === session!.id;
-  if (!mine && !canManageProject(c.deliverable.project, session)) throw new Error("No autorizado");
+  if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
   if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede borrar.");
   await db.reviewComment.delete({ where: { id: commentId } });
 }
@@ -1519,7 +1520,7 @@ export async function deleteReviewComment(commentId: string, _projectId: string)
 export async function replyToReview(deliverableId: string, _projectId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   if (!body) return;
   const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
@@ -1538,7 +1539,7 @@ export async function replyToReview(deliverableId: string, _projectId: string, f
 export async function addInternalReviewComment(deliverableId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canWriteProject(deliverable.project, session)) throw new Error("No autorizado");
+  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   const isNote = formData.get("isNote") === "true";
   const tcRaw = String(formData.get("timecode") ?? "").trim();
@@ -1595,7 +1596,7 @@ export async function addFile(projectId: string, formData: FormData) {
 export async function addNasRoute(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId, "subir_archivos");
   // El cliente no maneja rutas de red internas (SMB/NAS): puede subir archivos y enlaces, no rutas.
-  if (session.role === "cliente") throw new Error("No autorizado");
+  if (session.role === "cliente") noAutorizado();
   const name = String(formData.get("name") ?? "").trim();
   const path = String(formData.get("path") ?? "").trim();
   if (!name || !path) return;
@@ -1799,8 +1800,8 @@ export async function deleteFolder(folderId: string, _projectId: string) {
 async function ensureProjectManage(projectId: string, perm?: string): Promise<SessionUser> {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project || !canManageProject(project, session)) throw new Error("No autorizado");
-  if (perm && !hasPermission(session, perm)) throw new Error("No autorizado");
+  if (!project || !canManageProject(project, session)) noAutorizado();
+  if (perm && !hasPermission(session, perm)) noAutorizado();
   return session!;
 }
 
@@ -1952,7 +1953,7 @@ export async function archiveProject(projectId: string): Promise<{ ok: boolean; 
 // Restaura un proyecto archivado (vuelve a las listas). Lo hace quien puede ver la papelera.
 export async function restoreProject(projectId: string): Promise<void> {
   const session = await getSession();
-  if (!hasPermission(session, "ver_papelera")) throw new Error("No autorizado");
+  if (!hasPermission(session, "ver_papelera")) noAutorizado();
   // Además del permiso de papelera, exige poder GESTIONAR ese proyecto concreto: no restaurar
   // proyectos ajenos/privados solo por tener ver_papelera.
   await ensureProjectManage(projectId);
@@ -2004,12 +2005,12 @@ export async function purgeProject(projectId: string): Promise<{ ok: boolean; er
 // indicado, y miembro del proyecto del entregable. Devuelve la sesión y el entregable.
 async function ensureClienteDeliverable(deliverableId: string, perm: string) {
   const session = await getSession();
-  if (!session || session.role !== "cliente" || !hasPermission(session, perm)) throw new Error("No autorizado");
+  if (!session || session.role !== "cliente" || !hasPermission(session, perm)) noAutorizado();
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
     select: { id: true, name: true, projectId: true, status: true, project: { select: { ...accessSelect, name: true } } },
   });
-  if (!deliverable || !deliverable.project.members.some((m) => m.userId === session.id)) throw new Error("No autorizado");
+  if (!deliverable || !deliverable.project.members.some((m) => m.userId === session.id)) noAutorizado();
   return { session, deliverable };
 }
 

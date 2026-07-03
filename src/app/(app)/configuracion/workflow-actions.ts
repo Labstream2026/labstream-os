@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
@@ -9,7 +10,7 @@ type Kind = "TASK_STATUS" | "TASK_PRIORITY";
 
 async function ensureAdmin() {
   const session = await getSession();
-  if (!hasPermission(session, "administrar_usuarios")) throw new Error("No autorizado");
+  if (!hasPermission(session, "administrar_usuarios")) noAutorizado();
 }
 
 function refresh() {

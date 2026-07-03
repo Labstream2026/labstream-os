@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -24,7 +25,7 @@ async function ensurePlanWrite(planId: string) {
     where: { id: planId },
     select: { id: true, projectId: true, title: true, shootDate: true, assigneeId: true, taskId: true, project: { select: { ...accessSelect, name: true } } },
   });
-  if (!plan || !canWriteProject(plan.project, session)) throw new Error("No autorizado");
+  if (!plan || !canWriteProject(plan.project, session)) noAutorizado();
   return { session: session!, plan };
 }
 
@@ -36,9 +37,9 @@ async function ensurePlanPackedAccess(planId: string) {
     where: { id: planId },
     select: { id: true, projectId: true, assigneeId: true, project: { select: accessSelect } },
   });
-  if (!plan || !session) throw new Error("No autorizado");
+  if (!plan || !session) noAutorizado();
   const ok = plan.assigneeId === session.id || canWriteProject(plan.project, session);
-  if (!ok) throw new Error("No autorizado");
+  if (!ok) noAutorizado();
   return { session, plan };
 }
 
@@ -46,7 +47,7 @@ async function ensurePlanPackedAccess(planId: string) {
 export async function createPlan(projectId: string, formData: FormData) {
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
-  if (!project || !canWriteProject(project, session)) throw new Error("No autorizado");
+  if (!project || !canWriteProject(project, session)) noAutorizado();
   const dateRaw = String(formData.get("shootDate") ?? "").trim();
   if (!dateRaw) return;
   const title = String(formData.get("title") ?? "").trim() || null;
@@ -249,11 +250,11 @@ export async function savePlanAsKit(planId: string, formData: FormData): Promise
 
 export async function deleteKit(kitId: string, projectId: string) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   if (session.role !== "admin") {
     // Solo admin o el creador pueden borrar un kit (compartido por todo el equipo).
     const kit = await db.equipmentKit.findUnique({ where: { id: kitId }, select: { createdById: true } });
-    if (!kit || kit.createdById !== session.id) throw new Error("No autorizado");
+    if (!kit || kit.createdById !== session.id) noAutorizado();
   }
   await db.equipmentKit.delete({ where: { id: kitId } });
   refresh(projectId);

@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -10,7 +11,7 @@ import { DEFAULT_FOLDERS, type TemplateContent } from "@/lib/templates";
 // Quien puede crear proyectos puede gestionar las plantillas del equipo.
 async function ensureCanManage() {
   const session = await getSession();
-  if (!hasPermission(session, "crear_proyectos")) throw new Error("No autorizado");
+  if (!hasPermission(session, "crear_proyectos")) noAutorizado();
   return session;
 }
 

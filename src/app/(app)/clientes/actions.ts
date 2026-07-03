@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -31,7 +32,7 @@ export async function createClient(formData: FormData) {
   // (así nadie que pudiera crear antes queda bloqueado aunque el backfill no haya
   // concedido aún crear_clientes). El admin pasa siempre.
   if (!hasPermission(session, "crear_clientes") && !hasPermission(session, "crear_proyectos")) {
-    throw new Error("No autorizado");
+    noAutorizado();
   }
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;

@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
@@ -18,8 +19,8 @@ import { userHasSectionAccess, sessionHasSectionAccess } from "@/lib/chat-sectio
 // El creador queda como ADMIN del canal.
 export async function createChannel(formData: FormData) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
-  if (!hasPermission(session, "crear_canales")) throw new Error("No autorizado");
+  if (!session) noAutorizado();
+  if (!hasPermission(session, "crear_canales")) noAutorizado();
   const name = String(formData.get("name") ?? "").trim().slice(0, 80);
   if (!name) return;
   const isPublic = formData.get("isPublic") !== "false"; // por defecto público
@@ -85,11 +86,11 @@ export async function assignChannelToSection(channelId: string, section: string 
 // con su entidad y se borran al borrar el proyecto/cliente.
 export async function deleteChannel(channelId: string) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true } });
   if (!channel) return;
   if (channel.type !== "GENERAL") throw new Error("Solo se pueden borrar grupos creados en el chat.");
-  if (!(await userCanManageChannel(channelId, session))) throw new Error("No autorizado");
+  if (!(await userCanManageChannel(channelId, session))) noAutorizado();
   await db.chatChannel.delete({ where: { id: channelId } });
   await logActivity({
     action: "chat.channel.delete",
@@ -102,9 +103,9 @@ export async function deleteChannel(channelId: string) {
 // Abre (o crea) un mensaje directo 1:1 con otra persona.
 export async function openDirectMessage(otherUserId: string) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   // El portal cliente solo usa el chat de SU proyecto: no abre DMs con personas del equipo.
-  if (session.role === "cliente") throw new Error("No autorizado");
+  if (session.role === "cliente") noAutorizado();
   if (otherUserId === session.id) return;
   const other = await db.user.findUnique({ where: { id: otherUserId }, select: { id: true, name: true, active: true, isSystemBot: true } });
   if (!other?.active) throw new Error("Usuario inválido");
@@ -138,7 +139,7 @@ export async function openDirectMessage(otherUserId: string) {
 // donde cada mensaje le habla a Marcebot sin necesidad de @mencionarlo.
 export async function openMarcebotChat() {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const channelId = await getOrCreateMarcebotDM(session.id, session.name);
   revalidatePath("/chat");
   redirect(`/chat/${channelId}`);
@@ -147,7 +148,7 @@ export async function openMarcebotChat() {
 // Unirse / salir de un canal público (para que aparezca en "mis chats").
 export async function joinChannel(channelId: string) {
   const session = await getSession();
-  if (!session || !(await userCanAccessChannel(channelId, session))) throw new Error("No autorizado");
+  if (!session || !(await userCanAccessChannel(channelId, session))) noAutorizado();
   // Los canales de PROYECTO/CLIENTE no se unen a mano: su membresía la deriva ensureProjectChannels
   // del equipo del proyecto. Unirse crearía una fila que la siguiente sincronización quitaría.
   const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
@@ -162,7 +163,7 @@ export async function joinChannel(channelId: string) {
 
 export async function leaveChannel(channelId: string) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   // Igual que al unirse: no se sale a mano de un canal de proyecto/cliente (se sale saliendo del
   // proyecto). Evita que un miembro —incluido el cliente— se quite su propia fila del canal.
   const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
@@ -587,7 +588,7 @@ export async function votePoll(pollId: string, optionId: string): Promise<PollDa
 export async function setChannelVisibility(channelId: string, isPublic: boolean) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) {
-    throw new Error("No autorizado");
+    noAutorizado();
   }
   const channel = await db.chatChannel.update({ where: { id: channelId }, data: { isPublic } });
   if (channel.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
@@ -597,7 +598,7 @@ export async function setChannelVisibility(channelId: string, isPublic: boolean)
 // los canales de sistema (general, estados-equipo) y los de proyecto/cliente conservan su nombre.
 export async function renameChannel(channelId: string, name: string) {
   const session = await getSession();
-  if (!(await userCanManageChannel(channelId, session))) throw new Error("No autorizado");
+  if (!(await userCanManageChannel(channelId, session))) noAutorizado();
   const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, slug: true, name: true } });
   if (!channel) return;
   if (channel.type !== "GENERAL" || channel.slug) throw new Error("Este canal no se puede renombrar.");
@@ -630,7 +631,7 @@ export async function addChannelMember(channelId: string, userId: string): Promi
 export async function setChannelMemberRole(channelId: string, userId: string, makeAdmin: boolean) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) {
-    throw new Error("No autorizado");
+    noAutorizado();
   }
   await db.channelMember
     .update({
@@ -645,7 +646,7 @@ export async function setChannelMemberRole(channelId: string, userId: string, ma
 export async function removeChannelMember(channelId: string, userId: string) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) {
-    throw new Error("No autorizado");
+    noAutorizado();
   }
   await db.channelMember
     .delete({ where: { channelId_userId: { channelId, userId } } })

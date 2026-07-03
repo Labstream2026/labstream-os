@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -13,7 +14,7 @@ import type { SessionUser } from "@/lib/session";
 // esté en la lista de "viewers" podría descifrar contraseñas saltándose el permiso.
 async function ensureInternal(): Promise<SessionUser> {
   const session = await getSession();
-  if (!(await canSeeWiki(session)) || !hasPermission(session, "ver_contrasenas")) throw new Error("No autorizado");
+  if (!(await canSeeWiki(session)) || !hasPermission(session, "ver_contrasenas")) noAutorizado();
   return session!;
 }
 
@@ -51,7 +52,7 @@ export async function createCredential(formData: FormData) {
 export async function updateCredential(id: string, formData: FormData) {
   const session = await ensureInternal();
   const cred = await db.credential.findUnique({ where: { id }, select: { createdById: true } });
-  if (!cred || !canManage(cred, session)) throw new Error("No autorizado");
+  if (!cred || !canManage(cred, session)) noAutorizado();
   const secret = String(formData.get("secret") ?? "");
   await db.credential.update({
     where: { id },
@@ -71,7 +72,7 @@ export async function updateCredential(id: string, formData: FormData) {
 export async function deleteCredential(id: string) {
   const session = await ensureInternal();
   const cred = await db.credential.findUnique({ where: { id }, select: { createdById: true } });
-  if (!cred || !canManage(cred, session)) throw new Error("No autorizado");
+  if (!cred || !canManage(cred, session)) noAutorizado();
   await db.credential.delete({ where: { id } });
   revalidatePath("/wiki/contrasenas");
 }
@@ -80,14 +81,14 @@ export async function deleteCredential(id: string) {
 export async function revealCredential(id: string): Promise<string> {
   const session = await ensureInternal();
   const cred = await db.credential.findUnique({ where: { id }, select: { secretEnc: true, createdById: true, viewers: { select: { userId: true } } } });
-  if (!cred || !canView(cred, session)) throw new Error("No autorizado");
+  if (!cred || !canView(cred, session)) noAutorizado();
   return decryptSecret(cred.secretEnc);
 }
 
 export async function addCredentialViewer(id: string, userId: string) {
   const session = await ensureInternal();
   const cred = await db.credential.findUnique({ where: { id }, select: { createdById: true } });
-  if (!cred || !canManage(cred, session)) throw new Error("No autorizado");
+  if (!cred || !canManage(cred, session)) noAutorizado();
   await db.credentialViewer.upsert({
     where: { credentialId_userId: { credentialId: id, userId } },
     create: { credentialId: id, userId },
@@ -99,7 +100,7 @@ export async function addCredentialViewer(id: string, userId: string) {
 export async function removeCredentialViewer(id: string, userId: string) {
   const session = await ensureInternal();
   const cred = await db.credential.findUnique({ where: { id }, select: { createdById: true } });
-  if (!cred || !canManage(cred, session)) throw new Error("No autorizado");
+  if (!cred || !canManage(cred, session)) noAutorizado();
   await db.credentialViewer.delete({ where: { credentialId_userId: { credentialId: id, userId } } }).catch(() => null);
   revalidatePath("/wiki/contrasenas");
 }

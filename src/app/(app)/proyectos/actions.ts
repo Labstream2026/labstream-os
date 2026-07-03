@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -14,7 +15,7 @@ type WizardAnswer = { taskTitle: string; assigneeId?: string | null; dueDate?: s
 
 export async function createProject(formData: FormData) {
   const session = await getSession();
-  if (!hasPermission(session, "crear_proyectos")) throw new Error("No autorizado");
+  if (!hasPermission(session, "crear_proyectos")) noAutorizado();
   const name = String(formData.get("name") ?? "").trim();
   const clientId = String(formData.get("clientId") ?? "");
   // El responsable (lead) lo asigna el equipo, NO el cliente: ser lead otorga gestión del proyecto
@@ -24,7 +25,7 @@ export async function createProject(formData: FormData) {
   const templateKey = String(formData.get("templateKey") ?? "");
   if (!name || !clientId) return;
   // No confiar en el clientId del formulario: exigir que el usuario pueda acceder a ese cliente.
-  if (!(await userCanAccessClient(clientId, session))) throw new Error("No autorizado");
+  if (!(await userCanAccessClient(clientId, session))) noAutorizado();
 
   const project = await instantiateTemplate(db, {
     templateKey,

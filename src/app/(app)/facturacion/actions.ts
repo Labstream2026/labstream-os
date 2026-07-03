@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -12,7 +13,7 @@ import { isInvoiceStatus } from "@/lib/enum-guards";
 
 async function requirePerm(key: string) {
   const session = await getSession();
-  if (!hasPermission(session, key)) throw new Error("No autorizado");
+  if (!hasPermission(session, key)) noAutorizado();
   return session!;
 }
 
@@ -21,7 +22,7 @@ async function ensureInvoiceAccess(invoiceId: string): Promise<string | null> {
   const session = await getSession();
   const inv = await db.invoice.findUnique({ where: { id: invoiceId }, select: { code: true, clientId: true } });
   if (!inv) return null;
-  if (!(await userCanAccessClient(inv.clientId, session))) throw new Error("No autorizado");
+  if (!(await userCanAccessClient(inv.clientId, session))) noAutorizado();
   return inv.code;
 }
 
@@ -43,7 +44,7 @@ export async function createInvoiceFromQuote(quoteId: string) {
     include: { items: { orderBy: { position: "asc" } } },
   });
   if (!quote) throw new Error("Cotización inexistente");
-  if (!(await userCanAccessClient(quote.clientId, session))) throw new Error("No autorizado");
+  if (!(await userCanAccessClient(quote.clientId, session))) noAutorizado();
   // Solo se factura una cotización APROBADA (no basta con que el botón esté oculto:
   // la acción puede invocarse directamente).
   if (quote.status !== "APROBADA") throw new Error("Solo se puede facturar una cotización aprobada.");

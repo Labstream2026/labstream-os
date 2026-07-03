@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -14,7 +15,7 @@ import { extractWikiAttachments } from "@/lib/markdown";
 // editar/borrar páginas. Roles externos (freelancer/cliente) e invitados quedan fuera.
 async function requireWiki() {
   const session = await getSession();
-  if (!session || !(await canSeeWiki(session))) throw new Error("No autorizado");
+  if (!session || !(await canSeeWiki(session))) noAutorizado();
   return session;
 }
 
@@ -22,7 +23,7 @@ async function requireWiki() {
 // permiso explícito "editar_wiki" (no basta con poder verla).
 async function requireWikiEdit() {
   const session = await requireWiki();
-  if (!hasPermission(session, "editar_wiki")) throw new Error("No autorizado");
+  if (!hasPermission(session, "editar_wiki")) noAutorizado();
   return session;
 }
 

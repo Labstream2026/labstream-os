@@ -1,3 +1,4 @@
+import { noAutorizado } from "@/lib/authz-error";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 async function disconnect() {
   "use server";
   const s = await getSession();
-  if (!s || s.role !== "admin") throw new Error("No autorizado");
+  if (!s || s.role !== "admin") noAutorizado();
   await disconnectHiggsfield();
   redirect("/configuracion/higgsfield?estado=desconectado");
 }

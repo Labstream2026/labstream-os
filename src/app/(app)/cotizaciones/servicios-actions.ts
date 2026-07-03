@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -7,7 +8,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 // El catálogo de servicios es INTERNO; editarlo requiere crear_cotizaciones.
 async function requireQuotes() {
   const session = await getSession();
-  if (!hasPermission(session, "crear_cotizaciones")) throw new Error("No autorizado");
+  if (!hasPermission(session, "crear_cotizaciones")) noAutorizado();
   return session!;
 }
 

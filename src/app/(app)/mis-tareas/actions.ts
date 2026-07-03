@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -14,10 +15,10 @@ import { bogotaNoon } from "@/lib/today";
 // marca de cuándo se completó (completedAt) + registro en actividad.
 export async function completeMyTask(taskId: string) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, assigneeId: true, ownerId: true, projectId: true, completedAt: true } });
   if (!task) return;
-  if (task.assigneeId !== session.id && task.ownerId !== session.id) throw new Error("No autorizado");
+  if (task.assigneeId !== session.id && task.ownerId !== session.id) noAutorizado();
   const { statuses } = await getTaskLabels();
   const done = statuses.find((s) => s.isDone) ?? statuses[statuses.length - 1];
   if (!done) return;
@@ -65,7 +66,7 @@ export async function clearMyDay() {
 // - Privada → solo la vemos su dueño y su responsable.
 export async function createMyTask(formData: FormData) {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
+  if (!session) noAutorizado();
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
   let assigneeId = String(formData.get("assigneeId") ?? "") || session.id;

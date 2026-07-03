@@ -1,5 +1,6 @@
 "use server";
 
+import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -21,8 +22,8 @@ function parseGuestEmails(formData: FormData): string[] {
 // conectado, se escribe en su calendario y se les notifica (app + correo).
 export async function createMyEvent(formData: FormData): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
-  if (!hasPermission(session, "gestionar_calendario")) throw new Error("No autorizado");
+  if (!session) noAutorizado();
+  if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
   const title = String(formData.get("title") ?? "").trim();
   const date = String(formData.get("date") ?? "").trim(); // YYYY-MM-DD
   const time = String(formData.get("time") ?? "").trim(); // HH:mm o ""
@@ -61,14 +62,14 @@ export async function createMyEvent(formData: FormData): Promise<void> {
 // Synology (re-escribe a los que siguen, quita a los retirados) y notifica a los nuevos.
 export async function updateMyEvent(eventId: string, formData: FormData): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
-  if (!hasPermission(session, "gestionar_calendario")) throw new Error("No autorizado");
+  if (!session) noAutorizado();
+  if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
     select: { createdById: true, source: true, title: true, start: true, end: true, location: true, allDay: true, attendees: { select: { userId: true } }, guests: { select: { email: true } } },
   });
   if (!event) return;
-  if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
+  if (event.createdById !== session.id || event.source !== "app") noAutorizado();
 
   const title = String(formData.get("title") ?? "").trim();
   const date = String(formData.get("date") ?? "").trim();
@@ -176,11 +177,11 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
 // Solo cambia inicio/fin y re-sincroniza con Synology; no toca asistentes ni notifica.
 export async function moveMyEvent(eventId: string, startIso: string, endIso: string | null): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
-  if (!hasPermission(session, "gestionar_calendario")) throw new Error("No autorizado");
+  if (!session) noAutorizado();
+  if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
   const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true, title: true, attendees: { select: { userId: true } } } });
   if (!event) return;
-  if (event.createdById !== session.id || event.source !== "app") throw new Error("No autorizado");
+  if (event.createdById !== session.id || event.source !== "app") noAutorizado();
   const start = new Date(startIso);
   if (Number.isNaN(start.getTime())) return;
   const end = endIso ? new Date(endIso) : null;
@@ -201,14 +202,14 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
 // Borra una cita creada por mí (y la quita de los Synology donde se escribió).
 export async function deleteMyEvent(eventId: string): Promise<void> {
   const session = await getSession();
-  if (!session) throw new Error("No autorizado");
-  if (!hasPermission(session, "gestionar_calendario")) throw new Error("No autorizado");
+  if (!session) noAutorizado();
+  if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
   const event = await db.calendarEvent.findUnique({
     where: { id: eventId },
     select: { createdById: true, title: true, start: true, allDay: true, attendees: { select: { userId: true } } },
   });
   if (!event) return;
-  if (event.createdById !== session.id) throw new Error("No autorizado");
+  if (event.createdById !== session.id) noAutorizado();
   // Avisar (app + correo) a los asistentes que se canceló, y mandar el .ics de
   // cancelación a los invitados externos — ANTES de borrar (necesitan los datos).
   const when = event.allDay
