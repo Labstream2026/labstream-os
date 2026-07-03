@@ -438,7 +438,15 @@ export function ReviewStage({
             para conservar la posición de reproducción y el buffer. En modo inmersivo el MISMO
             contenedor pasa a overlay fijo (solo cambian clases → el video no se re-monta ni
             pierde la posición). */}
-        <div className={mediaTab !== "media" ? "hidden" : immersive ? "fixed inset-0 z-[60] bg-black" : undefined}>
+        {/* iOS Safari: `h-[100dvh]` (no `inset-0`/`100vh`) hace que el overlay respete la altura
+            VISIBLE real, así los controles de abajo no quedan bajo la barra de Safari; `touch-manipulation`
+            quita el retardo de 300 ms y el zoom por doble-toque; `overscroll-none` corta el rebote
+            (rubber-band); y `-webkit-tap-highlight-color: transparent` (heredado por todos los hijos)
+            elimina el destello gris al tocar. */}
+        <div
+          className={mediaTab !== "media" ? "hidden" : immersive ? "fixed inset-x-0 top-0 z-[60] h-[100dvh] touch-manipulation overscroll-none bg-black" : undefined}
+          style={immersive ? { WebkitTapHighlightColor: "transparent" } : undefined}
+        >
           <div className={immersive ? "relative h-full w-full" : "relative"}>
             <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} immersive={immersive} />
 
@@ -872,7 +880,9 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
             if (api?.isPaused()) api.play(); else api?.pause();
             poke();
           }}
-          className="absolute inset-0 z-10 cursor-default"
+          // iOS: sin selección de texto ni menú de long-press ("Guardar vídeo") al mantener pulsado el video.
+          style={{ WebkitTouchCallout: "none", userSelect: "none" }}
+          className="absolute inset-0 z-10 cursor-default select-none"
         />
       ) : null}
       {canTap && paused && !sheetOpen && !drawOpen ? (
@@ -1308,6 +1318,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
             onTimeUpdate={() => savePos()}
             onPause={() => savePos(true)}
+            // iOS: sin menú de long-press ("Guardar vídeo") sobre el material.
+            style={{ WebkitTouchCallout: "none" }}
             className={immersive ? "block h-full w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"}
           />
           {immersive ? null : driveToggle}
