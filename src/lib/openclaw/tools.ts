@@ -2,16 +2,18 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { getLiveAuthState } from "@/lib/permissions";
 import { hasPermission } from "@/lib/auth";
-import { accessibleProjectWhere, canWriteProject, canAccessProject } from "@/lib/project-access";
+import { accessibleProjectWhere, canWriteProject, canAccessProject, canManageProject } from "@/lib/project-access";
 import { validateAssignee } from "@/lib/task-assign";
-import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
+import { accessibleClientWhere, userCanAccessClient, canManageClient } from "@/lib/client-access";
+import { completionTransition } from "@/lib/task-completion";
+import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
 import { composeQuoteTotals } from "@/lib/quote-compose";
 import { readBuffer } from "@/lib/storage";
 import { extractDocsText } from "./attachments";
 import { postBotFileMessage, ensureMarcebot, sendBotDM } from "@/lib/marcebot/bot";
 import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
-import { notifyAndEmail } from "@/lib/notify";
+import { notifyAndEmail, notifyManyAndEmail } from "@/lib/notify";
 import { createCalendarEventCore } from "@/lib/calendar-create";
 import { generateImage, normalizeAspect } from "@/lib/higgsfield";
 import { mcpGenerateImage, mcpStartVideo, HiggsfieldNotConnected } from "@/lib/higgsfield-mcp";
@@ -623,6 +625,130 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  // ── Herramientas de EDICIÓN (crear/editar en toda la app; nunca borrar) ──
+  {
+    type: "function",
+    function: {
+      name: "update_task",
+      description: "Actualiza una tarea existente: estado (p. ej. marcarla hecha), responsable, fechas, prioridad, título o descripción. El dueño o el responsable siempre pueden editar la suya; para tareas de otros se exige permiso.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: { type: "string", description: "Id o título (o parte) de la tarea." },
+          project: { type: "string", description: "Id o nombre del proyecto, para desambiguar (opcional)." },
+          status: { type: "string", description: "Nuevo estado, por su nombre visible o clave (p. ej. 'Completada', 'En proceso'). Opcional." },
+          assignee: { type: "string", description: "'yo' o nombre del nuevo responsable (opcional)." },
+          dueDate: { type: "string", description: "Nueva fecha de entrega YYYY-MM-DD (opcional)." },
+          startDate: { type: "string", description: "Nueva fecha de inicio YYYY-MM-DD (opcional)." },
+          priority: { type: "string", description: "ALTA, MEDIA o BAJA (opcional)." },
+          newTitle: { type: "string", description: "Nuevo título (opcional)." },
+          description: { type: "string", description: "Nueva descripción (opcional)." },
+        },
+        required: ["task"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_project",
+      description: "Edita un proyecto: estado, prioridad, fechas de inicio/entrega, nombre o descripción. Requiere permiso de edición y gestión sobre ese proyecto.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Id o nombre del proyecto." },
+          status: { type: "string", description: "Nuevo estado del proyecto por nombre o clave (p. ej. 'En curso', 'Pausado'). Opcional." },
+          priority: { type: "string", description: "ALTA, MEDIA o BAJA (opcional)." },
+          startDate: { type: "string", description: "Inicio YYYY-MM-DD (opcional)." },
+          dueDate: { type: "string", description: "Entrega YYYY-MM-DD (opcional)." },
+          newName: { type: "string", description: "Nuevo nombre (opcional)." },
+          description: { type: "string", description: "Nueva descripción (opcional)." },
+        },
+        required: ["project"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_client",
+      description: "Edita los datos de un cliente: nombre, empresa, descripción o notas. Requiere permiso de edición y gestión sobre ese cliente. (Los clientes NO se borran por aquí.)",
+      parameters: {
+        type: "object",
+        properties: {
+          client: { type: "string", description: "Id o nombre del cliente." },
+          newName: { type: "string", description: "Nuevo nombre (opcional)." },
+          company: { type: "string", description: "Empresa/razón social (opcional)." },
+          description: { type: "string", description: "Descripción (opcional)." },
+          notes: { type: "string", description: "Notas internas (opcional)." },
+        },
+        required: ["client"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_quote_status",
+      description: "Cambia el estado de una cotización (BORRADOR, ENVIADA, APROBADA o RECHAZADA). Solo con permiso de finanzas; aprobar/rechazar exige además el permiso correspondiente.",
+      parameters: {
+        type: "object",
+        properties: {
+          quote: { type: "string", description: "Código (COT-0001) o título de la cotización." },
+          status: { type: "string", enum: ["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"], description: "Nuevo estado." },
+        },
+        required: ["quote", "status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_invoice_status",
+      description: "Cambia el estado de una factura (BORRADOR, ENVIADA, PAGADA, VENCIDA o ANULADA). Marcar PAGADA registra la fecha de pago. Solo con permiso de finanzas.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice: { type: "string", description: "Código de la factura (FAC-0001)." },
+          status: { type: "string", enum: ["BORRADOR", "ENVIADA", "PAGADA", "VENCIDA", "ANULADA"], description: "Nuevo estado." },
+        },
+        required: ["invoice", "status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_calendar_event",
+      description: "Reprograma o edita una cita del calendario (fecha, hora, título, lugar). Avisa a los asistentes del cambio. Solo citas propias o siendo admin.",
+      parameters: {
+        type: "object",
+        properties: {
+          event: { type: "string", description: "Título (o parte) de la cita a mover." },
+          date: { type: "string", description: "Nueva fecha YYYY-MM-DD (opcional; se conserva la actual si no se da)." },
+          time: { type: "string", description: "Nueva hora de inicio HH:mm 24h (opcional)." },
+          endTime: { type: "string", description: "Nueva hora de fin HH:mm (opcional)." },
+          newTitle: { type: "string", description: "Nuevo título (opcional)." },
+          location: { type: "string", description: "Nuevo lugar (opcional)." },
+        },
+        required: ["event"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_deliverables",
+      description: "Lista entregables (piezas en revisión) con su estado, proyecto y fecha, filtrables por proyecto o estado. Respeta el acceso a proyectos.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Id o nombre del proyecto (opcional)." },
+          status: { type: "string", description: "Estado (p. ej. REVISION_INTERNA, ENVIADO_CLIENTE, CORRECCIONES, APROBADO). Opcional." },
+        },
+      },
+    },
+  },
 ];
 
 // Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
@@ -639,6 +765,13 @@ export const WRITE_TOOL_NAMES = new Set<string>([
   "create_project",
   "create_calendar_event",
   "send_message",
+  // Edición (crear/editar en toda la app; los BORRADOS quedan fuera del agente a propósito).
+  "update_task",
+  "update_project",
+  "update_client",
+  "update_quote_status",
+  "update_invoice_status",
+  "update_calendar_event",
 ]);
 
 // Herramientas que ENTREGAN al chat del solicitante (necesitan un canal real): no aplican a la
@@ -1111,6 +1244,240 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         invitados: res.invitedCount,
         mensaje: `Cita «${title}» creada para ${cuando}. Se invitó a ${res.invitedCount} persona(s) y se les notificó.${extra}`,
       });
+    }
+
+    // ── Edición (crear/editar; nunca borrar) ──
+    case "update_task": {
+      const ref = str(args.task);
+      if (!ref) return "Falta la tarea a actualizar (id o título).";
+      // Busca SOLO entre las tareas visibles para la persona (misma regla de privacidad de la app).
+      const filters: Record<string, unknown>[] = [taskVisibilityWhere(session)];
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        filters.push({ projectId: p.id });
+      }
+      const sel = {
+        id: true, title: true, status: true, completedAt: true, ownerId: true, assigneeId: true, projectId: true,
+        project: { select: { id: true, name: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
+      } as const;
+      const task =
+        (await db.task.findFirst({ where: { AND: [...filters, { id: ref }] }, select: sel })) ??
+        (await db.task.findFirst({ where: { AND: [...filters, { title: { contains: ref, mode: "insensitive" } }] }, select: sel }));
+      if (!task) return "No encontré esa tarea (o no tienes acceso a ella).";
+      // Regla de la app: el dueño o el responsable SIEMPRE pueden editar su propia tarea;
+      // para tareas de otros se exige editar_tareas + escritura en el proyecto.
+      const own = task.ownerId === session.id || task.assigneeId === session.id;
+      if (!own) {
+        if (!hasPermission(session, "editar_tareas")) return "No tienes permiso para editar tareas de otras personas.";
+        if (task.project && !canWriteProject(task.project, session)) return `No tienes permiso de escritura en «${task.project.name}».`;
+      }
+      const data: Record<string, unknown> = {};
+      const cambios: string[] = [];
+      if (str(args.status)) {
+        const want = str(args.status).toLowerCase();
+        const rows = await db.workflowLabel.findMany({ where: { kind: "TASK_STATUS" }, select: { key: true, label: true } });
+        const match =
+          rows.find((r) => r.key.toLowerCase() === want || r.label.toLowerCase() === want) ??
+          rows.find((r) => r.label.toLowerCase().includes(want));
+        if (!match) return `Estado inválido. Estados válidos: ${rows.map((r) => r.label).join(", ")}.`;
+        const { completedAt } = await completionTransition(match.key, task.completedAt ?? null);
+        data.status = match.key;
+        data.completedAt = completedAt;
+        cambios.push(`estado → ${match.label}`);
+      }
+      if (str(args.assignee)) {
+        const u = await resolveUser(session, args.assignee);
+        if (!u) return `No encontré a la persona "${str(args.assignee)}".`;
+        const ok = await validateAssignee(task.projectId, u.id, session);
+        if (!ok) return `No puedo asignarle esta tarea a "${u.name}".`;
+        data.assigneeId = ok;
+        data.assignedById = session.id;
+        cambios.push(`responsable → ${u.name}`);
+      }
+      if (str(args.dueDate)) { const d = parseDate(args.dueDate); if (!d) return "La fecha de entrega debe ser YYYY-MM-DD."; data.dueDate = d; cambios.push(`entrega → ${ymd(d)}`); }
+      if (str(args.startDate)) { const d = parseDate(args.startDate); if (!d) return "La fecha de inicio debe ser YYYY-MM-DD."; data.startDate = d; cambios.push(`inicio → ${ymd(d)}`); }
+      if (str(args.priority)) { const pr = await validPriority(args.priority); data.priority = pr; cambios.push(`prioridad → ${pr}`); }
+      if (str(args.newTitle)) { data.title = str(args.newTitle).slice(0, 200); cambios.push("título actualizado"); }
+      if (str(args.description)) { data.description = str(args.description).slice(0, 4000); cambios.push("descripción actualizada"); }
+      if (!cambios.length) return "No indicaste ningún cambio (estado, responsable, fechas, prioridad, título o descripción).";
+      await db.task.update({ where: { id: task.id }, data });
+      // El estado mueve la barra de progreso del proyecto (misma fórmula de la app).
+      if (data.status !== undefined && task.projectId) {
+        const [total, done] = await Promise.all([
+          db.task.count({ where: { projectId: task.projectId } }),
+          db.task.count({ where: { projectId: task.projectId, completedAt: { not: null } } }),
+        ]);
+        await db.project.update({ where: { id: task.projectId }, data: { progress: total ? Math.round((done / total) * 100) : 0 } }).catch(() => null);
+      }
+      if (typeof data.assigneeId === "string" && data.assigneeId !== session.id) {
+        await notifyAndEmail(data.assigneeId, { type: "task", title: `Te asignaron: ${task.title}`, body: `${session.name} te asignó esta tarea vía Marcebot.`, link: task.projectId ? `/proyectos/${task.projectId}?tab=tareas` : "/mis-tareas", actorId: session.id }).catch(() => null);
+      }
+      await logActivity({ action: "task.update", summary: `actualizó la tarea «${task.title}» (${cambios.join(", ")}) (vía @Marcebot)`, projectId: task.projectId ?? undefined, entityType: "task", entityId: task.id }).catch(() => null);
+      return JSON.stringify({ ok: true, taskId: task.id, cambios, mensaje: `Tarea «${task.title}» actualizada: ${cambios.join(", ")}.` });
+    }
+
+    case "update_project": {
+      if (!hasPermission(session, "editar_proyectos")) return "No tienes permiso para editar proyectos.";
+      const p = await resolveProject(session, args.project);
+      if (!p) return "No encontré ese proyecto o no tienes acceso.";
+      if (!canManageProject(p, session)) return `No tienes permiso para gestionar «${p.name}».`;
+      const data: Record<string, unknown> = {};
+      const cambios: string[] = [];
+      if (str(args.status)) {
+        const want = str(args.status).toLowerCase();
+        const match =
+          PROJECT_STATUS_DEFAULTS.find((s) => s.key.toLowerCase() === want || s.label.toLowerCase() === want) ??
+          PROJECT_STATUS_DEFAULTS.find((s) => s.label.toLowerCase().includes(want));
+        if (!match) return `Estado inválido. Estados válidos: ${PROJECT_STATUS_DEFAULTS.map((s) => s.label).join(", ")}.`;
+        data.status = match.key;
+        cambios.push(`estado → ${match.label}`);
+      }
+      if (str(args.priority)) { const pr = await validPriority(args.priority); data.priority = pr; cambios.push(`prioridad → ${pr}`); }
+      if (str(args.startDate)) { const d = parseDate(args.startDate); if (!d) return "La fecha de inicio debe ser YYYY-MM-DD."; data.startDate = d; cambios.push(`inicio → ${ymd(d)}`); }
+      if (str(args.dueDate)) { const d = parseDate(args.dueDate); if (!d) return "La fecha de entrega debe ser YYYY-MM-DD."; data.dueDate = d; cambios.push(`entrega → ${ymd(d)}`); }
+      if (str(args.newName)) { data.name = str(args.newName).slice(0, 160); cambios.push("nombre actualizado"); }
+      if (str(args.description)) { data.description = str(args.description).slice(0, 4000); cambios.push("descripción actualizada"); }
+      if (!cambios.length) return "No indicaste ningún cambio (estado, prioridad, fechas, nombre o descripción).";
+      await db.project.update({ where: { id: p.id }, data });
+      await logActivity({ action: "project.update", summary: `actualizó el proyecto «${p.name}» (${cambios.join(", ")}) (vía @Marcebot)`, projectId: p.id, entityType: "project", entityId: p.id }).catch(() => null);
+      return JSON.stringify({ ok: true, projectId: p.id, cambios, mensaje: `Proyecto «${p.name}» actualizado: ${cambios.join(", ")}.` });
+    }
+
+    case "update_client": {
+      if (!hasPermission(session, "editar_clientes")) return "No tienes permiso para editar clientes.";
+      const c = await resolveClient(session, args.client);
+      if (!c) return "No encontré ese cliente o no tienes acceso.";
+      const full = await db.client.findUnique({
+        where: { id: c.id },
+        select: { id: true, name: true, members: { select: { userId: true, role: true } }, projects: { select: { leadId: true, members: { select: { userId: true } } } } },
+      });
+      if (!full || !canManageClient(full, session)) return `No tienes permiso para gestionar «${c.name}».`;
+      const data: Record<string, unknown> = {};
+      const cambios: string[] = [];
+      if (str(args.newName)) { data.name = str(args.newName).slice(0, 160); cambios.push("nombre actualizado"); }
+      if (str(args.company)) { data.company = str(args.company).slice(0, 160); cambios.push("empresa actualizada"); }
+      if (str(args.description)) { data.description = str(args.description).slice(0, 1000); cambios.push("descripción actualizada"); }
+      if (str(args.notes)) { data.notes = str(args.notes).slice(0, 4000); cambios.push("notas actualizadas"); }
+      if (!cambios.length) return "No indicaste ningún cambio (nombre, empresa, descripción o notas).";
+      await db.client.update({ where: { id: c.id }, data });
+      await logActivity({ action: "client.update", summary: `actualizó el cliente «${c.name}» (${cambios.join(", ")}) (vía @Marcebot)`, clientId: c.id, entityType: "client", entityId: c.id }).catch(() => null);
+      return JSON.stringify({ ok: true, clientId: c.id, cambios, mensaje: `Cliente «${c.name}» actualizado: ${cambios.join(", ")}.` });
+    }
+
+    case "update_quote_status": {
+      // Mismo candado que la UI: sin ver_finanzas no se toca nada de cotizaciones.
+      if (!hasPermission(session, "ver_finanzas")) return "No tienes permiso para gestionar cotizaciones.";
+      const stat = str(args.status).toUpperCase();
+      if (!["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"].includes(stat)) return "Estado inválido (BORRADOR, ENVIADA, APROBADA o RECHAZADA).";
+      const needed = stat === "ENVIADA" ? "enviar_cotizaciones" : stat === "APROBADA" || stat === "RECHAZADA" ? "aprobar_cotizaciones" : "crear_cotizaciones";
+      if (!hasPermission(session, needed)) return `Para pasar una cotización a ${stat} necesitas el permiso «${needed}». Contacta al administrador.`;
+      const ref = str(args.quote);
+      if (!ref) return "Falta la cotización (código COT-#### o título).";
+      const qsel = { id: true, code: true, title: true, status: true } as const;
+      const quote =
+        (await db.quote.findFirst({ where: { AND: [{ client: accessibleClientWhere(session) }, { code: { equals: ref, mode: "insensitive" } }] }, select: qsel })) ??
+        (await db.quote.findFirst({ where: { AND: [{ client: accessibleClientWhere(session) }, { OR: [{ code: { contains: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] }] }, orderBy: { updatedAt: "desc" }, select: qsel }));
+      if (!quote) return "No encontré esa cotización (o no tienes acceso).";
+      if (quote.status === stat) return `La cotización ${quote.code} ya está en ${stat}.`;
+      await db.quote.update({ where: { id: quote.id }, data: { status: stat as never } });
+      await logActivity({ action: "quote.status", summary: `pasó la cotización ${quote.code} de ${quote.status} a ${stat} (vía @Marcebot)`, entityType: "quote", entityId: quote.id }).catch(() => null);
+      return JSON.stringify({ ok: true, quoteId: quote.id, code: quote.code, mensaje: `Cotización ${quote.code} «${quote.title}»: ${quote.status} → ${stat}.` });
+    }
+
+    case "update_invoice_status": {
+      if (!hasPermission(session, "ver_finanzas")) return "No tienes permiso para gestionar la facturación.";
+      const stat = str(args.status).toUpperCase();
+      if (!["BORRADOR", "ENVIADA", "PAGADA", "VENCIDA", "ANULADA"].includes(stat)) return "Estado inválido (BORRADOR, ENVIADA, PAGADA, VENCIDA o ANULADA).";
+      const ref = str(args.invoice);
+      if (!ref) return "Falta la factura (código FAC-####).";
+      const isel = { id: true, code: true, status: true, client: { select: { name: true } } } as const;
+      const inv =
+        (await db.invoice.findFirst({ where: { AND: [{ client: accessibleClientWhere(session) }, { code: { equals: ref, mode: "insensitive" } }] }, select: isel })) ??
+        (await db.invoice.findFirst({ where: { AND: [{ client: accessibleClientWhere(session) }, { code: { contains: ref, mode: "insensitive" } }] }, orderBy: { updatedAt: "desc" }, select: isel }));
+      if (!inv) return "No encontré esa factura (o no tienes acceso).";
+      if (inv.status === stat) return `La factura ${inv.code} ya está en ${stat}.`;
+      await db.invoice.update({ where: { id: inv.id }, data: { status: stat as never, paidAt: stat === "PAGADA" ? new Date() : null } });
+      await logActivity({ action: "invoice.status", summary: `pasó la factura ${inv.code} de ${inv.status} a ${stat} (vía @Marcebot)`, entityType: "invoice", entityId: inv.id }).catch(() => null);
+      return JSON.stringify({ ok: true, invoiceId: inv.id, code: inv.code, cliente: inv.client?.name ?? null, mensaje: `Factura ${inv.code}: ${inv.status} → ${stat}${stat === "PAGADA" ? " (pago registrado hoy)" : ""}.` });
+    }
+
+    case "update_calendar_event": {
+      if (!hasPermission(session, "gestionar_calendario")) return "No tienes permiso para gestionar el calendario.";
+      const ref = str(args.event);
+      if (!ref) return "Falta la cita a editar (título o parte).";
+      // Citas PROPIAS (creador o asistente); el admin puede cualquiera. Se busca desde ayer en adelante.
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const ownWhere = session.role === "admin" ? {} : { OR: [{ createdById: session.id }, { attendees: { some: { userId: session.id } } }] };
+      const esel = { id: true, title: true, start: true, end: true, allDay: true, attendees: { select: { userId: true } } } as const;
+      const ev = await db.calendarEvent.findFirst({
+        where: { AND: [ownWhere, { title: { contains: ref, mode: "insensitive" } }, { start: { gte: since } }] },
+        orderBy: { start: "asc" },
+        select: esel,
+      });
+      if (!ev) return "No encontré esa cita próxima (o no es tuya).";
+      const date = str(args.date);
+      const time = str(args.time);
+      const endTime = str(args.endTime);
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "La fecha debe ser YYYY-MM-DD.";
+      if (time && !/^\d{2}:\d{2}$/.test(time)) return "La hora debe ser HH:mm (24h).";
+      if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) return "La hora de fin debe ser HH:mm (24h).";
+      const data: Record<string, unknown> = {};
+      const cambios: string[] = [];
+      if (date || time || endTime) {
+        // Convención de la app: hora de PARED guardada en UTC → la fecha/hora se arma con strings.
+        const curDate = ev.start.toISOString().slice(0, 10);
+        const curTime = ev.allDay ? "" : ev.start.toISOString().slice(11, 16);
+        const nd = date || curDate;
+        const nt = time || curTime;
+        const newStart = nt ? new Date(`${nd}T${nt}:00.000Z`) : new Date(`${nd}T12:00:00.000Z`);
+        if (Number.isNaN(newStart.getTime())) return "Fecha u hora inválidas.";
+        data.start = newStart;
+        data.allDay = !nt;
+        if (endTime) data.end = new Date(`${nd}T${endTime}:00.000Z`);
+        else if (ev.end && nt) data.end = new Date(newStart.getTime() + (ev.end.getTime() - ev.start.getTime()));
+        cambios.push(`nueva fecha: ${nd}${nt ? ` a las ${nt}` : " (todo el día)"}`);
+      }
+      if (str(args.newTitle)) { data.title = str(args.newTitle).slice(0, 200); cambios.push("título actualizado"); }
+      if (str(args.location)) { data.location = str(args.location).slice(0, 300); cambios.push("lugar actualizado"); }
+      if (!cambios.length) return "No indicaste ningún cambio (fecha, hora, título o lugar).";
+      await db.calendarEvent.update({ where: { id: ev.id }, data });
+      // Aviso a los asistentes (menos quien mueve la cita).
+      const others = ev.attendees.map((a) => a.userId).filter((id) => id !== session.id);
+      if (others.length) {
+        await notifyManyAndEmail(others, { type: "event", title: `Cita actualizada: ${ev.title}`, body: `${session.name} actualizó la cita (${cambios.join(", ")}).`, link: "/calendario", actorId: session.id }).catch(() => null);
+      }
+      await logActivity({ action: "event.update", summary: `actualizó la cita «${ev.title}» (${cambios.join(", ")}) (vía @Marcebot)`, entityType: "event", entityId: ev.id }).catch(() => null);
+      return JSON.stringify({ ok: true, eventId: ev.id, cambios, mensaje: `Cita «${ev.title}» actualizada: ${cambios.join(", ")}. Se avisó a ${others.length} asistente(s).` });
+    }
+
+    case "list_deliverables": {
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver proyectos.";
+      const filters: Record<string, unknown>[] = [{ project: accessibleProjectWhere(session) }];
+      if (str(args.project)) {
+        const p = await resolveProject(session, args.project);
+        if (!p) return "No encontré ese proyecto o no tienes acceso.";
+        filters.push({ projectId: p.id });
+      }
+      const st = str(args.status).toUpperCase().replace(/\s+/g, "_");
+      if (st) filters.push({ status: st });
+      const rows = await db.deliverable.findMany({
+        where: { AND: filters },
+        take: 30,
+        orderBy: { createdAt: "desc" },
+        select: { id: true, name: true, type: true, status: true, dueDate: true, project: { select: { name: true } }, reviewer: { select: { name: true } }, versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, internalApproved: true } } },
+      });
+      if (!rows.length) return "No hay entregables que coincidan (o no tienes acceso).";
+      return JSON.stringify(rows.map((d) => ({
+        id: d.id,
+        nombre: d.name,
+        tipo: d.type,
+        estado: d.status,
+        proyecto: d.project?.name ?? null,
+        revisor: d.reviewer?.name ?? null,
+        entrega: d.dueDate ? ymd(d.dueDate) : null,
+        ultima_version: d.versions[0] ? `v${d.versions[0].number}${d.versions[0].internalApproved ? " (pre-aprobada)" : " (pendiente interna)"}` : null,
+      })));
     }
 
     case "find_files": {
