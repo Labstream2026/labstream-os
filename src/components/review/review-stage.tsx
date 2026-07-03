@@ -48,7 +48,8 @@ export type StageComment = {
 
 type PlayerApi = {
   getTime: () => number | null;
-  seek: (t: number) => void;
+  // autoplay=false: salta SIN forzar la reproducción (arrastre de la barra, puntos del HUD).
+  seek: (t: number, autoplay?: boolean) => void;
   pause: () => void;
   play: () => void;
   // Duración total del material (barra de progreso del modo inmersivo); null si la fuente
@@ -373,8 +374,30 @@ export function ReviewStage({
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2400);
   };
-  const openSheet = () => { grabTime(); setSheetOpen(true); };
-  const exitImmersive = () => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); };
+  // Estables (useCallback): son props del HUD memoizado — si cambiaran de identidad en cada
+  // render, escribir en la hoja re-renderizaría el HUD y volverían los tirones en celular.
+  const openSheet = React.useCallback(() => {
+    const t = playerRef.current?.getTime();
+    playerRef.current?.pause();
+    if (t != null) setTc(t);
+    setSheetOpen(true);
+  }, []);
+  const exitImmersive = React.useCallback(() => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); }, []);
+
+  // Botón «atrás» del celular: en inmersivo, volver CIERRA la pantalla completa en vez de
+  // salir de la página (patrón de app nativa). Se apila una entrada al entrar y se consume
+  // al salir por el chip ✕ para no dejarla huérfana en el historial.
+  const pushedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!immersive) return;
+    try { window.history.pushState({ lsImmersive: true }, ""); pushedRef.current = true; } catch { pushedRef.current = false; }
+    const onPop = () => { pushedRef.current = false; setImmersive(false); setSheetOpen(false); setDrawOpen(false); };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (pushedRef.current) { pushedRef.current = false; try { window.history.back(); } catch { /* noop */ } }
+    };
+  }, [immersive]);
   const sendFromSheet = () => {
     if (!body.trim() && !drawing) return;
     sentTcRef.current = playerRef.current?.getTime() ?? tc;
@@ -421,32 +444,23 @@ export function ReviewStage({
 
             {immersive ? (
               <>
-                {/* HUD (toque de pausa, barra de progreso 60fps, puntos, popover): componente
-                    memoizado APARTE que escribe el progreso directo al DOM con rAF — cero
-                    re-renders del escenario por frame (el poll de estado anterior re-renderizaba
-                    todo 4 veces/segundo y daba tirones en celular). */}
+                {/* HUD (toque de pausa, chrome auto-ocultable, barra 60fps con arrastre, puntos,
+                    burbuja «Comentar»): componente memoizado APARTE que escribe el progreso
+                    directo al DOM con rAF — cero re-renders del escenario por frame. Con fuentes
+                    IFRAME (YouTube/Vimeo/Drive) NO pinta barra propia: el iframe ya trae sus
+                    controles y pintar dos barras a la vez era el bug de los «controles dobles». */}
                 <ImmersiveHud
                   playerRef={playerRef}
                   canTap={sameOriginVideo}
+                  rateCapable={sameOriginVideo || version?.kind === "youtube" || version?.kind === "vimeo"}
                   drawOpen={drawOpen}
                   sheetOpen={sheetOpen}
                   onCloseSheet={closeSheet}
+                  onOpenSheet={openSheet}
+                  onExit={exitImmersive}
+                  versionLabel={`v${version?.number ?? 1}`}
                   moments={dotMoments}
                 />
-
-                {/* Barra superior: salir + versión */}
-                <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 bg-gradient-to-b from-black/60 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
-                  <button type="button" onClick={exitImmersive} aria-label="Salir de pantalla completa" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black/45 text-sm text-white hover:bg-black/65">✕</button>
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-white">Revisión · v{version?.number ?? 1}</p>
-                    <p className="text-[11px] text-white/60">Toca la burbuja para corregir</p>
-                  </div>
-                </div>
-
-                {/* Burbuja flotante: pausa, congela el segundo y abre la hoja de corrección */}
-                {!sheetOpen && !drawOpen ? (
-                  <button type="button" onClick={openSheet} aria-label="Agregar corrección" className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-12 items-center justify-center rounded-full bg-primary text-xl text-primary-foreground shadow-lg hover:bg-primary/90">💬</button>
-                ) : null}
 
                 {/* Hoja de corrección: el segundo va congelado y la captura del fotograma se
                     adjunta AUTOMÁTICAMENTE al enviar; dibujar es lo único opcional. */}
@@ -735,30 +749,57 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
   );
 }
 
-// ── HUD del modo inmersivo (toque de pausa + barra de progreso + puntos de corrección) ──
-// Vive APARTE del escenario y actualiza el progreso ESCRIBIENDO DIRECTO al DOM con
-// requestAnimationFrame (transform: scaleX + textContent): 60fps sin un solo re-render de
-// React por frame. El estado de React solo cambia cuando cambia la PAUSA o la DURACIÓN.
-// React.memo + props memoizadas en el padre → escribir en la hoja tampoco lo re-renderiza.
+// ── HUD del modo inmersivo ── toque de pausa + chrome AUTO-OCULTABLE (barra superior, burbuja
+// «Comentar», progreso con arrastre y puntos). Vive APARTE del escenario y actualiza el progreso
+// ESCRIBIENDO DIRECTO al DOM con requestAnimationFrame (transform: scaleX + textContent): 60fps
+// sin un solo re-render de React por frame. El estado de React solo cambia con PAUSA, DURACIÓN o
+// mostrar/ocultar el chrome. React.memo + props memoizadas en el padre → escribir en la hoja
+// tampoco lo re-renderiza.
+//
+// Con FUENTES IFRAME (YouTube/Vimeo/Drive) el iframe ya trae SUS controles: aquí NO se pinta
+// barra propia ni se roba el toque (dos barras a la vez era el bug de «se ven dos controles») —
+// queda solo el chrome mínimo: salir, velocidad (si la fuente la soporta) y la burbuja «Comentar».
 type HudMoment = { id: string; timecode: number; authorName: string; body: string; fromClient: boolean };
-const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheetOpen, drawOpen, onCloseSheet, moments }: {
+const HUD_HIDE_MS = 2600; // reproduciendo, el chrome se desvanece tras este tiempo sin tocar
+const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateCapable, sheetOpen, drawOpen, onCloseSheet, onOpenSheet, onExit, versionLabel, moments }: {
   playerRef: React.MutableRefObject<PlayerApi | null>;
-  // <video> del mismo origen: el toque pausa/reanuda. Iframes (YouTube/Vimeo/Drive) usan
-  // sus propios controles y NO se les roba el toque.
+  // <video> del mismo origen: el toque pausa/reanuda y hay barra propia. Iframes (YouTube/
+  // Vimeo/Drive) usan sus propios controles y NO se les roba el toque ni se duplica la barra.
   canTap: boolean;
+  // La fuente permite fijar la velocidad (video propio, YouTube, Vimeo) → pastilla 1×/1.5×/2×.
+  rateCapable: boolean;
   sheetOpen: boolean;
   drawOpen: boolean;
   onCloseSheet: () => void;
+  onOpenSheet: () => void;
+  onExit: () => void;
+  versionLabel: string;
   moments: HudMoment[];
 }) {
   const [durT, setDurT] = React.useState(0);
   const [paused, setPaused] = React.useState(true);
   const [dotPop, setDotPop] = React.useState<{ pct: number; author: string; body: string } | null>(null);
+  // Chrome (barra superior + burbuja + progreso) visible. En pausa siempre se ve; reproduciendo
+  // se desvanece solo y un toque lo trae de vuelta.
+  const [chrome, setChrome] = React.useState(true);
   const fillRef = React.useRef<HTMLDivElement>(null);
+  const miniRef = React.useRef<HTMLDivElement>(null);
   const tcRef = React.useRef<HTMLSpanElement>(null);
+  const barRef = React.useRef<HTMLDivElement>(null);
   const durRef = React.useRef(0);
   const pausedRef = React.useRef(true);
   const popTimer = React.useRef<number | null>(null);
+  const chromeTimer = React.useRef<number | null>(null);
+  const scrubbing = React.useRef(false);
+
+  // Muestra el chrome y programa su desvanecimiento (solo si el video sigue reproduciendo).
+  const poke = React.useCallback(() => {
+    setChrome(true);
+    if (chromeTimer.current != null) window.clearTimeout(chromeTimer.current);
+    chromeTimer.current = window.setTimeout(() => {
+      if (!pausedRef.current && !scrubbing.current) setChrome(false);
+    }, HUD_HIDE_MS);
+  }, []);
 
   React.useEffect(() => {
     let raf = 0;
@@ -767,14 +808,22 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
       const api = playerRef.current;
       const t = api?.getTime() ?? 0;
       const d = api?.getDuration() ?? 0;
-      // Barra y timecode directo al DOM (sin estado): fluido y barato.
-      if (fillRef.current) fillRef.current.style.transform = `scaleX(${d > 0 ? Math.min(1, t / d) : 0})`;
+      // Barra (y el hilo minimalista cuando el chrome está oculto) directo al DOM: fluido y barato.
+      const sx = `scaleX(${d > 0 ? Math.min(1, t / d) : 0})`;
+      if (fillRef.current) fillRef.current.style.transform = sx;
+      if (miniRef.current) miniRef.current.style.transform = sx;
       const txt = fmtTime(t);
       if (tcRef.current && txt !== lastTc) { lastTc = txt; tcRef.current.textContent = txt; }
       // Estado de React SOLO cuando cambia de verdad (aparece la duración / play↔pausa).
       if (d > 0 && Math.abs(d - durRef.current) > 0.5) { durRef.current = d; setDurT(d); }
       const p = api?.isPaused() ?? true;
-      if (p !== pausedRef.current) { pausedRef.current = p; setPaused(p); }
+      if (p !== pausedRef.current) {
+        pausedRef.current = p;
+        setPaused(p);
+        // En pausa el chrome se queda fijo; al reanudar arranca el temporizador de ocultado.
+        if (p) { if (chromeTimer.current != null) window.clearTimeout(chromeTimer.current); setChrome(true); }
+        else poke();
+      }
     };
     const loop = () => { sync(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
@@ -782,11 +831,14 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
     // webviews no dispara); este intervalo mantiene la barra y el estado al día igual.
     const fallback = window.setInterval(sync, 500);
     return () => { cancelAnimationFrame(raf); window.clearInterval(fallback); };
-  }, [playerRef]);
+  }, [playerRef, poke]);
 
   // La hoja o el lienzo tapan el HUD: se cierra la burbujita del punto si estaba abierta.
   React.useEffect(() => { if (sheetOpen || drawOpen) setDotPop(null); }, [sheetOpen, drawOpen]);
-  React.useEffect(() => () => { if (popTimer.current != null) window.clearTimeout(popTimer.current); }, []);
+  React.useEffect(() => () => {
+    if (popTimer.current != null) window.clearTimeout(popTimer.current);
+    if (chromeTimer.current != null) window.clearTimeout(chromeTimer.current);
+  }, []);
 
   const showDotPop = (pct: number, author: string, bodyText: string) => {
     setDotPop({ pct, author, body: bodyText });
@@ -794,9 +846,21 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
     popTimer.current = window.setTimeout(() => setDotPop(null), 4000);
   };
 
+  // Arrastre de la barra: salta EN VIVO mientras se desliza el dedo (sin forzar play/pausa).
+  const seekAt = (clientX: number) => {
+    const el = barRef.current;
+    if (!el || durRef.current <= 0) return;
+    const r = el.getBoundingClientRect();
+    playerRef.current?.seek(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * durRef.current, false);
+  };
+
+  // Iframe (sin toque propio): chrome mínimo SIEMPRE visible — no podríamos re-invocarlo con un
+  // toque porque los toques se los queda el iframe.
+  const show = !canTap || chrome || paused;
+
   return (
     <>
-      {/* Toque en el video = pausa/reanuda; también cierra la hoja o la burbujita. */}
+      {/* Toque en el video = pausa/reanuda + trae el chrome; también cierra la hoja o la burbujita. */}
       {canTap && !drawOpen ? (
         <button
           type="button"
@@ -806,6 +870,7 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
             if (dotPop) { setDotPop(null); return; }
             const api = playerRef.current;
             if (api?.isPaused()) api.play(); else api?.pause();
+            poke();
           }}
           className="absolute inset-0 z-10 cursor-default"
         />
@@ -814,20 +879,50 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
       ) : null}
 
-      {/* Progreso + puntos de corrección (cuando la fuente expone la duración) */}
-      {durT > 0 ? (
-        <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8">
+      {/* Barra superior: salir + versión + velocidad. Se desvanece reproduciendo. */}
+      {!drawOpen ? (
+        <div className={`absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 bg-gradient-to-b from-black/60 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity duration-300 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+          <button type="button" onClick={onExit} aria-label="Salir de pantalla completa" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-black/45 text-sm text-white hover:bg-black/65">✕</button>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-medium text-white">Revisión · {versionLabel}</p>
+            <p className="truncate text-[11px] text-white/60">{canTap ? "«Comentar» guarda el segundo y la captura" : "Toca «Comentar» para corregir"}</p>
+          </div>
+          {rateCapable ? <RatePill playerRef={playerRef} onPoke={poke} /> : null}
+        </div>
+      ) : null}
+
+      {/* Burbuja «Comentar»: pausa, congela el segundo y abre la hoja de corrección. */}
+      {!sheetOpen && !drawOpen ? (
+        <button
+          type="button"
+          onClick={onOpenSheet}
+          aria-label="Agregar corrección"
+          className={`absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex h-12 items-center gap-1.5 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground shadow-lg transition-opacity duration-300 hover:bg-primary/90 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        >
+          💬 Comentar
+        </button>
+      ) : null}
+
+      {/* Progreso + puntos de corrección (solo video propio: el iframe ya trae su barra). */}
+      {canTap && durT > 0 && !drawOpen ? (
+        <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8 transition-opacity duration-300 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
             <span ref={tcRef} className="font-mono text-white/85">0:00</span>
             <span className="font-mono text-white/50">{fmtTime(durT)}</span>
           </div>
+          {/* Zona táctil generosa (h-8) con ARRASTRE: pointer capture + seek en vivo. */}
           <div
-            className="relative h-4 cursor-pointer"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * durRef.current;
-              playerRef.current?.seek(t);
+            ref={barRef}
+            className="relative -my-2 h-8 cursor-pointer touch-none"
+            onPointerDown={(e) => {
+              scrubbing.current = true;
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              seekAt(e.clientX);
+              poke();
             }}
+            onPointerMove={(e) => { if (scrubbing.current) seekAt(e.clientX); }}
+            onPointerUp={() => { scrubbing.current = false; poke(); }}
+            onPointerCancel={() => { scrubbing.current = false; }}
           >
             <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-full bg-white/25">
               <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-primary" style={{ transform: "scaleX(0)" }} />
@@ -837,19 +932,27 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
                 key={c.id}
                 type="button"
                 aria-label={`Corrección en ${fmtTime(c.timecode)}`}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  playerRef.current?.seek(c.timecode);
+                  playerRef.current?.seek(c.timecode, false);
                   playerRef.current?.pause();
                   showDotPop((c.timecode / durT) * 100, c.authorName, c.body);
                 }}
-                className="absolute top-1/2 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+                className="absolute top-1/2 flex size-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
                 style={{ left: `${Math.min(99, (c.timecode / durT) * 100)}%` }}
               >
                 <span className={`block size-2.5 rounded-full ring-2 ring-black/40 ${c.fromClient ? "bg-primary" : "bg-white"}`} />
               </button>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* Hilo de progreso cuando el chrome está oculto: sensación de avance sin estorbar. */}
+      {canTap && durT > 0 && !show ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[3px] overflow-hidden bg-white/15">
+          <div ref={miniRef} className="h-full w-full origin-left bg-primary" style={{ transform: "scaleX(0)" }} />
         </div>
       ) : null}
 
@@ -866,6 +969,38 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, sheet
     </>
   );
 });
+
+// Pastilla de velocidad del modo inmersivo: un toque pasa a la siguiente (0.5×→1×→1.25×→1.5×→2×).
+// Persiste la elección en localStorage (la misma clave que la barra de velocidad normal, así
+// ambas vistas quedan sincronizadas al re-montarse).
+function RatePill({ playerRef, onPoke }: { playerRef: React.MutableRefObject<PlayerApi | null>; onPoke: () => void }) {
+  const [rate, setRate] = React.useState(1);
+  // La velocidad guardada se lee tras montar (en SSR no hay localStorage y leerla en el primer
+  // render daría desajuste de hidratación). Diferida a una macrotarea para no hacer setState
+  // síncrono dentro del efecto.
+  React.useEffect(() => {
+    const id = window.setTimeout(() => {
+      try {
+        const saved = Number(localStorage.getItem(RATE_KEY));
+        if ((PLAYBACK_RATES as readonly number[]).includes(saved)) setRate(saved);
+      } catch { /* noop */ }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+  const cycle = () => {
+    const i = (PLAYBACK_RATES as readonly number[]).indexOf(rate);
+    const next = PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length] ?? 1;
+    setRate(next);
+    try { localStorage.setItem(RATE_KEY, String(next)); } catch { /* noop */ }
+    playerRef.current?.setRate(next);
+    onPoke();
+  };
+  return (
+    <button type="button" onClick={cycle} aria-label={`Velocidad ${rate}×`} className="ml-auto shrink-0 rounded-full bg-black/45 px-3 py-1.5 font-mono text-xs font-medium text-white hover:bg-black/65">
+      {rate}×
+    </button>
+  );
+}
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
 function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false }: {
@@ -998,7 +1133,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     if (version.kind === "video" || usingProxy) {
       apiRef.current = {
         getTime: () => videoRef.current?.currentTime ?? null,
-        seek: (t) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.play().catch(() => {}); } },
+        seek: (t, autoplay = true) => { if (videoRef.current) { videoRef.current.currentTime = t; if (autoplay) videoRef.current.play().catch(() => {}); } },
         pause: () => { videoRef.current?.pause(); },
         play: () => { videoRef.current?.play().catch(() => {}); },
         getDuration: () => { const d = videoRef.current?.duration; return d && Number.isFinite(d) ? d : null; },
