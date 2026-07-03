@@ -35,9 +35,18 @@ export default async function MisEntregasPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
+  // El cliente invitado SOLO ve las piezas donde el equipo lo "tagueó" como revisor
+  // (DeliverableReviewer, o el reviewer primario). Así no ve entregables de la campaña que no le
+  // corresponden. El equipo interno (si abriera esta vista) ve todas las de cara al cliente.
+  const mine =
+    session.role === "cliente"
+      ? { OR: [{ reviewers: { some: { userId: session.id } } }, { reviewerId: session.id }] }
+      : {};
+  const deliverableFilter = { status: { in: [...CLIENT_STATES] }, ...mine };
+
   const projects = await db.project.findMany({
     where: {
-      AND: [accessibleProjectWhere(session), { deliverables: { some: { status: { in: [...CLIENT_STATES] } } } }],
+      AND: [accessibleProjectWhere(session), { deliverables: { some: deliverableFilter } }],
     },
     select: {
       id: true,
@@ -47,7 +56,7 @@ export default async function MisEntregasPage() {
       updatedAt: true,
       client: { select: { name: true } },
       deliverables: {
-        where: { status: { in: [...CLIENT_STATES] } },
+        where: deliverableFilter,
         select: { status: true },
       },
     },

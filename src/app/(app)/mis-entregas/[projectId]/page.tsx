@@ -33,6 +33,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
   if (!session) redirect("/login");
   const { projectId } = await params;
 
+  // El cliente invitado SOLO ve las piezas donde está "tagueado" como revisor (mismo criterio que
+  // el dashboard). Un miembro del equipo que abriera esta vista ve todas las de cara al cliente.
+  const mine =
+    session.role === "cliente"
+      ? { OR: [{ reviewers: { some: { userId: session.id } } }, { reviewerId: session.id }] }
+      : {};
+
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: {
@@ -44,7 +51,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
       members: { select: { userId: true, role: true } },
       client: { select: { name: true, members: { select: { userId: true, role: true } } } },
       deliverables: {
-        where: { status: { in: [...CLIENT_STATES] } },
+        where: { status: { in: [...CLIENT_STATES] }, ...mine },
         orderBy: { createdAt: "asc" },
         select: {
           id: true,

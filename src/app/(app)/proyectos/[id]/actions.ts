@@ -996,32 +996,69 @@ export async function setDeliverableReviewers(deliverableId: string, _projectId:
   if (valid.length) await db.deliverableReviewer.createMany({ data: valid.map((userId) => ({ deliverableId, userId })), skipDuplicates: true });
   // reviewerId primario = primero del conjunto (compatibilidad y visualización).
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewerId: valid[0] ?? null } });
+  // Roles de TODO el conjunto (no solo los recién añadidos): definen si el entregable queda como
+  // revisión DIRECTA del cliente (todos los revisores son del portal cliente).
+  const validUsers = valid.length
+    ? await db.user.findMany({ where: { id: { in: valid } }, select: { id: true, role: { select: { key: true } } } })
+    : [];
+  const clientReviewers = validUsers.filter((u) => u.role?.key === "cliente").map((u) => u.id);
+  const allClients = valid.length > 0 && clientReviewers.length === valid.length;
+
+  // Si el conjunto quedó como revisión DIRECTA de cliente y había una versión ATRAPADA en la
+  // compuerta interna (subida ANTES de taguear al cliente), se LIBERA ahora para que llegue a su
+  // portal. Sin este paso, taguear al cliente después de subir el video dejaba la pieza en
+  // REVISION_INTERNA y el cliente nunca la recibía. (Sin versiones o ya enviada al cliente: no-op.)
+  let releasedNow = false;
+  if (allClients) {
+    const cur = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true } });
+    if (cur && (cur.status === "REVISION_INTERNA" || cur.status === "PENDIENTE")) {
+      const latest = await db.deliverableVersion.findFirst({
+        where: { deliverableId },
+        orderBy: { number: "desc" },
+        select: { id: true, number: true, internalApproved: true },
+      });
+      if (latest && !latest.internalApproved) {
+        await db.deliverableVersion.update({ where: { id: latest.id }, data: { internalApproved: true, internalApprovedAt: new Date() } });
+        await db.deliverable.update({ where: { id: deliverableId }, data: { status: "ENVIADO_CLIENTE" } });
+        // La pre-aprobación interna ya no aplica (va directo al cliente): cierra esa tarea.
+        await closeDeliverableAutoTasks(deliverableId, ["review"]);
+        await logActivity({ action: "deliverable.version", summary: `liberó la v${latest.number} de «${deliverable.name}» directo al cliente (revisión directa)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+        releasedNow = true;
+      }
+    }
+  }
+
   const added = valid.filter((id) => !before.has(id) && id !== session!.id);
-  if (added.length) {
-    // A los revisores CLIENTE (revisión directa) se les enlaza SU portal, no /revisiones.
-    const addedUsers = await db.user.findMany({ where: { id: { in: added } }, select: { id: true, role: { select: { key: true } } } });
-    const clientAdded = addedUsers.filter((u) => u.role?.key === "cliente").map((u) => u.id);
-    const teamAdded = added.filter((id) => !clientAdded.includes(id));
-    if (teamAdded.length) {
-      await notifyManyAndEmail(teamAdded, {
-        type: "review",
-        event: "review_reviewer",
-        title: `Eres revisor de: ${deliverable.name}`,
-        body: "Te asignaron como revisor: puedes pre-aprobar o solicitar cambios en este entregable.",
-        link: `/revisiones/${deliverableId}`,
-        actorId: session?.id,
-      });
-    }
-    if (clientAdded.length) {
-      await notifyManyAndEmail(clientAdded, {
-        type: "review",
-        event: "review_reviewer",
-        title: `Revisarás directamente: ${deliverable.name}`,
-        body: "El equipo te enviará las versiones directo a tu portal para que las revises, comentes y apruebes.",
-        link: `/mis-entregas/${deliverable.projectId}`,
-        actorId: session?.id,
-      });
-    }
+  const teamAdded = added.filter((id) => !clientReviewers.includes(id));
+  // Revisores de EQUIPO recién añadidos → su bandeja interna (/revisiones).
+  if (teamAdded.length) {
+    await notifyManyAndEmail(teamAdded, {
+      type: "review",
+      event: "review_reviewer",
+      title: `Eres revisor de: ${deliverable.name}`,
+      body: "Te asignaron como revisor: puedes pre-aprobar o solicitar cambios en este entregable.",
+      link: `/revisiones/${deliverableId}`,
+      actorId: session?.id,
+    });
+  }
+  // Revisores CLIENTE → SU portal (/mis-entregas). Se avisa a los recién añadidos y, si acabamos de
+  // liberar una versión atrapada, también a los clientes que ya estaban (para que sepan que ya la
+  // pueden ver). El mensaje refleja si YA hay material disponible o si aún llegará.
+  const clientToNotify = new Set<string>(added.filter((id) => clientReviewers.includes(id)));
+  if (releasedNow) clientReviewers.forEach((id) => { if (id !== session!.id) clientToNotify.add(id); });
+  if (clientToNotify.size) {
+    const st = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { status: true } });
+    const hasMaterial = !!st && ["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"].includes(st.status);
+    await notifyManyAndEmail([...clientToNotify], {
+      type: "review",
+      event: hasMaterial ? "client_deliverable_ready" : "review_reviewer",
+      title: hasMaterial ? `Tienes un entregable para revisar: ${deliverable.name}` : `Revisarás directamente: ${deliverable.name}`,
+      body: hasMaterial
+        ? "Ya puedes verlo, comentarlo y aprobarlo desde tu portal de entregas."
+        : "El equipo te enviará las versiones directo a tu portal para que las revises, comentes y apruebes.",
+      link: `/mis-entregas/${deliverable.projectId}`,
+      actorId: session?.id,
+    });
   }
   refresh(deliverable.projectId);
 }
