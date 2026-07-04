@@ -32,7 +32,8 @@ import {
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { formatMinutes, minutesToHours, todayKey } from "@/lib/timeline";
+import { formatMinutes, minutesToHours, parseHoursToMinutes, todayKey } from "@/lib/timeline";
+import { formatBogotaDate } from "@/lib/bogota-time";
 import { cn } from "@/lib/utils";
 
 function timeAgo(iso: string): string {
@@ -288,6 +289,7 @@ function TimeTracking({
 }) {
   const [entries, setEntries] = React.useState<TimeEntryItem[] | null>(null);
   const [pending, start] = React.useTransition();
+  const [err, setErr] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
 
   React.useEffect(() => {
@@ -304,11 +306,23 @@ function TimeTracking({
     e.preventDefault();
     const form = e.currentTarget;
     const fd = new FormData(form);
-    if (!String(fd.get("hours") ?? "").trim()) return;
+    // Validación inmediata en cliente: nada se envía si el valor no es un nº de horas > 0.
+    // Da feedback al instante y evita "registré pero no pasó nada".
+    const mins = parseHoursToMinutes(String(fd.get("hours") ?? ""));
+    if (!mins || mins <= 0) {
+      setErr("Escribe las horas como número, por ej. 1.5 o 1:30.");
+      return;
+    }
+    setErr(null);
     start(async () => {
-      await logTime(taskId, projectId, fd);
-      form.reset();
-      setEntries(await getTaskTimeEntries(taskId));
+      try {
+        await logTime(taskId, projectId, fd);
+        form.reset();
+        setEntries(await getTaskTimeEntries(taskId));
+      } catch (e) {
+        // No reseteamos el formulario: lo escrito queda intacto para reintentar sin perderlo.
+        setErr(e instanceof Error ? e.message : "No se pudo registrar. Reintenta.");
+      }
     });
   }
   function remove(id: string) {
@@ -352,9 +366,12 @@ function TimeTracking({
           className="min-w-32 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
         <button type="submit" disabled={pending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-          Registrar
+          {pending ? "Guardando…" : "Registrar"}
         </button>
       </form>
+      {err ? (
+        <p role="alert" className="mt-1.5 text-xs text-destructive">{err}</p>
+      ) : null}
 
       <div className="mt-3 space-y-1.5">
         {entries === null ? (
@@ -366,7 +383,7 @@ function TimeTracking({
             <div key={e.id} className="flex items-center gap-2 text-xs">
               <UserAvatar initials={e.user?.initials ?? null} color={e.user?.color ?? null} size="sm" />
               <span className="font-medium">{formatMinutes(e.minutes)}</span>
-              <span className="text-muted-foreground">{new Date(e.spentOn).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span>
+              <span className="text-muted-foreground">{formatBogotaDate(e.spentOn, { day: "numeric", month: "short" })}</span>
               {e.note ? <span className="min-w-0 flex-1 truncate text-muted-foreground">· {e.note}</span> : <span className="flex-1" />}
               {e.mine ? (
                 <button onClick={() => remove(e.id)} title="Borrar" className="rounded p-1 text-muted-foreground hover:text-destructive">

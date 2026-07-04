@@ -1,6 +1,8 @@
 "use client";
 
+import * as React from "react";
 import { UserAvatar } from "@/components/user-avatar";
+import { formatBogota, relativeFrom } from "@/lib/bogota-time";
 
 export type ActivityItem = {
   id: string;
@@ -22,20 +24,21 @@ function iconFor(action: string): string {
   return "•";
 }
 
-function fmt(iso: string): { abs: string; rel: string } {
-  const d = new Date(iso);
-  const abs = d.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-  const diff = Date.now() - d.getTime();
-  const min = Math.round(diff / 60000);
-  let rel: string;
-  if (min < 1) rel = "ahora";
-  else if (min < 60) rel = `hace ${min} min`;
-  else if (min < 1440) rel = `hace ${Math.round(min / 60)} h`;
-  else rel = `hace ${Math.round(min / 1440)} d`;
-  return { abs, rel };
+// "ahora" del cliente: null en SSR y en el primer render (para casar con el servidor y
+// evitar mismatch de hidratación), se rellena tras montar y se refresca cada minuto.
+function useNow(): number | null {
+  const [now, setNow] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const raf = requestAnimationFrame(tick); // primer valor tras pintar (no síncrono en el effect)
+    const t = setInterval(tick, 60_000);
+    return () => { cancelAnimationFrame(raf); clearInterval(t); };
+  }, []);
+  return now;
 }
 
 export function ActivityFeed({ items }: { items: ActivityItem[] }) {
+  const now = useNow();
   if (items.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
@@ -51,7 +54,8 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
       </p>
       <ol className="relative space-y-0">
         {items.map((a) => {
-          const { abs, rel } = fmt(a.createdAt);
+          const abs = formatBogota(a.createdAt);
+          const rel = now == null ? null : relativeFrom(a.createdAt, now);
           return (
             <li key={a.id} className="flex gap-3 border-b border-border/60 py-3 last:border-0">
               <div className="mt-0.5 shrink-0">
@@ -68,9 +72,9 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
                   <span className="font-medium">{a.user?.name ?? a.actorName ?? "Alguien"}</span>{" "}
                   <span className="text-muted-foreground">{a.summary}</span>
                 </p>
-                <p suppressHydrationWarning className="mt-0.5 text-xs text-muted-foreground" title={abs}>
+                <p className="mt-0.5 text-xs text-muted-foreground" title={abs}>
                   <span className="mr-1">{iconFor(a.action)}</span>
-                  {abs} · {rel}
+                  {abs}{rel ? ` · ${rel}` : ""}
                 </p>
               </div>
             </li>

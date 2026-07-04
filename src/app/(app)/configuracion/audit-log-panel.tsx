@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Search } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { formatBogota } from "@/lib/bogota-time";
 
 // Panel GLOBAL de auditoría (Configuración → Auditoría). Lee el ActivityLog que la app ya
 // registra (cambios de tareas, archivos, miembros, y ahora acciones admin sobre usuarios).
@@ -23,11 +24,9 @@ export type AuditRow = {
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 function fmt(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return iso;
-  }
+  // Hora de pared de Bogotá, fija (no la TZ del navegador): el registro de auditoría se
+  // ve igual para cualquiera y coincide con lo que guardó el servidor.
+  return formatBogota(iso) || iso;
 }
 
 export function AuditLogPanel({ rows }: { rows: AuditRow[] }) {
