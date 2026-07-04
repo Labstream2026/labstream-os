@@ -333,49 +333,7 @@ export function TimelineGrid({
   const hasContent = lanes.some((l) => (l.bars?.length ?? 0) > 0 || (l.milestones?.length ?? 0) > 0);
 
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {lockUnit ? (
-          <span className="text-xs font-medium text-muted-foreground">Vista mensual</span>
-        ) : (
-          <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
-            {(["day", "week", "month"] as TimelineUnit[]).map((u) => (
-              <button
-                key={u}
-                type="button"
-                onClick={() => onUnitChange(u)}
-                className={cn(
-                  "px-3 py-1.5 font-medium transition-colors",
-                  unit === u ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {u === "day" ? "Día" : u === "week" ? "Semana" : "Mes"}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center gap-3">
-          {!compact ? (
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-primary/30" /> Tarea</span>
-              <span className="inline-flex items-center gap-1">🎬 Rodaje</span>
-              <span className="inline-flex items-center gap-1">📦 Entrega</span>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              const el = scrollRef.current;
-              if (el) el.scrollTo({ left: Math.max(0, todayOffset - el.clientWidth / 3), behavior: "smooth" });
-            }}
-            className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
-          >
-            Hoy
-          </button>
-        </div>
-      </div>
-
+    <div className="space-y-2">
       {!hasContent ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-10 text-center text-sm text-muted-foreground">
           {emptyHint ?? "Aún no hay nada con fechas para mostrar en el cronograma."}
@@ -389,11 +347,41 @@ export function TimelineGrid({
           <div style={{ width: LABEL_W + trackW, minWidth: "100%" }}>
             {/* Cabecera: meses + días */}
             <div className="sticky top-0 z-30 flex border-b border-border bg-card">
+              {/* Selector de vista (Día/Semana) JUNTO a «Cronograma» + botón Hoy, en la celda
+                  fija de la cabecera: compacta la interfaz y deja más espacio al cronograma. */}
               <div
-                className="sticky left-0 z-10 shrink-0 border-r border-border bg-card px-3 py-1 text-[11px] font-medium text-muted-foreground"
+                className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-border bg-card px-2 py-1"
                 style={{ width: LABEL_W }}
               >
-                Cronograma
+                {lockUnit ? (
+                  <span className="text-[11px] font-medium text-muted-foreground">Cronograma</span>
+                ) : (
+                  <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
+                    {(["day", "week"] as TimelineUnit[]).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => onUnitChange(u)}
+                        className={cn(
+                          "px-2 py-0.5 font-medium transition-colors",
+                          unit === u ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        {u === "day" ? "Día" : "Semana"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = scrollRef.current;
+                    if (el) el.scrollTo({ left: Math.max(0, todayOffset - el.clientWidth / 3), behavior: "smooth" });
+                  }}
+                  className="ml-auto rounded-md border border-border px-2 py-0.5 text-[11px] hover:bg-muted"
+                >
+                  Hoy
+                </button>
               </div>
               <div className="relative" style={{ width: trackW, height: showDayBand ? 42 : 24 }}>
                 {/* Cabezal de HOY: etiqueta en la cabecera, alineada con la línea vertical

@@ -51,13 +51,14 @@ export function GlobalTimeline({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const [unit, setUnit] = React.useState<TimelineUnit>(fixedUnit ?? "month");
+  const [unit, setUnit] = React.useState<TimelineUnit>(fixedUnit ?? "week");
   const [, startTransition] = React.useTransition();
 
   React.useEffect(() => {
     if (fixedUnit) return; // en modo resumen la vista está fijada
     const saved = localStorage.getItem("timeline-unit");
-    if (saved === "day" || saved === "week" || saved === "month") setUnit(saved);
+    // Solo Día/Semana: un valor viejo "month" guardado se ignora (se queda en Semana).
+    if (saved === "day" || saved === "week") setUnit(saved);
   }, [fixedUnit]);
   function changeUnit(u: TimelineUnit) {
     setUnit(u);

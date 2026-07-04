@@ -46,7 +46,8 @@ export function ProjectTimeline({
 
   React.useEffect(() => {
     const u = localStorage.getItem("timeline-unit");
-    if (u === "day" || u === "week" || u === "month") setUnit(u);
+    // Solo Día/Semana (se quitó Mes); un valor viejo "month" se ignora (queda en Semana).
+    if (u === "day" || u === "week") setUnit(u);
     const g = localStorage.getItem("timeline-group");
     if (g === "task" || g === "stage") setGroup(g);
   }, []);
