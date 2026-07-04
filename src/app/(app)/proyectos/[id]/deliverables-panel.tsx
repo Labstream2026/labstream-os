@@ -19,6 +19,7 @@ import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
 import { ReviewersPicker } from "./reviewers-picker";
+import { VideoUploadField } from "./video-upload-field";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { DeliverableRenditions } from "./deliverable-renditions";
 import { TypeAndCoverFields } from "./deliverable-create-fields";
@@ -188,7 +189,7 @@ export function DeliverablesPanel({
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <input type="file" name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
+          <VideoUploadField name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
@@ -408,7 +409,7 @@ export function DeliverablesPanel({
                 <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
                   <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-                  <input type="file" name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  <VideoUploadField name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
                   {/* Portada opcional adjunta a la versión (solo reels; reemplaza la anterior si existía) */}
                   {isVertical ? (
                     <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground" title="Imagen de portada que acompaña al reel (opcional)">

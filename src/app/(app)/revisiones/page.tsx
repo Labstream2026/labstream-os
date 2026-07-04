@@ -23,6 +23,12 @@ function urgency(date: Date): { tier: Tier; text: string } {
   return { tier: "fresh", text: "hace un momento" };
 }
 const BAR: Record<Tier, string> = { danger: "bg-rose-500", warn: "bg-amber-500", fresh: "bg-emerald-500" };
+// Duración en segundos → "m:ss" (o null si no se capturó).
+function fmtDur(sec: number | null | undefined): string | null {
+  if (!sec || sec <= 0) return null;
+  const m = Math.floor(sec / 60);
+  return `${m}:${String(sec % 60).padStart(2, "0")}`;
+}
 const WAIT_TEXT: Record<Tier, string> = {
   danger: "font-medium text-rose-600 dark:text-rose-400",
   warn: "text-amber-600 dark:text-amber-400",
@@ -60,7 +66,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       ownerId: true,
       coverFileAssetId: true,
       project: { select: { id: true, name: true, emoji: true, leadId: true, client: { select: { id: true, name: true, photoUrl: true } } } },
-      versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
+      versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, durationSec: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
       _count: { select: { reviewComments: true } },
     },
     orderBy: { updatedAt: "desc" },
@@ -136,7 +142,7 @@ type Item = {
   updatedAt: Date;
   coverFileAssetId: string | null;
   project: { id: string; name: string; emoji: string | null; client: { id: string; name: string; photoUrl: string | null } | null };
-  versions: { number: number; createdAt: Date; uploadedBy: { name: string; initials: string | null; avatarColor: string | null } | null }[];
+  versions: { number: number; createdAt: Date; durationSec: number | null; uploadedBy: { name: string; initials: string | null; avatarColor: string | null } | null }[];
   _count: { reviewComments: number };
 };
 
@@ -173,6 +179,7 @@ function Thumb({ d }: { d: Item }) {
   const hasCover = Boolean(d.coverFileAssetId);
   const clientPhoto = d.project.client?.photoUrl ? `/api/client-asset/photo/${d.project.client.id}` : null;
   const src = d.coverFileAssetId ? `/api/files-asset/${d.coverFileAssetId}` : clientPhoto;
+  const dur = fmtDur(v?.durationSec);
   return (
     <div className="relative flex h-[60px] w-[104px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
       {src ? (
@@ -186,6 +193,7 @@ function Thumb({ d }: { d: Item }) {
           <Play className="size-6 fill-white/90 text-white/90" />
         </span>
       ) : null}
+      {dur ? <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] leading-tight text-white">{dur}</span> : null}
       {v ? <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] leading-tight text-white">v{v.number}</span> : null}
     </div>
   );

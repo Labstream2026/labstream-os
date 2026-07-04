@@ -1576,6 +1576,8 @@ model DeliverableVersion {
   fileUrl       String? // enlace externo (Drive, etc.)
   fileAsset     FileAsset?  @relation("VersionFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
   fileAssetId   String? // archivo subido al storage (para el portal del cliente)
+  // Duración del video en segundos (capturada en el cliente al subir; null si no aplica).
+  durationSec   Int?
   deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
   deliverableId String
   uploadedBy    User?       @relation("VersionUploader", fields: [uploadedById], references: [id])

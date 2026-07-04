@@ -994,7 +994,7 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     // Revisor CLIENTE (miembro invitado) = revisión DIRECTA: la v1 no pasa por la compuerta
     // interna; queda aprobada de una y va derecho al portal del cliente.
     const directToClient = await memberIsClient(reviewerId);
-    await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
+    await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, durationSec: parseDurationSec(formData), uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
     await db.deliverable.update({ where: { id: d.id }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
     await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la v1 de «${name}» (enviada DIRECTO al cliente para revisión)` : `subió la v1 de «${name}» (pendiente de pre-aprobación interna)`, projectId, entityType: "deliverable", entityId: d.id });
     const lead = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, name: true } });
@@ -1022,10 +1022,15 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     }
   }
 
-  // Portada opcional adjunta en el mismo formulario (imagen que acompaña al reel).
+  // Portada: la imagen adjunta en el formulario; si no hay, el fotograma capturado del video.
   const cover = formData.get("cover");
   if (cover instanceof File && cover.size > 0) {
     await saveDeliverableCover({ projectId, deliverableId: d.id, deliverableName: name, prevCoverId: null, file: cover, uploadedById: session.id });
+  } else {
+    const posterFile = posterDataUrlToFile(String(formData.get("poster") ?? ""));
+    if (posterFile) {
+      await saveDeliverableCover({ projectId, deliverableId: d.id, deliverableName: name, prevCoverId: null, file: posterFile, uploadedById: session.id }).catch(() => {});
+    }
   }
   refresh(projectId);
 }
@@ -1209,6 +1214,24 @@ export async function deleteDeliverablePhoto(photoId: string, projectId: string)
   refresh(projectId);
 }
 
+// "durationSec" del formulario (segundos, entero positivo acotado) o null.
+function parseDurationSec(formData: FormData): number | null {
+  const raw = String(formData.get("durationSec") ?? "").trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n > 0 && n <= 360000 ? n : null; // hasta 100 h
+}
+
+// data URL de imagen (poster capturado en el cliente al subir) → File para saveDeliverableCover, o null.
+function posterDataUrlToFile(raw: string): File | null {
+  const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(raw.trim());
+  if (!m) return null;
+  const buf = Buffer.from(m[2], "base64");
+  if (buf.length === 0 || buf.length > 400_000) return null;
+  const ext = m[1] === "jpeg" ? "jpg" : m[1];
+  return new File([buf], `poster.${ext}`, { type: `image/${m[1]}` });
+}
+
 // Lógica compartida de guardado de la PORTADA (validación + WebP en el NAS + coverFileAssetId).
 // La usan setDeliverableCover y los formularios de subida (createDeliverable / addDeliverableVersion)
 // que adjuntan la portada opcionalmente. La autorización la hace cada acción ANTES de llamar aquí.
@@ -1343,6 +1366,7 @@ export async function addDeliverableVersion(
       notes,
       fileUrl,
       fileAssetId,
+      durationSec: parseDurationSec(formData),
       uploadedById: session!.id,
       // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla), salvo
       // en revisión directa (revisor = cliente).
@@ -1350,6 +1374,13 @@ export async function addDeliverableVersion(
       internalApprovedAt: directToClient ? new Date() : null,
     },
   });
+  // Auto-portada: si el entregable aún no tiene portada, usa el fotograma capturado al subir.
+  if (!deliverable.coverFileAssetId) {
+    const posterFile = posterDataUrlToFile(String(formData.get("poster") ?? ""));
+    if (posterFile) {
+      await saveDeliverableCover({ projectId: deliverable.projectId, deliverableId, deliverableName: deliverable.name, prevCoverId: null, file: posterFile, uploadedById: session!.id }).catch(() => {});
+    }
+  }
   // La nueva versión pasa a revisión interna (compuerta bloqueante) o directo al cliente.
   await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
   await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la versión v${number} de «${deliverable.name}» (enviada DIRECTO al cliente para revisión)` : `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
