@@ -611,123 +611,180 @@ export function ReviewStage({
         ) : null}
       </div>
 
-      {/* ── Comentarios + notas ── vertical: columna DERECHA (momentos y notas apilados);
-          horizontal: debajo del player, en dos columnas. */}
-      <div className={vertical ? "min-w-0 flex-1 space-y-6" : "grid gap-6 md:grid-cols-2"}>
-        {/* Comentarios por momento */}
-        <div className="flex min-h-0 flex-col">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">
-            {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
-            <span className="font-normal text-muted-foreground">
-              ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
-            </span>
-          </h2>
-          {onResolve && resolvedCount > 0 ? (
-            <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-              {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
-            </button>
-          ) : null}
-        </div>
-        <div className="mb-3 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
-          {moments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {captureHint
-                ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
-                : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
-            </p>
-          ) : (
-            moments.map((c) => (
-              <div key={c.id} className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"}`}>
-                {/* Casilla del checklist: marca el cambio como realizado (avisa al equipo). */}
-                {onResolve ? (
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={c.resolved}
-                    title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
-                    onClick={() => { const next = !c.resolved; setResolvedOverride((p) => ({ ...p, [c.id]: next })); start(() => onResolve(c.id, next)); }}
-                    disabled={pending}
-                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border text-[12px] font-bold transition-colors disabled:opacity-50 ${c.resolved ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground/40 text-transparent hover:border-primary"}`}
-                  >
-                    ✓
-                  </button>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{c.authorName}</span>
-                    {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                    {c.timecode != null ? (
-                      <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
-                    ) : null}
-                    <span className="ml-auto flex items-center gap-1.5">
-                      {c.resolved && onResolve ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
-                      {canMutate(c) ? <CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /> : null}
-                    </span>
-                  </div>
-                  {editingId === c.id ? (
-                    <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
-                  ) : (
-                    <p className={`mt-1 whitespace-pre-wrap break-words ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
-                  )}
-                  {c.drawing?.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Nuevo comentario por momento */}
-        <div className="space-y-2 rounded-xl border border-border bg-card p-3">
-          {!fixedName ? (
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          ) : null}
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <div className="flex items-center justify-between gap-2">
-            {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
-                enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
-                reproduciendo, el número sigue al video → nunca se guarda un segundo viejo. */}
-            {captureHint ? <LiveTimecode playerRef={playerRef} frame={caps.frame} /> : <span />}
-            <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-              {pending ? "Enviando…" : "Comentar"}
-            </button>
+      {/* ── Comentarios + notas ──
+          vertical: columna DERECHA (lista de momentos, luego el cuadro para comentar, notas debajo).
+          horizontal: el cuadro para comentar va JUSTO DEBAJO del player (a todo el ancho); luego la
+          lista de momentos con su captura ALINEADA a la derecha de cada comentario; notas debajo.
+          Solo cambia la DISPOSICIÓN: handlers, timecode en vivo y envío son EXACTAMENTE los mismos. */}
+      {(() => {
+        const momentsHeaderNode = (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
+              <span className="font-normal text-muted-foreground">
+                ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
+              </span>
+            </h2>
+            {onResolve && resolvedCount > 0 ? (
+              <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
+              </button>
+            ) : null}
           </div>
-          {sendError ? <p className="text-xs text-destructive">{sendError}</p> : null}
-        </div>
-        </div>
-
-        {/* Notas generales (sin captura) — segunda columna */}
-        <div>
-          <h3 className="mb-2 text-sm font-semibold">Notas generales ({notes.length})</h3>
-          <div className="mb-2 max-h-[22vh] space-y-1.5 overflow-y-auto pr-1">
-            {notes.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Notas sueltas, sin captura ni segundo (impresiones generales).</p>
+        );
+        const momentsListNode = (
+          <div className={`mb-3 space-y-2 overflow-y-auto pr-1 ${vertical ? "max-h-[42vh]" : "max-h-[60vh]"}`}>
+            {moments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {captureHint
+                  ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
+                  : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
+              </p>
             ) : (
-              notes.map((c) => (
-                <div key={c.id} className="rounded-lg border border-dashed border-border bg-card px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">{c.authorName}</span>
-                    {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                    {canMutate(c) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /></span> : null}
+              moments.map((c) => {
+                // La tarjeta del comentario es la MISMA en ambos layouts. En vertical la captura va
+                // inline debajo del texto; en horizontal se saca a una columna a la derecha (abajo).
+                const comment = (
+                  <div className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"}`}>
+                    {/* Casilla del checklist: marca el cambio como realizado (avisa al equipo). */}
+                    {onResolve ? (
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={c.resolved}
+                        title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
+                        onClick={() => { const next = !c.resolved; setResolvedOverride((p) => ({ ...p, [c.id]: next })); start(() => onResolve(c.id, next)); }}
+                        disabled={pending}
+                        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border text-[12px] font-bold transition-colors disabled:opacity-50 ${c.resolved ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground/40 text-transparent hover:border-primary"}`}
+                      >
+                        ✓
+                      </button>
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{c.authorName}</span>
+                        {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                        {c.timecode != null ? (
+                          <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
+                        ) : null}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          {c.resolved && onResolve ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                          {canMutate(c) ? <CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /> : null}
+                        </span>
+                      </div>
+                      {editingId === c.id ? (
+                        <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                      ) : (
+                        <p className={`mt-1 whitespace-pre-wrap break-words ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
+                      )}
+                      {vertical && c.drawing?.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
+                      ) : null}
+                    </div>
                   </div>
-                  {editingId === c.id ? (
-                    <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
-                  ) : (
-                    <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-foreground/90">{c.body}</p>
-                  )}
-                </div>
-              ))
+                );
+                // Vertical: comportamiento de siempre (Fragment sin envoltura extra → mismo DOM).
+                if (vertical) return <React.Fragment key={c.id}>{comment}</React.Fragment>;
+                // Horizontal: comentario a la izquierda + su captura alineada a la derecha (clic → va al segundo).
+                return (
+                  <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_9rem] items-start gap-2.5">
+                    {comment}
+                    {c.drawing?.image ? (
+                      c.timecode != null ? (
+                        <button type="button" onClick={() => seek(c.timecode!)} title="Ir a este momento" className="relative block overflow-hidden rounded-lg border border-border">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={c.drawing.image} alt="Captura del momento" className="w-full" />
+                          <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[10px] text-white">▶ {fmtTime(c.timecode)}</span>
+                        </button>
+                      ) : (
+                        <div className="relative overflow-hidden rounded-lg border border-border">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={c.drawing.image} alt="Captura del momento" className="w-full" />
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-2 py-4 text-center text-[11px] text-muted-foreground">Sin captura</div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <input value={noteBody} onChange={(e) => setNoteBody(e.target.value)} placeholder="Nota general…" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitNote(); } }} />
-            <button onClick={submitNote} disabled={pending || !noteBody.trim()} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">Añadir nota</button>
+        );
+        const commentInputNode = (
+          <div className="space-y-2 rounded-xl border border-border bg-card p-3">
+            {!fixedName ? (
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+            ) : null}
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+            <div className="flex items-center justify-between gap-2">
+              {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
+                  enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
+                  reproduciendo, el número sigue al video → nunca se guarda un segundo viejo. */}
+              {captureHint ? <LiveTimecode playerRef={playerRef} frame={caps.frame} /> : <span />}
+              <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                {pending ? "Enviando…" : "Comentar"}
+              </button>
+            </div>
+            {sendError ? <p className="text-xs text-destructive">{sendError}</p> : null}
           </div>
-        </div>
-      </div>
+        );
+        const notesNode = (
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">Notas generales ({notes.length})</h3>
+            <div className="mb-2 max-h-[22vh] space-y-1.5 overflow-y-auto pr-1">
+              {notes.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Notas sueltas, sin captura ni segundo (impresiones generales).</p>
+              ) : (
+                notes.map((c) => (
+                  <div key={c.id} className="rounded-lg border border-dashed border-border bg-card px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{c.authorName}</span>
+                      {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                      {canMutate(c) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /></span> : null}
+                    </div>
+                    {editingId === c.id ? (
+                      <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                    ) : (
+                      <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-foreground/90">{c.body}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input value={noteBody} onChange={(e) => setNoteBody(e.target.value)} placeholder="Nota general…" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitNote(); } }} />
+              <button onClick={submitNote} disabled={pending || !noteBody.trim()} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">Añadir nota</button>
+            </div>
+          </div>
+        );
+        // Vertical: se conserva EXACTAMENTE el orden anterior (lista → comentar → notas).
+        if (vertical) {
+          return (
+            <div className="min-w-0 flex-1 space-y-6">
+              <div className="flex min-h-0 flex-col">
+                {momentsHeaderNode}
+                {momentsListNode}
+                {commentInputNode}
+              </div>
+              {notesNode}
+            </div>
+          );
+        }
+        // Horizontal: cuadro para comentar debajo del player (ancho completo) → lista con capturas
+        // a la derecha de cada comentario → notas debajo.
+        return (
+          <div className="space-y-5">
+            {commentInputNode}
+            <div>
+              {momentsHeaderNode}
+              {momentsListNode}
+            </div>
+            {notesNode}
+          </div>
+        );
+      })()}
     </div>
   );
 }
