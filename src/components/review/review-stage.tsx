@@ -679,15 +679,10 @@ export function ReviewStage({
           ) : null}
           <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           <div className="flex items-center justify-between gap-2">
-            {/* El segundo se fija automáticamente: al enfocar el cuadro (se pausa el video)
-                o, si no, en el momento de comentar. Ya no hay botón «Marcar momento». */}
-            <span className="text-[11px] text-muted-foreground">
-              {captureHint
-                ? tc != null
-                  ? `⏱ Se guardará en ${fmtTime(tc)}${caps.frame ? " + captura del fotograma" : ""}`
-                  : `⏱ Se guardará ${captureHint} al comentar`
-                : ""}
-            </span>
+            {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
+                enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
+                reproduciendo, el número sigue al video → nunca se guarda un segundo viejo. */}
+            {captureHint ? <LiveTimecode playerRef={playerRef} frame={caps.frame} /> : <span />}
             <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {pending ? "Enviando…" : "Comentar"}
             </button>
@@ -1393,6 +1388,26 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         </div>
       )}
     </div>
+  );
+}
+
+// Muestra EN VIVO el segundo actual del video (se refresca ~4/s mientras reproduce o cuando
+// pausas/buscas), para que el revisor vea EXACTAMENTE en qué segundo quedará su comentario ANTES
+// de enviarlo. Es el MISMO valor que se guarda al enviar (getTime() del instante), así que si
+// reproduces y paras en otro punto, el número lo sigue y nunca se guarda un segundo viejo.
+// Componente aislado: su poll no re-renderiza el resto del escenario.
+function LiveTimecode({ playerRef, frame }: { playerRef: React.MutableRefObject<PlayerApi | null>; frame: boolean }) {
+  const [sec, setSec] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const id = window.setInterval(() => setSec(playerRef.current?.getTime() ?? null), 250);
+    return () => window.clearInterval(id);
+  }, [playerRef]);
+  return (
+    <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+      {sec != null
+        ? `⏱ Se guardará en ${fmtTime(sec)}${frame ? " + captura del fotograma" : ""}`
+        : "⏱ Se guardará el segundo al comentar"}
+    </span>
   );
 }
 
