@@ -9,8 +9,11 @@ import { detectSource } from "@/lib/media-source";
 // Esto permite reproducir el video y CAPTURAR el fotograma (vía el proxy del mismo
 // origen) aunque solo se haya pegado el enlace de la carpeta.
 
-const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogg|mkv|avi)$/i;
-const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+// Toleran un sufijo ?query/#hash tras la extensión (igual que media-source.ts): así un nombre de
+// archivo dentro de la carpeta con querystring sigue resolviéndose a video/imagen (y por tanto a
+// una fuente capturable) en vez de caer al iframe sin captura.
+const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogg|mkv|avi)(\?|#|$)/i;
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif|bmp)(\?|#|$)/i;
 
 export type DriveMedia = { id: string; name: string; isVideo: boolean };
 

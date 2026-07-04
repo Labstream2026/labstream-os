@@ -41,7 +41,16 @@ export async function GET(
   try {
     upstream = await fetchDriveDownload(media.id, range);
   } catch {
-    return new Response("No se pudo contactar con Drive", { status: 502 });
+    // Un fallo transitorio de conexión (masters pesados / red inestable) NO debe tirar al cliente
+    // al iframe cross-origin de Google —donde no se puede capturar ni el fotograma ni el segundo—.
+    // Reintenta UNA vez antes de rendirse. Solo cubre el establecimiento de la conexión (no rompe
+    // el streaming: el cuerpo ya resuelto se transmite tal cual más abajo).
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      upstream = await fetchDriveDownload(media.id, range);
+    } catch {
+      return new Response("No se pudo contactar con Drive", { status: 502 });
+    }
   }
   if (!upstream.ok && upstream.status !== 206) return new Response("Drive rechazó la descarga", { status: 502 });
 

@@ -70,6 +70,20 @@ const RATE_KEY = "review_rate";
 
 const fmtTime = formatTimecode;
 
+// Convierte lo que el revisor teclea (mm:ss, h:mm:ss o solo segundos) a segundos. Sirve para las
+// fuentes que NO permiten leer el segundo automáticamente (iframe de Drive cross-origin, típico en
+// masters horizontales pesados): el revisor lo escribe a mano y el comentario queda anclado a ese
+// momento. Devuelve null si el texto no es un tiempo válido.
+function parseTimecode(v: string): number | null {
+  const s = v.trim();
+  if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) return Number(s); // solo segundos
+  if (!/^\d{1,2}(:\d{1,2}){1,2}$/.test(s)) return null; // mm:ss o h:mm:ss
+  let sec = 0;
+  for (const p of s.split(":")) sec = sec * 60 + Number(p);
+  return Number.isFinite(sec) ? sec : null;
+}
+
 export function ReviewStage({
   versions,
   comments,
@@ -138,6 +152,8 @@ export function ReviewStage({
   // ni aplica el estado optimista; lo escrito se conserva para reintentar.
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [tc, setTc] = React.useState<number | null>(null);
+  // Texto del minuto escrito a mano (fuentes sin lectura automática del segundo).
+  const [tcInput, setTcInput] = React.useState("");
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
   const [drawOpen, setDrawOpen] = React.useState(false);
@@ -252,7 +268,7 @@ export function ReviewStage({
       try {
         await onComment(fd);
         setLocalComments((prev) => [...prev, optimistic]);
-        setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
+        setBody(""); setTc(null); setTcInput(""); setDrawing(null); setDrawOpen(false);
       } catch (e) {
         setSendError(e instanceof Error ? e.message : "No se pudo enviar el comentario. Inténtalo de nuevo.");
       }
@@ -426,7 +442,7 @@ export function ReviewStage({
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Versión:</span>
             {versions.map((v, i) => (
-              <button key={v.number} onClick={() => { setVIdx(i); setTc(null); setDrawing(null); setDrawOpen(false); }}
+              <button key={v.number} onClick={() => { setVIdx(i); setTc(null); setTcInput(""); setDrawing(null); setDrawOpen(false); }}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium ${i === vIdx ? "bg-primary text-primary-foreground" : "border border-border hover:bg-accent"}`}>
                 v{v.number}
               </button>
@@ -549,7 +565,7 @@ export function ReviewStage({
           ) : null}
           {version && (version.kind === "drive_folder" || version.kind === "other") ? (
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              ℹ️ Esta fuente reproduce pero no permite captura automática del fotograma ni del segundo. Para anotar, usa ✏️ Dibujar (pega o sube una captura).
+              ℹ️ Esta fuente (enlace externo/carpeta) no permite leer el fotograma ni el segundo automáticamente. Escribe el minuto a mano en el cuadro de comentario y pega/sube la captura con ✏️ Dibujar. Para captura automática, sube el video en «+ Versión» o usa un enlace de ARCHIVO de Drive.
             </p>
           ) : null}
             </>
@@ -672,6 +688,24 @@ export function ReviewStage({
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           ) : null}
           <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          {/* Minuto A MANO: para fuentes de Drive que NO permiten leer el segundo (iframe
+              cross-origin, típico en masters horizontales cuyo proxy no arranca). El fotograma se
+              pega/sube con ✏️ Dibujar. Se limita a las fuentes Drive para no parpadear en las que
+              SÍ auto-capturan (subido/YouTube/Vimeo) mientras el reproductor reporta capacidades. */}
+          {version && !caps.time && (version.kind === "drive_file" || version.kind === "drive_folder" || version.kind === "other") ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">⏱ Minuto del video</span>
+              <input
+                value={tcInput}
+                onChange={(e) => { setTcInput(e.target.value); setTc(parseTimecode(e.target.value)); }}
+                inputMode="numeric"
+                placeholder="1:23"
+                aria-label="Minuto del video (mm:ss)"
+                className="w-20 rounded-md border border-input bg-background px-2 py-1 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring"
+              />
+              <span className="text-[11px] text-muted-foreground">esta fuente no lo detecta sola · la imagen se pega/sube con ✏️ Dibujar</span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-2">
             {/* El segundo se fija automáticamente: al enfocar el cuadro (se pausa el video)
                 o, si no, en el momento de comentar. Ya no hay botón «Marcar momento». */}
@@ -680,7 +714,9 @@ export function ReviewStage({
                 ? tc != null
                   ? `⏱ Se guardará en ${fmtTime(tc)}${caps.frame ? " + captura del fotograma" : ""}`
                   : `⏱ Se guardará ${captureHint} al comentar`
-                : ""}
+                : tc != null
+                  ? `⏱ Se guardará en ${fmtTime(tc)}${drawing ? " + tu captura" : ""}`
+                  : ""}
             </span>
             <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               {pending ? "Enviando…" : "Comentar"}
