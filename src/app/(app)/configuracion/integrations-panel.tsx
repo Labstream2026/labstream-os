@@ -4,6 +4,7 @@ import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2, Bot } from "lucide-react";
 import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw, saveOnlyOfficeSettings, testOnlyOffice } from "./actions";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
+import { formatBogota } from "@/lib/bogota-time";
 
 export type CalTeamRow = { name: string; calendarName: string | null; lastSyncAt: string | null; lastError: string | null };
 type MyCalConn = { serverUrl: string; username: string; calendarUrl: string | null; calendarName: string | null; lastSyncAt: string | null; lastError: string | null } | null;
@@ -159,7 +160,7 @@ export function IntegrationsPanel({
                 {c.calendarName ? <span className="truncate text-muted-foreground">{c.calendarName}</span> : null}
                 <span className="shrink-0 text-muted-foreground">
                   {c.lastError ? <span className="text-rose-600 dark:text-rose-400">⚠ {c.lastError.slice(0, 40)}</span>
-                    : c.lastSyncAt ? `sync ${new Date(c.lastSyncAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}`
+                    : c.lastSyncAt ? `sync ${formatBogota(c.lastSyncAt, { dateStyle: "short", timeStyle: "short" })}`
                     : "sin sincronizar aún"}
                 </span>
               </div>

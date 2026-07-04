@@ -55,8 +55,10 @@ export function emitCalendarCreate(date: string, time?: string) {
 export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?: () => void }) {
   const isShoot = item.kind === "shoot";
   const typeLabel = item.kind === "event" ? "Cita / reunión" : isShoot ? "Rodaje" : item.kind === "milestone" ? "Hito del proyecto" : "Tarea";
-  const start = new Date(item.start ?? item.date);
-  const dateLabel = start.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+  // El día se saca de la fecha de PARED (it.start.slice(0,10), UTC), no de convertir el
+  // instante a la TZ del navegador —así un evento de madrugada no salta al día anterior—.
+  const [dY, dM, dD] = (item.start ?? item.date).slice(0, 10).split("-").map(Number);
+  const dateLabel = new Date(dY, dM - 1, dD).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
   const t = calTone(item.kind, isShoot);
   const people = item.attendees ?? (item.assignee ? [item.assignee] : []);
   return (

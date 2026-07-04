@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
+import { formatBogota } from "@/lib/bogota-time";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
@@ -39,7 +40,7 @@ export type ChatMsg = {
 export type ChatMe = { id: string; name: string; initials: string | null; color: string | null };
 
 function hhmm(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  return formatBogota(iso, { hour: "2-digit", minute: "2-digit" });
 }
 
 // Resalta @menciones conocidas y convierte URLs en enlaces clicables. `mine` indica si el

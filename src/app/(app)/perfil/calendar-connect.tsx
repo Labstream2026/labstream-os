@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CalendarDays, Loader2, RefreshCw, Unplug, CheckCircle2, AlertTriangle } from "lucide-react";
 import { connectCalendar, selectCalendar, disconnectCalendar, syncCalendarNow, type CalendarConnResult } from "./calendar-actions";
+import { formatBogota } from "@/lib/bogota-time";
 
 type Conn = {
   serverUrl: string;
@@ -51,7 +52,7 @@ export function CalendarConnect({ email, connection }: { email: string; connecti
                 <p className="text-sm font-medium">Conectado{calName ? ` · ${calName}` : ""}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {connection?.username} · {connection?.serverUrl}
-                  {connection?.lastSyncAt ? ` · última sync ${new Date(connection.lastSyncAt).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                  {connection?.lastSyncAt ? ` · última sync ${formatBogota(connection.lastSyncAt, { dateStyle: "short", timeStyle: "short" })}` : ""}
                 </p>
               </div>
             </div>

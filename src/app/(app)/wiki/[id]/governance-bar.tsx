@@ -4,6 +4,7 @@ import * as React from "react";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 import { setWikiOwner, markWikiReviewed } from "../actions";
 import { WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
+import { formatBogotaDate } from "@/lib/bogota-time";
 
 type Member = { id: string; name: string };
 
@@ -22,7 +23,7 @@ export function GovernanceBar({
   const reviewedMs = lastReviewedAt ? new Date(lastReviewedAt).getTime() : 0;
   const stale = Date.now() - reviewedMs > WIKI_REVIEW_STALE_DAYS * 86400000;
   const reviewedLabel = lastReviewedAt
-    ? new Date(lastReviewedAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })
+    ? formatBogotaDate(lastReviewedAt, { day: "numeric", month: "short", year: "numeric" })
     : null;
 
   return (

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { formatBogota } from "@/lib/bogota-time";
 
 export type AuditMessage = { id: string; author: string | null; body: string; createdAt: string };
 
@@ -56,7 +57,7 @@ function dayLabel(key: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 function hhmm(iso: string): string {
-  return new Date(iso).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  return formatBogota(iso, { hour: "2-digit", minute: "2-digit" });
 }
 
 function AuditLog({ messages }: { messages: AuditMessage[] }) {

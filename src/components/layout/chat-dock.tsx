@@ -7,6 +7,7 @@ import { completeMyTask } from "@/app/(app)/mis-tareas/actions";
 import { type CalItem } from "@/app/(app)/calendario/my-calendar";
 import { CalendarDetailCard, CAL_DETAIL_EVENT } from "@/app/(app)/calendario/calendar-detail";
 import { cn } from "@/lib/utils";
+import { formatBogotaDate } from "@/lib/bogota-time";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
 import { ChannelSettings } from "@/components/chat/channel-settings";
@@ -33,7 +34,7 @@ type DockTask = {
 
 function dueLabel(iso: string | null): string | null {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+  return formatBogotaDate(iso, { day: "numeric", month: "short" });
 }
 
 const MIN_W = 300;

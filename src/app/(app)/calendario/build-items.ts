@@ -5,7 +5,10 @@ import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 // para que TODOS los calendarios de la app (equipo, proyecto, cliente, mis tareas)
 // muestren y editen los eventos de la misma forma.
 
-const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(d);
+// Los eventos guardan la hora de PARED en UTC (contenedor en UTC). Se lee con timeZone
+// "UTC" para devolver esa misma hora, no la del navegador — coherente con el resto del
+// calendario, que posiciona la rejilla con getUTCHours(). Robusto aunque corra en cliente.
+const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", hour: "2-digit", minute: "2-digit" }).format(d);
 
 // Combina la fecha de entrega (anclada a mediodía UTC) con una hora "HH:mm" → ISO con esa hora
 // de pared en UTC (misma convención que los eventos). Si no hay hora válida, devuelve null
