@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { photoViewSrc } from "@/lib/deliverable-photo";
-import { DELIVERABLE_TYPE, deliverableOrientation } from "@/lib/ui";
+import { DELIVERABLE_TYPE, deliverableOrientation, formatTimecode } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { CoverThumb } from "./cover-thumb";
 
@@ -60,7 +60,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
           status: true,
           dueDate: true,
           coverFileAssetId: true,
-          versions: { where: { internalApproved: true }, orderBy: { number: "desc" }, take: 1, select: { number: true } },
+          versions: { where: { internalApproved: true }, orderBy: { number: "desc" }, take: 1, select: { number: true, durationSec: true } },
           reviewComments: { where: { OR: [{ fromClient: true }, { visibleToClient: true }] }, select: { id: true } },
         },
       },
@@ -111,8 +111,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                   const st = STATUS[d.status] ?? { label: d.status, className: "bg-muted text-muted-foreground" };
                   const vertical = deliverableOrientation(d.type) === "vertical";
                   const isPhoto = d.type === "FOTOGRAFIA";
-                  // La portada es propia de los reels (vertical): en horizontales no se usa de miniatura.
-                  const cover = vertical && d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null;
+                  // Miniatura de portada para cualquier orientación (se captura un fotograma al subir).
+                  const cover = d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null;
                   const v = d.versions[0];
                   const token = signReviewToken(d.id);
                   const due = d.dueDate && (d.status === "ENVIADO_CLIENTE" || d.status === "CORRECCIONES")
@@ -141,6 +141,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                           <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] text-white">
                             <MessageSquare className="size-3" /> {d.reviewComments.length}
                           </span>
+                        ) : null}
+                        {v?.durationSec ? (
+                          <span className="absolute bottom-2 right-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">{formatTimecode(v.durationSec)}</span>
                         ) : null}
                       </div>
                       <div className="flex flex-col gap-1.5 p-2.5">
