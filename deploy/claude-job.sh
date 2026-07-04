@@ -47,15 +47,23 @@ if [ ! -f "$DEST/.env" ]; then
   log "AVISO: falta $DEST/.env (secretos de produccion)"
 fi
 
-# 4) Reconstruir y levantar (el cambio de código invalida la caché del COPY . .).
+# 4) Construir la imagen nueva SIN tocar la app que corre (la vieja sigue sirviendo).
 cd "$DEST"
-docker compose -p "$PROJECT" up -d --build
+docker compose -p "$PROJECT" build
 
-# 5) Aplicar migraciones de Prisma. -T = sin TTY (tarea no interactiva);
-#    -u root = evita EACCES al leer /app/package.json con el usuario del contenedor.
-docker compose -p "$PROJECT" exec -T -u root app npx prisma migrate deploy
+# 5) Aplicar migraciones de Prisma ANTES de cambiar el código, con la imagen nueva.
+#    ORDEN CRÍTICO: antes se hacía `up` primero y `migrate` después; si la migración
+#    fallaba (o el exec no corría), quedaba el CÓDIGO NUEVO con la BD VIEJA → errores
+#    de runtime en toda la app (columnas inexistentes). Ahora, si la migración falla,
+#    el `set -e` corta aquí y la app VIEJA sigue intacta (nada se rompe).
+#    La salida queda en el log para diagnosticar. -T = sin TTY; -u root = permisos.
+log "migraciones"
+docker compose -p "$PROJECT" run --rm -T -u root app npx prisma migrate deploy >> "$LOG" 2>&1
 
-# 6) Limpieza: cada rebuild deja la imagen anterior como <none> y capas de caché
+# 6) Levantar el código nuevo (solo se llega aquí si las migraciones pasaron).
+docker compose -p "$PROJECT" up -d
+
+# 7) Limpieza: cada rebuild deja la imagen anterior como <none> y capas de caché
 #    sin usar. Sin esto se acumulan gigas con cada deploy. Se purga aquí.
 #    • "|| true": la limpieza nunca debe tumbar el deploy (set -e).
 #    • NO se usa --volumes: los datos persistentes (Postgres, Redis, subidas) están
