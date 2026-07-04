@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
 
@@ -21,12 +23,28 @@ export async function GET(
 
   const version = await db.deliverableVersion.findUnique({
     where: { id: versionId },
-    select: { fileUrl: true, deliverable: { select: { reviewRevokedAt: true, reviewExpiresAt: true } } },
+    select: {
+      fileUrl: true,
+      deliverable: {
+        select: {
+          reviewRevokedAt: true,
+          reviewExpiresAt: true,
+          // Acceso del EQUIPO al proyecto (para no bloquearle la pre-aprobación por la caducidad
+          // del enlace del CLIENTE).
+          project: { select: { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
+        },
+      },
+    },
   });
-  // El enlace de revisión pudo ser REVOCADO o CADUCAR: aunque el token siga válido por su
-  // cuenta, no servimos el media si el equipo cerró el enlace (mismo criterio que el portal).
   const d = version?.deliverable;
-  if (!version || !d || d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now())) {
+  if (!version || !d) return new Response("Enlace no disponible", { status: 403 });
+  // El EQUIPO (sesión con acceso al proyecto) SIEMPRE puede ver el media para la pre-aprobación
+  // interna, aunque el enlace del CLIENTE haya sido REVOCADO o CADUCADO —esa caducidad/revocación
+  // corta el acceso del cliente, NO el del equipo—. Antes se bloqueaba a todos por igual, así que
+  // al vencer un enlace la captura de Drive dejaba de funcionar también para el equipo.
+  const session = await getSession();
+  const isTeam = !!session && canAccessProject(d.project, session);
+  if (!isTeam && (d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()))) {
     return new Response("Enlace no disponible", { status: 403 });
   }
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
