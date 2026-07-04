@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
 import { TimelineGrid, type TLLane, type TLBar, type TLMilestone } from "@/components/timeline/timeline-grid";
 import { type TimelineUnit } from "@/lib/timeline";
-import { setProjectDates } from "../proyectos/[id]/actions";
+import { setProjectDates, rescheduleMilestone } from "../proyectos/[id]/actions";
 
 export type GTTask = {
   id: string;
@@ -27,7 +27,7 @@ export type GTProject = {
   tasks: GTTask[];
 };
 export type GTClient = { id: string; label: string; colorHex?: string; projects: GTProject[] };
-export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string; dateLabel?: string; link?: string };
+export type GTMilestone = { id: string; dayKey: string; label: string; emoji: string; colorHex: string; dateLabel?: string; link?: string; editable?: boolean };
 
 export function GlobalTimeline({
   clients,
@@ -71,12 +71,18 @@ export function GlobalTimeline({
     startTransition(() => { void setProjectDates(projectId, fd); });
   }
 
+  // Arrastrar un chip de rodaje/entrega a otro día → reprograma la fecha (rodaje = tarea,
+  // entrega = entregable), refleja en el calendario y avisa a los citados.
+  function onMilestoneChange(id: string, dayKey: string) {
+    startTransition(() => { void rescheduleMilestone(id, dayKey); });
+  }
+
   const lanes: TLLane[] = [];
   if (milestones.length) {
     lanes.push({
       key: "__milestones",
       label: "Rodajes y entregas",
-      milestones: milestones.map((m) => ({ ...m } satisfies TLMilestone)),
+      milestones: milestones.map((m) => ({ ...m, editable: !readOnly && !!m.editable } satisfies TLMilestone)),
     });
   }
   for (const c of clients) {
@@ -127,6 +133,7 @@ export function GlobalTimeline({
       unit={fixedUnit ?? unit}
       onUnitChange={changeUnit}
       onBarChange={readOnly ? undefined : onBarChange}
+      onMilestoneChange={readOnly ? undefined : onMilestoneChange}
       lockUnit={!!fixedUnit}
       maxHeight={maxHeight}
       compact={compact}

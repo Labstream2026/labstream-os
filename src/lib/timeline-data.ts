@@ -92,6 +92,7 @@ export async function buildSessionTimeline(
     for (const d of p.deliverables) childKeys.push(dayKey(d.dueDate));
     const { min: childMin, max: childMax } = minMaxKeys(childKeys);
     const span = resolveSpan(dayKey(p.startDate) ?? childMin, dayKey(p.dueDate) ?? childMax, childMin, childMax);
+    const canWrite = canWriteProject(p, session);
     lane.projects.push({
       id: p.id,
       name: `${p.emoji ?? "🎬"} ${p.name}`,
@@ -99,18 +100,20 @@ export async function buildSessionTimeline(
       endKey: span.endKey,
       colorHex: hex,
       progress: p.progress,
-      editable: canWriteProject(p, session),
+      editable: canWrite,
       tasks,
     });
 
+    // `editable` habilita ARRASTRAR el chip para reprogramar el rodaje/entrega (solo quien puede
+    // escribir en el proyecto). El clic siempre abre el detalle.
     for (const d of p.deliverables) {
       const k = dayKey(d.dueDate);
-      if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `${p.name} · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex, dateLabel: `Entrega · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma` });
+      if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `${p.name} · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex, dateLabel: `Entrega · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma`, editable: canWrite });
     }
     for (const t of p.tasks) {
       if (t.isPrivate && !mine(t)) continue;
       const k = dayKey(t.shootDate);
-      if (k) milestones.push({ id: `shoot-${t.id}`, dayKey: k, label: `${p.name} · ${t.title}`, emoji: "🎬", colorHex: tone("rose").hex, dateLabel: `Rodaje · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma` });
+      if (k) milestones.push({ id: `shoot-${t.id}`, dayKey: k, label: `${p.name} · ${t.title}`, emoji: "🎬", colorHex: tone("rose").hex, dateLabel: `Rodaje · ${fmtDay(k)}`, link: `/proyectos/${p.id}?tab=cronograma`, editable: canWrite });
     }
   }
 

@@ -46,6 +46,7 @@ export type TLMilestone = {
   dateLabel?: string; // fecha legible para el popover de detalle
   link?: string; // a dónde lleva "Abrir" (p. ej. el cronograma del proyecto)
   onClick?: () => void;
+  editable?: boolean; // se puede ARRASTRAR el chip para reprogramarlo (o cambiar la fecha en el popover)
 };
 
 export type TLLane = {
@@ -71,6 +72,7 @@ export function TimelineGrid({
   unit,
   onUnitChange,
   onBarChange,
+  onMilestoneChange,
   emptyHint,
   lockUnit = false,
   maxHeight,
@@ -80,6 +82,8 @@ export function TimelineGrid({
   unit: TimelineUnit;
   onUnitChange: (u: TimelineUnit) => void;
   onBarChange?: (id: string, dates: { startKey: string; endKey: string }) => void;
+  // Arrastrar un hito editable (rodaje/entrega) a otro día → reprograma su fecha.
+  onMilestoneChange?: (id: string, dayKey: string) => void;
   emptyHint?: string;
   // Oculta el selector Día/Semana/Mes (p. ej. el resumen del Inicio, fijo en Mes).
   lockUnit?: boolean;
@@ -116,6 +120,43 @@ export function TimelineGrid({
   // Arrastre/redimensionado: draft local de la barra activa.
   const [draft, setDraft] = React.useState<{ id: string; offsetDays: number; spanDays: number } | null>(null);
   const dragRef = React.useRef<DragState | null>(null);
+
+  // Arrastre de un HITO (chip de rodaje/entrega) para reprogramarlo. Draft = su día durante el
+  // arrastre; el ref distingue un clic (abre el popover) de un arrastre (reprograma).
+  const [msDraft, setMsDraft] = React.useState<{ id: string; dayNum: number } | null>(null);
+  const msDragRef = React.useRef<{ id: string; startX: number; origDayNum: number; moved: boolean; m: TLMilestone; rect: DOMRect } | null>(null);
+  function onMsPointerDown(e: React.PointerEvent, m: TLMilestone) {
+    if (!m.editable || !onMilestoneChange) return; // no editable → el onClick abre el popover
+    e.preventDefault();
+    e.stopPropagation();
+    // setPointerCapture puede lanzar si el puntero ya no está activo (carrera con pointerup):
+    // que un fallo de captura no rompa el resto del arrastre.
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const origDayNum = dayNumberOf(m.dayKey);
+    msDragRef.current = { id: m.id, startX: e.clientX, origDayNum, moved: false, m, rect };
+    setMsDraft({ id: m.id, dayNum: origDayNum });
+  }
+  function onMsPointerMove(e: React.PointerEvent) {
+    const d = msDragRef.current;
+    if (!d) return;
+    const deltaDays = Math.round((e.clientX - d.startX) / dayWidth);
+    if (deltaDays !== 0) d.moved = true;
+    setMsDraft({ id: d.id, dayNum: Math.max(startNum, Math.min(endNum, d.origDayNum + deltaDays)) });
+  }
+  function onMsPointerUp() {
+    const d = msDragRef.current;
+    const dr = msDraft;
+    msDragRef.current = null;
+    setMsDraft(null);
+    if (!d) return;
+    if (d.moved && dr && dr.dayNum !== d.origDayNum && onMilestoneChange) {
+      onMilestoneChange(d.id, keyOfDayNumber(dr.dayNum));
+    } else {
+      // Clic sin arrastre → abre el detalle en la posición del chip.
+      setOpenMs((cur) => (cur?.m.id === d.m.id ? null : { m: d.m, x: d.rect.left + d.rect.width / 2, y: d.rect.bottom }));
+    }
+  }
 
   // Expansión de filas con hijos (proyecto → tareas).
   const [expanded, setExpanded] = React.useState<Set<string>>(() => {
@@ -442,27 +483,43 @@ export function TimelineGrid({
                       <span className="truncate">{lane.label}</span>
                     </div>
                     <div className="relative" style={{ width: trackW }}>
-                      {/* Hitos del carril (rodajes/entregas) renderizados en su propia fila */}
+                      {/* Hitos del carril (rodajes/entregas). Si son editables se pueden ARRASTRAR
+                          a otro día para reprogramarlos; el clic (sin arrastrar) abre el detalle. */}
                       {(lane.milestones ?? []).map((m) => {
-                        const left = (dayNumberOf(m.dayKey) - startNum) * dayWidth;
+                        const drag = !!m.editable && !!onMilestoneChange;
+                        const dragging = !!msDraft && msDraft.id === m.id;
+                        const dnum = dragging ? msDraft!.dayNum : dayNumberOf(m.dayKey);
+                        const left = (dnum - startNum) * dayWidth;
                         return (
                           <button
                             key={m.id}
                             type="button"
-                            onClick={(e) => {
+                            onClick={drag ? undefined : (e) => {
                               const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                               setOpenMs((cur) => (cur?.m.id === m.id ? null : { m, x: r.left + r.width / 2, y: r.bottom }));
                             }}
-                            title={`${m.emoji} ${m.label}`}
-                            className="absolute top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center"
-                            style={{ left }}
+                            onPointerDown={drag ? (e) => onMsPointerDown(e, m) : undefined}
+                            onPointerMove={drag ? onMsPointerMove : undefined}
+                            onPointerUp={drag ? onMsPointerUp : undefined}
+                            title={drag ? `${m.emoji} ${m.label} · arrastra para reprogramar` : `${m.emoji} ${m.label}`}
+                            className={cn(
+                              "absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center",
+                              drag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                              dragging ? "z-30" : "z-10",
+                            )}
+                            style={{ left, touchAction: drag ? "none" : undefined }}
                           >
                             <span
-                              className="flex size-5 items-center justify-center rounded-full border text-[10px] shadow-sm"
+                              className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] shadow-sm", dragging && "ring-2 ring-primary")}
                               style={{ backgroundColor: `${m.colorHex}22`, borderColor: `${m.colorHex}99` }}
                             >
                               {m.emoji}
                             </span>
+                            {dragging ? (
+                              <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 text-[9px] font-medium text-background shadow">
+                                {keyOfDayNumber(msDraft!.dayNum).slice(5)}
+                              </span>
+                            ) : null}
                           </button>
                         );
                       })}
@@ -494,6 +551,18 @@ export function TimelineGrid({
               </button>
             </div>
             {openMs.m.dateLabel ? <p className="text-xs text-muted-foreground">{openMs.m.dateLabel}</p> : null}
+            {openMs.m.editable && onMilestoneChange ? (
+              <div className="mt-2">
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Reprogramar a otra fecha</label>
+                <input
+                  type="date"
+                  defaultValue={openMs.m.dayKey}
+                  onChange={(e) => { if (e.target.value) { onMilestoneChange(openMs.m.id, e.target.value); setOpenMs(null); } }}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
+                />
+                <p className="mt-1 text-[10px] text-muted-foreground">Se actualiza el calendario y se avisa a los citados.</p>
+              </div>
+            ) : null}
             {openMs.m.link ? (
               <Link href={openMs.m.link} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 Abrir <ArrowRight className="size-3.5" />

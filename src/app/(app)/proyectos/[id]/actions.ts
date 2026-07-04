@@ -628,6 +628,63 @@ export async function setProjectDates(projectId: string, formData: FormData) {
   refresh(projectId);
 }
 
+// Reprograma un HITO del cronograma (chip de rodaje/entrega) al ARRASTRARLO a otro día. El id
+// codifica el tipo y su objetivo: `shoot-<taskId>` (fecha de rodaje de una tarea) o
+// `deliv-<deliverableId>` (fecha de entrega de un entregable). Actualiza la fecha (mediodía UTC,
+// misma convención que el resto), refleja en el CALENDARIO (los rodajes son ítems del calendario)
+// y avisa a los "citados": el asignado/dueño del rodaje o el dueño/revisores del entregable.
+export async function rescheduleMilestone(id: string, dayKey: string): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return;
+  const session = await getSession();
+  const when = noonUTC(dayKey);
+  const fmtDay = new Date(`${dayKey}T00:00:00`).toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" });
+
+  if (id.startsWith("shoot-")) {
+    const taskId = id.slice("shoot-".length);
+    const task = await db.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, projectId: true, assigneeId: true, ownerId: true, project: { select: { ...accessSelect, name: true } } },
+    });
+    if (!task || !task.project || !canWriteProject(task.project, session)) noAutorizado();
+    await db.task.update({ where: { id: taskId }, data: { shootDate: when } });
+    await logActivity({ action: "task.shootDate", summary: `movió el rodaje de «${task!.title}» a ${fmtDay}`, projectId: task!.projectId, entityType: "task", entityId: taskId });
+    const recipients = [...new Set([task!.assigneeId, task!.ownerId].filter((x): x is string => !!x && x !== session?.id))];
+    if (recipients.length) {
+      await notifyManyAndEmail(recipients, {
+        type: "task", event: "task_shoot",
+        title: `Rodaje reprogramado: ${task!.title}`,
+        body: `Nueva fecha de rodaje · ${fmtDay} en «${task!.project!.name}»`,
+        link: "/calendario", actorId: session?.id,
+      });
+    }
+    revalidatePath("/calendario"); revalidatePath("/timeline");
+    refresh(task!.projectId);
+    return;
+  }
+
+  if (id.startsWith("deliv-")) {
+    const delId = id.slice("deliv-".length);
+    const d = await db.deliverable.findUnique({
+      where: { id: delId },
+      select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } },
+    });
+    if (!d || !canWriteProject(d.project, session)) noAutorizado();
+    await db.deliverable.update({ where: { id: delId }, data: { dueDate: when } });
+    await logActivity({ action: "deliverable.dueDate", summary: `movió la entrega de «${d!.name}» a ${fmtDay}`, projectId: d!.projectId, entityType: "deliverable", entityId: delId });
+    const recipients = [...new Set([d!.ownerId, d!.reviewerId, ...d!.reviewers.map((r) => r.userId)].filter((x): x is string => !!x && x !== session?.id))];
+    if (recipients.length) {
+      await notifyManyAndEmail(recipients, {
+        type: "review", event: "deliverable_due",
+        title: `Entrega reprogramada: ${d!.name}`,
+        body: `Nueva fecha de entrega · ${fmtDay} en «${d!.project.name}»`,
+        link: `/proyectos/${d!.projectId}?tab=cronograma`, actorId: session?.id,
+      });
+    }
+    revalidatePath("/calendario"); revalidatePath("/timeline");
+    refresh(d!.projectId);
+  }
+}
+
 // Indica si el usuario actual puede ESCRIBIR en el proyecto (crear tareas, editarlo…).
 // Lo usa el botón flotante para mostrar solo las acciones que el usuario puede ejecutar
 // en ESTE proyecto, en vez de fiarse de un permiso global. No lanza.

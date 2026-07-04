@@ -159,13 +159,7 @@ export default async function CalendarioPage() {
   ];
 
   const timelineNode = timeline ? (
-    <div>
-      <p className="mb-4 text-sm text-muted-foreground">
-        Línea de tiempo de todos los proyectos del estudio, con rodajes y entregas. Arrastra la barra de un proyecto para reprogramarlo o haz clic para abrirlo.
-        {timeline.undatedCount > 0 ? ` · ${timeline.undatedCount} proyecto${timeline.undatedCount === 1 ? "" : "s"} sin fechas.` : ""}
-      </p>
-      <GlobalTimeline clients={timeline.clients} milestones={timeline.milestones} />
-    </div>
+    <GlobalTimeline clients={timeline.clients} milestones={timeline.milestones} />
   ) : null;
 
   return (
