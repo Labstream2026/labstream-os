@@ -7,6 +7,7 @@ import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
   DELIVERABLE_TYPE,
+  DELIVERABLE_TYPE_OPTIONS,
   deliverableStatusMeta,
   deliverableOrientation,
   formatShortDate,
@@ -87,8 +88,8 @@ type Deliverable = {
 };
 
 const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({ value, label: m.label }));
-// Formatos editables después de publicar (vertical / horizontal / foto…): mismas opciones que al crear.
-const TYPE_OPTIONS = Object.entries(DELIVERABLE_TYPE).map(([value, label]) => ({ value, label }));
+// Formatos editables después de publicar: SOLO vertical y horizontal (mismas opciones que al crear).
+const TYPE_OPTIONS = DELIVERABLE_TYPE_OPTIONS.map(([value, label]) => ({ value, label }));
 
 const PICK_META: Record<string, { label: string; cls: string }> = {
   ME_GUSTA: { label: "♥ Le gusta", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
@@ -185,7 +186,7 @@ export function DeliverablesPanel({
             <input name="name" required placeholder="Nombre del proyecto o video…" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring" />
           </label>
           {/* Tipo + portada (la portada solo aparece si el tipo es reel) */}
-          <TypeAndCoverFields options={Object.entries(DELIVERABLE_TYPE)} />
+          <TypeAndCoverFields options={DELIVERABLE_TYPE_OPTIONS} />
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />

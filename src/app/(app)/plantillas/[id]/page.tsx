@@ -27,9 +27,8 @@ const PROJECT_TYPES = [
   "EVENTO", "CORPORATIVO", "INSTITUCIONAL", "FOTOGRAFIA", "CAMPANA_MENSUAL",
 ];
 const PRIORITIES = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
-const DELIVERABLE_TYPES = [
-  "REEL", "SHORT", "VIDEO_LARGO", "FOTOGRAFIA", "PODCAST", "TEASER", "DOCUMENTO", "OTRO",
-];
+// Solo dos formatos: vertical (REEL) y horizontal (VIDEO_LARGO).
+const DELIVERABLE_TYPES = ["REEL", "VIDEO_LARGO"];
 
 const PRIORITY_COLOR: Record<string, string> = {
   BAJA: "bg-slate-100 text-slate-700",
@@ -161,7 +160,7 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
         <form action={addDeliverable.bind(null, id)} className="mt-3 flex flex-wrap gap-2">
           <input name="name" required placeholder="Nombre del entregable" className={`min-w-40 flex-1 ${inputCls}`} />
           <select name="type" defaultValue="REEL" className={inputCls}>
-            {DELIVERABLE_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ").toLowerCase()}</option>)}
+            {DELIVERABLE_TYPES.map((t) => <option key={t} value={t}>{t === "REEL" ? "Video vertical" : "Video horizontal"}</option>)}
           </select>
           <AddBtn />
         </form>

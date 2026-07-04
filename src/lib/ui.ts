@@ -185,16 +185,25 @@ export function deliverableStatusMeta(s: string): StatusMeta {
 // cambian para no requerir migración; solo cambia el texto que ve el usuario. "Video vertical"
 // (antes "Reel") y "Video horizontal" (antes "Video largo") nombran por ORIENTACIÓN, que es lo
 // que define el formato de revisión (ver deliverableOrientation).
+// Etiqueta de display de cualquier tipo. Solo hay DOS formatos de video: VERTICAL y HORIZONTAL.
+// Los tipos antiguos que quedaron en la BD (SHORT, PODCAST, TEASER, DOCUMENTO, OTRO) se pliegan a
+// esos dos para no mostrar nombres viejos. FOTOGRAFIA es la galería de fotos (feature aparte).
 export const DELIVERABLE_TYPE: Record<string, string> = {
   REEL: "Video vertical",
+  SHORT: "Video vertical",
   VIDEO_LARGO: "Video horizontal",
+  PODCAST: "Video horizontal",
+  TEASER: "Video horizontal",
+  DOCUMENTO: "Video horizontal",
+  OTRO: "Video horizontal",
   FOTOGRAFIA: "Fotografía",
-  SHORT: "Short vertical",
-  PODCAST: "Podcast",
-  TEASER: "Teaser",
-  DOCUMENTO: "Documento",
-  OTRO: "Otro",
 };
+
+// Formatos OFRECIDOS al crear/cambiar un entregable de video: SOLO vertical y horizontal.
+export const DELIVERABLE_TYPE_OPTIONS: [string, string][] = [
+  ["REEL", "Video vertical"],
+  ["VIDEO_LARGO", "Video horizontal"],
+];
 
 // Orientación del material según el tipo de entregable: reels y shorts son verticales
 // (9:16); el resto se asume horizontal (16:9). Define la diagramación de la pestaña de
