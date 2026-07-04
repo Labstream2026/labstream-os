@@ -94,19 +94,23 @@ export function monthSegments(startNum: number, endNum: number): MonthSegment[] 
   return out;
 }
 
-// Rango del cronograma a partir de las claves de fecha presentes (+ hoy), con
-// margen y ajuste al inicio/fin de semana para que cuadre visualmente.
+// Rango del cronograma AJUSTADO al contenido real: empieza en la primera fecha y TERMINA en la
+// ÚLTIMA (último entregable/hito/tarea), con un margen pequeño y ajuste a semana completa. NO se
+// extiende artificialmente hasta "hoy" ni a una ventana mínima, para que el cronograma no muestre
+// meses vacíos más allá de la última fecha —sin importar qué tan corto o cercano sea el rango—.
+// Aplica a TODOS los cronogramas (global, cliente, proyecto, resumen de Inicio) por usar esta fn.
 export function computeRange(keys: (string | null | undefined)[], padDays = 3): { startNum: number; endNum: number } {
   const nums = keys.filter(Boolean).map((k) => dayNumberOf(k as string));
-  const today = dayNumberOf(todayKey());
-  nums.push(today);
+  // Sin fechas (proyecto/cliente sin nada datado): ventana por defecto centrada en hoy, para no
+  // operar sobre un conjunto vacío (Math.min([]) = Infinity).
+  if (!nums.length) {
+    const today = dayNumberOf(todayKey());
+    nums.push(today - 14, today + 14);
+  }
   let min = Math.min(...nums) - padDays;
   let max = Math.max(...nums) + padDays;
-  // Asegurar una ventana mínima de ~3 semanas para que no se vea vacío.
-  if (max - min < 21) max = min + 21;
-  // Ajustar el inicio al lunes anterior.
+  // Ajuste cosmético a semana completa (lunes→domingo) para que las bandas de días/semana cuadren.
   while (new Date(min * DAY_MS).getUTCDay() !== 1) min--;
-  // Ajustar el fin al domingo siguiente.
   while (new Date(max * DAY_MS).getUTCDay() !== 0) max++;
   return { startNum: min, endNum: max };
 }
