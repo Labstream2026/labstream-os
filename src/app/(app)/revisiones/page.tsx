@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame } from "lucide-react";
+import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
-import { DELIVERABLE_TYPE } from "@/lib/ui";
 import { UserAvatar } from "@/components/user-avatar";
 
 // Tiempo que un entregable lleva esperando esta acción y su nivel de urgencia.
@@ -13,33 +12,42 @@ function nowMs(): number {
   return Date.now();
 }
 type Tier = "danger" | "warn" | "fresh";
-function urgency(date: Date): { tier: Tier; text: string } {
+function urgency(date: Date): { tier: Tier; days: number; hours: number } {
   const ms = nowMs() - new Date(date).getTime();
-  const h = Math.floor(ms / 3_600_000);
-  const days = Math.floor(h / 24);
-  if (days >= 3) return { tier: "danger", text: `esperando ${days} días` };
-  if (h >= 24) return { tier: "warn", text: `esperando ${days} día${days === 1 ? "" : "s"}` };
-  if (h >= 1) return { tier: "fresh", text: `hace ${h} h` };
-  return { tier: "fresh", text: "hace un momento" };
+  const hours = Math.floor(ms / 3_600_000);
+  const days = Math.floor(hours / 24);
+  const tier: Tier = days >= 3 ? "danger" : hours >= 24 ? "warn" : "fresh";
+  return { tier, days, hours };
 }
-const BAR: Record<Tier, string> = { danger: "bg-rose-500", warn: "bg-amber-500", fresh: "bg-emerald-500" };
+// Etiqueta corta del chip de urgencia para lo que necesita acción del equipo.
+function teamChip(u: { tier: Tier; days: number }): string {
+  if (u.tier === "danger") return `${u.days} días`;
+  if (u.tier === "warn") return `${u.days} día${u.days === 1 ? "" : "s"}`;
+  return "nuevo";
+}
+// Etiqueta neutra "hace…" para lo que ya está con el cliente (no es urgencia nuestra).
+function sinceLabel(u: { days: number; hours: number }): string {
+  if (u.days >= 1) return `hace ${u.days} d`;
+  if (u.hours >= 1) return `hace ${u.hours} h`;
+  return "recién";
+}
+const CHIP: Record<Tier, string> = {
+  danger: "bg-rose-500 text-white",
+  warn: "bg-amber-400 text-amber-950",
+  fresh: "bg-emerald-500 text-white",
+};
 // Duración en segundos → "m:ss" (o null si no se capturó).
 function fmtDur(sec: number | null | undefined): string | null {
   if (!sec || sec <= 0) return null;
   const m = Math.floor(sec / 60);
   return `${m}:${String(sec % 60).padStart(2, "0")}`;
 }
-const WAIT_TEXT: Record<Tier, string> = {
-  danger: "font-medium text-rose-600 dark:text-rose-400",
-  warn: "text-amber-600 dark:text-amber-400",
-  fresh: "text-muted-foreground",
-};
 
 export const dynamic = "force-dynamic";
 
 // Bandeja "Proyectos a revisar": entregables que esperan una acción de revisión, en
 // los proyectos a los que el usuario tiene acceso. Tres grupos: pendientes de tu
-// pre-aprobación interna, con el cliente, y con cambios solicitados.
+// pre-aprobación interna, con el cliente, y con cambios solicitados. Vista en galería.
 export default async function RevisionesPage({ searchParams }: { searchParams: Promise<{ scope?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -79,8 +87,6 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       ? d.reviewers.some((r) => r.userId === session.id)
       : (d.project.leadId ?? d.ownerId) === session.id;
 
-  // "Pendientes" siempre es de tu responsabilidad. El filtro "Solo míos" acota además
-  // los grupos informativos (con el cliente / cambios) a lo que tú lideras.
   const mineFilter = (d: (typeof deliverables)[number]) => !onlyMine || isMyResponsibility(d);
   const pendientes = deliverables
     .filter((d) => d.status === "REVISION_INTERNA" && isMyResponsibility(d))
@@ -88,7 +94,6 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   const conCliente = deliverables.filter((d) => d.status === "ENVIADO_CLIENTE" && mineFilter(d));
   const cambios = deliverables.filter((d) => d.status === "CORRECCIONES" && mineFilter(d));
   const total = pendientes.length + conCliente.length + cambios.length;
-  // Urgentes = lo que necesita acción del EQUIPO (pendientes o cambios) y lleva 3+ días.
   const urgentes = [...pendientes, ...cambios].filter((d) => urgency(d.updatedAt).tier === "danger").length;
 
   return (
@@ -123,9 +128,9 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
             <Metric label="Urgentes · 3+ días" value={urgentes} Icon={Flame} tone="rose" highlight />
           </div>
 
-          <div className="space-y-7">
-            <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" hint="Los que más esperan, primero" items={pendientes} primary />
-            <DenseGroup title="Con el cliente" Icon={Send} items={conCliente} />
+          <div className="space-y-8">
+            <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" hint="Los más urgentes primero" items={pendientes} primary />
+            <Group title="Con el cliente" Icon={Send} accent="sky" cta="Ver" hint="Solo informativo" items={conCliente} neutral />
             <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" cta="Atender" items={cambios} />
           </div>
         </>
@@ -165,41 +170,16 @@ function Metric({ label, value, Icon, tone, highlight }: { label: string; value:
 
 const ACCENT: Record<string, string> = {
   amber: "text-amber-600 dark:text-amber-400",
+  sky: "text-sky-600 dark:text-sky-400",
   rose: "text-rose-600 dark:text-rose-400",
 };
 const BADGE: Record<string, string> = {
   amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   rose: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
 };
 
-// Miniatura del entregable: portada del reel si la hay → foto del cliente → icono de película.
-// El badge v{n} y (cuando aplica) el ▶ van encima.
-function Thumb({ d }: { d: Item }) {
-  const v = d.versions[0];
-  const hasCover = Boolean(d.coverFileAssetId);
-  const clientPhoto = d.project.client?.photoUrl ? `/api/client-asset/photo/${d.project.client.id}` : null;
-  const src = d.coverFileAssetId ? `/api/files-asset/${d.coverFileAssetId}` : clientPhoto;
-  const dur = fmtDur(v?.durationSec);
-  return (
-    <div className="relative flex h-[60px] w-[104px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <Film className="size-5 text-muted-foreground" />
-      )}
-      {hasCover ? (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/15">
-          <Play className="size-6 fill-white/90 text-white/90" />
-        </span>
-      ) : null}
-      {dur ? <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] leading-tight text-white">{dur}</span> : null}
-      {v ? <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] leading-tight text-white">v{v.number}</span> : null}
-    </div>
-  );
-}
-
-function Group({ title, Icon, accent, cta, hint, items, primary }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; cta: string; hint?: string; items: Item[]; primary?: boolean }) {
+function Group({ title, Icon, accent, cta, hint, items, primary, neutral }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; cta: string; hint?: string; items: Item[]; primary?: boolean; neutral?: boolean }) {
   if (items.length === 0) return null;
   return (
     <section>
@@ -208,86 +188,80 @@ function Group({ title, Icon, accent, cta, hint, items, primary }: { title: stri
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BADGE[accent]}`}>{items.length}</span>
         {hint ? <span className="ml-auto text-[11px] font-normal text-muted-foreground">{hint}</span> : null}
       </h2>
-      <div className="grid gap-2.5">
-        {items.map((d) => {
-          const v = d.versions[0];
-          const u = urgency(d.updatedAt);
-          const uploader = v?.uploadedBy;
-          const typeLabel = d.type ? DELIVERABLE_TYPE[d.type] ?? null : null;
-          return (
-            <Link
-              key={d.id}
-              href={`/revisiones/${d.id}`}
-              className="group flex items-stretch overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40 hover:bg-accent/30"
-            >
-              <span className={`w-1 shrink-0 ${BAR[u.tier]}`} aria-hidden />
-              <div className="flex flex-1 items-center gap-3 p-2.5">
-                <Thumb d={d} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{d.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    <span className="opacity-80">{d.project.emoji ?? "🎬"}</span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {uploader ? (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <UserAvatar initials={uploader.initials} color={uploader.avatarColor} size="sm" /> subió {uploader.name.split(" ")[0]}
-                      </span>
-                    ) : null}
-                    <span className={`inline-flex items-center gap-1 text-[11px] ${WAIT_TEXT[u.tier]}`}>
-                      {u.tier === "danger" ? <Flame className="size-3.5" /> : <Clock className="size-3.5" />} {u.text}
-                    </span>
-                    {d._count.reviewComments > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MessageSquare className="size-3.5" /> {d._count.reviewComments}</span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col items-end justify-between gap-2 self-stretch py-0.5">
-                  {typeLabel ? <span className="text-[11px] text-muted-foreground">{typeLabel}</span> : <span />}
-                  <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${primary ? "bg-primary text-primary-foreground group-hover:bg-primary/90" : "border border-border text-primary"}`}>
-                    {cta} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                  </span>
-                </div>
-              </div>
-            </Link>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map((d) => (
+          <Card key={d.id} d={d} cta={cta} primary={primary} neutral={neutral} />
+        ))}
       </div>
     </section>
   );
 }
 
-// "Con el cliente" es solo informativo (no requiere tu acción): filas densas y apagadas.
-function DenseGroup({ title, Icon, items }: { title: string; Icon: React.ComponentType<{ className?: string }>; items: Item[] }) {
-  if (items.length === 0) return null;
+function Card({ d, cta, primary, neutral }: { d: Item; cta: string; primary?: boolean; neutral?: boolean }) {
+  const v = d.versions[0];
+  const u = urgency(d.updatedAt);
+  const uploader = v?.uploadedBy;
+  const dur = fmtDur(v?.durationSec);
+  const clientPhoto = d.project.client?.photoUrl ? `/api/client-asset/photo/${d.project.client.id}` : null;
+  const src = d.coverFileAssetId ? `/api/files-asset/${d.coverFileAssetId}` : clientPhoto;
+  const UrgencyIcon = u.tier === "danger" ? Flame : u.tier === "warn" ? Clock : Sparkles;
   return (
-    <section>
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-sky-600 dark:text-sky-400">
-        <Icon className="size-4" /> {title}
-        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">{items.length}</span>
-        <span className="ml-auto text-[11px] font-normal text-muted-foreground">Solo informativo</span>
-      </h2>
-      <div className="overflow-hidden rounded-xl border border-border">
-        {items.map((d, i) => {
-          const v = d.versions[0];
-          return (
-            <Link
-              key={d.id}
-              href={`/revisiones/${d.id}`}
-              className={`flex items-center gap-2.5 bg-card px-3 py-2.5 transition-colors hover:bg-accent/30 ${i ? "border-t border-border" : ""}`}
-            >
-              <Play className="size-4 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-medium">{d.name}</span>
-              {v ? <span className="shrink-0 text-[11px] text-muted-foreground">v{v.number}</span> : null}
-              <span className="truncate text-xs text-muted-foreground">· {d.project.name}</span>
-              <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-                <Clock className="size-3.5" /> {urgency(d.updatedAt).text}
-              </span>
-              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-primary">Ver <ArrowRight className="size-3.5" /></span>
-            </Link>
-          );
-        })}
+    <Link
+      href={`/revisiones/${d.id}`}
+      className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40"
+    >
+      <div className="relative aspect-video w-full overflow-hidden bg-muted/40">
+        {src ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Film className="size-6 text-muted-foreground" />
+          </div>
+        )}
+        <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="flex size-10 items-center justify-center rounded-full bg-white/90 text-foreground shadow-lg">
+            <Play className="size-5 translate-x-0.5 fill-current" />
+          </span>
+        </span>
+        {/* Chip de urgencia (equipo) o de tiempo con el cliente (neutro). */}
+        {neutral ? (
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
+            <Clock className="size-3" /> {sinceLabel(u)}
+          </span>
+        ) : (
+          <span className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${CHIP[u.tier]}`}>
+            <UrgencyIcon className="size-3" /> {teamChip(u)}
+          </span>
+        )}
+        {d._count.reviewComments > 0 ? (
+          <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white">
+            <MessageSquare className="size-3" /> {d._count.reviewComments}
+          </span>
+        ) : null}
+        {dur ? <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{dur}</span> : null}
+        {v ? <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">v{v.number}</span> : null}
       </div>
-    </section>
+
+      <div className="flex flex-1 flex-col gap-2 p-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{d.name}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            <span className="opacity-80">{d.project.emoji ?? "🎬"}</span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
+          </p>
+        </div>
+        <div className="mt-auto flex items-center gap-2">
+          {uploader ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <UserAvatar initials={uploader.initials} color={uploader.avatarColor} size="sm" />
+              <span className="truncate">{uploader.name.split(" ")[0]}</span>
+            </span>
+          ) : <span />}
+          <span className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium ${primary ? "bg-primary text-primary-foreground group-hover:bg-primary/90" : "border border-border text-primary"}`}>
+            {cta} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </div>
+      </div>
+    </Link>
   );
 }
