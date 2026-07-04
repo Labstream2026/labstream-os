@@ -129,10 +129,12 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   React.useEffect(() => () => emitCalendarDetail(null), []);
 
   // Arranca un arrastre (mover el bloque o redimensionar por el borde inferior).
-  const beginDrag = (e: React.MouseEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize") => {
+  const beginDrag = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize") => {
     if (e.button !== 0 || !isMovable(p.it) || !gridRef.current) return;
     e.preventDefault();
     e.stopPropagation();
+    // Captura el puntero: el arrastre sigue al dedo/cursor aunque salga del bloque (móvil incluido).
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
     const rect = gridRef.current.getBoundingClientRect();
     const colW = (rect.width - GUTTER) / dayCount;
     const init: Live = { dayIndex, topMin: p.topMin, endMin: p.endMin, moved: false };
@@ -141,10 +143,12 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     setDrag({ id: p.it.id, eventId: p.it.eventId ?? null, taskId: p.it.taskId ?? null, mode, startY: e.clientY, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false });
   };
 
-  // Mientras hay arrastre: seguir el puntero (snap 15 min) y, al soltar, guardar.
+  // Mientras hay arrastre: seguir el puntero (snap 15 min) y, al soltar, guardar. Se usan POINTER
+  // events (no mouse) para que el arrastre funcione también con el DEDO en móvil/tablet; el
+  // bloque lleva touch-action:none para que arrastrarlo no haga scroll de la rejilla.
   React.useEffect(() => {
     if (!drag) return;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const dyMin = Math.round(((e.clientY - drag.startY) / HOUR_H * 60) / SNAP) * SNAP;
       let dayIndex = drag.origDayIndex, topMin = drag.origTopMin, endMin = drag.origTopMin + drag.origDur;
       if (drag.mode === "move") {
@@ -179,9 +183,16 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
         else if (d.taskId) void moveMyTask(d.taskId, ns.toISOString());
       });
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    // pointercancel (p. ej. el navegador toma el gesto para hacer scroll): aborta sin reprogramar.
+    const onCancel = () => { setDrag(null); setPreview(null); liveRef.current = null; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
   }, [drag, days, startMove]);
 
   // Clasifica cada item por día: cronometrado (evento con hora) vs todo-el-día (tareas, rodajes, eventos all-day).
@@ -315,7 +326,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       return (
                         <button
                           key={p.it.id}
-                          onMouseDown={draggable ? (e) => beginDrag(e, p, dayIndex, "move") : undefined}
+                          onPointerDown={draggable ? (e) => beginDrag(e, p, dayIndex, "move") : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (suppressClick.current) { suppressClick.current = false; return; }
@@ -327,15 +338,15 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                             draggable && "cursor-grab active:cursor-grabbing",
                             isDragging && "opacity-40",
                           )}
-                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff" }}
+                          style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff", touchAction: draggable ? "none" : undefined }}
                           title={draggable ? (canResize ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : `${p.it.title} · arrastra para reprogramar`) : p.it.title}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
                           {draggable && canResize ? (
                             <span
-                              onMouseDown={(e) => beginDrag(e, p, dayIndex, "resize")}
+                              onPointerDown={(e) => beginDrag(e, p, dayIndex, "resize")}
                               className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100"
-                              style={{ background: "rgba(255,255,255,0.35)" }}
+                              style={{ background: "rgba(255,255,255,0.35)", touchAction: "none" }}
                             />
                           ) : null}
                         </button>
