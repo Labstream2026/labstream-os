@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
@@ -15,8 +17,12 @@ const accessSelect = {
   members: { select: { userId: true, role: true } },
 } as const;
 
-// Sirve un archivo LOCAL de proyecto (FileAsset). Acceso: token firmado (Document
-// Server de OnlyOffice, sin cookie) o usuario con sesión y acceso al proyecto.
+const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|ogv|webm)$/i;
+
+// Sirve un archivo LOCAL de proyecto (FileAsset). Acceso: token firmado (Document Server de
+// OnlyOffice / reproductor de revisión, sin cookie) o usuario con sesión y acceso al proyecto.
+// Soporta HTTP Range (206) para que el <video> del reproductor reproduzca y busque —iOS Safari
+// EXIGE Range para reproducir vídeo, y sin reproducción no hay fotograma que capturar—.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const url = new URL(req.url);
@@ -34,40 +40,69 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (!canAccessProject(file.project, session)) return new NextResponse("Prohibido", { status: 403 });
   }
 
-  const download = url.searchParams.get("download");
+  const wantInline = !url.searchParams.get("download");
 
-  // Previsualización (inline) → derivado WebP si existe; descarga → original.
-  let buf: Buffer | null = null;
-  let contentType = mimeFor(file.name, file.mime);
-  if (!download) {
+  // Tipo de contenido: se PREFIERE el mime guardado si es de video (mimeFor mapea webm/ogg a
+  // AUDIO, lo que rompería un webm de VIDEO); si no, la tabla por extensión.
+  const contentType = file.mime && file.mime.startsWith("video/") ? file.mime : mimeFor(file.name, file.mime);
+  const isVideo = contentType.startsWith("video/") || VIDEO_EXT.test(file.name);
+
+  // Previsualización inline: derivado WebP si existe. NUNCA para video (serviría una imagen en
+  // vez del video y el <video> no reproduciría). Se sirve completo (las miniaturas son pequeñas).
+  if (wantInline && !isVideo) {
     try {
-      buf = await fs.readFile(absPath(previewRel(file.path)));
-      contentType = "image/webp";
+      const webp = await fs.readFile(absPath(previewRel(file.path)));
+      return new NextResponse(new Uint8Array(webp), {
+        headers: {
+          "Content-Type": "image/webp",
+          "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "private, no-store",
+        },
+      });
     } catch {
-      buf = null;
+      /* sin preview → sigue con el original */
     }
   }
-  if (!buf) {
-    try {
-      buf = await fs.readFile(absPath(file.path));
-    } catch {
-      return new NextResponse("Archivo no disponible", { status: 404 });
-    }
-  }
 
-  // Solo servimos inline con el mime real si es un tipo seguro (imágenes/PDF);
-  // cualquier otra cosa se fuerza a descarga como octet-stream para evitar que el
-  // navegador ejecute contenido (p. ej. SVG/HTML con Content-Type del cliente).
-  const wantInline = !download;
-  const inline = wantInline && isInlineSafeMime(contentType);
-  const disposition = inline ? "inline" : "attachment";
+  let abs: string;
+  try { abs = absPath(file.path); } catch { return new NextResponse("Ruta inválida", { status: 400 }); }
+  let size: number;
+  try { size = (await fs.stat(abs)).size; } catch { return new NextResponse("Archivo no disponible", { status: 404 }); }
+
+  // Inline solo para tipos seguros (imágenes/PDF/audio/VIDEO, que no ejecutan); el resto se
+  // fuerza a descarga como octet-stream para evitar XSS vía Content-Type controlado por el cliente.
+  const inline = wantInline && (isInlineSafeMime(contentType) || isVideo);
   const outType = inline ? contentType : "application/octet-stream";
-  return new NextResponse(new Uint8Array(buf), {
-    headers: {
-      "Content-Type": outType,
-      "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, no-store",
-    },
-  });
+  const disposition = inline ? "inline" : "attachment";
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": outType,
+    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+    "Accept-Ranges": "bytes",
+  };
+
+  // Petición con Range (seek + reproducción en iOS): se responde 206 con el trozo pedido (streaming,
+  // sin cargar el archivo entero en memoria).
+  const rangeHeader = req.headers.get("range");
+  const m = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
+  if (m && size > 0) {
+    let start = m[1] ? parseInt(m[1], 10) : 0;
+    let end = m[2] ? parseInt(m[2], 10) : size - 1;
+    if (!Number.isFinite(start) || start < 0) start = 0;
+    if (!Number.isFinite(end) || end >= size) end = size - 1;
+    if (start > end || start >= size) {
+      return new NextResponse("Rango no satisfacible", { status: 416, headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });
+    }
+    const stream = Readable.toWeb(createReadStream(abs, { start, end })) as unknown as ReadableStream;
+    return new NextResponse(stream, {
+      status: 206,
+      headers: { ...baseHeaders, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
+    });
+  }
+
+  // Sin Range: archivo completo, anunciando Accept-Ranges para que el navegador pueda pedir trozos.
+  const stream = Readable.toWeb(createReadStream(abs)) as unknown as ReadableStream;
+  return new NextResponse(stream, { status: 200, headers: { ...baseHeaders, "Content-Length": String(size) } });
 }

@@ -96,6 +96,13 @@ const MIME: Record<string, string> = {
   m4a: "audio/mp4",
   mp3: "audio/mpeg",
   wav: "audio/wav",
+  // Video (masters subidos al NAS para revisión). Sin esto mimeFor devolvía octet-stream y el
+  // <video> no reproducía → no se podía capturar el fotograma ni leer el segundo.
+  mp4: "video/mp4",
+  m4v: "video/x-m4v",
+  mov: "video/quicktime",
+  mkv: "video/x-matroska",
+  ogv: "video/ogg",
 };
 
 export function extOf(name: string) {
@@ -122,6 +129,15 @@ const INLINE_SAFE_MIME = new Set([
   "audio/mp4",
   "audio/mpeg",
   "audio/wav",
+  // Video: seguro de servir en línea (no ejecuta como SVG/HTML). NECESARIO para que el <video>
+  // del reproductor de revisión reproduzca los masters del NAS (si no, se sirven como octet-stream
+  // y no se pueden reproducir ni, por tanto, capturar el fotograma).
+  "video/mp4",
+  "video/webm",
+  "video/ogg",
+  "video/quicktime",
+  "video/x-m4v",
+  "video/x-matroska",
 ]);
 
 export function isInlineSafeMime(mime: string): boolean {
