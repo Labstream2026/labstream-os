@@ -223,6 +223,7 @@ export function ReviewClient({
   coverDecisionNote = null,
   renditions = [],
   downloadUrl,
+  immersiveEligible = false,
 }: {
   token: string;
   versions: StageVersion[];
@@ -230,6 +231,8 @@ export function ReviewClient({
   status: string;
   allowDrawings: boolean;
   orientation?: "vertical" | "horizontal";
+  // Formato «Reel celular»: player de pantalla completa en el celular del cliente.
+  immersiveEligible?: boolean;
   deliverableName: string;
   projectName: string;
   projectEmoji: string | null;
@@ -358,6 +361,7 @@ export function ReviewClient({
         status={status}
         allowDrawings={allowDrawings}
         orientation={orientation}
+        immersiveEligible={immersiveEligible}
         defaultName={name || "Cliente"}
         fixedName
         decision={{ approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}

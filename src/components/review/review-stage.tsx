@@ -88,6 +88,7 @@ export function ReviewStage({
   onResolve,
   onEdit,
   onDelete,
+  immersiveEligible = false,
 }: {
   versions: StageVersion[];
   comments: StageComment[];
@@ -117,6 +118,10 @@ export function ReviewStage({
   // pasan, no se muestran los controles.
   onEdit?: (commentId: string, body: string) => Promise<void>;
   onDelete?: (commentId: string) => Promise<void>;
+  // Formato «Reel celular»: SOLO el portal del cliente lo pasa en true (y solo para
+  // entregables REEL_CELULAR). Activa el player de pantalla completa en el celular;
+  // la pre-aprobación interna y el escritorio siguen con la vista normal.
+  immersiveEligible?: boolean;
 }) {
   const [vIdx, setVIdx] = React.useState(0);
   const version = versions[vIdx] ?? versions[0];
@@ -318,11 +323,10 @@ export function ReviewStage({
   // la burbuja pausa el video, congela el segundo y abre una hoja compacta. Al enviar, la
   // captura del fotograma es AUTOMÁTICA (capture() del reproductor, con el texto quemado);
   // dibujar es lo único opcional. Las correcciones existentes son puntos en la barra.
-  // Modo pantalla completa (inmersivo) DESACTIVADO a petición del usuario: se sospechaba que
-  // interfería con la captura del fotograma/segundo en el celular. Con esto el reproductor queda
-  // como antes en TODOS lados (video + comentarios debajo); nunca entra a pantalla completa
-  // (la auto-entrada, el botón «⛶ Pantalla completa» y el overlay quedan inactivos).
-  const immersiveCapable = false;
+  // Pantalla completa SOLO para el formato «Reel celular» en el portal del cliente
+  // (immersiveEligible) y siempre vertical. Los formatos Video vertical/horizontal y toda la
+  // pre-aprobación interna usan la vista normal — decisión del usuario (2026-07-04).
+  const immersiveCapable = immersiveEligible && vertical && mode === "client";
   const [immersive, setImmersive] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [sheetSent, setSheetSent] = React.useState(false);
@@ -535,7 +539,7 @@ export function ReviewStage({
           {/* Herramientas */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {immersiveCapable ? (
-              <button onClick={() => setImmersive(true)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Ver el reel a pantalla completa y corregir con la burbuja">⛶ Pantalla completa</button>
+              <button onClick={() => setImmersive(true)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent md:hidden" title="Ver el reel a pantalla completa y corregir con la burbuja">⛶ Pantalla completa</button>
             ) : null}
             {version?.openUrl ? (
               <a href={version.openUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">Abrir original ↗</a>

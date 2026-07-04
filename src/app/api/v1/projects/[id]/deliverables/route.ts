@@ -54,7 +54,7 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rout
   const name = str(body.name).slice(0, 200);
   if (!name) return apiJson({ ok: false, error: "Falta name." }, 400);
   const typeRaw = str(body.type) || "REEL";
-  if (!isDeliverableType(typeRaw)) return apiJson({ ok: false, error: `type inválido (${typeRaw}). Usa REEL, SHORT, VIDEO_LARGO, FOTOGRAFIA, PODCAST, TEASER, DOCUMENTO u OTRO.` }, 400);
+  if (!isDeliverableType(typeRaw)) return apiJson({ ok: false, error: `type inválido (${typeRaw}). Usa REEL, VIDEO_LARGO, REEL_CELULAR, FOTOGRAFIA, SHORT, PODCAST, TEASER, DOCUMENTO u OTRO.` }, 400);
   const dueRaw = str(body.dueDate);
   if (dueRaw && !isYmd(dueRaw)) return apiJson({ ok: false, error: 'dueDate debe ser "YYYY-MM-DD".' }, 400);
 

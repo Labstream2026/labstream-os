@@ -197,12 +197,15 @@ export const DELIVERABLE_TYPE: Record<string, string> = {
   DOCUMENTO: "Video horizontal",
   OTRO: "Video horizontal",
   FOTOGRAFIA: "Fotografía",
+  REEL_CELULAR: "Reel celular",
 };
 
-// Formatos OFRECIDOS al crear/cambiar un entregable de video: SOLO vertical y horizontal.
+// Formatos OFRECIDOS al crear/cambiar un entregable de video: vertical, horizontal y
+// "Reel celular" (vertical que el CLIENTE ve a pantalla completa en su celular).
 export const DELIVERABLE_TYPE_OPTIONS: [string, string][] = [
   ["REEL", "Video vertical"],
   ["VIDEO_LARGO", "Video horizontal"],
+  ["REEL_CELULAR", "Reel celular"],
 ];
 
 // Orientación del material según el tipo de entregable: reels y shorts son verticales
@@ -212,7 +215,7 @@ export const DELIVERABLE_TYPE_OPTIONS: [string, string][] = [
 // que predefine cómo se visualiza la revisión.
 export type MediaOrientation = "vertical" | "horizontal";
 export function deliverableOrientation(type: string | null | undefined): MediaOrientation {
-  return type === "REEL" || type === "SHORT" ? "vertical" : "horizontal";
+  return type === "REEL" || type === "SHORT" || type === "REEL_CELULAR" ? "vertical" : "horizontal";
 }
 
 // Segundo de un video → "m:ss" o, para masters largos (≥ 1 h, videos de 2–5 h), "h:mm:ss".

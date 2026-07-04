@@ -1408,6 +1408,10 @@ enum DeliverableType {
   TEASER
   DOCUMENTO
   OTRO
+  // Reel para ver en el CELULAR del cliente: vertical, con player de pantalla completa
+  // (tipo TikTok) SOLO en el portal del cliente en móvil; la pre-aprobación interna y el
+  // escritorio usan la vista normal.
+  REEL_CELULAR
 }
 
 enum DeliverableStatus {

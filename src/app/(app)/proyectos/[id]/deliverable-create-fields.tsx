@@ -4,7 +4,7 @@ import * as React from "react";
 
 // Tipos de entregable que son "reel" (vertical 9:16). La portada solo acompaña a los reels,
 // así que el campo de portada del formulario de subida solo aparece cuando se elige uno de estos.
-const REEL_TYPES = new Set(["REEL", "SHORT"]);
+const REEL_TYPES = new Set(["REEL", "SHORT", "REEL_CELULAR"]);
 
 // Selector de tipo + campo de portada del formulario "Subir para revisión". El campo de portada
 // se muestra únicamente cuando el tipo elegido es un reel, para que el editor no vea opciones que

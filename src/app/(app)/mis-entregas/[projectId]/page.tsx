@@ -23,7 +23,7 @@ const STATUS: Record<string, { label: string; className: string }> = {
 };
 
 // Orden de los bloques por tipo dentro de la campaña.
-const TYPE_ORDER = ["REEL", "SHORT", "VIDEO_LARGO", "FOTOGRAFIA", "PODCAST", "TEASER", "DOCUMENTO", "OTRO"];
+const TYPE_ORDER = ["REEL", "REEL_CELULAR", "SHORT", "VIDEO_LARGO", "FOTOGRAFIA", "PODCAST", "TEASER", "DOCUMENTO", "OTRO"];
 
 // Vista de una CAMPAÑA para el cliente: sus piezas organizadas por bloque (tipo). Cada pieza
 // abre la sala de revisión completa (/review con token firmado) — el mismo motor con comentario
