@@ -318,7 +318,11 @@ export function ReviewStage({
   // la burbuja pausa el video, congela el segundo y abre una hoja compacta. Al enviar, la
   // captura del fotograma es AUTOMÁTICA (capture() del reproductor, con el texto quemado);
   // dibujar es lo único opcional. Las correcciones existentes son puntos en la barra.
-  const immersiveCapable = vertical;
+  // Modo pantalla completa (inmersivo) DESACTIVADO a petición del usuario: se sospechaba que
+  // interfería con la captura del fotograma/segundo en el celular. Con esto el reproductor queda
+  // como antes en TODOS lados (video + comentarios debajo); nunca entra a pantalla completa
+  // (la auto-entrada, el botón «⛶ Pantalla completa» y el overlay quedan inactivos).
+  const immersiveCapable = false;
   const [immersive, setImmersive] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [sheetSent, setSheetSent] = React.useState(false);
