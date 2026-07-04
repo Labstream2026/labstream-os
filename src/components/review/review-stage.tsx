@@ -238,11 +238,15 @@ export function ReviewStage({
   const submitMoment = () => {
     if (!body.trim() && !drawing) return;
     if (!fixedName) localStorage.setItem("review_name", name);
-    // Segundo del video: el del fotograma ACTUAL (que es justo el que se captura abajo), con
-    // respaldo al marcado. Así el segundo guardado y la imagen capturada siempre coinciden.
+    // Se PAUSA antes de leer: así el segundo y el fotograma se toman del MISMO instante (si el
+    // video sigue corriendo, el segundo guardado y la imagen capturada no coincidirían).
+    playerRef.current?.pause();
+    // Segundo del video: el actual (ya pausado); respaldo al minuto escrito a mano (fuentes que no
+    // permiten leer el segundo). Así el segundo guardado y la imagen capturada coinciden.
     const at = playerRef.current?.getTime() ?? tc ?? null;
-    // Imagen a guardar: el dibujo manual si existe; si no, captura automática del frame
-    // con el texto del comentario quemado encima (cuando la fuente lo permite).
+    // Imagen a guardar: el dibujo manual si existe; si no, la captura automática del frame REAL con
+    // el texto del comentario quemado encima. Si la fuente no se puede capturar, capture() devuelve
+    // null (NUNCA un frame negro) y el comentario se guarda solo con el segundo.
     const image = drawing ?? playerRef.current?.capture(body.trim() || undefined) ?? null;
     const fd = new FormData();
     fd.set("authorName", name || defaultName);
@@ -353,15 +357,17 @@ export function ReviewStage({
   );
   const closeSheet = React.useCallback(() => setSheetOpen(false), []);
 
-  // En celular, el CLIENTE entra DIRECTO en inmersivo (el tour de bienvenida renderiza con
-  // z-index por encima del overlay, así que en la primera visita se ve el tour y al cerrarlo
-  // ya está en pantalla completa). El equipo (pre-aprobación interna) entra con el botón.
+  // En celular, cualquier reel VERTICAL entra DIRECTO en pantalla completa —tanto el cliente como
+  // el equipo (pre-aprobación interna)—, porque abrir la revisión desde el móvil es el caso normal
+  // y ese modo hay que detectarlo solo. (El tour del cliente renderiza por encima del overlay, así
+  // que en la primera visita se ve el tour y al cerrarlo ya queda en pantalla completa.) Los
+  // horizontales NO entran: quedan en la vista normal (video arriba, comentarios abajo).
   React.useEffect(() => {
-    if (!immersiveCapable || mode !== "client") return;
+    if (!immersiveCapable) return;
     try {
       if (window.matchMedia("(max-width: 768px)").matches) setImmersive(true);
     } catch { /* noop */ }
-  }, [immersiveCapable, mode]);
+  }, [immersiveCapable]);
 
   // Bloquea el scroll del fondo mientras el overlay cubre la pantalla.
   React.useEffect(() => {
@@ -1560,12 +1566,12 @@ function composite(
   const g = cv.getContext("2d"); if (!g) return null;
   let drew = false;
   if (source && natW) { try { g.drawImage(source, 0, 0, cw, ch); drew = true; } catch { /* lienzo contaminado por CORS */ } }
-  // Sin fotograma real (fuente ausente, o bloqueada por CORS) y sin texto que mostrar: NO fabricamos
-  // un frame NEGRO con solo los trazos encima (era el bug de la «captura en negro» al anotar sobre el
-  // iframe de Google). Devolvemos null para no guardar una captura sin sentido; el usuario tiene la
-  // opción de pegar/subir una captura del momento para anotarla.
-  if (!drew && !caption) return null;
-  if (!drew) { g.fillStyle = "#0f172a"; g.fillRect(0, 0, cw, ch); }
+  // Sin fotograma REAL no fabricamos una imagen. Rellenar un frame negro (aunque sea con el texto
+  // del comentario o los trazos encima) ERA exactamente la «captura en negro» que se guardaba
+  // cuando la fuente no se puede leer (iframe de Drive cross-origin, o el <video> aún sin decodificar).
+  // Devolvemos null → el comentario se guarda con su segundo pero SIN imagen; para anotar sobre una
+  // fuente no capturable se pega/sube una captura con ✏️ Dibujar.
+  if (!drew) return null;
   // Trazos (escalados desde el tamaño del lienzo en pantalla al del canvas final).
   if (strokes.length && box.w && box.h) {
     const sx = cw / box.w, sy = ch / box.h;
