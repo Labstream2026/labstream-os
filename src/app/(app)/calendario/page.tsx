@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, canWriteProject, hasFullAccess } from "@/lib/project-access";
 import { CalendarBoard } from "./calendar-board";
 import { type CalItem } from "./my-calendar";
 import { dueDateTimeISO } from "./build-items";
@@ -104,6 +104,8 @@ export default async function CalendarioPage() {
       id: `e-${e.id}`,
       eventId: e.id,
       canEdit: e.createdById === session?.id && e.source === "app",
+      // Mover el bloque (arrastrar) lo puede hacer el creador o un admin/productor; notifica a los citados.
+      canMoveEvent: e.source === "app" && (e.createdById === session?.id || hasFullAccess(session)),
       canRsvp: Boolean(mine) && e.source === "app",
       myStatus: mine?.status ?? null,
       attendeeIds: e.attendees.map((a) => a.userId),
@@ -130,6 +132,10 @@ export default async function CalendarioPage() {
       const iso = timed ?? t.dueDate!.toISOString();
       return {
         id: `t-${t.id}`,
+        taskId: t.id,
+        // Reprogramar la tarea arrastrando su bloque: dueño/asignado, admin/productor o quien
+        // puede escribir en su proyecto.
+        canMoveTask: mine(t) || hasFullAccess(session) || (!!t.project && canWriteProject(t.project, session)),
         title: t.title,
         date: iso,
         start: iso,

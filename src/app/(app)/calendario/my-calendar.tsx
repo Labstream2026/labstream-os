@@ -36,6 +36,10 @@ export type CalItem = {
   // ── RSVP (solo eventos donde el usuario actual es invitado) ──
   canRsvp?: boolean; // el usuario actual es asistente de esta cita → puede responder
   myStatus?: string | null; // su respuesta actual: ACCEPTED | DECLINED | TENTATIVE | null (sin responder)
+  // ── Mover el bloque en la vista Semana/Día (arrastrar para reprogramar) ──
+  taskId?: string; // id real de la tarea (para reprogramar su fecha/hora al arrastrar el bloque)
+  canMoveTask?: boolean; // el usuario puede reprogramar esta tarea (dueño/asignado/gestor del proyecto)
+  canMoveEvent?: boolean; // el usuario puede MOVER esta cita (creador o admin/productor); notifica a los citados
 };
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];

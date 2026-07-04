@@ -4,7 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
 import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
-import { moveMyEvent } from "./actions";
+import { moveMyEvent, moveMyTask } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 import { holidayName } from "@/lib/holidays-co";
 
@@ -76,10 +76,17 @@ function layoutDay(timed: { it: CalItem; topMin: number; endMin: number }[]): Po
 }
 
 type Drag = {
-  id: string; eventId: string; mode: "move" | "resize";
+  // Exactamente uno de eventId/taskId: el bloque arrastrado es una cita o una tarea.
+  id: string; eventId: string | null; taskId: string | null; mode: "move" | "resize";
   startY: number; origTopMin: number; origDur: number; origDayIndex: number;
   gridLeft: number; colW: number; moved: boolean;
 };
+
+// ¿Se puede arrastrar el bloque? Citas: creador o admin/productor (canMoveEvent). Tareas: dueño/
+// asignado/gestor (canMoveTask). Las tareas se MUEVEN pero no se redimensionan (no tienen duración).
+function isMovable(it: CalItem): boolean {
+  return Boolean((it.eventId && (it.canEdit || it.canMoveEvent)) || (it.taskId && it.canMoveTask));
+}
 type Live = { dayIndex: number; topMin: number; endMin: number; moved: boolean };
 
 export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo", anchor: anchorProp, onAnchorChange, days: dayCountProp = 7 }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy; anchor?: Date; onAnchorChange?: (d: Date) => void; days?: number }) {
@@ -123,7 +130,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
   // Arranca un arrastre (mover el bloque o redimensionar por el borde inferior).
   const beginDrag = (e: React.MouseEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize") => {
-    if (e.button !== 0 || !p.it.canEdit || !p.it.eventId || !gridRef.current) return;
+    if (e.button !== 0 || !isMovable(p.it) || !gridRef.current) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = gridRef.current.getBoundingClientRect();
@@ -131,7 +138,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     const init: Live = { dayIndex, topMin: p.topMin, endMin: p.endMin, moved: false };
     liveRef.current = init;
     setPreview(init);
-    setDrag({ id: p.it.id, eventId: p.it.eventId, mode, startY: e.clientY, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false });
+    setDrag({ id: p.it.id, eventId: p.it.eventId ?? null, taskId: p.it.taskId ?? null, mode, startY: e.clientY, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false });
   };
 
   // Mientras hay arrastre: seguir el puntero (snap 15 min) y, al soltar, guardar.
@@ -166,7 +173,11 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
       ns.setUTCMinutes(live.topMin);
       const ne = new Date(Date.UTC(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0));
       ne.setUTCMinutes(live.endMin);
-      startMove(() => { void moveMyEvent(d.eventId, ns.toISOString(), ne.toISOString()); });
+      startMove(() => {
+        // Cita → mueve inicio+fin (y notifica a los citados). Tarea → reprograma su fecha/hora.
+        if (d.eventId) void moveMyEvent(d.eventId, ns.toISOString(), ne.toISOString());
+        else if (d.taskId) void moveMyTask(d.taskId, ns.toISOString());
+      });
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -298,7 +309,8 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       const top = (p.topMin / 60) * HOUR_H;
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       const tiny = height < 30; // bloques muy cortos: una sola línea
-                      const draggable = Boolean(p.it.canEdit && p.it.eventId);
+                      const draggable = isMovable(p.it);
+                      const canResize = Boolean(p.it.eventId); // solo las citas tienen duración; las tareas se mueven pero no se redimensionan
                       const isDragging = drag?.id === p.it.id;
                       return (
                         <button
@@ -316,10 +328,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                             isDragging && "opacity-40",
                           )}
                           style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff" }}
-                          title={draggable ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : p.it.title}>
+                          title={draggable ? (canResize ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : `${p.it.title} · arrastra para reprogramar`) : p.it.title}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
-                          {draggable ? (
+                          {draggable && canResize ? (
                             <span
                               onMouseDown={(e) => beginDrag(e, p, dayIndex, "resize")}
                               className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100"

@@ -4,7 +4,7 @@ import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { userCanAccessProject } from "@/lib/project-access";
+import { userCanAccessProject, hasFullAccess, canWriteProject } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
 import { pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
 import { createCalendarEventCore } from "@/lib/calendar-create";
@@ -197,7 +197,9 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
   const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true, title: true, attendees: { select: { userId: true } } } });
   if (!event) return;
-  if (event.createdById !== session.id || event.source !== "app") noAutorizado();
+  // Puede MOVER la cita el creador o un admin/productor (para reorganizar la agenda del equipo).
+  // La edición/borrado siguen siendo solo del creador. Las citas importadas (Synology) no se mueven.
+  if (event.source !== "app" || (event.createdById !== session.id && !hasFullAccess(session))) noAutorizado();
   const start = new Date(startIso);
   if (Number.isNaN(start.getTime())) return;
   const end = endIso ? new Date(endIso) : null;
@@ -213,6 +215,47 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
     if (a.userId === session.id) continue;
     await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id });
   }
+  revalidatePath("/calendario");
+}
+
+// Reprograma una TAREA arrastrando su bloque en la vista Semana/Día del calendario: cambia su
+// fecha de entrega (dueDate) y su hora (dueTime), y avisa a los "citados" de la tarea (asignado y
+// dueño) que se movió. Permiso: dueño/asignado de la tarea, admin/productor, o quien puede escribir
+// en su proyecto. Convención de fechas: los campos UTC del ISO recibido SON la hora de pared.
+export async function moveMyTask(taskId: string, startIso: string): Promise<void> {
+  const session = await getSession();
+  if (!session) noAutorizado();
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(startIso);
+  if (!m) return;
+  const [, date, time] = m;
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      title: true, projectId: true, ownerId: true, assigneeId: true,
+      project: { select: { name: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
+    },
+  });
+  if (!task) return;
+  const mayMove =
+    task.ownerId === session!.id ||
+    task.assigneeId === session!.id ||
+    hasFullAccess(session) ||
+    (!!task.project && canWriteProject(task.project, session));
+  if (!mayMove) noAutorizado();
+  // dueDate = día anclado a mediodía UTC; dueTime = "HH:mm" (la tarea sigue mostrándose a esa hora).
+  await db.task.update({ where: { id: taskId }, data: { dueDate: new Date(`${date}T12:00:00.000Z`), dueTime: time } });
+  // Avisar a los citados (asignado + dueño), menos a quien la movió.
+  const when = new Date(`${date}T${time}:00.000Z`).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  const recipients = [...new Set([task.assigneeId, task.ownerId].filter((x): x is string => !!x && x !== session!.id))];
+  for (const uid of recipients) {
+    await notifyAndEmail(uid, {
+      type: "task", event: "task_moved",
+      title: `Se reprogramó: ${task.title}`,
+      body: `${session!.name} la movió · ${when}${task.project ? ` en «${task.project.name}»` : ""}`,
+      link: "/calendario", actorId: session!.id,
+    }).catch(() => null);
+  }
+  if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
   revalidatePath("/calendario");
 }
 
