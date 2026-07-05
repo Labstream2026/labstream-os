@@ -137,6 +137,7 @@ model User {
   whatsappMessages   WhatsappMessage[]
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
+  taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
   permissionOverrides UserPermission[]
@@ -1335,6 +1336,9 @@ model Task {
   checklist     ChecklistItem[]
   comments      TaskComment[]
   timeEntries   TimeEntry[]
+  tags          TaskTag[]
+  links         TaskLink[]
+  watchers      TaskWatcher[]
   myDayItems    MyDayItem[]
   // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
   equipmentPlan EquipmentPlan?  @relation("EquipPlanTask")
@@ -1393,6 +1397,44 @@ model ChecklistItem {
   position Int     @default(0)
   task     Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId   String
+}
+
+// Etiqueta de una tarea (clasificación libre por tarea: «anuncio», «orgánico», cliente…). El color
+// es un tono de la paleta (src/lib/colors.ts). Se muestran como chips en la tarjeta y en el detalle.
+model TaskTag {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  label     String
+  color     String   @default("slate")
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+// Enlace / referencia de una tarea (ej. el reel de Instagram, un archivo de Drive). Adjunto por URL,
+// para no pegar el enlace dentro del título/descripción.
+model TaskLink {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  url       String
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+// Seguidor de una tarea: recibe los avisos (notas, cambios) aunque no sea responsable ni dueño.
+model TaskWatcher {
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────

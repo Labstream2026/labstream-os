@@ -16,6 +16,7 @@ import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
+import { TONE_MAP } from "@/lib/colors";
 import { validateAssignee } from "@/lib/task-assign";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { statusLabelOf } from "@/lib/workflow-labels";
@@ -917,6 +918,9 @@ export async function addTaskComment(taskId: string, _projectId: string, formDat
   // TODOS los involucrados, no solo con responsable/dueño (antes "a veces no se enteraban").
   const priorAuthors = await db.taskComment.findMany({ where: { taskId, authorId: { not: null } }, select: { authorId: true }, distinct: ["authorId"] });
   for (const p of priorAuthors) if (p.authorId) recipients.add(p.authorId);
+  // …y a los SEGUIDORES de la tarea (se apuntaron para enterarse aunque no sean responsable/dueño).
+  const watchers = await db.taskWatcher.findMany({ where: { taskId }, select: { userId: true } });
+  for (const w of watchers) recipients.add(w.userId);
   recipients.delete(session?.id ?? "");
   for (const userId of recipients) {
     await notify(userId, { type: "task", event: "task_comment", title: `Comentario en «${task!.title}»`, body: body.slice(0, 140), link, actorId: session?.id });
@@ -941,6 +945,72 @@ export async function deleteTaskComment(commentId: string): Promise<void> {
   if (!(session.role === "admin" || c.authorId === session.id)) noAutorizado();
   await db.taskComment.delete({ where: { id: commentId } });
   refresh(c.task.projectId);
+}
+
+// ── Etiquetas de tarea ── (clasificación libre por tarea; color = tono de la paleta)
+export async function addTaskTag(taskId: string, _projectId: string, formData: FormData) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const label = String(formData.get("label") ?? "").trim().slice(0, 40);
+  const rawColor = String(formData.get("color") ?? "").trim();
+  const color = TONE_MAP[rawColor] ? rawColor : "slate";
+  if (!label) return;
+  await db.taskTag.create({ data: { taskId, label, color } });
+  refresh(projectId);
+}
+export async function removeTaskTag(tagId: string, _projectId: string) {
+  const tag = await db.taskTag.findUnique({ where: { id: tagId }, select: { task: { select: taskAccessSelect } } });
+  if (!tag) return;
+  const projectId = await ensureAccessVia(tag.task);
+  await db.taskTag.delete({ where: { id: tagId } });
+  refresh(projectId);
+}
+
+// ── Enlaces / referencias de tarea ── (adjuntos por URL: reel, Drive, etc.)
+export type TaskLinkItem = { id: string; url: string; label: string | null };
+export async function getTaskLinks(taskId: string): Promise<TaskLinkItem[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  await ensureAccessVia(task, null);
+  const rows = await db.taskLink.findMany({ where: { taskId }, orderBy: { createdAt: "asc" } });
+  return rows.map((l) => ({ id: l.id, url: l.url, label: l.label }));
+}
+export async function addTaskLink(taskId: string, _projectId: string, formData: FormData): Promise<TaskLinkItem | null> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  const url = safeExternalUrl(String(formData.get("url") ?? ""));
+  if (!url) return null;
+  const label = String(formData.get("label") ?? "").trim().slice(0, 120) || null;
+  const l = await db.taskLink.create({ data: { taskId, url, label } });
+  refresh(projectId);
+  return { id: l.id, url: l.url, label: l.label };
+}
+export async function removeTaskLink(linkId: string, _projectId: string) {
+  const link = await db.taskLink.findUnique({ where: { id: linkId }, select: { task: { select: taskAccessSelect } } });
+  if (!link) return;
+  const projectId = await ensureAccessVia(link.task);
+  await db.taskLink.delete({ where: { id: linkId } });
+  refresh(projectId);
+}
+
+// ── Seguidores de tarea ── (reciben los avisos aunque no sean responsable/dueño)
+export type TaskWatcherItem = { id: string; name: string; initials: string | null; color: string | null };
+export async function getTaskWatchers(taskId: string): Promise<TaskWatcherItem[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  await ensureAccessVia(task, null);
+  const rows = await db.taskWatcher.findMany({ where: { taskId }, include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } }, orderBy: { createdAt: "asc" } });
+  return rows.map((w) => ({ id: w.user.id, name: w.user.name, initials: w.user.initials, color: w.user.avatarColor }));
+}
+export async function addTaskWatcher(taskId: string, _projectId: string, userId: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  if (userId) await db.taskWatcher.upsert({ where: { taskId_userId: { taskId, userId } }, create: { taskId, userId }, update: {} });
+  refresh(projectId);
+}
+export async function removeTaskWatcher(taskId: string, _projectId: string, userId: string) {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  const projectId = await ensureAccessVia(task);
+  await db.taskWatcher.deleteMany({ where: { taskId, userId } });
+  refresh(projectId);
 }
 
 // ── Entregables ──

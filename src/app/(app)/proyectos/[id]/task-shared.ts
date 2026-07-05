@@ -23,6 +23,8 @@ export type Task = {
   description?: string | null;
   // Nº de comentarios/notas (para el contador 💬 de la tarjeta).
   commentCount?: number;
+  // Etiquetas (chips de color) de la tarea; se muestran en la tarjeta y el detalle.
+  tags?: { id: string; label: string; color: string }[];
 };
 export type TeamMember = { id: string; name: string; initials: string | null; avatarColor: string | null };
 

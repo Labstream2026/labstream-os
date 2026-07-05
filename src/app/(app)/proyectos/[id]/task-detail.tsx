@@ -31,6 +31,7 @@ import {
   type TimeEntryItem,
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
+import { TaskExtras } from "./task-extras";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatMinutes, minutesToHours, parseHoursToMinutes, todayKey } from "@/lib/timeline";
@@ -219,6 +220,9 @@ export function TaskDetail({
               <input name="label" placeholder="+ Añadir ítem" className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
             </form>
           </div>
+
+          {/* Etiquetas · Enlaces/referencias · Seguidores */}
+          <TaskExtras taskId={task.id} projectId={projectId} team={team} tags={task.tags ?? []} />
 
           {/* Notas / comentarios: hilo COMPARTIDO. Cualquiera que pueda ver la tarea las ve; al
               publicar una, se avisa al responsable, al dueño y a quienes ya participaron. */}

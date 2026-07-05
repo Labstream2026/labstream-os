@@ -373,6 +373,14 @@ function CardContent({
         ) : null}
       </div>
 
+      {t.tags && t.tags.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1 pl-5">
+          {t.tags.map((g) => (
+            <span key={g.id} className={cn("inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium", tone(g.color).chip)}>{g.label}</span>
+          ))}
+        </div>
+      ) : null}
+
       {overlay ? null : (
         <>
           {t.checklist.length > 0 ? (
