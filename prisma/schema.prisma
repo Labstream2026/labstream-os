@@ -1431,6 +1431,9 @@ model Deliverable {
   type      DeliverableType      @default(REEL)
   status    DeliverableStatus    @default(PENDIENTE)
   dueDate   DateTime?
+  // Archivado (gestión del equipo en /revisiones): saca el entregable del inbox activo SIN tocar el
+  // enlace de entrega (sigue vivo hasta que se borre). NULL = no archivado.
+  archivedAt DateTime?
   project   Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId String
   owner     User?                @relation("DeliverableOwner", fields: [ownerId], references: [id])

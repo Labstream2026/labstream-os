@@ -1558,6 +1558,18 @@ export async function setReviewRevoked(deliverableId: string, _projectId: string
   refresh(deliverable.projectId);
 }
 
+// Archivar / desarchivar un entregable desde la bandeja de gestión (/revisiones). Archivar solo lo
+// SACA del inbox activo: NO toca el enlace de entrega (sigue vivo). Para inutilizar el enlace está
+// "Revocar" (setReviewRevoked) o borrar el entregable. Mismo alcance que revocar/borrar (canManage).
+export async function setDeliverableArchived(deliverableId: string, _projectId: string, archived: boolean) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
+  await db.deliverable.update({ where: { id: deliverableId }, data: { archivedAt: archived ? new Date() : null } });
+  await logActivity({ action: "deliverable.archive", summary: archived ? `archivó el entregable «${deliverable.name}»` : `desarchivó el entregable «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  refresh(deliverable.projectId);
+}
+
 // Activar / desactivar el modo dibujos (anotación) en el portal del cliente.
 export async function setReviewDrawings(deliverableId: string, _projectId: string, allow: boolean) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
