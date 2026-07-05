@@ -966,29 +966,37 @@ export async function removeTaskTag(tagId: string, _projectId: string) {
   refresh(projectId);
 }
 
-// ── Enlaces / referencias de tarea ── (adjuntos por URL: reel, Drive, etc.)
-export type TaskLinkItem = { id: string; url: string; label: string | null };
+// ── Enlaces / referencias de tarea ── VIVEN COMO ARCHIVOS del proyecto (FileAsset, kind DRIVE/LINK)
+// ligados a la tarea (taskId): así el mismo enlace aparece en «Archivos» con el chip de su tarea y el
+// cliente invitado lo ve. El `label` se guarda como el nombre del archivo.
+export type TaskLinkItem = { id: string; url: string | null; label: string | null; kind: string };
 export async function getTaskLinks(taskId: string): Promise<TaskLinkItem[]> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   await ensureAccessVia(task, null);
-  const rows = await db.taskLink.findMany({ where: { taskId }, orderBy: { createdAt: "asc" } });
-  return rows.map((l) => ({ id: l.id, url: l.url, label: l.label }));
+  const rows = await db.fileAsset.findMany({ where: { taskId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, url: true, kind: true } });
+  return rows.map((f) => ({ id: f.id, url: f.url, label: f.name, kind: f.kind }));
 }
 export async function addTaskLink(taskId: string, _projectId: string, formData: FormData): Promise<TaskLinkItem | null> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
-  const projectId = await ensureAccessVia(task);
+  // Crear un archivo del proyecto = subir_archivos (con bypass del dueño/asignado de la tarea).
+  const projectId = await ensureAccessVia(task, "subir_archivos");
+  if (!projectId) return null; // las tareas personales (sin proyecto) no tienen sección de Archivos
+  const session = await getSession();
   const url = safeExternalUrl(String(formData.get("url") ?? ""));
   if (!url) return null;
-  const label = String(formData.get("label") ?? "").trim().slice(0, 120) || null;
-  const l = await db.taskLink.create({ data: { taskId, url, label } });
+  const name = String(formData.get("label") ?? "").trim().slice(0, 160) || url;
+  const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
+  const f = await db.fileAsset.create({ data: { projectId, taskId, name, url, kind, uploadedById: session?.id } });
+  await logActivity({ action: "file.link", summary: `añadió el enlace «${name}» a una tarea`, projectId, entityType: "file", entityId: f.id });
   refresh(projectId);
-  return { id: l.id, url: l.url, label: l.label };
+  return { id: f.id, url: f.url, label: f.name, kind: f.kind };
 }
 export async function removeTaskLink(linkId: string, _projectId: string) {
-  const link = await db.taskLink.findUnique({ where: { id: linkId }, select: { task: { select: taskAccessSelect } } });
-  if (!link) return;
-  const projectId = await ensureAccessVia(link.task);
-  await db.taskLink.delete({ where: { id: linkId } });
+  // Solo borra archivos que estén LIGADOS a una tarea (no archivos sueltos del proyecto).
+  const f = await db.fileAsset.findUnique({ where: { id: linkId }, select: { taskId: true, task: { select: taskAccessSelect } } });
+  if (!f?.task) return;
+  const projectId = await ensureAccessVia(f.task);
+  await db.fileAsset.delete({ where: { id: linkId } });
   refresh(projectId);
 }
 

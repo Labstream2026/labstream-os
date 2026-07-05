@@ -1337,7 +1337,8 @@ model Task {
   comments      TaskComment[]
   timeEntries   TimeEntry[]
   tags          TaskTag[]
-  links         TaskLink[]
+  // Archivos/enlaces de referencia ligados a la tarea (viven en Archivos del proyecto).
+  fileAssets    FileAsset[]     @relation("TaskFiles")
   watchers      TaskWatcher[]
   myDayItems    MyDayItem[]
   // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
@@ -1407,19 +1408,6 @@ model TaskTag {
   taskId    String
   label     String
   color     String   @default("slate")
-  createdAt DateTime @default(now())
-
-  @@index([taskId])
-}
-
-// Enlace / referencia de una tarea (ej. el reel de Instagram, un archivo de Drive). Adjunto por URL,
-// para no pegar el enlace dentro del título/descripción.
-model TaskLink {
-  id        String   @id @default(cuid())
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId    String
-  url       String
-  label     String?
   createdAt DateTime @default(now())
 
   @@index([taskId])
@@ -1738,6 +1726,11 @@ model FileAsset {
   projectId    String
   folder       ProjectFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   folderId     String?
+  // Un archivo puede estar LIGADO a una tarea (p. ej. un enlace de referencia que se añadió en la
+  // tarea): aparece en Archivos con el chip de su tarea. SetNull: si la tarea se borra, el archivo
+  // (la referencia) se conserva en Archivos sin el vínculo.
+  task         Task?          @relation("TaskFiles", fields: [taskId], references: [id], onDelete: SetNull)
+  taskId       String?
   uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
   deliverableVersions DeliverableVersion[] @relation("VersionFile")
@@ -1749,6 +1742,7 @@ model FileAsset {
 
   @@index([projectId])
   @@index([folderId])
+  @@index([taskId])
 }
 
 // ─────────────────────────────────────────────

@@ -135,7 +135,7 @@ export function TaskExtras({
 
       {/* Enlaces y referencias */}
       <div className="border-t border-border pt-4">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">Enlaces y referencias</p>
+        <p className="mb-1 text-xs font-medium text-muted-foreground">Enlaces y referencias <span className="font-normal">· también quedan en Archivos, ligados a esta tarea</span></p>
         <div className="space-y-1.5">
           {links === null ? (
             <p className="text-xs text-muted-foreground">Cargando…</p>
@@ -144,8 +144,8 @@ export function TaskExtras({
           ) : (
             links.map((l) => (
               <div key={l.id} className="flex items-center gap-2 text-sm">
-                <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
-                <a href={l.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-primary hover:underline" title={l.url}>{l.label || l.url}</a>
+                <ExternalLink className={cn("size-3.5 shrink-0", l.kind === "DRIVE" ? "text-emerald-600" : "text-muted-foreground")} />
+                <a href={l.url ?? "#"} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-primary hover:underline" title={l.url ?? undefined}>{l.label || l.url}</a>
                 <button type="button" onClick={() => delLink(l.id)} title="Quitar enlace" className="rounded p-1 text-muted-foreground hover:text-destructive">
                   <Trash2 className="size-3.5" />
                 </button>

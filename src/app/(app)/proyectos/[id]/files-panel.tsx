@@ -21,6 +21,7 @@ import {
   HardDrive,
   Copy,
   Check,
+  CheckSquare,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,7 @@ import { addFile, addNasRoute, deleteFile, uploadProjectFiles, createFolder, upd
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmojiSelect } from "@/components/emoji-select";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; task?: { id: string; title: string } | null };
 
 // Botón "Copiar ruta" para rutas de red SMB: el navegador no abre \\servidor\carpeta,
 // así que la copiamos al portapapeles para pegarla en el explorador de archivos.
@@ -247,6 +248,13 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
     <div className={cn("group/file flex items-center gap-2.5 py-2 pr-2 hover:bg-muted/40", indent ? "pl-12" : "pl-3")}>
       <Icon className={cn("size-4 shrink-0", color)} />
       <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+      {/* Chip de la tarea a la que pertenece este archivo/enlace (si se añadió desde una tarea). */}
+      {file.task ? (
+        <a href={`/proyectos/${projectId}?tab=tareas`} title={`Tarea: ${file.task.title}`} className="hidden shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 sm:inline-flex">
+          <CheckSquare className="size-3" />
+          <span className="max-w-[8rem] truncate">{file.task.title}</span>
+        </a>
+      ) : null}
       {file.kind === "NAS" && file.path ? (
         <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block sm:max-w-[16rem]">{file.path}</span>
       ) : null}

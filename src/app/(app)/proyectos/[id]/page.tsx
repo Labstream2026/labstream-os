@@ -90,9 +90,9 @@ export default async function ProyectoPage({
             photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } } } } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } } } } } },
         // Excluye de Archivos los FileAsset que son fotos de entregables (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" } },
+        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } } } },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -564,9 +564,9 @@ export default async function ProyectoPage({
                   icon: f.icon,
                   color: f.color,
                   // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) })),
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task })),
                 }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name) }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task }))}
               />
             </section>
           </div>
