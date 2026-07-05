@@ -913,6 +913,10 @@ export async function addTaskComment(taskId: string, _projectId: string, formDat
   const recipients = new Set<string>();
   if (task!.ownerId) recipients.add(task!.ownerId);
   if (task!.assigneeId) recipients.add(task!.assigneeId);
+  // También a quienes YA participaron en la tarea (comentaron antes): así la nota se comparte con
+  // TODOS los involucrados, no solo con responsable/dueño (antes "a veces no se enteraban").
+  const priorAuthors = await db.taskComment.findMany({ where: { taskId, authorId: { not: null } }, select: { authorId: true }, distinct: ["authorId"] });
+  for (const p of priorAuthors) if (p.authorId) recipients.add(p.authorId);
   recipients.delete(session?.id ?? "");
   for (const userId of recipients) {
     await notify(userId, { type: "task", event: "task_comment", title: `Comentario en «${task!.title}»`, body: body.slice(0, 140), link, actorId: session?.id });

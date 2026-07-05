@@ -13,6 +13,19 @@ const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTempl
 const SNAP = 15; // minutos de imantado al arrastrar
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
+// Ventana horaria VISIBLE de la rejilla: 04:00–24:00 (se muestran las horas 4..23; la última
+// etiqueta es 11 PM). Reduce el ruido de la madrugada y aprovecha mejor el alto disponible. Toda
+// posición vertical se calcula con minToTop() (resta el inicio), de modo que las 4:00 quedan arriba
+// del todo. La lógica de zona horaria (hora de pared en UTC) NO cambia: solo la ventana de display.
+const START_HOUR = 4;
+const END_HOUR = 24; // exclusivo: la rejilla llega hasta medianoche
+const START_MIN = START_HOUR * 60; // 240
+const VISIBLE_HOURS = END_HOUR - START_HOUR; // 20 filas
+// Minuto del día → píxeles desde la parte superior de la rejilla (respeta la ventana visible).
+function minToTop(min: number): number {
+  return ((min - START_MIN) / 60) * HOUR_H;
+}
+
 function fmtMin(min: number): string {
   const h = Math.floor(min / 60), m = min % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -120,7 +133,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
   // Auto-scroll a ~7 AM al montar.
   React.useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_H - 8;
+    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, minToTop(7 * 60) - 8);
   }, []);
 
   // Selección: marca el bloque y emite el detalle al panel derecho (dock).
@@ -152,7 +165,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
       const dyMin = Math.round(((e.clientY - drag.startY) / HOUR_H * 60) / SNAP) * SNAP;
       let dayIndex = drag.origDayIndex, topMin = drag.origTopMin, endMin = drag.origTopMin + drag.origDur;
       if (drag.mode === "move") {
-        topMin = Math.max(0, Math.min(1440 - drag.origDur, drag.origTopMin + dyMin));
+        topMin = Math.max(START_MIN, Math.min(1440 - drag.origDur, drag.origTopMin + dyMin));
         endMin = topMin + drag.origDur;
         dayIndex = Math.max(0, Math.min(dayCount - 1, Math.floor((e.clientX - drag.gridLeft) / drag.colW)));
       } else {
@@ -213,7 +226,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     : new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(weekStart);
   const shift = (n: number) => { const d = new Date(anchor); d.setDate(d.getDate() + n * dayCount); commitAnchor(d); };
 
-  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const hours = Array.from({ length: VISIBLE_HOURS }, (_, i) => i + START_HOUR);
 
   return (
     <div className="flex h-full flex-col">
@@ -280,12 +293,13 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
           {/* Rejilla de horas (scroll, llena el alto disponible) */}
           <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", drag && "select-none")}>
-            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))`, height: 24 * HOUR_H }}>
+            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))`, height: VISIBLE_HOURS * HOUR_H }}>
               {/* Columna de horas */}
               <div className="relative">
-                {hours.map((h) => (
+                {hours.map((h, idx) => (
                   <div key={h} style={{ height: HOUR_H }} className="relative">
-                    {h > 0 ? <span className="absolute -top-2 right-1.5 text-[10px] text-muted-foreground">{h % 12 === 0 ? 12 : h % 12}{h < 12 ? "AM" : "PM"}</span> : null}
+                    {/* La primera etiqueta (4 AM) va DENTRO de la celda para no cortarse contra el borde superior. */}
+                    <span className="absolute right-1.5 text-[10px] text-muted-foreground" style={{ top: idx === 0 ? 1 : -7 }}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? "AM" : "PM"}</span>
                   </div>
                 ))}
               </div>
@@ -294,7 +308,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                 const dayTimed = parsed
                   .filter((p) => p.timed && evOnDay(p.start, d))
                   .map((p) => {
-                    const topMin = Math.max(0, Math.min(1439, minutesOf(p.start)));
+                    const topMin = Math.max(START_MIN, Math.min(1439, minutesOf(p.start)));
                     const endMin = p.end ? Math.max(topMin + 20, Math.min(1440, minutesOf(p.end) || topMin + 60)) : topMin + 60;
                     return { it: p.it, topMin, endMin };
                   });
@@ -306,7 +320,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                     onClick={canCreate ? (e) => {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top;
-                      const minutes = Math.max(0, Math.min(1425, (y / HOUR_H) * 60));
+                      const minutes = Math.max(START_MIN, Math.min(END_HOUR * 60 - 15, START_MIN + (y / HOUR_H) * 60));
                       const hh = Math.floor(minutes / 60);
                       const mm = (Math.round((minutes % 60) / 15) * 15) % 60;
                       emitCalendarCreate(localDateStr(d), `${pad2(hh)}:${pad2(mm)}`);
@@ -317,7 +331,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                     {isToday ? <NowLine /> : null}
                     {positioned.map((p) => {
                       const t = calTone(p.it.kind);
-                      const top = (p.topMin / 60) * HOUR_H;
+                      const top = minToTop(p.topMin);
                       const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
                       const tiny = height < 30; // bloques muy cortos: una sola línea
                       const draggable = isMovable(p.it);
@@ -360,7 +374,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
               {drag && preview && dragItem ? (
                 (() => {
                   const t = calTone(dragItem.kind);
-                  const top = (preview.topMin / 60) * HOUR_H;
+                  const top = minToTop(preview.topMin);
                   const height = Math.max(18, ((preview.endMin - preview.topMin) / 60) * HOUR_H);
                   return (
                     <div
@@ -396,5 +410,7 @@ function NowLine() {
     const t = setInterval(() => setMin(bogotaMinutesOfDay()), 60000);
     return () => clearInterval(t);
   }, []);
-  return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: (min / 60) * HOUR_H }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
+  // Fuera de la ventana visible (madrugada antes de las 4:00) no se pinta la línea.
+  if (min < START_MIN || min >= END_HOUR * 60) return null;
+  return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: minToTop(min) }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
 }

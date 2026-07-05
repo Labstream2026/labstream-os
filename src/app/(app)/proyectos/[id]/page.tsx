@@ -74,6 +74,7 @@ export default async function ProyectoPage({
             assignee: { select: { name: true, initials: true, avatarColor: true } },
             checklist: { orderBy: { position: "asc" } },
             timeEntries: { select: { minutes: true } },
+            _count: { select: { comments: true } },
           },
         },
         deliverables: {
@@ -221,6 +222,8 @@ export default async function ProyectoPage({
     assigneeId: t.assigneeId,
     assignee: t.assignee,
     checklist: t.checklist.map((c) => ({ id: c.id, label: c.label, done: c.done })),
+    description: t.description,
+    commentCount: t._count.comments,
   }));
 
   // Items del calendario del proyecto: citas + tareas (entrega/rodaje) + hitos del

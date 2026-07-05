@@ -8,6 +8,7 @@ import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   renameTask,
+  setTaskDescription,
   setTaskStatus,
   setTaskStage,
   setTaskPriority,
@@ -135,6 +136,20 @@ export function TaskDetail({
             />
           </form>
 
+          {/* Descripción / notas fijas: el brief e instrucciones de la tarea (lo que antes se metía en
+              el título). Es un solo texto COMPARTIDO: lo ve y edita todo el que puede ver la tarea. */}
+          <form action={setTaskDescription.bind(null, task.id, projectId)}>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Descripción / notas</label>
+            <textarea
+              name="description"
+              defaultValue={task.description ?? ""}
+              rows={4}
+              placeholder="Brief, instrucciones, enlaces de referencia… lo ve todo el equipo."
+              onBlur={(e) => { if (e.target.value.trim() !== (task.description ?? "").trim()) e.target.form?.requestSubmit(); }}
+              className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </form>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="Estado">
               <StatusSelect value={task.status} options={labelOptions(statuses)} action={setTaskStatus.bind(null, task.id, projectId)} className="w-full" />
@@ -205,9 +220,13 @@ export function TaskDetail({
             </form>
           </div>
 
-          {/* Comentarios */}
+          {/* Notas / comentarios: hilo COMPARTIDO. Cualquiera que pueda ver la tarea las ve; al
+              publicar una, se avisa al responsable, al dueño y a quienes ya participaron. */}
           <div className="border-t border-border pt-4">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Comentarios</p>
+            <div className="mb-2 flex items-center gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Notas del equipo</p>
+              <span className="text-[10px] text-muted-foreground">· las ve todo el equipo</span>
+            </div>
             <div className="space-y-3">
               {comments === null ? (
                 <p className="text-xs text-muted-foreground">Cargando…</p>

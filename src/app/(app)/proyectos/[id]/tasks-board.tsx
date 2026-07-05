@@ -15,7 +15,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { GripVertical, Pencil } from "lucide-react";
+import { GripVertical, Pencil, MessageSquare } from "lucide-react";
 import { PriorityPill } from "@/components/priority-pill";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
@@ -333,11 +333,14 @@ function CardContent({
           <GripVertical className="size-4" />
         </button>
         {onOpen ? (
-          <button type="button" onClick={onOpen} className="flex-1 text-left text-sm font-medium leading-snug hover:underline">
-            {t.title}
+          // Título recortado a ~3 líneas (break-words parte las URLs largas para no desbordar). Si es
+          // muy largo se muestra «ver más»: al abrir la tarea se ve completo + la descripción y notas.
+          <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+            <span className="line-clamp-3 break-words text-sm font-medium leading-snug hover:underline">{t.title}</span>
+            {t.title.length > 120 ? <span className="mt-0.5 block text-[11px] font-medium text-primary">… ver más</span> : null}
           </button>
         ) : (
-          <p className="flex-1 text-sm font-medium leading-snug">{t.title}</p>
+          <p className="line-clamp-3 min-w-0 flex-1 break-words text-sm font-medium leading-snug">{t.title}</p>
         )}
         {t.assignee ? <UserAvatar initials={t.assignee.initials} color={t.assignee.avatarColor} size="sm" /> : null}
         {onAdmin ? (
@@ -362,6 +365,11 @@ function CardContent({
         ) : null}
         {t.checklist.length > 0 ? (
           <span className="text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
+        ) : null}
+        {t.commentCount && t.commentCount > 0 ? (
+          <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground" title={`${t.commentCount} nota${t.commentCount === 1 ? "" : "s"}`}>
+            <MessageSquare className="size-3" /> {t.commentCount}
+          </span>
         ) : null}
       </div>
 

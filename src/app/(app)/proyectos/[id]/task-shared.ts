@@ -19,6 +19,10 @@ export type Task = {
   assigneeId: string | null;
   assignee: { initials: string | null; avatarColor: string | null } | null;
   checklist: ChecklistItem[];
+  // Descripción/notas fijas de la tarea (brief, instrucciones, enlaces). Compartida con el equipo.
+  description?: string | null;
+  // Nº de comentarios/notas (para el contador 💬 de la tarjeta).
+  commentCount?: number;
 };
 export type TeamMember = { id: string; name: string; initials: string | null; avatarColor: string | null };
 
