@@ -124,6 +124,44 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
   { method: "GET", path: "/api/v1/tasks/{id}/watchers", group: "Tareas", summary: "Seguidores de la tarea.", params: [{ name: "id", in: "path", required: true }] },
   { method: "POST", path: "/api/v1/tasks/{id}/watchers", group: "Tareas", summary: "Añade un seguidor.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "userId", required: true, type: "string" }] },
   { method: "DELETE", path: "/api/v1/tasks/{id}/watchers/{userId}", group: "Tareas", summary: "Quita un seguidor.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }, { name: "userId", in: "path", required: true }] },
+
+  // ── Comercial (cotizaciones) ──
+  { method: "POST", path: "/api/v1/quotes", group: "Comercial", summary: "Crea una cotización (código COT secuencial).", permission: "crear_cotizaciones", write: true, body: [{ name: "clientId", required: true, type: "string" }, { name: "title", type: "string" }, { name: "projectId", type: "string" }, { name: "recipientName", type: "string" }] },
+  { method: "GET", path: "/api/v1/quotes/{id}", group: "Comercial", summary: "Detalle con líneas y totales.", permission: "ver_finanzas", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PATCH", path: "/api/v1/quotes/{id}", group: "Comercial", summary: "Edita metadatos (no si está APROBADA).", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "title", type: "string" }, { name: "taxRate", type: "number" }, { name: "contingencyPct", type: "number" }, { name: "notes", type: "string" }, { name: "recipientName", type: "string" }, { name: "recipientCity", type: "string" }, { name: "intro", type: "string" }, { name: "scope", type: "string" }, { name: "deliverables", type: "string" }, { name: "validUntil", type: "string" }] },
+  { method: "POST", path: "/api/v1/quotes/{id}/status", group: "Comercial", summary: "Cambia el estado (BORRADOR/ENVIADA/APROBADA/RECHAZADA).", permission: "enviar/aprobar_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "status", required: true, type: "string" }] },
+  { method: "POST", path: "/api/v1/quotes/{id}/items", group: "Comercial", summary: "Añade una línea.", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "description", required: true, type: "string" }, { name: "section", type: "string" }, { name: "unit", type: "string" }, { name: "quantity", type: "number" }, { name: "unitPrice", type: "number" }] },
+  { method: "PATCH", path: "/api/v1/quotes/{id}/items/{itemId}", group: "Comercial", summary: "Edita una línea.", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }, { name: "itemId", in: "path", required: true }], body: [{ name: "description", type: "string" }, { name: "section", type: "string" }, { name: "unit", type: "string" }, { name: "quantity", type: "number" }, { name: "unitPrice", type: "number" }] },
+  { method: "DELETE", path: "/api/v1/quotes/{id}/items/{itemId}", group: "Comercial", summary: "Borra una línea.", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }, { name: "itemId", in: "path", required: true }] },
+
+  // ── Comercial (facturación) ──
+  { method: "GET", path: "/api/v1/invoices", group: "Comercial", summary: "Facturas de clientes accesibles.", permission: "ver_finanzas", params: [{ name: "status", in: "query" }] },
+  { method: "POST", path: "/api/v1/invoices", group: "Comercial", summary: "Genera la factura de una cotización APROBADA.", permission: "crear_cotizaciones", write: true, body: [{ name: "quoteId", required: true, type: "string" }] },
+  { method: "GET", path: "/api/v1/invoices/{id}", group: "Comercial", summary: "Detalle de factura con líneas y total.", permission: "ver_finanzas", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PATCH", path: "/api/v1/invoices/{id}", group: "Comercial", summary: "Edita fechas/impuesto/notas.", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "issueDate", type: "string" }, { name: "dueDate", type: "string" }, { name: "taxRate", type: "number" }, { name: "notes", type: "string" }] },
+  { method: "POST", path: "/api/v1/invoices/{id}/status", group: "Comercial", summary: "Cambia el estado (PAGADA fija la fecha de pago).", permission: "aprobar_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "status", required: true, type: "string" }] },
+  { method: "DELETE", path: "/api/v1/invoices/{id}", group: "Comercial", summary: "Borra la factura (solo admin).", write: true, params: [{ name: "id", in: "path", required: true }] },
+
+  // ── Notificaciones ──
+  { method: "GET", path: "/api/v1/notifications", group: "Notificaciones", summary: "Notificaciones del titular (+ contador sin leer).", params: [{ name: "unread", in: "query" }, { name: "take", in: "query" }] },
+  { method: "PATCH", path: "/api/v1/notifications/{id}", group: "Notificaciones", summary: "Marca una como leída.", write: true, params: [{ name: "id", in: "path", required: true }] },
+  { method: "DELETE", path: "/api/v1/notifications/{id}", group: "Notificaciones", summary: "Borra una notificación.", write: true, params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/notifications/read-all", group: "Notificaciones", summary: "Marca todas como leídas.", write: true },
+
+  // ── Actividad / auditoría ──
+  { method: "GET", path: "/api/v1/activity", group: "Actividad", summary: "Registro de actividad (auditoría).", permission: "ver_actividad", params: [{ name: "project", in: "query" }, { name: "client", in: "query" }, { name: "take", in: "query" }] },
+
+  // ── Chat ──
+  { method: "GET", path: "/api/v1/chat/channels", group: "Chat", summary: "Canales que el titular puede ver.", },
+  { method: "GET", path: "/api/v1/chat/channels/{id}/messages", group: "Chat", summary: "Mensajes recientes del canal.", params: [{ name: "id", in: "path", required: true }, { name: "take", in: "query" }] },
+  { method: "POST", path: "/api/v1/chat/channels/{id}/messages", group: "Chat", summary: "Envía un mensaje de texto (se publica en vivo).", permission: "comentar", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "body", required: true, type: "string" }, { name: "parentId", type: "string" }] },
+
+  // ── Wiki ──
+  { method: "GET", path: "/api/v1/wiki/pages", group: "Wiki", summary: "Páginas de la Wiki (equipo interno con ver_wiki).", permission: "ver_wiki", params: [{ name: "q", in: "query" }, { name: "section", in: "query" }] },
+  { method: "POST", path: "/api/v1/wiki/pages", group: "Wiki", summary: "Crea una página.", permission: "editar_wiki", write: true, body: [{ name: "title", type: "string" }, { name: "icon", type: "string" }, { name: "content", type: "string" }, { name: "section", type: "string" }, { name: "tags", type: "string[]" }] },
+  { method: "GET", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Página completa (contenido).", permission: "ver_wiki", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PATCH", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Edita una página.", permission: "editar_wiki", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "title", type: "string" }, { name: "icon", type: "string" }, { name: "content", type: "string" }, { name: "section", type: "string" }, { name: "tags", type: "string[]" }] },
+  { method: "DELETE", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Borra una página.", permission: "editar_wiki", write: true, params: [{ name: "id", in: "path", required: true }] },
 ];
 
 // Agrupa el catálogo para el índice legible: { grupo: ["METHOD /path — resumen", ...] }.

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { apiJson } from "@/lib/api-key-auth";
 import { hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject, canManageProject } from "@/lib/project-access";
-import { canAccessClient, canManageClient } from "@/lib/client-access";
+import { canAccessClient, canManageClient, userCanAccessClient } from "@/lib/client-access";
 import type { SessionUser } from "@/lib/session";
 
 // ── Helpers COMPARTIDOS de las rutas /api/v1 ──
@@ -353,4 +353,27 @@ export type DeliverableAccess = {
 // (canWriteProject / canManageProject) según la operación, igual que los server actions.
 export async function loadDeliverable(id: string): Promise<DeliverableAccess | null> {
   return db.deliverable.findUnique({ where: { id }, select: DELIVERABLE_ACCESS_SELECT });
+}
+
+// ── Cotización: gates (espejo de requirePerm + ensureQuoteAccess) ──
+export type QuoteRow = { id: string; clientId: string; status: string };
+
+// Lectura: ver_finanzas (mismo candado que la lista y el agente) + acceso al cliente.
+export async function loadQuoteForRead(quoteId: string, session: SessionUser): Promise<QuoteRow | NextResponse> {
+  if (!hasPermission(session, "ver_finanzas")) return apiJson({ ok: false, error: "Sin permiso para ver finanzas (ver_finanzas)." }, 403);
+  const q = await db.quote.findUnique({ where: { id: quoteId }, select: { id: true, clientId: true, status: true } });
+  if (!q) return apiJson({ ok: false, error: "Cotización no encontrada." }, 404);
+  if (!(await userCanAccessClient(q.clientId, session))) return apiJson({ ok: false, error: "Sin acceso a esta cotización." }, 403);
+  return q;
+}
+
+// Escritura: crear_cotizaciones + acceso al cliente. `requireEditable` bloquea las APROBADAS
+// (su total firmado no se toca), igual que assertEditable.
+export async function loadQuoteForWrite(quoteId: string, session: SessionUser, requireEditable = false): Promise<QuoteRow | NextResponse> {
+  if (!hasPermission(session, "crear_cotizaciones")) return apiJson({ ok: false, error: "Sin permiso para editar cotizaciones (crear_cotizaciones)." }, 403);
+  const q = await db.quote.findUnique({ where: { id: quoteId }, select: { id: true, clientId: true, status: true } });
+  if (!q) return apiJson({ ok: false, error: "Cotización no encontrada." }, 404);
+  if (!(await userCanAccessClient(q.clientId, session))) return apiJson({ ok: false, error: "Sin acceso a esta cotización." }, 403);
+  if (requireEditable && q.status === "APROBADA") return apiJson({ ok: false, error: "La cotización está aprobada y no se puede editar." }, 409);
+  return q;
 }
