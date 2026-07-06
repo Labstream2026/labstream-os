@@ -162,6 +162,34 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
   { method: "GET", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Página completa (contenido).", permission: "ver_wiki", params: [{ name: "id", in: "path", required: true }] },
   { method: "PATCH", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Edita una página.", permission: "editar_wiki", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "title", type: "string" }, { name: "icon", type: "string" }, { name: "content", type: "string" }, { name: "section", type: "string" }, { name: "tags", type: "string[]" }] },
   { method: "DELETE", path: "/api/v1/wiki/pages/{id}", group: "Wiki", summary: "Borra una página.", permission: "editar_wiki", write: true, params: [{ name: "id", in: "path", required: true }] },
+
+  // ── Propuestas ──
+  { method: "GET", path: "/api/v1/proposals", group: "Propuestas", summary: "Propuestas de clientes accesibles.", permission: "crear_cotizaciones", params: [{ name: "status", in: "query" }] },
+  { method: "GET", path: "/api/v1/proposals/{id}", group: "Propuestas", summary: "Detalle (estado, cliente, bloques, visitas).", permission: "crear_cotizaciones", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PATCH", path: "/api/v1/proposals/{id}", group: "Propuestas", summary: "Edita metadatos (título/caducidad/cliente).", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "title", type: "string" }, { name: "expiresAt", type: "string" }, { name: "clientId", type: "string" }] },
+  { method: "POST", path: "/api/v1/proposals/{id}/status", group: "Propuestas", summary: "Cambia el estado (ACEPTADA exige aprobar_cotizaciones).", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "status", required: true, type: "string" }] },
+  { method: "DELETE", path: "/api/v1/proposals/{id}", group: "Propuestas", summary: "Borra la propuesta.", permission: "crear_cotizaciones", write: true, params: [{ name: "id", in: "path", required: true }] },
+
+  // ── Biblioteca ──
+  { method: "GET", path: "/api/v1/library", group: "Biblioteca", summary: "Recursos de la biblioteca del equipo.", permission: "ver_biblioteca", params: [{ name: "q", in: "query" }, { name: "category", in: "query" }] },
+  { method: "POST", path: "/api/v1/library", group: "Biblioteca", summary: "Añade un recurso (enlace url o ruta de NAS path).", permission: "gestionar_biblioteca", write: true, body: [{ name: "name", required: true, type: "string" }, { name: "url", type: "string" }, { name: "path", type: "string" }, { name: "category", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/library/{id}", group: "Biblioteca", summary: "Borra un recurso (gestor o dueño).", write: true, params: [{ name: "id", in: "path", required: true }] },
+
+  // ── Equipos / inventario ──
+  { method: "GET", path: "/api/v1/projects/{id}/equipment-plans", group: "Equipos", summary: "Grabaciones (planes de equipos) del proyecto con sus reservas.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/projects/{id}/equipment-plans", group: "Equipos", summary: "Crea una grabación.", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "shootDate", required: true, type: "string" }, { name: "title", type: "string" }] },
+  { method: "PATCH", path: "/api/v1/equipment-plans/{planId}", group: "Equipos", summary: "Edita la grabación (título/fecha/estado).", write: true, params: [{ name: "planId", in: "path", required: true }], body: [{ name: "title", type: "string" }, { name: "shootDate", type: "string" }, { name: "status", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/equipment-plans/{planId}", group: "Equipos", summary: "Borra la grabación.", write: true, params: [{ name: "planId", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/equipment-plans/{planId}/reservations", group: "Equipos", summary: "Reserva un item del inventario.", write: true, params: [{ name: "planId", in: "path", required: true }], body: [{ name: "rowId", required: true, type: "string" }, { name: "quantity", type: "number" }, { name: "note", type: "string" }] },
+  { method: "PATCH", path: "/api/v1/equipment-plans/{planId}/reservations/{reservationId}", group: "Equipos", summary: "Edita una reserva (cantidad/empacado/nota).", write: true, params: [{ name: "planId", in: "path", required: true }, { name: "reservationId", in: "path", required: true }], body: [{ name: "quantity", type: "number" }, { name: "packed", type: "boolean" }, { name: "note", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/equipment-plans/{planId}/reservations/{reservationId}", group: "Equipos", summary: "Quita una reserva.", write: true, params: [{ name: "planId", in: "path", required: true }, { name: "reservationId", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/equipment-plans/{planId}/apply-kit", group: "Equipos", summary: "Aplica un kit guardado como reservas.", write: true, params: [{ name: "planId", in: "path", required: true }], body: [{ name: "kitId", required: true, type: "string" }] },
+  { method: "GET", path: "/api/v1/equipment-kits", group: "Equipos", summary: "Kits de equipos guardados (plantillas).", },
+  { method: "GET", path: "/api/v1/inventory", group: "Equipos", summary: "Inventario de equipos (filas + rowId para reservar).", permission: "ver_wiki" },
+
+  // ── Tablas de datos ──
+  { method: "GET", path: "/api/v1/tables", group: "Tablas", summary: "Tablas de datos visibles (proyecto/wiki).", },
+  { method: "GET", path: "/api/v1/tables/{id}", group: "Tablas", summary: "Detalle: columnas y filas con valores.", params: [{ name: "id", in: "path", required: true }] },
 ];
 
 // Agrupa el catálogo para el índice legible: { grupo: ["METHOD /path — resumen", ...] }.

@@ -377,3 +377,29 @@ export async function loadQuoteForWrite(quoteId: string, session: SessionUser, r
   if (requireEditable && q.status === "APROBADA") return apiJson({ ok: false, error: "La cotización está aprobada y no se puede editar." }, 409);
   return q;
 }
+
+// ── Propuesta: ACCESO (espejo de ensureProposalAccess) ── el llamador comprueba aparte el permiso
+// del catálogo (crear_cotizaciones, o aprobar_cotizaciones para marcar ACEPTADA).
+export type ProposalRow = { id: string; clientId: string | null; createdById: string | null; status: string };
+export async function loadProposalAccess(proposalId: string, session: SessionUser): Promise<ProposalRow | NextResponse> {
+  const p = await db.proposal.findUnique({ where: { id: proposalId }, select: { id: true, clientId: true, createdById: true, status: true } });
+  if (!p) return apiJson({ ok: false, error: "Propuesta no encontrada." }, 404);
+  if (p.clientId) {
+    if (!(await userCanAccessClient(p.clientId, session))) return apiJson({ ok: false, error: "Sin acceso a esta propuesta." }, 403);
+  } else if (p.createdById !== session.id && session.role !== "admin") {
+    return apiJson({ ok: false, error: "Sin acceso a esta propuesta." }, 403);
+  }
+  return p;
+}
+
+// ── Plan de equipos: carga + gate de escritura (canWriteProject vía su proyecto) ──
+export type EquipmentPlanRow = {
+  id: string; projectId: string; title: string | null; taskId: string | null;
+  project: { isPrivate: boolean; leadId: string | null; archivedAt: Date | null; members: { userId: string; role: string }[]; client: { members: { userId: string; role: string | null }[] } | null };
+};
+export async function loadEquipmentPlan(planId: string): Promise<EquipmentPlanRow | null> {
+  return db.equipmentPlan.findUnique({
+    where: { id: planId },
+    select: { id: true, projectId: true, title: true, taskId: true, project: { select: { isPrivate: true, leadId: true, archivedAt: true, members: { select: { userId: true, role: true } }, client: { select: { members: { select: { userId: true, role: true } } } } } } },
+  });
+}
