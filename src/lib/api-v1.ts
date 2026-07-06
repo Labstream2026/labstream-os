@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { apiJson } from "@/lib/api-key-auth";
 import { hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject, canManageProject } from "@/lib/project-access";
+import { canAccessClient, canManageClient } from "@/lib/client-access";
 import type { SessionUser } from "@/lib/session";
 
 // ── Helpers COMPARTIDOS de las rutas /api/v1 ──
@@ -259,4 +260,58 @@ export function eventVisible(e: EventRow, session: SessionUser): boolean {
   if (e.createdById === me) return true;
   if (e.attendees.some((a) => a.user.id === me)) return true;
   return canAccessProject(e.project, session);
+}
+
+// ── Proyecto: gate de GESTIÓN (miembros, papelera, carpetas) ──
+// Espejo de `ensureProjectManage`: canManageProject (admin/productor, líder, editor con acceso u
+// OWNER) + permiso opcional del catálogo. `allowArchived` para restaurar desde la papelera.
+export async function loadProjectForManage(
+  projectId: string,
+  session: SessionUser,
+  perm?: string,
+  allowArchived = false,
+): Promise<ProjectAccess | NextResponse> {
+  const project = await db.project.findUnique({ where: { id: projectId }, select: PROJECT_ACCESS_SELECT });
+  if (!project || (!allowArchived && project.archivedAt)) return apiJson({ ok: false, error: "Proyecto no encontrado." }, 404);
+  if (!canManageProject(project, session)) return apiJson({ ok: false, error: "Sin permiso para gestionar este proyecto." }, 403);
+  if (perm && !hasPermission(session, perm)) return apiJson({ ok: false, error: `Falta el permiso ${perm}.` }, 403);
+  return project;
+}
+
+// ── Cliente: select + gates (espejo de client-access) ──
+
+export const CLIENT_ACCESS_SELECT = {
+  id: true,
+  name: true,
+  archivedAt: true,
+  members: { select: { userId: true, role: true } },
+  projects: { select: { leadId: true, members: { select: { userId: true } } } },
+} as const;
+
+export type ClientAccess = {
+  id: string;
+  name: string;
+  archivedAt: Date | null;
+  members: { userId: string; role: string | null }[];
+  projects: { leadId: string | null; members: { userId: string }[] }[];
+};
+
+// Carga el cliente y verifica LECTURA (ver_clientes + canAccessClient). Archivados = 404.
+export async function loadClientForRead(clientId: string, session: SessionUser): Promise<ClientAccess | NextResponse> {
+  if (!hasPermission(session, "ver_clientes")) return apiJson({ ok: false, error: "Sin permiso para ver clientes (ver_clientes)." }, 403);
+  const client = await db.client.findUnique({ where: { id: clientId }, select: CLIENT_ACCESS_SELECT });
+  if (!client || client.archivedAt) return apiJson({ ok: false, error: "Cliente no encontrado." }, 404);
+  if (!canAccessClient(client, session)) return apiJson({ ok: false, error: "Sin acceso a este cliente." }, 403);
+  return client;
+}
+
+// Carga el cliente y verifica GESTIÓN. Espejo de `canEditClient` de los server actions:
+// canManageClient (admin/productor, editor con acceso o RESPONSABLE) O el permiso editar_clientes.
+export async function loadClientForManage(clientId: string, session: SessionUser, allowArchived = false): Promise<ClientAccess | NextResponse> {
+  const client = await db.client.findUnique({ where: { id: clientId }, select: CLIENT_ACCESS_SELECT });
+  if (!client || (!allowArchived && client.archivedAt)) return apiJson({ ok: false, error: "Cliente no encontrado." }, 404);
+  if (!canManageClient(client, session) && !hasPermission(session, "editar_clientes")) {
+    return apiJson({ ok: false, error: "Sin permiso para gestionar este cliente." }, 403);
+  }
+  return client;
 }

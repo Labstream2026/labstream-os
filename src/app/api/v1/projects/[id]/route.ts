@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
 import { isProjectStatus } from "@/lib/enum-guards";
 import { logActivity } from "@/lib/activity";
-import { loadProjectForRead, loadProjectForWrite, readJson, str, ymd, isYmd, noon, taskPrivacyWhere } from "@/lib/api-v1";
+import { loadProjectForRead, loadProjectForWrite, loadProjectForManage, readJson, str, ymd, isYmd, noon, taskPrivacyWhere } from "@/lib/api-v1";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,4 +164,17 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
   const project = await db.project.update({ where: { id }, data, select: { id: true, code: true, name: true, status: true, priority: true, startDate: true, dueDate: true } });
   await logActivity({ action: "project.update", summary: `editó el proyecto «${project.name}» (vía API)`, projectId: id, entityType: "project", entityId: id }).catch(() => null);
   return apiJson({ ok: true, project: { id: project.id, code: project.code, name: project.name, status: project.status, priority: project.priority, startDate: ymd(project.startDate), dueDate: ymd(project.dueDate) } });
+});
+
+// DELETE /api/v1/projects/:id — ARCHIVA el proyecto (papelera, borrado suave y reversible con
+// POST /restore). Mismo gate que archiveProject: gestiona el proyecto + eliminar_proyectos. No hay
+// borrado físico por API (se conserva todo: tareas, archivos, entregables, chat).
+export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
+  if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
+  const { id } = await (routeCtx as RouteCtx).params;
+  const access = await loadProjectForManage(id, ctx.session, "eliminar_proyectos");
+  if (access instanceof NextResponse) return access;
+  await db.project.update({ where: { id }, data: { archivedAt: new Date() } });
+  await logActivity({ action: "project.archive", summary: `envió a la papelera el proyecto «${access.name}» (vía API)`, projectId: id, entityType: "project", entityId: id }).catch(() => null);
+  return apiJson({ ok: true });
 });
