@@ -91,6 +91,39 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
 
   // ── Equipo (directorio, solo lectura) ──
   { method: "GET", path: "/api/v1/users", group: "Equipo", summary: "Directorio del equipo (para resolver responsables). Solo lectura, campos seguros.", params: [{ name: "q", in: "query" }, { name: "includeInactive", in: "query" }] },
+
+  // ── Entregables (detalle y ciclo de revisión) ──
+  { method: "GET", path: "/api/v1/deliverables/{id}", group: "Entregables", summary: "Detalle: versiones, revisores, decisiones y conteos.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PATCH", path: "/api/v1/deliverables/{id}", group: "Entregables", summary: "Edita nombre/estado/tipo/entrega/copy/hashtags/caducidad (gates por campo).", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "name", type: "string" }, { name: "status", type: "string" }, { name: "type", type: "string" }, { name: "dueDate", type: "string" }, { name: "copy", type: "string" }, { name: "hashtags", type: "string" }, { name: "reviewExpiresAt", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/deliverables/{id}", group: "Entregables", summary: "Archiva el entregable (el enlace sigue vivo; reversible).", write: true, params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/deliverables/{id}/restore", group: "Entregables", summary: "Desarchiva el entregable.", write: true, params: [{ name: "id", in: "path", required: true }] },
+  { method: "GET", path: "/api/v1/deliverables/{id}/reviewers", group: "Entregables", summary: "Revisores (pre-aprobadores) actuales.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "PUT", path: "/api/v1/deliverables/{id}/reviewers", group: "Entregables", summary: "Fija el conjunto de revisores internos (miembros del equipo).", permission: "gestionar el proyecto", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "userIds", required: true, type: "string[]" }] },
+  { method: "GET", path: "/api/v1/deliverables/{id}/versions", group: "Entregables", summary: "Versiones del entregable.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/deliverables/{id}/versions", group: "Entregables", summary: "Sube una versión por enlace (Drive/URL).", permission: "subir_archivos", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "fileUrl", required: true, type: "string" }, { name: "notes", type: "string" }, { name: "durationSec", type: "number" }] },
+  { method: "POST", path: "/api/v1/deliverables/{id}/decision", group: "Entregables", summary: "Pre-aprobación interna: aprobar o solicitar cambios en una versión.", permission: "aprobar_entregables", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "versionNumber", required: true, type: "number" }, { name: "result", required: true, type: "string", desc: "APROBADO | CAMBIOS" }, { name: "note", type: "string" }] },
+
+  // ── Archivos (por id) ──
+  { method: "PATCH", path: "/api/v1/files/{id}", group: "Archivos", summary: "Renombra o mueve de carpeta el archivo/enlace.", permission: "subir_archivos", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "name", type: "string" }, { name: "folderId", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/files/{id}", group: "Archivos", summary: "Borra el archivo/enlace.", permission: "eliminar_archivos", write: true, params: [{ name: "id", in: "path", required: true }] },
+
+  // ── Calendario (RSVP) ──
+  { method: "POST", path: "/api/v1/calendar/events/{id}/rsvp", group: "Calendario", summary: "Responde a una invitación (solo los invitados).", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "status", required: true, type: "string", desc: "ACCEPTED | DECLINED | TENTATIVE" }] },
+
+  // ── Tareas (sub-recursos) ──
+  { method: "GET", path: "/api/v1/tasks/{id}/checklist", group: "Tareas", summary: "Ítems del checklist.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/tasks/{id}/checklist", group: "Tareas", summary: "Añade un ítem al checklist.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "label", required: true, type: "string" }] },
+  { method: "PATCH", path: "/api/v1/tasks/{id}/checklist/{itemId}", group: "Tareas", summary: "Marca/renombra un ítem del checklist.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }, { name: "itemId", in: "path", required: true }], body: [{ name: "done", type: "boolean" }, { name: "label", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/tasks/{id}/checklist/{itemId}", group: "Tareas", summary: "Borra un ítem del checklist.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }, { name: "itemId", in: "path", required: true }] },
+  { method: "GET", path: "/api/v1/tasks/{id}/time", group: "Tareas", summary: "Partes de horas de la tarea.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/tasks/{id}/time", group: "Tareas", summary: "Registra horas.", permission: "registrar_horas", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "minutes", type: "number" }, { name: "hours", type: "number" }, { name: "note", type: "string" }, { name: "spentOn", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/tasks/{id}/time/{entryId}", group: "Tareas", summary: "Borra un parte de horas (autor o admin).", write: true, params: [{ name: "id", in: "path", required: true }, { name: "entryId", in: "path", required: true }] },
+  { method: "GET", path: "/api/v1/tasks/{id}/tags", group: "Tareas", summary: "Etiquetas de la tarea.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/tasks/{id}/tags", group: "Tareas", summary: "Añade una etiqueta.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "label", required: true, type: "string" }, { name: "color", type: "string" }] },
+  { method: "DELETE", path: "/api/v1/tasks/{id}/tags/{tagId}", group: "Tareas", summary: "Quita una etiqueta.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }, { name: "tagId", in: "path", required: true }] },
+  { method: "GET", path: "/api/v1/tasks/{id}/watchers", group: "Tareas", summary: "Seguidores de la tarea.", params: [{ name: "id", in: "path", required: true }] },
+  { method: "POST", path: "/api/v1/tasks/{id}/watchers", group: "Tareas", summary: "Añade un seguidor.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }], body: [{ name: "userId", required: true, type: "string" }] },
+  { method: "DELETE", path: "/api/v1/tasks/{id}/watchers/{userId}", group: "Tareas", summary: "Quita un seguidor.", permission: "editar_tareas", write: true, params: [{ name: "id", in: "path", required: true }, { name: "userId", in: "path", required: true }] },
 ];
 
 // Agrupa el catálogo para el índice legible: { grupo: ["METHOD /path — resumen", ...] }.

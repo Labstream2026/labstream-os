@@ -315,3 +315,42 @@ export async function loadClientForManage(clientId: string, session: SessionUser
   }
   return client;
 }
+
+// ── Entregable: select + carga para gating ──
+// El proyecto trae los campos que necesitan canAccessProject/canWriteProject/canManageProject
+// (incluye members del cliente para reconocer al RESPONSABLE de la cuenta).
+export const DELIVERABLE_ACCESS_SELECT = {
+  id: true,
+  name: true,
+  projectId: true,
+  ownerId: true,
+  archivedAt: true,
+  project: {
+    select: {
+      id: true, name: true, isPrivate: true, leadId: true, archivedAt: true,
+      members: { select: { userId: true, role: true } },
+      client: { select: { members: { select: { userId: true, role: true } } } },
+    },
+  },
+  reviewers: { select: { userId: true } },
+} as const;
+
+export type DeliverableAccess = {
+  id: string;
+  name: string;
+  projectId: string;
+  ownerId: string | null;
+  archivedAt: Date | null;
+  project: {
+    id: string; name: string; isPrivate: boolean; leadId: string | null; archivedAt: Date | null;
+    members: { userId: string; role: string }[];
+    client: { members: { userId: string; role: string | null }[] } | null;
+  };
+  reviewers: { userId: string }[];
+};
+
+// Carga el entregable con lo necesario para autorizar. El llamador aplica el gate concreto
+// (canWriteProject / canManageProject) según la operación, igual que los server actions.
+export async function loadDeliverable(id: string): Promise<DeliverableAccess | null> {
+  return db.deliverable.findUnique({ where: { id }, select: DELIVERABLE_ACCESS_SELECT });
+}
