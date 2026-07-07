@@ -4,6 +4,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
 import { PapeleraActions } from "./papelera-actions";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Trash2, FolderOpen, Building2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -32,13 +33,10 @@ export default async function PapeleraPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-center gap-2.5">
-        <Trash2 className="size-6 text-muted-foreground" />
-        <h1 className="text-3xl font-bold tracking-tight">Papelera</h1>
-      </div>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Proyectos y clientes archivados. No se borró nada: al restaurar, vuelven a sus listas con todo su contenido.
-      </p>
+      <PageHeader
+        title="Papelera"
+        description="Elementos borrados; se conservan aquí antes de eliminarse definitivamente."
+      />
 
       {empty ? (
         <div className="mt-10">

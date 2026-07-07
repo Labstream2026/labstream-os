@@ -7,6 +7,7 @@ import { invoiceStatusMeta, quoteTotals, formatMoney, formatShortDate } from "@/
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { Receipt } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
 
 export const dynamic = "force-dynamic";
@@ -99,16 +100,14 @@ export default async function FacturacionPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Facturación</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Lo que falta facturar, lo que está por cobrar y el estado de cada factura.</p>
-        </div>
-        <Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>
-      </div>
+      <PageHeader
+        title="Facturación"
+        description="Cotizaciones y facturas de tus clientes."
+        actions={<Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
+      />
 
       {/* Resumen: primero lo accionable (por facturar / por cobrar / vencido), luego lo cobrado */}
-      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Money label="Por facturar" value={formatMoney(porFacturarTotal, currency)} tone="text-sky-600 dark:text-sky-400" hint={`${porFacturar.length} pendiente${porFacturar.length === 1 ? "" : "s"}`} />
         <Money label="Por cobrar" value={formatMoney(porCobrar, currency)} tone="text-amber-600 dark:text-amber-400" />
         <Money label="Vencido" value={formatMoney(vencido, currency)} tone={vencido > 0 ? "text-destructive" : undefined} />

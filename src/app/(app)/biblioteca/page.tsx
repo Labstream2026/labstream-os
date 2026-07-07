@@ -7,6 +7,7 @@ import { ExternalLink, Trash2, Library, Server } from "lucide-react";
 import { CopyText } from "@/components/actions/copy-text";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { addLibraryAsset, addLibraryNasPath, deleteLibraryAsset } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,10 @@ export default async function BibliotecaPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Biblioteca</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Recursos reutilizables del equipo: música, logos, stock, plantillas… {assets.length} elementos.
-      </p>
+      <PageHeader
+        title="Biblioteca"
+        description="Música, logos, plantillas y stock reutilizables."
+      />
       <div className="mt-3"><SectionChatCard section="biblioteca" /></div>
 
       {/* Añadir (solo gestores) */}

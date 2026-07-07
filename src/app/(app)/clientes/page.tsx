@@ -10,6 +10,7 @@ import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Plus, FolderOpen, PowerOff, Building2 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { ViewTabs } from "../proyectos/[id]/view-tabs";
 import { ClientCardMenu } from "./client-card-menu";
 
@@ -215,35 +216,39 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{showInactive ? "Clientes inactivos" : "Clientes"}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {showInactive
-              ? `${cards.length} cliente${cards.length === 1 ? "" : "s"} desactivado${cards.length === 1 ? "" : "s"}. Reactívalos abriendo su ficha → Ajustes.`
-              : `${cards.length} cliente${cards.length === 1 ? "" : "s"} · ${totalProjects} proyecto${totalProjects === 1 ? "" : "s"} en total.`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {showInactive ? (
-            <Link href="/clientes" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
-              ← Ver activos
-            </Link>
-          ) : inactiveCount > 0 ? (
-            <Link href="/clientes?inactivos=1" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
-              <PowerOff className="size-4" /> Ver inactivos ({inactiveCount})
-            </Link>
-          ) : null}
-          {canCreate && !showInactive ? (
+      <PageHeader
+        title={showInactive ? "Clientes inactivos" : "Clientes"}
+        description={
+          showInactive
+            ? `${cards.length} cliente${cards.length === 1 ? "" : "s"} desactivado${cards.length === 1 ? "" : "s"}. Reactívalos abriendo su ficha → Ajustes.`
+            : `${cards.length} cliente${cards.length === 1 ? "" : "s"} · ${totalProjects} proyecto${totalProjects === 1 ? "" : "s"} en total.`
+        }
+        actions={
+          canCreate && !showInactive ? (
             <Link
               href="/clientes/nuevo"
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="size-4" /> Nuevo cliente
             </Link>
-          ) : null}
+          ) : undefined
+        }
+      />
+
+      {/* Toggle activos/inactivos: filtro de vista, vive debajo del encabezado. */}
+      {showInactive ? (
+        <div className="-mt-2 mb-6">
+          <Link href="/clientes" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
+            ← Ver activos
+          </Link>
         </div>
-      </div>
+      ) : inactiveCount > 0 ? (
+        <div className="-mt-2 mb-6">
+          <Link href="/clientes?inactivos=1" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
+            <PowerOff className="size-4" /> Ver inactivos ({inactiveCount})
+          </Link>
+        </div>
+      ) : null}
 
       {cards.length === 0 ? (
         <div className="mt-10">

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, Clapperboard } from "lucide-react";
+import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, Clapperboard } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -11,6 +11,7 @@ import { TONE_MAP } from "@/lib/colors";
 import { signReviewToken } from "@/lib/review-token";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -186,24 +187,22 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
       <header className="mb-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-              <ClipboardCheck className="size-6 text-primary" /> {archivedTab ? "Entregables archivados" : "Proyectos a revisar"}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {archivedTab
-                ? "Ya entregados o parqueados. Su enlace de entrega sigue funcionando hasta que lo borres."
-                : total > 0
-                  ? `${total} entregable${total === 1 ? "" : "s"} esperan una acción. Abre uno para ver el video, comentar y decidir.`
-                  : "Todo al día."}
-            </p>
-          </div>
-          <div className="inline-flex overflow-hidden rounded-lg border border-border text-sm">
-            <Link href={hrefFor({ scope: "mine" })} className={`px-3 py-1.5 ${onlyMine ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Solo míos</Link>
-            <Link href={hrefFor({ scope: "all" })} className={`px-3 py-1.5 ${!onlyMine ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Todos</Link>
-          </div>
-        </div>
+        <PageHeader
+          title={archivedTab ? "Entregables archivados" : "Proyectos a revisar"}
+          description={
+            archivedTab
+              ? "Ya entregados o parqueados. Su enlace de entrega sigue funcionando hasta que lo borres."
+              : total > 0
+                ? `${total} entregable${total === 1 ? "" : "s"} esperan una acción. Abre uno para ver el video, comentar y decidir.`
+                : "Todo al día."
+          }
+          actions={
+            <div className="inline-flex overflow-hidden rounded-lg border border-border text-sm">
+              <Link href={hrefFor({ scope: "mine" })} className={`px-3 py-1.5 ${onlyMine ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Solo míos</Link>
+              <Link href={hrefFor({ scope: "all" })} className={`px-3 py-1.5 ${!onlyMine ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Todos</Link>
+            </div>
+          }
+        />
 
         {/* Pestañas (Activos / Archivados) + agrupación (Estado / Cliente / Fecha). */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

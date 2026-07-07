@@ -16,6 +16,7 @@ import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib/services-catalog";
 import { ServicesCatalog } from "./services-catalog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -73,23 +74,21 @@ export default async function CotizacionesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Facturación</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{proposals.length} propuestas · {quotes.length} cotizaciones</p>
-          <div className="mt-2"><SectionChatCard section="cotizaciones" /></div>
-        </div>
-        {canCreate ? (
-          <div className="flex items-center gap-2">
+      <PageHeader
+        title="Facturación"
+        description={`${proposals.length} propuestas · ${quotes.length} cotizaciones`}
+        actions={canCreate ? (
+          <>
             <Link href="/cotizaciones/nueva" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
               <Plus className="size-4" /> Cotización rápida
             </Link>
             <Link href="/cotizaciones/propuestas/nueva" className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               <Sparkles className="size-4" /> Nueva propuesta
             </Link>
-          </div>
-        ) : null}
-      </div>
+          </>
+        ) : undefined}
+      />
+      <div className="-mt-2 mb-6"><SectionChatCard section="cotizaciones" /></div>
 
       {/* Balance de facturación: medidor de % cobrado + reparto cobrado / por cobrar / vencido. */}
       {facturado > 0 ? (

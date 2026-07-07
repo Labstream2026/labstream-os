@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { SectionChatCard } from "@/components/chat/section-chat-card";
+import { PageHeader } from "@/components/ui/page-header";
 import { getSession, hasPermission } from "@/lib/auth";
 import { TeamPerformance } from "./team-performance";
 
@@ -11,9 +12,8 @@ export default async function ReportesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Reportes</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Vista general del estudio: proyectos, horas y carga del equipo.</p>
-      <div className="mt-3 mb-8"><SectionChatCard section="reportes" /></div>
+      <PageHeader title="Reportes" description="Rendimiento del equipo, horas y cumplimiento." />
+      <div className="mb-8"><SectionChatCard section="reportes" /></div>
       <TeamPerformance session={session} />
     </div>
   );
