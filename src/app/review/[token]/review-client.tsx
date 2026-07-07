@@ -4,7 +4,8 @@ import * as React from "react";
 import { Copy, Check, CheckCircle2, Loader2 } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
-import { addReviewComment, setReviewDecision, setCoverDecision, preApproveReview } from "./actions";
+import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
+import { PreApprovePanel } from "./pre-approve-panel";
 import { DownloadCenter, type Rendition } from "./download-center";
 import { ReviewOnboarding } from "./review-onboarding";
 
@@ -552,41 +553,6 @@ function InvitedActions({
   onApprove: () => void;
   onRequestChanges: () => void;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
-  const [to, setTo] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [recorded, setRecorded] = React.useState(false);
-  const [preBusy, startPre] = React.useTransition();
-  const [preMsg, setPreMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-
-  const record = (withEmail: boolean) => {
-    startPre(async () => {
-      const fd = new FormData();
-      if (withEmail) {
-        fd.set("to", to.trim());
-        if (note.trim()) fd.set("note", note.trim());
-      }
-      const r = await preApproveReview(token, fd);
-      if (r.ok) {
-        setRecorded(true);
-        setPreMsg({ ok: true, text: withEmail ? "Pre-aprobado y enviado al cliente final." : "Pre-aprobado. Comparte el enlace con el cliente final." });
-      } else {
-        setPreMsg({ ok: false, text: r.error || "No se pudo pre-aprobar. Inténtalo de nuevo." });
-      }
-    });
-  };
-
-  // Copiar el enlace NO registra nada (sin efecto de servidor): la pre-aprobación se registra UNA
-  // sola vez con el botón «Pre-aprobar». Así copiar N veces no duplica notas ni avisos.
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(reviewLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch { /* sin portapapeles */ }
-  };
-
   return (
     <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
       <div className="border-b border-border px-4 py-2.5">
@@ -610,46 +576,8 @@ function InvitedActions({
           <button type="button" onClick={onRequestChanges} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:bg-amber-500/10 dark:text-amber-300">
             {approved ? "Reabrir con cambios" : "Solicitar cambios"}
           </button>
-          <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-accent">
-            Pre-aprobar y enviar al cliente final
-          </button>
         </div>
-
-        {open ? (
-          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
-            <p className="text-xs text-muted-foreground">
-              Al pre-aprobar generas un enlace para que el <b>cliente final</b> revise y apruebe. Cópialo y compártelo, o envíalo por correo.
-            </p>
-            <div className="flex items-center gap-2">
-              <input readOnly value={reviewLink} className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none" />
-              <button type="button" onClick={copyLink} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
-                {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />} {copied ? "Copiado" : "Copiar enlace"}
-              </button>
-            </div>
-            {emailEnabled ? (
-              <div className="space-y-2">
-                <input type="email" value={to} onChange={(e) => setTo(e.target.value)} disabled={recorded} placeholder="Correo del cliente final (opcional)" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
-                <textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={recorded} rows={2} placeholder="Mensaje para el cliente final (opcional)" className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">El correo no está configurado: copia el enlace y compártelo tú.</p>
-            )}
-            {/* Un ÚNICO botón registra la pre-aprobación (nota interna + aviso al equipo, y el correo
-                si escribió un destinatario). Deshabilitado tras registrar → no duplica. */}
-            <button
-              type="button"
-              onClick={() => record(!!to.trim())}
-              disabled={preBusy || recorded}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-            >
-              {preBusy ? <Loader2 className="size-4 animate-spin" /> : recorded ? <Check className="size-4" /> : null}
-              {recorded ? "Pre-aprobado" : to.trim() ? "Pre-aprobar y enviar por correo" : "Pre-aprobar"}
-            </button>
-            {preMsg ? (
-              <p className={`text-xs ${preMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{preMsg.text}</p>
-            ) : null}
-          </div>
-        ) : null}
+        <PreApprovePanel token={token} reviewLink={reviewLink} emailEnabled={emailEnabled} />
       </div>
     </section>
   );

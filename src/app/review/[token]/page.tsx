@@ -203,7 +203,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               <p className="mb-4 text-sm text-muted-foreground">Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una.</p>
               <PhotoGallery token={token} photos={photos} />
               {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato. */}
-              <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} />
+              <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} invited={invited} />
               <DownloadCenter renditions={deliverable.renditions} />
               <ReviewOnboarding isPhoto />
             </>
