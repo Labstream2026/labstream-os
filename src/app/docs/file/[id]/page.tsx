@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
@@ -41,9 +41,15 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
-  // Solo abre en modo edición quien puede ESCRIBIR en el proyecto; los de solo lectura
-  // (miembro GUEST, o quien ve un proyecto público sin ser miembro) lo abren en modo vista.
-  const canEdit = canWriteProject(file.project, session);
+  // Abre en modo edición quien puede ESCRIBIR en el proyecto. Además, los invitados del PORTAL
+  // DEL CLIENTE (rol `cliente`, miembros del proyecto) con permiso para subir archivos también
+  // editan sus documentos en OnlyOffice: ya pueden reemplazarlos subiendo otra versión, así que
+  // editarlos en vivo es equivalente y más controlado. El resto de invitados (GUEST) siguen en
+  // modo vista.
+  const isClienteMember =
+    session.role === "cliente" && file.project.members.some((m) => m.userId === session.id);
+  const canEdit =
+    canWriteProject(file.project, session) || (isClienteMember && hasPermission(session, "subir_archivos"));
   const fileUrl = `${cfg.callbackBase}/api/files-asset/${id}?t=${signFileToken(id)}`;
   const callbackUrl = `${cfg.callbackBase}/api/docs/file/${id}/callback`;
   const config = await signConfig(
