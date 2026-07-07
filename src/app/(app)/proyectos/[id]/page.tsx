@@ -26,6 +26,7 @@ import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
+import { signReviewToken } from "@/lib/review-token";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
@@ -339,6 +340,9 @@ export default async function ProyectoPage({
             dueDate: d.dueDate ? d.dueDate.toISOString() : null,
             cover: d.coverFileAssetId ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) } : null,
             finalVersion: fv ? { number: fv.number, href: fv.fileAssetId ? `/api/files-asset/${fv.fileAssetId}` : fv.fileUrl } : null,
+            // Enlace a la SALA de revisión unificada (misma de «Mis entregas»): el cliente comenta,
+            // pre-aprueba/aprueba con el sistema completo. Sustituye a la tarjeta reducida.
+            reviewHref: `/review/${signReviewToken(d.id)}`,
             // El cliente solo ve SUS comentarios y las respuestas del equipo dirigidas a él;
             // los comentarios internos de pre-aprobación (fromClient=false sin visibleToClient)
             // NUNCA se le mandan.

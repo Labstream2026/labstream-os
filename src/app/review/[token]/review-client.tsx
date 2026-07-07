@@ -4,7 +4,7 @@ import * as React from "react";
 import { Copy, Check, CheckCircle2, Loader2 } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
-import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
+import { addReviewComment, setReviewDecision, setCoverDecision, preApproveReview } from "./actions";
 import { DownloadCenter, type Rendition } from "./download-center";
 import { ReviewOnboarding } from "./review-onboarding";
 
@@ -214,6 +214,7 @@ export function ReviewClient({
   projectEmoji,
   clientName,
   sessionName = null,
+  invited = null,
   copy = null,
   hashtags = null,
   coverSrc = null,
@@ -240,6 +241,10 @@ export function ReviewClient({
   // Nombre de la sesión (usuario invitado de la app): si viene, saltamos la bienvenida y no
   // le pedimos el nombre; los visitantes por enlace público (sin sesión) sí pasan por ella.
   sessionName?: string | null;
+  // Capacidad de USUARIO INVITADO autenticado: si viene, la sala le ofrece los DOS botones
+  // (Pre-aprobar → genera enlace para el cliente final, y Aprobar final) y puede reabrir un
+  // aprobado. `null` = cliente final por enlace público (solo Aprobar / Solicitar cambios).
+  invited?: { reviewLink: string; emailEnabled: boolean } | null;
   // Contenido de publicación que el cliente ve y copia junto al video (lo edita el equipo).
   copy?: string | null;
   hashtags?: string | null;
@@ -364,11 +369,24 @@ export function ReviewClient({
         immersiveEligible={immersiveEligible}
         defaultName={name || "Cliente"}
         fixedName
-        decision={{ approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
+        // El usuario INVITADO usa su propia barra de decisión (doble botón + reabrir), así que aquí
+        // no pintamos los botones del escenario; el cliente FINAL por enlace sí los usa.
+        decision={invited ? null : { approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
         mediaTabs={mediaTabs.length ? mediaTabs : undefined}
         onComment={(fd) => addReviewComment(token, fd)}
         onDecisionIntent={onDecisionIntent}
       />
+      {invited ? (
+        <InvitedActions
+          token={token}
+          reviewLink={invited.reviewLink}
+          emailEnabled={invited.emailEnabled}
+          approved={status === "APROBADO" || status === "ENTREGADO"}
+          pending={pending}
+          onApprove={() => onDecisionIntent("APROBADO")}
+          onRequestChanges={() => onDecisionIntent("CAMBIOS")}
+        />
+      ) : null}
       <DownloadCenter renditions={renditions} />
       <ReviewOnboarding />
       {modal ? (
@@ -509,6 +527,131 @@ function DecisionModal({
         </div>
       </div>
     </div>
+  );
+}
+
+// Barra de decisión del USUARIO INVITADO autenticado. Ofrece TRES caminos en la misma ventana:
+//  · Aprobar (final) — reutiliza el modal de marca de la sala (onApprove → decisión APROBADO).
+//  · Solicitar / Reabrir cambios — disponible SIEMPRE, incluso tras aprobado (onRequestChanges).
+//  · Pre-aprobar y enviar al cliente FINAL — genera el enlace /review/[token] (copiar + correo
+//    opcional) vía preApproveReview; el invitado actúa de PUENTE sin cerrar la aprobación.
+function InvitedActions({
+  token,
+  reviewLink,
+  emailEnabled,
+  approved,
+  pending,
+  onApprove,
+  onRequestChanges,
+}: {
+  token: string;
+  reviewLink: string;
+  emailEnabled: boolean;
+  approved: boolean;
+  pending: boolean;
+  onApprove: () => void;
+  onRequestChanges: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [to, setTo] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [recorded, setRecorded] = React.useState(false);
+  const [preBusy, startPre] = React.useTransition();
+  const [preMsg, setPreMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+
+  const record = (withEmail: boolean) => {
+    startPre(async () => {
+      const fd = new FormData();
+      if (withEmail) {
+        fd.set("to", to.trim());
+        if (note.trim()) fd.set("note", note.trim());
+      }
+      const r = await preApproveReview(token, fd);
+      if (r.ok) {
+        setRecorded(true);
+        setPreMsg({ ok: true, text: withEmail ? "Pre-aprobado y enviado al cliente final." : "Pre-aprobado. Comparte el enlace con el cliente final." });
+      } else {
+        setPreMsg({ ok: false, text: r.error || "No se pudo pre-aprobar. Inténtalo de nuevo." });
+      }
+    });
+  };
+
+  // Copiar el enlace NO registra nada (sin efecto de servidor): la pre-aprobación se registra UNA
+  // sola vez con el botón «Pre-aprobar». Así copiar N veces no duplica notas ni avisos.
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(reviewLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* sin portapapeles */ }
+  };
+
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="border-b border-border px-4 py-2.5">
+        <h2 className="text-sm font-semibold">Tu decisión</h2>
+        <p className="text-xs text-muted-foreground">
+          Apruébalo tú, o pre-apruébalo y envía el enlace al cliente final para que lo apruebe. Puedes pedir cambios en cualquier momento.
+        </p>
+      </div>
+      <div className="space-y-3 p-4">
+        {approved ? (
+          <p className="flex items-center gap-1.5 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <CheckCircle2 className="size-4" /> Aprobado. Si algo cambió, puedes reabrirlo con cambios.
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {!approved ? (
+            <button type="button" onClick={onApprove} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+              <CheckCircle2 className="size-4" /> Aprobar
+            </button>
+          ) : null}
+          <button type="button" onClick={onRequestChanges} disabled={pending} className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:bg-amber-500/10 dark:text-amber-300">
+            {approved ? "Reabrir con cambios" : "Solicitar cambios"}
+          </button>
+          <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-accent">
+            Pre-aprobar y enviar al cliente final
+          </button>
+        </div>
+
+        {open ? (
+          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">
+              Al pre-aprobar generas un enlace para que el <b>cliente final</b> revise y apruebe. Cópialo y compártelo, o envíalo por correo.
+            </p>
+            <div className="flex items-center gap-2">
+              <input readOnly value={reviewLink} className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none" />
+              <button type="button" onClick={copyLink} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+                {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />} {copied ? "Copiado" : "Copiar enlace"}
+              </button>
+            </div>
+            {emailEnabled ? (
+              <div className="space-y-2">
+                <input type="email" value={to} onChange={(e) => setTo(e.target.value)} disabled={recorded} placeholder="Correo del cliente final (opcional)" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={recorded} rows={2} placeholder="Mensaje para el cliente final (opcional)" className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">El correo no está configurado: copia el enlace y compártelo tú.</p>
+            )}
+            {/* Un ÚNICO botón registra la pre-aprobación (nota interna + aviso al equipo, y el correo
+                si escribió un destinatario). Deshabilitado tras registrar → no duplica. */}
+            <button
+              type="button"
+              onClick={() => record(!!to.trim())}
+              disabled={preBusy || recorded}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {preBusy ? <Loader2 className="size-4 animate-spin" /> : recorded ? <Check className="size-4" /> : null}
+              {recorded ? "Pre-aprobado" : to.trim() ? "Pre-aprobar y enviar por correo" : "Pre-aprobar"}
+            </button>
+            {preMsg ? (
+              <p className={`text-xs ${preMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{preMsg.text}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

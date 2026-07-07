@@ -2,8 +2,9 @@ import type * as React from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
-import { verifyReviewToken } from "@/lib/review-token";
+import { getSession, hasPermission } from "@/lib/auth";
+import { verifyReviewToken, signReviewToken } from "@/lib/review-token";
+import { isEmailEnabled } from "@/lib/email";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
 import { photoViewSrc } from "@/lib/deliverable-photo";
@@ -130,6 +131,23 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const backHref = session?.role === "cliente" ? "/mis-entregas" : null;
   const sessionName = session?.role === "cliente" ? session.name : null;
 
+  // ¿Es el USUARIO INVITADO autenticado? (rol cliente, con permiso de aprobar y miembro del
+  // proyecto del entregable). Solo a él le damos la ventana de doble botón (Pre-aprobar + Aprobar)
+  // y la posibilidad de reabrir un aprobado; el cliente FINAL por enlace (sin sesión) ve la sala
+  // normal (Aprobar / Solicitar cambios).
+  const isInvited =
+    session?.role === "cliente" &&
+    hasPermission(session, "aprobar_cliente") &&
+    !!(await db.projectMember
+      .findUnique({ where: { projectId_userId: { projectId: deliverable.projectId, userId: session.id } }, select: { userId: true } })
+      .catch(() => null));
+  const invited = isInvited
+    ? {
+        reviewLink: `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/review/${signReviewToken(deliverable.id)}`,
+        emailEnabled: await isEmailEnabled(),
+      }
+    : null;
+
   const versions = await buildStageVersions(approved);
   // Enlace de descarga al aprobar: la fuente de la última versión aprobada (Drive o archivo).
   const downloadUrl = versions[0]?.openUrl ?? null;
@@ -207,6 +225,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             projectEmoji={deliverable.project.emoji}
             clientName={deliverable.project.client?.name ?? null}
             sessionName={sessionName}
+            invited={invited}
             copy={deliverable.copy}
             hashtags={deliverable.hashtags}
             coverSrc={coverSrc}
