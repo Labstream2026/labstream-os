@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatMoney } from "@/lib/ui";
+import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
 import { SubmitButton } from "@/components/submit-button";
 import { createInvoiceFromQuote } from "./actions";
@@ -43,7 +44,7 @@ export function PorFacturarList({
             <p className="truncate text-sm font-medium">
               {showClient ? (
                 <>
-                  {it.clientEmoji ?? "🏢"} {it.clientName}
+                  <EntityEmoji value={it.clientEmoji} fallback="🏢" /> {it.clientName}
                   <span className="font-normal text-muted-foreground"> · {it.context}</span>
                 </>
               ) : (

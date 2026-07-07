@@ -15,6 +15,7 @@ import { PhotoGallery } from "./photo-gallery";
 import { PhotoDecision } from "./photo-decision";
 import { DownloadCenter } from "./download-center";
 import { ReviewOnboarding } from "./review-onboarding";
+import { EntityEmoji } from "@/components/icons/marks";
 
 // Estado con la voz del cliente (no la etiqueta interna del equipo) para la cabecera de la sala.
 const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
@@ -184,7 +185,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{deliverable.name}</p>
             <p className="truncate text-xs text-muted-foreground">
-              {deliverable.project.emoji} {deliverable.project.name}
+              <EntityEmoji value={deliverable.project.emoji} /> {deliverable.project.name}
               {deliverable.project.client ? ` · ${deliverable.project.client.name}` : ""}
             </p>
           </div>

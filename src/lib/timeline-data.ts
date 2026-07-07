@@ -3,6 +3,7 @@ import { tone } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { dayKey, resolveSpan, minMaxKeys, taskLifeSpan } from "@/lib/timeline";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
+import { emojiToText } from "@/components/icons/marks";
 import type { SessionUser } from "@/lib/session";
 import type { GTClient, GTMilestone } from "@/app/(app)/timeline/global-timeline";
 
@@ -64,7 +65,7 @@ export async function buildSessionTimeline(
     idx++;
     let lane = clientMap.get(p.client.id);
     if (!lane) {
-      lane = { id: p.client.id, label: `${p.client.emoji ?? "📁"} ${p.client.name}`, projects: [] };
+      lane = { id: p.client.id, label: `${emojiToText(p.client.emoji, "📁")} ${p.client.name}`, projects: [] };
       clientMap.set(p.client.id, lane);
     }
 
@@ -95,7 +96,7 @@ export async function buildSessionTimeline(
     const canWrite = canWriteProject(p, session);
     lane.projects.push({
       id: p.id,
-      name: `${p.emoji ?? "🎬"} ${p.name}`,
+      name: `${emojiToText(p.emoji, "🎬")} ${p.name}`,
       startKey: span.startKey,
       endKey: span.endKey,
       colorHex: hex,

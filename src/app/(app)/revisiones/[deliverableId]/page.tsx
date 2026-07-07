@@ -10,6 +10,7 @@ import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { InternalReview } from "./internal-review";
 import type { StageComment } from "@/components/review/review-stage";
+import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -74,7 +75,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
           <h1 className="text-xl font-bold tracking-tight">{deliverable.name}</h1>
           <p className="text-sm text-muted-foreground">
             <Link href={`/proyectos/${deliverable.project.id}?tab=entregables`} className="hover:underline">
-              {deliverable.project.emoji} {deliverable.project.name}
+              <EntityEmoji value={deliverable.project.emoji} /> {deliverable.project.name}
             </Link>
             {deliverable.project.client ? ` · ${deliverable.project.client.name}` : ""}
           </p>

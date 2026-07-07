@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Clapperboard, Camera, Mic, FileText, Package, type LucideIcon } from "lucide-react";
 import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { EntityEmoji } from "@/components/icons/marks";
 
 // Un entregable aplanado: trae consigo el proyecto al que pertenece para mostrarlo
 // como etiqueta (la vista junta los entregables de TODOS los proyectos del cliente).
@@ -94,7 +95,7 @@ export function ClientDeliverables({ deliverables }: { deliverables: ClientDeliv
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{d.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {d.project.emoji ?? "🎬"} {d.project.name}
+                      <EntityEmoji value={d.project.emoji} fallback="🎬" /> {d.project.name}
                       {" · "}
                       {DELIVERABLE_TYPE[d.type] ?? d.type}
                       {d.versionNumber ? ` · v${d.versionNumber}` : " · sin versión"}

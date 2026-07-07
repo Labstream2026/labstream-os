@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { CalItem } from "./my-calendar";
 import { itemSolid, personColor, emitCalendarDetail, type ColorBy } from "./calendar-detail";
 import { cn } from "@/lib/utils";
+import { EntityEmoji } from "@/components/icons/marks";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -92,7 +93,7 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                     <span className="truncate text-sm font-medium">{it.title}</span>
                     {it.projectName ? (
                       <span className={cn("ml-auto shrink-0 truncate text-xs text-muted-foreground")}>
-                        {it.projectEmoji ?? "🗂️"} {it.projectName}
+                        <EntityEmoji value={it.projectEmoji} fallback="🗂️" /> {it.projectName}
                       </span>
                     ) : null}
                   </button>

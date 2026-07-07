@@ -4,6 +4,7 @@ import * as React from "react";
 import { createProject } from "../actions";
 import { SubmitButton } from "@/components/submit-button";
 import type { WizardStep } from "@/lib/templates";
+import { emojiToText } from "@/components/icons/marks";
 
 type Opt = { id: string; name: string };
 type Tpl = { key: string; name: string; emoji: string | null };
@@ -43,7 +44,7 @@ export function NewProjectForm({
       <Field label="Plantilla">
         <select name="templateKey" value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">
           <option value="">En blanco (solo carpetas)</option>
-          {templates.map((t) => (<option key={t.key} value={t.key}>{t.emoji} {t.name}</option>))}
+          {templates.map((t) => (<option key={t.key} value={t.key}>{emojiToText(t.emoji)} {t.name}</option>))}
         </select>
       </Field>
 

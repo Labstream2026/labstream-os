@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { Search } from "lucide-react";
+import { LS_PREFIX, type LsMark } from "@/components/icons/marks";
 
 // Selector de emojis sin dependencias. Set curado y amplio, por categorías, con
 // palabras clave en español para el buscador. Se renderiza en un PORTAL a document.body
@@ -137,11 +138,15 @@ export function EmojiPicker({
   onPick,
   onClose,
   footer,
+  marks,
 }: {
   anchorRef: React.RefObject<HTMLElement | null>;
   onPick: (emoji: string) => void;
   onClose: () => void;
   footer?: React.ReactNode;
+  // Íconos propios de Labstream (sector/tipo de proyecto): se muestran como primer grupo
+  // y entran al buscador. Al elegir uno, onPick recibe el token "ls:<clave>".
+  marks?: LsMark[];
 }) {
   const [q, setQ] = React.useState("");
   const [style, setStyle] = React.useState<React.CSSProperties | null>(null);
@@ -201,6 +206,33 @@ export function EmojiPicker({
     });
   }, [query]);
 
+  // Íconos Labstream que coinciden con la búsqueda (por etiqueta o palabras clave).
+  const markResults = React.useMemo(() => {
+    if (!marks) return null;
+    if (!query) return marks;
+    return marks.filter((m) => m.label.toLowerCase().includes(query) || m.k.includes(query));
+  }, [marks, query]);
+
+  // Grid reutilizado por la vista normal y la de búsqueda.
+  const marksGrid = markResults && markResults.length > 0 ? (
+    <div>
+      <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Íconos Labstream</p>
+      <div className="grid grid-cols-6 gap-1">
+        {markResults.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => onPick(LS_PREFIX + m.key)}
+            title={m.label}
+            className="flex h-10 items-center justify-center rounded-lg border border-transparent hover:border-border hover:bg-muted"
+          >
+            <m.Icon className="size-6" />
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -225,19 +257,24 @@ export function EmojiPicker({
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
           {results ? (
-            results.length === 0 ? (
+            results.length === 0 && !marksGrid ? (
               <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
             ) : (
-              <div className="grid grid-cols-8 gap-0.5">
-                {results.map((it) => (
-                  <button key={it.e} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
-                    {it.e}
-                  </button>
-                ))}
-              </div>
+              <>
+                {marksGrid}
+                <div className="grid grid-cols-8 gap-0.5">
+                  {results.map((it) => (
+                    <button key={it.e} type="button" onClick={() => onPick(it.e)} title={it.k} className="flex size-7 items-center justify-center rounded text-lg hover:bg-muted">
+                      {it.e}
+                    </button>
+                  ))}
+                </div>
+              </>
             )
           ) : (
-            GROUPS.map((g) => (
+            <>
+            {marksGrid}
+            {GROUPS.map((g) => (
               <div key={g.label}>
                 <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</p>
                 <div className="grid grid-cols-8 gap-0.5">
@@ -248,7 +285,8 @@ export function EmojiPicker({
                   ))}
                 </div>
               </div>
-            ))
+            ))}
+            </>
           )}
         </div>
         {footer ? <div className="mt-1 shrink-0 border-t border-border pt-1">{footer}</div> : null}

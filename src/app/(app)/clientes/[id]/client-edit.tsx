@@ -39,7 +39,7 @@ export function ClientEdit({
       <div className="grid grid-cols-[72px_1fr] gap-3">
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted-foreground">Icono</span>
-          <EmojiSelect name="emoji" defaultValue={emoji} fallback="🏢" className="w-full" />
+          <EmojiSelect name="emoji" defaultValue={emoji} fallback="🏢" marks="sectores" className="w-full" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted-foreground">Nombre</span>

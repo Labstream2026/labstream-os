@@ -22,6 +22,7 @@ import { MyDayToggle } from "./my-day-toggle";
 import { TaskFilters } from "./task-filters";
 import { clearMyDay } from "./actions";
 import { getUserPreference, parseSavedViews } from "@/lib/user-preference";
+import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
 
@@ -147,7 +148,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     const m = new Map<string, Section>();
     for (const t of listTasks) {
       const key = t.project?.id ?? "personal";
-      if (!m.has(key)) m.set(key, { key, label: t.project ? `${t.project.emoji ?? "📁"} ${t.project.name}` : "🔒 Personales", cls: "text-muted-foreground", items: [] });
+      if (!m.has(key)) m.set(key, { key, label: t.project ? `${emojiToText(t.project.emoji, "📁")} ${t.project.name}` : "🔒 Personales", cls: "text-muted-foreground", items: [] });
       m.get(key)!.items.push(t);
     }
     sections = [...m.values()].sort((a, b) => Number(a.key === "personal") - Number(b.key === "personal") || a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
@@ -178,7 +179,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   <Link href={`/proyectos/${t.project.id}?tab=tareas`} className="block min-w-0">
                     <p className="truncate text-sm font-medium">{t.title}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {t.project.client ? `🏢 ${t.project.client.name} · ` : ""}{t.project.emoji} {t.project.name}
+                      {t.project.client ? `🏢 ${t.project.client.name} · ` : ""}<EntityEmoji value={t.project.emoji} /> {t.project.name}
                     </p>
                   </Link>
                 ) : (
@@ -277,7 +278,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {t.project
-                    ? `${t.project.client ? `🏢 ${t.project.client.name} · ` : ""}${t.project.emoji} ${t.project.name}`
+                    ? <>{t.project.client ? `🏢 ${t.project.client.name} · ` : ""}<EntityEmoji value={t.project.emoji} />{` ${t.project.name}`}</>
                     : t.isPrivate ? "🔒 Personal" : "Personal"}
                 </p>
               </div>

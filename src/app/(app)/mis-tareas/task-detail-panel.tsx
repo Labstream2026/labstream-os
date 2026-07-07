@@ -8,6 +8,7 @@ import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { type LabelRow, labelOptions } from "@/lib/colors";
+import { EntityEmoji } from "@/components/icons/marks";
 import {
   renameTask,
   setTaskStatus,
@@ -152,7 +153,7 @@ function TaskDetailPanel({
 
           {task.projectName ? (
             <Link href={`/proyectos/${task.projectId}?tab=tareas`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              {task.projectEmoji} {task.projectName}
+              <EntityEmoji value={task.projectEmoji} /> {task.projectName}
             </Link>
           ) : (
             <p className="text-xs text-muted-foreground">Tarea personal</p>

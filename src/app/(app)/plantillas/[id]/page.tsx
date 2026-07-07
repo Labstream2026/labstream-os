@@ -72,7 +72,7 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
       {/* Metadatos */}
       <form action={updateTemplateMeta.bind(null, id)} className="mt-5 space-y-3 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center gap-2">
-          <EmojiSelect name="emoji" defaultValue={tpl.emoji} fallback="🎬" />
+          <EmojiSelect name="emoji" defaultValue={tpl.emoji} fallback="🎬" marks="proyectos" />
           <input name="name" defaultValue={tpl.name} required placeholder="Nombre de la plantilla" className={`flex-1 text-lg font-semibold ${inputCls}`} />
         </div>
         <textarea name="description" defaultValue={tpl.description ?? ""} rows={2} placeholder="Descripción corta" className={`w-full resize-y ${inputCls}`} />

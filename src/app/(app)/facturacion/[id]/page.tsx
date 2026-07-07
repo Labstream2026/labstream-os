@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { InvoiceView } from "../invoice-view";
+import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export default async function FacturaPage({ params }: { params: Promise<{ id: st
       <div className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight">Factura {invoice.code}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {invoice.client.emoji} {invoice.client.name}
+          <EntityEmoji value={invoice.client.emoji} /> {invoice.client.name}
           {invoice.project ? (
             <> · <Link href={`/proyectos/${invoice.project.id}`} className="hover:underline">{invoice.project.code} · {invoice.project.name}</Link></>
           ) : null}

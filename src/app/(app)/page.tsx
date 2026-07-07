@@ -14,6 +14,7 @@ import { TeamTasks } from "./team-tasks";
 import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
 import { StatTile } from "@/components/charts";
+import { EntityEmoji } from "@/components/icons/marks";
 import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
 
 function greeting(name: string) {
@@ -192,7 +193,7 @@ export default async function HomePage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{u.title}</p>
-                  <p className="truncate text-xs text-muted-foreground">{u.emoji} {u.projectName}</p>
+                  <p className="truncate text-xs text-muted-foreground"><EntityEmoji value={u.emoji} /> {u.projectName}</p>
                 </div>
                 <span className="shrink-0 rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
                   {formatShortDate(u.date)}
@@ -224,7 +225,7 @@ export default async function HomePage() {
                   <span className="flex size-5 items-center justify-center rounded-md border border-border" />
                   <span className="flex-1 truncate text-sm">{t.title}</span>
                   <span className="hidden truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:inline">
-                    {t.project ? `${t.project.emoji} ${t.project.name}` : "Personal"}
+                    {t.project ? <><EntityEmoji value={t.project.emoji} />{` ${t.project.name}`}</> : "Personal"}
                   </span>
                 </Link>
               ))
@@ -265,7 +266,7 @@ export default async function HomePage() {
                       {a.summary}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {a.project ? `${a.project.emoji ?? "📁"} ${a.project.name} · ` : ""}
+                      {a.project ? <><EntityEmoji value={a.project.emoji} fallback="📁" />{` ${a.project.name} · `}</> : ""}
                       {formatShortDate(a.createdAt)}
                     </p>
                   </div>

@@ -8,6 +8,7 @@ import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions
 import { PreApprovePanel } from "./pre-approve-panel";
 import { DownloadCenter, type Rendition } from "./download-center";
 import { ReviewOnboarding } from "./review-onboarding";
+import { EntityEmoji } from "@/components/icons/marks";
 
 // Wrapper del portal PÚBLICO del cliente sobre el escenario de revisión compartido.
 // Antes de entrar, un recibimiento de marca pide el nombre UNA sola vez (se recuerda en
@@ -616,7 +617,7 @@ function Welcome({
         <h1 className="mt-2 flex items-center justify-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">Tu material está listo para revisar <Clapperboard className="size-6 shrink-0 text-primary sm:size-7" /></h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Estás a punto de revisar <span className="font-medium text-foreground">{deliverableName}</span> de{" "}
-          <span className="font-medium text-foreground">{projectEmoji ? `${projectEmoji} ` : ""}{projectName}</span>
+          <span className="font-medium text-foreground">{projectEmoji ? <><EntityEmoji value={projectEmoji} />{" "}</> : null}{projectName}</span>
           {clientName ? <> · {clientName}</> : null}.
         </p>
 

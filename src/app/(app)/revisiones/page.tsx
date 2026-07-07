@@ -12,6 +12,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { EntityEmoji } from "@/components/icons/marks";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -441,7 +442,7 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{d.name}</p>
             <p className="truncate text-xs text-muted-foreground">
-              <span className="opacity-80">{d.project.emoji ?? "🎬"}</span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
+              <span className="opacity-80"><EntityEmoji value={d.project.emoji} fallback="🎬" /></span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
             </p>
           </div>
           {showStatus ? (

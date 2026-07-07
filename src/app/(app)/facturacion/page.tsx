@@ -6,6 +6,7 @@ import { accessibleClientWhere } from "@/lib/client-access";
 import { invoiceStatusMeta, quoteTotals, formatMoney, formatShortDate } from "@/lib/ui";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { Receipt } from "lucide-react";
+import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
@@ -76,7 +77,7 @@ export default async function FacturacionPage() {
       key: `q-${q.id}`,
       clientName: q.client.name,
       clientEmoji: q.client.emoji,
-      context: q.project ? `${q.project.emoji ?? "🎬"} ${q.project.name}` : q.title,
+      context: q.project ? `${emojiToText(q.project.emoji, "🎬")} ${q.project.name}` : q.title,
       note: q.project
         ? `Proyecto terminado · sin factura${d != null ? ` · aprobada hace ${d} d` : ""}`
         : `Sin proyecto · cobro directo${d != null ? ` · aprobada hace ${d} d` : ""}`,
@@ -153,7 +154,7 @@ export default async function FacturacionPage() {
                     <td className="px-4 py-2.5">
                       <Link href={`/facturacion/${r.id}`} className="font-mono text-xs font-medium hover:underline">{r.code}</Link>
                     </td>
-                    <td className="px-4 py-2.5">{r.client.emoji} {r.client.name}</td>
+                    <td className="px-4 py-2.5"><EntityEmoji value={r.client.emoji} /> {r.client.name}</td>
                     <td className="px-4 py-2.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.className}`}>{meta.label}</span></td>
                     <td className="px-4 py-2.5 text-right font-medium">{formatMoney(r.total, r.currency)}</td>
                     <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">{formatShortDate(r.issueDate)}</td>

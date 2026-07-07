@@ -14,6 +14,7 @@ import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { QuoteEditor } from "./quote-editor";
 import { QuoteStatusActions } from "./quote-status";
 import { ShareQuote } from "./share-quote";
+import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +155,7 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">{quote.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {quote.client.emoji} {quote.client.name}
+            <EntityEmoji value={quote.client.emoji} /> {quote.client.name}
             {quote.project ? (
               <>
                 {" · "}

@@ -23,6 +23,7 @@ import { ClientDeliverables, type ClientDeliverable } from "./client-deliverable
 import { ClientStatus } from "./client-status";
 import { ClientBilling, type ClientInvoiceRow } from "./client-billing";
 import { ClientFilesPanel } from "./client-files";
+import { EntityEmoji } from "@/components/icons/marks";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { quoteTotals } from "@/lib/ui";
 import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
@@ -248,7 +249,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             const st = statusMeta(p.status);
             return (
               <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                <td className="px-3 py-2"><Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link></td>
+                <td className="px-3 py-2"><Link href={`/proyectos/${p.id}`} className="font-medium hover:underline"><EntityEmoji value={p.emoji} /> {p.name}</Link></td>
                 <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
                 <td className="px-3 py-2"><span className="text-xs text-muted-foreground">{p.progress}%</span></td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>

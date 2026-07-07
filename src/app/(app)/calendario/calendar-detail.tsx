@@ -5,6 +5,7 @@ import { Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarHex } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { EntityEmoji } from "@/components/icons/marks";
 import type { CalItem } from "./my-calendar";
 import { deleteMyEvent, respondToEvent } from "./actions";
 
@@ -74,7 +75,7 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
           {dateLabel}
           {item.time ? ` · ${item.time}${item.endTime ? `–${item.endTime}` : ""}` : item.allDay || item.kind !== "event" ? " · todo el día" : ""}
         </p>
-        {item.projectName ? <p className="text-sm text-muted-foreground">{item.projectEmoji ?? "🗂️"} {item.projectName}</p> : null}
+        {item.projectName ? <p className="text-sm text-muted-foreground"><EntityEmoji value={item.projectEmoji} fallback="🗂️" /> {item.projectName}</p> : null}
         {item.location ? (
           <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
             <MapPin className="size-4 shrink-0 mt-0.5" />

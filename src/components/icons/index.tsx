@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 // superficies. Para usarlos: import { IconProyectos } from "@/components/icons".
 
 // Paleta viva de la familia (saturada, legible en ambos temas). El naranja es el hilo de marca.
-const C = {
+export const C = {
   orange: "#F47A20",
   violet: "#7C5CFC",
   blue: "#2E90FA",
@@ -30,10 +30,10 @@ export type IconName =
   | "cotizacion" | "cliente" | "reportes" | "wiki" | "chat" | "notas"
   | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas";
 
-type IconProps = { className?: string; label?: string };
+export type IconProps = { className?: string; label?: string };
 
 // Lienzo común: viewBox 24, trazo redondeado. Con `label` es role="img"; sin él, decorativo.
-function Icon({ className, label, children }: IconProps & { children: React.ReactNode }) {
+export function Icon({ className, label, children }: IconProps & { children: React.ReactNode }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -52,7 +52,7 @@ function Icon({ className, label, children }: IconProps & { children: React.Reac
   );
 }
 
-const SW = 1.8; // grosor de trazo base (eco de los trazos gruesos del logo)
+export const SW = 1.8; // grosor de trazo base (eco de los trazos gruesos del logo)
 
 // Proyectos — cohete (violeta) con ventana y llama naranja.
 export function IconProyectos(p: IconProps) {

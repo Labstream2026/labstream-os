@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { EntityEmoji } from "@/components/icons/marks";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { tone } from "@/lib/colors";
@@ -32,7 +33,7 @@ export function ProjectCard({ project, tintColor }: { project: ProjectCardData; 
     >
       <div className="flex items-center justify-between">
         <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-lg">
-          {project.emoji ?? "🎬"}
+          <EntityEmoji value={project.emoji} fallback="🎬" className="size-5.5" />
         </span>
         <Badge className={cn(status.className)}>
           <span className="mr-1 inline-block size-1.5 rounded-full bg-current align-middle" />

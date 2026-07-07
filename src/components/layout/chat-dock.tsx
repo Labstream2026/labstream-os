@@ -8,6 +8,7 @@ import { type CalItem } from "@/app/(app)/calendario/my-calendar";
 import { CalendarDetailCard, CAL_DETAIL_EVENT } from "@/app/(app)/calendario/calendar-detail";
 import { cn } from "@/lib/utils";
 import { formatBogotaDate } from "@/lib/bogota-time";
+import { EntityEmoji } from "@/components/icons/marks";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
 import { ChannelSettings } from "@/components/chat/channel-settings";
@@ -327,7 +328,7 @@ export function ChatDock({
                 <a href={t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas"} className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{t.title}</p>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    {t.projectName ? `${t.projectEmoji ?? "📁"} ${t.projectName}` : "Personal"}
+                    {t.projectName ? <><EntityEmoji value={t.projectEmoji} fallback="📁" />{" "}{t.projectName}</> : "Personal"}
                     {dueLabel(t.dueDate) ? ` · 📅 ${dueLabel(t.dueDate)}` : ""}
                   </p>
                 </a>

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { EntityEmoji } from "@/components/icons/marks";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
@@ -123,7 +124,7 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
                   key={g.clientId}
                   storeId={`client:${g.clientId}`}
                   title={g.clientName}
-                  leading={<span className="text-base leading-none">{g.emoji ?? "🏢"}</span>}
+                  leading={<span className="text-base leading-none"><EntityEmoji value={g.emoji} fallback="🏢" /></span>}
                   count={g.channels.length}
                   unread={groupUnread}
                   forceOpen={g.channels.some((c) => c.id === activeId)}

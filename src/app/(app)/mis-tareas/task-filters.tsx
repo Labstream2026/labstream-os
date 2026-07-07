@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { emojiToText } from "@/components/icons/marks";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, ChevronDown, X, Bookmark, Plus, Trash2, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -115,7 +116,7 @@ export function TaskFilters({
         >
           <option value="">Todos los proyectos</option>
           {hasPersonal ? <option value="personal">🔒 Personales (sin proyecto)</option> : null}
-          {projectOptions.map((p) => <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.name}</option>)}
+          {projectOptions.map((p) => <option key={p.id} value={p.id}>{p.emoji ? `${emojiToText(p.emoji)} ` : ""}{p.name}</option>)}
         </select>
 
         {/* Agrupar */}

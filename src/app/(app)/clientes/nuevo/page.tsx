@@ -28,7 +28,7 @@ export default async function NuevoClientePage() {
         </Field>
         <div className="grid grid-cols-[80px_1fr] gap-3">
           <Field label="Icono">
-            <EmojiSelect name="emoji" fallback="🏢" className="w-full" />
+            <EmojiSelect name="emoji" fallback="🏢" marks="sectores" className="w-full" />
           </Field>
           <Field label="Empresa (opcional)">
             <input

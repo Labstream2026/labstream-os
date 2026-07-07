@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Search, CalendarClock, AlertTriangle } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
 import { setTaskAssignee, setTaskDueDate, setTaskDueTime } from "@/app/(app)/proyectos/[id]/actions";
 
@@ -176,7 +177,7 @@ export function TeamTasksBoard({
                             )}
                             <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                               <span className={cn("rounded-full px-1.5 py-0.5 font-medium", t.statusClass)}>{t.statusLabel}</span>
-                              {t.projectName ? <span className="truncate">· {t.projectEmoji} {t.projectName}</span> : <span>· Personal</span>}
+                              {t.projectName ? <span className="truncate">· <EntityEmoji value={t.projectEmoji} /> {t.projectName}</span> : <span>· Personal</span>}
                             </div>
                           </div>
 

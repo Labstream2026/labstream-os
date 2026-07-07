@@ -8,6 +8,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { photoViewSrc } from "@/lib/deliverable-photo";
 import { DELIVERABLE_TYPE, deliverableOrientation, formatTimecode } from "@/lib/ui";
 import { cn } from "@/lib/utils";
+import { EntityEmoji } from "@/components/icons/marks";
 import { CoverThumb } from "./cover-thumb";
 
 export const dynamic = "force-dynamic";
@@ -88,7 +89,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
 
       <header className="mt-3 mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <span>{project.emoji ?? "🎬"}</span> {project.name}
+          <span><EntityEmoji value={project.emoji} fallback="🎬" /></span> {project.name}
         </h1>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">
           <CheckCircle2 className="size-3.5" /> {approved} de {total} aprobadas

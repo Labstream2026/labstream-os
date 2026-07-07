@@ -17,6 +17,7 @@ import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib
 import { ServicesCatalog } from "./services-catalog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
 
@@ -185,7 +186,7 @@ export default async function CotizacionesPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{q.title}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {q.client.emoji} {q.client.name}
+                    <EntityEmoji value={q.client.emoji} /> {q.client.name}
                     {q.validUntil ? ` · vence ${formatShortDate(q.validUntil)}` : ""}
                   </p>
                 </div>

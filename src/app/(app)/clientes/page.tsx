@@ -9,6 +9,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Plus, FolderOpen, PowerOff, Building2 } from "lucide-react";
+import { EntityEmoji } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ViewTabs } from "../proyectos/[id]/view-tabs";
@@ -34,7 +35,7 @@ function ProjectRow({ p, accent }: { p: CardProject; accent: string | null }) {
   return (
     <Link href={`/proyectos/${p.id}`} className="flex items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent/50">
       <span className="size-2 shrink-0 rounded-full" style={{ background: closed ? "hsl(var(--muted-foreground))" : (accent ?? "hsl(var(--primary))") }} />
-      <span className="min-w-0 flex-1 truncate font-medium">{p.emoji ? `${p.emoji} ` : ""}{p.name}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">{p.emoji ? <><EntityEmoji value={p.emoji} />{" "}</> : null}{p.name}</span>
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{closed ? st.label : `${p.progress}%`}</span>
       {p.lead ? <UserAvatar initials={p.lead.initials} color={p.lead.avatarColor} size="sm" /> : <span className="size-5 shrink-0" />}
     </Link>
@@ -117,7 +118,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                 <span
                   style={accent ? { backgroundColor: `${accent}24`, color: accent } : undefined}
                   className={cn("flex size-12 shrink-0 items-center justify-center rounded-xl text-2xl font-semibold", accent ? "" : "bg-muted text-foreground")}
-                >{c.emoji ?? initial}</span>
+                ><EntityEmoji value={c.emoji} fallback={initial} className="size-7" /></span>
                 <div className="min-w-0 flex-1">
                   <Link href={`/clientes/${c.id}`} className="block truncate text-lg font-semibold leading-tight hover:underline">
                     {c.name}
@@ -191,7 +192,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                     <span
                       style={accent ? { backgroundColor: `${accent}24`, color: accent } : undefined}
                       className={cn("flex size-7 shrink-0 items-center justify-center rounded-md text-sm", accent ? "" : "bg-muted text-foreground")}
-                    >{c.emoji ?? initial}</span>
+                    ><EntityEmoji value={c.emoji} fallback={initial} className="size-4.5" /></span>
                     <span className="truncate">{c.name}</span>
                   </Link>
                 </td>

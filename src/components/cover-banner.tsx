@@ -4,6 +4,7 @@ import * as React from "react";
 import { ImagePlus, Trash2, Palette, Loader2 } from "lucide-react";
 import { TONES, tone } from "@/lib/colors";
 import { EmojiPicker } from "@/components/chat/emoji-picker";
+import { EntityEmoji, lsMark, SECTOR_MARKS, PROJECT_MARKS } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
 
 type SaveResult = { ok: boolean; error?: string };
@@ -23,6 +24,7 @@ export function CoverBanner({
   onSave,
   onClearCover,
   compact = false,
+  marks,
   children,
 }: {
   name: string;
@@ -37,6 +39,8 @@ export function CoverBanner({
   // Cabecera más baja (~40% del alto) con emoji/título reducidos. Para vistas donde el
   // banner debe ocupar menos espacio vertical (p. ej. la cabecera de proyecto).
   compact?: boolean;
+  // Galería de íconos Labstream en el picker: "sectores" (cliente) o "proyectos" (proyecto).
+  marks?: "sectores" | "proyectos";
   children?: React.ReactNode;
 }) {
   const [pending, start] = React.useTransition();
@@ -45,6 +49,9 @@ export function CoverBanner({
   const fileRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const t = tone(color);
+  const markList = marks === "sectores" ? SECTOR_MARKS : marks === "proyectos" ? PROJECT_MARKS : undefined;
+  // Si el icono elegido es una marca Labstream, se repite como marca de agua del degradado.
+  const watermark = lsMark(emoji);
 
   const save = (build: (fd: FormData) => void) => {
     const fd = new FormData();
@@ -66,7 +73,21 @@ export function CoverBanner({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <div className="h-full w-full" style={{ background: `linear-gradient(120deg, ${t.hex} 0%, ${t.hex}cc 55%, ${t.hex}80 100%)` }} />
+            <div className="relative h-full w-full" style={{ background: `linear-gradient(120deg, ${t.hex} 0%, ${t.hex}cc 55%, ${t.hex}80 100%)` }}>
+              {/* Bokeh decorativo (guiño audiovisual): círculos suaves de luz sobre el degradado. */}
+              <svg className="absolute inset-0 h-full w-full" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid slice" aria-hidden>
+                <circle cx="332" cy="26" r="52" fill="white" fillOpacity="0.10" />
+                <circle cx="378" cy="98" r="30" fill="white" fillOpacity="0.08" />
+                <circle cx="44" cy="122" r="44" fill="white" fillOpacity="0.07" />
+                <circle cx="122" cy="16" r="22" fill="white" fillOpacity="0.08" />
+                <circle cx="232" cy="142" r="17" fill="white" fillOpacity="0.09" />
+                <circle cx="288" cy="70" r="9" fill="white" fillOpacity="0.12" />
+              </svg>
+              {/* Marca de agua: el ícono Labstream elegido, en grande y translúcido. */}
+              {watermark ? (
+                <watermark.Icon className={cn("absolute right-4 top-1/2 -translate-y-1/2 opacity-30", compact ? "size-16" : "size-28 sm:size-36")} />
+              ) : null}
+            </div>
           )}
           {/* Velo para que el texto blanco se lea sobre cualquier imagen */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-black/5" />
@@ -123,13 +144,14 @@ export function CoverBanner({
                 compact ? "size-11 rounded-xl text-2xl" : "size-[64px] rounded-2xl text-4xl",
               )}
             >
-              {emoji || fallbackEmoji}
+              <EntityEmoji value={emoji} fallback={fallbackEmoji} />
             </button>
             {emojiOpen ? (
               <EmojiPicker
                 anchorRef={emojiBtnRef}
                 onClose={() => setEmojiOpen(false)}
                 onPick={pickEmoji}
+                marks={markList}
                 footer={
                   emoji ? (
                     <button type="button" onClick={clearEmoji} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">

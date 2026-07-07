@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, formatShortDate } from "@/lib/ui";
 import { CoverBanner } from "@/components/cover-banner";
+import { EntityEmoji } from "@/components/icons/marks";
 import { saveProjectAppearance, clearProjectCover } from "./appearance-actions";
 import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
@@ -372,10 +373,11 @@ export default async function ProyectoPage({
           onSave={saveProjectAppearance.bind(null, project.id)}
           onClearCover={clearProjectCover.bind(null, project.id)}
           compact
+          marks="proyectos"
           subtitle={
             <>
               <Link href={`/clientes/${project.clientId}`} className="hover:underline">
-                {project.client.emoji} {project.client.name}
+                <EntityEmoji value={project.client.emoji} /> {project.client.name}
               </Link>{" "}
               · {project.code} · {PROJECT_TYPE[project.type]}
             </>
