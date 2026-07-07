@@ -18,6 +18,9 @@ export function canAccessChannel(
 ): boolean {
   if (!session) return false;
   if (session.role === "admin") return true;
+  // Rol DEMO (usuario de prueba, solo lectura): sin chat. Un canal no separa leer de escribir
+  // (quien entra puede publicar), y un demo escribiendo mancharía conversaciones reales del equipo.
+  if (session.role === "demo") return false;
   // Grupo asignado a una SECCIÓN/dependencia: solo entra quien tiene acceso a esa sección (aunque el
   // canal sea PÚBLICO). Es la puerta que cierra join/explore (que solo miraban isPublic) → sin esto
   // un usuario sin permiso de la sección podía auto-unirse a un grupo público asignado a ella.

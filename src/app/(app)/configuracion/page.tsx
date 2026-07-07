@@ -9,6 +9,7 @@ import { aiEnabled } from "@/lib/ai";
 import { getOnlyOfficeConfig } from "@/lib/onlyoffice";
 import { UserControls } from "./user-controls";
 import { CleanupNamesButton } from "./cleanup-names-button";
+import { DemoPanel } from "./demo-panel";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
@@ -158,6 +159,12 @@ export default async function ConfiguracionPage() {
           </div>
         ))}
       </div>
+      {/* Usuario DEMO (solo lectura): para probar la app sin poder modificar nada del equipo.
+          El correo es el mismo literal de demo-actions.ts (un "use server" no exporta constantes). */}
+      {(() => {
+        const demoUser = users.find((u) => u.email === "demo@labstream.co");
+        return <DemoPanel exists={!!demoUser} active={demoUser?.active ?? false} />;
+      })()}
     </div>
   );
 

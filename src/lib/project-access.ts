@@ -40,6 +40,9 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
 export function canWriteProject(project: ProjectShape, session: SessionUser | null): boolean {
   if (!canAccessProject(project, session)) return false;
   if (session!.role === "admin") return true;
+  // Rol DEMO (usuario de prueba): SOLO LECTURA global — ve todo pero nunca escribe, como un GUEST.
+  // Es el candado server-side del usuario demo; sus permisos de catálogo son solo ver_*.
+  if (session!.role === "demo") return false;
   const membership = project.members.find((m) => m.userId === session!.id);
   if (membership?.role === "GUEST") return false; // invitado = solo lectura
   return true;
