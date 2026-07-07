@@ -24,10 +24,10 @@ export function ProjectCard({ project, tintColor }: { project: ProjectCardData; 
   return (
     <Link
       href={`/proyectos/${project.id}`}
-      style={t ? { backgroundColor: `${t.hex}14`, borderColor: `${t.hex}40` } : undefined}
+      style={t ? { backgroundColor: `${t.hex}1f`, borderColor: `${t.hex}40` } : undefined}
       className={cn(
-        "group flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition-colors hover:border-primary/40",
-        t ? "" : "border-border bg-card",
+        "group flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition-all hover:shadow-md active:scale-[0.99] motion-reduce:active:scale-100",
+        t ? "hover:border-primary/40" : "border-border bg-card hover:border-border/80",
       )}
     >
       <div className="flex items-center justify-between">

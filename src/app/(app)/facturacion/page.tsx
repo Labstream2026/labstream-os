@@ -134,15 +134,15 @@ export default async function FacturacionPage() {
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className="w-full min-w-[420px] text-sm sm:min-w-[680px]">
             <thead>
               <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
                 <th className="px-4 py-2.5 font-medium">Factura</th>
                 <th className="px-4 py-2.5 font-medium">Cliente</th>
                 <th className="px-4 py-2.5 font-medium">Estado</th>
                 <th className="px-4 py-2.5 text-right font-medium">Total</th>
-                <th className="px-4 py-2.5 font-medium">Emitida</th>
-                <th className="px-4 py-2.5 font-medium">Vence</th>
+                <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Emitida</th>
+                <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Vence</th>
               </tr>
             </thead>
             <tbody>
@@ -156,8 +156,8 @@ export default async function FacturacionPage() {
                     <td className="px-4 py-2.5">{r.client.emoji} {r.client.name}</td>
                     <td className="px-4 py-2.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.className}`}>{meta.label}</span></td>
                     <td className="px-4 py-2.5 text-right font-medium">{formatMoney(r.total, r.currency)}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{formatShortDate(r.issueDate)}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{formatShortDate(r.dueDate) ?? "—"}</td>
+                    <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">{formatShortDate(r.issueDate)}</td>
+                    <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">{formatShortDate(r.dueDate) ?? "—"}</td>
                   </tr>
                 );
               })}

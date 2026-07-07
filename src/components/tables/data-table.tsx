@@ -11,7 +11,7 @@ import {
   type SortingState,
   type Table as RTable,
 } from "@tanstack/react-table";
-import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil, GripVertical } from "lucide-react";
+import { Plus, Trash2, CalendarPlus, ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, Eye, EyeOff, Pencil, GripVertical, Rows3 } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -181,6 +181,17 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
               </tr>
             </thead>
             <tbody>
+              {table.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={cols.length + 1} className="px-4 py-10 text-center">
+                    <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                      <Rows3 className="size-8 opacity-40" />
+                      <span className="text-sm font-medium">Aún no hay filas</span>
+                      <span className="text-xs text-muted-foreground/70">Añade la primera con «Nueva fila».</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
               {sortedRows.map((r) => {
                 const row = r.original;
                 return (

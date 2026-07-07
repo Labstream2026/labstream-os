@@ -31,7 +31,13 @@ export function hexToHslTriplet(hex: string): string | null {
     h *= 60;
     if (h < 0) h += 360;
   }
-  return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+  // Guardián de contraste: --primary se usa con texto BLANCO en los botones primarios.
+  // Un color de marca muy claro (o muy oscuro) rompe el contraste AA (texto blanco casi
+  // invisible sobre un botón casi blanco). Acotamos SOLO la luminosidad a una banda segura
+  // [30%, 62%] manteniendo hue y saturation intactos: los colores razonables no cambian y
+  // solo se corrigen los extremos.
+  const safeL = Math.min(0.62, Math.max(0.3, l));
+  return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(safeL * 100)}%`;
 }
 
 // CSS que sobrescribe --primary y --ring (aro de foco) con el color de marca, en claro y oscuro.
