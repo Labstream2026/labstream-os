@@ -55,6 +55,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     headers: {
       "Content-Type": contentType,
       "Cache-Control": "private, max-age=60",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

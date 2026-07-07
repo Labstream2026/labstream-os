@@ -121,7 +121,9 @@ export async function createProposal(
           templateKey: tpl,
           title,
           brand: brand as unknown as object,
-          blocks: blocks as unknown as object,
+          // Saneo AL GUARDAR: el body HTML de los bloques se sirve en el portal público del
+          // cliente con dangerouslySetInnerHTML → allowlist real (sanitize-html) contra XSS almacenado.
+          blocks: sanitizeBlocks(blocks) as unknown as object,
           answers: answers as unknown as object,
           clientId: matched?.id ?? null,
           createdById: session.id,
@@ -243,7 +245,7 @@ export async function duplicateProposal(id: string) {
           templateKey: src.templateKey,
           title: `${src.title} (copia)`,
           brand: src.brand as object,
-          blocks: src.blocks as object,
+          blocks: sanitizeBlocks(src.blocks) as unknown as object,
           answers: src.answers as object,
           clientId: src.clientId,
           createdById: session.id,

@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-DNS-Prefetch-Control", value: "off" },
+          // Desactiva APIs potentes que la app no usa (defensa en profundidad). NO se restringe
+          // micrófono (notas de voz) ni cámara, para no romper funcionalidad existente.
+          { key: "Permissions-Policy", value: "geolocation=(), payment=(), usb=()" },
         ],
       },
     ];

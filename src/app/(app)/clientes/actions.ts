@@ -274,8 +274,13 @@ export type ClientMemberResult = { ok: boolean; error?: string };
 export async function addClientMember(clientId: string, userId: string): Promise<ClientMemberResult> {
   const session = await getSession();
   if (!(await userCanManageClient(clientId, session))) return { ok: false, error: "No autorizado" };
-  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true, role: { select: { key: true } } } });
   if (!user) return { ok: false, error: "Usuario inexistente" };
+  // Dar acceso de portal a un USUARIO CLIENTE es gestión de usuarios (más sensible que el acceso de
+  // un interno): exige administrar_usuarios, igual que removeClientMember y las invitaciones.
+  if (user.role?.key === "cliente" && !hasPermission(session, "administrar_usuarios")) {
+    return { ok: false, error: "Solo un administrador puede gestionar usuarios cliente." };
+  }
   await db.clientMember.upsert({
     where: { clientId_userId: { clientId, userId } },
     create: { clientId, userId },

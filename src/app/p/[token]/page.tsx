@@ -4,11 +4,30 @@ import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
+import { sanitizeBlockBodies } from "@/lib/proposals/html-sanitize";
 import { PrintButton } from "@/components/print-button";
 import { AcceptProposal } from "./accept";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+// Enhebra el token de la propuesta en las URLs internas de imagen (/api/proposal-img/…) para que el
+// portal público (sin sesión) las cargue tras gatear esa ruta. Las URLs externas no se tocan. Solo
+// hay imágenes en el fondo del hero (bg) y en los slides del carrusel (items[].img).
+function withImgToken(blocks: Block[], token: string): Block[] {
+  const tok = (u: unknown) =>
+    typeof u === "string" && u.startsWith("/api/proposal-img/")
+      ? `${u}${u.includes("?") ? "&" : "?"}t=${encodeURIComponent(token)}`
+      : u;
+  return blocks.map((b) => {
+    const rec = { ...(b as unknown as Record<string, unknown>) };
+    if (rec.type === "hero") rec.bg = tok(rec.bg);
+    else if (rec.type === "carousel" && Array.isArray(rec.items)) {
+      rec.items = (rec.items as Record<string, unknown>[]).map((it) => ({ ...it, img: tok(it.img) }));
+    }
+    return rec as unknown as Block;
+  });
+}
 
 export default async function PropuestaPublicaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -22,7 +41,13 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   await db.proposal.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});
 
   const brand = { ...BRAND_DEFAULT, ...((p.brand as unknown as Brand) ?? {}) };
-  const blocks = (Array.isArray(p.blocks) ? p.blocks : []) as unknown as Block[];
+  // Saneo servidor del HTML de los bloques antes del render público (cubre propuestas guardadas
+  // antes del saneo al escribir) y enhebrado del token en las imágenes internas. El editor
+  // (cliente) NO pasa por aquí: usa su propio renderer y su sesión.
+  const blocks = withImgToken(
+    sanitizeBlockBodies((Array.isArray(p.blocks) ? p.blocks : []) as unknown as Block[]),
+    token,
+  );
   const status = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
   const accepted = status === "ACEPTADA";
   const expired = status === "VENCIDA";

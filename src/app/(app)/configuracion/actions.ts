@@ -352,6 +352,18 @@ export async function setUserRole(userId: string, roleKey: string): Promise<Admi
     return { ok: false, error: "No puedes cambiar tu propio rol." };
   }
 
+  // Anti-escalada por proxy: un actor que NO es admin pleno no puede asignar un rol que conceda
+  // permisos que él mismo no tiene (si no, un delegado con administrar_usuarios ascendería a otra
+  // persona a un rol más potente que el suyo). Mismo criterio que setRolePermission.
+  if (session.role !== "admin") {
+    const targetRole = await db.role.findUnique({
+      where: { id: role.id },
+      select: { permissions: { select: { permission: { select: { key: true } } } } },
+    });
+    const missing = targetRole?.permissions.find((rp) => !hasPermission(session, rp.permission.key));
+    if (missing) return { ok: false, error: "No puedes asignar un rol con permisos que tú no tienes." };
+  }
+
   // No permitir que el último admin se quite a sí mismo el rol admin (evita quedarse sin admins).
   if (session.id === userId && session.role === "admin" && roleKey !== "admin") {
     const admins = await db.user.count({ where: { active: true, role: { key: "admin" } } });

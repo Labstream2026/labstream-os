@@ -12,13 +12,25 @@ export type LoginState = { error?: string };
 // Rate-limit de login en memoria (ventana deslizante), mismo patrón que en
 // src/app/api/ai/route.ts. Frena fuerza bruta de contraseñas. Clave: email + IP.
 // Suficiente para una instancia única; si se escala a varias, mover a Redis.
-const LOGIN_RL_MAX = 8; // intentos
+const LOGIN_RL_MAX = 8; // intentos por (email + IP)
 const LOGIN_RL_WINDOW_MS = 5 * 60_000; // por 5 minutos
+// Segundo limitador SOLO por email (independiente de la IP): que rotar la IP —incluso
+// falsificando X-Forwarded-For— no anule del todo el freno a la fuerza bruta de una cuenta.
+const LOGIN_RL_EMAIL_MAX = 50; // intentos por email
+const LOGIN_RL_EMAIL_WINDOW_MS = 15 * 60_000; // por 15 minutos
 const loginHits = new Map<string, number[]>();
-function loginRateLimited(key: string): boolean {
+let loginSweep = 0;
+function loginRateLimited(key: string, max = LOGIN_RL_MAX, windowMs = LOGIN_RL_WINDOW_MS): boolean {
   const now = Date.now();
-  const recent = (loginHits.get(key) ?? []).filter((t) => now - t < LOGIN_RL_WINDOW_MS);
-  if (recent.length >= LOGIN_RL_MAX) {
+  // Purga perezosa: cada tantas llamadas borra claves cuyo último intento ya expiró (evita que
+  // muchas claves distintas —p. ej. por IPs variadas— se acumulen sin techo en memoria).
+  if (++loginSweep % 500 === 0) {
+    for (const [k, ts] of loginHits) {
+      if (!ts.length || now - ts[ts.length - 1] > LOGIN_RL_EMAIL_WINDOW_MS) loginHits.delete(k);
+    }
+  }
+  const recent = (loginHits.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= max) {
     loginHits.set(key, recent);
     return true;
   }
@@ -33,10 +45,16 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const next = safeNext(String(formData.get("next") ?? ""));
   if (!email || !password) return { error: "Ingresa correo y contraseña." };
 
-  // Limita los intentos por email + IP. El mensaje no revela si el correo existe.
+  // Limita los intentos por email + IP y, además, solo por email. El mensaje no revela si el
+  // correo existe. La IP se toma del ÚLTIMO salto de X-Forwarded-For (el que añade NUESTRO nginx),
+  // no del primero (falsificable por el cliente).
   const h = await headers();
-  const ip = (h.get("x-forwarded-for")?.split(",")[0] ?? h.get("x-real-ip") ?? "").trim();
-  if (loginRateLimited(`${email}|${ip}`)) {
+  const xff = (h.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ip = xff.length ? xff[xff.length - 1] : (h.get("x-real-ip") ?? "").trim();
+  if (
+    loginRateLimited(`ip:${email}|${ip}`) ||
+    loginRateLimited(`email:${email}`, LOGIN_RL_EMAIL_MAX, LOGIN_RL_EMAIL_WINDOW_MS)
+  ) {
     return { error: "Demasiados intentos, espera unos minutos." };
   }
 

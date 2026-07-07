@@ -42,6 +42,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ kind: stri
     }
   }
   return new NextResponse(new Uint8Array(buf), {
-    headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=60" },
+    headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff" },
   });
 }
