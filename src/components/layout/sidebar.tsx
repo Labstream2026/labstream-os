@@ -23,6 +23,7 @@ import {
   IconConfiguracion,
   IconBuscar,
 } from "@/components/icons";
+import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { Logo, LogoMark } from "@/components/brand/logo";
@@ -262,7 +263,7 @@ export function Sidebar({
                     : "text-sidebar-foreground/90 hover:bg-sidebar-accent/40",
                 )}
               >
-                <span className="text-base leading-none">{c.emoji ?? "•"}</span>
+                <span className="flex size-5 items-center justify-center text-lg leading-none"><EntityEmoji value={c.emoji} fallback="•" className="size-5" /></span>
               </Link>
             );
           }
@@ -297,7 +298,7 @@ export function Sidebar({
                   onClick={onNavigate}
                   className="flex min-w-0 flex-1 items-center gap-2 py-2"
                 >
-                  <span className="text-base leading-none">{c.emoji ?? "•"}</span>
+                  <span className="flex size-5 items-center justify-center text-lg leading-none"><EntityEmoji value={c.emoji} fallback="•" className="size-5" /></span>
                   <span className="flex-1 truncate">{c.name}</span>
                 </Link>
                 <span className="px-1 text-xs text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span>
@@ -332,7 +333,7 @@ export function Sidebar({
                             : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
                         )}
                       >
-                        <span className="text-sm leading-none">{p.emoji ?? "•"}</span>
+                        <span className="flex size-4.5 items-center justify-center text-base leading-none"><EntityEmoji value={p.emoji} fallback="•" className="size-4.5" /></span>
                         <span className="flex-1 truncate">{p.name}</span>
                       </Link>
                     );
