@@ -165,6 +165,7 @@ model UserPreference {
   sidebarCollapsed Boolean  @default(false) // barra lateral plegada (modo riel)
   chatPanelOpen    Boolean  @default(true)  // panel de chat de la derecha abierto (escritorio)
   reduceMotion     Boolean  @default(false) // accesibilidad: minimizar animaciones/transiciones
+  density          String   @default("normal") // "normal" | "compact" — tamaño base de la interfaz
   startPage        String   @default("/")   // a dónde llevar al entrar (Inicio por defecto)
   // Vistas guardadas (filtros con nombre) por superficie. JSON [{surface,id,name,query}].
   // Sincronizan entre dispositivos (antes localStorage en task-filters).
@@ -538,6 +539,17 @@ model Project {
   activity     ActivityLog[]
   equipmentPlans EquipmentPlan[]
   notes        Note[]
+
+  // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
+  // cae en ESTE proyecto SIN cuenta. Como el enlace de revisión: revocable + caducidad opcional.
+  uploadDir       String?   // subcarpeta bajo STORAGE_DIR donde cae el material. Null = "project/<id>".
+  // Nonce del enlace: va DENTRO del token firmado y debe coincidir con éste. Null = sin enlace
+  // (hay que generarlo). Revocar lo ROTA → cualquier URL filtrada antes queda muerta para siempre,
+  // aunque luego se regenere (el nuevo enlace lleva otro nonce).
+  uploadNonce     String?
+  uploadRevokedAt DateTime?
+  uploadExpiresAt DateTime?
+  uploadVisits    Int       @default(0)
 
   // Borrado SUAVE (papelera): archivar saca el proyecto de las listas pero conserva todo
   // (tareas, archivos, entregables, chat) y se puede RESTAURAR. No hay borrado físico.
@@ -1733,6 +1745,10 @@ model FileAsset {
   taskId       String?
   uploadedBy   User?          @relation("FileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
+  // Subido por el CLIENTE desde el enlace público de subida (/subir/[token]): pinta el chip
+  // «cliente» y guarda el nombre que escribió (uploadedById queda null porque no tiene sesión).
+  viaClientLink Boolean       @default(false)
+  uploaderName  String?
   deliverableVersions DeliverableVersion[] @relation("VersionFile")
   // Fotos de entregables FOTOGRAFIA cuya fuente es este archivo local del NAS.
   deliverablePhotos   DeliverablePhoto[]   @relation("PhotoFile")

@@ -21,7 +21,9 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /api/v1: API intermedia para servicios externos; se autentica por AppKey (Authorization:
 //   Bearer) en cada ruta vía withApiKey(), NO por la cookie de sesión. Por eso debe quedar fuera
 //   del redirect a /login (si no, una petición con Bearer recibiría el HTML del login).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/whatsapp", "/api/openclaw", "/api/v1"];
+// - /subir + /api/upload: portal PÚBLICO de subida del cliente (token firmado); el cliente sube su
+//   material sin cuenta, así que la página y su endpoint deben quedar fuera del redirect a /login.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no

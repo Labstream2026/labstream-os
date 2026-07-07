@@ -8,9 +8,10 @@ import { START_PAGES } from "@/lib/user-preference";
 
 // Preferencias personales del usuario (control del usuario): página de inicio y accesibilidad.
 // Guardan en BD y SINCRONIZAN entre dispositivos. El panel lateral y el chat se recuerdan solos.
-export function PreferencesForm({ reduceMotion: initRM, startPage: initSP }: { reduceMotion: boolean; startPage: string }) {
+export function PreferencesForm({ reduceMotion: initRM, startPage: initSP, density: initDensity }: { reduceMotion: boolean; startPage: string; density: string }) {
   const router = useRouter();
   const [reduceMotion, setReduceMotion] = React.useState(initRM);
+  const [compact, setCompact] = React.useState(initDensity === "compact");
   const [startPage, setStartPage] = React.useState(initSP);
   const [, startTransition] = React.useTransition();
   const [saved, setSaved] = React.useState(false);
@@ -24,6 +25,14 @@ export function PreferencesForm({ reduceMotion: initRM, startPage: initSP }: { r
     setReduceMotion(v);
     startTransition(async () => {
       await saveUserPreference({ reduceMotion: v });
+      router.refresh();
+      flashSaved();
+    });
+  };
+  const onDensity = (v: boolean) => {
+    setCompact(v);
+    startTransition(async () => {
+      await saveUserPreference({ density: v ? "compact" : "normal" });
       router.refresh();
       flashSaved();
     });
@@ -75,6 +84,23 @@ export function PreferencesForm({ reduceMotion: initRM, startPage: initSP }: { r
             className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${reduceMotion ? "bg-primary" : "bg-muted"}`}
           >
             <span className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${reduceMotion ? "translate-x-5" : "translate-x-0.5"}`} />
+          </button>
+        </label>
+
+        {/* Densidad compacta */}
+        <label className="flex items-start justify-between gap-4">
+          <span className="flex flex-col">
+            <span className="text-sm font-medium">Densidad compacta</span>
+            <span className="text-xs text-muted-foreground">Reduce el tamaño de la interfaz para ver más contenido de un vistazo.</span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={compact}
+            onClick={() => onDensity(!compact)}
+            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${compact ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${compact ? "translate-x-5" : "translate-x-0.5"}`} />
           </button>
         </label>
       </div>
