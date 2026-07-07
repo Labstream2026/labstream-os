@@ -27,6 +27,8 @@ import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
 import { signReviewToken } from "@/lib/review-token";
+import { signUploadToken } from "@/lib/upload-token";
+import { UploadShare } from "./upload-share";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
@@ -560,6 +562,16 @@ export default async function ProyectoPage({
             {/* Resto de archivos del proyecto (carpetas, subidas, enlaces, rutas de red). */}
             <section>
               <h3 className="mb-3 text-sm font-semibold">Archivos del proyecto</h3>
+              {/* Solo quien GESTIONA el proyecto ve/comparte el enlace público de subida (la URL en vivo
+                  no se expone a todo el equipo) y elige la carpeta del NAS. */}
+              {canManageProject(project, session) ? (
+                <UploadShare
+                  projectId={id}
+                  initialLink={project.uploadRevokedAt || !project.uploadNonce ? null : `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/subir/${signUploadToken(id, project.uploadNonce)}`}
+                  uploadDir={project.uploadDir}
+                  emailEnabled={emailEnabled}
+                />
+              ) : null}
               <FilesPanel
                 projectId={id}
                 folders={otherFolders.map((f) => ({
@@ -568,9 +580,9 @@ export default async function ProyectoPage({
                   icon: f.icon,
                   color: f.color,
                   // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task })),
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink })),
                 }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink }))}
               />
             </section>
           </div>
