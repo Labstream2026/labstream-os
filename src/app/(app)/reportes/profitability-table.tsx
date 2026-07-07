@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Clock } from "lucide-react";
+import { IconHoras } from "@/components/icons";
 import { formatMoney } from "@/lib/ui";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
@@ -45,7 +45,7 @@ export function ProfitabilityTable({
   if (rows.length === 0) {
     return (
       <EmptyState
-        icon={<Clock />}
+        icon={<IconHoras />}
         title="Aún no hay horas registradas"
         description="Registra horas en las tareas para ver rentabilidad."
       />

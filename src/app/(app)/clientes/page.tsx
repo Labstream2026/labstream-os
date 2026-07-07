@@ -8,7 +8,8 @@ import { statusMeta } from "@/lib/ui";
 import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen, PowerOff, Building2 } from "lucide-react";
+import { Plus, FolderOpen, PowerOff } from "lucide-react";
+import { IconCliente } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -218,6 +219,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconCliente />}
         title={showInactive ? "Clientes inactivos" : "Clientes"}
         description={
           showInactive
@@ -254,7 +256,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
       {cards.length === 0 ? (
         <div className="mt-10">
           <EmptyState
-            icon={<Building2 />}
+            icon={<IconCliente />}
             title={showInactive ? "No hay clientes inactivos" : "Aún no hay clientes"}
             description={
               showInactive

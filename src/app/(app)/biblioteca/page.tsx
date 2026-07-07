@@ -3,7 +3,8 @@ import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
-import { ExternalLink, Trash2, Library, Server } from "lucide-react";
+import { ExternalLink, Trash2, Server } from "lucide-react";
+import { IconBiblioteca } from "@/components/icons";
 import { CopyText } from "@/components/actions/copy-text";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -37,6 +38,7 @@ export default async function BibliotecaPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconBiblioteca />}
         title="Biblioteca"
         description="Música, logos, plantillas y stock reutilizables."
       />
@@ -93,7 +95,7 @@ export default async function BibliotecaPage() {
       {assets.length === 0 ? (
         <div className="mt-10">
           <EmptyState
-            icon={<Library />}
+            icon={<IconBiblioteca />}
             title="La biblioteca está vacía"
             description="Añade música, logos, plantillas o stock para reutilizar."
           />

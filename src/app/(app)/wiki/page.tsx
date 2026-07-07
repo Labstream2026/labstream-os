@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SectionChatCard } from "@/components/chat/section-chat-card";
-import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock, BookOpen } from "lucide-react";
+import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock } from "lucide-react";
+import { IconWiki } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
@@ -162,7 +163,7 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
       <div className="mt-6 space-y-8">
         {pages.length === 0 ? (
           <EmptyState
-            icon={<BookOpen />}
+            icon={<IconWiki />}
             title={query ? "Sin resultados" : "Aún no hay páginas"}
             description={query ? `No encontramos páginas para «${query}».` : "Crea la primera con una plantilla."}
           />

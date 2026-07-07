@@ -2,34 +2,38 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, Home, ListChecks, MessagesSquare, LayoutGrid, CalendarDays, Sparkles, LayoutTemplate, FileText, BookOpen, Boxes, HardDrive, KeyRound, Library, Settings, Building2, Rocket, CheckSquare, Film, Receipt, File, StickyNote, Loader2 } from "lucide-react";
+import { Search, FileText, Loader2 } from "lucide-react";
+import {
+  IconInicio, IconTareas, IconChat, IconProyectos, IconCalendario, IconCotizacion, IconWiki,
+  IconArchivo, IconConfiguracion, IconBiblioteca, IconCliente, IconRevisiones, IconFacturacion, IconNotas,
+} from "@/components/icons";
 import type { SidebarClient } from "@/components/layout/sidebar";
 import { globalSearch } from "./search-action";
 
 type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string };
 
-// Ícono por tipo de contenido devuelto por la búsqueda del servidor.
+// Ícono por tipo de contenido devuelto por la búsqueda del servidor (set propio de Labstream).
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  task: CheckSquare, deliverable: Film, quote: FileText, invoice: Receipt, proposal: Sparkles, file: File, note: StickyNote,
+  task: IconTareas, deliverable: IconRevisiones, quote: IconCotizacion, invoice: IconFacturacion, proposal: IconCotizacion, file: IconArchivo, note: IconNotas,
 };
 
 // Páginas de la Wiki indexadas para el buscador (se cargan en el layout).
 export type WikiSearchItem = { id: string; title: string; section: string | null };
 
 const PAGES: Item[] = [
-  { id: "p-home", label: "Inicio", href: "/", icon: Home, group: "Ir a" },
-  { id: "p-tasks", label: "Mis tareas", href: "/mis-tareas", icon: ListChecks, group: "Ir a" },
-  { id: "p-chats", label: "Chats", href: "/chat", icon: MessagesSquare, group: "Ir a" },
-  { id: "p-proj", label: "Proyectos", href: "/proyectos", icon: LayoutGrid, group: "Ir a" },
-  { id: "p-cal", label: "Calendario", href: "/calendario", icon: CalendarDays, group: "Ir a" },
-  { id: "p-tpl", label: "Plantillas", href: "/plantillas", icon: LayoutTemplate, group: "Ir a" },
-  { id: "p-quote", label: "Cotizaciones", href: "/cotizaciones", icon: FileText, group: "Ir a" },
-  { id: "p-wiki", label: "Wiki del equipo", href: "/wiki", icon: BookOpen, group: "Ir a" },
-  { id: "p-inv", label: "Inventario", sub: "Wiki", href: "/wiki/inventario", icon: Boxes, group: "Ir a" },
-  { id: "p-ubi", label: "Ubicación del material", sub: "Wiki", href: "/wiki/ubicacion", icon: HardDrive, group: "Ir a" },
-  { id: "p-pass", label: "Usuarios y contraseñas", sub: "Wiki", href: "/wiki/contrasenas", icon: KeyRound, group: "Ir a" },
-  { id: "p-lib", label: "Biblioteca", href: "/biblioteca", icon: Library, group: "Ir a" },
-  { id: "p-cfg", label: "Configuración", href: "/configuracion", icon: Settings, group: "Ir a" },
+  { id: "p-home", label: "Inicio", href: "/", icon: IconInicio, group: "Ir a" },
+  { id: "p-tasks", label: "Mis tareas", href: "/mis-tareas", icon: IconTareas, group: "Ir a" },
+  { id: "p-chats", label: "Chats", href: "/chat", icon: IconChat, group: "Ir a" },
+  { id: "p-proj", label: "Proyectos", href: "/proyectos", icon: IconProyectos, group: "Ir a" },
+  { id: "p-cal", label: "Calendario", href: "/calendario", icon: IconCalendario, group: "Ir a" },
+  { id: "p-tpl", label: "Plantillas", href: "/plantillas", icon: IconProyectos, group: "Ir a" },
+  { id: "p-quote", label: "Cotizaciones", href: "/cotizaciones", icon: IconCotizacion, group: "Ir a" },
+  { id: "p-wiki", label: "Wiki del equipo", href: "/wiki", icon: IconWiki, group: "Ir a" },
+  { id: "p-inv", label: "Inventario", sub: "Wiki", href: "/wiki/inventario", icon: IconArchivo, group: "Ir a" },
+  { id: "p-ubi", label: "Ubicación del material", sub: "Wiki", href: "/wiki/ubicacion", icon: IconArchivo, group: "Ir a" },
+  { id: "p-pass", label: "Usuarios y contraseñas", sub: "Wiki", href: "/wiki/contrasenas", icon: IconConfiguracion, group: "Ir a" },
+  { id: "p-lib", label: "Biblioteca", href: "/biblioteca", icon: IconBiblioteca, group: "Ir a" },
+  { id: "p-cfg", label: "Configuración", href: "/configuracion", icon: IconConfiguracion, group: "Ir a" },
 ];
 
 export function CommandPalette({ clients, wikiPages = [], open, onClose }: { clients: SidebarClient[]; wikiPages?: WikiSearchItem[]; open: boolean; onClose: () => void }) {
@@ -40,8 +44,8 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
   React.useEffect(() => { if (open) { setQ(""); setActive(0); } }, [open]);
 
   const items = React.useMemo(() => {
-    const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: Building2, group: "Clientes" }));
-    const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: Rocket, group: "Proyectos" })));
+    const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: IconCliente, group: "Clientes" }));
+    const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: IconProyectos, group: "Proyectos" })));
     const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: FileText, group: "Wiki" }));
     // Normaliza quitando acentos (NFD + strip diacríticos): "diseno" encuentra "Diseño",
     // "cotizacion" encuentra "Cotización". Antes una tilde de más/menos no encontraba nada.

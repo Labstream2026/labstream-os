@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { IconCalendario, IconConfiguracion } from "@/components/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, Settings, CalendarDays, LogOut, ChevronLeft } from "lucide-react";
+import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -137,10 +138,10 @@ export function Topbar({
               <User className="size-4" /> Mi perfil
             </Link>
             <Link href="/calendario" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
-              <CalendarDays className="size-4" /> Mi calendario
+              <IconCalendario className="size-4" /> Mi calendario
             </Link>
             <Link href="/configuracion" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
-              <Settings className="size-4" /> Configuración
+              <IconConfiguracion className="size-4" /> Configuración
             </Link>
             <form action={logout} className="border-t border-border">
               <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-destructive hover:bg-muted">

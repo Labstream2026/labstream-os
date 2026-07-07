@@ -5,7 +5,8 @@ import { formatShortDate } from "@/lib/ui";
 import { PapeleraActions } from "./papelera-actions";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { Trash2, FolderOpen, Building2 } from "lucide-react";
+import { IconPapelera } from "@/components/icons";
+import { FolderOpen, Building2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function PapeleraPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconPapelera />}
         title="Papelera"
         description="Elementos borrados; se conservan aquí antes de eliminarse definitivamente."
       />
@@ -41,7 +43,7 @@ export default async function PapeleraPage() {
       {empty ? (
         <div className="mt-10">
           <EmptyState
-            icon={<Trash2 />}
+            icon={<IconPapelera />}
             title="La papelera está vacía"
             description="Los elementos que borres aparecerán aquí antes de eliminarse definitivamente."
           />

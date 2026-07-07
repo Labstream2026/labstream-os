@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CircleCheck, History, CalendarDays, Check } from "lucide-react";
+import { CalendarDays, Check } from "lucide-react";
+import { IconTareas } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
@@ -244,7 +245,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     <div className="space-y-5">
       <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
       {tasks.length === 0 ? (
-        <EmptyState icon={<CircleCheck />} title="Vas al día" description="No tienes tareas abiertas." />
+        <EmptyState icon={<IconTareas />} title="Vas al día" description="No tienes tareas abiertas." />
       ) : listTasks.length === 0 ? (
         <p className="text-sm text-muted-foreground">Ninguna tarea coincide con los filtros.</p>
       ) : (
@@ -263,7 +264,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   const completed = (
     <div className="space-y-2">
       {doneTasks.length === 0 ? (
-        <EmptyState icon={<History />} title="Aún no has completado tareas." />
+        <EmptyState icon={<IconTareas />} title="Aún no has completado tareas." />
       ) : (
         doneTasks.map((t) => {
           const when = t.completedAt
@@ -339,6 +340,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         titleSlot={
           <div>
             <div className="flex flex-wrap items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconTareas className="size-7" /></span>
               <h1 className="text-3xl font-bold tracking-tight">Mis tareas</h1>
               {sla && sla.pct !== null ? (
                 <span

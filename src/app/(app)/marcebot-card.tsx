@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Bot, Megaphone, Clock, Target, AlertTriangle, Briefcase, AlertCircle, UserPlus, Package, Clapperboard, CircleCheck, Mail, Timer, Receipt, CalendarDays, type LucideIcon } from "lucide-react";
+import { IconMarcebot } from "@/components/icons";
+import { Megaphone, Clock, Target, AlertTriangle, Briefcase, AlertCircle, UserPlus, Package, Clapperboard, CircleCheck, Mail, Timer, Receipt, CalendarDays, type LucideIcon } from "lucide-react";
 import { db } from "@/lib/db";
 import { getUserPendientes, getTeamSummary, getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, openStatusKeys, hasActionable, vocativo, type Gender, type UserChases } from "@/lib/marcebot";
 import { bogotaTime, bogotaShortDate } from "@/lib/marcebot/time";
@@ -80,7 +81,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     <section className="mt-8">
       <div className="overflow-hidden rounded-2xl border border-[#F47A20]/30 bg-gradient-to-br from-[#F47A20]/10 to-card shadow-sm">
         <div className="flex items-start gap-4 p-5">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#F47A20]/15"><Bot className="size-6 text-[#F47A20]" /></span>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#F47A20]/15"><IconMarcebot className="size-6" /></span>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <p className="font-semibold">Marcebot</p>

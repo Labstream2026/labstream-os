@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock } from "lucide-react";
+import { IconNotas } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
@@ -245,7 +246,7 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
       {/* ── Lista (izquierda) ── llena todo en móvil; columna fija en escritorio */}
       <aside className={cn("flex min-h-0 w-full flex-col border-r border-border lg:flex lg:w-80 lg:shrink-0", mobileEditorOpen ? "hidden lg:flex" : "flex")}>
         <div className="flex items-center justify-between gap-2 px-4 py-3">
-          <span className="flex items-center gap-2 text-base font-semibold"><StickyNote className="size-5 text-amber-500" /> Notas</span>
+          <span className="flex items-center gap-2 text-base font-semibold"><IconNotas className="size-5" /> Notas</span>
           <button type="button" onClick={newNote} title="Nueva nota" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
             <Plus className="size-5" />
           </button>

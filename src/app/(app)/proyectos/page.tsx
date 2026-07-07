@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { Plus, SearchX } from "lucide-react";
+import { IconProyectos } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
@@ -197,11 +198,14 @@ export default async function ProyectosPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Proyectos</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {hasFilters ? `${total} de ${withProjects.reduce((n, c) => n + c.projects.length, 0)} proyectos` : `${total} proyectos en ${clients.length} clientes`}
-          </p>
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconProyectos className="size-7" /></span>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Proyectos</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {hasFilters ? `${total} de ${withProjects.reduce((n, c) => n + c.projects.length, 0)} proyectos` : `${total} proyectos en ${clients.length} clientes`}
+            </p>
+          </div>
         </div>
         <Link href="/proyectos/nuevo" className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           <Plus className="size-4" /> Nuevo proyecto

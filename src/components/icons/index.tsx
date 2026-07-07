@@ -28,7 +28,8 @@ export const C = {
 export type IconName =
   | "proyectos" | "equipo" | "tareas" | "calendario" | "rodaje" | "facturacion"
   | "cotizacion" | "cliente" | "reportes" | "wiki" | "chat" | "notas"
-  | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas";
+  | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas"
+  | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -255,6 +256,74 @@ export function IconHoras(p: IconProps) {
   );
 }
 
+// Inicio — casa (violeta) con puerta naranja.
+export function IconInicio(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 11.4 12 4.6l8 6.8" stroke={C.violet} strokeWidth={SW} />
+      <path d="M6.2 10.2v8.1c0 .7.5 1.2 1.2 1.2h9.2c.7 0 1.2-.5 1.2-1.2v-8.1" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="M10.5 19.5v-4.3c0-.7.5-1.2 1.2-1.2h.6c.7 0 1.2.5 1.2 1.2v4.3" fill={C.orange} fillOpacity={0.85} stroke={C.orange} strokeWidth={1.5} />
+    </Icon>
+  );
+}
+
+// Mis entregas — bandeja de entrada (celeste) con aviso naranja.
+export function IconEntregas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3.5 13.5 5.9 7.6c.3-.8 1-1.3 1.9-1.3h8.4c.9 0 1.6.5 1.9 1.3l2.4 5.9V17c0 1.4-1.1 2.5-2.5 2.5H6c-1.4 0-2.5-1.1-2.5-2.5v-3.5Z" fill={C.sky} fillOpacity={0.14} stroke={C.sky} strokeWidth={SW} />
+      <path d="M3.5 13.5h4.6l1.1 2h5.6l1.1-2h4.6" stroke={C.sky} strokeWidth={SW} />
+      <circle cx="19.4" cy="4.9" r="1.7" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Comercial — embudo (verde) con moneda naranja.
+export function IconComercial(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 5.2h16l-6 7.1v5.3l-4 2.2v-7.5L4 5.2Z" fill={C.green} fillOpacity={0.14} stroke={C.green} strokeWidth={SW} />
+      <circle cx="18.4" cy="16.8" r="2.7" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+      <path d="M18.4 15.6v2.4" stroke={C.orange} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Biblioteca — lomos de libros (ámbar) con uno inclinado naranja.
+export function IconBiblioteca(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="4" y="5" width="3.6" height="14.6" rx="0.9" fill={C.amber} fillOpacity={0.16} stroke={C.amber} strokeWidth={1.6} />
+      <rect x="9" y="5" width="3.6" height="14.6" rx="0.9" fill={C.amber} fillOpacity={0.16} stroke={C.amber} strokeWidth={1.6} />
+      <path d="m14.6 6.6 3.2-.9 3.7 13.5-3.2.9-3.7-13.5Z" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+      <path d="M5.8 8.2h0M10.8 8.2h0" stroke={C.amber} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// Papelera — caneca (coral) con ranuras naranjas.
+export function IconPapelera(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4.5 6.6h15" stroke={C.coral} strokeWidth={SW} />
+      <path d="M9.4 6.6V5.5c0-.5.4-.9.9-.9h3.4c.5 0 .9.4.9.9v1.1" stroke={C.coral} strokeWidth={1.6} />
+      <path d="m6.1 6.6.9 12c.1 1 .9 1.8 1.9 1.8h6.2c1 0 1.8-.8 1.9-1.8l.9-12" fill={C.coral} fillOpacity={0.14} stroke={C.coral} strokeWidth={SW} />
+      <path d="M10 10.6v5.8M14 10.6v5.8" stroke={C.orange} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Configuración — engranaje (índigo) con núcleo naranja.
+export function IconConfiguracion(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="5.4" fill={C.indigo} fillOpacity={0.14} stroke={C.indigo} strokeWidth={SW} />
+      <path d="M12 3.4v2.5M12 18.1v2.5M3.4 12h2.5M18.1 12h2.5M5.9 5.9l1.8 1.8M16.3 16.3l1.8 1.8M18.1 5.9l-1.8 1.8M7.7 16.3l-1.8 1.8" stroke={C.indigo} strokeWidth={1.7} />
+      <circle cx="12" cy="12" r="2" fill={C.orange} />
+    </Icon>
+  );
+}
+
 // Mapa por nombre, para usarlos dinámicamente (p. ej. desde datos o navegación).
 export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElement> = {
   proyectos: IconProyectos,
@@ -275,4 +344,10 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   revisiones: IconRevisiones,
   archivo: IconArchivo,
   horas: IconHoras,
+  inicio: IconInicio,
+  entregas: IconEntregas,
+  comercial: IconComercial,
+  biblioteca: IconBiblioteca,
+  papelera: IconPapelera,
+  configuracion: IconConfiguracion,
 };

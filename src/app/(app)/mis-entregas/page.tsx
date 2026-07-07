@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Clock, CheckCircle2, Inbox } from "lucide-react";
+import { IconEntregas } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
@@ -86,7 +87,7 @@ export default async function MisEntregasPage() {
 
       {campaigns.length === 0 ? (
         <EmptyState
-          icon={<Inbox />}
+          icon={<IconEntregas />}
           title="Aún no hay entregas para revisar"
           description="En cuanto tu equipo te envíe una pieza, la verás aquí."
         />

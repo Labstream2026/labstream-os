@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, Clapperboard } from "lucide-react";
+import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -12,6 +12,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { IconRevisiones } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -189,6 +190,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
       <header className="mb-5">
         <PageHeader
+          icon={<IconRevisiones />}
           title={archivedTab ? "Entregables archivados" : "Proyectos a revisar"}
           description={
             archivedTab
@@ -228,7 +230,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
 
       {visible.length === 0 ? (
         <EmptyState
-          icon={<Clapperboard />}
+          icon={<IconRevisiones />}
           title={archivedTab ? "No hay entregables archivados" : "No hay nada por revisar"}
           description={archivedTab ? "Los que archives o entregues aparecerán aquí, con su enlace vivo." : "Cuando el equipo suba una versión nueva, aparecerá aquí."}
         />

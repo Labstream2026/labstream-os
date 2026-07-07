@@ -6,7 +6,8 @@ import { createTemplate, duplicateTemplate } from "./actions";
 import { PromptCreate } from "@/components/prompt-create";
 import { WikiTabs } from "@/app/(app)/wiki/wiki-tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Plus, Pencil, Copy, LayoutTemplate } from "lucide-react";
+import { IconProyectos } from "@/components/icons";
+import { Plus, Pencil, Copy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export default async function PlantillasPage() {
 
       {templates.length === 0 ? (
         <EmptyState
-          icon={<LayoutTemplate />}
+          icon={<IconProyectos />}
           title="Aún no hay plantillas"
           description={
             canManage

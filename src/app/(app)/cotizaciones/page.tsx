@@ -17,6 +17,7 @@ import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib
 import { ServicesCatalog } from "./services-catalog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { IconCotizacion } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,7 @@ export default async function CotizacionesPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconCotizacion />}
         title="Facturación"
         description={`${proposals.length} propuestas · ${quotes.length} cotizaciones`}
         actions={canCreate ? (
@@ -170,7 +172,7 @@ export default async function CotizacionesPage() {
       </h2>
       {quotes.length === 0 ? (
         <EmptyState
-          icon={<FileText />}
+          icon={<IconCotizacion />}
           title="Aún no hay cotizaciones rápidas"
           description="Una tabla simple de conceptos y precios para un cliente."
         />

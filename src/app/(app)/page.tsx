@@ -16,6 +16,7 @@ import { getUserPreference } from "@/lib/user-preference";
 import { StatTile } from "@/components/charts";
 import { EntityEmoji } from "@/components/icons/marks";
 import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
+import { IconCalendario, IconRodaje, IconTareas, IconNotificaciones } from "@/components/icons";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -162,8 +163,8 @@ export default async function HomePage() {
       {/* Resumen del cronograma de todos los proyectos (solo lectura; clic → editar). */}
       {canSeeCronograma ? (
         <section className="mt-10">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">Cronograma</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-lg font-semibold"><IconCalendario className="size-5" /> Cronograma</h2>
             <Link href="/timeline" className="text-sm font-medium text-primary hover:underline">
               Ver completo
             </Link>
@@ -180,7 +181,7 @@ export default async function HomePage() {
 
       {upcoming.length > 0 ? (
         <section className="mt-10">
-          <h2 className="mb-3 text-lg font-semibold">Próximos rodajes y entregas</h2>
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold"><IconRodaje className="size-5" /> Próximos rodajes y entregas</h2>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {upcoming.map((u) => (
               <Link
@@ -206,8 +207,8 @@ export default async function HomePage() {
 
       <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-2">
         <section>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">{isAdmin ? "Tareas del equipo" : "Tus tareas de hoy"}</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-lg font-semibold"><IconTareas className="size-5" /> {isAdmin ? "Tareas del equipo" : "Tus tareas de hoy"}</h2>
             <Link href="/mis-tareas" className="text-sm font-medium text-primary hover:underline">
               Ver todas
             </Link>
@@ -236,8 +237,8 @@ export default async function HomePage() {
         {/* Actividad reciente (reemplaza al bloque de Clientes, redundante con el menú):
             últimos movimientos del equipo en los proyectos que el usuario puede ver. */}
         <section>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">Actividad reciente</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-lg font-semibold"><IconNotificaciones className="size-5" /> Actividad reciente</h2>
             <Link href="/proyectos" className="text-sm font-medium text-primary hover:underline">
               Ver proyectos
             </Link>

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { IconNotificaciones } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, AtSign, Users, X, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -326,7 +327,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   return (
     <div className="relative">
       <Button variant="ghost" size="icon" className="relative text-muted-foreground" aria-label="Notificaciones" onClick={toggle}>
-        <Bell />
+        <IconNotificaciones className="size-5" />
         {unread > 0 ? (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-white">
             {unread > 9 ? "9+" : unread}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { TrendingUp } from "lucide-react";
+import { IconComercial } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
@@ -48,13 +48,14 @@ export default async function ComercialPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconComercial />}
         title="Embudo comercial"
         description="Tus propuestas por etapa, de borrador a cierre."
       />
 
       {proposals.length === 0 ? (
         <EmptyState
-          icon={<TrendingUp />}
+          icon={<IconComercial />}
           title="Aún no hay propuestas"
           description="Crea la primera desde Cotizaciones → Propuestas."
         />

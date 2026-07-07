@@ -3,28 +3,26 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Plus, ChevronRight, LogOut, Archive } from "lucide-react";
 import {
-  Home,
-  Inbox,
-  ListChecks,
-  MessagesSquare,
-  LayoutGrid,
-  CalendarDays,
-  ClipboardCheck,
-  StickyNote,
-  Sparkles,
-  Search,
-  Settings,
-  Plus,
-  ChevronRight,
-  BookOpen,
-  Library,
-  BarChart3,
-  Receipt,
-  TrendingUp,
-  LogOut,
-  Archive,
-} from "lucide-react";
+  IconInicio,
+  IconEntregas,
+  IconTareas,
+  IconNotas,
+  IconChat,
+  IconCliente,
+  IconProyectos,
+  IconRevisiones,
+  IconCalendario,
+  IconFacturacion,
+  IconComercial,
+  IconWiki,
+  IconBiblioteca,
+  IconReportes,
+  IconPapelera,
+  IconConfiguracion,
+  IconBuscar,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { Logo, LogoMark } from "@/components/brand/logo";
@@ -53,14 +51,14 @@ export type SidebarClient = {
 
 const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; clienteOnly?: boolean }[] = [
   // Solo el portal del cliente: su sala de entregas es lo primero que ve.
-  { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, clienteOnly: true },
-  { href: "/", label: "Inicio", icon: Home },
-  { href: "/mis-tareas", label: "Mis tareas", icon: ListChecks },
-  { href: "/notas", label: "Notas", icon: StickyNote },
-  { href: "/chat", label: "Chats", icon: MessagesSquare },
-  { href: "/clientes", label: "Clientes", icon: LayoutGrid },
-  { href: "/revisiones", label: "Proyectos a revisar", icon: ClipboardCheck },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays },
+  { href: "/mis-entregas", label: "Mis entregas", icon: IconEntregas, clienteOnly: true },
+  { href: "/", label: "Inicio", icon: IconInicio },
+  { href: "/mis-tareas", label: "Mis tareas", icon: IconTareas },
+  { href: "/notas", label: "Notas", icon: IconNotas },
+  { href: "/chat", label: "Chats", icon: IconChat },
+  { href: "/clientes", label: "Clientes", icon: IconCliente },
+  { href: "/revisiones", label: "Proyectos a revisar", icon: IconRevisiones },
+  { href: "/calendario", label: "Calendario", icon: IconCalendario },
 ];
 
 // Superficies internas que el portal del cliente NO ve (solo ve sus proyectos y el calendario).
@@ -159,7 +157,7 @@ export function Sidebar({
           : "text-sidebar-foreground/90 hover:bg-sidebar-accent/40",
       )}
     >
-      <Icon className="size-4 shrink-0" />
+      <Icon className="size-5 shrink-0" />
       {!collapsed ? <span className="flex-1">{label}</span> : null}
       {!collapsed && badge ? (
         <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">{badge}</span>
@@ -199,7 +197,7 @@ export function Sidebar({
       {!collapsed ? (
         <div className="px-3 pb-2">
           <button onClick={onSearch} className="flex w-full items-center gap-2 rounded-md border border-sidebar-border bg-background/60 px-3 py-2 text-sm text-sidebar-muted transition-colors hover:bg-background">
-            <Search className="size-4" />
+            <IconBuscar className="size-4" />
             <span className="flex-1 text-left">Buscar</span>
             <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
           </button>
@@ -220,10 +218,11 @@ export function Sidebar({
           // le mostramos el tablero de proyectos en su lugar (no perder el acceso a proyectos).
           let href = item.href;
           let label = item.label;
-          if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; }
+          let icon = item.icon;
+          if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; icon = IconProyectos; }
           const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
           const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : item.href === "/mis-entregas" ? pathname.startsWith("/mis-entregas") : pathname === href;
-          return navRow(href, label, item.icon, active, badge);
+          return navRow(href, label, icon, active, badge);
         })}
       </nav>
 
@@ -358,12 +357,12 @@ export function Sidebar({
         )}
         {collapsed || showAdminItems ? (
           <>
-            {canQuotes ? navRow("/cotizaciones", "Facturación", Receipt, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
-            {canComercial ? navRow("/comercial", "Comercial", TrendingUp, pathname.startsWith("/comercial")) : null}
-            {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
-            {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
-            {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}
-            {canPapelera ? navRow("/papelera", "Papelera", Archive, pathname.startsWith("/papelera")) : null}
+            {canQuotes ? navRow("/cotizaciones", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
+            {canComercial ? navRow("/comercial", "Comercial", IconComercial, pathname.startsWith("/comercial")) : null}
+            {canWiki ? navRow("/wiki", "Wiki del equipo", IconWiki, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
+            {canBiblioteca ? navRow("/biblioteca", "Biblioteca", IconBiblioteca, pathname.startsWith("/biblioteca")) : null}
+            {canReports ? navRow("/reportes", "Reportes", IconReportes, pathname.startsWith("/reportes")) : null}
+            {canPapelera ? navRow("/papelera", "Papelera", IconPapelera, pathname.startsWith("/papelera")) : null}
           </>
         ) : null}
       </div>
@@ -373,8 +372,8 @@ export function Sidebar({
         {isCliente
           ? null
           : canAdmin
-          ? navRow("/configuracion", "Configuración", Settings, pathname.startsWith("/configuracion"))
-          : navRow("/configuracion", "Integraciones", Settings, pathname.startsWith("/configuracion"))}
+          ? navRow("/configuracion", "Configuración", IconConfiguracion, pathname.startsWith("/configuracion"))
+          : navRow("/configuracion", "Integraciones", IconConfiguracion, pathname.startsWith("/configuracion"))}
         <div className={cn("flex items-center gap-2.5 rounded-md", collapsed ? "flex-col px-0 py-1" : "px-2.5 py-1.5")}>
           <Link
             href="/perfil"

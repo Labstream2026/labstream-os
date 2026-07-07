@@ -5,7 +5,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { invoiceStatusMeta, quoteTotals, formatMoney, formatShortDate } from "@/lib/ui";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
-import { Receipt } from "lucide-react";
+import { IconFacturacion } from "@/components/icons";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -102,6 +102,7 @@ export default async function FacturacionPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
+        icon={<IconFacturacion />}
         title="Facturación"
         description="Cotizaciones y facturas de tus clientes."
         actions={<Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
@@ -129,7 +130,7 @@ export default async function FacturacionPage() {
       <h2 className="mt-8 mb-2 text-sm font-semibold">Facturas emitidas</h2>
       {emitted.length === 0 ? (
         <EmptyState
-          icon={<Receipt />}
+          icon={<IconFacturacion />}
           title="Aún no hay facturas emitidas"
           description={canCreate ? "Emítela desde la cola «Por facturar» o desde una cotización aprobada." : "Cuando el equipo emita una factura, aparecerá aquí."}
         />
