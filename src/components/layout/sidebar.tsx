@@ -153,13 +153,13 @@ export function Sidebar({
         collapsed ? "justify-center px-2 py-2.5" : "px-3 py-2",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+          : "text-sidebar-foreground/90 hover:bg-sidebar-accent/40",
       )}
     >
       <Icon className="size-4 shrink-0" />
       {!collapsed ? <span className="flex-1">{label}</span> : null}
       {!collapsed && badge ? (
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">{badge}</span>
+        <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">{badge}</span>
       ) : null}
     </Link>
   );
@@ -257,7 +257,7 @@ export function Sidebar({
                   "flex items-center justify-center rounded-md px-2 py-2 text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+                    : "text-sidebar-foreground/90 hover:bg-sidebar-accent/40",
                 )}
               >
                 <span className="text-base leading-none">{c.emoji ?? "•"}</span>
@@ -275,7 +275,7 @@ export function Sidebar({
                   "group/cli flex items-center rounded-md text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
+                    : "text-sidebar-foreground/90 hover:bg-sidebar-accent/40",
                 )}
               >
                 {hasProjects ? (
@@ -327,7 +327,7 @@ export function Sidebar({
                           "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
                           pActive
                             ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/40",
+                            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40",
                         )}
                       >
                         <span className="text-sm leading-none">{p.emoji ?? "•"}</span>
