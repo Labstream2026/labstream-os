@@ -29,7 +29,6 @@ export type ChatClientGroup = {
 };
 
 export type ChatListData = {
-  marcebot: { channelId: string | null; unread: number }; // chat directo con el asistente (aparte)
   daily: { channelId: string | null; name: string; unread: number }; // "Chat del día" (canal de equipo), fijado aparte
   dms: ChatListRow[];
   clientGroups: ChatClientGroup[]; // chats agrupados por cliente (colapsables)
@@ -85,13 +84,6 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     GROUP BY m."channelId"
   `;
   const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
-
-  // El chat con Marcebot (DM con el bot del sistema) se muestra aparte, fijo arriba, no
-  // mezclado con los DMs de personas.
-  const marcebotDM = myChannels.find(
-    (c) => c.type === "DIRECT" && c.members.some((m) => m.user.id !== session.id && m.user.isSystemBot),
-  );
-  const marcebot = { channelId: marcebotDM?.id ?? null, unread: marcebotDM ? unread.get(marcebotDM.id) ?? 0 : 0 };
 
   const dms: ChatListRow[] = myChannels
     // Solo DMs con un interlocutor que todavía existe (y que no sea un bot del sistema:
@@ -163,7 +155,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     .filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId && (!c.section || sessionHasSectionAccess(c.section, session)))
     .map((c) => ({ id: c.id, name: c.name }));
 
-  return { marcebot, daily, dms, clientGroups, groups, explore, team };
+  return { daily, dms, clientGroups, groups, explore, team };
 }
 
 // Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
@@ -208,7 +200,6 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
   const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   return {
-    marcebot: { channelId: null, unread: 0 },
     daily: { channelId: null, name: "Chat del día", unread: 0 },
     dms: [],
     clientGroups,

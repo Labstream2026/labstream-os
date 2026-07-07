@@ -79,18 +79,6 @@ export async function getOrCreateMarcebotDM(userId: string, userName: string): P
   return getOrCreateDM(bot.id, userId, userName);
 }
 
-// ¿Es este canal el chat directo con un bot del sistema (Marcebot)? Permite que el envío
-// normal dispare al bot dentro de su propio DM aunque el usuario no lo @mencione.
-export function isBotDirectChannel(
-  channel: { type: string; members: { userId: string; user?: { isSystemBot?: boolean } | null }[] },
-  authorId: string,
-): boolean {
-  return (
-    channel.type === "DIRECT" &&
-    channel.members.some((m) => m.userId !== authorId && !!m.user?.isSystemBot)
-  );
-}
-
 // Envía un DM de Marcebot a un usuario: inserta el mensaje, lo emite en tiempo real
 // y crea la notificación in-app (sin correo, para no saturar cada hora).
 export async function sendBotDM(bot: BotUser, userId: string, userName: string, body: string): Promise<void> {

@@ -3,13 +3,10 @@
 import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { after } from "next/server";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
-import { mentionsBot, handleBotMention } from "@/lib/openclaw/bridge";
-import { getOrCreateMarcebotDM, isBotDirectChannel } from "@/lib/marcebot/bot";
 import { CHAT_SECTIONS, sectionMeta } from "@/lib/chat-section";
 import { userHasSectionAccess, sessionHasSectionAccess } from "@/lib/chat-section-access";
 
@@ -132,17 +129,6 @@ export async function openDirectMessage(otherUserId: string) {
   });
   revalidatePath("/chat");
   redirect(`/chat/${channel.id}`);
-}
-
-// Abre (o crea) el chat directo con Marcebot y navega a él. A diferencia de
-// openDirectMessage, aquí SÍ se permite el bot: es el chat del asistente, escribible,
-// donde cada mensaje le habla a Marcebot sin necesidad de @mencionarlo.
-export async function openMarcebotChat() {
-  const session = await getSession();
-  if (!session) noAutorizado();
-  const channelId = await getOrCreateMarcebotDM(session.id, session.name);
-  revalidatePath("/chat");
-  redirect(`/chat/${channelId}`);
 }
 
 // Unirse / salir de un canal público (para que aparezca en "mis chats").
@@ -419,13 +405,6 @@ export async function sendMessage(
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
-  // El asistente responde en segundo plano si lo @etiquetan (@Marcebot/@IA) en cualquier
-  // canal, O si el mensaje va en su chat directo (ahí responde a TODO sin necesidad de @).
-  // No bloquea el envío y actúa con los permisos de quien escribe (session.id).
-  if (mentionsBot(text) || isBotDirectChannel(msg.channel, session!.id)) {
-    after(() => handleBotMention(channelId, session!.id, msg.parentId, msg.id));
-  }
-
   const payload: ChatMessagePayload = {
     id: msg.id,
     channelId,
@@ -487,9 +466,6 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   publishMessage(payload);
   await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
   await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
-  if (mentionsBot(body) || isBotDirectChannel(msg.channel, session!.id)) {
-    after(() => handleBotMention(channelId, session!.id, msg.parentId, msg.id));
-  }
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
 }

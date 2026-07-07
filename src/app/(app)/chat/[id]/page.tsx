@@ -8,7 +8,6 @@ import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
 import { MuteToggle } from "@/components/chat/mute-toggle";
-import { MARCEBOT_EMAIL, MARCEBOT_NAME } from "@/lib/marcebot/bot";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { UserAvatar } from "@/components/user-avatar";
@@ -71,12 +70,6 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const isMember = channel.members.some((m) => m.user.id === session.id);
 
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
-  // Bots del sistema (Marcebot): excluidos de los listados de equipo (active:false), pero SÍ se
-  // ofrecen en el autocompletado de @menciones del chat para poder etiquetarlos fácil. Van de
-  // primeros para que aparezcan arriba al teclear "@".
-  // Match robusto: por bandera de sistema, por email canónico o por nombre, para que aparezca
-  // aunque el registro de prod no tenga `isSystemBot` puesto o use otro email.
-  const bots = await db.user.findMany({ where: { OR: [{ isSystemBot: true }, { email: MARCEBOT_EMAIL }, { name: MARCEBOT_NAME }] }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
   // Pestañas de audiencia: en un canal de PROYECTO con dos audiencias (interno del equipo + con el
   // cliente), el EQUIPO ve pestañas para saltar entre ambos. El invitado no las ve (solo alcanza el
@@ -166,22 +159,19 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
           isAdmin={isAdmin}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
-            const botIds = new Set(bots.map((b) => b.id));
             // El chat CON EL CLIENTE (audience "CLIENT") "solo habla con el equipo del proyecto": la
             // lista de menciones se acota al responsable + miembros de ESTE proyecto (equipo + el
-            // invitado), sin toda la empresa ni el bot interno (Marcebot). Igual para el PORTAL
-            // CLIENTE, que solo alcanza este canal.
+            // invitado), sin toda la empresa. Igual para el PORTAL CLIENTE, que solo alcanza este canal.
             if (session.role === "cliente" || channel.audience === "CLIENT") {
               const allowed = new Set<string>([channel.project?.leadId, ...(channel.project?.members.map((m) => m.userId) ?? [])].filter(Boolean) as string[]);
-              return team.filter((t) => allowed.has(t.id) && !botIds.has(t.id)).map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
+              return team.filter((t) => allowed.has(t.id)).map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
             }
             // Grupo asignado a una DEPENDENCIA: solo se puede etiquetar a quien ESTÁ en el grupo (los
             // que no tienen acceso a esa sección ni siquiera se pudieron añadir).
             if (channel.section) {
               return channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor }));
             }
-            // Bots primero (Marcebot arriba en el @), sin repetir si también saliera en el equipo.
-            return [...bots, ...team.filter((t) => !botIds.has(t.id))].map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
+            return team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }));
           })()}
           initialMessages={[...channel.messages].reverse().map((m) => ({
             id: m.id,

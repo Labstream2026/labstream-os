@@ -7,7 +7,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { Hash, Lock, Users, Plus, X, ChevronRight, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { createChannel, openMarcebotChat } from "./actions";
+import { createChannel } from "./actions";
 import { CHAT_SECTIONS } from "@/lib/chat-section";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
@@ -18,8 +18,6 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
   const pathname = usePathname();
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
   const [creating, setCreating] = React.useState(false);
-  const [openingBot, startOpenBot] = React.useTransition();
-  const marcebotActive = !!data.marcebot.channelId && data.marcebot.channelId === activeId;
 
   // Leído estilo WhatsApp: al abrir un chat, su badge de no-leídos se limpia AL INSTANTE en
   // el cliente (el rail vive en el layout y no se re-renderiza al navegar; markChannelRead ya
@@ -105,28 +103,6 @@ export function ChatList({ data, onNavigate }: { data: ChatListData; onNavigate?
             </Link>
           </div>
         ) : null}
-
-        {/* Chat directo con Marcebot: fijo arriba. Cada mensaje le habla al asistente sin @. */}
-        <div className="px-2 pb-2">
-          <button
-            type="button"
-            disabled={openingBot}
-            onClick={() => startOpenBot(() => openMarcebotChat())}
-            className={cn(
-              "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors disabled:opacity-60",
-              marcebotActive ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "hover:bg-muted/50",
-            )}
-          >
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-base">🤖</span>
-            <span className="flex min-w-0 flex-1 flex-col leading-tight">
-              <span className="font-medium">Marcebot</span>
-              <span className="truncate text-[11px] text-muted-foreground">Tu asistente · chat directo</span>
-            </span>
-            {seen(data.marcebot.channelId, data.marcebot.unread) > 0 ? (
-              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{seen(data.marcebot.channelId, data.marcebot.unread)}</span>
-            ) : null}
-          </button>
-        </div>
 
         {/* Clientes: sección maestra colapsable (oculta/muestra TODOS los clientes de una
             vez para limpiar la vista) y, dentro, cada cliente despliega sus chats. */}
