@@ -12,14 +12,16 @@ export async function saveUserPreference(patch: {
   sidebarCollapsed?: boolean;
   chatPanelOpen?: boolean;
   reduceMotion?: boolean;
+  density?: string;
   startPage?: string;
 }): Promise<void> {
   const session = await getSession();
   if (!session) return;
-  const data: { sidebarCollapsed?: boolean; chatPanelOpen?: boolean; reduceMotion?: boolean; startPage?: string } = {};
+  const data: { sidebarCollapsed?: boolean; chatPanelOpen?: boolean; reduceMotion?: boolean; density?: string; startPage?: string } = {};
   if (typeof patch.sidebarCollapsed === "boolean") data.sidebarCollapsed = patch.sidebarCollapsed;
   if (typeof patch.chatPanelOpen === "boolean") data.chatPanelOpen = patch.chatPanelOpen;
   if (typeof patch.reduceMotion === "boolean") data.reduceMotion = patch.reduceMotion;
+  if (patch.density === "normal" || patch.density === "compact") data.density = patch.density;
   if (typeof patch.startPage === "string" && START_PAGE_SET.has(patch.startPage)) data.startPage = patch.startPage;
   if (Object.keys(data).length === 0) return;
   await db.userPreference.upsert({
@@ -27,8 +29,8 @@ export async function saveUserPreference(patch: {
     create: { userId: session.id, ...data },
     update: data,
   });
-  // reduceMotion/startPage afectan el render del servidor (shell / Inicio): revalida el layout.
-  if ("reduceMotion" in data || "startPage" in data) revalidatePath("/", "layout");
+  // reduceMotion/density/startPage afectan el render del servidor (shell / <html> / Inicio): revalida el layout.
+  if ("reduceMotion" in data || "density" in data || "startPage" in data) revalidatePath("/", "layout");
 }
 
 // Guarda las VISTAS GUARDADAS (filtros con nombre) de una superficie (p. ej. "mis-tareas").

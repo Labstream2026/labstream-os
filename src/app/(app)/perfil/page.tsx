@@ -35,7 +35,7 @@ export default async function PerfilPage() {
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
         isCliente={isCliente}
       />
-      <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} />
+      <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} density={prefs.density} />
       <NotificationPrefsForm prefs={notifPrefs} />
     </div>
   );

@@ -5,6 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/pwa-register";
 import { getOrgSettings, brandCss } from "@/lib/org-settings";
 import { setProjectStatusOverrides } from "@/lib/project-status";
+import { getSession } from "@/lib/auth";
+import { getUserPreference } from "@/lib/user-preference";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,11 +55,17 @@ export default async function RootLayout({
   // Calienta la caché de estados de proyecto personalizados (config global) para este request,
   // así statusMeta() (síncrono, usado en toda la app) refleja las etiquetas/colores del admin.
   setProjectStatusOverrides(org.projectStatuses);
+  // Densidad de la interfaz por usuario (compacta = tamaño base menor en <html>, escala todo el
+  // rem de Tailwind). Se lee aquí porque <html> vive en el layout raíz; en páginas públicas (sin
+  // sesión) queda normal. getSession/getUserPreference están cacheados por petición (sin coste
+  // extra en el shell autenticado, que ya los pide).
+  const session = await getSession();
+  const density = session ? (await getUserPreference(session.id)).density : "normal";
   return (
     <html
       lang="es"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full${density === "compact" ? " density-compact" : ""}`}
     >
       <body className="min-h-full">
         {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}

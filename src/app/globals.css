@@ -156,6 +156,13 @@ body {
   scroll-behavior: auto !important;
 }
 
+/* Densidad "compacta" (preferencia por usuario): reduce el tamaño base en <html>, así toda la
+   escala rem de Tailwind (texto, paddings, gaps) baja ~6% y cabe más contenido en pantalla. Los
+   campos en móvil siguen a 16px por la regla de abajo (evita el zoom de iOS). */
+html.density-compact {
+  font-size: 15px;
+}
+
 /* En móvil, iOS Safari hace ZOOM automático al enfocar un campo con tipografía < 16px.
    Forzamos 16px en los controles dentro de pantallas pequeñas para que no salte el zoom
    (es la causa #1 de que un formulario "se sienta roto" en iPhone). En escritorio se

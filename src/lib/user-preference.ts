@@ -8,6 +8,8 @@ export type UserPrefs = {
   sidebarCollapsed: boolean;
   chatPanelOpen: boolean;
   reduceMotion: boolean;
+  // Densidad de la interfaz: "normal" | "compact" (compacta reduce el tamaño base en <html>).
+  density: string;
   startPage: string;
   // Vistas guardadas (filtros con nombre) por superficie. JSON: [{ surface, id, name, query }].
   // Sincronizan entre dispositivos (antes localStorage por navegador).
@@ -18,6 +20,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   sidebarCollapsed: false,
   chatPanelOpen: true,
   reduceMotion: false,
+  density: "normal",
   startPage: "/",
   savedViews: null,
 };
@@ -52,6 +55,7 @@ export const getUserPreference = cache(async (userId: string): Promise<UserPrefs
     sidebarCollapsed: row.sidebarCollapsed,
     chatPanelOpen: row.chatPanelOpen,
     reduceMotion: row.reduceMotion,
+    density: row.density || "normal",
     startPage: row.startPage || "/",
     savedViews: row.savedViews ?? null,
   };
