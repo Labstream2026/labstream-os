@@ -24,6 +24,7 @@ export function AppShell({
   team,
   canAdmin,
   canQuotes,
+  canComercial = false,
   canAsistente = true,
   canWiki = true,
   canBiblioteca = true,
@@ -54,6 +55,7 @@ export function AppShell({
   team: TopbarAvatar[];
   canAdmin: boolean;
   canQuotes?: boolean;
+  canComercial?: boolean;
   canAsistente?: boolean;
   canWiki?: boolean;
   canBiblioteca?: boolean;
@@ -136,7 +138,7 @@ export function AppShell({
     <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}

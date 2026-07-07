@@ -151,6 +151,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       reduceMotion={prefs.reduceMotion}
       canAdmin={hasPermission(session, "administrar_usuarios")}
       canQuotes={hasPermission(session, "ver_finanzas")}
+      canComercial={hasPermission(session, "ver_cotizaciones")}
       canAsistente={hasPermission(session, "ver_asistente")}
       canWiki={showWiki}
       canBiblioteca={hasPermission(session, "ver_biblioteca")}

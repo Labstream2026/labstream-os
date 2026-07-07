@@ -18,6 +18,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname === "/clientes") return { emoji: "🏢", label: "Clientes" };
   if (pathname.startsWith("/clientes")) return { emoji: "🏢", label: "Cliente" };
   if (pathname.startsWith("/configuracion")) return { emoji: "⚙️", label: "Configuración" };
+  if (pathname.startsWith("/comercial")) return { emoji: "📈", label: "Embudo comercial" };
   if (pathname.startsWith("/cotizaciones")) return { emoji: "📄", label: "Cotizaciones" };
   if (pathname.startsWith("/facturacion")) return { emoji: "🧾", label: "Facturación" };
   if (pathname.startsWith("/biblioteca")) return { emoji: "📁", label: "Biblioteca" };

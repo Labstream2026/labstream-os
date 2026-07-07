@@ -21,6 +21,7 @@ import {
   Library,
   BarChart3,
   Receipt,
+  TrendingUp,
   LogOut,
   Archive,
 } from "lucide-react";
@@ -71,6 +72,7 @@ export function Sidebar({
   clients,
   canAdmin,
   canQuotes,
+  canComercial = false,
   canAsistente = true,
   canWiki = true,
   canBiblioteca = true,
@@ -90,6 +92,7 @@ export function Sidebar({
   clients: SidebarClient[];
   canAdmin: boolean;
   canQuotes?: boolean;
+  canComercial?: boolean;
   canAsistente?: boolean;
   canWiki?: boolean;
   canBiblioteca?: boolean;
@@ -356,6 +359,7 @@ export function Sidebar({
         {collapsed || showAdminItems ? (
           <>
             {canQuotes ? navRow("/cotizaciones", "Facturación", Receipt, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
+            {canComercial ? navRow("/comercial", "Comercial", TrendingUp, pathname.startsWith("/comercial")) : null}
             {canWiki ? navRow("/wiki", "Wiki del equipo", BookOpen, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
             {canBiblioteca ? navRow("/biblioteca", "Biblioteca", Library, pathname.startsWith("/biblioteca")) : null}
             {canReports ? navRow("/reportes", "Reportes", BarChart3, pathname.startsWith("/reportes")) : null}
