@@ -5,6 +5,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { invoiceStatusMeta, quoteTotals, formatMoney, formatShortDate } from "@/lib/ui";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
+import { Receipt } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
 
 export const dynamic = "force-dynamic";
@@ -126,9 +128,11 @@ export default async function FacturacionPage() {
       {/* Tabla de facturas emitidas */}
       <h2 className="mt-8 mb-2 text-sm font-semibold">Facturas emitidas</h2>
       {emitted.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
-          Aún no hay facturas emitidas. {canCreate ? "Emite una desde la cola «Por facturar» o desde una cotización aprobada." : ""}
-        </div>
+        <EmptyState
+          icon={<Receipt />}
+          title="Aún no hay facturas emitidas"
+          description={canCreate ? "Emítela desde la cola «Por facturar» o desde una cotización aprobada." : "Cuando el equipo emita una factura, aparecerá aquí."}
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[680px] text-sm">

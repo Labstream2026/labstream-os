@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CircleCheck, History } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { UserAvatar } from "@/components/user-avatar";
@@ -241,7 +243,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     <div className="space-y-5">
       <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
       {tasks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tienes tareas abiertas. 🎉</p>
+        <EmptyState icon={<CircleCheck />} title="Vas al día" description="No tienes tareas abiertas." />
       ) : listTasks.length === 0 ? (
         <p className="text-sm text-muted-foreground">Ninguna tarea coincide con los filtros.</p>
       ) : (
@@ -260,7 +262,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   const completed = (
     <div className="space-y-2">
       {doneTasks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aún no has completado tareas.</p>
+        <EmptyState icon={<History />} title="Aún no has completado tareas." />
       ) : (
         doneTasks.map((t) => {
           const when = t.completedAt

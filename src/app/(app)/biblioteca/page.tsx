@@ -6,6 +6,7 @@ import { FILE_KIND_LABEL, formatShortDate } from "@/lib/ui";
 import { ExternalLink, Trash2, Library, Server } from "lucide-react";
 import { CopyText } from "@/components/actions/copy-text";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { EmptyState } from "@/components/ui/empty-state";
 import { addLibraryAsset, addLibraryNasPath, deleteLibraryAsset } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -89,10 +90,12 @@ export default async function BibliotecaPage() {
       ) : null}
 
       {assets.length === 0 ? (
-        <div className="mt-10 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
-          <Library className="size-7 text-muted-foreground" />
-          <p className="font-medium">La biblioteca está vacía</p>
-          <p className="text-sm text-muted-foreground">Añade música, logos, plantillas o stock para reutilizar.</p>
+        <div className="mt-10">
+          <EmptyState
+            icon={<Library />}
+            title="La biblioteca está vacía"
+            description="Añade música, logos, plantillas o stock para reutilizar."
+          />
         </div>
       ) : (
         <div className="mt-8 space-y-6">

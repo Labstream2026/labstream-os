@@ -15,6 +15,7 @@ import { TEMPLATE_MAP } from "@/lib/proposals/templates";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib/services-catalog";
 import { ServicesCatalog } from "./services-catalog";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export const dynamic = "force-dynamic";
 
@@ -168,11 +169,11 @@ export default async function CotizacionesPage() {
         <FileText className="size-4" /> Cotizaciones rápidas
       </h2>
       {quotes.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
-          <FileText className="size-6 text-muted-foreground" />
-          <p className="font-medium">Aún no hay cotizaciones rápidas</p>
-          <p className="text-sm text-muted-foreground">Una tabla simple de conceptos y precios para un cliente.</p>
-        </div>
+        <EmptyState
+          icon={<FileText />}
+          title="Aún no hay cotizaciones rápidas"
+          description="Una tabla simple de conceptos y precios para un cliente."
+        />
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {quotes.map((q) => {

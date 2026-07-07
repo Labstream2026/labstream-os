@@ -8,7 +8,8 @@ import { statusMeta } from "@/lib/ui";
 import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen, PowerOff } from "lucide-react";
+import { Plus, FolderOpen, PowerOff, Building2 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ViewTabs } from "../proyectos/[id]/view-tabs";
 import { ClientCardMenu } from "./client-card-menu";
 
@@ -245,8 +246,16 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
       </div>
 
       {cards.length === 0 ? (
-        <div className="mt-10 rounded-xl border border-dashed border-border bg-card/50 px-6 py-16 text-center text-sm text-muted-foreground">
-          {showInactive ? "No hay clientes inactivos." : "No tienes clientes visibles todavía."}
+        <div className="mt-10">
+          <EmptyState
+            icon={<Building2 />}
+            title={showInactive ? "No hay clientes inactivos" : "Aún no hay clientes"}
+            description={
+              showInactive
+                ? "Todos tus clientes están activos por ahora."
+                : "No tienes clientes visibles todavía. Cuando se creen o se te asignen, aparecerán aquí."
+            }
+          />
         </div>
       ) : showInactive ? (
         <div className="mt-8">{cardsNode}</div>

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, Settings, CalendarDays, LogOut } from "lucide-react";
+import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, Settings, CalendarDays, LogOut, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -53,6 +53,12 @@ export function Topbar({
 }) {
   const pathname = usePathname();
   const { emoji, label } = routeMeta(pathname);
+  // "Volver" en móvil: en una página de detalle (p. ej. /proyectos/[id]) la barra superior no
+  // ofrecía cómo regresar a la lista. Si la ruta tiene un segmento anidado, mostramos una flecha
+  // que lleva a la sección padre. El chat trae su propio botón de volver, así que se excluye.
+  const segments = pathname.split("/").filter(Boolean);
+  const showBack = segments.length >= 2 && segments[0] !== "chat";
+  const backHref = `/${segments[0]}`;
 
   return (
     <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
@@ -80,8 +86,18 @@ export function Topbar({
 
       {/* Migaja: en escritorio mandan las pestañas, así que aquí solo se muestra
           en móvil (donde no hay barra de pestañas). */}
-      <div className="flex min-w-0 items-center gap-2 text-sm font-medium md:hidden">
-        <span className="text-base leading-none">{emoji}</span>
+      <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium md:hidden">
+        {showBack ? (
+          <Link
+            href={backHref}
+            aria-label="Volver"
+            className="-ml-1 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted active:scale-95"
+          >
+            <ChevronLeft className="size-5" />
+          </Link>
+        ) : (
+          <span className="text-base leading-none">{emoji}</span>
+        )}
         <span className="truncate">{label}</span>
       </div>
 

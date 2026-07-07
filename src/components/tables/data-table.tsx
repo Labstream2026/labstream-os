@@ -191,7 +191,7 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
                       </td>
                     ))}
                     <td className="px-2 text-center">
-                      <button onClick={() => run(() => deleteRow(row.id))} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-muted-foreground hover:text-destructive" title="Eliminar fila"><Trash2 className="size-3.5" /></button>
+                      <button onClick={() => run(() => deleteRow(row.id))} className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-100 hover:bg-muted hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar fila" aria-label="Eliminar fila"><Trash2 className="size-4" /></button>
                     </td>
                   </tr>
                 );
@@ -220,12 +220,13 @@ function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (
       <div className="flex items-center gap-1">
         <button
           type="button"
-          className="cursor-grab touch-none text-muted-foreground/30 hover:text-muted-foreground active:cursor-grabbing"
+          className="flex size-8 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground/30 hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
           title="Arrastra para mover la columna"
+          aria-label="Arrastra para mover la columna"
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="size-3.5" />
+          <GripVertical className="size-4" />
         </button>
         <input
           defaultValue={col.name}
@@ -235,8 +236,8 @@ function SortableHeader({ col, rt, run }: { col: Column; rt: RTable<Row>; run: (
         <button onClick={() => tc?.toggleSorting()} className="text-muted-foreground hover:text-foreground" title="Ordenar">
           {sorted === "asc" ? <ArrowUp className="size-3.5" /> : sorted === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUpDown className="size-3.5 opacity-100 md:opacity-40 md:group-hover:opacity-100" />}
         </button>
-        <button onClick={async () => { if (await confirm({ title: "Eliminar columna", message: `¿Eliminar la columna «${col.name}»? Se borran sus datos en todas las filas.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteColumn(col.id)); }} className="text-muted-foreground opacity-100 hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar columna">
-          <Trash2 className="size-3.5" />
+        <button onClick={async () => { if (await confirm({ title: "Eliminar columna", message: `¿Eliminar la columna «${col.name}»? Se borran sus datos en todas las filas.`, confirmLabel: "Eliminar", danger: true })) run(() => deleteColumn(col.id)); }} className="flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-100 hover:bg-muted hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar columna" aria-label="Eliminar columna">
+          <Trash2 className="size-4" />
         </button>
       </div>
       {dialog}

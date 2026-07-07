@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SectionChatCard } from "@/components/chat/section-chat-card";
-import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock } from "lucide-react";
+import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock, BookOpen } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
 import { WikiTabs } from "./wiki-tabs";
@@ -160,9 +161,11 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
 
       <div className="mt-6 space-y-8">
         {pages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {query ? `Sin resultados para «${query}».` : "Aún no hay páginas. Crea la primera con una plantilla."}
-          </p>
+          <EmptyState
+            icon={<BookOpen />}
+            title={query ? "Sin resultados" : "Aún no hay páginas"}
+            description={query ? `No encontramos páginas para «${query}».` : "Crea la primera con una plantilla."}
+          />
         ) : (
           orderedSections.map((section) => (
             <section key={section}>

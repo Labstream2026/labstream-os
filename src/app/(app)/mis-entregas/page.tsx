@@ -4,6 +4,7 @@ import { ArrowRight, Clock, CheckCircle2, Inbox } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export const dynamic = "force-dynamic";
 
@@ -84,11 +85,11 @@ export default async function MisEntregasPage() {
       </header>
 
       {campaigns.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
-          <Inbox className="mx-auto size-10 text-muted-foreground/40" />
-          <p className="mt-3 text-sm font-medium">Aún no hay entregas para revisar</p>
-          <p className="text-sm text-muted-foreground">En cuanto tu equipo te envíe una pieza, la verás aquí.</p>
-        </div>
+        <EmptyState
+          icon={<Inbox />}
+          title="Aún no hay entregas para revisar"
+          description="En cuanto tu equipo te envíe una pieza, la verás aquí."
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {campaigns.map((c) => (

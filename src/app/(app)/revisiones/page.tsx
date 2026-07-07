@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar } from "lucide-react";
+import { ClipboardCheck, Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, Clapperboard } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -10,6 +10,7 @@ import { deliverableStatusMeta } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { signReviewToken } from "@/lib/review-token";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -226,11 +227,11 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       </header>
 
       {visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
-          {archivedTab ? <Archive className="mx-auto size-10 text-muted-foreground/40" /> : <ClipboardCheck className="mx-auto size-10 text-muted-foreground/40" />}
-          <p className="mt-3 text-sm font-medium">{archivedTab ? "No hay entregables archivados" : "No hay nada por revisar 🎉"}</p>
-          <p className="text-sm text-muted-foreground">{archivedTab ? "Los que archives o entregues aparecerán aquí, con su enlace vivo." : "Cuando el equipo suba una versión nueva, aparecerá aquí."}</p>
-        </div>
+        <EmptyState
+          icon={<Clapperboard />}
+          title={archivedTab ? "No hay entregables archivados" : "No hay nada por revisar"}
+          description={archivedTab ? "Los que archives o entregues aparecerán aquí, con su enlace vivo." : "Cuando el equipo suba una versión nueva, aparecerá aquí."}
+        />
       ) : !archivedTab && groupMode === "estado" ? (
         <>
           <div className="mb-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4">

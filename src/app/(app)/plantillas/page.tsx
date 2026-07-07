@@ -5,7 +5,8 @@ import type { TemplateContent } from "@/lib/templates";
 import { createTemplate, duplicateTemplate } from "./actions";
 import { PromptCreate } from "@/components/prompt-create";
 import { WikiTabs } from "@/app/(app)/wiki/wiki-tabs";
-import { Plus, Pencil, Copy } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Plus, Pencil, Copy, LayoutTemplate } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -92,9 +93,15 @@ export default async function PlantillasPage() {
       </div>
 
       {templates.length === 0 ? (
-        <p className="mt-10 text-center text-sm text-muted-foreground">
-          Aún no hay plantillas. {canManage ? "Crea la primera con «Nueva plantilla»." : ""}
-        </p>
+        <EmptyState
+          icon={<LayoutTemplate />}
+          title="Aún no hay plantillas"
+          description={
+            canManage
+              ? "Crea la primera con «Nueva plantilla»."
+              : "Cuando el equipo cree plantillas, aparecerán aquí."
+          }
+        />
       ) : null}
     </div>
   );

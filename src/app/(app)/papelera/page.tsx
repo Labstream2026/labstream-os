@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
 import { PapeleraActions } from "./papelera-actions";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Trash2, FolderOpen, Building2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +41,12 @@ export default async function PapeleraPage() {
       </p>
 
       {empty ? (
-        <div className="mt-10 rounded-xl border border-dashed border-border bg-card/50 px-6 py-16 text-center text-sm text-muted-foreground">
-          La papelera está vacía.
+        <div className="mt-10">
+          <EmptyState
+            icon={<Trash2 />}
+            title="La papelera está vacía"
+            description="Los elementos que borres aparecerán aquí antes de eliminarse definitivamente."
+          />
         </div>
       ) : null}
 
