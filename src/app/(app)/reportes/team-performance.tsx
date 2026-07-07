@@ -10,6 +10,7 @@ import { effectiveInvoiceStatus } from "@/lib/billing";
 import { UserAvatar } from "@/components/user-avatar";
 import { Donut, Gauge, Legend, BarRow, AreaTrend, SERIES, POS, WARN } from "@/components/charts";
 import { cn } from "@/lib/utils";
+import { Rocket, CircleCheck, Clock, Users } from "lucide-react";
 
 // Cuerpo del DESEMPEÑO DEL EQUIPO (métricas del estudio, facturación, cumplimiento, carga,
 // horas). Extraído de la página /reportes para reutilizarlo también como pestaña del Inicio.
@@ -94,10 +95,10 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
     <>
       {/* Métricas */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat emoji="🚀" value={activeProjects} label="Proyectos activos" />
-        <Stat emoji="✅" value={openTasks} label="Tareas abiertas" />
-        <Stat emoji="⏱" value={formatMinutes(totalMinutes)} label="Horas registradas" />
-        <Stat emoji="👥" value={activeMembers} label="Miembros activos" />
+        <Stat icon={<Rocket className="size-5 text-muted-foreground" />} value={activeProjects} label="Proyectos activos" />
+        <Stat icon={<CircleCheck className="size-5 text-muted-foreground" />} value={openTasks} label="Tareas abiertas" />
+        <Stat icon={<Clock className="size-5 text-muted-foreground" />} value={formatMinutes(totalMinutes)} label="Horas registradas" />
+        <Stat icon={<Users className="size-5 text-muted-foreground" />} value={activeMembers} label="Miembros activos" />
       </div>
 
       {invoices.length > 0 && hasPermission(session, "ver_finanzas") ? (
@@ -232,10 +233,10 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
   );
 }
 
-function Stat({ emoji, value, label }: { emoji: string; value: number | string; label: string }) {
+function Stat({ icon, value, label }: { icon: React.ReactNode; value: number | string; label: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <span className="text-xl">{emoji}</span>
+      <span className="flex items-center">{icon}</span>
       <p className="mt-3 text-2xl font-bold">{value}</p>
       <p className="text-sm font-medium">{label}</p>
     </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Clapperboard, Camera, Mic, FileText, Package, type LucideIcon } from "lucide-react";
 import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
@@ -27,22 +28,23 @@ const STATUS_ORDER = [
   "ENTREGADO",
 ];
 
-const TYPE_EMOJI: Record<string, string> = {
-  REEL: "🎬",
-  SHORT: "🎬",
-  VIDEO_LARGO: "🎬",
-  TEASER: "🎬",
-  FOTOGRAFIA: "📸",
-  PODCAST: "🎙️",
-  DOCUMENTO: "📄",
-  OTRO: "📦",
+// 🎙️ PODCAST no está en el mapa canónico; Mic es el lucide más cercano.
+const TYPE_ICON: Record<string, LucideIcon> = {
+  REEL: Clapperboard,
+  SHORT: Clapperboard,
+  VIDEO_LARGO: Clapperboard,
+  TEASER: Clapperboard,
+  FOTOGRAFIA: Camera,
+  PODCAST: Mic,
+  DOCUMENTO: FileText,
+  OTRO: Package,
 };
 
 export function ClientDeliverables({ deliverables }: { deliverables: ClientDeliverable[] }) {
   if (deliverables.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
-        <p className="text-3xl">📦</p>
+        <Package className="mx-auto size-8 text-muted-foreground" />
         <p className="mt-2 text-sm font-medium">Este cliente aún no tiene entregables</p>
         <p className="text-sm text-muted-foreground">Se crean dentro de cada proyecto, en la pestaña «Entregables».</p>
       </div>
@@ -80,13 +82,15 @@ export function ClientDeliverables({ deliverables }: { deliverables: ClientDeliv
               <span className="text-xs font-normal text-muted-foreground">({g.items.length})</span>
             </h3>
             <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-              {g.items.map((d) => (
+              {g.items.map((d) => {
+                const TypeIcon = TYPE_ICON[d.type] ?? Package;
+                return (
                 <Link
                   key={d.id}
                   href={`/proyectos/${d.project.id}?tab=entregables`}
                   className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/40"
                 >
-                  <span className="text-lg leading-none">{TYPE_EMOJI[d.type] ?? "📦"}</span>
+                  <TypeIcon className="size-5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{d.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
@@ -100,7 +104,8 @@ export function ClientDeliverables({ deliverables }: { deliverables: ClientDeliv
                     {meta.label}
                   </span>
                 </Link>
-              ))}
+                );
+              })}
             </div>
           </section>
         );

@@ -14,7 +14,7 @@ import { TeamTasks } from "./team-tasks";
 import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
 import { StatTile } from "@/components/charts";
-import { Rocket, ListChecks, MessageSquare, Users } from "lucide-react";
+import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -187,8 +187,8 @@ export default async function HomePage() {
                 href={`/proyectos/${u.projectId}?tab=${u.kind === "shoot" ? "tareas" : "entregables"}`}
                 className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
               >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-lg">
-                  {u.kind === "shoot" ? "🎬" : "📦"}
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  {u.kind === "shoot" ? <Clapperboard className="size-5" /> : <Package className="size-5" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{u.title}</p>

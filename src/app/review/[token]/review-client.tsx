@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Check, CheckCircle2, Loader2 } from "lucide-react";
+import { Copy, Check, CheckCircle2, Loader2, Clapperboard, Pencil, PartyPopper, HeartHandshake, AlertTriangle, Download, Target, CircleCheck } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
 import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
@@ -446,7 +446,7 @@ function DecisionModal({
           {state.phase === "confirm" || state.phase === "sending" ? (
             approved ? (
               <>
-                <div className="mt-5 text-4xl">🎬</div>
+                <Clapperboard className="mx-auto mt-5 size-10 text-primary" />
                 <h2 className="mt-3 text-xl font-bold tracking-tight">¿Confirmas la aprobación?</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Al aprobar le confirmas al equipo que el material está listo. Te llevaremos al enlace de descarga.
@@ -462,7 +462,8 @@ function DecisionModal({
               </>
             ) : (
               <>
-                <div className="mt-5 text-4xl">✏️</div>
+                {/* ✏️ no está en el mapa; Pencil es el lucide más cercano */}
+                <Pencil className="mx-auto mt-5 size-10 text-primary" />
                 <h2 className="mt-3 text-xl font-bold tracking-tight">¿Enviar tus ajustes al equipo?</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Notificaremos a tu equipo con los comentarios que dejaste para que apliquen los cambios.
@@ -482,7 +483,7 @@ function DecisionModal({
           {state.phase === "done" ? (
             approved ? (
               <>
-                <div className="mt-5 text-4xl">🎉</div>
+                <PartyPopper className="mx-auto mt-5 size-10 text-primary" />
                 <h2 className="mt-3 text-xl font-bold tracking-tight">¡Excelente!</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Nos alegra muchísimo que tu video haya quedado aprobado. Gracias por confiar en Labstream.
@@ -490,7 +491,8 @@ function DecisionModal({
                 </p>
                 {downloadUrl ? (
                   <a href={downloadUrl} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 active:scale-[0.99]">
-                    ⬇️ Descargar de Google Drive
+                    {/* ⬇️ no está en el mapa; Download es el lucide más cercano */}
+                    <Download className="size-4" /> Descargar de Google Drive
                   </a>
                 ) : (
                   <a href={homeHref} className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
@@ -501,7 +503,8 @@ function DecisionModal({
               </>
             ) : (
               <>
-                <div className="mt-5 text-4xl">🙏</div>
+                {/* 🙏 no está en el mapa; HeartHandshake es el lucide más cercano */}
+                <HeartHandshake className="mx-auto mt-5 size-10 text-primary" />
                 <h2 className="mt-3 text-xl font-bold tracking-tight">¡Muchas gracias!</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   En Labstream estamos comprometidos con que tu video quede perfecto. Ya notificamos a tu equipo con tus
@@ -517,7 +520,7 @@ function DecisionModal({
 
           {state.phase === "error" ? (
             <>
-              <div className="mt-5 text-4xl">⚠️</div>
+              <AlertTriangle className="mx-auto mt-5 size-10 text-destructive" />
               <h2 className="mt-3 text-xl font-bold tracking-tight">No pudimos completar la acción</h2>
               <p className="mt-2 text-sm text-muted-foreground">{state.message}</p>
               <button onClick={onCancel} className="mt-6 w-full rounded-xl border border-border px-4 py-3 text-sm font-medium hover:bg-accent">
@@ -610,7 +613,7 @@ function Welcome({
       <div className="relative mx-auto max-w-md text-center">
         <Logo className="h-11" />
         <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">Revisión</p>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Tu material está listo para revisar 🎬</h1>
+        <h1 className="mt-2 flex items-center justify-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">Tu material está listo para revisar <Clapperboard className="size-6 shrink-0 text-primary sm:size-7" /></h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Estás a punto de revisar <span className="font-medium text-foreground">{deliverableName}</span> de{" "}
           <span className="font-medium text-foreground">{projectEmoji ? `${projectEmoji} ` : ""}{projectName}</span>
@@ -619,12 +622,12 @@ function Welcome({
 
         <div className="mt-6 grid grid-cols-3 gap-2 text-left">
           {[
-            { icon: "🎯", t: "Comenta el momento exacto" },
-            { icon: "✏️", t: "Dibuja sobre el video" },
-            { icon: "✅", t: "Aprueba o pide cambios" },
+            { Icon: Target, t: "Comenta el momento exacto" },
+            { Icon: Pencil, t: "Dibuja sobre el video" }, // ✏️ → Pencil (no está en el mapa)
+            { Icon: CircleCheck, t: "Aprueba o pide cambios" },
           ].map((f) => (
             <div key={f.t} className="rounded-xl border border-border bg-background/60 p-3 text-center">
-              <div className="text-xl">{f.icon}</div>
+              <f.Icon className="mx-auto size-5 text-primary" />
               <p className="mt-1 text-[11px] leading-tight text-muted-foreground">{f.t}</p>
             </div>
           ))}

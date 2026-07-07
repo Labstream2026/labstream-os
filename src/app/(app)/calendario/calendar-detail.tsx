@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarHex } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -76,16 +76,17 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
         </p>
         {item.projectName ? <p className="text-sm text-muted-foreground">{item.projectEmoji ?? "🗂️"} {item.projectName}</p> : null}
         {item.location ? (
-          <p className="text-sm text-muted-foreground">
-            📍 {/^https?:\/\//.test(item.location)
+          <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+            <MapPin className="size-4 shrink-0 mt-0.5" />
+            <span>{/^https?:\/\//.test(item.location)
               ? <a href={item.location} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 break-all">{item.location}</a>
-              : item.location}
+              : item.location}</span>
           </p>
         ) : null}
         {/* Botón prominente para unirse cuando el lugar es un enlace de reunión (Meet/Zoom). */}
         {item.location && /^https?:\/\//.test(item.location) ? (
           <a href={item.location} target="_blank" rel="noopener noreferrer" className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-            🎥 Unirse a la reunión
+            <Video className="size-4" /> Unirse a la reunión
           </a>
         ) : null}
         {/* RSVP: solo si el usuario actual es invitado de esta cita (Sí / Tal vez / No). */}
@@ -98,7 +99,7 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
             <p className="mb-1 text-xs font-medium text-muted-foreground">Invitados externos</p>
             <div className="flex flex-wrap gap-1.5">
               {item.guests.map((g) => (
-                <span key={g} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">✉️ {g}</span>
+                <span key={g} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"><Mail className="size-3.5 text-muted-foreground" /> {g}</span>
               ))}
             </div>
           </div>

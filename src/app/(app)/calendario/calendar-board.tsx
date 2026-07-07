@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays, GanttChartSquare, Plus } from "lucide-react";
+import { CalendarDays, Check, GanttChartSquare, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
@@ -316,7 +316,7 @@ export function CalendarBoard({
                       <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
                         <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
                         <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
-                          {on ? <span className="text-[10px] leading-none text-white">✓</span> : null}
+                          {on ? <Check className="size-3 text-white" /> : null}
                         </span>
                         <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
                       </label>
@@ -335,7 +335,7 @@ export function CalendarBoard({
                         <label key={p.name} className="flex cursor-pointer items-center gap-2 text-sm">
                           <input type="checkbox" checked={on} onChange={() => togglePerson(p.name)} className="sr-only" />
                           <span className="flex size-4 shrink-0 items-center justify-center rounded-full" style={{ background: on ? hex : "transparent", border: `1.5px solid ${hex}` }}>
-                            {on ? <span className="text-[9px] leading-none text-white">✓</span> : null}
+                            {on ? <Check className="size-2.5 text-white" /> : null}
                           </span>
                           <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{p.name}</span>
                         </label>
@@ -396,7 +396,9 @@ export function CalendarBoard({
               onClick={() => setView(v)}
               className={cn("rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors", view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
             >
-              {v === "semana" ? "🗓️ Semana" : "📅 Mes"}
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="size-4" /> {v === "semana" ? "Semana" : "Mes"}
+              </span>
             </button>
           ))}
         </div>

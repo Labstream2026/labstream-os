@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CircleCheck, History } from "lucide-react";
+import { CircleCheck, History, CalendarDays, Check } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
@@ -206,8 +206,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   title="Fecha de entrega"
                 />
               ) : (
-                <span className="text-xs text-muted-foreground" title="La fecha la fija quien asignó la tarea">
-                  📅 {formatShortDate(t.dueDate) ?? "Sin fecha"}
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title="La fecha la fija quien asignó la tarea">
+                  <CalendarDays className="size-3.5" /> {formatShortDate(t.dueDate) ?? "Sin fecha"}
                 </span>
               )}
               {u.state === "sin" ? null : (
@@ -272,7 +272,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
           const late = u.state === "hecha_tarde";
           const inner = (
             <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-              <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-[11px] text-white", late ? "bg-amber-500" : "bg-emerald-500")}>✓</span>
+              <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-white", late ? "bg-amber-500" : "bg-emerald-500")}><Check className="size-3" /></span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
                 <p className="truncate text-xs text-muted-foreground">

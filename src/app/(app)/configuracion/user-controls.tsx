@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Trash2, MessageCircle } from "lucide-react";
+import { Trash2, MessageCircle, Check } from "lucide-react";
 import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, setUserColor, deleteUser } from "./actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AVATAR_COLORS } from "@/lib/ui";
@@ -176,7 +176,13 @@ export function UserControls({
               : "border-border bg-card text-muted-foreground hover:bg-accent")
           }
         >
-          {command ? "Comanda ✓" : "No comanda"}
+          {command ? (
+            <span className="inline-flex items-center gap-1">
+              Comanda <Check className="size-3.5" />
+            </span>
+          ) : (
+            "No comanda"
+          )}
         </button>
       </div>
 
