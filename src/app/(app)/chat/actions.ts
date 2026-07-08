@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { userCanAccessChannel, userCanManageChannel } from "@/lib/chat-access";
+import { userCanAccessChannel, userCanManageChannel, canAccessChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
 import { CHAT_SECTIONS, sectionMeta } from "@/lib/chat-section";
 import { userHasSectionAccess, sessionHasSectionAccess } from "@/lib/chat-section-access";
@@ -402,8 +402,6 @@ export async function sendMessage(
       channel: { select: { name: true, type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
     },
   });
-  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
-  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
 
   const payload: ChatMessagePayload = {
     id: msg.id,
@@ -416,7 +414,12 @@ export async function sendMessage(
       : null,
     attachments: [],
   };
+  // PRIMERO se publica al canal en vivo y DESPUÉS se notifica: las notificaciones (que pueden
+  // incluir correo SMTP lento) no deben retrasar la aparición del mensaje para los demás. Mismo
+  // orden que sendMessageWithAttachments.
   publishMessage(payload);
+  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
+  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
   return payload;
 }
 
@@ -629,4 +632,83 @@ export async function removeChannelMember(channelId: string, userId: string) {
     .catch(() => null);
   const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true } });
   if (channel?.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
+}
+
+// ── Reenviar entre canales (alimentación cruzada de los proyectos de un cliente) ──
+
+// Destinos de reenvío: los OTROS chats del MISMO cliente — los canales internos de sus proyectos
+// hermanos y el canal de la cuenta. Nunca los canales "con el cliente" (audience CLIENT): lo que se
+// cruza entre proyectos es conversación interna del equipo. Solo canales que el usuario puede ver.
+export async function getForwardTargets(channelId: string): Promise<{ id: string; name: string }[]> {
+  const session = await getSession();
+  if (!session) return [];
+  if (!(await userCanAccessChannel(channelId, session))) return [];
+  const ch = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: { clientId: true, project: { select: { clientId: true } } },
+  });
+  const clientId = ch?.clientId ?? ch?.project?.clientId ?? null;
+  if (!clientId) return [];
+  const channels = await db.chatChannel.findMany({
+    where: {
+      id: { not: channelId },
+      OR: [
+        { clientId },
+        // Canales internos de los proyectos hermanos (INTERNAL; incluye heredados sin audiencia —
+        // `not: "CLIENT"` en Prisma excluiría los null).
+        { AND: [{ project: { clientId } }, { OR: [{ audience: "INTERNAL" }, { audience: null }] }] },
+      ],
+    },
+    select: {
+      id: true, name: true, isPublic: true, audience: true, section: true, clientId: true,
+      members: { select: { userId: true } },
+      project: { select: { leadId: true, members: { select: { userId: true } } } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return channels
+    .filter((c) => canAccessChannel(c, session))
+    .map((c) => ({ id: c.id, name: c.clientId ? `${c.name} · cuenta` : c.name }));
+}
+
+// Reenvía un mensaje a otro canal: copia el texto con la referencia al canal/autor de origen,
+// firmado por QUIEN reenvía. Exige acceso a AMBOS canales (leer el origen, escribir el destino) y
+// permiso de comentar. Los adjuntos no se duplican (se anota cuántos hay en el original).
+export async function forwardMessage(messageId: string, targetChannelId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  if (!hasPermission(session, "comentar")) return { ok: false, error: "Sin permiso para comentar." };
+  const original = await db.chatMessage.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true, body: true, deletedAt: true, channelId: true,
+      author: { select: { name: true } },
+      channel: { select: { name: true } },
+      _count: { select: { attachments: true } },
+    },
+  });
+  if (!original || original.deletedAt) return { ok: false, error: "Mensaje no encontrado." };
+  if (original.channelId === targetChannelId) return { ok: false, error: "Ese es el mismo canal." };
+  if (!(await userCanAccessChannel(original.channelId, session)) || !(await userCanAccessChannel(targetChannelId, session))) {
+    return { ok: false, error: "Sin acceso al canal." };
+  }
+
+  const n = original._count.attachments;
+  const attachNote = n > 0 ? `\n(${n} adjunto${n === 1 ? "" : "s"} en el original)` : "";
+  const body = `↪️ Reenviado de «${original.channel.name}» — ${original.author?.name ?? "Sistema"}:\n${original.body}${attachNote}`.slice(0, 4000);
+  const msg = await db.chatMessage.create({
+    data: { channelId: targetChannelId, body, authorId: session.id },
+    include: { author: { select: { name: true, initials: true, avatarColor: true } } },
+  });
+  publishMessage({
+    id: msg.id,
+    channelId: targetChannelId,
+    body: msg.body,
+    parentId: null,
+    createdAt: msg.createdAt.toISOString(),
+    author: msg.author ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor } : null,
+    attachments: [],
+  });
+  await notifyChannelMessage(targetChannelId, session.id, msg.author?.name ?? "Alguien", body);
+  return { ok: true };
 }

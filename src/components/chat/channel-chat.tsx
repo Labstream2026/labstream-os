@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
@@ -254,6 +254,7 @@ export function ChannelChat({
   members = [],
   readOnly = false,
   isAdmin = false,
+  highlightId = null,
 }: {
   channelId: string;
   initialMessages: ChatMsg[];
@@ -261,6 +262,8 @@ export function ChannelChat({
   members?: Member[];
   readOnly?: boolean;
   isAdmin?: boolean;
+  // Mensaje a resaltar al abrir (permalink ?msg=...): se hace scroll hasta él y se ilumina.
+  highlightId?: string | null;
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
   const [text, setText] = React.useState("");
@@ -303,6 +306,12 @@ export function ChannelChat({
   const recTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
+  // Reenviar a otro canal del mismo cliente: destinos perezosos + estado por mensaje.
+  const [forwardFor, setForwardFor] = React.useState<string | null>(null);
+  const [forwardTargets, setForwardTargets] = React.useState<{ id: string; name: string }[] | null>(null);
+  const [forwardDone, setForwardDone] = React.useState<string | null>(null);
+  // Permalink: mensaje resaltado al llegar con ?msg=... (se apaga solo).
+  const [highlighted, setHighlighted] = React.useState<string | null>(null);
 
   const q = search.trim().toLowerCase();
   const roots = messages
@@ -330,6 +339,21 @@ export function ChannelChat({
     }, 1500);
     return () => clearInterval(t);
   }, []);
+
+  // Permalink ?msg=...: espera al scroll-al-fondo inicial, luego centra y resalta el mensaje si
+  // está en la ventana cargada (si es más viejo, no se fuerza paginación: el enlace sigue sirviendo
+  // como referencia del canal).
+  React.useEffect(() => {
+    if (!highlightId) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(`msg-${highlightId}`);
+      if (!el) return;
+      el.scrollIntoView({ block: "center" });
+      setHighlighted(highlightId);
+      setTimeout(() => setHighlighted(null), 2600);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   // Auto-crecimiento del cuadro de escritura: crece con el texto (hasta un máximo) para
   // verlo como un párrafo mientras se escribe; al pasar el máximo, hace scroll interno.
@@ -879,7 +903,7 @@ export function ChannelChat({
               </div>
             ) : null}
             {m.deleted ? (
-              <div className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
+              <div id={`msg-${m.id}`} className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
                 <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
                 <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                   <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
@@ -893,7 +917,7 @@ export function ChannelChat({
                 </div>
               </div>
             ) : (
-            <div className={cn("group relative flex gap-2.5", mine && "flex-row-reverse")}>
+            <div id={`msg-${m.id}`} className={cn("group relative flex gap-2.5 rounded-lg transition-shadow", mine && "flex-row-reverse", highlighted === m.id && "ring-2 ring-primary/60 bg-primary/5")}>
               {cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
               <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
                 {!cont || m.pinned || m.status ? (
@@ -911,6 +935,48 @@ export function ChannelChat({
                       <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
                         <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
                       </button>
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(`${window.location.origin}/chat/${channelId}?msg=${m.id}`); } catch { /* sin portapapeles */ }
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                      >
+                        <Link2 className="size-3.5" /> Copiar enlace
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setForwardDone(null);
+                          setForwardFor((cur) => (cur === m.id ? null : m.id));
+                          if (!forwardTargets) setForwardTargets(await getForwardTargets(channelId));
+                        }}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                      >
+                        <Share2 className="size-3.5" /> Reenviar a…
+                      </button>
+                      {forwardFor === m.id ? (
+                        <div className="mt-1 max-h-40 overflow-y-auto border-t border-border pt-1">
+                          {forwardDone === m.id ? (
+                            <p className="px-2 py-1.5 text-emerald-600 dark:text-emerald-400">Reenviado ✓</p>
+                          ) : forwardTargets == null ? (
+                            <p className="px-2 py-1.5 text-muted-foreground">Cargando…</p>
+                          ) : forwardTargets.length === 0 ? (
+                            <p className="px-2 py-1.5 text-muted-foreground">Este chat no pertenece a un cliente (no hay chats hermanos).</p>
+                          ) : (
+                            forwardTargets.map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={async () => {
+                                  const r = await forwardMessage(m.id, t.id);
+                                  if (r.ok) setForwardDone(m.id);
+                                }}
+                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                              >
+                                <Share2 className="size-3 shrink-0 text-muted-foreground" /> <span className="truncate">{t.name}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      ) : null}
                       {mine ? (
                         <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
                           <Pencil className="size-3.5" /> Editar
