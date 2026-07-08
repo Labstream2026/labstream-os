@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { describeSchedule, WEEKDAY_LABELS } from "@/lib/reminder-schedule";
 import { cn } from "@/lib/utils";
-import { createReminder, toggleReminder, deleteReminder } from "./actions";
+import { createReminder, toggleReminder, deleteReminder, snoozeReminder } from "./actions";
 
 export type ReminderRow = {
   id: string;
@@ -39,8 +39,8 @@ const FMT = new Intl.DateTimeFormat("es-CO", {
   minute: "2-digit",
 });
 
-function relativo(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
+function relativo(iso: string, nowMs: number): string {
+  const ms = new Date(iso).getTime() - nowMs;
   if (ms <= 0) return "ya";
   const min = Math.round(ms / 60000);
   if (min < 60) return `en ${min} min`;
@@ -65,7 +65,7 @@ const FREQ_OPTIONS = [
 // Orden humano de la semana (lunes primero); los valores siguen siendo 0=domingo.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-export function RemindersClient({ rows, team, meId }: { rows: ReminderRow[]; team: TeamOption[]; meId: string }) {
+export function RemindersClient({ rows, team, meId, nowMs }: { rows: ReminderRow[]; team: TeamOption[]; meId: string; nowMs: number }) {
   const router = useRouter();
   const { confirm, dialog } = useConfirmDialog();
   const [pending, start] = React.useTransition();
@@ -115,6 +115,15 @@ export function RemindersClient({ rows, team, meId }: { rows: ReminderRow[]; tea
     start(async () => {
       const res = await deleteReminder(r.id);
       if (!res.ok) setError(res.error ?? "No se pudo eliminar");
+      router.refresh();
+    });
+  };
+
+  const onSnooze = (id: string, kind: "10m" | "1h" | "manana") => {
+    setError(null);
+    start(async () => {
+      const res = await snoozeReminder(id, kind);
+      if (!res.ok) setError(res.error ?? "No se pudo posponer");
       router.refresh();
     });
   };
@@ -238,7 +247,7 @@ export function RemindersClient({ rows, team, meId }: { rows: ReminderRow[]; tea
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           {upcoming.map((r) => (
-            <Row key={r.id} r={r} meId={meId} onToggle={onToggle} onDelete={onDelete} />
+            <Row key={r.id} r={r} meId={meId} nowMs={nowMs} onToggle={onToggle} onDelete={onDelete} onSnooze={onSnooze} />
           ))}
         </div>
       )}
@@ -249,7 +258,7 @@ export function RemindersClient({ rows, team, meId }: { rows: ReminderRow[]; tea
           <h2 className="mt-8 mb-2 text-sm font-semibold text-muted-foreground">Pausados y pasados ({inactive.length})</h2>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card/50">
             {inactive.map((r) => (
-              <Row key={r.id} r={r} meId={meId} onToggle={onToggle} onDelete={onDelete} />
+              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} onToggle={onToggle} onDelete={onDelete} onSnooze={onSnooze} />
             ))}
           </div>
         </>
@@ -258,21 +267,31 @@ export function RemindersClient({ rows, team, meId }: { rows: ReminderRow[]; tea
   );
 }
 
-function Row({ r, meId, onToggle, onDelete }: {
+// ¿El instante cae HOY según el calendario de Bogotá? (nowMs viene del servidor: render puro)
+function esHoyBogota(iso: string, nowMs: number): boolean {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" });
+  return fmt.format(new Date(iso)) === fmt.format(new Date(nowMs));
+}
+
+function Row({ r, meId, nowMs, onToggle, onDelete, onSnooze }: {
   r: ReminderRow;
   meId: string;
+  nowMs: number;
   onToggle: (id: string, active: boolean) => void;
   onDelete: (r: ReminderRow) => void;
+  onSnooze: (id: string, kind: "10m" | "1h" | "manana") => void;
 }) {
   const recurrente = r.frequency !== "UNA_VEZ";
   const schedule = recurrente
     ? describeSchedule({ frequency: r.frequency, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay })
     : "Una vez";
   // Reactivable: recurrentes siempre; "una vez" solo si su momento no ha pasado.
-  const reactivable = recurrente || new Date(r.nextFireAtIso).getTime() > Date.now();
+  const reactivable = recurrente || new Date(r.nextFireAtIso).getTime() > nowMs;
+  const suenaHoy = r.active && esHoyBogota(r.nextFireAtIso, nowMs);
+  const snoozeChip = "rounded-full border border-input px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground";
 
   return (
-    <div className={cn("flex items-center gap-3 px-4 py-3", !r.active && "opacity-70")}>
+    <div className={cn("flex items-center gap-3 px-4 py-3", !r.active && "opacity-70", suenaHoy && "border-l-2 border-l-[#F47A20] bg-[#F47A20]/[0.04]")}>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {r.title}
@@ -282,8 +301,9 @@ function Row({ r, meId, onToggle, onDelete }: {
           <span className={cn("mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", recurrente ? "bg-violet-500/15 text-violet-700 dark:text-violet-300" : "bg-sky-500/15 text-sky-700 dark:text-sky-300")}>
             {schedule}
           </span>
+          {suenaHoy ? <span className="mr-1.5 rounded-full bg-[#F47A20]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#F47A20]">hoy</span> : null}
           {r.active
-            ? <>suena {FMT.format(new Date(r.nextFireAtIso))} · {relativo(r.nextFireAtIso)}</>
+            ? <>suena {FMT.format(new Date(r.nextFireAtIso))} · {relativo(r.nextFireAtIso, nowMs)}</>
             : r.lastFiredAtIso
               ? <>sonó {FMT.format(new Date(r.lastFiredAtIso))}</>
               : <>pausado</>}
@@ -291,6 +311,14 @@ function Row({ r, meId, onToggle, onDelete }: {
           {r.createdBy.id !== meId ? <> · de {r.createdBy.name}</> : null}
         </p>
         {r.notes ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{r.notes}</p> : null}
+        {r.canManage ? (
+          <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+            Posponer:
+            <button onClick={() => onSnooze(r.id, "10m")} className={snoozeChip}>+10 min</button>
+            <button onClick={() => onSnooze(r.id, "1h")} className={snoozeChip}>+1 h</button>
+            <button onClick={() => onSnooze(r.id, "manana")} className={snoozeChip}>mañana 8:00</button>
+          </p>
+        ) : null}
       </div>
 
       {r.canManage ? (

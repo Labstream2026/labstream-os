@@ -27,7 +27,7 @@ export function bogotaYmd(d: Date): string {
 }
 
 // Suma días a un YYYY-MM-DD sin tocar zonas (ancla a mediodía UTC, como el resto de la app).
-function ymdPlus(ymd: string, days: number): string {
+export function ymdPlus(ymd: string, days: number): string {
   return new Date(new Date(`${ymd}T12:00:00.000Z`).getTime() + days * DAY_MS).toISOString().slice(0, 10);
 }
 

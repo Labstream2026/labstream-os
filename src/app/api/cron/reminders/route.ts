@@ -7,8 +7,9 @@ export const dynamic = "force-dynamic";
 
 // Barrido de recordatorios con cadencia fina (OPCIONAL). El barrido normal ya corre con el
 // sondeo de la campana (~20 s con gente conectada) y con el cron de Marcebot (cada 2 h).
-// Si quieres puntualidad exacta también de madrugada, programa en el NAS cada 5 min:
-//   curl http://localhost:3200/api/cron/reminders
+// Si quieres puntualidad exacta también de madrugada, programa en el NAS cada 5 min
+// (el secreto es OBLIGATORIO, igual que en el resto de crons — ver lib/cron-auth):
+//   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3200/api/cron/reminders
 async function run(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
   try {

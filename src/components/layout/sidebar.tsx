@@ -86,6 +86,7 @@ export function Sidebar({
   collapsed = false,
   chatUnread = 0,
   reviewPending = 0,
+  remindersToday = 0,
   onNavigate,
   onSearch,
 }: {
@@ -106,6 +107,7 @@ export function Sidebar({
   collapsed?: boolean;
   chatUnread?: number;
   reviewPending?: number;
+  remindersToday?: number;
   onNavigate?: () => void;
   onSearch?: () => void;
 }) {
@@ -223,7 +225,7 @@ export function Sidebar({
           let label = item.label;
           let icon = item.icon;
           if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; icon = IconProyectos; }
-          const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : undefined;
+          const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : item.href === "/recordatorios" ? remindersToday || undefined : undefined;
           const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : item.href === "/mis-entregas" ? pathname.startsWith("/mis-entregas") : pathname === href;
           return navRow(href, label, icon, active, badge);
         })}

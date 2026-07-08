@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { notify } from "@/lib/notify";
-import { nextFire, utcFromBogota, describeSchedule, isValidTime, isValidYmd, type ReminderSchedule } from "@/lib/reminder-schedule";
+import { nextFire, utcFromBogota, bogotaYmd, ymdPlus, describeSchedule, isValidTime, isValidYmd, type ReminderSchedule } from "@/lib/reminder-schedule";
 
 // ── Acciones de recordatorios ──
 // Cualquiera del equipo puede crear recordatorios propios o para un compañero (como quien
@@ -140,6 +140,25 @@ export async function toggleReminder(id: string, active: boolean): Promise<Res> 
   } else {
     await db.reminder.update({ where: { id }, data: { active: false } });
   }
+  revalidatePath("/recordatorios");
+  return { ok: true };
+}
+
+// Posponer: corre el próximo disparo (+10 min, +1 h o mañana a las 8:00) y lo deja activo.
+// También sirve para "revivir" un puntual que ya sonó ("recuérdamelo otra vez mañana").
+// En un recurrente solo mueve EL PRÓXIMO disparo; después retoma su regla normal.
+export async function snoozeReminder(id: string, kind: "10m" | "1h" | "manana"): Promise<Res> {
+  const session = await teamSession();
+  if (!session) return { ok: false, error: "Sin permiso" };
+  const r = await db.reminder.findUnique({ where: { id } });
+  if (!r || !canManage(r, session)) return { ok: false, error: "Sin permiso" };
+
+  const now = new Date();
+  const next =
+    kind === "10m" ? new Date(now.getTime() + 10 * 60_000)
+    : kind === "1h" ? new Date(now.getTime() + 3_600_000)
+    : utcFromBogota(ymdPlus(bogotaYmd(now), 1), "08:00");
+  await db.reminder.update({ where: { id }, data: { nextFireAt: next, active: true } });
   revalidatePath("/recordatorios");
   return { ok: true };
 }

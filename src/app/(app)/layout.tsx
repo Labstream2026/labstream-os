@@ -106,6 +106,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ],
     },
   });
+  // Recordatorios que suenan HOY (badge de «Recordatorios» en el menú). Es un sistema de
+  // avisos aparte: NO aparece en el calendario ni en el cronograma a propósito.
+  const hoyBogota = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+  const remindersToday = session.role === "cliente" ? 0 : await db.reminder.count({
+    where: { forUserId: session.id, active: true, nextFireAt: { lte: new Date(`${hoyBogota}T23:59:59.999-05:00`) } },
+  });
+
   const showWiki = await canSeeWiki(session);
 
   // Preferencias del usuario (panel lateral/chat, accesibilidad) que sincronizan entre dispositivos.
@@ -146,6 +153,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       dockTeam={session.role === "cliente" ? [] : dockTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
       chatUnread={chatUnread}
       reviewPending={reviewPending}
+      remindersToday={remindersToday}
       initialSidebarCollapsed={prefs.sidebarCollapsed}
       initialChatPanelOpen={prefs.chatPanelOpen}
       reduceMotion={prefs.reduceMotion}

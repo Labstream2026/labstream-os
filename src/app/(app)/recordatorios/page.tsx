@@ -56,9 +56,9 @@ export default async function RecordatoriosPage() {
       <PageHeader
         icon={<IconRecordatorios />}
         title="Recordatorios"
-        description="Avisos puntuales o recurrentes, para ti o para alguien del equipo. No son tareas: te suenan cuando toca (campana, push y Marcebot)."
+        description="Avisos puntuales o recurrentes, para ti o para alguien del equipo. No son tareas ni citas — no aparecen en el calendario ni en el cronograma: te suenan cuando toca (campana, push y Marcebot)."
       />
-      <RemindersClient rows={rows} team={team} meId={session.id} />
+      <RemindersClient rows={rows} team={team} meId={session.id} nowMs={Date.now()} />
     </div>
   );
 }
