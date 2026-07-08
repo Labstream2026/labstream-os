@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2, AtSign } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -66,6 +66,32 @@ function highlightMentions(text: string, members: Member[], keyBase: string, min
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
+// Formato ligero estilo WhatsApp: *negrita*, ~tachado~ y `código`. Sin _cursiva_ a propósito
+// (chocaría con nombres_de_archivo). Solo dentro de una línea, con límites de palabra (el
+// delimitador debe abrir tras espacio/puntuación y cerrar antes de espacio/puntuación) para no
+// disparar con asteriscos sueltos. Marcebot escribe *así* y por fin se ve en negrita.
+function formatInline(text: string, keyBase: string, render: (chunk: string, key: string) => React.ReactNode): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  const re = /(^|[\s(¿¡["'«—-])([*~`])(?!\s)([^*~`\n]*?[^\s*~`])\2(?=$|[\s).,;:!?\]"'»—-])/gmu;
+  let idx = 0;
+  let i = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const start = m.index + m[1].length;
+    if (start > idx) out.push(render(text.slice(idx, start), `${keyBase}p${i++}`));
+    const inner = m[3];
+    if (m[2] === "`") {
+      // El código se muestra literal (sin resaltar menciones dentro).
+      out.push(<code key={`${keyBase}c${i++}`} className="rounded bg-black/10 px-1 font-mono text-[0.9em] dark:bg-white/15">{inner}</code>);
+    } else if (m[2] === "*") {
+      out.push(<strong key={`${keyBase}b${i++}`}>{render(inner, `${keyBase}bi${i}`)}</strong>);
+    } else {
+      out.push(<s key={`${keyBase}s${i++}`}>{render(inner, `${keyBase}si${i}`)}</s>);
+    }
+    idx = start + (m[0].length - m[1].length);
+  }
+  if (idx < text.length) out.push(render(text.slice(idx), `${keyBase}p${i++}`));
+  return out;
+}
 function renderBody(text: string, members: Member[], mine = false): React.ReactNode {
   const urlRe = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRe);
@@ -77,7 +103,11 @@ function renderBody(text: string, members: Member[], mine = false): React.ReactN
         </a>
       );
     }
-    return <React.Fragment key={`t${idx}`}>{highlightMentions(part, members, `${idx}`, mine)}</React.Fragment>;
+    return (
+      <React.Fragment key={`t${idx}`}>
+        {formatInline(part, `${idx}`, (chunk, key) => highlightMentions(chunk, members, key, mine))}
+      </React.Fragment>
+    );
   });
 }
 
@@ -252,6 +282,7 @@ export function ChannelChat({
   initialMessages,
   me,
   members = [],
+  mentionExtras = [],
   readOnly = false,
   isAdmin = false,
   highlightId = null,
@@ -260,6 +291,9 @@ export function ChannelChat({
   initialMessages: ChatMsg[];
   me: ChatMe;
   members?: Member[];
+  // Destinos especiales del autocompletado de @: «canal» (todos los miembros) y los ROLES del
+  // equipo («Editor» → todo el equipo de ese rol). El servidor decide a quién avisar.
+  mentionExtras?: { name: string; hint: string }[];
   readOnly?: boolean;
   isAdmin?: boolean;
   // Mensaje a resaltar al abrir (permalink ?msg=...): se hace scroll hasta él y se ilumina.
@@ -725,11 +759,20 @@ export function ChannelChat({
     setMentionQuery(null);
     composerRef.current?.focus();
   }
-  // Lista para mencionar: el equipo del canal.
+  // Lista para mencionar: el equipo del canal + destinos especiales (@canal, @Rol).
   const mentionPool = members;
-  const mentionMatches = mentionQuery != null
-    ? mentionPool.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
-    : [];
+  // Para RESALTAR menciones en los mensajes también cuentan los destinos especiales.
+  const highlightPool: Member[] = [...members, ...mentionExtras.map((e, i) => ({ id: `extra-${i}`, name: e.name }))];
+  const mentionMatches: { id: string; name: string; initials?: string | null; color?: string | null; hint?: string | null }[] =
+    mentionQuery != null
+      ? [
+          ...mentionPool.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6),
+          ...mentionExtras
+            .filter((e) => e.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+            .slice(0, 4)
+            .map((e, i) => ({ id: `extra-${i}`, name: e.name, hint: e.hint })),
+        ]
+      : [];
   // Reinicia el resaltado al primer resultado cada vez que cambia lo que se teclea tras la "@".
   React.useEffect(() => { setMentionIndex(0); }, [mentionQuery]);
   // Cierra el menú de @menciones al hacer clic fuera del cuadro de escritura.
@@ -1005,7 +1048,7 @@ export function ChannelChat({
                       mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, mentionPool, mine)}</p>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, highlightPool, mine)}</p>
                     <span suppressHydrationWarning className={cn("mt-0.5 block text-right text-[10px] leading-none", mine ? "text-primary-foreground/70" : "text-muted-foreground/80")}>{hhmm(m.createdAt)}{m.editedAt ? " · editado" : ""}</span>
                   </div>
                 ) : null}
@@ -1052,7 +1095,9 @@ export function ChannelChat({
                             <span suppressHydrationWarning className="text-[10px] text-muted-foreground">{hhmm(r.createdAt)}</span>
                             {statusTag(r.status)}
                           </div>
-                          <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{r.body}</p>
+                          {/* Mismo render que los mensajes raíz (antes el hilo mostraba el texto crudo
+                              sin enlaces, menciones ni formato). */}
+                          <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{renderBody(r.body, highlightPool)}</p>
                           <Attachments items={r.attachments} author={r.author} />
                           {r.poll ? (
                             <PollWidget poll={r.poll} myOptionId={myVotes[r.poll.id] ?? null} onVote={(opt) => vote(r.poll!.id, opt)} />
@@ -1159,8 +1204,13 @@ export function ChannelChat({
                       idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted",
                     )}
                   >
-                    <UserAvatar initials={mem.initials} name={mem.name} color={mem.color} size="sm" />
-                    <span className="truncate font-medium">{mentionLabel(mem.name)}</span>
+                    {mem.hint ? (
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><AtSign className="size-3.5" /></span>
+                    ) : (
+                      <UserAvatar initials={mem.initials} name={mem.name} color={mem.color} size="sm" />
+                    )}
+                    <span className="truncate font-medium">{mem.hint ? mem.name : mentionLabel(mem.name)}</span>
+                    {mem.hint ? <span className="ml-auto shrink-0 truncate text-[10px] text-muted-foreground">{mem.hint}</span> : null}
                     {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
                   </button>
                 );

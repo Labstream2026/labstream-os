@@ -7,7 +7,7 @@ import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
-import { MuteToggle } from "@/components/chat/mute-toggle";
+import { NotifyLevelToggle, type NotifyLevel } from "@/components/chat/mute-toggle";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { UserAvatar } from "@/components/user-avatar";
@@ -69,9 +69,29 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
   const other = isDM ? channel.members.find((m) => m.user.id !== session.id)?.user : null;
   const title = isDM ? other?.name ?? channel.name : channel.name;
   const canManage = !isDM && (await userCanManageChannel(id, session));
-  const isMember = channel.members.some((m) => m.user.id === session.id);
+  const myMember = channel.members.find((m) => m.user.id === session.id);
+  const isMember = !!myMember;
+
+  // Nivel de aviso del usuario en este canal: UserChannelState manda; sin fila, la membresía
+  // heredada (muted → «solo menciones»). También aplica al admin que mira sin ser miembro.
+  const myState = await db.userChannelState
+    .findUnique({ where: { userId_channelId: { userId: session.id, channelId: id } }, select: { notifyLevel: true } })
+    .catch(() => null);
+  const notifyLevel = (myState?.notifyLevel ?? (myMember?.muted ? "mentions" : "all")) as NotifyLevel;
 
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
+
+  // Destinos especiales del autocompletado de @: «canal» y los roles del equipo. Solo en chats
+  // internos del equipo (no en DMs, ni en el chat con el cliente, ni para el portal del cliente).
+  let mentionExtras: { name: string; hint: string }[] = [];
+  if (!isDM && session.role !== "cliente" && channel.audience !== "CLIENT") {
+    const roles = await db.role.findMany({
+      where: { key: { notIn: ["cliente", "demo"] }, users: { some: { active: true, isSystemBot: false } } },
+      orderBy: { name: "asc" },
+      select: { name: true },
+    });
+    mentionExtras = [{ name: "canal", hint: "todos los miembros" }, ...roles.map((r) => ({ name: r.name, hint: "equipo del rol" }))];
+  }
 
   // Pestañas de audiencia: en un canal de PROYECTO con dos audiencias (interno del equipo + con el
   // cliente), el EQUIPO ve pestañas para saltar entre ambos. El invitado no las ve (solo alcanza el
@@ -108,7 +128,8 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
             const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT";
             return (
               <>
-                {isMember ? <MuteToggle channelId={id} muted={channel.members.find((m) => m.user.id === session.id)?.muted ?? false} /> : null}
+                {/* El admin puede fijar su nivel de aviso también sin membresía (afecta a sus @). */}
+                {isMember || isAdmin ? <NotifyLevelToggle channelId={id} level={notifyLevel} /> : null}
                 {!isDM && !isAuto && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
                 {!isDM && !isAuto && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
               </>
@@ -160,6 +181,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
           channelId={id}
           isAdmin={isAdmin}
           highlightId={highlightId ?? null}
+          mentionExtras={mentionExtras}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
             // El chat CON EL CLIENTE (audience "CLIENT") "solo habla con el equipo del proyecto": la

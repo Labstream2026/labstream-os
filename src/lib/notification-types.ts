@@ -60,6 +60,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "chat_mention", label: "Menciones", description: "Cuando te mencionan (@) en el chat o en una tabla.", category: "Chat" },
   { key: "chat_dm", label: "Mensajes directos", description: "Cuando te escriben un mensaje directo.", category: "Chat" },
   { key: "chat_channel", label: "Mensajes en canales", description: "Cuando llega un mensaje a un canal del que eres miembro.", category: "Chat" },
+  { key: "chat_thread", label: "Respuestas en hilos", description: "Cuando responden en un hilo donde escribiste (tu mensaje o tus respuestas).", category: "Chat" },
 
   // ── Agenda ──
   { key: "calendar_event", label: "Citas de calendario", description: "Invitaciones, cambios y cancelaciones de citas/eventos.", category: "Agenda" },

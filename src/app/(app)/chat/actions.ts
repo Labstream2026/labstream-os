@@ -1,5 +1,6 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -305,40 +306,92 @@ import { saveBufferWithPreview } from "@/lib/image";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { notifyAndEmail, notify } from "@/lib/notify";
 
-// Detecta @menciones en el TEXTO (servidor, no se confía en el cliente). Coincidencia
-// exacta con límites de palabra; nombres largos tienen prioridad ("@Ana María" antes que "@Ana").
-function detectMentionIds(body: string, users: { id: string; name: string }[]): string[] {
-  if (!body.includes("@") || users.length === 0) return [];
-  const sorted = [...users].sort((a, b) => b.name.length - a.name.length);
+// Detecta @menciones en el TEXTO (servidor, no se confía en el cliente). Coincidencia exacta
+// con límites de palabra; nombres largos tienen prioridad ("@Ana María" antes que "@Ana").
+// Además de personas: @canal / @todos (los miembros del canal) y @Rol por su NOMBRE
+// ("@Editor" → todo el equipo de ese rol). Si un texto es a la vez nombre de persona y de rol,
+// se avisa a ambos.
+type MentionTargets = { userIds: string[]; roleKeys: string[]; canal: boolean };
+function detectMentionTargets(
+  body: string,
+  users: { id: string; name: string }[],
+  roles: { key: string; name: string }[],
+): MentionTargets {
+  const out: MentionTargets = { userIds: [], roleKeys: [], canal: false };
+  if (!body.includes("@")) return out;
+  const names = [
+    ...users.map((u) => ({ name: u.name, kind: "user" as const, id: u.id })),
+    ...roles.map((r) => ({ name: r.name, kind: "role" as const, id: r.key })),
+    { name: "canal", kind: "canal" as const, id: "" },
+    { name: "todos", kind: "canal" as const, id: "" },
+  ].filter((n) => n.name);
+  if (names.length === 0) return out;
+  const sorted = names.sort((a, b) => b.name.length - a.name.length);
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`(?<![\\p{L}0-9_])@(${sorted.map((u) => esc(u.name)).join("|")})(?![\\p{L}0-9_])`, "gu");
-  const ids = new Set<string>();
+  const re = new RegExp(`(?<![\\p{L}0-9_])@(${sorted.map((n) => esc(n.name)).join("|")})(?![\\p{L}0-9_])`, "gu");
+  const userIds = new Set<string>();
+  const roleKeys = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(body))) {
-    const u = sorted.find((x) => x.name === m![1]);
-    if (u) ids.add(u.id);
+    for (const n of sorted) {
+      if (n.name !== m[1]) continue;
+      if (n.kind === "user") userIds.add(n.id);
+      else if (n.kind === "role") roleKeys.add(n.id);
+      else out.canal = true;
+    }
   }
-  return [...ids];
+  out.userIds = [...userIds];
+  out.roleKeys = [...roleKeys];
+  return out;
 }
 
 // Notifica (app + correo) a los usuarios mencionados con @ que tengan acceso al canal.
 // Recalcula las menciones EN EL SERVIDOR a partir del texto (el cliente no es de fiar).
 // El correo solo sale si el SMTP está configurado (Configuración → Integraciones); si no,
 // queda solo el aviso in-app. El título dice QUIÉN te mencionó y DÓNDE para que se note.
+// El nivel de aviso «nada» (UserChannelState) silencia también las menciones.
 async function notifyMentions(channelId: string, authorId: string, authorName: string, body: string) {
   if (!body.includes("@")) return;
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { name: true, isPublic: true, type: true, members: { select: { userId: true } } },
+    select: { name: true, isPublic: true, type: true, slug: true, members: { select: { userId: true } } },
   });
   if (!channel) return;
-  const users = await db.user.findMany({ where: { active: true }, select: { id: true, name: true } });
+  const [users, roles] = await Promise.all([
+    db.user.findMany({ where: { active: true }, select: { id: true, name: true, isSystemBot: true } }),
+    db.role.findMany({ where: { key: { notIn: ["cliente", "demo"] } }, select: { key: true, name: true } }),
+  ]);
+  const targets = detectMentionTargets(body, users, roles);
   const memberIds = new Set(channel.members.map((m) => m.userId));
-  const ids = detectMentionIds(body, users).filter((id) => id !== authorId);
+  const bots = new Set(users.filter((u) => u.isSystemBot).map((u) => u.id));
+
+  const ids = new Set(targets.userIds);
+  // @canal/@todos: los miembros del canal. En los canales de difusión (general/estados-equipo,
+  // que reúnen a todo el equipo) se ignora: sería un altavoz masivo al alcance de cualquiera.
+  const isBroadcast = channel.type === "GENERAL" && !!channel.slug;
+  if (targets.canal && channel.type !== "DIRECT" && !isBroadcast) {
+    for (const id of memberIds) ids.add(id);
+  }
+  // @Rol: el equipo activo de ese rol (en canal privado se limita abajo a los miembros).
+  if (targets.roleKeys.length) {
+    const roleUsers = await db.user.findMany({
+      where: { active: true, isSystemBot: false, role: { key: { in: targets.roleKeys } } },
+      select: { id: true },
+    });
+    for (const u of roleUsers) ids.add(u.id);
+  }
+  ids.delete(authorId);
+  const idArr = [...ids].filter((id) => !bots.has(id) && (channel.isPublic || memberIds.has(id))); // privado: solo miembros del canal
+  if (idArr.length === 0) return;
+  const off = await db.userChannelState.findMany({
+    where: { channelId, userId: { in: idArr }, notifyLevel: "none" },
+    select: { userId: true },
+  });
+  const offSet = new Set(off.map((s) => s.userId));
   // En un DM el "nombre del canal" es interno; el contexto es la conversación directa.
   const where = channel.type === "DIRECT" ? "en un mensaje directo" : `en ${channel.name}`;
-  for (const userId of ids) {
-    if (!channel.isPublic && !memberIds.has(userId)) continue; // privado: solo miembros del canal
+  for (const userId of idArr) {
+    if (offSet.has(userId)) continue;
     await notifyAndEmail(userId, {
       type: "mention",
       event: "chat_mention",
@@ -350,11 +403,14 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
   }
 }
 
-// Notifica al otro participante de un DM cuando recibe un mensaje.
 // Notifica a los miembros del canal (menos al autor) que llegó un mensaje nuevo.
 // Cubre DMs, chats de proyecto y grupos privados. Se omiten los canales de
 // difusión del equipo (general, estados-equipo) para no saturar de avisos.
-async function notifyChannelMessage(channelId: string, authorId: string, authorName: string, body: string) {
+// Respeta el NIVEL de aviso por canal (UserChannelState): "all" avisa por mensaje;
+// "mentions" (equivale al silenciar clásico) y "none" no — sin fila manda la
+// membresía (muted → "mentions"). `excludeIds` = ya recibieron un aviso más rico
+// (p. ej. el de respuesta en hilo) y no se duplica.
+async function notifyChannelMessage(channelId: string, authorId: string, authorName: string, body: string, excludeIds?: Set<string>) {
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
     select: { type: true, name: true, slug: true, members: { select: { userId: true, muted: true, user: { select: { isSystemBot: true } } } } },
@@ -363,14 +419,25 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
   const isBroadcast = channel.type === "GENERAL" && !!channel.slug; // general / estados-equipo
   if (isBroadcast) return;
 
+  const memberIds = channel.members.map((m) => m.userId);
+  const states = memberIds.length
+    ? await db.userChannelState.findMany({
+        where: { channelId, userId: { in: memberIds }, notifyLevel: { not: null } },
+        select: { userId: true, notifyLevel: true },
+      })
+    : [];
+  const levelOf = new Map(states.map((s) => [s.userId, s.notifyLevel] as const));
+
   const isDM = channel.type === "DIRECT";
-  const link = isDM ? `/chat/${channelId}` : channel.type === "PROJECT" ? `/chat/${channelId}` : `/chat/${channelId}`;
+  const link = `/chat/${channelId}`;
   const title = isDM ? `Mensaje de ${authorName}` : `${authorName} en ${channel.name}`;
 
   for (const m of channel.members) {
     if (m.userId === authorId) continue;
+    if (excludeIds?.has(m.userId)) continue;
     if (m.user?.isSystemBot) continue; // no notificar/emailar a bots del sistema (Marcebot)
-    if (m.muted) continue; // el usuario silenció este canal (las @menciones sí llegan, en notifyMentions)
+    const level = levelOf.get(m.userId) ?? (m.muted ? "mentions" : "all");
+    if (level !== "all") continue; // silenciado o «solo menciones»: las @ llegan por notifyMentions
     // En app (sin email para no saturar). Los DMs sí van también por correo.
     if (isDM) {
       await notifyAndEmail(m.userId, { type: "dm", event: "chat_dm", title, body: body.slice(0, 140), link, actorId: authorId });
@@ -378,6 +445,48 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
       await notify(m.userId, { type: "chat", event: "chat_channel", title, body: body.slice(0, 140), link, actorId: authorId });
     }
   }
+}
+
+// Aviso de HILO: al responder dentro de un hilo se avisa al autor del mensaje padre y a
+// quienes ya respondieron, AUNQUE tengan el canal en «solo menciones» (participar en el hilo
+// es opt-in, como en Slack). El nivel «nada» sí lo silencia. Devuelve los cubiertos para que
+// el aviso genérico del canal no los duplique.
+async function notifyThreadReply(channelId: string, parentId: string, authorId: string, authorName: string, body: string): Promise<Set<string>> {
+  const covered = new Set<string>();
+  const parent = await db.chatMessage.findUnique({
+    where: { id: parentId },
+    select: {
+      authorId: true,
+      author: { select: { isSystemBot: true } },
+      channel: { select: { type: true, name: true } },
+      replies: { where: { deletedAt: null }, select: { authorId: true, author: { select: { isSystemBot: true } } } },
+    },
+  });
+  // En un DM el aviso normal ya es directo: no hace falta el de hilo.
+  if (!parent || parent.channel.type === "DIRECT") return covered;
+  const ids = new Set<string>();
+  if (parent.authorId && !parent.author?.isSystemBot) ids.add(parent.authorId);
+  for (const r of parent.replies) if (r.authorId && !r.author?.isSystemBot) ids.add(r.authorId);
+  ids.delete(authorId);
+  if (ids.size === 0) return covered;
+  const off = await db.userChannelState.findMany({
+    where: { channelId, userId: { in: [...ids] }, notifyLevel: "none" },
+    select: { userId: true },
+  });
+  const offSet = new Set(off.map((s) => s.userId));
+  for (const userId of ids) {
+    covered.add(userId); // en «nada» tampoco debe llegarle el aviso genérico
+    if (offSet.has(userId)) continue;
+    await notify(userId, {
+      type: "chat",
+      event: "chat_thread",
+      title: `${authorName} respondió en un hilo de ${parent.channel.name}`,
+      body: body.slice(0, 140),
+      link: `/chat/${channelId}?msg=${parentId}`,
+      actorId: authorId,
+    });
+  }
+  return covered;
 }
 
 // Reacción con emoji a un mensaje (toggle). Devuelve la lista de reacciones del mensaje.
@@ -418,6 +527,24 @@ export async function toggleChannelMute(channelId: string): Promise<boolean | nu
   return muted;
 }
 
+// Nivel de aviso del canal para el USUARIO actual: "all" (todo), "mentions" (solo @menciones —
+// equivale al silenciar clásico) o "none" (nada, ni menciones). Vive en UserChannelState, así
+// que también lo puede fijar quien VE el canal sin ser miembro (el admin). Mantiene el
+// ChannelMember.muted heredado coherente para lo que aún lo lee (badge gris del rail, fallback).
+export async function setChannelNotifyLevel(channelId: string, level: "all" | "mentions" | "none"): Promise<boolean> {
+  const session = await getSession();
+  if (!session || !["all", "mentions", "none"].includes(level)) return false;
+  if (!(await userCanAccessChannel(channelId, session))) return false;
+  await db.userChannelState.upsert({
+    where: { userId_channelId: { userId: session.id, channelId } },
+    create: { userId: session.id, channelId, notifyLevel: level },
+    update: { notifyLevel: level },
+  });
+  await db.channelMember.updateMany({ where: { channelId, userId: session.id }, data: { muted: level !== "all" } });
+  revalidatePath(`/chat/${channelId}`);
+  return true;
+}
+
 export async function sendMessage(
   channelId: string,
   body: string,
@@ -454,8 +581,10 @@ export async function sendMessage(
   // incluir correo SMTP lento) no deben retrasar la aparición del mensaje para los demás. Mismo
   // orden que sendMessageWithAttachments.
   publishMessage(payload);
-  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", text);
-  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", text);
+  const who = msg.author?.name ?? "Alguien";
+  const inThread = parentId ? await notifyThreadReply(channelId, parentId, session!.id, who, text) : undefined;
+  await notifyMentions(channelId, session!.id, who, text);
+  await notifyChannelMessage(channelId, session!.id, who, text, inThread);
   return payload;
 }
 
@@ -503,8 +632,11 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
     attachments: created,
   };
   publishMessage(payload);
-  await notifyMentions(channelId, session!.id, msg.author?.name ?? "Alguien", body);
-  await notifyChannelMessage(channelId, session!.id, msg.author?.name ?? "Alguien", body || "📎 Archivo adjunto");
+  const who = msg.author?.name ?? "Alguien";
+  const noteBody = body || "📎 Archivo adjunto";
+  const inThread = parentId ? await notifyThreadReply(channelId, parentId, session!.id, who, noteBody) : undefined;
+  await notifyMentions(channelId, session!.id, who, body);
+  await notifyChannelMessage(channelId, session!.id, who, noteBody, inThread);
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
   return payload;
 }
@@ -756,4 +888,70 @@ export async function forwardMessage(messageId: string, targetChannelId: string)
   });
   await notifyChannelMessage(targetChannelId, session.id, msg.author?.name ?? "Alguien", body);
   return { ok: true };
+}
+
+// ── Búsqueda de mensajes (server-side, en todos MIS chats) ──
+
+export type MessageSearchHit = {
+  id: string;
+  channelId: string;
+  channelName: string;
+  author: string | null;
+  body: string;
+  createdAt: string; // ISO
+};
+
+// Busca en el TEXTO de los mensajes de todos los canales que el usuario puede ver (la misma
+// regla de visibilidad que el rail), sin distinguir mayúsculas. Devuelve lo más reciente
+// primero; cada resultado enlaza al permalink ?msg= (el chat centra y resalta el mensaje).
+export async function searchMessages(query: string): Promise<MessageSearchHit[]> {
+  const session = await getSession();
+  if (!session) return [];
+  if (session.role === "demo") return []; // el usuario demo no tiene chat
+  const q = query.trim().slice(0, 80);
+  if (q.length < 2) return [];
+
+  let where: Prisma.ChatChannelWhereInput;
+  if (session.role === "cliente") {
+    // El portal del cliente solo alcanza el chat CON el equipo de sus proyectos.
+    where = { type: "PROJECT", audience: "CLIENT", project: { members: { some: { userId: session.id } } } };
+  } else {
+    const isAdmin = session.role === "admin";
+    where = {
+      OR: [
+        { members: { some: { userId: session.id } } },
+        { type: "GENERAL", isPublic: true },
+        ...(isAdmin
+          ? ([{ type: { in: ["PROJECT", "CLIENT"] } }] as Prisma.ChatChannelWhereInput[])
+          : ([
+              { type: { in: ["PROJECT", "CLIENT"] }, isPublic: true },
+              { type: "PROJECT", project: { leadId: session.id } },
+              { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+            ] as Prisma.ChatChannelWhereInput[])),
+      ],
+    };
+  }
+  const channels = await db.chatChannel.findMany({
+    where,
+    select: { id: true, name: true, section: true, clientId: true },
+  });
+  // Grupos asignados a una sección: solo si tengo acceso a esa sección (misma puerta que el rail).
+  const allowed = channels.filter((c) => !c.section || sessionHasSectionAccess(c.section, session));
+  if (allowed.length === 0) return [];
+  const nameOf = new Map(allowed.map((c) => [c.id, c.clientId ? `${c.name} · cuenta` : c.name] as const));
+
+  const msgs = await db.chatMessage.findMany({
+    where: { channelId: { in: allowed.map((c) => c.id) }, deletedAt: null, body: { contains: q, mode: "insensitive" } },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+    select: { id: true, channelId: true, body: true, createdAt: true, author: { select: { name: true } } },
+  });
+  return msgs.map((m) => ({
+    id: m.id,
+    channelId: m.channelId,
+    channelName: nameOf.get(m.channelId) ?? "Chat",
+    author: m.author?.name ?? null,
+    body: m.body.replace(/\s+/g, " ").trim().slice(0, 120),
+    createdAt: m.createdAt.toISOString(),
+  }));
 }

@@ -5,10 +5,10 @@ import { EntityEmoji } from "@/components/icons/marks";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, Users, Plus, X, ChevronRight, Building2, Search, BellOff, Pin } from "lucide-react";
+import { Hash, Lock, Users, Plus, X, ChevronRight, Building2, Search, BellOff, Pin, MessagesSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { createChannel, toggleChannelPin } from "./actions";
+import { createChannel, toggleChannelPin, searchMessages, type MessageSearchHit } from "./actions";
 import { CHAT_SECTIONS } from "@/lib/chat-section";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
@@ -33,7 +33,23 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : null;
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState("");
+  // Búsqueda server-side EN los mensajes (se dispara a mano; el filtro de conversaciones es en vivo).
+  const [hits, setHits] = React.useState<MessageSearchHit[] | null>(null);
+  const [seeking, setSeeking] = React.useState(false);
   const [, startTransition] = React.useTransition();
+
+  const searchInMessages = () => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    setSeeking(true);
+    startTransition(async () => {
+      try {
+        setHits(await searchMessages(q));
+      } finally {
+        setSeeking(false);
+      }
+    });
+  };
 
   // Leído estilo WhatsApp: al abrir un chat, su badge de no-leídos se limpia AL INSTANTE en
   // el cliente (el rail vive en el layout y no se re-renderiza al navegar; markChannelRead ya
@@ -128,14 +144,23 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHits(null); // cambió lo buscado: los resultados de mensajes quedan viejos
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") searchInMessages();
+            }}
             placeholder="Buscar conversación…"
             className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-7 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
           />
           {query ? (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              onClick={() => {
+                setQuery("");
+                setHits(null);
+              }}
               aria-label="Limpiar búsqueda"
               className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent"
             >
@@ -143,9 +168,53 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             </button>
           ) : null}
         </div>
+        {query.trim().length >= 2 && hits === null ? (
+          <button
+            type="button"
+            onClick={searchInMessages}
+            disabled={seeking}
+            className="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-medium text-primary hover:bg-muted/50 disabled:opacity-50"
+          >
+            <MessagesSquare className="size-3.5 shrink-0" />
+            {seeking ? "Buscando en los mensajes…" : <>Buscar «{query.trim()}» en los mensajes (Enter)</>}
+          </button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
+        {/* Resultados de la búsqueda EN los mensajes: cada uno abre el chat en ese mensaje
+            exacto (permalink ?msg= → scroll + resaltado). */}
+        {hits !== null ? (
+          <div className="mb-2 border-b border-border px-2 pb-2">
+            <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Mensajes{hits.length > 0 ? ` (${hits.length})` : ""}
+            </p>
+            {hits.length === 0 ? (
+              <Empty>Nada en los mensajes con «{query.trim()}».</Empty>
+            ) : (
+              hits.map((h) => (
+                <Link
+                  key={h.id}
+                  href={`/chat/${h.channelId}?msg=${h.id}`}
+                  onClick={onNavigate}
+                  className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate text-xs font-medium">{h.channelName}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {new Date(h.createdAt).toLocaleDateString("es-CO", { day: "numeric", month: "short" })}
+                    </span>
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {h.author ? `${h.author}: ` : ""}
+                    {h.body}
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+        ) : null}
+
         {/* Fijados por el usuario: siempre arriba, en el orden en que se fijaron. */}
         {pinned.length > 0 ? (
           <Collapsible

@@ -1,34 +1,51 @@
 "use client";
 
 import * as React from "react";
-import { Bell, BellOff } from "lucide-react";
-import { toggleChannelMute } from "@/app/(app)/chat/actions";
+import { Bell, AtSign, BellOff } from "lucide-react";
+import { setChannelNotifyLevel } from "@/app/(app)/chat/actions";
 
-// Campana de silenciar/reactivar avisos del canal para el usuario actual (control del usuario).
-// Optimista: cambia al instante y reconcilia con la respuesta del servidor. Las @menciones siguen
-// llegando aunque el canal esté silenciado.
-export function MuteToggle({ channelId, muted: initial }: { channelId: string; muted: boolean }) {
-  const [muted, setMuted] = React.useState(initial);
+// Nivel de aviso del canal para el usuario actual. Un toque CICLA:
+// todo → solo @menciones (el silenciar clásico) → nada (ni menciones) → todo.
+// Optimista: cambia al instante y reconcilia con la respuesta del servidor.
+export type NotifyLevel = "all" | "mentions" | "none";
+
+const ORDER: NotifyLevel[] = ["all", "mentions", "none"];
+const TITLES: Record<NotifyLevel, string> = {
+  all: "Avisos: todos los mensajes · toca para dejar solo las @menciones",
+  mentions: "Avisos: solo @menciones · toca para silenciar todo",
+  none: "Avisos: nada (ni menciones) · toca para reactivar todos",
+};
+
+export function NotifyLevelToggle({ channelId, level: initial }: { channelId: string; level: NotifyLevel }) {
+  const [level, setLevel] = React.useState<NotifyLevel>(initial);
   const [, startTransition] = React.useTransition();
-  React.useEffect(() => setMuted(initial), [initial]);
+  React.useEffect(() => setLevel(initial), [initial]);
 
-  const toggle = () => {
-    setMuted((v) => !v); // optimista
+  const cycle = () => {
+    const prev = level;
+    const next = ORDER[(ORDER.indexOf(level) + 1) % ORDER.length];
+    setLevel(next); // optimista
     startTransition(async () => {
-      const res = await toggleChannelMute(channelId);
-      if (typeof res === "boolean") setMuted(res);
+      const ok = await setChannelNotifyLevel(channelId, next);
+      if (!ok) setLevel(prev);
     });
   };
 
   return (
     <button
       type="button"
-      onClick={toggle}
-      aria-pressed={muted}
-      title={muted ? "Canal silenciado · toca para reactivar los avisos" : "Silenciar los avisos de este canal"}
+      onClick={cycle}
+      title={TITLES[level]}
+      aria-label={TITLES[level]}
       className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
     >
-      {muted ? <BellOff className="size-4 text-amber-600" /> : <Bell className="size-4" />}
+      {level === "all" ? (
+        <Bell className="size-4" />
+      ) : level === "mentions" ? (
+        <AtSign className="size-4 text-amber-600" />
+      ) : (
+        <BellOff className="size-4 text-amber-600" />
+      )}
     </button>
   );
 }
