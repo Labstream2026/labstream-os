@@ -7,6 +7,7 @@ import { bogotaDayStart } from "./time";
 
 export type TaskLite = { id: string; title: string; due: Date | null; project: string | null; projectId: string | null };
 export type EventLite = { id: string; title: string; start: Date };
+export type ReminderLite = { id: string; title: string; at: Date; taskTitle: string | null };
 
 export type UserPendientes = {
   overdue: TaskLite[]; // tareas abiertas vencidas
@@ -15,6 +16,7 @@ export type UserPendientes = {
   shootsToday: TaskLite[]; // rodajes de hoy
   eventsToday: EventLite[]; // citas de hoy
   imminent: EventLite[]; // citas que arrancan en los próximos 90 min
+  reminders: ReminderLite[]; // recordatorios que suenan en las próximas 36 h
 };
 
 // Keys de estado "abierto" (no terminadas), según las etiquetas configurables del equipo.
@@ -42,7 +44,7 @@ export async function getUserPendientes(
   const weekEnd = new Date(todayStart.getTime() + WEEK_DAYS * 24 * 60 * 60 * 1000);
   const mine = { OR: [{ assigneeId: userId }, { ownerId: userId }] };
 
-  const [tasks, shoots, events] = await Promise.all([
+  const [tasks, shoots, events, reminderRows] = await Promise.all([
     db.task.findMany({
       where: { status: { in: openKeys }, dueDate: { lt: weekEnd }, ...mine },
       orderBy: { dueDate: "asc" },
@@ -57,6 +59,13 @@ export async function getUserPendientes(
       where: { start: { gte: todayStart, lt: tomorrow }, OR: [{ createdById: userId }, { attendees: { some: { userId } } }] },
       orderBy: { start: "asc" },
       select: { id: true, title: true, start: true },
+    }),
+    // Recordatorios próximos (36 h): «mañana tienes grabación» aunque hoy no toque nada.
+    db.reminder.findMany({
+      where: { forUserId: userId, active: true, nextFireAt: { gte: now, lt: new Date(now.getTime() + 36 * 3_600_000) } },
+      orderBy: { nextFireAt: "asc" },
+      take: 8,
+      select: { id: true, title: true, nextFireAt: true, task: { select: { title: true } } },
     }),
   ]);
 
@@ -82,6 +91,7 @@ export async function getUserPendientes(
     shootsToday: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project), projectId: s.project?.id ?? null })),
     eventsToday,
     imminent,
+    reminders: reminderRows.map((r) => ({ id: r.id, title: r.title, at: r.nextFireAt, taskTitle: r.task?.title ?? null })),
   };
 }
 

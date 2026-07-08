@@ -9,6 +9,7 @@ import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { EntityEmoji } from "@/components/icons/marks";
+import { TaskReminders } from "./task-reminders";
 import {
   renameTask,
   setTaskStatus,
@@ -230,6 +231,9 @@ function TaskDetailPanel({
               <input name="label" placeholder="+ Añadir ítem" className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
             </form>
           </div>
+
+          {/* Recordatorios (avísame antes de la entrega) */}
+          <TaskReminders taskId={task.id} taskTitle={task.title} dueDateValue={task.dueDateValue} />
 
           {/* Comentarios */}
           <div className="border-t border-border pt-4">

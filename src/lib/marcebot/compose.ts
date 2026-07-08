@@ -3,7 +3,7 @@ import type { UserPendientes, TeamSummary, TaskLite, EventLite } from "./data";
 import type { UserChases, TeamEscalation, LeadEscalation } from "./chase";
 import type { UserWeek, TeamWeek } from "./weekly";
 import { chaseCount, chaseIds, leadEscalationKeys } from "./chase";
-import { bogotaLongDate, bogotaTime, bogotaShortDate, duePhrase } from "./time";
+import { bogotaLongDate, bogotaTime, bogotaShortDate, duePhrase, whenPhrase } from "./time";
 
 function hoursText(minutes: number): string {
   if (minutes <= 0) return "";
@@ -83,7 +83,7 @@ export function teamSignature(s: TeamSummary): string {
 }
 
 export function hasActionable(p: UserPendientes): boolean {
-  return p.overdue.length > 0 || p.today.length > 0 || p.eventsToday.length > 0 || p.shootsToday.length > 0;
+  return p.overdue.length > 0 || p.today.length > 0 || p.eventsToday.length > 0 || p.shootsToday.length > 0 || p.reminders.length > 0;
 }
 
 // Líneas de la sección "🎯 Para perseguir" (lo que un productor empuja). Hasta 3 por grupo.
@@ -137,6 +137,16 @@ export function composePersonal(opts: {
     lines.push(`⏰ ¡Ojo, ${voc}! "${e.title}" arranca a las ${bogotaTime(e.start)}.`);
   }
   if (p.imminent.length) lines.push("");
+
+  // Recordatorios próximos: aunque hoy no venza nada, «mañana tienes grabación».
+  if (p.reminders.length) {
+    lines.push(`⏰ Recordatorios en el radar:`);
+    for (const r of p.reminders.slice(0, 4)) {
+      lines.push(`   • ${r.title}${r.taskTitle ? ` (${r.taskTitle})` : ""} — ${whenPhrase(r.at, now)}`);
+    }
+    if (p.reminders.length > 4) lines.push(`   … y ${p.reminders.length - 4} más`);
+    lines.push("");
+  }
 
   if (p.overdue.length) {
     lines.push(`🔴 ${p.overdue.length} ${p.overdue.length === 1 ? "tarea atrasada" : "tareas atrasadas"} — ¡a ponerse al día, ${voc}! 👊`);

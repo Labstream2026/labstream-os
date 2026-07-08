@@ -15,6 +15,7 @@ export type NotificationCategory =
   | "Chat"
   | "Agenda"
   | "Administración"
+  | "Recordatorios"
   | "Marcebot";
 
 export type NotificationEventDef = {
@@ -33,6 +34,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "Chat",
   "Agenda",
   "Administración",
+  "Recordatorios",
   "Marcebot",
 ];
 
@@ -65,6 +67,10 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
 
   // ── Administración ──
   { key: "admin_role", label: "Cambios de rol y permisos", description: "Cuando cambian tu rol o tus permisos.", category: "Administración", essential: true },
+
+  // ── Recordatorios ──
+  { key: "reminder_fire", label: "Recordatorio programado", description: "Cuando llega la hora de un recordatorio tuyo (puntual o recurrente).", category: "Recordatorios" },
+  { key: "reminder_assigned", label: "Te dejan un recordatorio", description: "Cuando otra persona te crea o programa un recordatorio.", category: "Recordatorios" },
 
   // ── Marcebot ──
   { key: "marcebot", label: "Mensajes de Marcebot", description: "Resúmenes y avisos del copiloto Marcebot.", category: "Marcebot" },

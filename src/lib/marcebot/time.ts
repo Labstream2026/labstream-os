@@ -97,3 +97,13 @@ export function duePhrase(date: Date, now: Date = new Date()): string {
   if (u === 1) return "vence mañana";
   return `vence en ${u} días`;
 }
+
+// «hoy 8:00 a. m.», «mañana 8:00 a. m.» o «mar 8 jul 8:00 a. m.» — para recordatorios.
+export function whenPhrase(at: Date, now: Date = new Date()): string {
+  const start = bogotaDayStart(now);
+  const manana = new Date(start.getTime() + 86_400_000);
+  const pasado = new Date(start.getTime() + 2 * 86_400_000);
+  if (at < manana) return `hoy ${bogotaTime(at)}`;
+  if (at < pasado) return `mañana ${bogotaTime(at)}`;
+  return `${bogotaShortDate(at)} ${bogotaTime(at)}`;
+}

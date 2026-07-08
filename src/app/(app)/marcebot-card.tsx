@@ -3,7 +3,7 @@ import { IconMarcebot } from "@/components/icons";
 import { Megaphone, Clock, Target, AlertTriangle, Briefcase, AlertCircle, UserPlus, Package, Clapperboard, CircleCheck, Mail, Timer, Receipt, CalendarDays, type LucideIcon } from "lucide-react";
 import { db } from "@/lib/db";
 import { getUserPendientes, getTeamSummary, getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, openStatusKeys, hasActionable, vocativo, type Gender, type UserChases } from "@/lib/marcebot";
-import { bogotaTime, bogotaShortDate } from "@/lib/marcebot/time";
+import { bogotaTime, bogotaShortDate, whenPhrase } from "@/lib/marcebot/time";
 
 const ADMIN_ROLES = ["admin", "gerente", "productor"];
 
@@ -67,6 +67,14 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     tone: "text-sky-700 bg-sky-50 dark:bg-sky-500/10 dark:text-sky-300",
     items: p.eventsToday.map((e) => ({ id: e.id, text: `${bogotaTime(e.start)} — ${e.title}`, href: "/calendario" })),
     more: { label: "Ver calendario →", href: "/calendario" },
+  });
+  if (p.reminders.length) groups.push({
+    key: "reminders",
+    label: `${p.reminders.length} recordatorio${p.reminders.length === 1 ? "" : "s"}`,
+    Icon: Timer,
+    tone: "text-orange-700 bg-orange-50 dark:bg-orange-500/10 dark:text-orange-300",
+    items: p.reminders.map((r) => ({ id: r.id, text: `${whenPhrase(r.at)} — ${r.title}${r.taskTitle ? ` · ${r.taskTitle}` : ""}`, href: "/recordatorios" })),
+    more: { label: "Ver recordatorios →", href: "/recordatorios" },
   });
   if (p.shootsToday.length) groups.push({
     key: "shoots",

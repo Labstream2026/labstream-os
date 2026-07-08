@@ -29,7 +29,7 @@ export type IconName =
   | "proyectos" | "equipo" | "tareas" | "calendario" | "rodaje" | "facturacion"
   | "cotizacion" | "cliente" | "reportes" | "wiki" | "chat" | "notas"
   | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas"
-  | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion";
+  | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion" | "recordatorios";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -324,6 +324,19 @@ export function IconConfiguracion(p: IconProps) {
   );
 }
 
+// Recordatorios — despertador (violeta) con manecillas naranjas.
+export function IconRecordatorios(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="13" r="7" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="M12 9.6V13l2.7 1.9" stroke={C.orange} strokeWidth={1.9} />
+      <path d="M3.6 7.4a4.6 4.6 0 0 1 3-3.3M20.4 7.4a4.6 4.6 0 0 0-3-3.3" stroke={C.violet} strokeWidth={SW} />
+      <path d="m7.1 19.1-1.3 1.5M16.9 19.1l1.3 1.5" stroke={C.violet} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+
 // Mapa por nombre, para usarlos dinámicamente (p. ej. desde datos o navegación).
 export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElement> = {
   proyectos: IconProyectos,
@@ -350,4 +363,5 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   biblioteca: IconBiblioteca,
   papelera: IconPapelera,
   configuracion: IconConfiguracion,
+  recordatorios: IconRecordatorios,
 };

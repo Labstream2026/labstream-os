@@ -134,6 +134,8 @@ model User {
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
   notes              Note[]             @relation("NoteCreator")
+  remindersFor       Reminder[]         @relation("ReminderFor")
+  remindersCreated   Reminder[]         @relation("ReminderCreator")
   whatsappMessages   WhatsappMessage[]
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
@@ -1353,6 +1355,7 @@ model Task {
   fileAssets    FileAsset[]     @relation("TaskFiles")
   watchers      TaskWatcher[]
   myDayItems    MyDayItem[]
+  reminders     Reminder[]
   // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
   equipmentPlan EquipmentPlan?  @relation("EquipPlanTask")
   createdAt     DateTime        @default(now())
@@ -1869,5 +1872,35 @@ model MyDayItem {
 
   @@unique([userId, taskId])
   @@index([userId])
+  @@index([taskId])
+}
+
+// ── Recordatorios ──
+// Aviso puntual o recurrente, propio o asignado a otra persona; puede colgar de una tarea.
+// NO es una tarea: cuando "toca", dispara una notificación (campana + push) y aparece en el
+// resumen de Marcebot. La hora se guarda como HORA DE PARED DE BOGOTÁ (timeOfDay) y el
+// próximo disparo precalculado como instante UTC (nextFireAt) para que el barrido sea barato.
+model Reminder {
+  id          String    @id @default(cuid())
+  title       String
+  notes       String?
+  forUser     User      @relation("ReminderFor", fields: [forUserId], references: [id], onDelete: Cascade)
+  forUserId   String
+  createdBy   User      @relation("ReminderCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  task        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String?
+  // UNA_VEZ | DIARIO | SEMANAL | MENSUAL
+  frequency   String    @default("UNA_VEZ")
+  weekdays    String? // "1,3,5" (0=domingo) para SEMANAL
+  dayOfMonth  Int? // 1..31 para MENSUAL (si el mes es corto, ese mes se omite)
+  timeOfDay   String    @default("08:00") // hora de pared de Bogotá "HH:mm"
+  nextFireAt  DateTime // instante UTC del próximo disparo (precalculado)
+  lastFiredAt DateTime?
+  active      Boolean   @default(true) // false = pausado (recurrente) o ya disparado (una vez)
+  createdAt   DateTime  @default(now())
+
+  @@index([active, nextFireAt])
+  @@index([forUserId, active])
   @@index([taskId])
 }

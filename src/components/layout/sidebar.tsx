@@ -9,6 +9,7 @@ import {
   IconEntregas,
   IconTareas,
   IconNotas,
+  IconRecordatorios,
   IconChat,
   IconCliente,
   IconProyectos,
@@ -56,6 +57,7 @@ const NAV: { href: string; label: string; icon: React.ComponentType<{ className?
   { href: "/", label: "Inicio", icon: IconInicio },
   { href: "/mis-tareas", label: "Mis tareas", icon: IconTareas },
   { href: "/notas", label: "Notas", icon: IconNotas },
+  { href: "/recordatorios", label: "Recordatorios", icon: IconRecordatorios },
   { href: "/chat", label: "Chats", icon: IconChat },
   { href: "/clientes", label: "Clientes", icon: IconCliente },
   { href: "/revisiones", label: "Proyectos a revisar", icon: IconRevisiones },
@@ -64,7 +66,7 @@ const NAV: { href: string; label: string; icon: React.ComponentType<{ className?
 
 // Superficies internas que el portal del cliente NO ve (solo ve sus proyectos y el calendario).
 // El cliente SÍ ve Chats (solo el de su proyecto; el rail se acota en getChatListData).
-const CLIENTE_HIDDEN_NAV = new Set(["/", "/mis-tareas", "/notas", "/revisiones"]);
+const CLIENTE_HIDDEN_NAV = new Set(["/", "/mis-tareas", "/notas", "/recordatorios", "/revisiones"]);
 
 export function Sidebar({
   user,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { sweepReminders } from "@/lib/reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ items: [], unread: 0 }, { status: 401 });
+
+  // Barrido de recordatorios "a lomo" del sondeo de la campana: mientras alguien use la app,
+  // los recordatorios suenan casi al minuto, sin cron adicional. Trae throttle interno (30 s)
+  // y reclamo atómico, así que llamarlo en cada poll es barato y seguro. Fire-and-forget.
+  void sweepReminders().catch(() => {});
 
   const [rows, unread] = await Promise.all([
     db.notification.findMany({
