@@ -15,8 +15,10 @@ import { Hash, Lock, ChevronLeft, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChannelPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ChannelPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string }> }) {
   const { id } = await params;
+  // Permalink a un mensaje (?msg=...): el chat hace scroll hasta él y lo resalta.
+  const { msg: highlightId } = await searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
   // El administrador ve también los mensajes borrados (en gris) para seguimiento;
@@ -157,6 +159,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
         <ChannelChat
           channelId={id}
           isAdmin={isAdmin}
+          highlightId={highlightId ?? null}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
             // El chat CON EL CLIENTE (audience "CLIENT") "solo habla con el equipo del proyecto": la

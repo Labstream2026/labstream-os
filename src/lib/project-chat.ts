@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getOrCreateClientChannel } from "@/lib/client-chat";
 
 // Canales de chat de un proyecto por AUDIENCIA:
 //  - INTERNAL: chat SOLO del equipo (siempre existe).
@@ -45,6 +46,7 @@ export async function ensureProjectChannels(projectId: string): Promise<ProjectC
     select: {
       name: true,
       leadId: true,
+      clientId: true,
       channels: { select: { id: true, audience: true } },
       // Miembros del proyecto con su rol: el equipo (todos menos los invitados) va al canal interno;
       // el equipo + los invitados (rol cliente) van al canal con el cliente.
@@ -98,6 +100,18 @@ export async function ensureProjectChannels(projectId: string): Promise<ProjectC
   // solo esas personas figuran (el chat con el cliente "solo habla con el equipo del proyecto").
   await syncChannelMembers(internal.id, teamIds, leadIsCliente ? null : project.leadId);
   if (clientCh) await syncChannelMembers(clientCh.id, [...teamIds, ...clienteIds], project.leadId);
+
+  // El canal de la CUENTA del cliente se mantiene al día JUNTO con los del proyecto: deja de ser
+  // "fantasma" (antes solo nacía al abrir el dock en /clientes/[id]) y su membresía refleja los
+  // equipos actuales cuando el equipo de un proyecto cambia — no al azar de quién abre qué.
+  // Best-effort: nunca rompe la sincronización de los canales del proyecto.
+  if (project.clientId) {
+    try {
+      await getOrCreateClientChannel(project.clientId);
+    } catch {
+      /* secundario */
+    }
+  }
 
   return { internalId: internal.id, clientId: clientCh?.id ?? null };
 }

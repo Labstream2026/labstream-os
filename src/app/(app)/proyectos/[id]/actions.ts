@@ -15,7 +15,7 @@ import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
-import { deliverableStatusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
+import { deliverableStatusMeta, statusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { validateAssignee } from "@/lib/task-assign";
 import { ensureProjectChannels } from "@/lib/project-chat";
@@ -750,6 +750,9 @@ export async function updateProject(projectId: string, formData: FormData) {
     const u = await db.user.findUnique({ where: { id: leadId }, select: { active: true } });
     if (!u?.active) throw new Error("Responsable inválido");
   }
+  // Estado ANTERIOR: si cambia, se registra una actividad ESPECÍFICA además del genérico
+  // (alimenta Actividad con nombre y los estados automáticos en el chat del proyecto).
+  const prev = status ? await db.project.findUnique({ where: { id: projectId }, select: { status: true } }) : null;
   await db.project.update({
     where: { id: projectId },
     data: {
@@ -763,7 +766,14 @@ export async function updateProject(projectId: string, formData: FormData) {
       dueDate: dRaw ? noonUTC(dRaw) : null,
     },
   });
-  await logActivity({ action: "project.update", summary: `editó el proyecto «${name}»`, projectId, entityType: "project", entityId: projectId });
+  // UNA sola actividad por guardado (dos duplicarían la notificación a todo el equipo): si el
+  // estado cambió, gana el evento específico (alimenta el espejo del chat y Actividad con nombre);
+  // si no, el genérico de siempre.
+  if (status && prev && status !== prev.status) {
+    await logActivity({ action: "project.status", summary: `cambió el estado del proyecto a «${statusMeta(status).label}»`, projectId, entityType: "project", entityId: projectId });
+  } else {
+    await logActivity({ action: "project.update", summary: `editó el proyecto «${name}»`, projectId, entityType: "project", entityId: projectId });
+  }
   revalidatePath("/timeline");
   revalidatePath("/proyectos");
   refresh(projectId);
