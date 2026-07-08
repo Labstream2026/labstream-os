@@ -108,6 +108,7 @@ model User {
   uploadedVersions DeliverableVersion[] @relation("VersionUploader")
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
   channelMemberships ChannelMember[]
+  channelStates    UserChannelState[]
   projectMemberships ProjectMember[]
   clientMemberships  ClientMember[]
   createdQuotes    Quote[]              @relation("QuoteCreator")
@@ -874,8 +875,14 @@ model ChatChannel {
   section   String?
   client    Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String?         @unique // un canal por cliente
+  // Canal AUTOMÁTICO de equipo por ROL ("editor" → «Equipo · Editor»): lo crea y sincroniza
+  // ensureRoleChannels con los usuarios activos del rol (la membresía SIGUE al rol, como los
+  // canales de proyecto siguen al equipo). null = canal normal. Los canales con roleKey son
+  // gestionados: no se renombran/borran/unen a mano (gates en chat/actions.ts).
+  roleKey   String?         @unique
   messages  ChatMessage[]
   members   ChannelMember[]
+  states    UserChannelState[]
   polls     Poll[]
   createdAt DateTime        @default(now())
 
@@ -903,6 +910,27 @@ model ChannelMember {
 
   @@id([channelId, userId])
   @@index([userId])
+}
+
+// Estado de un canal por USUARIO fuera de la membresía. ChannelMember NO sirve para esto:
+// ensureProjectChannels/ensureRoleChannels sincronizan la membresía EXACTA al equipo/rol y
+// borrarían cualquier fila extra (p. ej. la del admin que mira sin ser miembro). Guarda:
+//  - pinnedAt: canal fijado arriba del rail por este usuario.
+//  - lastReadAt: lectura de quien VE el canal SIN membresía (admin) para sus no-leídos;
+//    los miembros siguen usando ChannelMember.lastReadAt.
+//  - notifyLevel: "all" | "mentions" | "none"; null = según la membresía (muted → "mentions").
+model UserChannelState {
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId   String
+  pinnedAt    DateTime?
+  lastReadAt  DateTime?
+  notifyLevel String?
+  updatedAt   DateTime    @updatedAt
+
+  @@id([userId, channelId])
+  @@index([channelId])
 }
 
 model ChatMessage {

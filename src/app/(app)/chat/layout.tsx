@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { getChatListData } from "./list-data";
 import { ChatList } from "./chat-list";
 
@@ -17,7 +17,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
     <div className="flex h-full">
       {/* Rail navegador (solo escritorio; en móvil la lista vive en la página índice) */}
       <aside className="hidden w-80 shrink-0 border-r border-border bg-card md:block">
-        <ChatList data={data} />
+        <ChatList data={data} canCreate={hasPermission(session, "crear_canales")} />
       </aside>
       {/* Panel derecho: conversación seleccionada, o vacío / lista en móvil */}
       <div className="min-h-0 min-w-0 flex-1">{children}</div>

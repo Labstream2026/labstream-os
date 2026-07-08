@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { ensureProjectChannels } from "@/lib/project-chat";
+import { ensureRoleChannels } from "@/lib/role-chat";
 import { sessionHasSectionAccess } from "@/lib/chat-section-access";
 
 // Datos de la lista de chats (rail navegador). Compartido por el layout (rail de
@@ -16,7 +17,14 @@ export type ChatListRow = {
   isPublic: boolean;
   isDM: boolean;
   unread: number;
-  meta: string; // "N msj." (DM) o "N miembros" (canal)
+  muted: boolean; // silenciado por MÍ: badge en gris y fuera de los agregados de sección
+  pinned: boolean; // fijado por MÍ (se saca de su sección y va en «Fijados»)
+  kind: "interno" | "cliente" | "cuenta" | "equipo" | null; // chip del tipo de canal
+  last: string | null; // último mensaje («Autor: texto») como subtítulo
+  lastAt: string | null; // ISO del último mensaje (orden por actividad)
+  when: string | null; // hora relativa corta («2h», «ayer») calculada AQUÍ en el servidor: en el
+  // cliente Date.now() en render viola la pureza y desincroniza la hidratación
+  meta: string; // "N msj." (DM) o "N miembros" (canal); en fijados, el cliente de contexto
 };
 
 // Un cliente con sus chats (de proyecto + el del propio cliente), para agrupar/colapsar el rail.
@@ -25,23 +33,94 @@ export type ChatClientGroup = {
   clientName: string;
   emoji: string | null;
   channels: ChatListRow[];
-  unread: number; // suma de no-leídos del grupo
+  unread: number; // suma de no-leídos del grupo (sin los silenciados)
 };
 
 export type ChatListData = {
   daily: { channelId: string | null; name: string; unread: number }; // "Chat del día" (canal de equipo), fijado aparte
+  pinned: ChatListRow[]; // fijados por el usuario (arriba del rail)
   dms: ChatListRow[];
   clientGroups: ChatClientGroup[]; // chats agrupados por cliente (colapsables)
-  groups: ChatListRow[]; // grupos/canales sin cliente (editores, etc.)
+  groups: ChatListRow[]; // grupos/canales sin cliente (equipos por rol, canales del equipo, etc.)
   explore: { id: string; name: string }[];
   team: { id: string; name: string }[];
 };
+
+// No leídos por canal: mensajes de otros posteriores a mi última lectura. Para MIEMBROS la
+// lectura vive en ChannelMember.lastReadAt (sin fila de lectura previa cuenta TODO, como
+// siempre). Para quien VE el canal SIN membresía (el admin: la membresía la sincroniza el
+// proyecto/rol y no se puede crear a mano) la lectura vive en UserChannelState.lastReadAt y
+// el conteo EMPIEZA al abrir el canal la primera vez (sin fila → 0, no una avalancha de
+// badges históricos el día del despliegue).
+async function unreadByChannel(userId: string, channelIds: string[]): Promise<Map<string, number>> {
+  if (channelIds.length === 0) return new Map();
+  const rows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
+    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
+    FROM "ChatMessage" m
+    LEFT JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${userId}
+    LEFT JOIN "UserChannelState" ucs ON ucs."channelId" = m."channelId" AND ucs."userId" = ${userId}
+    WHERE m."channelId" IN (${Prisma.join(channelIds)})
+      AND m."parentId" IS NULL
+      AND m."deletedAt" IS NULL
+      AND (m."authorId" IS NULL OR m."authorId" <> ${userId})
+      AND (
+        (cm."userId" IS NOT NULL AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp))
+        OR (cm."userId" IS NULL AND ucs."lastReadAt" IS NOT NULL AND m."createdAt" > ucs."lastReadAt")
+      )
+    GROUP BY m."channelId"
+  `;
+  return new Map(rows.map((r) => [r.channelId, Number(r.count)] as const));
+}
+
+// Último mensaje visible por canal (para el subtítulo del rail y el orden por actividad).
+type LastMessage = { body: string; at: Date; author: string | null };
+async function lastMessageByChannel(channelIds: string[]): Promise<Map<string, LastMessage>> {
+  if (channelIds.length === 0) return new Map();
+  const rows = await db.$queryRaw<{ channelId: string; body: string; createdAt: Date; author: string | null }[]>`
+    SELECT DISTINCT ON (m."channelId") m."channelId" AS "channelId", m.body AS body, m."createdAt" AS "createdAt", u.name AS author
+    FROM "ChatMessage" m
+    LEFT JOIN "User" u ON u.id = m."authorId"
+    WHERE m."channelId" IN (${Prisma.join(channelIds)}) AND m."deletedAt" IS NULL
+    ORDER BY m."channelId", m."createdAt" DESC
+  `;
+  return new Map(rows.map((r) => [r.channelId, { body: r.body, at: r.createdAt, author: r.author }] as const));
+}
+
+// Hora relativa corta del último mensaje (tan fresca como la carga del rail, igual que el resto).
+function timeAgo(at: Date): string {
+  const s = Math.max(0, Math.floor((Date.now() - at.getTime()) / 1000));
+  if (s < 60) return "ahora";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return "ayer";
+  if (d < 7) return `${d}d`;
+  return at.toLocaleDateString("es-CO", { day: "numeric", month: "short", timeZone: "America/Bogota" });
+}
+
+// «Autor: texto» en una línea para el subtítulo del rail.
+function previewOf(last: LastMessage | undefined, myName: string): { last: string | null; lastAt: string | null; when: string | null } {
+  if (!last) return { last: null, lastAt: null, when: null };
+  const who = last.author ? (last.author === myName ? "Tú" : last.author.split(" ")[0]) : null;
+  const body = last.body.replace(/\s+/g, " ").trim();
+  return { last: who ? `${who}: ${body}` : body, lastAt: last.at.toISOString(), when: timeAgo(last.at) };
+}
+
+const activityOf = (r: ChatListRow) => (r.lastAt ? Date.parse(r.lastAt) : 0);
 
 export async function getChatListData(session: SessionUser): Promise<ChatListData> {
   // El PORTAL DEL CLIENTE solo ve el chat de SU(S) proyecto(s): nada de canales públicos, DMs,
   // explorar ni la lista de personas del equipo (serían fugas). Se resuelve aparte.
   if (session.role === "cliente") return getClienteChatList(session);
   const isAdmin = session.role === "admin";
+  // Canales de equipo por rol («Equipo · Editor»): se crean/sincronizan al cargar el rail.
+  try {
+    await ensureRoleChannels();
+  } catch {
+    // best-effort: el rail carga aunque la sincronización falle (p. ej. BD sin migrar).
+  }
   // El rail muestra: canales donde soy miembro (DMs, grupos, chats a los que me uní) Y, además,
   // los chats de PROYECTO/CLIENTE que PUEDO ver aunque no me hayan invitado al canal: admin ve
   // todos; si soy líder o miembro del proyecto, el suyo; y los públicos. Así cada proyecto tiene
@@ -73,17 +152,17 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     db.user.findMany({ where: { active: true, NOT: { id: session.id } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
-  // No leídos por canal: mensajes de otros posteriores a mi última lectura.
-  const unreadRows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
-    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
-    FROM "ChatMessage" m
-    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${session.id}
-    WHERE m."parentId" IS NULL
-      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
-      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
-    GROUP BY m."channelId"
-  `;
-  const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
+  // El "Chat del día" puede no estar en myChannels (no-miembro): se incluye en las consultas
+  // por id para que su badge y su actividad funcionen igual.
+  const allIds = [...new Set([...myChannels.map((c) => c.id), ...publicChannels.map((c) => c.id)])];
+  const [unread, lastMap, states] = await Promise.all([
+    unreadByChannel(session.id, allIds),
+    lastMessageByChannel(allIds),
+    db.userChannelState
+      .findMany({ where: { userId: session.id, pinnedAt: { not: null } }, select: { channelId: true, pinnedAt: true } })
+      .catch(() => [] as { channelId: string; pinnedAt: Date | null }[]), // BD sin migrar: rail sin fijados
+  ]);
+  const pinnedAtOf = new Map(states.map((s) => [s.channelId, s.pinnedAt ? s.pinnedAt.getTime() : 0] as const));
 
   const dms: ChatListRow[] = myChannels
     // Solo DMs con un interlocutor que todavía existe (y que no sea un bot del sistema:
@@ -105,9 +184,14 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
         isPublic: c.isPublic,
         isDM: true,
         unread: unread.get(c.id) ?? 0,
+        muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
+        pinned: pinnedAtOf.has(c.id),
+        kind: null,
+        ...previewOf(lastMap.get(c.id), session.name),
         meta: `${c._count.messages} msj.`,
       };
-    });
+    })
+    .sort((a, b) => activityOf(b) - activityOf(a));
 
   // "Chat del día" (canal de sistema "estados-equipo") se fija aparte arriba; se excluye de
   // las listas normales para no duplicarlo.
@@ -116,18 +200,34 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
   const daily = { channelId: dailyId, name: dailyRow?.name ?? "Chat del día", unread: dailyId ? unread.get(dailyId) ?? 0 : 0 };
 
   // Canales no-DM (sin el "Chat del día"): se separan en chats CON cliente (agrupados por
-  // cliente) y GRUPOS sin cliente (editores, canales de equipo, etc.).
+  // cliente) y GRUPOS sin cliente (equipos por rol, canales de equipo, etc.).
   const groupChannels = myChannels.filter((c) => c.type !== "DIRECT" && c.id !== dailyId);
-  const rowOf = (c: (typeof groupChannels)[number]): ChatListRow => ({
-    id: c.id,
-    name: c.name,
-    initials: null,
-    color: null,
-    isPublic: c.isPublic,
-    isDM: false,
-    unread: unread.get(c.id) ?? 0,
-    meta: `${c.members.length} miembros`,
-  });
+  const rowOf = (c: (typeof groupChannels)[number]): ChatListRow => {
+    const kind = c.roleKey
+      ? "equipo"
+      : c.type === "CLIENT"
+        ? "cuenta"
+        : c.type === "PROJECT"
+          ? c.audience === "CLIENT"
+            ? "cliente"
+            : "interno"
+          : null;
+    return {
+      id: c.id,
+      // Con el chip «cliente» el sufijo del nombre sobra (project-chat nombra «Proyecto · cliente»).
+      name: kind === "cliente" ? c.name.replace(/ · cliente$/, "") : c.name,
+      initials: null,
+      color: null,
+      isPublic: c.isPublic,
+      isDM: false,
+      unread: unread.get(c.id) ?? 0,
+      muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
+      pinned: pinnedAtOf.has(c.id),
+      kind,
+      ...previewOf(lastMap.get(c.id), session.name),
+      meta: `${c.members.length} miembros`,
+    };
+  };
 
   const clientMap = new Map<string, ChatClientGroup>();
   const groups: ChatListRow[] = [];
@@ -142,11 +242,30 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
       g = { clientId: client.id, clientName: client.name, emoji: client.emoji, channels: [], unread: 0 };
       clientMap.set(client.id, g);
     }
-    const row = rowOf(c);
-    g.channels.push(row);
-    g.unread += row.unread;
+    g.channels.push(rowOf(c));
   }
-  const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
+
+  // Fijados: salen de su sección y van arriba (con el cliente como contexto en `meta`),
+  // ordenados por cuándo se fijaron (lo último fijado primero).
+  const pinned: ChatListRow[] = [];
+  const unpinnedOf = (rows: ChatListRow[], context?: string) =>
+    rows.filter((r) => {
+      if (!r.pinned) return true;
+      pinned.push(context ? { ...r, meta: context } : r);
+      return false;
+    });
+  const dmsOut = unpinnedOf(dms);
+  const groupsOut = unpinnedOf(groups).sort((a, b) => activityOf(b) - activityOf(a));
+  for (const g of clientMap.values()) {
+    g.channels = unpinnedOf(g.channels, g.clientName).sort((a, b) => activityOf(b) - activityOf(a));
+    g.unread = g.channels.reduce((n, r) => n + (r.muted ? 0 : r.unread), 0);
+  }
+  pinned.sort((a, b) => (pinnedAtOf.get(b.id) ?? 0) - (pinnedAtOf.get(a.id) ?? 0));
+  // Grupos de cliente por actividad (el cliente con lo más reciente arriba); sin mensajes, alfabético.
+  const groupActivity = (g: ChatClientGroup) => Math.max(0, ...g.channels.map(activityOf));
+  const clientGroups = [...clientMap.values()]
+    .filter((g) => g.channels.length > 0)
+    .sort((a, b) => groupActivity(b) - groupActivity(a) || a.clientName.localeCompare(b.clientName));
 
   const myChannelIds = new Set(myChannels.map((c) => c.id));
   // Un grupo asignado a una SECCIÓN no se ofrece en "Explorar" a quien no tiene acceso a esa sección
@@ -155,7 +274,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     .filter((c) => !myChannelIds.has(c.id) && c.id !== dailyId && (!c.section || sessionHasSectionAccess(c.section, session)))
     .map((c) => ({ id: c.id, name: c.name }));
 
-  return { daily, dms, clientGroups, groups, explore, team };
+  return { daily, pinned, dms: dmsOut, clientGroups, groups: groupsOut, explore, team };
 }
 
 // Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
@@ -171,36 +290,43 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
     where: { type: "PROJECT", audience: "CLIENT", project: { members: { some: { userId: session.id } } } },
     orderBy: { createdAt: "desc" },
     include: {
-      members: { select: { userId: true } },
+      members: { select: { userId: true, muted: true } },
       project: { select: { client: { select: { id: true, name: true, emoji: true } } } },
     },
   });
-  const unreadRows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
-    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
-    FROM "ChatMessage" m
-    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${session.id}
-    WHERE m."parentId" IS NULL
-      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
-      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
-    GROUP BY m."channelId"
-  `;
-  const unread = new Map(unreadRows.map((r) => [r.channelId, Number(r.count)] as const));
+  const ids = channels.map((c) => c.id);
+  const [unread, lastMap] = await Promise.all([unreadByChannel(session.id, ids), lastMessageByChannel(ids)]);
 
   const clientMap = new Map<string, ChatClientGroup>();
   const groups: ChatListRow[] = [];
   for (const c of channels) {
-    const row: ChatListRow = { id: c.id, name: c.name, initials: null, color: null, isPublic: c.isPublic, isDM: false, unread: unread.get(c.id) ?? 0, meta: `${c.members.length} miembros` };
+    const row: ChatListRow = {
+      id: c.id,
+      name: c.name.replace(/ · cliente$/, ""),
+      initials: null,
+      color: null,
+      isPublic: c.isPublic,
+      isDM: false,
+      unread: unread.get(c.id) ?? 0,
+      muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
+      pinned: false,
+      kind: null, // el invitado solo tiene chats con el equipo: el chip no aporta
+      ...previewOf(lastMap.get(c.id), session.name),
+      meta: `${c.members.length} miembros`,
+    };
     const client = c.project?.client ?? null;
     if (!client) { groups.push(row); continue; }
     let g = clientMap.get(client.id);
     if (!g) { g = { clientId: client.id, clientName: client.name, emoji: client.emoji, channels: [], unread: 0 }; clientMap.set(client.id, g); }
     g.channels.push(row);
-    g.unread += row.unread;
+    g.unread += row.muted ? 0 : row.unread;
   }
+  for (const g of clientMap.values()) g.channels.sort((a, b) => activityOf(b) - activityOf(a));
   const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   return {
     daily: { channelId: null, name: "Chat del día", unread: 0 },
+    pinned: [],
     dms: [],
     clientGroups,
     groups,

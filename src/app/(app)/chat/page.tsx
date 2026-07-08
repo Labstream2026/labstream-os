@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { MessagesSquare } from "lucide-react";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { getChatListData } from "./list-data";
 import { ChatList } from "./chat-list";
 
@@ -18,7 +18,7 @@ export default async function ChatIndexPage() {
     <>
       {/* Móvil: lista de chats a pantalla completa */}
       <div className="h-full md:hidden">
-        <ChatList data={data} />
+        <ChatList data={data} canCreate={hasPermission(session, "crear_canales")} />
       </div>
       {/* Escritorio: panel vacío (el rail está en el layout) */}
       <div className="hidden h-full flex-col items-center justify-center gap-2 px-6 text-center md:flex">

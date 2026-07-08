@@ -64,11 +64,11 @@ export async function assignChannelToSection(channelId: string, section: string 
   const sec = section && CHAT_SECTIONS[section] ? section : null;
   if (section && !sec) return { ok: false, error: "Sección inválida" };
   if (sec && !sessionHasSectionAccess(sec, session)) return { ok: false, error: `No tienes acceso a ${CHAT_SECTIONS[sec].label}.` };
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, projectId: true, clientId: true, slug: true, section: true } });
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, projectId: true, clientId: true, slug: true, roleKey: true, section: true } });
   if (!channel) return { ok: false, error: "Canal no encontrado" };
-  // Solo GRUPOS creados por el equipo: no canales de proyecto/cliente (ya tienen su chat) ni los de
-  // sistema con slug (general, estados-equipo).
-  if (channel.type !== "GENERAL" || channel.projectId || channel.clientId || channel.slug) return { ok: false, error: "Solo un grupo se puede asignar a una sección." };
+  // Solo GRUPOS creados por el equipo: no canales de proyecto/cliente (ya tienen su chat), ni los de
+  // sistema con slug (general, estados-equipo), ni los de equipo por rol (gestionados).
+  if (channel.type !== "GENERAL" || channel.projectId || channel.clientId || channel.slug || channel.roleKey) return { ok: false, error: "Solo un grupo se puede asignar a una sección." };
   if (sec) await db.chatChannel.updateMany({ where: { section: sec }, data: { section: null } }); // una sección, un grupo
   await db.chatChannel.update({ where: { id: channelId }, data: { section: sec } });
   revalidatePath("/chat");
@@ -84,9 +84,12 @@ export async function assignChannelToSection(channelId: string, section: string 
 export async function deleteChannel(channelId: string) {
   const session = await getSession();
   if (!session) noAutorizado();
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true } });
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, name: true, roleKey: true } });
   if (!channel) return;
   if (channel.type !== "GENERAL") throw new Error("Solo se pueden borrar grupos creados en el chat.");
+  // Los canales de equipo por ROL son gestionados: borrarlos perdería el historial y la próxima
+  // sincronización los volvería a crear (con el rol aún activo). No se borran a mano.
+  if (channel.roleKey) throw new Error("El canal de un rol no se puede borrar (se gestiona solo).");
   if (!(await userCanManageChannel(channelId, session))) noAutorizado();
   await db.chatChannel.delete({ where: { id: channelId } });
   await logActivity({
@@ -135,10 +138,11 @@ export async function openDirectMessage(otherUserId: string) {
 export async function joinChannel(channelId: string) {
   const session = await getSession();
   if (!session || !(await userCanAccessChannel(channelId, session))) noAutorizado();
-  // Los canales de PROYECTO/CLIENTE no se unen a mano: su membresía la deriva ensureProjectChannels
-  // del equipo del proyecto. Unirse crearía una fila que la siguiente sincronización quitaría.
-  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
-  if (ch?.type === "PROJECT" || ch?.type === "CLIENT") return;
+  // Los canales de PROYECTO/CLIENTE/ROL no se unen a mano: su membresía la derivan
+  // ensureProjectChannels/ensureRoleChannels del equipo o del rol. Unirse crearía una fila
+  // que la siguiente sincronización quitaría.
+  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, roleKey: true } });
+  if (ch?.type === "PROJECT" || ch?.type === "CLIENT" || ch?.roleKey) return;
   await db.channelMember.upsert({
     where: { channelId_userId: { channelId, userId: session.id } },
     create: { channelId, userId: session.id },
@@ -150,10 +154,10 @@ export async function joinChannel(channelId: string) {
 export async function leaveChannel(channelId: string) {
   const session = await getSession();
   if (!session) noAutorizado();
-  // Igual que al unirse: no se sale a mano de un canal de proyecto/cliente (se sale saliendo del
-  // proyecto). Evita que un miembro —incluido el cliente— se quite su propia fila del canal.
-  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true } });
-  if (ch?.type === "PROJECT" || ch?.type === "CLIENT") return;
+  // Igual que al unirse: no se sale a mano de un canal de proyecto/cliente/rol (se sale saliendo
+  // del proyecto o cambiando de rol). Evita que un miembro se quite su propia fila del canal.
+  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, roleKey: true } });
+  if (ch?.type === "PROJECT" || ch?.type === "CLIENT" || ch?.roleKey) return;
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }
@@ -255,14 +259,46 @@ export async function notifyTyping(channelId: string): Promise<void> {
 }
 
 // Marca el canal como leído por el usuario (para los contadores de no leídos).
-// Solo actualiza si ya es miembro (no auto-une a canales públicos).
+// Miembro → ChannelMember.lastReadAt (como siempre, sin auto-unir a canales públicos).
+// NO-miembro que puede ver el canal (el admin: la membresía la sincronizan
+// ensureProjectChannels/ensureRoleChannels y no se puede crear a mano) → su lectura vive en
+// UserChannelState, que es lo que consulta el conteo de no leídos del rail para no-miembros.
 export async function markChannelRead(channelId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
-  await db.channelMember.updateMany({
+  const res = await db.channelMember.updateMany({
     where: { channelId, userId: session.id },
     data: { lastReadAt: new Date() },
   });
+  if (res.count === 0) {
+    await db.userChannelState
+      .upsert({
+        where: { userId_channelId: { userId: session.id, channelId } },
+        create: { userId: session.id, channelId, lastReadAt: new Date() },
+        update: { lastReadAt: new Date() },
+      })
+      .catch(() => null); // canal borrado en paralelo o BD sin migrar: no rompe la lectura
+  }
+}
+
+// Fijar/desfijar un canal arriba del rail para el USUARIO actual. Vive en UserChannelState
+// (no en la membresía, que los canales de proyecto/rol sincronizan y borrarían). Devuelve el
+// nuevo estado (true = fijado) o null si no aplica.
+export async function toggleChannelPin(channelId: string): Promise<boolean | null> {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) return null;
+  const existing = await db.userChannelState.findUnique({
+    where: { userId_channelId: { userId: session.id, channelId } },
+    select: { pinnedAt: true },
+  });
+  const pin = !existing?.pinnedAt;
+  await db.userChannelState.upsert({
+    where: { userId_channelId: { userId: session.id, channelId } },
+    create: { userId: session.id, channelId, pinnedAt: pin ? new Date() : null },
+    update: { pinnedAt: pin ? new Date() : null },
+  });
+  revalidatePath("/chat");
+  return pin;
 }
 import { mimeFor } from "@/lib/storage";
 import { saveBufferWithPreview } from "@/lib/image";
@@ -578,9 +614,10 @@ export async function setChannelVisibility(channelId: string, isPublic: boolean)
 export async function renameChannel(channelId: string, name: string) {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) noAutorizado();
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, slug: true, name: true } });
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { type: true, slug: true, roleKey: true, name: true } });
   if (!channel) return;
-  if (channel.type !== "GENERAL" || channel.slug) throw new Error("Este canal no se puede renombrar.");
+  // Sin slug (canales de sistema) y sin roleKey (el nombre de un canal de rol SIGUE al rol).
+  if (channel.type !== "GENERAL" || channel.slug || channel.roleKey) throw new Error("Este canal no se puede renombrar.");
   const clean = name.trim().slice(0, 80);
   if (!clean || clean === channel.name) return;
   await db.chatChannel.update({ where: { id: channelId }, data: { name: clean } });
@@ -592,7 +629,12 @@ export async function renameChannel(channelId: string, name: string) {
 export async function addChannelMember(channelId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!(await userCanManageChannel(channelId, session))) return { ok: false, error: "No autorizado" };
-  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true, section: true } });
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true, section: true, roleKey: true } });
+  // Canal de equipo por ROL: la membresía SIGUE al rol; añadir a mano se desharía en la
+  // próxima sincronización (se entra cambiando el rol de la persona en Configuración).
+  if (channel?.roleKey) {
+    return { ok: false, error: "La membresía de este canal sigue al rol (se gestiona sola)." };
+  }
   // Grupo asignado a una DEPENDENCIA: solo se pueden añadir personas con acceso a esa sección.
   if (channel?.section && !(await userHasSectionAccess(userId, channel.section))) {
     return { ok: false, error: `Esa persona no tiene acceso a ${sectionMeta(channel.section)?.label ?? channel.section}.` };
@@ -627,6 +669,9 @@ export async function removeChannelMember(channelId: string, userId: string) {
   if (!(await userCanManageChannel(channelId, session))) {
     noAutorizado();
   }
+  // Canal de equipo por ROL: quitar a mano se desharía en la próxima sincronización.
+  const ch = await db.chatChannel.findUnique({ where: { id: channelId }, select: { roleKey: true } });
+  if (ch?.roleKey) return;
   await db.channelMember
     .delete({ where: { channelId_userId: { channelId, userId } } })
     .catch(() => null);
