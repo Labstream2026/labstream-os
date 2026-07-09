@@ -403,3 +403,56 @@ export async function loadEquipmentPlan(planId: string): Promise<EquipmentPlanRo
     select: { id: true, projectId: true, title: true, taskId: true, project: { select: { isPrivate: true, leadId: true, archivedAt: true, members: { select: { userId: true, role: true } }, client: { select: { members: { select: { userId: true, role: true } } } } } } },
   });
 }
+
+// ── Recordatorios (herramienta interna del equipo: el portal cliente y el demo NO) ──
+
+export const REMINDER_SELECT = {
+  id: true,
+  title: true,
+  notes: true,
+  forUserId: true,
+  forUser: { select: { name: true } },
+  createdById: true,
+  createdBy: { select: { name: true } },
+  taskId: true,
+  task: { select: { title: true } },
+  frequency: true,
+  weekdays: true,
+  dayOfMonth: true,
+  timeOfDay: true,
+  nextFireAt: true,
+  lastFiredAt: true,
+  active: true,
+  createdAt: true,
+} as const;
+
+type ReminderRow = {
+  id: string; title: string; notes: string | null;
+  forUserId: string; forUser: { name: string };
+  createdById: string; createdBy: { name: string };
+  taskId: string | null; task: { title: string } | null;
+  frequency: string; weekdays: string | null; dayOfMonth: number | null; timeOfDay: string;
+  nextFireAt: Date; lastFiredAt: Date | null; active: boolean; createdAt: Date;
+};
+
+export function shapeReminder(r: ReminderRow) {
+  return {
+    id: r.id,
+    title: r.title,
+    notes: r.notes,
+    forUserId: r.forUserId,
+    forUserName: r.forUser.name,
+    createdById: r.createdById,
+    createdByName: r.createdBy.name,
+    taskId: r.taskId,
+    taskTitle: r.task?.title ?? null,
+    frequency: r.frequency, // UNA_VEZ | DIARIO | SEMANAL | MENSUAL
+    weekdays: r.weekdays, // "1,3,5" (0=domingo) solo SEMANAL
+    dayOfMonth: r.dayOfMonth, // 1..31 solo MENSUAL
+    timeOfDay: r.timeOfDay, // "HH:mm" hora de Bogotá
+    nextFireAt: r.nextFireAt.toISOString(),
+    lastFiredAt: r.lastFiredAt?.toISOString() ?? null,
+    active: r.active,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
