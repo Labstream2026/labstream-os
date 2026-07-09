@@ -30,7 +30,7 @@ import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 import { Mail } from "lucide-react";
-import { IconConfiguracion } from "@/components/icons";
+import { IconConfiguracion, IconUsuarios, IconEtiquetas, IconRoles, IconNotificaciones, IconAuditoria, IconMarcebot, IconIntegraciones, IconApi, IconMarca, IconFlujo, IconPersonalizacion } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -326,17 +326,17 @@ export default async function ConfiguracionPage() {
       <ViewTabs
         storageKey="config-view"
         views={[
-          { key: "usuarios", label: "Usuarios", icon: "👥", node: usuariosNode },
-          { key: "labels", label: "Estados y prioridades", icon: "🏷️", node: labelsNode },
-          { key: "roles", label: "Roles y permisos", icon: "🔐", node: rolesNode },
-          { key: "notificaciones", label: "Notificaciones", icon: "🔔", node: notificacionesNode },
-          ...(canAudit ? [{ key: "auditoria", label: "Auditoría", icon: "📋", node: auditNode }] : []),
-          { key: "marcebot", label: "Marcebot", icon: "🤖", node: marcebotNode },
-          { key: "integraciones", label: "Integraciones", icon: "🔌", node: integracionesNode },
-          ...(canApi ? [{ key: "api", label: "API", icon: "🔑", node: apiNode }] : []),
-          ...(canApi ? [{ key: "marca", label: "Marca", icon: "🖌️", node: brandingNode }] : []),
-          ...(canApi ? [{ key: "estados-proyecto", label: "Estados de proyecto", icon: "🎬", node: projectStatusesNode }] : []),
-          { key: "personalizacion", label: "Mi personalización", icon: "🎨", node: personalizacionNode },
+          { key: "usuarios", label: "Usuarios", icon: <IconUsuarios />, node: usuariosNode },
+          { key: "labels", label: "Estados y prioridades", icon: <IconEtiquetas />, node: labelsNode },
+          { key: "roles", label: "Roles y permisos", icon: <IconRoles />, node: rolesNode },
+          { key: "notificaciones", label: "Notificaciones", icon: <IconNotificaciones />, node: notificacionesNode },
+          ...(canAudit ? [{ key: "auditoria", label: "Auditoría", icon: <IconAuditoria />, node: auditNode }] : []),
+          { key: "marcebot", label: "Marcebot", icon: <IconMarcebot />, node: marcebotNode },
+          { key: "integraciones", label: "Integraciones", icon: <IconIntegraciones />, node: integracionesNode },
+          ...(canApi ? [{ key: "api", label: "API", icon: <IconApi />, node: apiNode }] : []),
+          ...(canApi ? [{ key: "marca", label: "Marca", icon: <IconMarca />, node: brandingNode }] : []),
+          ...(canApi ? [{ key: "estados-proyecto", label: "Estados de proyecto", icon: <IconFlujo />, node: projectStatusesNode }] : []),
+          { key: "personalizacion", label: "Mi personalización", icon: <IconPersonalizacion />, node: personalizacionNode },
         ]}
       />
     </div>

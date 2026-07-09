@@ -11,7 +11,7 @@ export function ViewTabs({
   storageKey,
   titleSlot,
 }: {
-  views: { key: string; label: string; icon?: string; node: React.ReactNode }[];
+  views: { key: string; label: string; icon?: React.ReactNode; node: React.ReactNode }[];
   storageKey?: string;
   // Si se pasa, se muestra a la izquierda EN EL MISMO renglón que las pestañas (las pestañas
   // se empujan a la derecha). Sirve para compactar: título + pestañas en una sola fila.
@@ -50,7 +50,9 @@ export function ViewTabs({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {v.icon ? <span className="mr-1.5">{v.icon}</span> : null}
+              {/* Acepta emoji (string) o un ícono del set propio: el svg se acota a 16px y se
+                  alinea con la línea base del texto sin que cada llamador deba ajustarlo. */}
+              {v.icon ? <span className="mr-1.5 [&_svg]:inline [&_svg]:size-4 [&_svg]:align-[-3px]">{v.icon}</span> : null}
               {v.label}
             </button>
           );
