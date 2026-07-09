@@ -17,7 +17,7 @@ type DeliverableLite = { id: string; name: string; dueDate: Date | string | null
 
 export function ProjectTimeline({
   projectId,
-  tasks,
+  tasks: allTasks,
   stages,
   stageColors,
   deliverables,
@@ -40,6 +40,9 @@ export function ProjectTimeline({
   projectEnd?: Date | string | null;
 }) {
   const [unit, setUnit] = React.useState<TimelineUnit>("week");
+  // Ocultar las tareas completadas (encendido por defecto): el Gantt muestra solo lo vivo
+  // y un clic trae de vuelta el histórico cuando hace falta.
+  const [hideDone, setHideDone] = React.useState(true);
   const [group, setGroup] = React.useState<"task" | "stage">("task");
   const [selected, setSelected] = React.useState<Task | null>(null);
   const [, startTransition] = React.useTransition();
@@ -61,6 +64,11 @@ export function ProjectTimeline({
   }
 
   const doneKeys = React.useMemo(() => new Set(statuses.filter((s) => s.isDone).map((s) => s.key)), [statuses]);
+  const tasks = React.useMemo(
+    () => (hideDone && doneKeys.size ? allTasks.filter((t) => !doneKeys.has(t.status)) : allTasks),
+    [allTasks, hideDone, doneKeys],
+  );
+  const hiddenCount = allTasks.length - tasks.length;
   const effectiveStages = stages.length ? stages : ["Tareas"];
   const stageHex = (stage: string, i: number) => tone(stageColors[stage] ?? STAGE_TONES[i % STAGE_TONES.length]).hex;
   const stageIndex = (stage: string) => Math.max(0, effectiveStages.indexOf(stage));
@@ -159,6 +167,11 @@ export function ProjectTimeline({
         <p className="text-sm text-muted-foreground">
           Cronograma del proyecto. Arrastra una barra para mover fechas, tira de los bordes para alargarla y haz clic para abrir la tarea.
         </p>
+        <div className="flex items-center gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">
+          <input type="checkbox" checked={hideDone} onChange={(e) => setHideDone(e.target.checked)} className="accent-[#F47A20]" />
+          Ocultar completadas{hideDone && hiddenCount > 0 ? ` (${hiddenCount})` : ""}
+        </label>
         <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
           {([["task", "Por tarea"], ["stage", "Por fase"]] as const).map(([g, label]) => (
             <button
@@ -173,6 +186,7 @@ export function ProjectTimeline({
               {label}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

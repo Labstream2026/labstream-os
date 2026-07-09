@@ -20,6 +20,8 @@ import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
 import { Lock, FileText } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
+import { TasksSpace } from "./tasks-space";
+import { CompletedTasks } from "./completed-tasks";
 import { TasksList } from "./tasks-list";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
@@ -231,6 +233,16 @@ export default async function ProyectoPage({
     commentCount: t._count.comments,
     tags: t.tags.map((g) => ({ id: g.id, label: g.label, color: g.color })),
   }));
+
+  // Pendientes vs completadas según las etiquetas de estado configurables (isDone):
+  // el tablero/lista solo muestran lo vivo; las terminadas van a su propia pestaña.
+  const doneStatusKeys = new Set(taskLabels.statuses.filter((st) => st.isDone).map((st) => st.key));
+  const pendingTasks = tasksData.filter((t) => !doneStatusKeys.has(t.status));
+  const completedTasks = tasksData
+    .filter((t) => doneStatusKeys.has(t.status))
+    .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+  // Estado al que vuelve una tarea reabierta: el primer estado abierto del catálogo.
+  const reopenStatusKey = taskLabels.statuses.find((st) => !st.isDone)?.key ?? "PENDIENTE";
 
   // Items del calendario del proyecto: citas + tareas (entrega/rodaje) + hitos del
   // propio proyecto (inicio, entrega y fechas de entregables).
@@ -481,22 +493,42 @@ export default async function ProyectoPage({
                 <p className="text-sm text-muted-foreground">
                   Espacio de tareas por fases de producción. Cambia entre tablero y lista.
                 </p>
-                <ViewTabs
-                  storageKey="tareas-view"
-                  views={[
-                    {
-                      key: "tablero",
-                      label: "Tablero",
-                      icon: "🗂️",
-                      node: <TasksBoard projectId={id} team={teamForTasks} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
-                    },
-                    {
-                      key: "lista",
-                      label: "Lista",
-                      icon: "☰",
-                      node: <TasksList projectId={id} team={teamForTasks} stages={project.stages} tasks={tasksData} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
-                    },
-                  ]}
+                <TasksSpace
+                  pendingCount={pendingTasks.length}
+                  completedCount={completedTasks.length}
+                  pending={
+                    <ViewTabs
+                      storageKey="tareas-view"
+                      views={[
+                        {
+                          key: "tablero",
+                          label: "Tablero",
+                          icon: "🗂️",
+                          node: <TasksBoard projectId={id} team={teamForTasks} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
+                        },
+                        {
+                          key: "lista",
+                          label: "Lista",
+                          icon: "☰",
+                          node: <TasksList projectId={id} team={teamForTasks} stages={project.stages} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
+                        },
+                      ]}
+                    />
+                  }
+                  completed={
+                    <CompletedTasks
+                      projectId={id}
+                      reopenKey={reopenStatusKey}
+                      canReopen={!isCliente}
+                      items={completedTasks.map((t) => ({
+                        id: t.id,
+                        title: t.title,
+                        completedAtIso: t.completedAt?.toISOString() ?? null,
+                        stage: t.stage,
+                        assignee: t.assignee ? { initials: t.assignee.initials, avatarColor: t.assignee.avatarColor } : null,
+                      }))}
+                    />
+                  }
                 />
               </div>
             );

@@ -38,7 +38,12 @@ export function TasksList({
     const i = t.stage ? cols.indexOf(t.stage) : -1;
     return i < 0 ? cols.length : i;
   };
-  const sorted = [...tasks].sort((a, b) => orderOf(a) - orderOf(b));
+  // Orden: fase de producción → fecha de entrega (las sin fecha al final).
+  const dueMs = (t: Task) => {
+    const d = t.dueDate ? new Date(t.dueDate).getTime() : NaN;
+    return Number.isNaN(d) ? Number.POSITIVE_INFINITY : d;
+  };
+  const sorted = [...tasks].sort((a, b) => orderOf(a) - orderOf(b) || dueMs(a) - dueMs(b));
 
   return (
     <div className="overflow-hidden rounded-xl border border-border">

@@ -11,7 +11,7 @@ type Opt = { value: string; label: string };
 type Proj = { id: string; name: string; emoji: string | null };
 type SavedView = { id: string; name: string; query: string };
 
-const FILTER_KEYS = ["estado", "prioridad", "proyecto", "q", "grupo"] as const;
+const FILTER_KEYS = ["estado", "prioridad", "cliente", "proyecto", "q", "grupo"] as const;
 
 // Barra de filtros + agrupación + vistas guardadas para "Mis tareas". Los filtros viven en la
 // URL (?estado=&prioridad=&proyecto=&q=&grupo=) y el servidor filtra; así el enlace es
@@ -22,12 +22,14 @@ export function TaskFilters({
   statusOptions,
   priorityOptions,
   projectOptions,
+  clientOptions,
   hasPersonal,
   initialViews,
 }: {
   statusOptions: Opt[];
   priorityOptions: Opt[];
   projectOptions: Proj[];
+  clientOptions: { id: string; name: string }[];
   hasPersonal: boolean;
   initialViews: SavedView[];
 }) {
@@ -38,9 +40,10 @@ export function TaskFilters({
   const estado = (sp.get("estado") ?? "").split(",").filter(Boolean);
   const prioridad = (sp.get("prioridad") ?? "").split(",").filter(Boolean);
   const proyecto = sp.get("proyecto") ?? "";
+  const cliente = sp.get("cliente") ?? "";
   const grupo = sp.get("grupo") ?? "urgencia";
   const q = sp.get("q") ?? "";
-  const activeCount = estado.length + prioridad.length + (proyecto ? 1 : 0) + (q ? 1 : 0);
+  const activeCount = estado.length + prioridad.length + (cliente ? 1 : 0) + (proyecto ? 1 : 0) + (q ? 1 : 0);
 
   const pushParams = React.useCallback(
     (next: Record<string, string | null>) => {
@@ -61,7 +64,7 @@ export function TaskFilters({
     pushParams({ [key]: next.join(",") });
   };
 
-  const clearAll = () => pushParams({ estado: null, prioridad: null, proyecto: null, q: null });
+  const clearAll = () => pushParams({ estado: null, prioridad: null, cliente: null, proyecto: null, q: null });
 
   // Búsqueda con debounce para no navegar en cada tecla.
   const [qLocal, setQLocal] = React.useState(q);
@@ -106,6 +109,19 @@ export function TaskFilters({
 
         <MultiDropdown label="Estado" icon={<Filter className="size-3.5" />} options={statusOptions} selected={estado} onToggle={(v) => toggleMulti("estado", v)} />
         <MultiDropdown label="Prioridad" options={priorityOptions} selected={prioridad} onToggle={(v) => toggleMulti("prioridad", v)} />
+
+        {/* Cliente */}
+        {clientOptions.length > 0 ? (
+          <select
+            value={cliente}
+            onChange={(e) => pushParams({ cliente: e.target.value || null })}
+            className="h-9 cursor-pointer rounded-md border border-input bg-background px-2 text-sm outline-none hover:bg-accent focus:ring-2 focus:ring-ring"
+            title="Filtrar por cliente"
+          >
+            <option value="">Todos los clientes</option>
+            {clientOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        ) : null}
 
         {/* Proyecto */}
         <select

@@ -46,6 +46,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   const fEstado = getStr("estado").split(",").filter(Boolean);
   const fPrioridad = getStr("prioridad").split(",").filter(Boolean);
   const fProyecto = getStr("proyecto");
+  const fCliente = getStr("cliente");
   const fQ = getStr("q").toLowerCase().trim();
   const fGrupo = getStr("grupo") || "urgencia";
 
@@ -63,7 +64,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       },
       orderBy: [{ dueDate: "asc" }, { status: "asc" }],
       include: {
-        project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
+        project: { select: { id: true, name: true, emoji: true, client: { select: { id: true, name: true } } } },
         assignedBy: { select: { name: true, initials: true, avatarColor: true } },
         checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
       },
@@ -78,7 +79,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       take: 60,
       select: {
         id: true, title: true, completedAt: true, dueDate: true, isPrivate: true,
-        project: { select: { id: true, name: true, emoji: true, client: { select: { name: true } } } },
+        project: { select: { id: true, name: true, emoji: true, client: { select: { id: true, name: true } } } },
       },
     }),
     db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
@@ -130,6 +131,10 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     else hasPersonal = true;
   }
   const projectOptions = [...projMap.values()].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  // Clientes presentes en mis tareas (para el filtro «Cliente»).
+  const clientMap = new Map<string, { id: string; name: string }>();
+  for (const t of tasks) if (t.project?.client) clientMap.set(t.project.client.id, t.project.client);
+  const clientOptions = [...clientMap.values()].sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
   const priorityOptions = labelOptions(priorities);
 
   // Aplicar filtros en memoria (las tareas abiertas ya están cargadas).
@@ -138,6 +143,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     if (fPrioridad.length && !fPrioridad.includes(t.priority)) return false;
     if (fProyecto === "personal" && t.projectId) return false;
     if (fProyecto && fProyecto !== "personal" && t.projectId !== fProyecto) return false;
+    if (fCliente && t.project?.client?.id !== fCliente) return false;
     if (fQ && !t.title.toLowerCase().includes(fQ)) return false;
     return true;
   });
@@ -243,7 +249,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
 
   const list = (
     <div className="space-y-5">
-      <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
+      <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} clientOptions={clientOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
       {tasks.length === 0 ? (
         <EmptyState icon={<IconTareas />} title="Vas al día" description="No tienes tareas abiertas." />
       ) : listTasks.length === 0 ? (
@@ -261,12 +267,13 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     </div>
   );
 
+  const doneList = fCliente ? doneTasks.filter((t) => t.project?.client?.id === fCliente) : doneTasks;
   const completed = (
     <div className="space-y-2">
-      {doneTasks.length === 0 ? (
+      {doneList.length === 0 ? (
         <EmptyState icon={<IconTareas />} title="Aún no has completado tareas." />
       ) : (
-        doneTasks.map((t) => {
+        doneList.map((t) => {
           const when = t.completedAt
             ? new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(t.completedAt)
             : null;
