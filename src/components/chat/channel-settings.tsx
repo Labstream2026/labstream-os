@@ -17,6 +17,7 @@ export function ChannelSettings({
   team,
   canManage,
   type = "GENERAL",
+  roleManaged = false,
   channelName = "",
   section = null,
 }: {
@@ -26,6 +27,8 @@ export function ChannelSettings({
   team: Member[];
   canManage: boolean;
   type?: string;
+  // Canal de equipo por ROL: gestionado (nombre/miembros/visibilidad siguen al rol, no se borra).
+  roleManaged?: boolean;
   channelName?: string;
   section?: string | null;
 }) {
@@ -35,10 +38,12 @@ export function ChannelSettings({
   const { confirm, dialog } = useConfirmDialog();
   const memberIds = new Set(members.map((m) => m.id));
   const candidates = team.filter((u) => !memberIds.has(u.id));
-  // Canales de PROYECTO/CLIENTE: la membresía se DERIVA del equipo del proyecto/cliente (estar en el
-  // proyecto ES estar en el chat). No se invita ni se saca a mano, y son siempre privados a ese
-  // equipo. Se muestran los miembros de solo lectura, sin controles de invitar/quitar/visibilidad.
-  const autoMembers = type === "PROJECT" || type === "CLIENT";
+  // Canales de PROYECTO/CLIENTE (y de ROL): la membresía se DERIVA del equipo del proyecto o del
+  // rol (estar en el proyecto/rol ES estar en el chat). No se invita ni se saca a mano, y son
+  // privados a ese equipo. Se muestran los miembros de solo lectura, sin invitar/quitar/visibilidad.
+  const autoMembers = type === "PROJECT" || type === "CLIENT" || roleManaged;
+  // Renombrar/sección/borrar: solo grupos NORMALES creados en el chat (los de rol se gestionan solos).
+  const editableGroup = type === "GENERAL" && !roleManaged;
 
   // Añade a alguien al grupo; si el grupo está asignado a una sección y la persona no tiene acceso,
   // el servidor lo rechaza y mostramos el error.
@@ -55,13 +60,13 @@ export function ChannelSettings({
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5">
       {dialog}
       {/* Renombrar (solo grupos creados en el chat) */}
-      {canManage && type === "GENERAL" ? <RenameControl channelId={channelId} initial={channelName} /> : null}
+      {canManage && editableGroup ? <RenameControl channelId={channelId} initial={channelName} /> : null}
       {/* Asignar el grupo a una sección/dependencia (Wiki, Biblioteca…). */}
-      {canManage && type === "GENERAL" ? <SectionAssign channelId={channelId} current={section ?? ""} onError={setMsg} /> : null}
+      {canManage && editableGroup ? <SectionAssign channelId={channelId} current={section ?? ""} onError={setMsg} /> : null}
       {/* Visibilidad (los canales de proyecto/cliente son siempre privados a su equipo, no editable) */}
       {autoMembers ? (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-          <Lock className="size-3.5" /> Privado · equipo del proyecto
+          <Lock className="size-3.5" /> {roleManaged ? "Privado · equipo del rol" : "Privado · equipo del proyecto"}
         </span>
       ) : (
         <button
@@ -126,13 +131,15 @@ export function ChannelSettings({
         </span>
       </div>
 
-      {/* Los canales de proyecto/cliente siguen al equipo: se aclara que no se invita a mano. */}
+      {/* Los canales de proyecto/cliente/rol siguen a su equipo: se aclara que no se invita a mano. */}
       {autoMembers ? (
-        <span className="text-xs text-muted-foreground">· Los miembros siguen al equipo del proyecto</span>
+        <span className="text-xs text-muted-foreground">
+          {roleManaged ? "· Los miembros siguen al rol (cambia el rol en Configuración)" : "· Los miembros siguen al equipo del proyecto"}
+        </span>
       ) : null}
 
-      {/* Borrar grupo (solo canales generales; los de proyecto/cliente se borran con su entidad) */}
-      {canManage && type === "GENERAL" ? (
+      {/* Borrar grupo (solo grupos normales; los de proyecto/cliente/rol se gestionan con su entidad) */}
+      {canManage && editableGroup ? (
         <button
           disabled={pending}
           onClick={async () => {

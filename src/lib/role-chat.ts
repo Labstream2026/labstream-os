@@ -30,6 +30,16 @@ export async function ensureRoleChannels(): Promise<void> {
   ]);
   const byKey = new Map(channels.map((c) => [c.roleKey!, c] as const));
 
+  // Canal cuyo ROL ya no existe (el admin lo borró): se convierte en grupo NORMAL (roleKey
+  // null). Conserva el historial y los miembros que tenía, y deja de estar bloqueado por los
+  // candados de canal gestionado (ya se puede renombrar/borrar/gestionar a mano).
+  const liveKeys = new Set(roles.map((r) => r.key));
+  for (const ch of channels) {
+    if (!liveKeys.has(ch.roleKey!)) {
+      await db.chatChannel.update({ where: { id: ch.id }, data: { roleKey: null } }).catch(() => null);
+    }
+  }
+
   for (const role of roles) {
     if (EXCLUDED_ROLE_KEYS.has(role.key)) continue;
     const userIds = role.users.map((u) => u.id);

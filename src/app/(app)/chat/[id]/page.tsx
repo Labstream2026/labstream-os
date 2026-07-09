@@ -7,7 +7,7 @@ import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ChannelChat } from "@/components/chat/channel-chat";
-import { NotifyLevelToggle, type NotifyLevel } from "@/components/chat/mute-toggle";
+import { NotifyLevelToggle, PinToggle, type NotifyLevel } from "@/components/chat/mute-toggle";
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { UserAvatar } from "@/components/user-avatar";
@@ -72,12 +72,13 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
   const myMember = channel.members.find((m) => m.user.id === session.id);
   const isMember = !!myMember;
 
-  // Nivel de aviso del usuario en este canal: UserChannelState manda; sin fila, la membresía
-  // heredada (muted → «solo menciones»). También aplica al admin que mira sin ser miembro.
+  // Nivel de aviso y fijado del usuario en este canal: UserChannelState manda; sin fila, la
+  // membresía heredada (muted → «solo menciones»). También aplica al admin sin membresía.
   const myState = await db.userChannelState
-    .findUnique({ where: { userId_channelId: { userId: session.id, channelId: id } }, select: { notifyLevel: true } })
+    .findUnique({ where: { userId_channelId: { userId: session.id, channelId: id } }, select: { notifyLevel: true, pinnedAt: true } })
     .catch(() => null);
   const notifyLevel = (myState?.notifyLevel ?? (myMember?.muted ? "mentions" : "all")) as NotifyLevel;
+  const isPinned = !!myState?.pinnedAt;
 
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
@@ -123,11 +124,13 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
             <Lock className="size-5 shrink-0 text-amber-600" />
           )}
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
-          {/* Canales de proyecto/cliente: la membresía sigue al equipo del proyecto, no se une/sale a mano. */}
+          {/* Canales de proyecto/cliente/rol: la membresía sigue al equipo o al rol, no se une/sale a mano. */}
           {(() => {
-            const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT";
+            const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT" || !!channel.roleKey;
             return (
               <>
+                {/* Fijar en el rail: aquí funciona también en táctil (el pin del rail es solo hover). */}
+                <PinToggle channelId={id} pinned={isPinned} />
                 {/* El admin puede fijar su nivel de aviso también sin membresía (afecta a sus @). */}
                 {isMember || isAdmin ? <NotifyLevelToggle channelId={id} level={notifyLevel} /> : null}
                 {!isDM && !isAuto && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
@@ -167,6 +170,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
               isPublic={channel.isPublic}
               canManage={canManage}
               type={channel.type}
+              roleManaged={!!channel.roleKey}
               channelName={channel.name}
               section={channel.section}
               members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}

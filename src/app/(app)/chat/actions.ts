@@ -272,6 +272,9 @@ export async function markChannelRead(channelId: string): Promise<void> {
     data: { lastReadAt: new Date() },
   });
   if (res.count === 0) {
+    // Igual que toggleChannelPin/setChannelNotifyLevel: sin acceso al canal no se crea estado
+    // (antes el no-miembro era no-op por construcción; esto conserva esa propiedad).
+    if (!(await userCanAccessChannel(channelId, session))) return;
     await db.userChannelState
       .upsert({
         where: { userId_channelId: { userId: session.id, channelId } },
@@ -354,11 +357,11 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
   if (!body.includes("@")) return;
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
-    select: { name: true, isPublic: true, type: true, slug: true, members: { select: { userId: true } } },
+    select: { name: true, isPublic: true, type: true, slug: true, audience: true, section: true, members: { select: { userId: true } } },
   });
   if (!channel) return;
   const [users, roles] = await Promise.all([
-    db.user.findMany({ where: { active: true }, select: { id: true, name: true, isSystemBot: true } }),
+    db.user.findMany({ where: { active: true }, select: { id: true, name: true, isSystemBot: true, role: { select: { key: true } } } }),
     db.role.findMany({ where: { key: { notIn: ["cliente", "demo"] } }, select: { key: true, name: true } }),
   ]);
   const targets = detectMentionTargets(body, users, roles);
@@ -366,14 +369,17 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
   const bots = new Set(users.filter((u) => u.isSystemBot).map((u) => u.id));
 
   const ids = new Set(targets.userIds);
-  // @canal/@todos: los miembros del canal. En los canales de difusión (general/estados-equipo,
-  // que reúnen a todo el equipo) se ignora: sería un altavoz masivo al alcance de cualquiera.
+  // @canal/@todos y @Rol NO se expanden en: DMs, canales de difusión (general/estados-equipo —
+  // sería un altavoz masivo al alcance de cualquiera) ni el chat CON el cliente (audience CLIENT:
+  // el autocompletado no los ofrece ahí, y escribirlos a mano —p. ej. desde el portal— tampoco
+  // debe convocar a medio equipo).
   const isBroadcast = channel.type === "GENERAL" && !!channel.slug;
-  if (targets.canal && channel.type !== "DIRECT" && !isBroadcast) {
+  const expandOk = channel.type !== "DIRECT" && !isBroadcast && channel.audience !== "CLIENT";
+  if (targets.canal && expandOk) {
     for (const id of memberIds) ids.add(id);
   }
   // @Rol: el equipo activo de ese rol (en canal privado se limita abajo a los miembros).
-  if (targets.roleKeys.length) {
+  if (targets.roleKeys.length && expandOk) {
     const roleUsers = await db.user.findMany({
       where: { active: true, isSystemBot: false, role: { key: { in: targets.roleKeys } } },
       select: { id: true },
@@ -381,7 +387,13 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
     for (const u of roleUsers) ids.add(u.id);
   }
   ids.delete(authorId);
-  const idArr = [...ids].filter((id) => !bots.has(id) && (channel.isPublic || memberIds.has(id))); // privado: solo miembros del canal
+  // Solo se avisa a quien puede VER el canal: en canal privado O asignado a una SECCIÓN (público
+  // pero con acceso restringido por canAccessChannel), únicamente los miembros (ya vetados al
+  // entrar). Los admins siempre pasan: acceden a todo canal (misma convención que notifyActivity)
+  // — antes mencionar al admin en un chat de proyecto privado no avisaba nada.
+  const adminIds = new Set(users.filter((u) => u.role?.key === "admin").map((u) => u.id));
+  const openChannel = channel.isPublic && !channel.section;
+  const idArr = [...ids].filter((id) => !bots.has(id) && (openChannel || memberIds.has(id) || adminIds.has(id)));
   if (idArr.length === 0) return;
   const off = await db.userChannelState.findMany({
     where: { channelId, userId: { in: idArr }, notifyLevel: "none" },
@@ -458,16 +470,23 @@ async function notifyThreadReply(channelId: string, parentId: string, authorId: 
     select: {
       authorId: true,
       author: { select: { isSystemBot: true } },
-      channel: { select: { type: true, name: true } },
+      channel: { select: { type: true, name: true, isPublic: true, members: { select: { userId: true } } } },
       replies: { where: { deletedAt: null }, select: { authorId: true, author: { select: { isSystemBot: true } } } },
     },
   });
   // En un DM el aviso normal ya es directo: no hace falta el de hilo.
   if (!parent || parent.channel.type === "DIRECT") return covered;
+  // Igual que las @menciones: en canal privado solo se avisa a quien SIGUE siendo miembro
+  // (un participante del hilo sacado del canal —p. ej. por el sync de rol o de proyecto— no
+  // debe recibir contenido nuevo de un canal al que ya no tiene acceso).
+  const memberIds = new Set(parent.channel.members.map((m) => m.userId));
   const ids = new Set<string>();
   if (parent.authorId && !parent.author?.isSystemBot) ids.add(parent.authorId);
   for (const r of parent.replies) if (r.authorId && !r.author?.isSystemBot) ids.add(r.authorId);
   ids.delete(authorId);
+  for (const id of [...ids]) {
+    if (!parent.channel.isPublic && !memberIds.has(id)) ids.delete(id);
+  }
   if (ids.size === 0) return covered;
   const off = await db.userChannelState.findMany({
     where: { channelId, userId: { in: [...ids] }, notifyLevel: "none" },
@@ -558,8 +577,12 @@ export async function sendMessage(
   if (!(await userCanAccessChannel(channelId, session))) return null;
   if (!hasPermission(session, "comentar")) return null;
 
+  // El hilo debe ser de ESTE canal: parentId viene del cliente (no es de fiar) y un padre de
+  // otro canal colgaría la respuesta allí y avisaría a participantes ajenos con este texto.
+  const safeParentId = await validParentId(channelId, parentId ?? null);
+
   const msg = await db.chatMessage.create({
-    data: { channelId, body: text, parentId: parentId ?? null, authorId: session!.id },
+    data: { channelId, body: text, parentId: safeParentId, authorId: session!.id },
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
       channel: { select: { name: true, type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
@@ -582,10 +605,17 @@ export async function sendMessage(
   // orden que sendMessageWithAttachments.
   publishMessage(payload);
   const who = msg.author?.name ?? "Alguien";
-  const inThread = parentId ? await notifyThreadReply(channelId, parentId, session!.id, who, text) : undefined;
+  const inThread = safeParentId ? await notifyThreadReply(channelId, safeParentId, session!.id, who, text) : undefined;
   await notifyMentions(channelId, session!.id, who, text);
   await notifyChannelMessage(channelId, session!.id, who, text, inThread);
   return payload;
+}
+
+// Un parentId solo vale si existe y pertenece al MISMO canal (viene del cliente).
+async function validParentId(channelId: string, parentId: string | null): Promise<string | null> {
+  if (!parentId) return null;
+  const parent = await db.chatMessage.findUnique({ where: { id: parentId }, select: { channelId: true } });
+  return parent && parent.channelId === channelId ? parentId : null;
 }
 
 // Envío con archivos adjuntos (Word, Excel, PDF, imágenes, etc.)
@@ -601,8 +631,11 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   if (!(await userCanAccessChannel(channelId, session))) return null;
   if (!hasPermission(session, "comentar")) return null;
 
+  // Igual que sendMessage: el hilo debe pertenecer a ESTE canal (parentId viene del cliente).
+  const safeParentId = await validParentId(channelId, parentId);
+
   const msg = await db.chatMessage.create({
-    data: { channelId, body, parentId, authorId: session!.id },
+    data: { channelId, body, parentId: safeParentId, authorId: session!.id },
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
       channel: { select: { type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
@@ -634,7 +667,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   publishMessage(payload);
   const who = msg.author?.name ?? "Alguien";
   const noteBody = body || "📎 Archivo adjunto";
-  const inThread = parentId ? await notifyThreadReply(channelId, parentId, session!.id, who, noteBody) : undefined;
+  const inThread = safeParentId ? await notifyThreadReply(channelId, safeParentId, session!.id, who, noteBody) : undefined;
   await notifyMentions(channelId, session!.id, who, body);
   await notifyChannelMessage(channelId, session!.id, who, noteBody, inThread);
   // Se devuelve para que el emisor vea su mensaje al instante (sin depender del SSE).
@@ -737,6 +770,10 @@ export async function setChannelVisibility(channelId: string, isPublic: boolean)
   if (!(await userCanManageChannel(channelId, session))) {
     noAutorizado();
   }
+  // Los canales de equipo por ROL son privados a su rol por diseño: hacerlos públicos abriría
+  // la lectura/escritura a todo el equipo mientras la membresía sigue sincronizándose al rol.
+  const existing = await db.chatChannel.findUnique({ where: { id: channelId }, select: { roleKey: true } });
+  if (existing?.roleKey) return;
   const channel = await db.chatChannel.update({ where: { id: channelId }, data: { isPublic } });
   if (channel.projectId) revalidatePath(`/proyectos/${channel.projectId}`);
 }
@@ -899,6 +936,9 @@ export type MessageSearchHit = {
   author: string | null;
   body: string;
   createdAt: string; // ISO
+  // Mensaje al que ANCLA el permalink: para una respuesta de hilo es su mensaje PADRE (las
+  // respuestas no tienen ancla propia en el chat: viven dentro del hilo, colapsado).
+  anchor: string;
 };
 
 // Busca en el TEXTO de los mensajes de todos los canales que el usuario puede ver (la misma
@@ -944,7 +984,7 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
     where: { channelId: { in: allowed.map((c) => c.id) }, deletedAt: null, body: { contains: q, mode: "insensitive" } },
     orderBy: { createdAt: "desc" },
     take: 30,
-    select: { id: true, channelId: true, body: true, createdAt: true, author: { select: { name: true } } },
+    select: { id: true, channelId: true, parentId: true, body: true, createdAt: true, author: { select: { name: true } } },
   });
   return msgs.map((m) => ({
     id: m.id,
@@ -953,5 +993,6 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
     author: m.author?.name ?? null,
     body: m.body.replace(/\s+/g, " ").trim().slice(0, 120),
     createdAt: m.createdAt.toISOString(),
+    anchor: m.parentId ?? m.id,
   }));
 }
