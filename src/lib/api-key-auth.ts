@@ -98,10 +98,26 @@ export function withApiKey(
 ) {
   return async (req: NextRequest, routeCtx: unknown): Promise<Response> => {
     const r = await resolveApiKey(req);
-    if (!r.ok) return new NextResponse(r.error, { status: r.status });
+    if (!r.ok) {
+      // JSON (antes era texto plano) con pista ACCIONABLE: un agente debe poder auto-diagnosticar
+      // su credencial sin un humano en el medio (era el bucle real: 401 → "pásame el token").
+      return apiJson(
+        {
+          ok: false,
+          error: r.error,
+          ...(r.status === 401
+            ? {
+                hint:
+                  "La credencial se crea/rota en Configuración → API del titular; el secreto se muestra UNA sola vez y NO es recuperable (si se perdió, crea una nueva y guárdala como variable de entorno del integrador, p. ej. LABSTREAM_OS_API_KEY). Verifícala con GET /api/v1/whoami. GET /api/v1/ping responde SIN credencial para distinguir «servidor vivo» de «credencial mala».",
+              }
+            : {}),
+        },
+        r.status,
+      );
+    }
 
     if (!rateLimit(`apikey:${r.ctx.key.prefixVisible}`, r.ctx.key.rateLimitPerMin, 60_000)) {
-      return new NextResponse("Límite de peticiones excedido. Inténtalo en un momento.", { status: 429 });
+      return apiJson({ ok: false, error: "Límite de peticiones excedido. Inténtalo en un momento." }, 429);
     }
 
     // Registro de uso, fire-and-forget: nunca bloquea ni rompe la respuesta.

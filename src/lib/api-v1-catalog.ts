@@ -19,6 +19,7 @@ export type ApiEndpoint = {
 
 export const API_ENDPOINTS: ApiEndpoint[] = [
   // ── Descubrimiento e identidad ──
+  { method: "GET", path: "/api/v1/ping", group: "Descubrimiento", summary: "Vivo + cómo autenticarse (ÚNICO endpoint sin credencial; distingue servidor caído de credencial mala)." },
   { method: "GET", path: "/api/v1", group: "Descubrimiento", summary: "Catálogo legible de la API." },
   { method: "GET", path: "/api/v1/openapi.json", group: "Descubrimiento", summary: "Especificación OpenAPI 3.1 (para agentes/clientes)." },
   { method: "GET", path: "/api/v1/whoami", group: "Descubrimiento", summary: "Titular de la credencial: usuario, rol y permisos efectivos." },
