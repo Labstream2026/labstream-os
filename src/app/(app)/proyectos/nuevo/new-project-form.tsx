@@ -59,9 +59,31 @@ export function NewProjectForm({
       </Field>
 
       {isCliente ? (
-        <Field label="¿Qué necesitas? (brief)">
-          <textarea name="brief" rows={4} placeholder="Cuéntale al equipo el objetivo, referencias, fechas tentativas…" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-        </Field>
+        <>
+          <Field label="¿Qué necesitas? (brief)">
+            <textarea name="brief" rows={4} placeholder="Cuéntale al equipo el objetivo, referencias, fechas tentativas…" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          </Field>
+          {/* Para el cliente, `team` trae SOLO la gente que ya conoce (responsables de su cuenta y
+              equipos de sus proyectos). La dirección y los responsables entran automáticamente. */}
+          {team.length > 0 ? (
+            <div>
+              <p className="mb-1.5 block text-sm font-medium">
+                ¿Con quién quieres trabajar? <span className="font-normal text-muted-foreground">(opcional)</span>
+              </p>
+              <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-card p-1.5">
+                {team.map((u) => (
+                  <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent">
+                    <input type="checkbox" name="members" value={u.id} className="size-3.5 shrink-0 rounded border-input accent-primary" />
+                    <span className="min-w-0 truncate">{u.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Los responsables de tu cuenta y la dirección de Labstream entran al proyecto automáticamente.
+              </p>
+            </div>
+          ) : null}
+        </>
       ) : (
         <Field label="Responsable del proyecto">
           <select name="leadId" defaultValue="" className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring">

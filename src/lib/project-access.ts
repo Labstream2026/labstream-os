@@ -1,10 +1,10 @@
 import type { SessionUser } from "@/lib/session";
 import { db } from "@/lib/db";
 
-// Roles con acceso TOTAL a proyectos y clientes (como los admins): el productor coordina la
-// producción, así que ve todos los clientes/proyectos y puede gestionarlos (añadir colaboradores,
-// ajustes). Se centraliza aquí para que las 5 funciones de acceso lo traten igual.
-const FULL_ACCESS_ROLES = new Set(["admin", "productor"]);
+// Roles con acceso TOTAL a proyectos y clientes (como los admins): el GERENTE dirige la empresa
+// (ve TODOS los clientes y proyectos por defecto, sin depender de membresías) y el productor
+// coordina la producción. Se centraliza aquí para que las 5 funciones de acceso lo traten igual.
+const FULL_ACCESS_ROLES = new Set(["admin", "gerente", "productor"]);
 function hasFullAccess(session: SessionUser | null): boolean {
   return !!session && FULL_ACCESS_ROLES.has(session.role);
 }
