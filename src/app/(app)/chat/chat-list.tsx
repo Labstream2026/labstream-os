@@ -36,17 +36,22 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   // Búsqueda server-side EN los mensajes (se dispara a mano; el filtro de conversaciones es en vivo).
   const [hits, setHits] = React.useState<MessageSearchHit[] | null>(null);
   const [seeking, setSeeking] = React.useState(false);
+  // Guardia de vigencia: si el usuario re-busca antes de que llegue la respuesta anterior, la
+  // respuesta VIEJA no debe pisar el estado (se mostraría bajo la consulta nueva).
+  const searchSeq = React.useRef(0);
   const [, startTransition] = React.useTransition();
 
   const searchInMessages = () => {
     const q = query.trim();
     if (q.length < 2) return;
+    const seq = ++searchSeq.current;
     setSeeking(true);
     startTransition(async () => {
       try {
-        setHits(await searchMessages(q));
+        const res = await searchMessages(q);
+        if (searchSeq.current === seq) setHits(res);
       } finally {
-        setSeeking(false);
+        if (searchSeq.current === seq) setSeeking(false);
       }
     });
   };
@@ -68,10 +73,12 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
       router.refresh();
     });
 
-  // Filtro del buscador: por nombre del chat, cliente o último mensaje.
+  // Filtro del buscador: por nombre del chat, cliente o último mensaje. `meta` también cuenta:
+  // en los Fijados lleva el nombre del cliente de contexto (buscar «acme» debe encontrarlos).
   const q = norm(query.trim());
   const searching = q.length > 0;
-  const match = (r: ChatListRow) => !searching || norm(r.name).includes(q) || (r.last ? norm(r.last).includes(q) : false);
+  const match = (r: ChatListRow) =>
+    !searching || norm(r.name).includes(q) || (r.last ? norm(r.last).includes(q) : false) || norm(r.meta).includes(q);
   const pinned = data.pinned.filter(match);
   const dms = data.dms.filter(match);
   const groups = data.groups.filter(match);
@@ -146,6 +153,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
+              searchSeq.current++; // invalida cualquier búsqueda de mensajes en vuelo
               setHits(null); // cambió lo buscado: los resultados de mensajes quedan viejos
             }}
             onKeyDown={(e) => {
@@ -195,7 +203,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
               hits.map((h) => (
                 <Link
                   key={h.id}
-                  href={`/chat/${h.channelId}?msg=${h.id}`}
+                  href={`/chat/${h.channelId}?msg=${h.anchor}`}
                   onClick={onNavigate}
                   className="flex flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-muted/50"
                 >
@@ -408,7 +416,7 @@ function Row({
             e.stopPropagation();
             onTogglePin(row.id);
           }}
-          className="absolute -right-1 -top-1 hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
+          className="absolute -right-1 -top-1 hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground group-focus-within:flex group-hover:flex"
         >
           <Pin className={cn("size-3.5", row.pinned && "fill-current text-primary")} />
         </button>

@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { userCanAccessClient } from "@/lib/client-access";
+import { userCanAccessClient, accessibleClientWhere } from "@/lib/client-access";
+import { ensureProjectChannels } from "@/lib/project-chat";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { validateAssignee } from "@/lib/task-assign";
 import { logActivity } from "@/lib/activity";
@@ -36,6 +37,9 @@ export async function createProject(formData: FormData) {
 
   // El cliente accede a sus proyectos SOLO por membresía (no por la rama de proyectos públicos),
   // así que al crear uno debe quedar como miembro GUEST (solo lectura) para poder verlo.
+  // Además, un proyecto creado por el CLIENTE no debe nacer HUÉRFANO (antes quedaba solo con el
+  // cliente dentro: sin responsable, sin equipo, sin nadie en el chat y sin aviso al equipo).
+  let clientTeamAdded: string[] = [];
   if (session?.role === "cliente") {
     await db.projectMember.upsert({
       where: { projectId_userId: { projectId: project.id, userId: session.id } },
@@ -45,6 +49,65 @@ export async function createProject(formData: FormData) {
     // El brief que escribió el cliente queda como descripción del proyecto para que el equipo lo lea.
     const brief = String(formData.get("brief") ?? "").trim();
     if (brief) await db.project.update({ where: { id: project.id }, data: { description: brief.slice(0, 1000) } });
+
+    // Entran SOLOS: la dirección (admin/gerente) y los RESPONSABLES de la cuenta — el proyecto
+    // les aparece en sus listas, quedan en su chat y reciben el aviso desde el minuto 1.
+    const [direccion, responsables, myClients] = await Promise.all([
+      db.user.findMany({
+        where: { active: true, isSystemBot: false, role: { key: { in: ["admin", "gerente"] } } },
+        select: { id: true },
+      }),
+      db.clientMember.findMany({ where: { clientId, role: "RESPONSABLE" }, select: { userId: true } }),
+      db.client.findMany({ where: accessibleClientWhere(session), select: { id: true } }),
+    ]);
+    // Personas que el cliente MARCÓ en el formulario: solo se aceptan las que YA conoce
+    // (responsables o equipo de los proyectos de sus clientes; el POST no es de fiar y no debe
+    // servir para descubrir el directorio completo de la empresa).
+    const myClientIds = myClients.map((c) => c.id);
+    const picked = [...new Set(formData.getAll("members").map(String).filter(Boolean))];
+    const validPicked = picked.length
+      ? await db.user.findMany({
+          where: {
+            id: { in: picked },
+            active: true,
+            isSystemBot: false,
+            role: { key: { notIn: ["cliente", "demo"] } },
+            OR: [
+              { role: { key: { in: ["admin", "gerente"] } } },
+              { clientMemberships: { some: { clientId: { in: myClientIds } } } },
+              { projectMemberships: { some: { project: { clientId: { in: myClientIds } } } } },
+              { ledProjects: { some: { clientId: { in: myClientIds } } } },
+            ],
+          },
+          select: { id: true },
+        })
+      : [];
+    clientTeamAdded = [
+      ...new Set([...direccion.map((u) => u.id), ...responsables.map((m) => m.userId), ...validPicked.map((u) => u.id)]),
+    ].filter((id) => id !== session.id);
+    if (clientTeamAdded.length) {
+      await db.projectMember.createMany({
+        data: clientTeamAdded.map((userId) => ({ projectId: project.id, userId })),
+        skipDuplicates: true,
+      });
+      // Los chats del proyecto nacen ya con el equipo dentro (incluido el canal con el cliente).
+      try {
+        await ensureProjectChannels(project.id);
+      } catch {
+        // best-effort: el chat se sincroniza igual en la próxima carga.
+      }
+      // Aviso directo con correo (alta señal: el cliente inició un proyecto). Sin `event`:
+      // igual que la actividad de proyectos, no es un aviso que se pueda apagar por tipo.
+      for (const userId of clientTeamAdded) {
+        await notifyAndEmail(userId, {
+          type: "project",
+          title: `${session.name} (cliente) creó el proyecto «${name}»`,
+          body: "Entraste al equipo automáticamente. Revisa el brief y asigna un responsable.",
+          link: `/proyectos/${project.id}`,
+          actorId: session.id,
+        });
+      }
+    }
   }
 
   await logActivity({
@@ -53,6 +116,8 @@ export async function createProject(formData: FormData) {
     projectId: project.id,
     entityType: "project",
     entityId: project.id,
+    // El equipo auto-agregado ya recibió el aviso directo (con correo): sin duplicados.
+    exclude: clientTeamAdded,
   });
 
   // Aplicar respuestas del wizard: asignar responsables y fechas a las tareas

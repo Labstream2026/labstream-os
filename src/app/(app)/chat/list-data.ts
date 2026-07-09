@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
@@ -54,6 +55,9 @@ export type ChatListData = {
 // badges históricos el día del despliegue).
 async function unreadByChannel(userId: string, channelIds: string[]): Promise<Map<string, number>> {
   if (channelIds.length === 0) return new Map();
+  // Para un MIEMBRO manda la lectura más RECIENTE de las dos: si venía leyendo el canal sin
+  // membresía (admin con UserChannelState) y lo suman al equipo, su historial ya leído no
+  // reaparece como no leído (ChannelMember nace con lastReadAt NULL).
   const rows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
     SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
     FROM "ChatMessage" m
@@ -64,11 +68,11 @@ async function unreadByChannel(userId: string, channelIds: string[]): Promise<Ma
       AND m."deletedAt" IS NULL
       AND (m."authorId" IS NULL OR m."authorId" <> ${userId})
       AND (
-        (cm."userId" IS NOT NULL AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp))
+        (cm."userId" IS NOT NULL AND m."createdAt" > GREATEST(COALESCE(cm."lastReadAt", 'epoch'::timestamp), COALESCE(ucs."lastReadAt", 'epoch'::timestamp)))
         OR (cm."userId" IS NULL AND ucs."lastReadAt" IS NOT NULL AND m."createdAt" > ucs."lastReadAt")
       )
     GROUP BY m."channelId"
-  `;
+  `.catch(() => [] as { channelId: string; count: bigint }[]); // BD sin migrar (UserChannelState aún no existe): rail sin badges > rail caído
   return new Map(rows.map((r) => [r.channelId, Number(r.count)] as const));
 }
 
@@ -76,13 +80,23 @@ async function unreadByChannel(userId: string, channelIds: string[]): Promise<Ma
 type LastMessage = { body: string; at: Date; author: string | null };
 async function lastMessageByChannel(channelIds: string[]): Promise<Map<string, LastMessage>> {
   if (channelIds.length === 0) return new Map();
+  // Solo mensajes RAÍZ (las respuestas de hilo no cuentan como no-leídos: si movieran el canal
+  // al tope con su texto de subtítulo, el orden y el badge se contradirían).
+  // LATERAL por canal en vez de DISTINCT ON: el índice (channelId, createdAt) se recorre hacia
+  // atrás con LIMIT 1 por canal (11ms vs 484ms a 300k mensajes — DISTINCT ON ordenaba TODOS los
+  // mensajes raíz de los canales visibles en disco porque la dirección mixta no la cubre el índice).
   const rows = await db.$queryRaw<{ channelId: string; body: string; createdAt: Date; author: string | null }[]>`
-    SELECT DISTINCT ON (m."channelId") m."channelId" AS "channelId", m.body AS body, m."createdAt" AS "createdAt", u.name AS author
-    FROM "ChatMessage" m
-    LEFT JOIN "User" u ON u.id = m."authorId"
-    WHERE m."channelId" IN (${Prisma.join(channelIds)}) AND m."deletedAt" IS NULL
-    ORDER BY m."channelId", m."createdAt" DESC
-  `;
+    SELECT t."channelId" AS "channelId", t.body AS body, t."createdAt" AS "createdAt", u.name AS author
+    FROM unnest(ARRAY[${Prisma.join(channelIds)}]) AS c(id)
+    JOIN LATERAL (
+      SELECT m."channelId", m.body, m."createdAt", m."authorId"
+      FROM "ChatMessage" m
+      WHERE m."channelId" = c.id AND m."deletedAt" IS NULL AND m."parentId" IS NULL
+      ORDER BY m."createdAt" DESC
+      LIMIT 1
+    ) t ON true
+    LEFT JOIN "User" u ON u.id = t."authorId"
+  `.catch(() => [] as { channelId: string; body: string; createdAt: Date; author: string | null }[]);
   return new Map(rows.map((r) => [r.channelId, { body: r.body, at: r.createdAt, author: r.author }] as const));
 }
 
@@ -110,7 +124,9 @@ function previewOf(last: LastMessage | undefined, myName: string): { last: strin
 
 const activityOf = (r: ChatListRow) => (r.lastAt ? Date.parse(r.lastAt) : 0);
 
-export async function getChatListData(session: SessionUser): Promise<ChatListData> {
+// cache(): en /chat la consulta corre en el layout (rail de escritorio) Y en la página índice
+// (lista móvil) del MISMO request; sin cache se pagaba dos veces.
+export const getChatListData = cache(async (session: SessionUser): Promise<ChatListData> => {
   // El PORTAL DEL CLIENTE solo ve el chat de SU(S) proyecto(s): nada de canales públicos, DMs,
   // explorar ni la lista de personas del equipo (serían fugas). Se resuelve aparte.
   if (session.role === "cliente") return getClienteChatList(session);
@@ -159,10 +175,17 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     unreadByChannel(session.id, allIds),
     lastMessageByChannel(allIds),
     db.userChannelState
-      .findMany({ where: { userId: session.id, pinnedAt: { not: null } }, select: { channelId: true, pinnedAt: true } })
-      .catch(() => [] as { channelId: string; pinnedAt: Date | null }[]), // BD sin migrar: rail sin fijados
+      .findMany({ where: { userId: session.id }, select: { channelId: true, pinnedAt: true, notifyLevel: true } })
+      .catch(() => [] as { channelId: string; pinnedAt: Date | null; notifyLevel: string | null }[]), // BD sin migrar: rail sin fijados/niveles
   ]);
-  const pinnedAtOf = new Map(states.map((s) => [s.channelId, s.pinnedAt ? s.pinnedAt.getTime() : 0] as const));
+  const pinnedAtOf = new Map(states.filter((s) => s.pinnedAt).map((s) => [s.channelId, s.pinnedAt!.getTime()] as const));
+  const levelOf = new Map(states.filter((s) => s.notifyLevel).map((s) => [s.channelId, s.notifyLevel!] as const));
+  // Silenciado efectivo de una fila del rail: el nivel explícito manda (también existe para el
+  // admin sin membresía); sin nivel, el muted heredado de la membresía.
+  const mutedOf = (channelId: string, memberMuted: boolean) => {
+    const level = levelOf.get(channelId);
+    return level ? level !== "all" : memberMuted;
+  };
 
   const dms: ChatListRow[] = myChannels
     // Solo DMs con un interlocutor que todavía existe (y que no sea un bot del sistema:
@@ -184,7 +207,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
         isPublic: c.isPublic,
         isDM: true,
         unread: unread.get(c.id) ?? 0,
-        muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
+        muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
         pinned: pinnedAtOf.has(c.id),
         kind: null,
         ...previewOf(lastMap.get(c.id), session.name),
@@ -221,7 +244,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
       isPublic: c.isPublic,
       isDM: false,
       unread: unread.get(c.id) ?? 0,
-      muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
+      muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
       pinned: pinnedAtOf.has(c.id),
       kind,
       ...previewOf(lastMap.get(c.id), session.name),
@@ -275,7 +298,7 @@ export async function getChatListData(session: SessionUser): Promise<ChatListDat
     .map((c) => ({ id: c.id, name: c.name }));
 
   return { daily, pinned, dms: dmsOut, clientGroups, groups: groupsOut, explore, team };
-}
+});
 
 // Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
 // con el equipo), agrupados por su cliente. Sin canales públicos, DMs, explorar ni lista del equipo.
@@ -295,8 +318,16 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
     },
   });
   const ids = channels.map((c) => c.id);
-  const [unread, lastMap] = await Promise.all([unreadByChannel(session.id, ids), lastMessageByChannel(ids)]);
+  const [unread, lastMap, states] = await Promise.all([
+    unreadByChannel(session.id, ids),
+    lastMessageByChannel(ids),
+    db.userChannelState
+      .findMany({ where: { userId: session.id, pinnedAt: { not: null } }, select: { channelId: true, pinnedAt: true } })
+      .catch(() => [] as { channelId: string; pinnedAt: Date | null }[]),
+  ]);
+  const pinnedAtOf = new Map(states.map((s) => [s.channelId, s.pinnedAt ? s.pinnedAt.getTime() : 0] as const));
 
+  const pinned: ChatListRow[] = [];
   const clientMap = new Map<string, ChatClientGroup>();
   const groups: ChatListRow[] = [];
   for (const c of channels) {
@@ -309,24 +340,26 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
       isDM: false,
       unread: unread.get(c.id) ?? 0,
       muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
-      pinned: false,
+      pinned: pinnedAtOf.has(c.id),
       kind: null, // el invitado solo tiene chats con el equipo: el chip no aporta
       ...previewOf(lastMap.get(c.id), session.name),
       meta: `${c.members.length} miembros`,
     };
     const client = c.project?.client ?? null;
+    if (row.pinned) { pinned.push(client ? { ...row, meta: client.name } : row); continue; }
     if (!client) { groups.push(row); continue; }
     let g = clientMap.get(client.id);
     if (!g) { g = { clientId: client.id, clientName: client.name, emoji: client.emoji, channels: [], unread: 0 }; clientMap.set(client.id, g); }
     g.channels.push(row);
     g.unread += row.muted ? 0 : row.unread;
   }
+  pinned.sort((a, b) => (pinnedAtOf.get(b.id) ?? 0) - (pinnedAtOf.get(a.id) ?? 0));
   for (const g of clientMap.values()) g.channels.sort((a, b) => activityOf(b) - activityOf(a));
-  const clientGroups = [...clientMap.values()].sort((a, b) => a.clientName.localeCompare(b.clientName));
+  const clientGroups = [...clientMap.values()].filter((g) => g.channels.length > 0).sort((a, b) => a.clientName.localeCompare(b.clientName));
 
   return {
     daily: { channelId: null, name: "Chat del día", unread: 0 },
-    pinned: [],
+    pinned,
     dms: [],
     clientGroups,
     groups,

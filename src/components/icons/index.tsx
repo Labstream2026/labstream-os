@@ -29,7 +29,9 @@ export type IconName =
   | "proyectos" | "equipo" | "tareas" | "calendario" | "rodaje" | "facturacion"
   | "cotizacion" | "cliente" | "reportes" | "wiki" | "chat" | "notas"
   | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas"
-  | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion" | "recordatorios";
+  | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion" | "recordatorios"
+  | "usuarios" | "etiquetas" | "roles" | "auditoria" | "integraciones" | "api"
+  | "marca" | "flujo" | "personalizacion";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -336,6 +338,112 @@ export function IconRecordatorios(p: IconProps) {
   );
 }
 
+// Usuarios — carné de identidad (azul) con persona y línea de acento naranja.
+export function IconUsuarios(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="5" width="17" height="14" rx="2.6" fill={C.blue} fillOpacity={0.14} stroke={C.blue} strokeWidth={SW} />
+      <circle cx="8.7" cy="10.2" r="1.8" fill={C.blue} fillOpacity={0.18} stroke={C.blue} strokeWidth={1.6} />
+      <path d="M5.9 15.8c.4-1.7 1.5-2.7 2.8-2.7s2.4 1 2.8 2.7" stroke={C.blue} strokeWidth={1.6} />
+      <path d="M13.7 9.4h3.8M13.7 12.2h3.8" stroke={C.blue} strokeWidth={1.6} />
+      <path d="M13.7 15.2h2.4" stroke={C.orange} strokeWidth={2} />
+    </Icon>
+  );
+}
+
+// Estados y prioridades — etiqueta (rosa) con ojal naranja.
+export function IconEtiquetas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 5.6C4 4.7 4.7 4 5.6 4h5.3c.42 0 .83.17 1.13.47l7.5 7.5c.62.62.62 1.64 0 2.26l-5.3 5.3c-.62.62-1.64.62-2.26 0l-7.5-7.5A1.6 1.6 0 0 1 4 10.9V5.6Z" fill={C.rose} fillOpacity={0.14} stroke={C.rose} strokeWidth={SW} />
+      <circle cx="8.1" cy="8.1" r="1.5" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Roles y permisos — escudo (teal) con cerradura naranja.
+export function IconRoles(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 3.4l6.7 2.5v5.2c0 4.3-2.7 7.4-6.7 9-4-1.6-6.7-4.7-6.7-9V5.9L12 3.4Z" fill={C.teal} fillOpacity={0.14} stroke={C.teal} strokeWidth={SW} />
+      <circle cx="12" cy="10.6" r="1.7" fill={C.orange} />
+      <path d="M12 12v3.2" stroke={C.orange} strokeWidth={1.9} />
+    </Icon>
+  );
+}
+
+// Auditoría — registro (índigo) revisado con lupa naranja.
+export function IconAuditoria(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="5" y="3.5" width="12" height="17" rx="2.5" fill={C.indigo} fillOpacity={0.14} stroke={C.indigo} strokeWidth={SW} />
+      <path d="M8 8h6M8 11h6M8 14h3" stroke={C.indigo} strokeWidth={1.6} />
+      <circle cx="15.2" cy="15.2" r="3.1" fill={C.orange} fillOpacity={0.16} stroke={C.orange} strokeWidth={1.8} />
+      <path d="M17.5 17.5l3 3" stroke={C.orange} strokeWidth={2} />
+    </Icon>
+  );
+}
+
+// Integraciones — enchufe (azul) con cable naranja.
+export function IconIntegraciones(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M9.2 3.2v3.6M14.8 3.2v3.6" stroke={C.blue} strokeWidth={SW} />
+      <path d="M6.4 6.8h11.2v3.4c0 3.1-2.5 5.6-5.6 5.6s-5.6-2.5-5.6-5.6V6.8Z" fill={C.blue} fillOpacity={0.14} stroke={C.blue} strokeWidth={SW} />
+      <path d="M12 15.8v2.2c0 1.5 1.2 2.3 2.7 2.3" stroke={C.orange} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// API — llave (ámbar) con centro y dientes naranjas (credenciales).
+export function IconApi(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="8.2" cy="8.2" r="4.1" fill={C.amber} fillOpacity={0.16} stroke={C.amber} strokeWidth={SW} />
+      <circle cx="8.2" cy="8.2" r="1.4" fill={C.orange} />
+      <path d="M11.2 11.2l8.6 8.6" stroke={C.amber} strokeWidth={SW} />
+      <path d="M15.7 15.7l2.1-2.1M18.3 18.3l2.1-2.1" stroke={C.orange} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// Marca — rodillo de pintura (rosa) con mango naranja.
+export function IconMarca(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.2" y="3.6" width="14" height="5.6" rx="2" fill={C.rose} fillOpacity={0.14} stroke={C.rose} strokeWidth={SW} />
+      <path d="M17.2 6.4h1.9c1 0 1.9.8 1.9 1.9v1.7c0 1-.8 1.9-1.9 1.9h-6.6c-1 0-1.9.8-1.9 1.9v2.1" stroke={C.rose} strokeWidth={SW} />
+      <rect x="9.3" y="15.9" width="2.6" height="4.6" rx="1.1" fill={C.orange} fillOpacity={0.9} stroke={C.orange} strokeWidth={1.5} />
+    </Icon>
+  );
+}
+
+// Estados de proyecto — flujo de nodos (índigo) con el estado activo en naranja.
+export function IconFlujo(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M7 14.4l3.4-4.8M13.6 9.6l3.4 4.8" stroke={C.indigo} strokeWidth={1.7} />
+      <circle cx="5.5" cy="16.6" r="2.5" fill={C.indigo} fillOpacity={0.16} stroke={C.indigo} strokeWidth={1.7} />
+      <circle cx="12" cy="7.4" r="2.5" fill={C.orange} fillOpacity={0.2} stroke={C.orange} strokeWidth={1.7} />
+      <circle cx="12" cy="7.4" r="1" fill={C.orange} />
+      <circle cx="18.5" cy="16.6" r="2.5" fill={C.indigo} fillOpacity={0.16} stroke={C.indigo} strokeWidth={1.7} />
+    </Icon>
+  );
+}
+
+// Mi personalización — paleta de pintor (violeta) con óleos de la familia y uno naranja.
+export function IconPersonalizacion(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 3.6C7.2 3.6 3.4 7.2 3.4 11.8c0 4.6 3.8 8.3 8.6 8.3 1 0 1.7-.7 1.7-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6h2c2.6 0 4.8-2.1 4.8-4.7 0-3.9-4.1-6.4-9.3-6.4Z" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <circle cx="7.7" cy="9.7" r="1.05" fill={C.blue} />
+      <circle cx="11" cy="7.1" r="1.05" fill={C.teal} />
+      <circle cx="14.9" cy="7.6" r="1.05" fill={C.rose} />
+      <circle cx="17.2" cy="10.6" r="1.05" fill={C.orange} />
+    </Icon>
+  );
+}
+
 
 // Mapa por nombre, para usarlos dinámicamente (p. ej. desde datos o navegación).
 export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElement> = {
@@ -364,4 +472,13 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   papelera: IconPapelera,
   configuracion: IconConfiguracion,
   recordatorios: IconRecordatorios,
+  usuarios: IconUsuarios,
+  etiquetas: IconEtiquetas,
+  roles: IconRoles,
+  auditoria: IconAuditoria,
+  integraciones: IconIntegraciones,
+  api: IconApi,
+  marca: IconMarca,
+  flujo: IconFlujo,
+  personalizacion: IconPersonalizacion,
 };

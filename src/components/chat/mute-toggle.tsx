@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Bell, AtSign, BellOff } from "lucide-react";
-import { setChannelNotifyLevel } from "@/app/(app)/chat/actions";
+import { useRouter } from "next/navigation";
+import { Bell, AtSign, BellOff, Pin } from "lucide-react";
+import { setChannelNotifyLevel, toggleChannelPin } from "@/app/(app)/chat/actions";
+import { cn } from "@/lib/utils";
 
 // Nivel de aviso del canal para el usuario actual. Un toque CICLA:
 // todo → solo @menciones (el silenciar clásico) → nada (ni menciones) → todo.
@@ -46,6 +48,38 @@ export function NotifyLevelToggle({ channelId, level: initial }: { channelId: st
       ) : (
         <BellOff className="size-4 text-amber-600" />
       )}
+    </button>
+  );
+}
+
+// Fijar/desfijar este canal arriba del rail. Vive en la cabecera del canal porque el pin del
+// rail solo aparece con hover (en pantallas táctiles no existe): este botón funciona en todas.
+export function PinToggle({ channelId, pinned: initial }: { channelId: string; pinned: boolean }) {
+  const router = useRouter();
+  const [pinned, setPinned] = React.useState(initial);
+  const [, startTransition] = React.useTransition();
+  React.useEffect(() => setPinned(initial), [initial]);
+
+  const toggle = () => {
+    const prev = pinned;
+    setPinned(!prev); // optimista
+    startTransition(async () => {
+      const res = await toggleChannelPin(channelId);
+      if (typeof res === "boolean") setPinned(res);
+      else setPinned(prev);
+      router.refresh(); // el rail vive en el layout: refrescar para que (des)aparezca en Fijados
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-pressed={pinned}
+      title={pinned ? "Desfijar del rail de chats" : "Fijar arriba del rail de chats"}
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <Pin className={cn("size-4", pinned && "fill-current text-primary")} />
     </button>
   );
 }

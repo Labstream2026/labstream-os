@@ -18,10 +18,28 @@ export default async function NuevoProyectoPage({
   const { template = "", clientId = "" } = await searchParams;
   const isCliente = session?.role === "cliente";
 
-  const [clients, team, templates] = await Promise.all([
-    db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    // El cliente no necesita (ni debe ver) el listado del equipo: no asigna responsables internos.
-    isCliente ? Promise.resolve([]) : db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  const clients = await db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const clientIds = clients.map((c) => c.id);
+  const [team, templates] = await Promise.all([
+    // El cliente puede proponer CON QUIÉN trabajar, pero solo entre la gente que YA conoce:
+    // responsables de su cuenta y equipos de los proyectos de sus clientes (nunca el directorio
+    // completo de la empresa). El equipo interno sigue viendo a todos.
+    isCliente
+      ? db.user.findMany({
+          where: {
+            active: true,
+            isSystemBot: false,
+            role: { key: { notIn: ["cliente", "demo"] } },
+            OR: [
+              { clientMemberships: { some: { clientId: { in: clientIds } } } },
+              { projectMemberships: { some: { project: { clientId: { in: clientIds } } } } },
+              { ledProjects: { some: { clientId: { in: clientIds } } } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        })
+      : db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     db.projectTemplate.findMany({ orderBy: { name: "asc" }, select: { key: true, name: true, emoji: true } }),
   ]);
 
