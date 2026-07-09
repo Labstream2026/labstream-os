@@ -269,13 +269,23 @@ export default async function ProyectoPage({
       projectId={id}
       canManage={canManageProject(project, session)}
       members={team
-        // Miembros del proyecto (incluye clientes invitados): elegir a un CLIENTE como
-        // responsable de la revisión activa la revisión DIRECTA — sus versiones van derecho
-        // a su portal, sin pasar por la pre-aprobación interna.
-        .filter((t) => t.id === project.leadId || project.members.some((m) => m.userId === t.id))
+        // Revisores elegibles: TODO el equipo interno (si eliges a alguien que no es miembro
+        // del proyecto, se agrega automáticamente para que tenga acceso a lo que revisa) +
+        // los CLIENTES invitados a ESTE proyecto (elegir a un cliente activa la revisión
+        // DIRECTA: sus versiones van derecho a su portal, sin pre-aprobación interna).
+        .filter((t) =>
+          t.role?.key !== "cliente"
+            ? true
+            : t.id === project.leadId || project.members.some((m) => m.userId === t.id),
+        )
         .map((t) => ({
           id: t.id,
-          name: t.role?.key === "cliente" ? `${t.name} · cliente (revisión directa)` : t.name,
+          name:
+            t.role?.key === "cliente"
+              ? `${t.name} · cliente (revisión directa)`
+              : t.id === project.leadId || project.members.some((m) => m.userId === t.id)
+                ? t.name
+                : `${t.name} · se agregará al proyecto`,
           initials: t.initials,
           color: t.avatarColor,
         }))}

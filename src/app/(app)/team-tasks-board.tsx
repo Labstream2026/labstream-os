@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Search, CalendarClock, AlertTriangle } from "lucide-react";
+import { ChevronRight, Search, CalendarClock, AlertTriangle, List, Users } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,38 @@ const UNASSIGNED = "__none";
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+// Vista del tablero: "list" (acordeón por persona, la de siempre) o "person" (columnas por persona).
+// La preferencia vive en localStorage y se lee con useSyncExternalStore: en SSR/hidratación se usa
+// el valor por defecto y React re-sincroniza al montar — sin setState dentro de un efecto.
+type BoardView = "list" | "person";
+const VIEW_KEY = "labstream:team-tasks-view";
+const VIEWS: { key: BoardView; label: string; icon: React.ReactNode }[] = [
+  { key: "list", label: "Lista", icon: <List className="size-4" /> },
+  { key: "person", label: "Por persona", icon: <Users className="size-4" /> },
+];
+let viewSubs: (() => void)[] = [];
+const subscribeView = (cb: () => void) => {
+  viewSubs.push(cb);
+  return () => {
+    viewSubs = viewSubs.filter((l) => l !== cb);
+  };
+};
+const readView = (): BoardView => {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "person" ? "person" : "list";
+  } catch {
+    return "list";
+  }
+};
+const saveView = (v: BoardView) => {
+  try {
+    window.localStorage.setItem(VIEW_KEY, v);
+  } catch {
+    // sin almacenamiento (modo privado): el cambio aplica solo a esta visita
+  }
+  viewSubs.forEach((l) => l());
+};
+
 export function TeamTasksBoard({
   members,
   tasks: initial,
@@ -51,6 +83,7 @@ export function TeamTasksBoard({
   const [busy, setBusy] = React.useState<Set<string>>(new Set());
   // Por defecto cada persona aparece RETRAÍDA; el usuario despliega a quien quiere ver.
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  const view = React.useSyncExternalStore(subscribeView, readView, () => "list" as BoardView);
   const [, startTransition] = React.useTransition();
 
   const setBusyFor = (id: string, on: boolean) =>
@@ -120,14 +153,33 @@ export function TeamTasksBoard({
           {tasks.length} tareas abiertas · {members.length} personas
           {!canReassign && !canEditDates ? " · solo lectura" : ""}
         </p>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 sm:w-72">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar tarea o proyecto…"
-            className="w-full bg-transparent text-sm outline-none"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* Conmutador de vista (mismo patrón de pills que ViewTabs). */}
+          <div className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted p-1">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                onClick={() => saveView(v.key)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  v.key === view ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {v.icon}
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 sm:w-72">
+            <Search className="size-4 shrink-0 text-muted-foreground" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar tarea o proyecto…"
+              className="w-full bg-transparent text-sm outline-none"
+            />
+          </div>
         </div>
       </div>
 
@@ -138,6 +190,52 @@ export function TeamTasksBoard({
         </div>
       ) : null}
 
+      {view === "person" ? (
+        // Vista POR PERSONA: una columna por miembro CON tareas abiertas (+ "Sin asignar" si aplica),
+        // con avatar, nombre y contador; dentro, cada tarea con título, estado y proyecto.
+        (() => {
+          const cols = groups.filter((g) => g.items.length > 0);
+          if (cols.length === 0) {
+            return <p className="rounded-xl border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">Sin tareas abiertas.</p>;
+          }
+          return (
+            <div className="flex items-start gap-3 overflow-x-auto pb-2">
+              {cols.map((g) => (
+                <section key={g.key} className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+                  <header className="flex items-center gap-2.5 border-b border-border bg-muted/40 px-3 py-2.5">
+                    {g.member ? (
+                      <UserAvatar initials={g.member.initials} color={g.member.color} size="sm" />
+                    ) : (
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">?</span>
+                    )}
+                    <span className="flex-1 truncate text-sm font-semibold">{g.member?.name ?? "Sin asignar"}</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{g.items.length}</span>
+                  </header>
+                  <ul className="flex flex-col gap-2 p-2">
+                    {g.items.map((t) => (
+                      <li key={t.id} className="rounded-lg border border-border bg-background px-3 py-2">
+                        {t.projectId ? (
+                          <Link href={`/proyectos/${t.projectId}?tab=tareas`} className="block truncate text-sm font-medium hover:underline">{t.title}</Link>
+                        ) : (
+                          <span className="block truncate text-sm font-medium">{t.title}</span>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className={cn("rounded-full px-1.5 py-0.5 font-medium", t.statusClass)}>{t.statusLabel}</span>
+                          {t.projectName ? (
+                            <span className="truncate"><EntityEmoji value={t.projectEmoji} /> {t.projectName}</span>
+                          ) : (
+                            <span>Personal</span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          );
+        })()
+      ) : (
       <div className="space-y-3">
         {groups.map((g) => {
           // Retraído por defecto; al buscar se abren todos para ver las coincidencias.
@@ -231,6 +329,7 @@ export function TeamTasksBoard({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

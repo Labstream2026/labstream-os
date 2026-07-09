@@ -766,7 +766,8 @@ export function ChannelChat({
   const mentionMatches: { id: string; name: string; initials?: string | null; color?: string | null; hint?: string | null }[] =
     mentionQuery != null
       ? [
-          ...mentionPool.filter((mem) => mem.id !== me.id && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6),
+          // Sin bots del sistema: el chat de Marcebot se eliminó, mencionarlo no hace nada.
+          ...mentionPool.filter((mem) => mem.id !== me.id && !(mem.initials === "🤖" || /marcebot/i.test(mem.name)) && mem.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6),
           ...mentionExtras
             .filter((e) => e.name.toLowerCase().includes(mentionQuery.toLowerCase()))
             .slice(0, 4)
@@ -1192,7 +1193,6 @@ export function ChannelChat({
             <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
             <div className="max-h-56 overflow-y-auto py-1">
               {mentionMatches.map((mem, idx) => {
-                const isBot = mem.initials === "🤖" || /marcebot/i.test(mem.name);
                 return (
                   <button
                     key={mem.id}
@@ -1211,7 +1211,6 @@ export function ChannelChat({
                     )}
                     <span className="truncate font-medium">{mem.hint ? mem.name : mentionLabel(mem.name)}</span>
                     {mem.hint ? <span className="ml-auto shrink-0 truncate text-[10px] text-muted-foreground">{mem.hint}</span> : null}
-                    {isBot ? <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">bot</span> : null}
                   </button>
                 );
               })}

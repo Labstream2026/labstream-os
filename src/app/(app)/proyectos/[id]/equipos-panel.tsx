@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Plus, Trash2, Search, Package, AlertTriangle, Check, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmojiSelect } from "@/components/emoji-select";
@@ -83,7 +84,7 @@ export function EquiposPanel({
       <div>
         <p className="text-sm text-muted-foreground">
           Arma las <strong>grabaciones</strong> del proyecto con su fecha y elige del{" "}
-          <a href="/wiki/inventario" className="text-primary hover:underline">inventario</a> qué equipos llevar.
+          <Link href="/wiki/inventario" className="text-primary hover:underline">inventario</Link> qué equipos llevar.
           Verás cuáles están <strong>libres ese día</strong> y podrás asignar a alguien la preparación.
         </p>
       </div>
@@ -147,6 +148,11 @@ function PlanCard({
 
   // Disponibilidad ese día para un equipo: total − reservado en otras grabaciones.
   const availOf = (it: EqItem) => it.quantity - (plan.reserved[it.rowId]?.qty ?? 0);
+  // Reservado en ESTE plan por equipo (el mapa de conflictos solo cuenta OTROS planes):
+  // sin esto, agregas las 3 luces y el contador seguía diciendo «3 de 3 libres».
+  const ownQty = new Map<string, number>();
+  for (const res of plan.reservations) ownQty.set(res.rowId, (ownQty.get(res.rowId) ?? 0) + res.quantity);
+  const freeOf = (it: EqItem) => Math.max(0, availOf(it) - (ownQty.get(it.rowId) ?? 0));
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -252,7 +258,7 @@ function PlanCard({
                         <AlertTriangle className="size-3" /> Solo {Math.max(0, avail)} libre(s) ese día{where.length ? ` · ya en ${where.join(", ")}` : ""}
                       </span>
                     ) : (
-                      <span className="text-emerald-600 dark:text-emerald-400">{Math.max(0, avail - r.quantity)} libre(s) de {it.quantity}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">{freeOf(it)} libre(s) de {it.quantity}{(ownQty.get(it.rowId) ?? 0) > 0 ? ` · ${ownQty.get(it.rowId)} en este plan` : ""}</span>
                     )}
                   </div>
                   {openSerial === r.id ? (
@@ -315,6 +321,7 @@ function PlanCard({
           tags={tags}
           reservedRows={reservedRows}
           availOf={availOf}
+          ownQty={ownQty}
           onAdd={(rowId) => run(() => addReservation(plan.id, rowId, 1))}
           onClose={() => setAdding(false)}
         />
@@ -340,13 +347,14 @@ function SaveKitForm({ planId, onDone }: { planId: string; onDone: () => void })
 }
 
 function AddPicker({
-  plan, inventory, tags, reservedRows, availOf, onAdd, onClose,
+  plan, inventory, tags, reservedRows, availOf, ownQty, onAdd, onClose,
 }: {
   plan: EqPlan;
   inventory: EqItem[];
   tags: { id: string; label: string; color: string }[];
   reservedRows: Set<string>;
   availOf: (it: EqItem) => number;
+  ownQty: Map<string, number>;
   onAdd: (rowId: string) => void;
   onClose: () => void;
 }) {
@@ -392,7 +400,7 @@ function AddPicker({
       <div className="max-h-72 space-y-1 overflow-y-auto overscroll-contain">
         {filtered.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">
-            Sin equipos. {inventory.length === 0 ? <>Agrega equipos en el <a href="/wiki/inventario" className="text-primary hover:underline">inventario</a>.</> : "Prueba con otra búsqueda o tag."}
+            Sin equipos. {inventory.length === 0 ? <>Agrega equipos en el <Link href="/wiki/inventario" className="text-primary hover:underline">inventario</Link>.</> : "Prueba con otra búsqueda o tag."}
           </p>
         ) : (
           filtered.map((it) => {
@@ -418,8 +426,13 @@ function AddPicker({
                     {it.tags.slice(0, 3).map((t) => <span key={t} className="rounded bg-muted px-1 py-0.5">#{t}</span>)}
                   </div>
                 </div>
-                <span className={cn("shrink-0 text-[11px] font-medium", avail <= 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>
-                  {avail <= 0 ? (where.length ? `ocupado · ${where[0]}` : "ocupado ese día") : `${avail}/${it.quantity} libres`}
+                <span className={cn("shrink-0 text-[11px] font-medium", avail - (ownQty.get(it.rowId) ?? 0) <= 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400")}>
+                  {(() => {
+                    const own = ownQty.get(it.rowId) ?? 0;
+                    const free = Math.max(0, avail - own);
+                    if (free <= 0) return own > 0 ? `0/${it.quantity} · ${own} en este plan` : where.length ? `ocupado · ${where[0]}` : "ocupado ese día";
+                    return `${free}/${it.quantity} libres${own > 0 ? ` · ${own} en este plan` : ""}`;
+                  })()}
                 </span>
                 {already ? <Check className="size-4 shrink-0 text-emerald-500" /> : <Plus className="size-4 shrink-0 text-muted-foreground" />}
               </button>

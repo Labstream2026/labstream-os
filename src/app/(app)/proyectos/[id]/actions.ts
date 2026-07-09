@@ -151,6 +151,8 @@ export async function createTask(projectId: string, formData: FormData) {
   // Hora de finalización OBLIGATORIA al crear: si no llega una válida, por defecto 9:00 am.
   const dueTimeRaw = String(formData.get("dueTime") ?? "").trim();
   const dueTime = /^\d{1,2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "09:00";
+  // Coherencia: una tarea no puede empezar DESPUÉS de entregarse.
+  if (startDate.getTime() > dueDate.getTime()) throw new Error("La fecha de inicio no puede ser posterior a la fecha de entrega.");
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
     data: {
@@ -282,6 +284,13 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
   if (!canEditTaskMeta(task!, await getSession())) throw new Error("Solo quien asignó la tarea puede cambiar la fecha de entrega.");
   const raw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = raw ? new Date(`${raw}T12:00:00.000Z`) : null;
+  // Coherencia: la entrega no puede quedar antes del inicio de la tarea.
+  if (dueDate) {
+    const cur = await db.task.findUnique({ where: { id: taskId }, select: { startDate: true } });
+    if (cur?.startDate && cur.startDate.getTime() > dueDate.getTime()) {
+      throw new Error("La fecha de entrega no puede ser anterior a la fecha de inicio.");
+    }
+  }
   // Si se quita la fecha de entrega, la hora de entrega deja de tener sentido → se limpia.
   await db.task.update({ where: { id: taskId }, data: dueDate ? { dueDate } : { dueDate: null, dueTime: null } });
   const session = await getSession();
@@ -398,6 +407,15 @@ export async function setTaskDates(taskId: string, _projectId: string, formData:
   if (sRaw !== null) data.startDate = String(sRaw).trim() ? noonUTC(String(sRaw).trim()) : null;
   if (dRaw !== null) data.dueDate = String(dRaw).trim() ? noonUTC(String(dRaw).trim()) : null;
   if (Object.keys(data).length === 0) return;
+  // Coherencia con el par EFECTIVO (lo que llega + lo que la tarea ya tenía).
+  {
+    const cur = await db.task.findUnique({ where: { id: taskId }, select: { startDate: true, dueDate: true } });
+    const effStart = "startDate" in data ? data.startDate : cur?.startDate ?? null;
+    const effDue = "dueDate" in data ? data.dueDate : cur?.dueDate ?? null;
+    if (effStart && effDue && effStart.getTime() > effDue.getTime()) {
+      throw new Error("La fecha de inicio no puede ser posterior a la fecha de entrega.");
+    }
+  }
   await db.task.update({ where: { id: taskId }, data });
   const session = await getSession();
 
@@ -1138,11 +1156,24 @@ export async function setDeliverableReviewers(deliverableId: string, _projectId:
   });
   const session = await getSession();
   if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
-  // Solo miembros/responsable del proyecto pueden ser revisores; deduplica y valida.
+  // Revisores: cualquier persona del equipo INTERNO (si no era miembro del proyecto, se
+  // agrega automáticamente — necesita acceso a lo que va a revisar). Los usuarios del portal
+  // CLIENTE solo si ya son miembros de este proyecto (no se invitan clientes ajenos).
   const valid: string[] = [];
   for (const uid of [...new Set(userIds)]) {
-    const ok = await validateProjectMember(deliverable.projectId, uid);
-    if (ok && !valid.includes(ok)) valid.push(ok);
+    const u = await db.user.findUnique({ where: { id: uid }, select: { id: true, active: true, isSystemBot: true, role: { select: { key: true } } } });
+    if (!u || !u.active || u.isSystemBot) continue;
+    if (u.role.key === "cliente") {
+      const ok = await validateProjectMember(deliverable.projectId, uid);
+      if (!ok) continue;
+    } else {
+      await db.projectMember.upsert({
+        where: { projectId_userId: { projectId: deliverable.projectId, userId: uid } },
+        create: { projectId: deliverable.projectId, userId: uid },
+        update: {},
+      });
+    }
+    if (!valid.includes(uid)) valid.push(uid);
   }
   const before = new Set(deliverable.reviewers.map((r) => r.userId));
   // Reemplaza el conjunto: quita los que ya no están, agrega los nuevos.

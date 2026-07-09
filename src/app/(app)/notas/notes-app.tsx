@@ -49,7 +49,7 @@ function toLocalInput(iso: string | null): string {
 }
 function fmtReminder(iso: string | null): string {
   if (!iso) return "";
-  try { return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)); } catch { return ""; }
+  try { return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)); } catch { return ""; }
 }
 
 export type NoteProject = { id: string; name: string; emoji: string | null };
@@ -61,7 +61,7 @@ const SOURCE_LABEL: Record<string, string> = { app: "App", chat: "Chat", whatsap
 
 function fmtDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+    return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
   } catch {
     return "";
   }

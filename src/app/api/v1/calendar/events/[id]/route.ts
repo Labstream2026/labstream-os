@@ -88,7 +88,7 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
     if (updated) {
       const when = updated.allDay
         ? updated.start.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-        : updated.start.toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+        : updated.start.toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
       for (const a of event.attendees) {
         if (a.user.id === ctx.session.id) continue;
         await notifyAndEmail(a.user.id, { type: "event", event: "calendar_event", title: `Se movió la cita: ${updated.title}`, body: `${ctx.session.name} la reprogramó · ${when}`, link: "/calendario", actorId: ctx.session.id }).catch(() => null);
@@ -112,7 +112,7 @@ export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, r
 
   const when = event.allDay
     ? event.start.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : event.start.toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : event.start.toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const a of event.attendees) {
     if (a.user.id === ctx.session.id) continue;
     await notifyAndEmail(a.user.id, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${ctx.session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: ctx.session.id }).catch(() => null);

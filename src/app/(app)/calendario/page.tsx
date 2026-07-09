@@ -14,7 +14,7 @@ import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
 
 export const dynamic = "force-dynamic";
 
-const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" }).format(d);
+const fmtTime = (d: Date) => new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", hour: "2-digit", minute: "2-digit" }).format(d); // hora de pared
 
 export default async function CalendarioPage() {
   const session = await getSession();

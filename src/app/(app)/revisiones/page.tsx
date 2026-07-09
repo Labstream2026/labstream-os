@@ -75,17 +75,18 @@ type GroupMode = "estado" | "cliente" | "fecha";
 // (pre-aprobación / con el cliente / cambios). "Archivados": los ya entregados o parqueados a mano
 // — SALEN del inbox pero su enlace de entrega sigue vivo hasta que se borre. Cada ficha se pinta con
 // el color de su cliente (barra + tinte) y se puede agrupar por Estado (por defecto), Cliente o Fecha.
-export default async function RevisionesPage({ searchParams }: { searchParams: Promise<{ scope?: string; tab?: string; group?: string }> }) {
+export default async function RevisionesPage({ searchParams }: { searchParams: Promise<{ scope?: string; tab?: string; group?: string; uploader?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
   // La bandeja de revisión INTERNA es del equipo: el portal del cliente no entra (vería versiones
   // sin pre-aprobar y comentarios internos de su propio proyecto). Tiene su vista en /proyectos/[id].
   if (session.role === "cliente") redirect("/proyectos");
 
-  const { scope, tab, group } = await searchParams;
+  const { scope, tab, group, uploader } = await searchParams;
   const onlyMine = scope === "mine";
   const archivedTab = tab === "archivados";
   const groupMode: GroupMode = group === "cliente" ? "cliente" : group === "fecha" ? "fecha" : "estado";
+  const uploaderId = uploader || null;
 
   const acc = accessibleProjectWhere(session);
   // Activos = en revisión y sin archivar. Archivados = archivados a mano O ya finalizados (aprobado/
@@ -124,7 +125,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
             client: { select: { id: true, name: true, photoUrl: true, accentColor: true, members: { select: { userId: true, role: true } } } },
           },
         },
-        versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, durationSec: true, uploadedBy: { select: { name: true, initials: true, avatarColor: true } } } },
+        versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, durationSec: true, uploadedBy: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
         _count: { select: { reviewComments: true } },
       },
       orderBy: { updatedAt: "desc" },
@@ -161,7 +162,17 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   }));
 
   const mineFilter = (d: Item) => !onlyMine || d.mine;
-  const visible = items.filter(mineFilter);
+  const scoped = items.filter(mineFilter);
+
+  // Filtro "Subido por": personas que subieron la ÚLTIMA versión de algún entregable del alcance
+  // actual (las opciones se calculan ANTES de aplicar el filtro, para poder cambiar de persona).
+  const uploaderMap = new Map<string, { id: string; name: string; initials: string | null; avatarColor: string | null }>();
+  for (const d of scoped) {
+    const u = d.versions[0]?.uploadedBy;
+    if (u) uploaderMap.set(u.id, u);
+  }
+  const uploaders = [...uploaderMap.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const visible = uploaderId ? scoped.filter((d) => d.versions[0]?.uploadedBy?.id === uploaderId) : scoped;
 
   // Vista "Activos + agrupar por Estado" = la de siempre (tres grupos con su lógica y métricas).
   const pendientes = visible
@@ -172,14 +183,16 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   const urgentes = [...pendientes, ...cambios].filter((d) => urgency(d.updatedAt).tier === "danger").length;
 
   // Enlaces de la barra de control, conservando el resto de parámetros.
-  const hrefFor = (over: { tab?: "activos" | "archivados"; group?: GroupMode; scope?: "mine" | "all" }) => {
+  const hrefFor = (over: { tab?: "activos" | "archivados"; group?: GroupMode; scope?: "mine" | "all"; uploader?: string | null }) => {
     const t = over.tab ?? (archivedTab ? "archivados" : "activos");
     const g = over.group ?? groupMode;
     const s = over.scope ?? (onlyMine ? "mine" : "all");
+    const u = over.uploader === undefined ? uploaderId : over.uploader; // null explícito = quitar filtro
     const p = new URLSearchParams();
     if (t === "archivados") p.set("tab", "archivados");
     if (g !== "estado") p.set("group", g);
     if (s === "mine") p.set("scope", "mine");
+    if (u) p.set("uploader", u);
     const qs = p.toString();
     return qs ? `/revisiones?${qs}` : "/revisiones";
   };
@@ -226,6 +239,26 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
             </div>
           </div>
         </div>
+
+        {/* Filtro "Subido por": quien subió la ÚLTIMA versión de cada entregable. */}
+        {uploaders.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Subido por</span>
+            <div className="inline-flex flex-wrap overflow-hidden rounded-lg border border-border text-sm">
+              <Link href={hrefFor({ uploader: null })} className={`px-2.5 py-1.5 text-xs ${!uploaderId ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Todos</Link>
+              {uploaders.map((u) => (
+                <Link
+                  key={u.id}
+                  href={hrefFor({ uploader: u.id })}
+                  className={`inline-flex items-center gap-1.5 border-l border-border px-2.5 py-1.5 text-xs ${uploaderId === u.id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}
+                >
+                  <UserAvatar initials={u.initials} color={u.avatarColor} size="sm" className="h-5 w-5" />
+                  {u.name.split(" ")[0]}
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       {visible.length === 0 ? (
@@ -263,7 +296,7 @@ type Item = {
   updatedAt: Date;
   coverFileAssetId: string | null;
   project: { id: string; name: string; emoji: string | null; client: { id: string; name: string; photoUrl: string | null; accentColor: string | null } | null };
-  versions: { number: number; createdAt: Date; durationSec: number | null; uploadedBy: { name: string; initials: string | null; avatarColor: string | null } | null }[];
+  versions: { number: number; createdAt: Date; durationSec: number | null; uploadedBy: { id: string; name: string; initials: string | null; avatarColor: string | null } | null }[];
   _count: { reviewComments: number };
   mine: boolean;
   manage: boolean;

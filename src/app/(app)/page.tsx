@@ -25,7 +25,9 @@ function greeting(name: string) {
 }
 
 function todayLabel() {
+  // Fecha de HOY en Colombia: sin timeZone, el servidor (UTC) mostraba "mañana" tras las 7 p. m.
   const s = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
     weekday: "long",
     day: "numeric",
     month: "long",

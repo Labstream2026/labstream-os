@@ -107,9 +107,11 @@ export async function getUserDoneToday(userId: string, now: Date = new Date()): 
 }
 
 export type PersonOverdue = { name: string; count: number };
+export type TeamTaskLite = TaskLite & { assignee: string | null };
 export type TeamSummary = {
   overdueTotal: number;
   byPerson: PersonOverdue[]; // quién va más atrasado
+  overdue: TeamTaskLite[]; // detalle de las atrasadas (con proyecto, para enlazar desde la tarjeta)
   unassigned: TaskLite[]; // tareas abiertas sin responsable que vencen pronto
   deliveries: TaskLite[]; // entregables de esta semana
   shoots: TaskLite[]; // rodajes de esta semana
@@ -125,7 +127,7 @@ export async function getTeamSummary(openKeys: string[], now: Date = new Date())
     db.task.findMany({
       where: { status: { in: openKeys }, dueDate: { lt: todayStart } },
       orderBy: { dueDate: "asc" },
-      select: { id: true, title: true, dueDate: true, assignee: { select: { name: true } } },
+      select: { id: true, title: true, dueDate: true, assignee: { select: { name: true } }, project: { select: { id: true, name: true } } },
     }),
     db.task.findMany({
       where: { status: { in: openKeys }, assigneeId: null, dueDate: { gte: todayStart, lt: twoWeeks } },
@@ -156,6 +158,7 @@ export async function getTeamSummary(openKeys: string[], now: Date = new Date())
   return {
     overdueTotal: overdueTasks.length,
     byPerson,
+    overdue: overdueTasks.map((t) => ({ id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project), projectId: t.project?.id ?? null, assignee: t.assignee?.name ?? null })),
     unassigned: unassigned.map((t) => ({ id: t.id, title: t.title, due: t.dueDate, project: projectName(t.project), projectId: t.project?.id ?? null })),
     deliveries: deliveries.map((d) => ({ id: d.id, title: d.name, due: d.dueDate, project: projectName(d.project), projectId: d.project?.id ?? null })),
     shoots: shoots.map((s) => ({ id: s.id, title: s.title, due: s.shootDate, project: projectName(s.project), projectId: s.project?.id ?? null })),

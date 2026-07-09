@@ -81,12 +81,20 @@ export async function getUserChases(userId: string, now: Date = new Date()): Pro
 }
 
 // ── Escalación de equipo (para roles administrativos) ──
+// Cada métrica trae también su DETALLE (mismos filtros que el contador) para que la
+// tarjeta del Inicio pueda desplegar los ítems y enlazar a su destino.
+export type EscItem = { id: string; title: string; project: string | null; projectId: string | null };
 export type TeamEscalation = {
   staleTasks: number; // tareas abiertas sin tocar en 7+ días
   awaitingInternal: number; // entregables esperando pre-aprobación
   awaitingClient: number; // enviados al cliente sin respuesta (3+ días)
   proposalsOpen: number; // propuestas enviadas sin cerrar
   invoicesOverdue: number; // facturas vencidas
+  staleTasksList: EscItem[];
+  awaitingInternalList: EscItem[];
+  awaitingClientList: EscItem[];
+  proposalsOpenList: EscItem[];
+  invoicesOverdueList: EscItem[];
 };
 
 // ── Escalación al líder del proyecto ──
@@ -140,13 +148,46 @@ export async function getTeamEscalation(openKeys: string[], now: Date = new Date
   const staleCut = new Date(now.getTime() - 7 * DAY);
   const clientStaleCut = new Date(now.getTime() - 3 * DAY);
 
+  // findMany (no count) con los MISMOS filtros: el contador es .length (idéntico) y además
+  // se obtienen los ids/proyectos para los chips desplegables de la tarjeta del Inicio.
   const [staleTasks, awaitingInternal, awaitingClient, proposalsOpen, invoicesOverdue] = await Promise.all([
-    db.task.count({ where: { status: { in: openKeys }, completedAt: null, updatedAt: { lt: staleCut } } }),
-    db.deliverable.count({ where: { status: "REVISION_INTERNA" } }),
-    db.deliverable.count({ where: { status: "ENVIADO_CLIENTE", updatedAt: { lt: clientStaleCut } } }),
-    db.proposal.count({ where: { status: "ENVIADA" } }),
-    db.invoice.count({ where: { OR: [{ status: "VENCIDA" }, { status: "ENVIADA", dueDate: { lt: todayStart } }] } }),
+    db.task.findMany({
+      where: { status: { in: openKeys }, completedAt: null, updatedAt: { lt: staleCut } },
+      orderBy: { updatedAt: "asc" },
+      select: { id: true, title: true, project: { select: { id: true, name: true } } },
+    }),
+    db.deliverable.findMany({
+      where: { status: "REVISION_INTERNA" },
+      orderBy: { updatedAt: "asc" },
+      select: { id: true, name: true, project: { select: { id: true, name: true } } },
+    }),
+    db.deliverable.findMany({
+      where: { status: "ENVIADO_CLIENTE", updatedAt: { lt: clientStaleCut } },
+      orderBy: { updatedAt: "asc" },
+      select: { id: true, name: true, project: { select: { id: true, name: true } } },
+    }),
+    db.proposal.findMany({
+      where: { status: "ENVIADA" },
+      orderBy: { updatedAt: "asc" },
+      select: { id: true, title: true },
+    }),
+    db.invoice.findMany({
+      where: { OR: [{ status: "VENCIDA" }, { status: "ENVIADA", dueDate: { lt: todayStart } }] },
+      orderBy: { dueDate: "asc" },
+      select: { id: true, code: true },
+    }),
   ]);
 
-  return { staleTasks, awaitingInternal, awaitingClient, proposalsOpen, invoicesOverdue };
+  return {
+    staleTasks: staleTasks.length,
+    awaitingInternal: awaitingInternal.length,
+    awaitingClient: awaitingClient.length,
+    proposalsOpen: proposalsOpen.length,
+    invoicesOverdue: invoicesOverdue.length,
+    staleTasksList: staleTasks.map((t) => ({ id: t.id, title: t.title, project: t.project?.name ?? null, projectId: t.project?.id ?? null })),
+    awaitingInternalList: awaitingInternal.map((d) => ({ id: d.id, title: d.name, project: d.project?.name ?? null, projectId: d.project?.id ?? null })),
+    awaitingClientList: awaitingClient.map((d) => ({ id: d.id, title: d.name, project: d.project?.name ?? null, projectId: d.project?.id ?? null })),
+    proposalsOpenList: proposalsOpen.map((p) => ({ id: p.id, title: p.title, project: null, projectId: null })),
+    invoicesOverdueList: invoicesOverdue.map((i) => ({ id: i.id, title: i.code, project: null, projectId: null })),
+  };
 }

@@ -188,9 +188,9 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
   };
 
   const dms: ChatListRow[] = myChannels
-    // Solo DMs con un interlocutor que todavía existe (y que no sea un bot del sistema:
-    // Marcebot va aparte). Si la otra persona fue borrada, su membresía desaparece en
-    // cascada y el DM queda huérfano (solo yo): se oculta.
+    // Solo DMs con un interlocutor que todavía existe y que NO sea un bot del sistema
+    // (el chat de Marcebot se eliminó; su DM histórico queda oculto). Si la otra persona
+    // fue borrada, su membresía desaparece en cascada y el DM huérfano se oculta.
     .filter(
       (c) =>
         c.type === "DIRECT" &&

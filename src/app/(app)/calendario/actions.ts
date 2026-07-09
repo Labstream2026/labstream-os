@@ -141,7 +141,7 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   // Notificar a los nuevos asistentes (no a uno mismo).
   const when = allDay
     ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : new Date(start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const userId of added) {
     if (userId === session.id) continue;
     await notifyAndEmail(userId, {
@@ -210,7 +210,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   // Avisar a los asistentes (menos a mí) que la cita se movió.
   const when = event.allDay
     ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : new Date(start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const a of event.attendees) {
     if (a.userId === session.id) continue;
     await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id });
@@ -245,7 +245,7 @@ export async function moveMyTask(taskId: string, startIso: string): Promise<void
   // dueDate = día anclado a mediodía UTC; dueTime = "HH:mm" (la tarea sigue mostrándose a esa hora).
   await db.task.update({ where: { id: taskId }, data: { dueDate: new Date(`${date}T12:00:00.000Z`), dueTime: time } });
   // Avisar a los citados (asignado + dueño), menos a quien la movió.
-  const when = new Date(`${date}T${time}:00.000Z`).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  const when = new Date(`${date}T${time}:00.000Z`).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   const recipients = [...new Set([task.assigneeId, task.ownerId].filter((x): x is string => !!x && x !== session!.id))];
   for (const uid of recipients) {
     await notifyAndEmail(uid, {
@@ -274,7 +274,7 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
   // cancelación a los invitados externos — ANTES de borrar (necesitan los datos).
   const when = event.allDay
     ? new Date(event.start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : new Date(event.start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : new Date(event.start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const a of event.attendees) {
     if (a.userId === session.id) continue;
     await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: session.id });
@@ -313,7 +313,7 @@ export async function respondToEvent(eventId: string, status: string): Promise<v
   if (ev.createdById && ev.createdById !== session!.id) {
     const when = ev.allDay
       ? new Date(ev.start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-      : new Date(ev.start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+      : new Date(ev.start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
     await notifyAndEmail(ev.createdById, {
       type: "event",
       event: "calendar_event",

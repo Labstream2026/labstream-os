@@ -32,7 +32,7 @@ const STATUS: Record<string, { label: string; className: string }> = {
 };
 
 function fmtDate(iso: string) {
-  return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 
 export function ClientDeliverables({

@@ -29,7 +29,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
     where: { id },
     include: {
       project: { select: { leadId: true, members: { select: { userId: true } } } },
-      members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+      members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
       messages: {
         where: isAdmin ? undefined : { deletedAt: null },
         // Traemos los 100 MÁS RECIENTES (desc) y los re-invertimos a orden cronológico abajo.
@@ -52,6 +52,9 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
     },
   });
   if (!channel) notFound();
+  // El chat conversacional con Marcebot se eliminó: su DM (histórico, oculto del riel) ya no
+  // se puede abrir ni por enlace viejo. El copiloto vive en la tarjeta del Inicio.
+  if (channel.type === "DIRECT" && channel.members.some((m) => m.user.isSystemBot)) redirect("/");
 
   // Acceso: público → equipo; privado → admin/responsable/miembro.
   if (!canAccessChannel({ isPublic: channel.isPublic, audience: channel.audience, section: channel.section, project: channel.project, members: channel.members }, session)) {

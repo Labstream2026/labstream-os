@@ -99,7 +99,7 @@ export async function pushEventToParticipants(eventId: string): Promise<void> {
 const dateLabel = (d: Date, allDay: boolean) =>
   allDay
     ? d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
-    : d.toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : d.toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
 // Envía la invitación .ics (METHOD:REQUEST) por correo a los invitados externos
 // indicados (clientes, etc.). Si `onlyEmails` se pasa, solo a esos; si no, a todos.
@@ -126,7 +126,7 @@ export async function sendGuestInvites(eventId: string, onlyEmails?: string[]): 
     ...event.attendees.filter((a) => a.user.email).map((a) => ({ email: a.user.email, name: a.user.name })),
     ...event.guests.map((g) => ({ email: g.email, name: g.name ?? undefined })),
   ];
-  const when = dateLabel(event.start, event.allDay) + (!event.allDay && event.end ? `–${event.end.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}` : "");
+  const when = dateLabel(event.start, event.allDay) + (!event.allDay && event.end ? `–${event.end.toLocaleTimeString("es-CO", { timeZone: "UTC", hour: "2-digit", minute: "2-digit" })}` : "");
   const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]!));
 
   let sent = 0;

@@ -275,7 +275,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       ) : (
         doneList.map((t) => {
           const when = t.completedAt
-            ? new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(t.completedAt)
+            ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(t.completedAt)
             : null;
           const u = taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt, isDone: true });
           const late = u.state === "hecha_tarde";

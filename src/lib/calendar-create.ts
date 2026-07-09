@@ -81,7 +81,7 @@ export async function createCalendarEventCore(input: CreateEventInput): Promise<
   // Notificar a cada invitado (no al creador) que lo agregaron a la cita.
   const when = allDay
     ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
-    : new Date(start).toLocaleString("es-CO", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    : new Date(start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   for (const userId of validIds) {
     if (userId === input.creatorId) continue;
     await notifyAndEmail(userId, {

@@ -7,6 +7,7 @@ import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor
 import { moveMyEvent, moveMyTask } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 import { holidayName } from "@/lib/holidays-co";
+import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 
 const HOUR_H = 44; // alto en px de cada hora
 const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTemplateColumns)
@@ -24,6 +25,14 @@ const VISIBLE_HOURS = END_HOUR - START_HOUR; // 20 filas
 // Minuto del día → píxeles desde la parte superior de la rejilla (respeta la ventana visible).
 function minToTop(min: number): number {
   return ((min - START_MIN) / 60) * HOUR_H;
+}
+
+// Sufijo « · <proyecto>» para los TOOLTIPS de los items de tarea/rodaje (contexto de solo
+// texto: el emoji del proyecto puede ser un token "ls:<clave>" → se degrada con emojiToText).
+function projTip(it: CalItem): string {
+  return (it.kind === "task" || it.kind === "shoot") && it.projectName
+    ? ` · ${emojiToText(it.projectEmoji, "🗂️")} ${it.projectName}`
+    : "";
 }
 
 function fmtMin(min: number): string {
@@ -281,7 +290,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       <button key={p.it.id} onClick={() => select(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: blockColor(p.it, itemSolid(p.it)) }}
-                        title={p.it.title}>
+                        title={`${p.it.title}${projTip(p.it)}`}>
                         <span className="truncate">{p.it.kind === "milestone" ? "" : p.it.kind === "shoot" ? "🎬 " : p.it.kind === "task" ? "✅ " : "📅 "}{p.it.title}</span>
                       </button>
                     );
@@ -353,9 +362,13 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                             isDragging && "opacity-40",
                           )}
                           style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff", touchAction: draggable ? "none" : undefined }}
-                          title={draggable ? (canResize ? `${p.it.title} · arrastra para mover, tira del borde para cambiar la duración` : `${p.it.title} · arrastra para reprogramar`) : p.it.title}>
+                          title={draggable ? (canResize ? `${p.it.title}${projTip(p.it)} · arrastra para mover, tira del borde para cambiar la duración` : `${p.it.title}${projTip(p.it)} · arrastra para reprogramar`) : `${p.it.title}${projTip(p.it)}`}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
+                          {/* Proyecto de la tarea (discreto): segunda línea solo si el bloque tiene espacio. */}
+                          {p.it.kind === "task" && p.it.projectName && !tiny ? (
+                            <span className="truncate text-[10px] text-white/75"><EntityEmoji value={p.it.projectEmoji} fallback="🗂️" /> {p.it.projectName}</span>
+                          ) : null}
                           {draggable && canResize ? (
                             <span
                               onPointerDown={(e) => beginDrag(e, p, dayIndex, "resize")}
