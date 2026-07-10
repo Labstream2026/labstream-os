@@ -157,3 +157,94 @@ export async function createProject(formData: FormData) {
   revalidatePath("/");
   redirect(`/proyectos/${project.id}`);
 }
+
+// ── El CLIENTE añade gente del equipo a SU proyecto ──
+// Para que pueda asignarles tareas cuando el proyecto ya existe (al crearlo ya podía elegir
+// «¿Con quién quieres trabajar?»; esto es el mismo gesto, después). Solo puede añadir personas
+// que YA conoce —mismo criterio que en createProject: dirección (admin/gerente), responsables
+// de su cuenta o equipo de los proyectos de sus clientes— y nunca descubre el directorio entero.
+
+const CLIENT_KNOWN_TEAM_WHERE = (myClientIds: string[]) => ({
+  active: true,
+  isSystemBot: false,
+  role: { key: { notIn: ["cliente", "demo"] } },
+  OR: [
+    { role: { key: { in: ["admin", "gerente"] } } },
+    { clientMemberships: { some: { clientId: { in: myClientIds } } } },
+    { projectMemberships: { some: { project: { clientId: { in: myClientIds } } } } },
+    { ledProjects: { some: { clientId: { in: myClientIds } } } },
+  ],
+});
+
+// El proyecto del cliente: debe ser miembro (su portal solo lista los suyos, pero el POST no es de fiar).
+async function clientOwnProject(projectId: string, sessionId: string) {
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: { name: true, archivedAt: true, members: { select: { userId: true } } },
+  });
+  if (!project || project.archivedAt || !project.members.some((m) => m.userId === sessionId)) return null;
+  return project;
+}
+
+export type ClientTeamCandidate = { id: string; name: string; title: string | null; initials: string | null; color: string | null; isMember: boolean };
+
+export async function getClientTeamCandidates(projectId: string): Promise<ClientTeamCandidate[]> {
+  const session = await getSession();
+  if (!session || session.role !== "cliente") return [];
+  const project = await clientOwnProject(projectId, session.id);
+  if (!project) return [];
+  const myClientIds = (await db.client.findMany({ where: accessibleClientWhere(session), select: { id: true } })).map((c) => c.id);
+  const users = await db.user.findMany({
+    where: CLIENT_KNOWN_TEAM_WHERE(myClientIds),
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, title: true, initials: true, avatarColor: true },
+  });
+  const memberIds = new Set(project.members.map((m) => m.userId));
+  return users.map((u) => ({ id: u.id, name: u.name, title: u.title, initials: u.initials, color: u.avatarColor, isMember: memberIds.has(u.id) }));
+}
+
+export async function addClientProjectMember(projectId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "cliente") return { ok: false, error: "Solo disponible en el portal del cliente." };
+  const project = await clientOwnProject(projectId, session.id);
+  if (!project) return { ok: false, error: "No tienes acceso a este proyecto." };
+  const myClientIds = (await db.client.findMany({ where: accessibleClientWhere(session), select: { id: true } })).map((c) => c.id);
+  const target = await db.user.findFirst({
+    where: { id: userId, ...CLIENT_KNOWN_TEAM_WHERE(myClientIds) },
+    select: { id: true, name: true },
+  });
+  if (!target) return { ok: false, error: "Esa persona no está disponible para tus proyectos." };
+  if (project.members.some((m) => m.userId === target.id)) return { ok: true }; // ya estaba: nada que hacer
+
+  // El criterio ya excluye cliente/demo → entra como MEMBER (miembro pleno del equipo).
+  await db.projectMember.upsert({
+    where: { projectId_userId: { projectId, userId: target.id } },
+    create: { projectId, userId: target.id },
+    update: {},
+  });
+  // Estar en el proyecto ES estar en su chat (incluido el canal con el cliente).
+  try {
+    await ensureProjectChannels(projectId);
+  } catch {
+    // best-effort: el chat se sincroniza igual en la próxima carga.
+  }
+  // Aviso directo con correo (alta señal, igual que cuando el cliente crea el proyecto). El log
+  // de actividad avisa al resto del equipo; se excluye al añadido para no duplicarle el aviso.
+  await notifyAndEmail(target.id, {
+    type: "project",
+    title: `${session.name} (cliente) te añadió al proyecto «${project.name}»`,
+    body: "Ya haces parte del equipo del proyecto y puede asignarte tareas.",
+    link: `/proyectos/${projectId}`,
+    actorId: session.id,
+  }).catch(() => null);
+  await logActivity({
+    action: "member.add",
+    summary: `añadió a ${target.name} al equipo del proyecto`,
+    projectId,
+    entityType: "member",
+    entityId: target.id,
+    exclude: [target.id],
+  });
+  revalidatePath(`/proyectos/${projectId}`);
+  return { ok: true };
+}

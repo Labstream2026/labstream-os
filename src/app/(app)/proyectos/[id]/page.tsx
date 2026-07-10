@@ -33,6 +33,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { signUploadToken } from "@/lib/upload-token";
 import { UploadShare } from "./upload-share";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
+import { ClientTeamPanel } from "./client-team-panel";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
@@ -475,6 +476,17 @@ export default async function ProyectoPage({
             ) : null}
             {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
             <Resumen project={project} priorities={taskLabels.priorities} />
+            {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
+                (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
+            {isCliente ? (
+              <ClientTeamPanel
+                projectId={project.id}
+                members={project.members.flatMap((m) => {
+                  const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
+                  return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
+                })}
+              />
+            ) : null}
             {/* Detalle del proyecto, debajo del resumen. */}
             {hasPermission(session, "editar_proyectos") ? (
               <ProjectDetailsForm
