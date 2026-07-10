@@ -115,14 +115,16 @@ export async function postBotFileMessage(
     data: { channelId, body, authorId: botId },
     include: { author: { select: { name: true, initials: true, avatarColor: true } } },
   });
-  const created: { id: string; name: string; mime: string | null; editable: boolean }[] = [];
+  // fileAssetId: null — los adjuntos del bot no se archivan en Archivos del proyecto (el espejo
+  // automático es solo para documentos que envían las personas en sendMessageWithAttachments).
+  const created: { id: string; name: string; mime: string | null; editable: boolean; fileAssetId: null }[] = [];
   for (const f of files) {
     const att = await db.messageAttachment.create({
       data: { messageId: msg.id, name: f.name, path: "", mime: f.mime, size: f.buf.length },
     });
     const rel = await saveBufferWithPreview(`chat/${att.id}`, f.name, f.buf, f.mime);
     await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
-    created.push({ id: att.id, name: f.name, mime: f.mime, editable: isEditableOffice(f.name) });
+    created.push({ id: att.id, name: f.name, mime: f.mime, editable: isEditableOffice(f.name), fileAssetId: null });
   }
   publishMessage({
     id: msg.id,

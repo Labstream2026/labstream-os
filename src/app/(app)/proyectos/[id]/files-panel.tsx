@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Folder,
   FolderOpen,
@@ -22,6 +23,7 @@ import {
   Copy,
   Check,
   CheckSquare,
+  MessageCircle,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -29,7 +31,7 @@ import { addFile, addNasRoute, deleteFile, uploadProjectFiles, createFolder, upd
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmojiSelect } from "@/components/emoji-select";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; viaClientLink?: boolean; task?: { id: string; title: string } | null };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null };
 
 // Botón "Copiar ruta" para rutas de red SMB: el navegador no abre \\servidor\carpeta,
 // así que la copiamos al portapapeles para pegarla en el explorador de archivos.
@@ -251,6 +253,16 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
       {/* Chip «cliente»: material que subió el cliente por el enlace público de subida. */}
       {file.viaClientLink ? (
         <span className="hidden shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary sm:inline-flex">cliente</span>
+      ) : null}
+      {/* Chip «chat»: archivo compartido en el chat del proyecto; enlaza al mensaje original. */}
+      {file.chat ? (
+        <Link
+          href={`/chat/${file.chat.channelId}?msg=${file.chat.messageId}`}
+          title="Compartido en el chat — abrir el mensaje"
+          className="hidden shrink-0 items-center gap-1 rounded-full bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 hover:bg-orange-500/20 sm:inline-flex"
+        >
+          <MessageCircle className="size-3" /> chat
+        </Link>
       ) : null}
       {/* Chip de la tarea a la que pertenece este archivo/enlace (si se añadió desde una tarea). */}
       {file.task ? (

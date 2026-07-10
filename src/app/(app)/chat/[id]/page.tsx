@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel, userCanManageChannel } from "@/lib/chat-access";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
@@ -11,7 +11,7 @@ import { NotifyLevelToggle, PinToggle, type NotifyLevel } from "@/components/cha
 import { ChannelSettings } from "@/components/chat/channel-settings";
 import { JoinLeave } from "./join-leave";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, ChevronLeft, Users } from "lucide-react";
+import { Hash, Lock, ChevronLeft, Users, Settings2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -78,10 +78,15 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
   // Nivel de aviso y fijado del usuario en este canal: UserChannelState manda; sin fila, la
   // membresía heredada (muted → «solo menciones»). También aplica al admin sin membresía.
   const myState = await db.userChannelState
-    .findUnique({ where: { userId_channelId: { userId: session.id, channelId: id } }, select: { notifyLevel: true, pinnedAt: true } })
+    .findUnique({ where: { userId_channelId: { userId: session.id, channelId: id } }, select: { notifyLevel: true, pinnedAt: true, lastReadAt: true } })
     .catch(() => null);
   const notifyLevel = (myState?.notifyLevel ?? (myMember?.muted ? "mentions" : "all")) as NotifyLevel;
   const isPinned = !!myState?.pinnedAt;
+  // Última lectura ANTES de abrir ahora (máximo de las dos fuentes, igual que el rail):
+  // el chat pinta la línea «Mensajes nuevos» a partir de este instante.
+  const lastReadAt = [myMember?.lastReadAt, myState?.lastReadAt]
+    .filter((d): d is Date => !!d)
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
   const team = await db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } });
 
@@ -109,7 +114,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-border px-3 py-2.5 sm:px-6 sm:py-3">
+      <div className="shrink-0 border-b border-border px-3 py-2 sm:px-6 sm:py-2.5">
         <div className="flex items-center gap-2">
           {/* Volver a la lista de chats (solo móvil): flecha grande tipo WhatsApp para cambiar de conversación. */}
           <Link
@@ -124,63 +129,80 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
           ) : channel.isPublic ? (
             <Hash className="size-5 shrink-0 text-muted-foreground" />
           ) : (
-            <Lock className="size-5 shrink-0 text-amber-600" />
+            <Lock className="size-5 shrink-0 text-muted-foreground" />
           )}
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
-          {/* Canales de proyecto/cliente/rol: la membresía sigue al equipo o al rol, no se une/sale a mano. */}
-          {(() => {
-            const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT" || !!channel.roleKey;
-            return (
-              <>
-                {/* Fijar en el rail: aquí funciona también en táctil (el pin del rail es solo hover). */}
-                <PinToggle channelId={id} pinned={isPinned} />
-                {/* El admin puede fijar su nivel de aviso también sin membresía (afecta a sus @). */}
-                {isMember || isAdmin ? <NotifyLevelToggle channelId={id} level={notifyLevel} /> : null}
-                {!isDM && !isAuto && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
-                {!isDM && !isAuto && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Pestañas Interno / Con el cliente (solo el equipo; el invitado ve solo su chat). */}
-        {audienceTabs.length > 1 ? (
-          <div className="mt-2 flex gap-1">
-            {audienceTabs.map((t) => {
-              const active = t.id === id;
-              const isClient = t.audience === "CLIENT";
+          <h1 className="min-w-0 truncate text-base font-semibold tracking-tight sm:text-lg">{title}</h1>
+          {!isDM ? (
+            <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:inline-flex" title="Miembros del canal">
+              <Users className="size-3.5" /> {channel.members.length}
+            </span>
+          ) : null}
+          {/* Pestañas Interno / Con el cliente: segmented compacto EN la misma franja. */}
+          {audienceTabs.length > 1 ? (
+            <div className="flex shrink-0 gap-0.5 rounded-lg bg-muted p-0.5">
+              {audienceTabs.map((t) => {
+                const active = t.id === id;
+                const isClient = t.audience === "CLIENT";
+                return (
+                  <Link
+                    key={t.id}
+                    href={`/chat/${t.id}`}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors",
+                      active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {isClient ? <Users className="size-3" /> : <Lock className="size-3" />}
+                    <span className="hidden sm:inline">{isClient ? "Con el cliente" : "Interno"}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : null}
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {/* Canales de proyecto/cliente/rol: la membresía sigue al equipo o al rol, no se une/sale a mano. */}
+            {(() => {
+              const isAuto = channel.type === "PROJECT" || channel.type === "CLIENT" || !!channel.roleKey;
               return (
-                <Link
-                  key={t.id}
-                  href={`/chat/${t.id}`}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                    active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
-                  )}
-                >
-                  {isClient ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
-                  {isClient ? "Con el cliente" : "Interno"}
-                </Link>
+                <>
+                  {/* Fijar en el rail: aquí funciona también en táctil (el pin del rail es solo hover). */}
+                  <PinToggle channelId={id} pinned={isPinned} />
+                  {/* El admin puede fijar su nivel de aviso también sin membresía (afecta a sus @). */}
+                  {isMember || isAdmin ? <NotifyLevelToggle channelId={id} level={notifyLevel} /> : null}
+                  {!isDM && !isAuto && !isMember ? <JoinLeave channelId={id} joined={false} /> : null}
+                  {!isDM && !isAuto && isMember && !canManage ? <JoinLeave channelId={id} joined={true} /> : null}
+                </>
               );
-            })}
-          </div>
-        ) : null}
-
-        {canManage ? (
-          <div className="mt-2">
-            <ChannelSettings
-              channelId={id}
-              isPublic={channel.isPublic}
-              canManage={canManage}
-              type={channel.type}
-              roleManaged={!!channel.roleKey}
-              channelName={channel.name}
-              section={channel.section}
-              members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
-              team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-            />
-          </div>
-        ) : null}
+            })()}
+            {/* Administración del canal (renombrar, sección, visibilidad, miembros, invitar,
+                borrar): recogida en un panel — las acciones de frecuencia mensual no ocupan
+                una franja permanente sobre la conversación diaria. */}
+            {canManage ? (
+              <details data-autoclose className="relative">
+                <summary
+                  className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Detalles del canal"
+                >
+                  <Settings2 className="size-4" />
+                </summary>
+                <div className="absolute right-0 z-40 mt-1 w-[min(34rem,90vw)] rounded-xl border border-border bg-popover p-3 shadow-lg">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detalles del canal</p>
+                  <ChannelSettings
+                    channelId={id}
+                    isPublic={channel.isPublic}
+                    canManage={canManage}
+                    type={channel.type}
+                    roleManaged={!!channel.roleKey}
+                    channelName={channel.name}
+                    section={channel.section}
+                    members={channel.members.map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }))}
+                    team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+                  />
+                </div>
+              </details>
+            ) : null}
+          </span>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">
@@ -189,6 +211,9 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
           isAdmin={isAdmin}
           highlightId={highlightId ?? null}
           mentionExtras={mentionExtras}
+          projectId={channel.type === "PROJECT" ? channel.projectId : null}
+          initialLastReadAt={lastReadAt ? lastReadAt.toISOString() : null}
+          canArchive={session.role !== "cliente" && session.role !== "demo" && hasPermission(session, "subir_archivos")}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {
             // El chat CON EL CLIENTE (audience "CLIENT") "solo habla con el equipo del proyecto": la
@@ -212,7 +237,9 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
             deleted: !!m.deletedAt,
             createdAt: m.createdAt.toISOString(),
             author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
-            attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name) })),
+            attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name), fileAssetId: a.fileAssetId ?? null })),
+            pinned: m.pinned,
+            editedAt: m.editedAt ? m.editedAt.toISOString() : null,
             reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
             poll: m.poll
               ? {

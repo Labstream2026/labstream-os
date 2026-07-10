@@ -984,8 +984,15 @@ model MessageAttachment {
   mime      String?
   size      Int?
   version   Int         @default(1) // se incrementa al guardar desde OnlyOffice (doc key)
+  // Espejo en Archivos del proyecto: los DOCUMENTOS compartidos en el chat de un proyecto se
+  // duplican como FileAsset (chip «chat» en Archivos). SetNull: si el archivo se borra de
+  // Archivos, el adjunto del chat sigue intacto (solo pierde el vínculo).
+  fileAsset   FileAsset? @relation("ChatArchivedFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
+  fileAssetId String?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  @@index([fileAssetId])
 }
 
 model Poll {
@@ -1803,6 +1810,8 @@ model FileAsset {
   deliverablePhotos   DeliverablePhoto[]   @relation("PhotoFile")
   // Entregables (REEL) que usan este archivo como imagen de portada.
   deliverableCovers   Deliverable[]        @relation("DeliverableCover")
+  // Adjuntos del chat archivados como este archivo (chip «chat» que enlaza al mensaje).
+  chatAttachments     MessageAttachment[]  @relation("ChatArchivedFile")
   createdAt    DateTime       @default(now())
 
   @@index([projectId])

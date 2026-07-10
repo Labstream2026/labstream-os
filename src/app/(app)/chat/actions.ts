@@ -162,7 +162,7 @@ export async function leaveChannel(channelId: string) {
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }
-import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, publishConversationClear, type ChatMessagePayload, type PollData, type ReactionItem } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, publishConversationClear, type ChatMessagePayload, type PollData, type ReactionItem, type AttachmentPayload } from "@/lib/chat-bus";
 
 // ── Editar / borrar / fijar mensajes ──
 
@@ -304,7 +304,7 @@ export async function toggleChannelPin(channelId: string): Promise<boolean | nul
   revalidatePath("/chat");
   return pin;
 }
-import { mimeFor } from "@/lib/storage";
+import { mimeFor, readBuffer, deleteRel } from "@/lib/storage";
 import { saveBufferWithPreview } from "@/lib/image";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { notifyAndEmail, notify } from "@/lib/notify";
@@ -618,6 +618,98 @@ async function validParentId(channelId: string, parentId: string | null): Promis
   return parent && parent.channelId === channelId ? parentId : null;
 }
 
+// ── Archivado de adjuntos del chat en Archivos del proyecto ──
+
+// Extensiones ejecutables/peligrosas que NO se archivan en el proyecto. DUPLICADA de la
+// constante privada BLOCKED_EXT de proyectos/[id]/actions.ts (no se importa de allí para no
+// acoplar los server actions de proyectos con los del chat). Mantener ambas en sincronía.
+const BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|pif|cpl|jar|js|vbs|ps1|sh|app|dmg|deb|rpm)$/i;
+
+// ¿Se archiva SOLO al enviarse? Documentos sí (PDF, Office, video, zip…); imágenes y audio
+// (notas de voz) no — son conversación, no material del proyecto; para esos está la acción
+// manual archiveChatAttachment. Extensiones bloqueadas nunca.
+function isAutoArchivable(name: string, mime: string | null): boolean {
+  if (BLOCKED_EXT.test(name)) return false;
+  const m = mime ?? "";
+  return !m.startsWith("image/") && !m.startsWith("audio/");
+}
+
+// Duplica FÍSICAMENTE los bytes de un adjunto del chat como archivo del proyecto, con el
+// patrón canónico de uploadProjectFiles (fila con path vacío → guardar bytes → actualizar
+// path) para que el visor/descarga /api/files-asset funcione igual que con cualquier subida.
+async function mirrorAttachmentToProject(
+  projectId: string,
+  name: string,
+  buf: Buffer,
+  mime: string | null,
+  uploadedById: string,
+): Promise<string> {
+  const asset = await db.fileAsset.create({
+    data: { projectId, name, kind: "LOCAL", path: "", mime, size: buf.length, uploadedById },
+  });
+  const rel = await saveBufferWithPreview(`project/${projectId}`, `${asset.id}-${name}`, buf, mime);
+  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+  await logActivity({
+    action: "file.upload",
+    summary: `compartió «${name}» en el chat del proyecto`,
+    projectId,
+    entityType: "file",
+    entityId: asset.id,
+  });
+  revalidatePath(`/proyectos/${projectId}`);
+  return asset.id;
+}
+
+// Archiva A MANO un adjunto del chat (imagen, nota de voz u otro que no se archivó solo) en
+// Archivos del proyecto del canal. Idempotente: si ya está archivado devuelve el mismo id.
+export async function archiveChatAttachment(attachmentId: string): Promise<{ ok: boolean; fileAssetId?: string; error?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  // El portal del cliente y el usuario demo no archivan en el proyecto.
+  if (session.role === "cliente" || session.role === "demo") return { ok: false, error: "No autorizado." };
+  if (!hasPermission(session, "subir_archivos")) return { ok: false, error: "Sin permiso para subir archivos." };
+
+  const att = await db.messageAttachment.findUnique({
+    where: { id: attachmentId },
+    select: {
+      id: true,
+      name: true,
+      path: true,
+      mime: true,
+      fileAssetId: true,
+      message: { select: { channelId: true, channel: { select: { projectId: true } } } },
+    },
+  });
+  if (!att || !att.path) return { ok: false, error: "Adjunto no encontrado." };
+  if (!(await userCanAccessChannel(att.message.channelId, session))) return { ok: false, error: "Sin acceso a este chat." };
+  const projectId = att.message.channel.projectId;
+  if (!projectId) return { ok: false, error: "Este chat no es de un proyecto." };
+  if (att.fileAssetId) return { ok: true, fileAssetId: att.fileAssetId }; // ya archivado
+  if (BLOCKED_EXT.test(att.name)) return { ok: false, error: "Este tipo de archivo no se puede archivar en el proyecto." };
+
+  try {
+    const buf = await readBuffer(att.path); // bytes del storage del chat (valida traversal)
+    const fileAssetId = await mirrorAttachmentToProject(projectId, att.name, buf, att.mime, session.id);
+    // Reclamo ATÓMICO contra el doble clic (dos pestañas/dos personas a la vez): solo gana
+    // quien encuentre fileAssetId todavía en null. El perdedor limpia su espejo recién
+    // creado (fila + bytes) para no dejar un duplicado huérfano en Archivos.
+    const claim = await db.messageAttachment.updateMany({ where: { id: att.id, fileAssetId: null }, data: { fileAssetId } });
+    if (claim.count === 0) {
+      const mine = await db.fileAsset.findUnique({ where: { id: fileAssetId }, select: { path: true } });
+      await db.fileAsset.delete({ where: { id: fileAssetId } }).catch(() => null);
+      if (mine?.path) {
+        await deleteRel(mine.path).catch(() => null);
+        await deleteRel(`${mine.path}.opt.webp`).catch(() => null);
+      }
+      const winner = await db.messageAttachment.findUnique({ where: { id: att.id }, select: { fileAssetId: true } });
+      return { ok: true, fileAssetId: winner?.fileAssetId ?? undefined };
+    }
+    return { ok: true, fileAssetId };
+  } catch {
+    return { ok: false, error: "No se pudo archivar el adjunto." };
+  }
+}
+
 // Envío con archivos adjuntos (Word, Excel, PDF, imágenes, etc.)
 export async function sendMessageWithAttachments(formData: FormData): Promise<ChatMessagePayload | null> {
   const channelId = String(formData.get("channelId") ?? "");
@@ -638,19 +730,37 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
     data: { channelId, body, parentId: safeParentId, authorId: session!.id },
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
-      channel: { select: { type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
+      // projectId: si el canal es de un PROYECTO, los documentos se archivan también en su
+      // pestaña Archivos (espejo automático de abajo).
+      channel: { select: { type: true, projectId: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
     },
   });
 
-  const created: { id: string; name: string; mime: string | null; editable: boolean }[] = [];
+  const created: AttachmentPayload[] = [];
   for (const file of files) {
     const buf = Buffer.from(await file.arrayBuffer());
+    const mime = mimeFor(file.name, file.type);
     const att = await db.messageAttachment.create({
-      data: { messageId: msg.id, name: file.name, path: "", mime: mimeFor(file.name, file.type), size: buf.length },
+      data: { messageId: msg.id, name: file.name, path: "", mime, size: buf.length },
     });
     const rel = await saveBufferWithPreview(`chat/${att.id}`, file.name, buf, file.type);
     await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
-    created.push({ id: att.id, name: file.name, mime: mimeFor(file.name, file.type), editable: isEditableOffice(file.name) });
+    // Espejo automático en Archivos del proyecto: DOCUMENTOS del chat de proyecto (no imágenes
+    // ni audio). Best-effort: si el espejo falla, el mensaje y su adjunto salen igual.
+    let fileAssetId: string | null = null;
+    // Mismos candados que archiveChatAttachment: el portal del cliente y el demo no
+    // archivan en el proyecto, y se exige el permiso subir_archivos (un rol que solo
+    // puede comentar no debe poblar la pestaña Archivos por la puerta del chat).
+    const mayMirror = session!.role !== "cliente" && session!.role !== "demo" && hasPermission(session, "subir_archivos");
+    if (msg.channel.projectId && mayMirror && isAutoArchivable(file.name, mime)) {
+      try {
+        fileAssetId = await mirrorAttachmentToProject(msg.channel.projectId, file.name, buf, mime, session!.id);
+        await db.messageAttachment.update({ where: { id: att.id }, data: { fileAssetId } });
+      } catch {
+        fileAssetId = null; // el adjunto del chat sigue normal, sin espejo
+      }
+    }
+    created.push({ id: att.id, name: file.name, mime, editable: isEditableOffice(file.name), fileAssetId });
   }
 
   const payload: ChatMessagePayload = {

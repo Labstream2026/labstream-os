@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   if ((body.status === 2 || body.status === 6) && body.url) {
     if (!(await isAllowedDocsUrl(body.url))) return NextResponse.json({ error: 1 });
-    const att = await db.messageAttachment.findUnique({ where: { id } });
+    const att = await db.messageAttachment.findUnique({ where: { id }, include: { fileAsset: { select: { id: true, path: true } } } });
     if (att?.path) {
       try {
         const buf = await fetchSavedDoc(body.url);
@@ -34,6 +34,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           where: { id },
           data: { size: buf.length, version: { increment: 1 } },
         });
+        // Espejo en Archivos del proyecto: si el adjunto está archivado, la copia del
+        // proyecto recibe los MISMOS bytes — sin esto, editar en OnlyOffice dejaría dos
+        // archivos con el mismo nombre y contenidos distintos (chat nuevo, Archivos viejo).
+        if (att.fileAsset?.path) {
+          try {
+            await fs.writeFile(absPath(att.fileAsset.path), buf);
+            await db.fileAsset.update({ where: { id: att.fileAsset.id }, data: { size: buf.length, version: { increment: 1 } } });
+          } catch (e) {
+            console.error("[onlyoffice] sincronizar espejo en Archivos falló:", e instanceof Error ? e.message : e);
+          }
+        }
       } catch (e) {
         console.error("[onlyoffice] guardar adjunto falló:", e instanceof Error ? e.message : e);
         return NextResponse.json({ error: 1 });

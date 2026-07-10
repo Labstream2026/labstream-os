@@ -2,18 +2,18 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2, AtSign } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PollData, ReactionItem } from "@/lib/chat-bus";
 
-export type Attachment = { id: string; name: string; mime: string | null; editable: boolean };
+export type Attachment = { id: string; name: string; mime: string | null; editable: boolean; fileAssetId?: string | null };
 export type Member = { id: string; name: string; initials?: string | null; color?: string | null };
 
 export type ChatMsg = {
@@ -173,8 +173,53 @@ function shortName(name: string, max = 26): string {
 // Cuerpo de mensaje vacío de los adjuntos (placeholder antiguo): no se muestra.
 const ATTACH_PLACEHOLDER = "📎 Archivo adjunto";
 
-function Attachments({ items, author }: { items?: Attachment[]; author?: { initials: string | null; color: string | null } | null }) {
+function Attachments({ items, author, projectId = null, readOnly = false, canArchive = false, onArchived }: { items?: Attachment[]; author?: { initials: string | null; color: string | null } | null; projectId?: string | null; readOnly?: boolean; canArchive?: boolean; onArchived?: (attachmentId: string, fileAssetId: string | null) => void }) {
+  // «Guardar en Archivos» es optimista: los payloads en memoria no se refrescan, así que
+  // los adjuntos archivados EN ESTA sesión se recuerdan aquí para pintar el chip al instante
+  // (y onArchived lo sube al estado del chat, que sobrevive a montar/desmontar la fila).
+  const [savedNow, setSavedNow] = React.useState<Record<string, boolean>>({});
+  const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [saveErr, setSaveErr] = React.useState<Record<string, string>>({});
   if (!items || items.length === 0) return null;
+  const inArchive = (a: Attachment) => !!a.fileAssetId || !!savedNow[a.id];
+  const save = async (a: Attachment) => {
+    setSavingId(a.id);
+    setSaveErr((prev) => ({ ...prev, [a.id]: "" }));
+    try {
+      const r = await archiveChatAttachment(a.id).catch(() => ({ ok: false as const, error: "Sin conexión. Inténtalo de nuevo." }));
+      if (r.ok) {
+        setSavedNow((prev) => ({ ...prev, [a.id]: true }));
+        onArchived?.(a.id, ("fileAssetId" in r ? r.fileAssetId : null) ?? null);
+      } else {
+        // El error del servidor SE MUESTRA (tipo bloqueado, sin permiso…): nada de fallos mudos.
+        setSaveErr((prev) => ({ ...prev, [a.id]: r.error ?? "No se pudo archivar." }));
+      }
+    } finally {
+      setSavingId(null);
+    }
+  };
+  // Estado de archivado bajo el adjunto: chip-enlace si ya está en Archivos del proyecto,
+  // o botón para guardarlo — solo canales de proyecto Y usuarios que PUEDEN archivar
+  // (equipo con subir_archivos; al cliente/demo ni se les pinta un botón que siempre fallaría).
+  const archiveRow = (a: Attachment) => {
+    if (!projectId) return null;
+    if (inArchive(a)) {
+      return (
+        <Link href={`/proyectos/${projectId}?tab=archivos`} className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary" title="Está en la pestaña Archivos del proyecto">
+          <Check className="size-3" /> En Archivos del proyecto
+        </Link>
+      );
+    }
+    if (readOnly || !canArchive) return null;
+    return (
+      <span className="mt-0.5 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => void save(a)} disabled={savingId === a.id} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50" title="Copiarlo a la pestaña Archivos del proyecto">
+          <FolderPlus className="size-3" /> {savingId === a.id ? "Guardando…" : "Guardar en Archivos"}
+        </button>
+        {saveErr[a.id] ? <span className="text-xs text-destructive">{saveErr[a.id]}</span> : null}
+      </span>
+    );
+  };
   return (
     <div className="mt-1.5 space-y-1.5">
       {items.map((a) => {
@@ -182,46 +227,53 @@ function Attachments({ items, author }: { items?: Attachment[]; author?: { initi
           // Vista previa de imagen → abre en el visor (misma página, cierra con Escape/×).
           // Mantiene href para abrir/descargar con Cmd/Ctrl+clic o si no hay JS.
           return (
-            <a key={a.id} href={`/api/files/${a.id}`} data-lightbox data-lightbox-name={a.name} rel="noreferrer" className="block cursor-zoom-in">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/files/${a.id}`}
-                alt={a.name}
-                className="max-h-56 max-w-full rounded-lg border border-border object-contain"
-                loading="lazy"
-                onLoad={() => window.dispatchEvent(new Event("chat-media-loaded"))}
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
-              />
-              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{a.name}</span>
-            </a>
+            <div key={a.id} className="max-w-xs">
+              <a href={`/api/files/${a.id}`} data-lightbox data-lightbox-name={a.name} rel="noreferrer" className="block cursor-zoom-in">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/files/${a.id}`}
+                  alt={a.name}
+                  className="max-h-64 max-w-full rounded-lg border border-border object-contain"
+                  loading="lazy"
+                  onLoad={() => window.dispatchEvent(new Event("chat-media-loaded"))}
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{a.name}</span>
+              </a>
+              {archiveRow(a)}
+            </div>
           );
         }
         if (isAudio(a)) {
           // Nota de voz / audio: reproductor estilo WhatsApp (onda + play + duración).
+          // No se archiva en el proyecto (son conversación, no material).
           return <VoiceNote key={a.id} src={`/api/files/${a.id}`} author={author} />;
         }
         const { Icon, color } = fileIcon(a.name);
         return (
-          <div key={a.id} className="w-56 max-w-full rounded-xl border border-border bg-background p-2.5">
-            <div className="flex items-center gap-2">
-              <Icon className={cn("size-7 shrink-0", color)} />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium" title={a.name}>{shortName(a.name)}</span>
-            </div>
-            <div className="mt-2 flex items-center gap-3 border-t border-border pt-2 text-[11px]">
-              {isPdf(a) ? (
-                <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                  <Eye className="size-3.5" /> Ver
+          <div key={a.id} className="w-72 max-w-full">
+            <div className="rounded-xl border border-border bg-background p-2.5">
+              <div className="flex items-center gap-2">
+                <Icon className={cn("size-7 shrink-0", color)} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium" title={a.name}>{shortName(a.name)}</span>
+              </div>
+              <div className="mt-2 flex items-center gap-3 border-t border-border pt-2 text-xs">
+                {isPdf(a) ? (
+                  <a href={`/api/files/${a.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                    <Eye className="size-3.5" /> Ver
+                  </a>
+                ) : null}
+                {a.editable ? (
+                  <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                    <Pencil className="size-3.5" /> Editar
+                  </Link>
+                ) : null}
+                <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+                  <Download className="size-3.5" /> Descargar
                 </a>
-              ) : null}
-              {a.editable ? (
-                <Link href={`/docs/${a.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                  <Pencil className="size-3.5" /> Editar
-                </Link>
-              ) : null}
-              <a href={`/api/files/${a.id}?download=1`} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-                <Download className="size-3.5" /> Descargar
-              </a>
+              </div>
             </div>
+            {archiveRow(a)}
           </div>
         );
       })}
@@ -286,6 +338,9 @@ export function ChannelChat({
   readOnly = false,
   isAdmin = false,
   highlightId = null,
+  projectId = null,
+  initialLastReadAt = null,
+  canArchive = false,
 }: {
   channelId: string;
   initialMessages: ChatMsg[];
@@ -298,6 +353,12 @@ export function ChannelChat({
   isAdmin?: boolean;
   // Mensaje a resaltar al abrir (permalink ?msg=...): se hace scroll hasta él y se ilumina.
   highlightId?: string | null;
+  // Canal de PROYECTO: habilita el chip «En Archivos del proyecto» y «Guardar en Archivos».
+  projectId?: string | null;
+  // ¿Este usuario puede archivar en el proyecto? (equipo con subir_archivos; nunca cliente/demo).
+  canArchive?: boolean;
+  // Última lectura al abrir (ISO): pinta la línea «Mensajes nuevos» a partir de ahí.
+  initialLastReadAt?: string | null;
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
   const [text, setText] = React.useState("");
@@ -305,6 +366,33 @@ export function ChannelChat({
   const [uploading, setUploading] = React.useState(false);
   const [replyText, setReplyText] = React.useState<Record<string, string>>({});
   const [openThreads, setOpenThreads] = React.useState<Set<string>>(new Set());
+  // Popup de reacciones rápidas abierto desde la barra flotante (id del mensaje).
+  const [quickFor, setQuickFor] = React.useState<string | null>(null);
+  // Se cierra con clic FUERA o Escape (mismo contrato que los <details data-autoclose>,
+  // que aquí no aplica porque el popup es un div controlado por estado).
+  React.useEffect(() => {
+    if (!quickFor) return;
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest?.("[data-quickreact]")) setQuickFor(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setQuickFor(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [quickFor]);
+  // Al archivar un adjunto, el estado del chat se entera (sobrevive a búsquedas/remontajes).
+  const markArchived = React.useCallback((attachmentId: string, fileAssetId: string | null) => {
+    setMessages((prev) => prev.map((mm) =>
+      mm.attachments?.some((a) => a.id === attachmentId)
+        ? { ...mm, attachments: mm.attachments.map((a) => (a.id === attachmentId ? { ...a, fileAssetId: fileAssetId ?? a.fileAssetId ?? null } : a)) }
+        : mm,
+    ));
+  }, []);
   const [online, setOnline] = React.useState(true);
   const [myVotes, setMyVotes] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -360,6 +448,19 @@ export function ChannelChat({
 
   // ¿El mensaje es mío? (para alinearlo a la derecha con burbuja propia).
   const isMine = (a: ChatMsg["author"]) => !!a && a.name === me.name && a.color === me.color;
+  // Línea «Mensajes nuevos»: primer mensaje raíz AJENO posterior a la última lectura al
+  // abrir el canal. Se congela al montar (deps vacías) para que no se mueva mientras
+  // llegan mensajes ni cuando markChannelRead actualice la lectura en el servidor.
+  const firstUnreadId = React.useMemo(() => {
+    if (!initialLastReadAt) return null;
+    const t = new Date(initialLastReadAt).getTime();
+    if (Number.isNaN(t)) return null;
+    const first = initialMessages.find(
+      (msg) => !msg.parentId && !msg.deleted && !isMine(msg.author) && new Date(msg.createdAt).getTime() > t,
+    );
+    return first?.id ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Limpia los indicadores de "escribiendo…" caducados.
   React.useEffect(() => {
@@ -897,10 +998,10 @@ export function ChannelChat({
         )}
       </div>
       {pinned.length > 0 && !searchOpen ? (
-        <div className="shrink-0 space-y-1 border-b border-border bg-amber-50/50 px-3 py-1.5 dark:bg-amber-500/5">
+        <div className="shrink-0 space-y-1 border-b border-border bg-muted/40 px-3 py-1.5">
           {pinned.map((p) => (
-            <div key={p.id} className="flex items-center gap-1.5 text-[11px]">
-              <Pin className="size-3 shrink-0 text-amber-600" />
+            <div key={p.id} className="flex items-center gap-1.5 text-xs">
+              <Pin className="size-3 shrink-0 text-muted-foreground" />
               <span className="truncate text-muted-foreground"><span className="font-medium text-foreground">{isMine(p.author) ? "Tú" : p.author?.name}:</span> {p.body}</span>
               {!readOnly ? <button onClick={() => pin(p.id, true)} className="ml-auto shrink-0 text-muted-foreground hover:text-destructive" title="Desfijar"><X className="size-3" /></button> : null}
             </div>
@@ -909,7 +1010,7 @@ export function ChannelChat({
       ) : null}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl space-y-1.5 px-4 py-3">
+        <div className="mx-auto w-full max-w-3xl px-4 py-3">
         {hasOlder ? (
           <div className="flex justify-center py-1">
             <button
@@ -929,113 +1030,159 @@ export function ChannelChat({
           const open = openThreads.has(m.id);
           const mine = isMine(m.author);
           const showDay = idx === 0 || dayKeyOf(roots[idx - 1].createdAt) !== dayKeyOf(m.createdAt);
-          // Continuación: mismo autor seguido, mismo día y < 7 min → se agrupa (sin avatar
-          // ni nombre repetidos, estilo WhatsApp). El footer (reaccionar/Responder) se
-          // muestra solo al pasar el mouse cuando no hay reacciones ni respuestas.
+          // Continuación: mismo autor seguido, mismo día y < 7 min → fila compacta sin avatar
+          // ni nombre. El espaciado refleja el grupo (mt-3 al cambiar de autor, mt-px dentro).
           const prev = idx > 0 ? roots[idx - 1] : null;
           const cont = !showDay && !!prev && !prev.deleted && !m.deleted
             && prev.author?.name === m.author?.name && prev.author?.color === m.author?.color
-            && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60_000;
+            && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60_000
+            && m.id !== firstUnreadId;
           const hasFooter = (m.reactions?.length ?? 0) > 0 || replies.length > 0;
+          const toggleThread = () =>
+            setOpenThreads((prevSet) => {
+              const next = new Set(prevSet);
+              if (next.has(m.id)) next.delete(m.id);
+              else next.add(m.id);
+              return next;
+            });
           return (
             <React.Fragment key={m.id}>
             {showDay ? (
-              <div className="flex items-center gap-2 py-1">
+              <div className="flex items-center gap-2 pb-1 pt-3">
                 <span className="h-px flex-1 bg-border" />
-                <span suppressHydrationWarning className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{dayLabel(m.createdAt)}</span>
+                <span suppressHydrationWarning className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{dayLabel(m.createdAt)}</span>
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
+            {m.id === firstUnreadId ? (
+              <div className="flex items-center gap-2 pt-2" aria-label="Mensajes nuevos">
+                <span className="h-px flex-1 bg-primary/50" />
+                <span className="text-xs font-semibold text-primary">Mensajes nuevos</span>
+                <span className="h-px flex-1 bg-primary/50" />
+              </div>
+            ) : null}
             {m.deleted ? (
-              <div id={`msg-${m.id}`} className={cn("flex gap-2.5", mine && "flex-row-reverse")}>
+              <div id={`msg-${m.id}`} className="mt-3 flex gap-2.5">
                 <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
-                <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
-                  <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-2">
                     <span className="text-sm font-semibold text-muted-foreground">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
-                    <span suppressHydrationWarning className="text-[11px] text-muted-foreground">{hhmm(m.createdAt)}</span>
-                    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"><Trash2 className="size-3" /> Borrado · visible solo para admin</span>
+                    <span suppressHydrationWarning className="text-xs text-muted-foreground">{hhmm(m.createdAt)}</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"><Trash2 className="size-3" /> Borrado · visible solo para admin</span>
                   </div>
-                  <div className="mt-0.5 inline-block max-w-[88%] rounded-2xl border border-dashed border-border bg-muted/40 px-3 py-2 text-sm italic text-muted-foreground">
+                  <div className="mt-0.5 inline-block max-w-2xl rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-sm italic text-muted-foreground">
                     <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{m.body || "(sin texto)"}</p>
                   </div>
                 </div>
               </div>
             ) : (
-            <div id={`msg-${m.id}`} className={cn("group relative flex gap-2.5 rounded-lg transition-shadow", mine && "flex-row-reverse", highlighted === m.id && "ring-2 ring-primary/60 bg-primary/5")}>
+            <div id={`msg-${m.id}`} className={cn("group relative -mx-2 flex gap-2.5 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/40", cont ? "mt-px" : "mt-3", highlighted === m.id && "bg-primary/5 ring-2 ring-primary/60")}>
               {cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
-              <div className={cn("flex min-w-0 flex-1 flex-col", mine && "items-end")}>
-                {!cont || m.pinned || m.status ? (
-                  <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
-                    {!cont ? <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span> : null}
-                    {m.pinned ? <Pin className="size-3 text-amber-600" /> : null}
+              <div className="min-w-0 flex-1">
+                {!cont ? (
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
+                    <span suppressHydrationWarning className="text-xs text-muted-foreground">{hhmm(m.createdAt)}</span>
+                    {m.pinned ? <Pin className="size-3 self-center text-muted-foreground" aria-label="Fijado" /> : null}
+                    {statusTag(m.status)}
+                  </div>
+                ) : m.pinned || m.status ? (
+                  <div className="flex items-baseline gap-2">
+                    {m.pinned ? <Pin className="size-3 self-center text-muted-foreground" aria-label="Fijado" /> : null}
                     {statusTag(m.status)}
                   </div>
                 ) : null}
-                {/* Menú de acciones: flotante, aparece al pasar el mouse (no ocupa espacio). */}
-                {!readOnly && !m.status ? (
-                  <details data-autoclose className={cn("absolute top-0 z-20 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100", mine ? "left-0" : "right-0")}>
-                    <summary className="cursor-pointer list-none rounded bg-card/70 px-1 text-muted-foreground hover:text-foreground"><MoreVertical className="size-3.5" /></summary>
-                    <div className={cn("absolute z-20 mt-1 w-36 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg", mine ? "left-0" : "right-0")}>
-                      <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
-                        <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+                {/* Barra de acciones flotante (reaccionar · hilo · fijar · más): superpuesta,
+                    nunca desplaza el layout; en escritorio aparece al pasar el mouse. */}
+                {!readOnly && (!m.status || m.status === "sent") && editing !== m.id ? (
+                  <div data-quickreact className="absolute right-1 top-0 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 opacity-100 shadow-sm transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 md:-top-3 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
+                    <div className="relative">
+                      <button type="button" onClick={() => setQuickFor((cur) => (cur === m.id ? null : m.id))} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" title="Reaccionar">
+                        <SmilePlus className="size-3.5" />
                       </button>
-                      <button
-                        onClick={async () => {
-                          try { await navigator.clipboard.writeText(`${window.location.origin}/chat/${channelId}?msg=${m.id}`); } catch { /* sin portapapeles */ }
-                        }}
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
-                      >
-                        <Link2 className="size-3.5" /> Copiar enlace
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setForwardDone(null);
-                          setForwardFor((cur) => (cur === m.id ? null : m.id));
-                          if (!forwardTargets) setForwardTargets(await getForwardTargets(channelId));
-                        }}
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
-                      >
-                        <Share2 className="size-3.5" /> Reenviar a…
-                      </button>
-                      {forwardFor === m.id ? (
-                        <div className="mt-1 max-h-40 overflow-y-auto border-t border-border pt-1">
-                          {forwardDone === m.id ? (
-                            <p className="px-2 py-1.5 text-emerald-600 dark:text-emerald-400">Reenviado ✓</p>
-                          ) : forwardTargets == null ? (
-                            <p className="px-2 py-1.5 text-muted-foreground">Cargando…</p>
-                          ) : forwardTargets.length === 0 ? (
-                            <p className="px-2 py-1.5 text-muted-foreground">Este chat no pertenece a un cliente (no hay chats hermanos).</p>
-                          ) : (
-                            forwardTargets.map((t) => (
-                              <button
-                                key={t.id}
-                                onClick={async () => {
-                                  const r = await forwardMessage(m.id, t.id);
-                                  if (r.ok) setForwardDone(m.id);
-                                }}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
-                              >
-                                <Share2 className="size-3 shrink-0 text-muted-foreground" /> <span className="truncate">{t.name}</span>
-                              </button>
-                            ))
-                          )}
+                      {quickFor === m.id ? (
+                        <div className="absolute right-0 top-7 z-30 flex gap-0.5 rounded-full border border-border bg-popover px-1.5 py-1 shadow-lg">
+                          {QUICK_REACTIONS.map((e) => (
+                            <button key={e} type="button" onClick={() => { react(m.id, e); setQuickFor(null); }} className="flex size-7 items-center justify-center rounded-full text-lg hover:bg-muted">
+                              {e}
+                            </button>
+                          ))}
                         </div>
                       ) : null}
-                      {mine ? (
-                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
-                          <Pencil className="size-3.5" /> Editar
-                        </button>
-                      ) : null}
-                      {mine || isAdmin ? (
-                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
-                          <Trash2 className="size-3.5" /> Borrar
-                        </button>
-                      ) : null}
                     </div>
-                  </details>
+                    <button type="button" onClick={toggleThread} className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground md:flex" title="Responder en hilo">
+                      <MessageSquare className="size-3.5" />
+                    </button>
+                    <button type="button" onClick={() => pin(m.id, !!m.pinned)} className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground md:flex" title={m.pinned ? "Desfijar" : "Fijar"}>
+                      <Pin className={cn("size-3.5", m.pinned && "text-primary")} />
+                    </button>
+                    <details data-autoclose className="relative">
+                      <summary className="flex size-6 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" title="Más acciones"><MoreVertical className="size-3.5" /></summary>
+                      <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg">
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; toggleThread(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted md:hidden">
+                          <MessageSquare className="size-3.5" /> Responder en hilo
+                        </button>
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pin(m.id, !!m.pinned); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted md:hidden">
+                          <Pin className="size-3.5" /> {m.pinned ? "Desfijar" : "Fijar"}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try { await navigator.clipboard.writeText(`${window.location.origin}/chat/${channelId}?msg=${m.id}`); } catch { /* sin portapapeles */ }
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                        >
+                          <Link2 className="size-3.5" /> Copiar enlace
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setForwardDone(null);
+                            setForwardFor((cur) => (cur === m.id ? null : m.id));
+                            if (!forwardTargets) setForwardTargets(await getForwardTargets(channelId));
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                        >
+                          <Share2 className="size-3.5" /> Reenviar a…
+                        </button>
+                        {forwardFor === m.id ? (
+                          <div className="mt-1 max-h-40 overflow-y-auto border-t border-border pt-1">
+                            {forwardDone === m.id ? (
+                              <p className="px-2 py-1.5 text-emerald-600 dark:text-emerald-400">Reenviado ✓</p>
+                            ) : forwardTargets == null ? (
+                              <p className="px-2 py-1.5 text-muted-foreground">Cargando…</p>
+                            ) : forwardTargets.length === 0 ? (
+                              <p className="px-2 py-1.5 text-muted-foreground">Este chat no pertenece a un cliente (no hay chats hermanos).</p>
+                            ) : (
+                              forwardTargets.map((t) => (
+                                <button
+                                  key={t.id}
+                                  onClick={async () => {
+                                    const r = await forwardMessage(m.id, t.id);
+                                    if (r.ok) setForwardDone(m.id);
+                                  }}
+                                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                                >
+                                  <Share2 className="size-3 shrink-0 text-muted-foreground" /> <span className="truncate">{t.name}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        ) : null}
+                        {mine ? (
+                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setEditing(m.id); setEditText(m.body); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted">
+                            <Pencil className="size-3.5" /> Editar
+                          </button>
+                        ) : null}
+                        {mine || isAdmin ? (
+                          <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; removeMsg(m.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-destructive hover:bg-muted">
+                            <Trash2 className="size-3.5" /> Borrar
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
                 ) : null}
                 {editing === m.id ? (
-                  <div className="mt-0.5 w-full max-w-[88%]">
+                  <div className="mt-0.5 w-full max-w-2xl">
                     <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
                     <div className="mt-1 flex gap-2">
                       <button onClick={() => saveEdit(m.id)} className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"><Check className="size-3" /> Guardar</button>
@@ -1043,47 +1190,32 @@ export function ChannelChat({
                     </div>
                   </div>
                 ) : m.body && m.body !== ATTACH_PLACEHOLDER ? (
-                  <div
-                    className={cn(
-                      "mt-0.5 inline-block max-w-[88%] rounded-2xl px-3 py-1.5 text-sm",
-                      mine ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-muted text-foreground/90",
-                    )}
-                  >
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(m.body, highlightPool, mine)}</p>
-                    <span suppressHydrationWarning className={cn("mt-0.5 block text-right text-[10px] leading-none", mine ? "text-primary-foreground/70" : "text-muted-foreground/80")}>{hhmm(m.createdAt)}{m.editedAt ? " · editado" : ""}</span>
-                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
+                    {renderBody(m.body, highlightPool)}
+                    {m.editedAt ? <span className="ml-1 text-xs text-muted-foreground">(editado)</span> : null}
+                  </p>
                 ) : null}
-                <div className={cn("max-w-[88%]", mine && "flex flex-col items-end")}>
-                  <Attachments items={m.attachments} author={m.author} />
-                  {m.poll ? (
-                    <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
-                  ) : null}
-                  {!(m.body && m.body !== ATTACH_PLACEHOLDER) && ((m.attachments?.length ?? 0) > 0 || m.poll) ? (
-                    <span suppressHydrationWarning className="mt-0.5 block text-[10px] leading-none text-muted-foreground/80">{hhmm(m.createdAt)}{m.editedAt ? " · editado" : ""}</span>
-                  ) : null}
-                </div>
+                <Attachments items={m.attachments} author={m.author} projectId={projectId} readOnly={readOnly} canArchive={canArchive} onArchived={markArchived} />
+                {m.poll ? (
+                  <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                ) : null}
 
-                <div className={cn(mine && "flex flex-col items-end", !hasFooter && "opacity-100 transition-opacity duration-150 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100")}>
-                  {!readOnly || (m.reactions?.length ?? 0) > 0 ? (
-                    <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
-                  ) : null}
-
-                  {!readOnly || replies.length > 0 ? (
+                {/* Pie SOLO cuando hay contenido real (reacciones o respuestas): nunca aparece
+                    ni desaparece con el mouse — reaccionar/responder viven en la barra flotante. */}
+                {hasFooter ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {(m.reactions?.length ?? 0) > 0 || !readOnly ? (
+                      <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
+                    ) : null}
                     <button
-                      onClick={() =>
-                        setOpenThreads((prev) => {
-                          const next = new Set(prev);
-                          next.has(m.id) ? next.delete(m.id) : next.add(m.id);
-                          return next;
-                        })
-                      }
-                      className="inline-flex items-center gap-1 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-primary"
+                      onClick={toggleThread}
+                      className="inline-flex items-center gap-1 py-0.5 text-xs font-medium text-muted-foreground hover:text-primary"
                     >
                       <MessageSquare className="size-3" />
                       {replies.length > 0 ? `${replies.length} respuesta${replies.length === 1 ? "" : "s"}` : "Responder"}
                     </button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
 
                 {open ? (
                   <div className="mt-2 w-full space-y-2 self-stretch border-l-2 border-border pl-3 text-left">
@@ -1092,14 +1224,13 @@ export function ChannelChat({
                         <UserAvatar initials={r.author?.initials} name={r.author?.name} color={r.author?.color} size="sm" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-semibold">{isMine(r.author) ? "Tú" : r.author?.name ?? "Sistema"}</span>
-                            <span suppressHydrationWarning className="text-[10px] text-muted-foreground">{hhmm(r.createdAt)}</span>
+                            <span className="text-sm font-semibold">{isMine(r.author) ? "Tú" : r.author?.name ?? "Sistema"}</span>
+                            <span suppressHydrationWarning className="text-xs text-muted-foreground">{hhmm(r.createdAt)}</span>
                             {statusTag(r.status)}
                           </div>
-                          {/* Mismo render que los mensajes raíz (antes el hilo mostraba el texto crudo
-                              sin enlaces, menciones ni formato). */}
-                          <p className="whitespace-pre-wrap break-words text-[13px] text-foreground/90">{renderBody(r.body, highlightPool)}</p>
-                          <Attachments items={r.attachments} author={r.author} />
+                          {/* Mismo render que los mensajes raíz (enlaces, menciones y formato). */}
+                          <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{renderBody(r.body, highlightPool)}</p>
+                          <Attachments items={r.attachments} author={r.author} projectId={projectId} readOnly={readOnly} canArchive={canArchive} onArchived={markArchived} />
                           {r.poll ? (
                             <PollWidget poll={r.poll} myOptionId={myVotes[r.poll.id] ?? null} onVote={(opt) => vote(r.poll!.id, opt)} />
                           ) : null}
@@ -1119,7 +1250,7 @@ export function ChannelChat({
                           value={replyText[m.id] ?? ""}
                           onChange={(e) => setReplyText((p) => ({ ...p, [m.id]: e.target.value }))}
                           placeholder="Responder en el hilo…"
-                          className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
                         />
                         <button className="text-xs font-medium text-primary disabled:opacity-40" disabled={!(replyText[m.id] ?? "").trim()}>
                           Enviar

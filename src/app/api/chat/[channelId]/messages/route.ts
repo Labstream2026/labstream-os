@@ -41,7 +41,7 @@ type Row = {
   editedAt: Date | null;
   deletedAt: Date | null;
   author: { name: string; initials: string | null; avatarColor: string | null } | null;
-  attachments: { id: string; name: string; mime: string | null }[];
+  attachments: { id: string; name: string; mime: string | null; fileAssetId: string | null }[];
   reactions: { emoji: string; userId: string }[];
   poll: { id: string; question: string; options: { id: string; text: string; _count: { votes: number } }[]; votes: { optionId: string }[] } | null;
 };
@@ -56,7 +56,7 @@ function shape(rows: Row[]) {
     pinned: m.pinned,
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
-    attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name) })),
+    attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name), fileAssetId: a.fileAssetId })),
     reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
     poll: m.poll
       ? {

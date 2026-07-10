@@ -9,6 +9,9 @@ export type AttachmentPayload = {
   name: string;
   mime: string | null;
   editable: boolean; // editable en OnlyOffice
+  // FileAsset espejo en Archivos del proyecto (los documentos del chat de proyecto se archivan
+  // solos; el resto con archiveChatAttachment). null = no archivado.
+  fileAssetId: string | null;
 };
 
 export type PollOptionData = { id: string; text: string; votes: number };

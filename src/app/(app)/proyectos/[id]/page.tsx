@@ -97,9 +97,9 @@ export default async function ProyectoPage({
             photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } } } } } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
         // Excluye de Archivos los FileAsset que son fotos de entregables (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } } } },
+        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -645,9 +645,9 @@ export default async function ProyectoPage({
                   icon: f.icon,
                   color: f.color,
                   // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink })),
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null })),
                 }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null }))}
               />
             </section>
           </div>

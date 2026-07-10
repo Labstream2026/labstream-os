@@ -289,7 +289,7 @@ export function ChatDock({
             </p>
           </div>
         ) : (
-          <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} isAdmin={isAdmin} members={mentionMembers} initialMessages={messages} />
+          <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} isAdmin={isAdmin} members={mentionMembers} initialMessages={messages} projectId={effectiveChannel.type === "PROJECT" && onRealProject ? projectId : null} />
         )}
       </div>
     </div>
