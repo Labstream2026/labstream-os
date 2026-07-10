@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
-import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
+import { accessibleProjectWhere, canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { isDeliverableType, isProjectRole } from "@/lib/enum-guards";
 import { safeExternalUrl } from "@/lib/url";
 import { bogotaNoon } from "@/lib/today";
@@ -556,6 +556,132 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
   await logActivity({ action: "task.adminUpdate", summary: `editó la tarea «${title}»${changes.length ? ` (${changes.length} cambios)` : ""}`, projectId, entityType: "task", entityId: taskId });
   revalidatePath("/timeline");
   refresh(projectId);
+  return { ok: true };
+}
+
+// ── Mover una tarea a OTRO proyecto ──
+// Para cuando un proyecto evoluciona y se fragmenta: la tarea migra con todo lo suyo
+// (checklist, comentarios, horas, etiquetas, seguidores) y sus archivos/enlaces ligados
+// cambian de proyecto (salen de su carpeta, que era del origen). El vínculo con un
+// entregable del origen se corta; la fase se conserva solo si existe una columna igual
+// en el destino; la posición pasa al final del tablero destino. También sirve para
+// llevar una tarea personal (sin proyecto) a un proyecto.
+
+export type TaskMoveTarget = { id: string; name: string; clientName: string; sameClient: boolean };
+
+// Proyectos a los que el usuario PUEDE mover la tarea (donde puede crear tareas, no
+// archivados, distintos del actual), con los del MISMO cliente primero (el caso típico).
+export async function getTaskMoveTargets(taskId: string): Promise<TaskMoveTarget[]> {
+  const session = await getSession();
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      projectId: true, ownerId: true, assigneeId: true,
+      project: { select: { isPrivate: true, leadId: true, clientId: true, members: { select: { userId: true, role: true } } } },
+    },
+  });
+  await ensureAccessVia(task, null);
+  const candidates = await db.project.findMany({
+    where: accessibleProjectWhere(session),
+    select: {
+      id: true, name: true, clientId: true, isPrivate: true, leadId: true,
+      members: { select: { userId: true, role: true } },
+      client: { select: { name: true } },
+    },
+    orderBy: [{ client: { name: "asc" } }, { name: "asc" }],
+  });
+  const sourceClientId = task!.project?.clientId ?? null;
+  return candidates
+    .filter((p) => {
+      if (p.id === task!.projectId) return false;
+      if (canWriteProject(p, session)) return true;
+      // Portal cliente: mueve entre SUS proyectos si tiene permiso de crear tareas (misma
+      // excepción de ensureProjectAccess; como GUEST, canWriteProject le da false).
+      return session?.role === "cliente" && hasPermission(session, "crear_tareas") && p.members.some((m) => m.userId === session.id);
+    })
+    .map((p) => ({ id: p.id, name: p.name, clientName: p.client.name, sameClient: p.clientId === sourceClientId }))
+    // sort es estable: mismo cliente primero, conservando el orden cliente → proyecto.
+    .sort((a, b) => Number(b.sameClient) - Number(a.sameClient));
+}
+
+export async function moveTaskToProject(taskId: string, targetProjectId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      title: true, stage: true, projectId: true, ownerId: true, assigneeId: true,
+      project: { select: { isPrivate: true, leadId: true, name: true, members: { select: { userId: true, role: true } } } },
+      equipmentPlan: { select: { id: true } },
+    },
+  });
+  if (!task) return { ok: false, error: "La tarea no existe." };
+  if (task.projectId === targetProjectId) return { ok: true };
+  try {
+    await ensureAccessVia(task);
+  } catch {
+    return { ok: false, error: "No tienes acceso a esta tarea." };
+  }
+  // Mover de proyecto es tan sensible como cambiar fechas/responsable: lo hace quien
+  // gestiona la tarea (dueño, admin/productor, responsable del proyecto).
+  if (!canEditTaskMeta(task, session)) return { ok: false, error: "Solo quien gestiona la tarea puede moverla de proyecto." };
+  if (task.equipmentPlan) return { ok: false, error: "Esta tarea es el espejo de un plan de equipos del proyecto y no se puede mover." };
+
+  // La compuerta del DESTINO es la misma que para crear una tarea allí.
+  try {
+    await ensureProjectAccess(targetProjectId, "crear_tareas");
+  } catch {
+    return { ok: false, error: "No puedes crear tareas en el proyecto destino." };
+  }
+  const target = await db.project.findUnique({ where: { id: targetProjectId }, select: { name: true, stages: true, archivedAt: true } });
+  if (!target || target.archivedAt) return { ok: false, error: "El proyecto destino no existe o está archivado." };
+
+  const stage = task.stage && target.stages.includes(task.stage) ? task.stage : null;
+  const last = await db.task.findFirst({ where: { projectId: targetProjectId }, orderBy: { position: "desc" }, select: { position: true } });
+  await db.task.update({
+    where: { id: taskId },
+    // deliverableId: el entregable pertenece al proyecto de origen → se desliga.
+    data: { projectId: targetProjectId, stage, position: (last?.position ?? 0) + 1, deliverableId: null },
+  });
+  // Los archivos/enlaces ligados a la tarea la siguen (fuera de su carpeta de origen).
+  await db.fileAsset.updateMany({ where: { taskId }, data: { projectId: targetProjectId, folderId: null } });
+  // El responsable conserva el acceso: si no era miembro del destino, se añade.
+  if (task.assigneeId) {
+    await db.projectMember.upsert({
+      where: { projectId_userId: { projectId: targetProjectId, userId: task.assigneeId } },
+      create: { projectId: targetProjectId, userId: task.assigneeId },
+      update: {},
+    });
+  }
+  // El % de avance de ambos proyectos cambia al mover la tarea.
+  await recalcProjectProgress(task.projectId);
+  await recalcProjectProgress(targetProjectId);
+
+  const sourceName = task.project?.name ?? "Mis tareas (personal)";
+  // UNA sola entrada de actividad (notifica al equipo del proyecto): en el ORIGEN, que es
+  // donde el equipo seguía la tarea; si era personal, en el destino. Dos entradas duplicarían
+  // el aviso para quienes están en ambos proyectos.
+  await logActivity({
+    action: "task.move",
+    summary: `movió la tarea «${task.title}» de «${sourceName}» a «${target.name}»`,
+    projectId: task.projectId ?? targetProjectId,
+    entityType: "task",
+    entityId: taskId,
+    // El responsable recibe su notificación directa más abajo: evita el duplicado.
+    exclude: task.assigneeId && task.assigneeId !== session?.id ? [task.assigneeId] : undefined,
+  });
+  if (task.assigneeId && task.assigneeId !== session?.id) {
+    await notifyAndEmail(task.assigneeId, {
+      type: "task",
+      event: "task_moved",
+      title: `Tu tarea cambió de proyecto: ${task.title}`,
+      body: `${session?.name ?? "Alguien"} la movió de «${sourceName}» a «${target.name}».`,
+      link: `/proyectos/${targetProjectId}?tab=tareas`,
+      actorId: session?.id,
+    }).catch(() => null);
+  }
+  revalidatePath(`/proyectos/${targetProjectId}`);
+  revalidatePath("/timeline");
+  refresh(task.projectId);
   return { ok: true };
 }
 

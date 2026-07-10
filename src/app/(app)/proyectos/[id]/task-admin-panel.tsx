@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { X, Pencil, Bell, Printer, Check } from "lucide-react";
+import { X, Pencil, Bell, Printer, Check, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { adminUpdateTask, getTaskDescription } from "./actions";
+import { adminUpdateTask, getTaskDescription, getTaskMoveTargets, moveTaskToProject, type TaskMoveTarget } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 
@@ -61,6 +61,11 @@ export function TaskAdminPanel({
   const [error, setError] = React.useState<string | null>(null);
   const [descLoaded, setDescLoaded] = React.useState(false);
 
+  // Mover a otro proyecto: destinos cargados al abrir la sección (null = aún no cargados).
+  const [moveOpen, setMoveOpen] = React.useState(false);
+  const [targets, setTargets] = React.useState<TaskMoveTarget[] | null>(null);
+  const [targetId, setTargetId] = React.useState("");
+
   const stageOpts = stages.length ? stages : ["Por hacer"];
   const curStage = task.stage && stages.includes(task.stage) ? task.stage : stageOpts[0];
 
@@ -94,6 +99,28 @@ export function TaskAdminPanel({
   function set<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
     setError(null);
+  }
+
+  function toggleMove() {
+    setMoveOpen((v) => !v);
+    setError(null);
+    if (targets === null) {
+      getTaskMoveTargets(task.id)
+        .then(setTargets)
+        .catch(() => setTargets([]));
+    }
+  }
+
+  function doMove() {
+    const dest = targets?.find((t) => t.id === targetId);
+    if (!dest) return;
+    if (!window.confirm(`¿Mover la tarea «${task.title}» al proyecto «${dest.name}» (${dest.clientName})?`)) return;
+    setError(null);
+    start(async () => {
+      const r = await moveTaskToProject(task.id, targetId);
+      if (r.ok) { router.refresh(); onClose(); }
+      else setError(r.error ?? "No se pudo mover la tarea.");
+    });
   }
 
   function save() {
@@ -205,6 +232,59 @@ export function TaskAdminPanel({
             <p className="text-xs text-muted-foreground">
               Al guardar se avisa al responsable <strong>anterior</strong> y al <strong>nuevo</strong>, con el detalle de lo que cambió.
             </p>
+          </div>
+
+          {/* Mover a otro proyecto: cuando un proyecto evoluciona y se fragmenta, la tarea migra
+              con checklist, notas, horas, etiquetas y archivos ligados. Destinos = proyectos
+              donde el usuario puede crear tareas (mismo cliente primero). */}
+          <div className="rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={toggleMove}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              <ArrowRightLeft className="size-4 text-muted-foreground" />
+              Mover a otro proyecto
+              <span className="ml-auto text-xs text-muted-foreground">{moveOpen ? "Ocultar" : "Abrir"}</span>
+            </button>
+            {moveOpen ? (
+              <div className="space-y-2 border-t border-border p-3">
+                {targets === null ? (
+                  <p className="text-xs text-muted-foreground">Cargando proyectos…</p>
+                ) : targets.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No hay otro proyecto disponible al que puedas mover esta tarea.</p>
+                ) : (
+                  <>
+                    <select value={targetId} onChange={(e) => { setTargetId(e.target.value); setError(null); }} className={inputCls}>
+                      <option value="">Elige el proyecto destino…</option>
+                      {targets.some((t) => t.sameClient) ? (
+                        <optgroup label="Mismo cliente">
+                          {targets.filter((t) => t.sameClient).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </optgroup>
+                      ) : null}
+                      {targets.some((t) => !t.sameClient) ? (
+                        <optgroup label="Otros clientes">
+                          {targets.filter((t) => !t.sameClient).map((t) => <option key={t.id} value={t.id}>{t.clientName} · {t.name}</option>)}
+                        </optgroup>
+                      ) : null}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      La tarea migra con checklist, notas, horas y archivos ligados; se desliga del entregable
+                      del proyecto actual y su fase se conserva solo si el destino tiene una columna igual.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={doMove}
+                      disabled={!targetId || pending}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                    >
+                      <ArrowRightLeft className="size-4" />
+                      {pending ? "Moviendo…" : "Mover tarea"}
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 

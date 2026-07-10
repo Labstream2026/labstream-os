@@ -5,7 +5,7 @@ import { validateAssignee } from "@/lib/task-assign";
 import { completionTransition } from "@/lib/task-completion";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
-import { readJson, str, isYmd, isHm, noon, shapeTask, canReadTask, canWriteTask, canEditTaskMetaApi, recalcProgress, TASK_SELECT } from "@/lib/api-v1";
+import { readJson, str, isYmd, isHm, noon, shapeTask, canReadTask, canWriteTask, canEditTaskMetaApi, recalcProgress, loadProjectForWrite, TASK_SELECT } from "@/lib/api-v1";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +29,7 @@ export const GET = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, rout
 // startDate?, dueDate?, dueTime?, shootDate? } — edición parcial con las MISMAS compuertas por
 // campo que los server actions: editar_tareas (con bypass si la tarea es mía) para texto/estado/
 // fase; gestionar_cronograma + canEditTaskMeta para fechas y prioridad; responsable validado.
+// Además { projectId } SOLO: mueve la tarea a otro proyecto (espejo de moveTaskToProject).
 export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
   if (bodyTooLarge(req)) return apiJson({ ok: false, error: "Cuerpo demasiado grande." }, 413);
@@ -37,6 +38,68 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
   if (!task || !canReadTask(task, ctx.session)) return apiJson({ ok: false, error: "Tarea no encontrada." }, 404);
   const body = await readJson(req);
   if (body instanceof NextResponse) return body;
+
+  // ── Mover a OTRO proyecto (espejo de moveTaskToProject de la app) ──
+  // Va solo (sin otros campos): el resto del PATCH razona sobre el proyecto ACTUAL de la
+  // tarea (posición, enlaces, validación del responsable) y mezclarlos sería ambiguo.
+  if ("projectId" in body) {
+    if (Object.keys(body).length > 1) {
+      return apiJson({ ok: false, error: "Para mover de proyecto envía SOLO { projectId } (sin otros campos en el mismo PATCH)." }, 400);
+    }
+    const targetId = str(body.projectId);
+    if (!targetId) return apiJson({ ok: false, error: "projectId debe ser el id del proyecto destino." }, 400);
+    if (targetId === task.projectId) return apiJson({ ok: true, task: shapeTask(task) });
+    // Tan sensible como fechas/responsable: quien gestiona la tarea (misma compuerta de la app).
+    if (!canWriteTask(task, ctx.session, "editar_tareas") || !canEditTaskMetaApi(task, ctx.session)) {
+      return apiJson({ ok: false, error: "Solo quien gestiona la tarea (dueño, admin/productor o responsable del proyecto) puede moverla." }, 403);
+    }
+    const extra = await db.task.findUnique({ where: { id }, select: { equipmentPlan: { select: { id: true } } } });
+    if (extra?.equipmentPlan) return apiJson({ ok: false, error: "La tarea es el espejo de un plan de equipos del proyecto y no se puede mover." }, 409);
+    // Compuerta del destino = la de crear una tarea allí (incluye la excepción del portal cliente).
+    const target = await loadProjectForWrite(targetId, ctx.session, "crear_tareas");
+    if (target instanceof NextResponse) return target;
+    const tgt = await db.project.findUnique({ where: { id: targetId }, select: { name: true, stages: true } });
+    if (!tgt) return apiJson({ ok: false, error: "Proyecto destino no encontrado." }, 404);
+
+    // La fase se conserva solo si el destino tiene una columna igual; la posición va al final;
+    // el vínculo con un entregable del origen se corta; los archivos ligados migran sin carpeta.
+    const stage = task.stage && tgt.stages.includes(task.stage) ? task.stage : null;
+    const last = await db.task.findFirst({ where: { projectId: targetId }, orderBy: { position: "desc" }, select: { position: true } });
+    await db.task.update({ where: { id }, data: { projectId: targetId, stage, position: (last?.position ?? 0) + 1, deliverableId: null } });
+    await db.fileAsset.updateMany({ where: { taskId: id }, data: { projectId: targetId, folderId: null } });
+    if (task.assigneeId) {
+      await db.projectMember.upsert({
+        where: { projectId_userId: { projectId: targetId, userId: task.assigneeId } },
+        create: { projectId: targetId, userId: task.assigneeId },
+        update: {},
+      });
+    }
+    await recalcProgress(task.projectId);
+    await recalcProgress(targetId);
+    const sourceName = task.project?.name ?? "Mis tareas (personal)";
+    // Una sola entrada de actividad (en el origen; si era personal, en el destino) para no
+    // duplicar el aviso a quienes están en ambos proyectos. El responsable tiene aviso directo.
+    await logActivity({
+      action: "task.move",
+      summary: `movió la tarea «${task.title}» de «${sourceName}» a «${tgt.name}» (vía API)`,
+      projectId: task.projectId ?? targetId,
+      entityType: "task",
+      entityId: id,
+      exclude: task.assigneeId && task.assigneeId !== ctx.session.id ? [task.assigneeId] : undefined,
+    });
+    if (task.assigneeId && task.assigneeId !== ctx.session.id) {
+      await notifyAndEmail(task.assigneeId, {
+        type: "task",
+        event: "task_moved",
+        title: `Tu tarea cambió de proyecto: ${task.title}`,
+        body: `${ctx.session.name} la movió de «${sourceName}» a «${tgt.name}».`,
+        link: `/proyectos/${targetId}?tab=tareas`,
+        actorId: ctx.session.id,
+      }).catch(() => null);
+    }
+    const moved = await loadTask(id);
+    return apiJson({ ok: true, task: moved ? shapeTask(moved) : null });
+  }
 
   const data: Record<string, unknown> = {};
   const wantsText = "title" in body || "description" in body || "status" in body || "stage" in body;
