@@ -1,8 +1,9 @@
 "use client";
 
+import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Inbox, ListChecks, LayoutGrid, MessageSquare, CalendarDays, Menu } from "lucide-react";
+import { IconInicio, IconEntregas, IconTareas, IconCliente, IconProyectos, IconChat, IconCalendario, IconMas, type IconProps } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
@@ -29,20 +30,21 @@ export function BottomNav({
   const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
 
   // El portal del cliente navega entre SUS proyectos, el calendario y el chat de su proyecto.
-  const links = isCliente
+  // Íconos del set propio de Labstream (duotono): misma firma que un ícono de UI (className).
+  const links: { href: string; label: string; icon: (p: IconProps) => ReactElement; match: (p: string) => boolean }[] = isCliente
     ? [
-        { href: "/mis-entregas", label: "Entregas", icon: Inbox, match: (p: string) => p.startsWith("/mis-entregas") },
-        { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
-        { href: "/calendario", label: "Calendario", icon: CalendarDays, match: (p: string) => p.startsWith("/calendario") },
-        { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },
+        { href: "/mis-entregas", label: "Entregas", icon: IconEntregas, match: (p: string) => p.startsWith("/mis-entregas") },
+        { href: "/proyectos", label: "Proyectos", icon: IconProyectos, match: (p: string) => p.startsWith("/proyectos") },
+        { href: "/calendario", label: "Calendario", icon: IconCalendario, match: (p: string) => p.startsWith("/calendario") },
+        { href: "/chat", label: "Chat", icon: IconChat, match: (p: string) => p.startsWith("/chat") },
       ]
     : [
-        { href: "/", label: "Inicio", icon: Home, match: (p: string) => p === "/" },
-        { href: "/mis-tareas", label: "Tareas", icon: ListChecks, match: (p: string) => p.startsWith("/mis-tareas") },
+        { href: "/", label: "Inicio", icon: IconInicio, match: (p: string) => p === "/" },
+        { href: "/mis-tareas", label: "Tareas", icon: IconTareas, match: (p: string) => p.startsWith("/mis-tareas") },
         // "Clientes" (antes "Proyectos"); sin permiso de clientes, cae al tablero de proyectos.
         canClients
-          ? { href: "/clientes", label: "Clientes", icon: LayoutGrid, match: (p: string) => p.startsWith("/clientes") }
-          : { href: "/proyectos", label: "Proyectos", icon: LayoutGrid, match: (p: string) => p.startsWith("/proyectos") },
+          ? { href: "/clientes", label: "Clientes", icon: IconCliente, match: (p: string) => p.startsWith("/clientes") }
+          : { href: "/proyectos", label: "Proyectos", icon: IconProyectos, match: (p: string) => p.startsWith("/proyectos") },
       ];
 
   // Celda táctil: ocupa toda la fila, centra ícono + etiqueta y da feedback al tocar.
@@ -65,7 +67,7 @@ export function BottomNav({
               className={cn(cell, active ? "text-primary" : "text-muted-foreground")}
             >
               {active ? <span className={indicator} /> : null}
-              <Icon className={cn("size-6", active && "fill-primary/10")} strokeWidth={active ? 2.4 : 2} />
+              <Icon className={cn("size-6", !active && "opacity-80")} />
               <span className="truncate">{l.label}</span>
             </Link>
           );
@@ -79,7 +81,7 @@ export function BottomNav({
           >
             {chatActive ? <span className={indicator} /> : null}
             <span className="relative">
-              <MessageSquare className="size-6" strokeWidth={chatActive ? 2.4 : 2} />
+              <IconChat className={cn("size-6", !chatActive && "opacity-80")} />
               {chatUnread > 0 ? (
                 <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
                   {chatUnread > 99 ? "99+" : chatUnread}
@@ -91,7 +93,7 @@ export function BottomNav({
         ) : null}
 
         <button type="button" onClick={onMenu} aria-label="Abrir menú" className={cn(cell, "text-muted-foreground")}>
-          <Menu className="size-6" />
+          <IconMas className="size-6 opacity-80" />
           <span className="truncate">Más</span>
         </button>
       </div>

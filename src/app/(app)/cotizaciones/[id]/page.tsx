@@ -15,6 +15,7 @@ import { QuoteEditor } from "./quote-editor";
 import { QuoteStatusActions } from "./quote-status";
 import { ShareQuote } from "./share-quote";
 import { EntityEmoji } from "@/components/icons/marks";
+import { IconComercial, IconFacturacion } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -204,8 +205,8 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
         <ViewTabs
           storageKey="factura-doc-view"
           views={[
-            { key: "servicios", label: "Servicios y valores", icon: "🧾", node: serviciosNode },
-            { key: "facturado", label: "Facturado", icon: "📄", node: facturadoNode },
+            { key: "servicios", label: "Servicios y valores", icon: <IconComercial />, node: serviciosNode },
+            { key: "facturado", label: "Facturado", icon: <IconFacturacion />, node: facturadoNode },
           ]}
         />
       </div>

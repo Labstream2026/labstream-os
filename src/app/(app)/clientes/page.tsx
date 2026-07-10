@@ -9,7 +9,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { Plus, FolderOpen, PowerOff } from "lucide-react";
-import { IconCliente } from "@/components/icons";
+import { IconCliente, IconTarjetas, IconLista } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -272,8 +272,8 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
           <ViewTabs
             storageKey="clientes-view"
             views={[
-              { key: "tarjetas", label: "Tarjetas", icon: "▦", node: cardsNode },
-              { key: "lista", label: "Lista", icon: "☰", node: listNode },
+              { key: "tarjetas", label: "Tarjetas", icon: <IconTarjetas />, node: cardsNode },
+              { key: "lista", label: "Lista", icon: <IconLista />, node: listNode },
             ]}
           />
         </div>

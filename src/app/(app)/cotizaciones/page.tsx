@@ -17,7 +17,7 @@ import { ensureServiceCatalog, getServiceCatalog, getQuoteSettings } from "@/lib
 import { ServicesCatalog } from "./services-catalog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { IconCotizacion } from "@/components/icons";
+import { IconCotizacion, IconPropuestas, IconComercial } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 
 export const dynamic = "force-dynamic";
@@ -120,7 +120,7 @@ export default async function CotizacionesPage() {
       <ViewTabs
         storageKey="cotizaciones-view"
         views={[
-          { key: "propuestas", label: "Propuestas", icon: "✨", node: (
+          { key: "propuestas", label: "Propuestas", icon: <IconPropuestas />, node: (
       <>
       {/* Propuestas interactivas */}
       <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
@@ -164,7 +164,7 @@ export default async function CotizacionesPage() {
 
       </>
           ) },
-          { key: "cotizaciones", label: "Cotizaciones rápidas", icon: "📄", node: (
+          { key: "cotizaciones", label: "Cotizaciones rápidas", icon: <IconCotizacion />, node: (
       <>
       {/* Cotizaciones rápidas (itemizadas) */}
       <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
@@ -201,7 +201,7 @@ export default async function CotizacionesPage() {
       )}
       </>
           ) },
-          { key: "servicios", label: "Servicios y valores", icon: "🧾", node: (
+          { key: "servicios", label: "Servicios y valores", icon: <IconComercial />, node: (
             <ServicesCatalog groups={catalog} settings={qSettings} canEdit={canCreate} />
           ) },
         ]}

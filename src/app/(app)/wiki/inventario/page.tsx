@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
 import { ImportInventoryButton } from "./import-button";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { IconGaleria, IconTabla } from "@/components/icons";
 import { InventoryGallery } from "./inventory-gallery";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +55,8 @@ export default async function InventarioPage() {
           <ViewTabs
             storageKey="inventario-view"
             views={[
-              { key: "galeria", label: "Galería", icon: "🖼️", node: <InventoryGallery columns={shaped.columns} rows={shaped.rows} /> },
-              { key: "tabla", label: "Tabla", icon: "📋", node: <DataTableView team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))} table={shaped} /> },
+              { key: "galeria", label: "Galería", icon: <IconGaleria />, node: <InventoryGallery columns={shaped.columns} rows={shaped.rows} /> },
+              { key: "tabla", label: "Tabla", icon: <IconTabla />, node: <DataTableView team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))} table={shaped} /> },
             ]}
           />
         ) : null}

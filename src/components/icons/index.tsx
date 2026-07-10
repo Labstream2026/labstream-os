@@ -31,7 +31,9 @@ export type IconName =
   | "buscar" | "notificaciones" | "marcebot" | "revisiones" | "archivo" | "horas"
   | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion" | "recordatorios"
   | "usuarios" | "etiquetas" | "roles" | "auditoria" | "integraciones" | "api"
-  | "marca" | "flujo" | "personalizacion";
+  | "marca" | "flujo" | "personalizacion"
+  | "tablero" | "tableroH" | "lista" | "tarjetas" | "tabla" | "galeria" | "archivador"
+  | "midia" | "completadas" | "raci" | "propuestas" | "actividad" | "mas";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -444,6 +446,155 @@ export function IconPersonalizacion(p: IconProps) {
   );
 }
 
+// ── Vistas y pestañas (unificación: fuera emojis ▤ ☰ 📋 ⭐ …) ──
+
+// Tablero (kanban vertical) — columnas (violeta) con la central naranja.
+export function IconTablero(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="4" width="4.6" height="13" rx="1.5" fill={C.violet} fillOpacity={0.16} stroke={C.violet} strokeWidth={1.6} />
+      <rect x="9.7" y="4" width="4.6" height="16.5" rx="1.5" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+      <rect x="15.9" y="4" width="4.6" height="10" rx="1.5" fill={C.violet} fillOpacity={0.16} stroke={C.violet} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Tablero horizontal — carriles (violeta) con el central naranja.
+export function IconTableroH(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="4.2" width="17" height="4.4" rx="1.5" fill={C.violet} fillOpacity={0.16} stroke={C.violet} strokeWidth={1.6} />
+      <rect x="3.5" y="10.2" width="13" height="4.4" rx="1.5" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+      <rect x="3.5" y="16.2" width="15.5" height="4.4" rx="1.5" fill={C.violet} fillOpacity={0.16} stroke={C.violet} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Lista — renglones con viñeta (azul), el del medio naranja.
+export function IconLista(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="5.2" cy="6.6" r="1.2" fill={C.blue} />
+      <path d="M9 6.6h11" stroke={C.blue} strokeWidth={1.8} />
+      <circle cx="5.2" cy="12" r="1.2" fill={C.orange} />
+      <path d="M9 12h8" stroke={C.orange} strokeWidth={1.8} />
+      <circle cx="5.2" cy="17.4" r="1.2" fill={C.blue} />
+      <path d="M9 17.4h9.5" stroke={C.blue} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// Tarjetas — retícula 2×2 (teal) con una naranja.
+export function IconTarjetas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.8" fill={C.teal} fillOpacity={0.16} stroke={C.teal} strokeWidth={1.6} />
+      <rect x="13" y="3.5" width="7.5" height="7.5" rx="1.8" fill={C.teal} fillOpacity={0.16} stroke={C.teal} strokeWidth={1.6} />
+      <rect x="3.5" y="13" width="7.5" height="7.5" rx="1.8" fill={C.teal} fillOpacity={0.16} stroke={C.teal} strokeWidth={1.6} />
+      <rect x="13" y="13" width="7.5" height="7.5" rx="1.8" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Tabla — rejilla con cabecera (índigo) y celda activa naranja.
+export function IconTabla(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" fill={C.indigo} fillOpacity={0.12} stroke={C.indigo} strokeWidth={SW} />
+      <path d="M3.5 6.5c0-1.1.9-2 2-2h13c1.1 0 2 .9 2 2V9h-17Z" fill={C.indigo} fillOpacity={0.2} />
+      <path d="M3.5 9h17M3.5 14.2h17M10.2 9v10.5M16.9 9v10.5" stroke={C.indigo} strokeWidth={1.4} />
+      <circle cx="6.85" cy="11.6" r="1" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Galería — marco (rosa) con sol naranja y montañas.
+export function IconGaleria(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill={C.rose} fillOpacity={0.14} stroke={C.rose} strokeWidth={SW} />
+      <circle cx="8.3" cy="9.3" r="1.6" fill={C.orange} />
+      <path d="M5.5 19.4l4.6-5.4c.5-.6 1.4-.6 1.9 0l2.1 2.5 1.6-1.9c.5-.6 1.4-.6 1.9 0l2.9 3.4" stroke={C.rose} strokeWidth={1.7} />
+    </Icon>
+  );
+}
+
+// Archivador — cajonera (ámbar) con el cajón medio naranja.
+export function IconArchivador(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="4.5" y="3.5" width="15" height="17" rx="2.2" fill={C.amber} fillOpacity={0.14} stroke={C.amber} strokeWidth={SW} />
+      <path d="M4.5 9.2h15M4.5 14.9h15" stroke={C.amber} strokeWidth={1.6} />
+      <path d="M10.5 6.4h3" stroke={C.amber} strokeWidth={1.8} />
+      <path d="M10.5 12.1h3" stroke={C.orange} strokeWidth={2} />
+      <path d="M10.5 17.7h3" stroke={C.amber} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// Mi día — estrella (ámbar) con centro naranja (las tareas que marco para hoy).
+export function IconMiDia(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M11.48 3.5a.56.56 0 0 1 1.04 0l2.13 5.11a.56.56 0 0 0 .47.35l5.52.44c.5.04.7.66.32.99l-4.2 3.6a.56.56 0 0 0-.18.56l1.28 5.38a.56.56 0 0 1-.84.61l-4.72-2.88a.56.56 0 0 0-.59 0L6.98 20.54a.56.56 0 0 1-.84-.61l1.29-5.38a.56.56 0 0 0-.19-.56l-4.2-3.6a.56.56 0 0 1 .32-.99l5.52-.44a.56.56 0 0 0 .47-.35L11.48 3.5Z" fill={C.amber} fillOpacity={0.18} stroke={C.amber} strokeWidth={SW} />
+      <circle cx="12" cy="11.6" r="1.7" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Completadas — círculo (verde) con doble check (el principal naranja).
+export function IconCompletadas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="8.2" fill={C.green} fillOpacity={0.12} stroke={C.green} strokeWidth={SW} />
+      <path d="M6.6 12.6l2.7 2.7 4.2-5" stroke={C.orange} strokeWidth={2} />
+      <path d="M12.6 14.7l1.6 1.6 4-4.8" stroke={C.green} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
+// RACI — brújula (índigo) con aguja naranja (quién hace qué).
+export function IconRaci(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="8.2" fill={C.indigo} fillOpacity={0.12} stroke={C.indigo} strokeWidth={SW} />
+      <path d="M15.2 8.8l-1.7 4.7-4.7 1.7 1.7-4.7Z" fill={C.orange} fillOpacity={0.8} stroke={C.orange} strokeWidth={1.4} />
+      <circle cx="12" cy="5.4" r="0.8" fill={C.indigo} />
+    </Icon>
+  );
+}
+
+// Propuestas — destellos (ámbar) con chispa naranja.
+export function IconPropuestas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M10.8 3.5l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8Z" fill={C.amber} fillOpacity={0.18} stroke={C.amber} strokeWidth={1.7} />
+      <path d="M18 14.6l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9Z" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Actividad — línea de pulso (teal) con punto naranja.
+export function IconActividad(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3.5 13h3.2l2.1-5 3.3 8.2 2.4-5.7 1.1 2.5h2.9" stroke={C.teal} strokeWidth={1.9} />
+      <circle cx="20" cy="13" r="1.4" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Más — tres puntos (violeta) con el central naranja (menú del móvil).
+export function IconMas(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="5.5" cy="12" r="1.9" fill={C.violet} fillOpacity={0.85} />
+      <circle cx="12" cy="12" r="1.9" fill={C.orange} />
+      <circle cx="18.5" cy="12" r="1.9" fill={C.violet} fillOpacity={0.85} />
+    </Icon>
+  );
+}
+
 
 // Mapa por nombre, para usarlos dinámicamente (p. ej. desde datos o navegación).
 export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElement> = {
@@ -481,4 +632,17 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   marca: IconMarca,
   flujo: IconFlujo,
   personalizacion: IconPersonalizacion,
+  tablero: IconTablero,
+  tableroH: IconTableroH,
+  lista: IconLista,
+  tarjetas: IconTarjetas,
+  tabla: IconTabla,
+  galeria: IconGaleria,
+  archivador: IconArchivador,
+  midia: IconMiDia,
+  completadas: IconCompletadas,
+  raci: IconRaci,
+  propuestas: IconPropuestas,
+  actividad: IconActividad,
+  mas: IconMas,
 };

@@ -16,7 +16,7 @@ import { getUserPreference } from "@/lib/user-preference";
 import { StatTile } from "@/components/charts";
 import { EntityEmoji } from "@/components/icons/marks";
 import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
-import { IconCalendario, IconRodaje, IconTareas, IconNotificaciones } from "@/components/icons";
+import { IconCalendario, IconRodaje, IconTareas, IconNotificaciones, IconInicio, IconRaci, IconReportes } from "@/components/icons";
 
 function greeting(name: string) {
   const h = new Date().getHours();
@@ -285,10 +285,10 @@ export default async function HomePage() {
   // Pestañas del Inicio. "Mi inicio" y "RACI" (guía de quién hace qué) las ve todo el
   // equipo; "Desempeño" y "Tareas del equipo" solo quien tenga el permiso.
   const inicioViews = [
-    { key: "mi", label: "Mi inicio", icon: "🏠", node: miInicio },
-    { key: "raci", label: "RACI del equipo", icon: "🧭", node: <RaciMatrix /> },
-    ...(canReports ? [{ key: "equipo", label: "Desempeño del equipo", icon: "📊", node: <TeamPerformance session={session} /> }] : []),
-    ...(isAdmin || hasPermission(session, "gestionar_miembros_proyecto") ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: "🗂️", node: <TeamTasks session={session} /> }] : []),
+    { key: "mi", label: "Mi inicio", icon: <IconInicio />, node: miInicio },
+    { key: "raci", label: "RACI del equipo", icon: <IconRaci />, node: <RaciMatrix /> },
+    ...(canReports ? [{ key: "equipo", label: "Desempeño del equipo", icon: <IconReportes />, node: <TeamPerformance session={session} /> }] : []),
+    ...(isAdmin || hasPermission(session, "gestionar_miembros_proyecto") ? [{ key: "tareas-equipo", label: "Tareas del equipo", icon: <IconTareas />, node: <TeamTasks session={session} /> }] : []),
   ];
 
   return (

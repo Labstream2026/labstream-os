@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { Plus, SearchX } from "lucide-react";
-import { IconProyectos } from "@/components/icons";
+import { IconProyectos, IconTablero, IconTableroH, IconLista } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
@@ -234,9 +234,9 @@ export default async function ProyectosPage({
             <ViewTabs
               storageKey="proyectos-view"
               views={[
-                { key: "tablero-v", label: "Tablero vertical", icon: "▤", node: boardV },
-                { key: "tablero-h", label: "Tablero horizontal", icon: "▥", node: boardH },
-                { key: "lista", label: "Lista", icon: "☰", node: list },
+                { key: "tablero-v", label: "Tablero vertical", icon: <IconTablero />, node: boardV },
+                { key: "tablero-h", label: "Tablero horizontal", icon: <IconTableroH />, node: boardH },
+                { key: "lista", label: "Lista", icon: <IconLista />, node: list },
               ]}
             />
           )}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarDays, Check } from "lucide-react";
-import { IconTareas } from "@/components/icons";
+import { IconTareas, IconMiDia, IconLista, IconCompletadas } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
@@ -337,7 +337,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       </div>
       {miDayTasks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
-          Marca tareas con la <span className="text-amber-500">⭐</span> desde la pestaña <span className="font-medium text-foreground">Lista</span> para planear en qué te enfocas hoy.
+          Marca tareas con la <IconMiDia className="inline size-4 align-[-3px]" /> desde la pestaña <span className="font-medium text-foreground">Lista</span> para planear en qué te enfocas hoy.
         </div>
       ) : (
         <div className="space-y-2">{miDayTasks.map(taskRow)}</div>
@@ -382,9 +382,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
           </div>
         }
         views={[
-          { key: "mi-dia", label: "Mi día", icon: "⭐", node: miDia },
-          { key: "lista", label: "Lista", icon: "☰", node: list },
-          { key: "completadas", label: "Completadas", icon: "✓", node: completed },
+          { key: "mi-dia", label: "Mi día", icon: <IconMiDia />, node: miDia },
+          { key: "lista", label: "Lista", icon: <IconLista />, node: list },
+          { key: "completadas", label: "Completadas", icon: <IconCompletadas />, node: completed },
         ]}
       />
     </div>

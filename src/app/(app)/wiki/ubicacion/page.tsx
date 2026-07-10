@@ -4,6 +4,7 @@ import { cellsToMap } from "@/lib/table-cells";
 import { getLocationsTableId } from "@/lib/wiki-tables";
 import { WikiTabs } from "../wiki-tabs";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
+import { IconArchivador, IconTabla } from "@/components/icons";
 import { LocationsView } from "./locations-view";
 
 export const dynamic = "force-dynamic";
@@ -48,8 +49,8 @@ export default async function UbicacionPage() {
         <ViewTabs
           storageKey="ubicacion-view"
           views={[
-            { key: "vista", label: "Vista", icon: "🗄️", node: <LocationsView columns={shaped.columns} rows={shaped.rows} team={members} /> },
-            { key: "tabla", label: "Tabla", icon: "📋", node: <DataTableView team={members} table={shaped} /> },
+            { key: "vista", label: "Vista", icon: <IconArchivador />, node: <LocationsView columns={shaped.columns} rows={shaped.rows} team={members} /> },
+            { key: "tabla", label: "Tabla", icon: <IconTabla />, node: <DataTableView team={members} table={shaped} /> },
           ]}
         />
       ) : null}

@@ -30,6 +30,7 @@ import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
+import { IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -292,10 +293,10 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         <ViewTabs
           storageKey={`cliente-view`}
           views={[
-            { key: "proyectos", label: "Proyectos", icon: "🗂️", node: board },
-            { key: "lista", label: "Lista", icon: "☰", node: list },
+            { key: "proyectos", label: "Proyectos", icon: <IconProyectos />, node: board },
+            { key: "lista", label: "Lista", icon: <IconLista />, node: list },
             {
-              key: "calendario", label: "Calendario", icon: "📅",
+              key: "calendario", label: "Calendario", icon: <IconCalendario />,
               node: (
                 <div className="h-[72vh] min-h-[26rem]">
                   <CalendarBoard
@@ -310,25 +311,25 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             {
               key: "entregables",
               label: clientDeliverables.length ? `Entregables · ${clientDeliverables.length}` : "Entregables",
-              icon: "📦",
+              icon: <IconEntregas />,
               node: <ClientDeliverables deliverables={clientDeliverables} />,
             },
             {
               key: "archivos",
               label: client.files.length ? `Archivos · ${client.files.length}` : "Archivos",
-              icon: "📁",
+              icon: <IconArchivo />,
               node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
             },
             ...(canBilling ? [{
               key: "facturacion",
               label: billingPorFacturar.length ? `Facturación · ${billingPorFacturar.length}` : "Facturación",
-              icon: "🧾",
+              icon: <IconFacturacion />,
               node: <ClientBilling porFacturar={billingPorFacturar} invoices={billingInvoices} canCreate={canCreateInvoice} />,
             }] : []),
             {
               key: "propuestas",
               label: "Propuestas",
-              icon: "✦",
+              icon: <IconPropuestas />,
               node: proposals.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin propuestas vinculadas. Vincúlalas desde el editor de la propuesta (Ajustes → Cliente vinculado).</p>
               ) : (
@@ -354,7 +355,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             ...(canActividad ? [{
               key: "actividad",
               label: "Actividad",
-              icon: "📝",
+              icon: <IconActividad />,
               node: (
                 <ActivityFeed
                   items={activity.map((a) => ({
@@ -371,7 +372,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             {
               key: "acceso",
               label: "Ajustes",
-              icon: "⚙️",
+              icon: <IconConfiguracion />,
               node: (
                 // Diagramación en dos columnas: la información/personalización del cliente a la
                 // izquierda (columna principal) y el acceso del equipo a la derecha, SIEMPRE

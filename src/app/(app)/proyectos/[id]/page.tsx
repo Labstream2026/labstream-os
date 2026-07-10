@@ -34,6 +34,7 @@ import { signUploadToken } from "@/lib/upload-token";
 import { UploadShare } from "./upload-share";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { ClientTeamPanel } from "./client-team-panel";
+import { IconTablero, IconLista } from "@/components/icons";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
@@ -533,13 +534,13 @@ export default async function ProyectoPage({
                         {
                           key: "tablero",
                           label: "Tablero",
-                          icon: "🗂️",
+                          icon: <IconTablero />,
                           node: <TasksBoard projectId={id} team={teamForTasks} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                         },
                         {
                           key: "lista",
                           label: "Lista",
-                          icon: "☰",
+                          icon: <IconLista />,
                           node: <TasksList projectId={id} team={teamForTasks} stages={project.stages} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
                         },
                       ]}
