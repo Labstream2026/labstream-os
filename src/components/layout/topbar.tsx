@@ -12,6 +12,7 @@ import { NotificationsBell, type NotificationItem } from "@/components/layout/no
 import { TabsBar } from "@/components/layout/tabs-bar";
 import { logout } from "@/lib/auth-actions";
 import { routeMeta } from "@/lib/nav-meta";
+import { LABSTREAM_ICONS } from "@/components/icons";
 
 export type TopbarAvatar = { initials: string | null; color: string | null };
 
@@ -53,7 +54,8 @@ export function Topbar({
   showChatToggle?: boolean;
 }) {
   const pathname = usePathname();
-  const { emoji, label } = routeMeta(pathname);
+  const { icon, label } = routeMeta(pathname);
+  const RouteIcon = icon ? LABSTREAM_ICONS[icon] : null;
   // "Volver" en móvil: en una página de detalle (p. ej. /proyectos/[id]) la barra superior no
   // ofrecía cómo regresar a la lista. Si la ruta tiene un segmento anidado, mostramos una flecha
   // que lleva a la sección padre. El chat trae su propio botón de volver, así que se excluye.
@@ -96,8 +98,10 @@ export function Topbar({
           >
             <ChevronLeft className="size-5" />
           </Link>
+        ) : RouteIcon ? (
+          <RouteIcon className="size-[18px] shrink-0" />
         ) : (
-          <span className="text-base leading-none">{emoji}</span>
+          <span className="text-base leading-none">•</span>
         )}
         <span className="truncate">{label}</span>
       </div>

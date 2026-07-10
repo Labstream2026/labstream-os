@@ -5,6 +5,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { routeMeta } from "@/lib/nav-meta";
+import { LABSTREAM_ICONS } from "@/components/icons";
 
 // Barra de pestañas estilo Notion (solo escritorio). Vive en el layout, así que su estado
 // persiste entre navegaciones. Modelo "una pestaña por RUTA":
@@ -155,7 +156,8 @@ export function TabsBar() {
     <div className="hidden min-w-0 flex-1 items-center md:flex">
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((url) => {
-          const { emoji, label } = routeMeta(pathOf(url));
+          const { icon, label } = routeMeta(pathOf(url));
+          const TabIcon = icon ? LABSTREAM_ICONS[icon] : null;
           const active = pathOf(url) === pathname;
           return (
             <div
@@ -170,7 +172,7 @@ export function TabsBar() {
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
             >
-              <span className="text-sm leading-none">{emoji}</span>
+              {TabIcon ? <TabIcon className="size-4 shrink-0" /> : <span className="text-sm leading-none">•</span>}
               <span className="truncate">{label}</span>
               {tabs.length > 1 ? (
                 <button

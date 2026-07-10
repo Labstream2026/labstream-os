@@ -49,7 +49,11 @@ export function CoverBanner({
   const fileRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const t = tone(color);
-  const markList = marks === "sectores" ? SECTOR_MARKS : marks === "proyectos" ? PROJECT_MARKS : undefined;
+  // Catálogo completo con el grupo relevante primero (solo íconos modernos en el selector).
+  const markList =
+    marks === "sectores" ? [...SECTOR_MARKS, ...PROJECT_MARKS]
+    : marks === "proyectos" ? [...PROJECT_MARKS, ...SECTOR_MARKS]
+    : undefined;
   // Si el icono elegido es una marca Labstream, se repite como marca de agua del degradado.
   const watermark = lsMark(emoji);
 
@@ -152,6 +156,7 @@ export function CoverBanner({
                 onClose={() => setEmojiOpen(false)}
                 onPick={pickEmoji}
                 marks={markList}
+                marksOnly={Boolean(markList)}
                 footer={
                   emoji ? (
                     <button type="button" onClick={clearEmoji} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">

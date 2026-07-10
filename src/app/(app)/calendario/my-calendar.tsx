@@ -8,7 +8,7 @@ import { holidayName } from "@/lib/holidays-co";
 import { emojiToText } from "@/components/icons/marks";
 // El orden de agrupación de los chips vive en week-view (compareChips); importarlo aquí no crea
 // ciclo en runtime porque week-view solo importa de este archivo el TIPO CalItem (se borra al compilar).
-import { compareChips } from "./week-view";
+import { compareChips, KindGlyph } from "./week-view";
 
 // Chips visibles por celda del mes antes de que el resto quede tras el scroll de la celda.
 const MAX_MONTH_VISIBLE = 4;
@@ -200,7 +200,7 @@ export function MyCalendar({
                             )}
                             style={{ background: colorBy === "persona" ? personColor(ev) ?? itemSolid(ev) : itemSolid(ev) }}
                           >
-                            {ev.kind === "milestone" ? "" : ev.kind === "shoot" ? "🎬" : ev.kind === "task" ? `✅ ${ev.time ? `${ev.time} ` : ""}` : ev.time ? `${ev.time} ` : "📅 "}{ev.title}
+                            <span className="flex items-center gap-1"><KindGlyph kind={ev.kind} />{ev.time ? <span>{ev.time}</span> : null}<span className="truncate">{ev.title}</span></span>
                           </button>
                         );
                       })}

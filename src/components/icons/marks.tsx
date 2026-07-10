@@ -952,17 +952,50 @@ export const PROJECT_MARKS: LsMark[] = [
 // Índice clave → marca (sectores + tipos juntos; las claves no chocan).
 const BY_KEY = new Map<string, LsMark>([...SECTOR_MARKS, ...PROJECT_MARKS].map((m) => [m.key, m]));
 
-// Devuelve la marca si `value` es un token "ls:<clave>" conocido; si no, null.
+// ── Emojis "viejos" → su versión moderna ──
+// Los valores YA GUARDADOS como emoji se PINTAN con el ícono equivalente del set (sin migrar
+// datos): el emoji de respaldo (fb) de cada marca mapea de vuelta a ella, más alias comunes.
+// Un emoji sin equivalente claro se muestra tal cual (mejor el emoji que un ícono equivocado).
+const EMOJI_ALIASES: Record<string, string> = {
+  "🎬": "video", "🎥": "video", "📹": "video", "🎞️": "video", "📽️": "video",
+  "📷": "fotografia", "📸": "fotografia",
+  "❤️": "salud", "🏥": "salud", "⚕️": "salud", "🩹": "salud",
+  "👠": "moda", "🧵": "moda",
+  "💅": "belleza",
+  "🏠": "inmobiliaria", "🏡": "inmobiliaria", "🏙️": "inmobiliaria",
+  "🏢": "oficina", "📊": "oficina", "📈": "marketing",
+  "💰": "finanzas", "💵": "finanzas", "🏧": "finanzas",
+  "🎤": "podcast", "🎧": "podcast", "🎶": "musica",
+  "🚁": "dron", "🍰": "panaderia", "🍞": "panaderia", "🍔": "gastronomia", "🍕": "gastronomia",
+  "🐶": "veterinaria", "🐱": "veterinaria", "🐕": "veterinaria",
+  "🏋️": "deporte", "🏀": "deporte", "🚴": "bicicletas", "🏍️": "bicicletas",
+  "🔥": "gas", "📻": "medios", "📺": "medios", "🗞️": "medios",
+  "🚌": "logistica", "📦": "logistica", "🏗": "construccion",
+  "🎫": "evento", "🥂": "licores", "🍺": "licores", "🍷": "licores",
+  "🖌️": "arte", "🖼️": "arte", "✏️": "arquitectura", "📏": "arquitectura",
+  "🔒": "seguridad", "👮": "seguridad", "⚗️": "laboratorio", "🔬": "laboratorio",
+  "🦰": "peluqueria", "💇": "peluqueria", "🧴": "belleza", "🌻": "floristeria", "💐": "floristeria",
+};
+const BY_EMOJI = new Map<string, LsMark>();
+for (const m of [...SECTOR_MARKS, ...PROJECT_MARKS]) if (m.fb && !BY_EMOJI.has(m.fb)) BY_EMOJI.set(m.fb, m);
+for (const [e, key] of Object.entries(EMOJI_ALIASES)) {
+  const m = BY_KEY.get(key);
+  if (m) BY_EMOJI.set(e, m);
+}
+
+// Devuelve la marca si `value` es un token "ls:<clave>" conocido O un emoji con versión
+// moderna equivalente; si no, null.
 export function lsMark(value?: string | null): LsMark | null {
-  if (!value || !value.startsWith(LS_PREFIX)) return null;
-  return BY_KEY.get(value.slice(LS_PREFIX.length)) ?? null;
+  if (!value) return null;
+  if (value.startsWith(LS_PREFIX)) return BY_KEY.get(value.slice(LS_PREFIX.length)) ?? null;
+  return BY_EMOJI.get(value) ?? null;
 }
 
 // Para contextos de SOLO texto (títulos de canal, líneas de calendario, exports):
-// un token se degrada a su emoji de respaldo; un emoji normal pasa tal cual.
+// un token se degrada a su emoji de respaldo; un emoji normal pasa TAL CUAL (aunque tenga
+// versión moderna para el render, el texto conserva lo que el usuario guardó).
 export function emojiToText(value?: string | null, fallback = ""): string {
-  const mark = lsMark(value);
-  if (mark) return mark.fb;
+  if (value && value.startsWith(LS_PREFIX)) return lsMark(value)?.fb ?? fallback;
   return value || fallback;
 }
 

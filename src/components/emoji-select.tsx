@@ -32,7 +32,12 @@ export function EmojiSelect({
   const [value, setValue] = React.useState(defaultValue ?? "");
   const [open, setOpen] = React.useState(false);
   const btnRef = React.useRef<HTMLButtonElement>(null);
-  const markList = marks === "sectores" ? SECTOR_MARKS : marks === "proyectos" ? PROJECT_MARKS : undefined;
+  // Catálogo COMPLETO con el grupo relevante primero (sectores para clientes, tipos para
+  // proyectos): el selector de entidades ya solo ofrece íconos modernos, sin emojis viejos.
+  const markList =
+    marks === "sectores" ? [...SECTOR_MARKS, ...PROJECT_MARKS]
+    : marks === "proyectos" ? [...PROJECT_MARKS, ...SECTOR_MARKS]
+    : undefined;
   return (
     <>
       <input type="hidden" name={name} value={value} />
@@ -58,6 +63,7 @@ export function EmojiSelect({
           onClose={() => setOpen(false)}
           onPick={(e) => { setValue(e); setOpen(false); }}
           marks={markList}
+          marksOnly={Boolean(markList)}
           footer={
             allowClear && value ? (
               <button

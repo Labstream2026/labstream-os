@@ -139,6 +139,7 @@ export function EmojiPicker({
   onClose,
   footer,
   marks,
+  marksOnly = false,
 }: {
   anchorRef: React.RefObject<HTMLElement | null>;
   onPick: (emoji: string) => void;
@@ -147,6 +148,9 @@ export function EmojiPicker({
   // Íconos propios de Labstream (sector/tipo de proyecto): se muestran como primer grupo
   // y entran al buscador. Al elegir uno, onPick recibe el token "ls:<clave>".
   marks?: LsMark[];
+  // Selector SOLO de íconos modernos (entidades: clientes/proyectos): oculta por completo la
+  // rejilla de emojis — «que no salgan los íconos viejos». El chat (reacciones) sigue con emojis.
+  marksOnly?: boolean;
 }) {
   const [q, setQ] = React.useState("");
   const [style, setStyle] = React.useState<React.CSSProperties | null>(null);
@@ -197,14 +201,14 @@ export function EmojiPicker({
   }, [onClose, reposition]);
 
   const results = React.useMemo(() => {
-    if (!query) return null;
+    if (marksOnly || !query) return null;
     const seen = new Set<string>();
     return ALL.filter((it) => {
       if (seen.has(it.e) || !(it.e.includes(query) || it.k.includes(query))) return false;
       seen.add(it.e);
       return true;
     });
-  }, [query]);
+  }, [query, marksOnly]);
 
   // Íconos Labstream que coinciden con la búsqueda (por etiqueta o palabras clave).
   const markResults = React.useMemo(() => {
@@ -250,13 +254,15 @@ export function EmojiPicker({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar emoji…"
+            placeholder={marksOnly ? "Buscar icono…" : "Buscar emoji…"}
             className="w-full rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
-          {results ? (
+          {marksOnly ? (
+            marksGrid ?? <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
+          ) : results ? (
             results.length === 0 && !marksGrid ? (
               <p className="px-1 py-3 text-center text-xs text-muted-foreground">Sin resultados para «{q.trim()}».</p>
             ) : (

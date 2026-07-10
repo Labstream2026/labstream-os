@@ -42,6 +42,22 @@ export function compareChips(a: CalItem, b: CalItem): number {
   );
 }
 
+// Marcador de TIPO dentro de las pastillas de color del calendario (antes emojis ✅/🎬/📅):
+// glifos blancos mínimos que heredan el color del texto de la pastilla.
+export function KindGlyph({ kind }: { kind: CalItem["kind"] }) {
+  if (kind === "milestone") return null;
+  const d = kind === "shoot"
+    ? "M3 8.5c0-1 .8-1.8 1.8-1.8h9.4c1 0 1.8.8 1.8 1.8v7c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8v-7Zm13 2.6 5-2.3v6.4l-5-2.3" // videocámara
+    : kind === "task"
+      ? "M5 12.5l4.5 4.5L19 7.5" // check
+      : "M6 4v3M18 4v3M4 8.5h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"; // calendario
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" className="size-3 shrink-0" aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
 // Sufijo « · <proyecto>» para los TOOLTIPS de los items de tarea/rodaje (contexto de solo
 // texto: el emoji del proyecto puede ser un token "ls:<clave>" → se degrada con emojiToText).
 function projTip(it: CalItem): string {
@@ -310,7 +326,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: blockColor(p.it, itemSolid(p.it)) }}
                         title={`${p.it.title}${projTip(p.it)}`}>
-                        <span className="truncate">{p.it.kind === "milestone" ? "" : p.it.kind === "shoot" ? "🎬 " : p.it.kind === "task" ? "✅ " : "📅 "}{p.it.title}</span>
+                        <KindGlyph kind={p.it.kind} /><span className="truncate">{p.it.title}</span>
                       </button>
                     );
                   })}

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { setMarcebotConfig } from "./actions";
+import { IconMarcebot } from "@/components/icons";
 
 const DAYS = [
   { n: 1, label: "Lun" },
@@ -42,7 +43,7 @@ export function MarcebotSettings({ initial }: { initial: { enabled: boolean; wor
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
-        <span className="text-2xl">🤖</span>
+        <IconMarcebot className="size-8 shrink-0" />
         <div>
           <p className="font-medium">Marcebot</p>
           <p className="text-muted-foreground">
