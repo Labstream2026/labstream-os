@@ -6,6 +6,12 @@ import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor
 import { moveMyEvent } from "./actions";
 import { holidayName } from "@/lib/holidays-co";
 import { emojiToText } from "@/components/icons/marks";
+// El orden de agrupación de los chips vive en week-view (compareChips); importarlo aquí no crea
+// ciclo en runtime porque week-view solo importa de este archivo el TIPO CalItem (se borra al compilar).
+import { compareChips } from "./week-view";
+
+// Chips visibles por celda del mes antes de que el resto quede tras el scroll de la celda.
+const MAX_MONTH_VISIBLE = 4;
 
 type Person = { name: string; initials: string | null; color: string | null };
 export type TeamMember = { id: string; name: string; initials: string | null; color: string | null };
@@ -142,7 +148,9 @@ export function MyCalendar({
         <div className="grid grid-cols-7 border-t border-border/50">
           {cells.map((d, i) => {
             const key = d ? `${y}-${pad(m + 1)}-${pad(d)}` : null;
-            const evs = key ? byDay.get(key) ?? [] : [];
+            // Copia ordenada (compareChips agrupa por tipo → hora → título) y compacta: se ven
+            // ~4 y el resto queda tras el scroll de la propia celda, con contador debajo.
+            const evs = (key ? [...(byDay.get(key) ?? [])] : []).sort(compareChips);
             const isToday = key === todayKey;
             const isOver = key != null && overKey === key;
             const holiday = key ? holidayName(key) : null;
@@ -174,7 +182,7 @@ export function MyCalendar({
                         🎉 {holiday}
                       </div>
                     ) : null}
-                    <div className="space-y-1">
+                    <div className={cn("space-y-1 overscroll-contain", evs.length > MAX_MONTH_VISIBLE && "max-h-[104px] overflow-y-auto")}>
                       {evs.map((ev) => {
                         const draggable = Boolean(ev.canEdit && ev.eventId);
                         return (
@@ -197,6 +205,11 @@ export function MyCalendar({
                         );
                       })}
                     </div>
+                    {evs.length > MAX_MONTH_VISIBLE ? (
+                      <div className="pt-0.5 text-center text-[9px] font-medium text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                        {evs.length} en el día · desliza
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
               </div>

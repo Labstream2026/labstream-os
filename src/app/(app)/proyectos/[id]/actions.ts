@@ -1153,12 +1153,55 @@ export async function addTaskLink(taskId: string, _projectId: string, formData: 
   return { id: f.id, url: f.url, label: f.name, kind: f.kind };
 }
 export async function removeTaskLink(linkId: string, _projectId: string) {
-  // Solo borra archivos que estén LIGADOS a una tarea (no archivos sueltos del proyecto).
-  const f = await db.fileAsset.findUnique({ where: { id: linkId }, select: { taskId: true, task: { select: taskAccessSelect } } });
+  // Solo opera sobre archivos que estén LIGADOS a una tarea (no archivos sueltos del proyecto).
+  const f = await db.fileAsset.findUnique({ where: { id: linkId }, select: { taskId: true, kind: true, task: { select: taskAccessSelect } } });
   if (!f?.task) return;
   const projectId = await ensureAccessVia(f.task);
-  await db.fileAsset.delete({ where: { id: linkId } });
+  if (f.kind === "LOCAL") {
+    // Archivo SUBIDO: quitarlo de la tarea solo lo DESLIGA — el archivo queda en Archivos del
+    // proyecto (un guion puede servir para otra pieza). Borrarlo del todo se hace desde Archivos.
+    await db.fileAsset.update({ where: { id: linkId }, data: { taskId: null } });
+  } else {
+    // Enlace (LINK/DRIVE): es solo una referencia añadida desde la tarea → se borra.
+    await db.fileAsset.delete({ where: { id: linkId } });
+  }
   refresh(projectId);
+}
+
+// Sube ARCHIVOS locales ligados a una tarea (el guion, una referencia…): quedan en «Archivos»
+// del proyecto con el chip de su tarea, y SOBREVIVEN a la tarea — completarla no los toca y al
+// borrarla el vínculo se suelta (FK SetNull) pero el archivo permanece en el proyecto.
+export async function addTaskFiles(taskId: string, _projectId: string, formData: FormData): Promise<TaskLinkItem[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  // Mismo gate que subir al proyecto (con bypass del dueño/asignado de la tarea, como los enlaces).
+  const projectId = await ensureAccessVia(task, "subir_archivos");
+  if (!projectId) return []; // las tareas personales (sin proyecto) no tienen sección de Archivos
+  const session = await getSession();
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name));
+  const saved: TaskLinkItem[] = [];
+  for (const file of files) {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const asset = await db.fileAsset.create({
+      data: {
+        projectId,
+        taskId,
+        name: file.name,
+        kind: "LOCAL",
+        path: "",
+        mime: mimeFor(file.name, file.type),
+        size: buf.length,
+        uploadedById: session?.id ?? null,
+      },
+    });
+    const rel = await saveBufferWithPreview(`project/${projectId}`, `${asset.id}-${file.name}`, buf, file.type);
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    await logActivity({ action: "file.upload", summary: `subió el archivo «${file.name}» a la tarea «${task!.title}»`, projectId, entityType: "file", entityId: asset.id });
+    saved.push({ id: asset.id, url: null, label: file.name, kind: "LOCAL" });
+  }
+  if (saved.length) refresh(projectId);
+  return saved;
 }
 
 // ── Seguidores de tarea ── (reciben los avisos aunque no sean responsable/dueño)

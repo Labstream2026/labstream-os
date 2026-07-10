@@ -27,6 +27,21 @@ function minToTop(min: number): number {
   return ((min - START_MIN) / 60) * HOUR_H;
 }
 
+// Cuántos chips "todo el día" se ven por día antes de que el resto quede tras el scroll
+// del propio día (un día cargado de entregas ya no estira la franja de toda la semana).
+export const MAX_ALLDAY_VISIBLE = 5;
+// Orden de agrupación de los chips de un día: citas → rodajes → hitos → tareas; dentro del
+// grupo por hora (citas del mes) y por título, de modo que las «Entregar al cliente…» y las
+// «Pre-aprobar…» quedan juntas y en orden estable, no según llegaron de la consulta.
+const KIND_ORDER: Record<string, number> = { event: 0, shoot: 1, milestone: 2, task: 3 };
+export function compareChips(a: CalItem, b: CalItem): number {
+  return (
+    (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9) ||
+    (a.time ?? "").localeCompare(b.time ?? "") ||
+    a.title.localeCompare(b.title, "es")
+  );
+}
+
 // Sufijo « · <proyecto>» para los TOOLTIPS de los items de tarea/rodaje (contexto de solo
 // texto: el emoji del proyecto puede ser un token "ls:<clave>" → se degrada con emojiToText).
 function projTip(it: CalItem): string {
@@ -275,16 +290,20 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
             <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
-              const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d));
+              // Agrupados por tipo y título (compareChips) y COMPACTOS: se ven ~5 y el resto
+              // queda tras el scroll del propio día — un día con 20 entregas ya no estira la
+              // franja de toda la semana. El contador de abajo avisa que hay más.
+              const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d)).sort((a, b) => compareChips(a.it, b.it));
               const isToday = sameDay(d, today);
               const holiday = holidayName(localDateStr(d));
               return (
-                <div key={d.toISOString()} className={cn("min-h-8 space-y-1 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
+                <div key={d.toISOString()} className={cn("min-h-8 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
                   {holiday ? (
-                    <div className="flex w-full items-center gap-1 truncate rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" title={`Festivo en Colombia: ${holiday}`}>
+                    <div className="mb-1 flex w-full items-center gap-1 truncate rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" title={`Festivo en Colombia: ${holiday}`}>
                       <span className="truncate">🎉 {holiday}</span>
                     </div>
                   ) : null}
+                  <div className={cn("space-y-1 overscroll-contain", chips.length > MAX_ALLDAY_VISIBLE && "max-h-[132px] overflow-y-auto")}>
                   {chips.map((p) => {
                     return (
                       <button key={p.it.id} onClick={() => select(p.it)}
@@ -295,6 +314,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       </button>
                     );
                   })}
+                  </div>
+                  {chips.length > MAX_ALLDAY_VISIBLE ? (
+                    <div className="pt-0.5 text-center text-[9px] font-medium text-muted-foreground">{chips.length} en el día · desliza</div>
+                  ) : null}
                 </div>
               );
             })}

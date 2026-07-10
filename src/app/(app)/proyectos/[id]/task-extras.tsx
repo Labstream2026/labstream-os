@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Plus, ExternalLink, Trash2 } from "lucide-react";
+import { X, Plus, ExternalLink, Trash2, Paperclip, FileText, Loader2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import {
   removeTaskTag,
   getTaskLinks,
   addTaskLink,
+  addTaskFiles,
   removeTaskLink,
   type TaskLinkItem,
   getTaskWatchers,
@@ -84,6 +85,23 @@ export function TaskExtras({
     setLinks((p) => (p ?? []).filter((l) => l.id !== id));
     start(() => removeTaskLink(id, projectId));
   }
+  // Subida de archivos ligados a la tarea (quedan también en Archivos, con el chip de la tarea).
+  const fileInput = React.useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = React.useState(false);
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // permite volver a elegir el mismo archivo
+    if (!files.length) return;
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    setUploading(true);
+    try {
+      const saved = await addTaskFiles(taskId, projectId, fd);
+      if (saved.length) setLinks((p) => [...(p ?? []), ...saved]);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // ── Seguidores ──
   const [watchers, setWatchers] = React.useState<TaskWatcherItem[] | null>(null);
@@ -133,21 +151,40 @@ export function TaskExtras({
         </form>
       </div>
 
-      {/* Enlaces y referencias */}
+      {/* Enlaces y archivos: TODO queda también en Archivos del proyecto, ligado a esta tarea.
+          Los SUBIDOS (LOCAL) sobreviven a la tarea: completarla no los toca, borrarla solo
+          suelta el vínculo, y quitarlos de aquí los deja en Archivos. */}
       <div className="border-t border-border pt-4">
-        <p className="mb-1 text-xs font-medium text-muted-foreground">Enlaces y referencias <span className="font-normal">· también quedan en Archivos, ligados a esta tarea</span></p>
+        <p className="mb-1 text-xs font-medium text-muted-foreground">Enlaces y archivos <span className="font-normal">· también quedan en Archivos, ligados a esta tarea</span></p>
         <div className="space-y-1.5">
           {links === null ? (
             <p className="text-xs text-muted-foreground">Cargando…</p>
           ) : links.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Sin enlaces. Pega aquí el reel, un Drive, etc.</p>
+            <p className="text-xs text-muted-foreground">Sin enlaces ni archivos. Pega el reel, un Drive… o sube el guion.</p>
           ) : (
             links.map((l) => (
               <div key={l.id} className="flex items-center gap-2 text-sm">
-                <ExternalLink className={cn("size-3.5 shrink-0", l.kind === "DRIVE" ? "text-emerald-600" : "text-muted-foreground")} />
-                <a href={l.url ?? "#"} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-primary hover:underline" title={l.url ?? undefined}>{l.label || l.url}</a>
-                <button type="button" onClick={() => delLink(l.id)} title="Quitar enlace" className="rounded p-1 text-muted-foreground hover:text-destructive">
-                  <Trash2 className="size-3.5" />
+                {l.kind === "LOCAL" ? (
+                  <FileText className="size-3.5 shrink-0 text-sky-600" />
+                ) : (
+                  <ExternalLink className={cn("size-3.5 shrink-0", l.kind === "DRIVE" ? "text-emerald-600" : "text-muted-foreground")} />
+                )}
+                <a
+                  href={l.kind === "LOCAL" ? `/api/files-asset/${l.id}` : l.url ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 flex-1 truncate text-primary hover:underline"
+                  title={l.kind === "LOCAL" ? l.label ?? undefined : l.url ?? undefined}
+                >
+                  {l.label || l.url}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => delLink(l.id)}
+                  title={l.kind === "LOCAL" ? "Quitar de la tarea (el archivo queda en Archivos)" : "Quitar enlace"}
+                  className="rounded p-1 text-muted-foreground hover:text-destructive"
+                >
+                  {l.kind === "LOCAL" ? <X className="size-3.5" /> : <Trash2 className="size-3.5" />}
                 </button>
               </div>
             ))
@@ -158,6 +195,17 @@ export function TaskExtras({
           <div className="flex items-center gap-1.5">
             <input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="Nombre (opcional)" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring" />
             <button type="submit" disabled={!linkUrl.trim()} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">Añadir</button>
+            <input ref={fileInput} type="file" multiple className="hidden" onChange={onPickFiles} />
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading}
+              title="Subir archivos a la tarea (quedan en Archivos del proyecto)"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Paperclip className="size-3.5" />}
+              {uploading ? "Subiendo…" : "Subir archivo"}
+            </button>
           </div>
         </form>
       </div>
