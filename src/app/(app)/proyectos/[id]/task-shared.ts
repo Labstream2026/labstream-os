@@ -25,6 +25,10 @@ export type Task = {
   commentCount?: number;
   // Etiquetas (chips de color) de la tarea; se muestran en la tarjeta y el detalle.
   tags?: { id: string; label: string; color: string }[];
+  // Ítem de ENTREGABLE: elegible al crear un entregable; se completa sola al mandar la versión.
+  isDeliverableWork?: boolean;
+  // Incumplimiento del flujo de entregables (revisión/corrección vencida). Chip «Incumplida».
+  breachedAt?: Date | string | null;
 };
 export type TeamMember = { id: string; name: string; initials: string | null; avatarColor: string | null };
 

@@ -72,7 +72,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
 
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight">{deliverable.name}</h1>
+          <h1 className="text-xl font-bold tracking-tight">{deliverable.number ? <span className="mr-1.5 text-muted-foreground">#{deliverable.number}</span> : null}{deliverable.name}</h1>
           <p className="text-sm text-muted-foreground">
             <Link href={`/proyectos/${deliverable.project.id}?tab=entregables`} className="hover:underline">
               <EntityEmoji value={deliverable.project.emoji} /> {deliverable.project.name}

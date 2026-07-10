@@ -1359,6 +1359,13 @@ model Task {
   // Cuándo se marcó como terminada (estado isDone). Conserva la primera marca y se
   // borra si la tarea vuelve a un estado abierto. Permite listar "Completadas".
   completedAt   DateTime?
+  // Ítem de ENTREGABLE: al crear un entregable se puede elegir esta tarea; cuando el
+  // editor manda la versión a pre-aprobación, la tarea se completa sola.
+  isDeliverableWork Boolean     @default(false)
+  // Incumplimiento del flujo de entregables: la revisión/corrección venció sin cumplirse
+  // (o la corrección llegó después del plazo). La tarea puede cerrarse igual, pero queda
+  // la marca — alimenta el % de cumplimiento y el chip «Incumplida».
+  breachedAt    DateTime?
   position      Int             @default(0)
   // projectId opcional: las tareas personales/sueltas (ej. "limpiar escritorio") no
   // pertenecen a un proyecto. Las de proyecto sí lo tienen.
@@ -1501,9 +1508,20 @@ enum DeliverableStatus {
 model Deliverable {
   id        String               @id @default(cuid())
   name      String
+  // Consecutivo POR PROYECTO (#1, #2…): identifica la pieza aunque cambie de nombre y se
+  // conserva en la pestaña «Aprobados». Se asigna al crear (max+1); backfill por createdAt.
+  number    Int?
   type      DeliverableType      @default(REEL)
   status    DeliverableStatus    @default(PENDIENTE)
   dueDate   DateTime?
+  // SLA de pre-aprobación INTERNA: fecha/hora límite (instante UTC) para que el equipo
+  // revise. Al vencer, el barrido cierra las tareas «Pre-aprobar…»: quien comentó/decidió
+  // cumple; quien no, queda con incumplimiento (Task.breachedAt).
+  internalReviewDueAt DateTime?
+  // Plazo VIGENTE de la corrección en curso (instante UTC): lo fija el productor al
+  // solicitar cambios (o 24 h hábiles por defecto — sáb/dom no cuentan). Si la nueva
+  // versión llega después, la tarea «Corregir…» se cierra igual pero con incumplimiento.
+  fixDueAt  DateTime?
   // Archivado (gestión del equipo en /revisiones): saca el entregable del inbox activo SIN tocar el
   // enlace de entrega (sigue vivo hasta que se borre). NULL = no archivado.
   archivedAt DateTime?

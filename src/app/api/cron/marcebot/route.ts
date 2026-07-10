@@ -5,6 +5,7 @@ import { runRecurringTasks } from "@/lib/recurring";
 import { runPendingMediaJobs } from "@/lib/media-jobs";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { sweepReminders } from "@/lib/reminders";
+import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,8 @@ async function run(req: NextRequest) {
     // Recordatorios vencidos mientras nadie usaba la app (el barrido fino va con el sondeo
     // de la campana; esto es la red de seguridad). También existe /api/cron/reminders.
     const reminders = await sweepReminders({ force: true }).catch((e) => ({ error: e instanceof Error ? e.message : "error" }));
-    return NextResponse.json({ ...summary, calendars, recurring, media, reminders });
+    const deliverableSla = await sweepDeliverableSla({ force: true }).catch((e) => ({ error: e instanceof Error ? e.message : "error" }));
+    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }

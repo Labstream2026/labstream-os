@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { sweepReminders } from "@/lib/reminders";
+import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export async function GET() {
   // los recordatorios suenan casi al minuto, sin cron adicional. Trae throttle interno (30 s)
   // y reclamo atómico, así que llamarlo en cada poll es barato y seguro. Fire-and-forget.
   void sweepReminders().catch(() => {});
+  // Barrido de SLA de entregables (pre-aprobaciones/correcciones vencidas), mismo patrón.
+  void sweepDeliverableSla().catch(() => {});
 
   const [rows, unread] = await Promise.all([
     db.notification.findMany({

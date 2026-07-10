@@ -75,6 +75,12 @@ export function TasksList({
               <tr key={t.id} className={cn("border-b border-border last:border-0", URGENCY_META[u.state].row)}>
                 <td className="px-3 py-2">
                   <span className="font-medium">{t.title}</span>
+                  {t.isDeliverableWork ? (
+                    <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" title="Ítem de entregable: se completa sola al mandar la versión a revisión">Entregable</span>
+                  ) : null}
+                  {t.breachedAt ? (
+                    <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo del flujo de entregables se venció sin cumplirse">Incumplida</span>
+                  ) : null}
                   {t.checklist.length > 0 ? (
                     <span className="ml-2 text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
                   ) : null}
@@ -171,6 +177,10 @@ export function TasksList({
             <option key={u.id} value={u.id}>{u.name}</option>
           ))}
         </select>
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="Al crear un entregable podrás elegir esta tarea; se completa sola cuando el editor manda la versión a revisión">
+          <input type="checkbox" name="isDeliverableWork" className="size-3.5 accent-[#F47A20]" />
+          Entregable
+        </label>
         <SubmitButton pendingText="…" className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">
           Añadir
         </SubmitButton>

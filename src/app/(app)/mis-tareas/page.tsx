@@ -78,7 +78,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       orderBy: [{ completedAt: "desc" }, { updatedAt: "desc" }],
       take: 60,
       select: {
-        id: true, title: true, completedAt: true, dueDate: true, isPrivate: true,
+        id: true, title: true, completedAt: true, breachedAt: true, dueDate: true, isPrivate: true,
         project: { select: { id: true, name: true, emoji: true, client: { select: { id: true, name: true } } } },
       },
     }),
@@ -283,7 +283,12 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
             <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
               <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-white", late ? "bg-amber-500" : "bg-emerald-500")}><Check className="size-3" /></span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
+                <p className="truncate text-sm font-medium text-muted-foreground">
+                  <span className="line-through">{t.title}</span>
+                  {t.breachedAt ? (
+                    <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo del flujo de entregables se venció sin cumplirse">Incumplida</span>
+                  ) : null}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {t.project
                     ? <>{t.project.client ? `🏢 ${t.project.client.name} · ` : ""}<EntityEmoji value={t.project.emoji} />{` ${t.project.name}`}</>

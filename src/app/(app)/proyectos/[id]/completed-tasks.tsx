@@ -17,6 +17,9 @@ export type CompletedTaskItem = {
   completedAtIso: string | null;
   stage: string | null;
   assignee: { initials: string | null; avatarColor: string | null } | null;
+  // Incumplimiento del flujo de entregables: venció el plazo (revisión sin hacer o
+  // corrección tardía). La tarea cuenta como cerrada, pero con la marca visible.
+  breached?: boolean;
 };
 
 const FMT = new Intl.DateTimeFormat("es-CO", {
@@ -64,11 +67,16 @@ export function CompletedTasks({
     <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
       {items.map((t) => (
         <div key={t.id} className="flex items-center gap-3 px-4 py-2.5">
-          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-white">
+          <span className={t.breached ? "grid size-5 shrink-0 place-items-center rounded-full bg-rose-500 text-white" : "grid size-5 shrink-0 place-items-center rounded-full bg-emerald-500 text-white"}>
             <Check className="size-3" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-muted-foreground line-through">{t.title}</p>
+            <p className="truncate text-sm font-medium text-muted-foreground">
+              <span className="line-through">{t.title}</span>
+              {t.breached ? (
+                <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo se venció sin cumplirse (o la corrección llegó tarde)">Incumplida</span>
+              ) : null}
+            </p>
             <p className="truncate text-xs text-muted-foreground" suppressHydrationWarning>
               {t.completedAtIso ? <>terminada {FMT.format(new Date(t.completedAtIso))}</> : "terminada"}
               {t.stage ? <> · {t.stage}</> : null}

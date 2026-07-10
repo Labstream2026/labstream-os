@@ -55,6 +55,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "review_checklist", label: "Punto del checklist resuelto", description: "Cuando alguien marca como hecho un cambio del checklist de revisión.", category: "Entregables y revisiones" },
   { key: "review_client", label: "El cliente revisó", description: "Cuando el cliente aprueba o pide cambios desde el portal de revisión.", category: "Entregables y revisiones" },
   { key: "client_deliverable_ready", label: "Entregable listo (para el cliente)", description: "Avisa al cliente cuando el equipo termina un entregable y queda listo para su revisión.", category: "Entregables y revisiones" },
+  { key: "review_sla", label: "Plazo de revisión/corrección vencido", description: "Cuando vence el plazo de pre-aprobación sin revisar, o una corrección llega tarde (incumplimiento).", category: "Entregables y revisiones" },
 
   // ── Chat ──
   { key: "chat_mention", label: "Menciones", description: "Cuando te mencionan (@) en el chat o en una tabla.", category: "Chat" },

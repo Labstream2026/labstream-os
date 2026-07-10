@@ -18,7 +18,9 @@ import { signReviewToken } from "@/lib/review-token";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
-import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
+import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, setInternalReviewDue, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
+import { DeliverablesSpace } from "./deliverables-space";
+import { formatBogota } from "@/lib/bogota-time";
 import { ReviewersPicker } from "./reviewers-picker";
 import { VideoUploadField } from "./video-upload-field";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
@@ -27,6 +29,20 @@ import { TypeAndCoverFields } from "./deliverable-create-fields";
 import { SubmitButton } from "@/components/submit-button";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
+
+// Instante UTC → valores para <input type=date/time> en hora de Bogotá (para editar plazos).
+const YMD_BOG = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" });
+const HM_BOG = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", hour12: false });
+function bogYmd(v: Date | string | null): string {
+  if (!v) return "";
+  const d = typeof v === "string" ? new Date(v) : v;
+  return Number.isNaN(d.getTime()) ? "" : YMD_BOG.format(d);
+}
+function bogHm(v: Date | string | null): string {
+  if (!v) return "";
+  const d = typeof v === "string" ? new Date(v) : v;
+  return Number.isNaN(d.getTime()) ? "" : HM_BOG.format(d);
+}
 
 type Version = {
   id: string;
@@ -59,9 +75,14 @@ type Member = { id: string; name: string; initials: string | null; color: string
 type Deliverable = {
   id: string;
   name: string;
+  // Consecutivo por proyecto (#1, #2…): identifica la pieza también en «Aprobados».
+  number: number | null;
   type: string;
   status: string;
   dueDate: Date | string | null;
+  // Límite de pre-aprobación interna y plazo vigente de la corrección (instantes UTC).
+  internalReviewDueAt: Date | string | null;
+  fixDueAt: Date | string | null;
   owner: { initials: string | null; avatarColor: string | null } | null;
   reviewerId: string | null;
   reviewerIds: string[]; // co-revisores que pueden pre-aprobar
@@ -163,14 +184,25 @@ export function DeliverablesPanel({
   canManage = false,
   deliverables,
   members = [],
+  workTasks = [],
   emailEnabled = false,
 }: {
   projectId: string;
   canManage?: boolean;
   deliverables: Deliverable[];
   members?: Member[];
+  // Tareas del proyecto marcadas como "ítem de entregable", abiertas y sin vincular:
+  // elegibles en el desplegable del formulario (se completan solas al mandar la versión).
+  workTasks?: { id: string; title: string; assignee: string | null }[];
   emailEnabled?: boolean;
 }) {
+  // Lo VIVO se trabaja en «En curso»; lo que el cliente ya aprobó pasa al archivo
+  // «Aprobados» (ordenado por consecutivo descendente) para no estorbar la ventana.
+  const APPROVED = new Set(["APROBADO", "ENTREGADO"]);
+  const activeList = deliverables.filter((d) => !APPROVED.has(d.status));
+  const approvedList = deliverables
+    .filter((d) => APPROVED.has(d.status))
+    .sort((a, b) => (b.number ?? 0) - (a.number ?? 0));
   return (
     <div className="space-y-5">
       {/* Nuevo entregable para revisión: nombre/video, link o archivo, responsable de
@@ -204,14 +236,35 @@ export function DeliverablesPanel({
             Caduca el enlace <span className="font-normal text-muted-foreground/70">· opcional</span>
             <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
           </label>
+          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+            Pre-aprobación vence <span className="font-normal text-muted-foreground/70">· opcional</span>
+            <span className="flex items-center gap-1">
+              <input name="internalReviewDate" type="date" title="Plazo para que el equipo pre-apruebe. Si vence sin revisar, la tarea del revisor queda como incumplida" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+              <input name="internalReviewTime" type="time" defaultValue="18:00" title="Hora límite (Bogotá)" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+            </span>
+          </label>
           <SubmitButton pendingText="Subiendo…" className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
         </div>
+        {workTasks.length > 0 ? (
+          <details className="rounded-lg border border-dashed border-border px-3 py-2">
+            <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
+              Tareas de entregable vinculadas <span className="font-normal text-muted-foreground/70">· {workTasks.length} disponible{workTasks.length === 1 ? "" : "s"} · se completan solas al mandar la versión</span>
+            </summary>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+              {workTasks.map((t) => (
+                <label key={t.id} className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" name="workTaskIds" value={t.id} className="size-3.5 accent-[#F47A20]" />
+                  <span className="truncate">{t.title}{t.assignee ? <span className="text-muted-foreground"> · {t.assignee}</span> : null}</span>
+                </label>
+              ))}
+            </div>
+          </details>
+        ) : null}
         <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
       </form>
 
-      {deliverables.length === 0 ? <p className="text-sm text-muted-foreground">Aún no hay entregables.</p> : null}
-
-      {deliverables.map((d) => {
+      {(() => {
+      const renderCard = (d: Deliverable) => {
         const sorted = d.versions.slice().sort((a, b) => b.number - a.number);
         const latest = sorted[0] ?? null;
         const hasApproved = d.versions.some((v) => v.internalApproved);
@@ -228,7 +281,10 @@ export function DeliverablesPanel({
               <div className="flex items-center gap-3">
                 {d.owner ? <UserAvatar initials={d.owner.initials} color={d.owner.avatarColor} size="md" /> : null}
                 <div>
-                  <h3 className="font-semibold">{d.name}</h3>
+                  <h3 className="font-semibold">
+                    {d.number ? <span className="mr-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground" title="Consecutivo del entregable en este proyecto">#{d.number}</span> : null}
+                    {d.name}
+                  </h3>
                   <p className="text-xs text-muted-foreground">{DELIVERABLE_TYPE[d.type] ?? d.type}</p>
                 </div>
               </div>
@@ -323,7 +379,24 @@ export function DeliverablesPanel({
                   <DateInput name="reviewExpiresAt" value={toDateInputValue(d.reviewExpiresAt)} action={setReviewExpiry.bind(null, d.id, projectId)} title="Vacío = el enlace no caduca" />
                   {!d.reviewExpiresAt ? <span className="text-muted-foreground">sin caducidad</span> : null}
                 </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground" title="Plazo para que el equipo pre-apruebe. Al vencer, quien no revisó queda con la tarea incumplida">Pre-aprobación vence:</span>
+                  <form action={setInternalReviewDue.bind(null, d.id, projectId)} className="flex items-center gap-1">
+                    <input type="date" name="internalReviewDate" defaultValue={bogYmd(d.internalReviewDueAt)} className="rounded-md border border-input bg-background px-1.5 py-1 text-xs" />
+                    <input type="time" name="internalReviewTime" defaultValue={bogHm(d.internalReviewDueAt) || "18:00"} className="rounded-md border border-input bg-background px-1.5 py-1 text-xs" />
+                    <SubmitButton pendingText="…" className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent">OK</SubmitButton>
+                  </form>
+                  {!d.internalReviewDueAt ? <span className="text-muted-foreground">sin plazo</span> : null}
+                </span>
               </div>
+            ) : null}
+
+            {/* Plazo VIGENTE de la corrección en curso (lo fija el productor al pedir cambios;
+                el cliente nunca lo ve — esta vista es solo del equipo). */}
+            {d.fixDueAt && d.status === "CORRECCIONES" ? (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                ⏱ La corrección vence el {formatBogota(d.fixDueAt)} — si la nueva versión llega después, la tarea queda como incumplida.
+              </p>
             ) : null}
 
             {/* Galería de fotos (FOTOGRAFIA) o versiones de video/archivo (resto) */}
@@ -409,6 +482,11 @@ export function DeliverablesPanel({
               <>
                 <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
                   <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+                  <label className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground" title="Nuevo plazo de pre-aprobación para esta versión (opcional; si lo dejas vacío se conserva el actual)">
+                    Pre-aprobar antes de
+                    <input type="date" name="internalReviewDate" className="rounded-md border border-input bg-background px-1.5 py-1 text-xs" />
+                    <input type="time" name="internalReviewTime" defaultValue="18:00" className="rounded-md border border-input bg-background px-1.5 py-1 text-xs" />
+                  </label>
                   <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                   <VideoUploadField name="file" title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal" className="max-w-52 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1 file:text-xs" />
                   {/* Portada opcional adjunta a la versión (solo reels; reemplaza la anterior si existía) */}
@@ -427,7 +505,28 @@ export function DeliverablesPanel({
             </details>
           </div>
         );
-      })}
+      };
+      return (
+        <DeliverablesSpace
+          activeCount={activeList.length}
+          approvedCount={approvedList.length}
+          active={
+            <div className="space-y-5">
+              {activeList.length === 0 ? <p className="text-sm text-muted-foreground">No hay entregables en curso. Crea uno arriba.</p> : activeList.map(renderCard)}
+            </div>
+          }
+          approved={
+            <div className="space-y-5">
+              {approvedList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aún no hay entregables aprobados por el cliente. Cuando apruebe uno, se archiva aquí con su consecutivo.</p>
+              ) : (
+                approvedList.map(renderCard)
+              )}
+            </div>
+          }
+        />
+      );
+      })()}
     </div>
   );
 }

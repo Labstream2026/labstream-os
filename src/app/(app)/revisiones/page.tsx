@@ -101,6 +101,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       select: {
         id: true,
         name: true,
+        number: true,
         status: true,
         type: true,
         updatedAt: true,
@@ -147,6 +148,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   const items: Item[] = rows.map((d) => ({
     id: d.id,
     name: d.name,
+    number: d.number,
     status: d.status,
     type: d.type,
     updatedAt: d.updatedAt,
@@ -291,6 +293,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
 type Item = {
   id: string;
   name: string;
+  number: number | null;
   status: string;
   type: string | null;
   updatedAt: Date;
@@ -475,7 +478,7 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
 
         <div className="flex flex-1 flex-col gap-2 p-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{d.name}</p>
+            <p className="truncate text-sm font-medium">{d.number ? <span className="mr-1 text-muted-foreground">#{d.number}</span> : null}{d.name}</p>
             <p className="truncate text-xs text-muted-foreground">
               <span className="opacity-80"><EntityEmoji value={d.project.emoji} fallback="🎬" /></span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
             </p>

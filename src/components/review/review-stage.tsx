@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
 import { formatTimecode } from "@/lib/ui";
 
@@ -81,6 +82,7 @@ export function ReviewStage({
   fixedName = false,
   decision,
   canDecide = true,
+  askFixDeadline = false,
   mediaTabs,
   onComment,
   onDecision,
@@ -103,12 +105,17 @@ export function ReviewStage({
   fixedName?: boolean; // si true, no se muestra el campo de nombre
   decision: { approveLabel: string; changesLabel: string } | null; // null = sin botones
   canDecide?: boolean;
+  // Pre-aprobación INTERNA: al «Solicitar cambios» se abre una ventana con calendario y
+  // hora para que el PRODUCTOR fije el plazo de entrega de la corrección al editor
+  // (por defecto 24 h hábiles; sáb/dom no cuentan). El portal del cliente NO pasa esta
+  // prop, así que el cliente nunca ve nada de plazos internos.
+  askFixDeadline?: boolean;
   // Pestañas del VISOR (conmutador bajo el material): además del video («Reel»), contenidos
   // alternos como la portada o el copy. Al cambiar de pestaña el video se OCULTA sin
   // desmontarse (conserva posición y buffer). Pensado para el portal del cliente.
   mediaTabs?: { key: string; label: string; content: React.ReactNode }[];
   onComment: (fd: FormData) => Promise<void>;
-  onDecision?: (result: "APROBADO" | "CAMBIOS", note: string, name: string, versionNumber: number) => Promise<void>;
+  onDecision?: (result: "APROBADO" | "CAMBIOS", note: string, name: string, versionNumber: number, fixDueIso?: string) => Promise<void>;
   // Portal del cliente: en vez de decidir con diálogos nativos (confirm/prompt), avisa al
   // contenedor de la INTENCIÓN para que muestre su propio flujo de marca (modal de
   // confirmación + mensaje de cierre). Si se pasa, los botones llaman a esto y NO a onDecision.
@@ -145,6 +152,8 @@ export function ReviewStage({
   const [tc, setTc] = React.useState<number | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
+  // Ventana «Solicitar cambios» con plazo (solo pre-aprobación interna, ver askFixDeadline).
+  const [fixDlg, setFixDlg] = React.useState<null | { note: string; date: string; time: string }>(null);
   const [drawOpen, setDrawOpen] = React.useState(false);
   const [drawing, setDrawing] = React.useState<string | null>(null); // dataURL JPEG (anotación manual)
   const [hideResolved, setHideResolved] = React.useState(false);
@@ -306,12 +315,35 @@ export function ReviewStage({
     const verb = result === "APROBADO" ? decision?.approveLabel : decision?.changesLabel;
     let note = "";
     if (result === "CAMBIOS") {
+      if (askFixDeadline) {
+        // Modo interno: ventana propia con nota + calendario y hora del plazo de la
+        // corrección (por defecto, 24 horas hábiles a partir de ahora, hora de Bogotá).
+        const def = defaultFixDeadline(new Date());
+        setFixDlg({
+          note: "",
+          date: new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit" }).format(def),
+          time: new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", hour12: false }).format(def),
+        });
+        return;
+      }
       const r = await promptInput({ title: verb, message: "¿Qué cambios se solicitan? (opcional)" });
       if (r === null) return; // canceló
       note = r;
     } else if (!(await confirm({ title: verb, message: `¿${verb}?`, confirmLabel: verb }))) return;
     if (!fixedName) localStorage.setItem("review_name", name);
     start(() => onDecision(result, note, name || defaultName, version?.number ?? 0));
+  };
+
+  // Confirmación de la ventana de cambios con plazo → decisión con el instante elegido.
+  const submitFixDlg = () => {
+    if (!onDecision || !fixDlg) return;
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(fixDlg.date)
+      ? new Date(`${fixDlg.date}T${/^\d{1,2}:\d{2}$/.test(fixDlg.time) ? fixDlg.time.padStart(5, "0") : "18:00"}:00.000-05:00`).toISOString()
+      : undefined;
+    const note = fixDlg.note;
+    setFixDlg(null);
+    if (!fixedName) localStorage.setItem("review_name", name);
+    start(() => onDecision("CAMBIOS", note, name || defaultName, version?.number ?? 0, iso));
   };
 
   // Aprobado O entregado: la decisión ya está tomada; no se ofrecen botones que fallarían.
@@ -433,6 +465,53 @@ export function ReviewStage({
     <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
       {confirmDialog}
       {promptDialog}
+      {/* Ventana «Solicitar cambios» con PLAZO de la corrección (solo pre-aprobación interna).
+          El productor fija fecha y hora de entrega para el editor; el cliente nunca la ve. */}
+      {fixDlg ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl">
+            <p className="text-sm font-semibold">Solicitar cambios</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Los comentarios de esta versión se sellan como checklist para el editor y su tarea
+              «Corregir…» nace con este plazo. Si la corrección llega después, queda como incumplida.
+            </p>
+            <textarea
+              value={fixDlg.note}
+              onChange={(e) => setFixDlg({ ...fixDlg, note: e.target.value })}
+              rows={3}
+              placeholder="Resumen de los cambios (opcional)"
+              className="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                Entrega de la corrección
+                <input
+                  type="date"
+                  value={fixDlg.date}
+                  onChange={(e) => setFixDlg({ ...fixDlg, date: e.target.value })}
+                  className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                Hora (Bogotá)
+                <input
+                  type="time"
+                  value={fixDlg.time}
+                  onChange={(e) => setFixDlg({ ...fixDlg, time: e.target.value })}
+                  className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Por defecto: 24 horas hábiles (sábados y domingos no cuentan). Este plazo es interno — el cliente no lo ve.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setFixDlg(null)} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent">Cancelar</button>
+              <button type="button" onClick={submitFixDlg} disabled={pending} className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">Enviar correcciones</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {/* ── Material + decisión ── vertical: columna IZQUIERDA (angosta, fija al hacer scroll);
           horizontal: arriba a todo el ancho. */}
       <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : undefined}>

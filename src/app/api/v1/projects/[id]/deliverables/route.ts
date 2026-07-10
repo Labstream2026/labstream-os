@@ -68,16 +68,19 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rout
     reviewerId = rawReviewer;
   }
 
+  // Consecutivo por proyecto (#1, #2…), igual que al crear desde la app.
+  const top = await db.deliverable.aggregate({ where: { projectId: id }, _max: { number: true } });
   const d = await db.deliverable.create({
     data: {
       projectId: id,
       name,
+      number: (top._max.number ?? 0) + 1,
       type: typeRaw,
       dueDate: dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : null,
       reviewerId,
       ownerId: ctx.session.id,
     },
-    select: { id: true, name: true, type: true, status: true },
+    select: { id: true, name: true, number: true, type: true, status: true },
   });
   if (reviewerId) await db.deliverableReviewer.create({ data: { deliverableId: d.id, userId: reviewerId } }).catch(() => null);
   await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}» (vía API)`, projectId: id, entityType: "deliverable", entityId: d.id }).catch(() => null);

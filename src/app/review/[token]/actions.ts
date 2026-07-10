@@ -10,6 +10,8 @@ import { logActivity } from "@/lib/activity";
 import { notifyManyAndEmail } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
 import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } from "@/lib/deliverable-tasks";
+import { defaultFixDeadline } from "@/lib/business-time";
+import { formatBogota } from "@/lib/bogota-time";
 
 function baseUrl() {
   return (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "");
@@ -275,13 +277,17 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   });
   await closeDeliverableAutoTasks(deliverableId, approved ? ["deliver", "review", "fix"] : ["deliver", "review"]);
   if (!approved && flowInfo) {
+    // Plazo de la corrección: 24 horas HÁBILES por defecto (sáb/dom no cuentan). El cliente
+    // no fija plazos — el productor puede ajustar la fecha de la tarea después.
+    const fixDueAt = defaultFixDeadline(new Date());
+    await db.deliverable.update({ where: { id: deliverableId }, data: { fixDueAt } });
     await createDeliverableAutoTask({
       projectId,
       deliverableId,
       title: autoTaskTitles.fix(delName, versionNumber ?? flowInfo.versions[0]?.number ?? null, true),
-      description: `El cliente (${who}) solicitó cambios${noteClean ? `: ${noteClean.slice(0, 300)}` : ""}. Sus comentarios con capturas están en el entregable. Al subir la nueva versión, esta tarea se completa sola.`,
+      description: `El cliente (${who}) solicitó cambios${noteClean ? `: ${noteClean.slice(0, 300)}` : ""}. Sus comentarios con capturas están en el entregable. Al subir la nueva versión, esta tarea se completa sola. Plazo: ${formatBogota(fixDueAt)} (después de esa hora queda como incumplida).`,
       assigneeId: flowInfo.versions[0]?.uploadedById ?? flowInfo.ownerId ?? flowInfo.project.leadId,
-      dueDate: flowInfo.reviewExpiresAt,
+      dueAt: fixDueAt,
       actorId: null,
     });
   }

@@ -279,6 +279,10 @@ function Column({
             ))}
           </select>
         </div>
+        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground" title="Al crear un entregable podrás elegir esta tarea; se completa sola cuando el editor manda la versión a revisión">
+          <input type="checkbox" name="isDeliverableWork" className="size-3.5 accent-[#F47A20]" />
+          Ítem de entregable
+        </label>
         <SubmitButton pendingText="…" className="w-full rounded-md bg-primary px-2 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90">
           Añadir
         </SubmitButton>
@@ -362,6 +366,12 @@ function CardContent({
           <span className={cn("text-[11px] font-medium", URGENCY_META[u.state].text)} title={urgencyLabel(u.state, u.days)}>
             📅 {formatShortDate(t.dueDate)}
           </span>
+        ) : null}
+        {t.isDeliverableWork ? (
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" title="Ítem de entregable: se completa sola al mandar la versión a revisión">Entregable</span>
+        ) : null}
+        {t.breachedAt ? (
+          <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo del flujo de entregables se venció sin cumplirse">Incumplida</span>
         ) : null}
         {t.checklist.length > 0 ? (
           <span className="text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>

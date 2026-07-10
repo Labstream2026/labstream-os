@@ -21,7 +21,10 @@ import { validateAssignee } from "@/lib/task-assign";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
-import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } from "@/lib/deliverable-tasks";
+import { closeDeliverableAutoTasks, createDeliverableAutoTask, createReviewTasksForReviewers, completeLinkedWorkTasks, autoTaskTitles, taskDueFromInstant } from "@/lib/deliverable-tasks";
+import { defaultFixDeadline } from "@/lib/business-time";
+import { formatBogota } from "@/lib/bogota-time";
+import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import type { SessionUser } from "@/lib/session";
 
@@ -153,6 +156,9 @@ export async function createTask(projectId: string, formData: FormData) {
   const dueTime = /^\d{1,2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "09:00";
   // Coherencia: una tarea no puede empezar DESPUÉS de entregarse.
   if (startDate.getTime() > dueDate.getTime()) throw new Error("La fecha de inicio no puede ser posterior a la fecha de entrega.");
+  // Ítem de ENTREGABLE: queda elegible en el desplegable al crear un entregable y se
+  // completa sola cuando el editor manda la versión a pre-aprobación.
+  const isDeliverableWork = formData.get("isDeliverableWork") === "on" || formData.get("isDeliverableWork") === "true";
   const count = await db.task.count({ where: { projectId } });
   const task = await db.task.create({
     data: {
@@ -166,6 +172,7 @@ export async function createTask(projectId: string, formData: FormData) {
       startDate,
       dueDate,
       dueTime,
+      isDeliverableWork,
       ownerId: session?.id ?? null,
       assignedById: assigneeId ? session?.id ?? null : null,
     },
@@ -1205,13 +1212,39 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   // Caducidad opcional del enlace del cliente (si no se indica, no caduca).
   const expRaw = String(formData.get("reviewExpiresAt") ?? "").trim();
   const reviewExpiresAt = expRaw ? new Date(`${expRaw}T23:59:59.000Z`) : null;
+  // Límite de PRE-APROBACIÓN interna (fecha + hora de Bogotá): plazo para que el equipo
+  // revise. Al vencer, el barrido de SLA cierra las tareas «Pre-aprobar…» (quien no
+  // revisó queda con incumplimiento).
+  const irdRaw = String(formData.get("internalReviewDate") ?? "").trim();
+  const irtRaw = String(formData.get("internalReviewTime") ?? "").trim();
+  const internalReviewDueAt = /^\d{4}-\d{2}-\d{2}$/.test(irdRaw)
+    ? new Date(`${irdRaw}T${/^\d{1,2}:\d{2}$/.test(irtRaw) ? irtRaw.padStart(5, "0") : "18:00"}:00.000-05:00`)
+    : null;
   // Responsable de la revisión: solo se acepta si es miembro/responsable del proyecto.
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
-  const d = await db.deliverable.create({ data: { projectId, name, type: isDeliverableType(type) ? type : "REEL", reviewExpiresAt, reviewerId, ownerId: session.id } });
+  // Consecutivo POR PROYECTO (#1, #2…): identifica la pieza para siempre (también en la
+  // pestaña «Aprobados»). max+1 dentro de una transacción corta.
+  const number = await db.$transaction(async (tx) => {
+    const top = await tx.deliverable.aggregate({ where: { projectId }, _max: { number: true } });
+    return (top._max.number ?? 0) + 1;
+  });
+
+  const d = await db.deliverable.create({ data: { projectId, name, number, type: isDeliverableType(type) ? type : "REEL", reviewExpiresAt, internalReviewDueAt, reviewerId, ownerId: session.id } });
   // El conjunto de co-revisores refleja el revisor primario al crear (luego se pueden añadir más).
   if (reviewerId) await db.deliverableReviewer.create({ data: { deliverableId: d.id, userId: reviewerId } });
-  await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}»`, projectId, entityType: "deliverable", entityId: d.id });
+  await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}» (#${number})`, projectId, entityType: "deliverable", entityId: d.id });
+
+  // Tareas "ítem de entregable" elegidas en el desplegable: quedan VINCULADAS a esta pieza
+  // y se completan solas cuando el editor manda la versión a pre-aprobación. Solo tareas
+  // del MISMO proyecto marcadas como ítem de entregable y aún abiertas.
+  const workTaskIds = formData.getAll("workTaskIds").map(String).filter(Boolean);
+  if (workTaskIds.length) {
+    await db.task.updateMany({
+      where: { id: { in: workTaskIds }, projectId, isDeliverableWork: true, completedAt: null },
+      data: { deliverableId: d.id },
+    });
+  }
 
   // Primera versión opcional en el mismo formulario (link externo o archivo subido).
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
@@ -1232,6 +1265,9 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     const directToClient = await memberIsClient(reviewerId);
     await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, durationSec: parseDurationSec(formData), uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
     await db.deliverable.update({ where: { id: d.id }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
+    // Mandar la pieza a revisión ES terminar el trabajo: las tareas "ítem de entregable"
+    // vinculadas se completan solas para el editor.
+    await completeLinkedWorkTasks(d.id);
     await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la v1 de «${name}» (enviada DIRECTO al cliente para revisión)` : `subió la v1 de «${name}» (pendiente de pre-aprobación interna)`, projectId, entityType: "deliverable", entityId: d.id });
     const lead = await db.project.findUnique({ where: { id: projectId }, select: { leadId: true, name: true } });
     if (directToClient && reviewerId) {
@@ -1244,15 +1280,15 @@ export async function createDeliverable(projectId: string, formData: FormData) {
         await notifyAndEmail(responsible, { type: "review", event: "review_pending", title: `Revisión pendiente: ${name}`, body: `${session.name} subió la v1 en «${lead?.name ?? ""}». Revísala y pre-apruébala o solicita cambios.`, link: `/revisiones/${d.id}`, actorId: session.id });
       }
       // Tarea REAL en el tablero (fase Postproducción) para el responsable de la revisión,
-      // con la caducidad del enlace como fecha límite: la pre-aprobación no queda solo en
-      // una notificación.
+      // con el límite de pre-aprobación (o la caducidad del enlace) como fecha límite: la
+      // pre-aprobación no queda solo en una notificación.
       await createDeliverableAutoTask({
         projectId,
         deliverableId: d.id,
         title: autoTaskTitles.review(name, 1),
         description: `Revisa la v1 y pre-apruébala o solicita cambios en /revisiones. Al decidir, esta tarea se completa sola.`,
         assigneeId: responsible,
-        dueDate: reviewExpiresAt,
+        dueAt: internalReviewDueAt ?? reviewExpiresAt,
         actorId: session.id,
       });
     }
@@ -1388,6 +1424,27 @@ export async function setReviewExpiry(deliverableId: string, _projectId: string,
   const dateStr = String(formData.get("reviewExpiresAt") ?? "").trim();
   const exp = dateStr ? new Date(`${dateStr}T23:59:59.000Z`) : null;
   await db.deliverable.update({ where: { id: deliverableId }, data: { reviewExpiresAt: exp } });
+  refresh(deliverable.projectId);
+}
+
+// Fija o quita el límite de PRE-APROBACIÓN interna (fecha + hora de Bogotá). Vacío = sin
+// plazo (las tareas «Pre-aprobar…» no vencen solas). Actualiza también el vencimiento de
+// las tareas de revisión ABIERTAS para que el tablero refleje el nuevo plazo.
+export async function setInternalReviewDue(deliverableId: string, _projectId: string, formData: FormData) {
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { projectId: true, project: { select: accessSelect } } });
+  const session = await getSession();
+  if (!deliverable || !canManageProject(deliverable.project, session)) noAutorizado();
+  const dateStr = String(formData.get("internalReviewDate") ?? "").trim();
+  const timeStr = String(formData.get("internalReviewTime") ?? "").trim();
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+    ? new Date(`${dateStr}T${/^\d{1,2}:\d{2}$/.test(timeStr) ? timeStr.padStart(5, "0") : "18:00"}:00.000-05:00`)
+    : null;
+  await db.deliverable.update({ where: { id: deliverableId }, data: { internalReviewDueAt: due } });
+  const { dueDate, dueTime } = taskDueFromInstant(due);
+  await db.task.updateMany({
+    where: { deliverableId, completedAt: null, title: { startsWith: "Pre-aprobar" } },
+    data: { dueDate, dueTime },
+  });
   refresh(deliverable.projectId);
 }
 
@@ -1568,13 +1625,21 @@ export async function addDeliverableVersion(
   _projectId: string,
   formData: FormData,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, coverFileAssetId: true, reviewExpiresAt: true, reviewers: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } }, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, coverFileAssetId: true, reviewExpiresAt: true, internalReviewDueAt: true, fixDueAt: true, reviewers: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
   if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
   if (!hasPermission(session, "subir_archivos") && deliverable.ownerId !== session!.id) noAutorizado();
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  // Nuevo límite de pre-aprobación para ESTA versión (opcional): si el formulario lo trae,
+  // reemplaza el anterior; si no, se conserva el del entregable.
+  const irdRaw = String(formData.get("internalReviewDate") ?? "").trim();
+  const irtRaw = String(formData.get("internalReviewTime") ?? "").trim();
+  const newInternalDue = /^\d{4}-\d{2}-\d{2}$/.test(irdRaw)
+    ? new Date(`${irdRaw}T${/^\d{1,2}:\d{2}$/.test(irtRaw) ? irtRaw.padStart(5, "0") : "18:00"}:00.000-05:00`)
+    : null;
+  const internalDueAt = newInternalDue ?? deliverable.internalReviewDueAt;
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({
     where: { deliverableId },
@@ -1631,10 +1696,36 @@ export async function addDeliverableVersion(
     }
   }
   // La nueva versión pasa a revisión interna (compuerta bloqueante) o directo al cliente.
-  await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
+  // Se guarda el nuevo límite de pre-aprobación (si vino) y se LIMPIA el plazo de corrección:
+  // la corrección ya llegó (a tiempo o tarde, eso queda registrado en la tarea).
+  await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA", internalReviewDueAt: internalDueAt, fixDueAt: null } });
   await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la versión v${number} de «${deliverable.name}» (enviada DIRECTO al cliente para revisión)` : `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  // Mandar la versión a revisión completa las tareas "ítem de entregable" vinculadas.
+  await completeLinkedWorkTasks(deliverableId);
   // Esta versión ES la corrección: cierra las tareas «Corregir …» abiertas del entregable.
-  await closeDeliverableAutoTasks(deliverableId, ["fix"]);
+  // Si llegó DESPUÉS del plazo fijado (fixDueAt), la tarea se completa igual pero queda con
+  // INCUMPLIMIENTO — el plazo se venció aunque la corrección haya llegado después.
+  const lateFix = !!deliverable.fixDueAt && Date.now() > deliverable.fixDueAt.getTime();
+  await closeDeliverableAutoTasks(deliverableId, ["fix"], { breachIfAfter: deliverable.fixDueAt ?? null });
+  if (lateFix) {
+    // Aviso al responsable del proyecto: la corrección llegó, pero fuera de plazo.
+    const leadId = deliverable.project.leadId;
+    if (leadId && leadId !== session!.id) {
+      await notify(leadId, {
+        type: "review",
+        event: "review_sla",
+        title: `Corrección fuera de plazo: ${deliverable.name}`,
+        body: `${session!.name} subió la v${number}, pero el plazo de la corrección ya se había vencido. La tarea quedó con incumplimiento.`,
+        link: `/revisiones/${deliverableId}`,
+        actorId: session!.id,
+      });
+    }
+  }
+  // Las tareas «Pre-aprobar…» de la versión ANTERIOR que sigan abiertas quedan obsoletas.
+  // Antes de cerrarlas "limpias", el barrido de SLA juzga las que ya estaban VENCIDAS
+  // (quien dejó pasar su plazo sin revisar queda con incumplimiento, no con tarea cumplida).
+  await sweepDeliverableSla({ force: true }).catch(() => null);
+  await closeDeliverableAutoTasks(deliverableId, ["review"]);
   const reviewerIds = deliverable.reviewers.map((r) => r.userId);
   if (directToClient) {
     // Directo al portal: aviso al cliente-revisor con SU enlace (no /revisiones).
@@ -1666,14 +1757,17 @@ export async function addDeliverableVersion(
         actorId: session!.id,
       });
     }
-    // Tarea de pre-aprobación al responsable (caducidad del enlace = fecha límite).
-    await createDeliverableAutoTask({
+    // Tarea de pre-aprobación a CADA revisor del EQUIPO (cada quien responde por su
+    // revisión), con el límite de pre-aprobación como fecha/hora de vencimiento. Si no hay
+    // revisores, al responsable del proyecto o al dueño del entregable.
+    const teamReviewerIds = deliverable.reviewers.filter((r) => r.user.role?.key !== "cliente").map((r) => r.userId);
+    await createReviewTasksForReviewers({
       projectId: deliverable.projectId,
       deliverableId,
       title: autoTaskTitles.review(deliverable.name, number),
-      description: `Revisa la v${number} y pre-apruébala o solicita cambios en /revisiones. Al decidir, esta tarea se completa sola.`,
-      assigneeId: reviewerIds[0] ?? deliverable.project.leadId ?? deliverable.ownerId,
-      dueDate: deliverable.reviewExpiresAt,
+      description: `Revisa la v${number} y pre-apruébala o solicita cambios en /revisiones. Al decidir, esta tarea se completa sola.${internalDueAt ? " Si el plazo vence sin revisar, queda como incumplida." : ""}`,
+      reviewerIds: teamReviewerIds.length ? teamReviewerIds : [deliverable.project.leadId ?? deliverable.ownerId],
+      dueAt: internalDueAt ?? deliverable.reviewExpiresAt,
       actorId: session!.id,
     });
   }
@@ -1695,6 +1789,10 @@ export async function internalDecision(
   versionNumber: number,
   result: "APROBADO" | "CAMBIOS",
   note?: string,
+  // Plazo de entrega de la CORRECCIÓN (ISO), fijado por el productor en la ventana
+  // emergente al solicitar cambios. Si no llega, 24 horas HÁBILES (sáb/dom no cuentan).
+  // El cliente nunca ve esto: es un control interno.
+  fixDueIso?: string | null,
 ) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewExpiresAt: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
@@ -1711,6 +1809,8 @@ export async function internalDecision(
   if (!deliverable || !mayDecide) noAutorizado();
   const projectId = deliverable.projectId;
   const approved = result === "APROBADO";
+  // Plazo de la corrección en curso (se fija más abajo si el resultado es CAMBIOS).
+  let fixDueAt: Date | null = null;
 
   await db.deliverableDecision.create({
     data: { deliverableId, versionNumber, stage: "INTERNA", result, byUserId: session!.id, note: note?.slice(0, 1000) || null },
@@ -1729,7 +1829,13 @@ export async function internalDecision(
       actorId: session!.id,
     });
   } else {
-    await db.deliverable.update({ where: { id: deliverableId }, data: { status: "CORRECCIONES" } });
+    // Plazo de la corrección: el que fijó el productor en la ventana emergente o, por
+    // defecto, 24 horas hábiles desde ahora (si cae en fin de semana, corre al lunes).
+    const parsedFixDue = fixDueIso ? new Date(fixDueIso) : null;
+    fixDueAt = parsedFixDue && !isNaN(parsedFixDue.getTime()) && parsedFixDue.getTime() > Date.now()
+      ? parsedFixDue
+      : defaultFixDeadline(new Date());
+    await db.deliverable.update({ where: { id: deliverableId }, data: { status: "CORRECCIONES", fixDueAt } });
     // Sella los comentarios internos (borradores) de esta versión: pasan a ser el checklist
     // inmutable que trabaja el editor en Entregables. Ya no se pueden editar ni borrar.
     await db.reviewComment.updateMany({
@@ -1751,25 +1857,31 @@ export async function internalDecision(
   // cliente …» (aprobada). Así el requisito nunca queda a medias con solo una notificación.
   const version = await db.deliverableVersion.findFirst({ where: { deliverableId, number: versionNumber }, select: { uploadedById: true } });
   const uploaderId = version?.uploadedById ?? deliverable.ownerId ?? deliverable.project.leadId;
-  await closeDeliverableAutoTasks(deliverableId, ["review"]);
   if (approved) {
+    // Pre-aprobada y enviada al cliente: la etapa de revisión TERMINÓ para todos, así que
+    // la tarea «Pre-aprobar…» se completa a TODOS los co-revisores (uno aprobó por el equipo).
+    await closeDeliverableAutoTasks(deliverableId, ["review"]);
     await createDeliverableAutoTask({
       projectId,
       deliverableId,
       title: autoTaskTitles.deliver(deliverable.name, versionNumber),
       description: "La versión quedó pre-aprobada y ya está en el portal del cliente. Comparte el enlace de revisión y completa portada, copy y descargas si faltan. Cuando el cliente decida, esta tarea se completa sola.",
       assigneeId: uploaderId,
-      dueDate: deliverable.reviewExpiresAt,
+      dueAt: deliverable.reviewExpiresAt,
       actorId: session!.id,
     });
   } else {
+    // Cambios solicitados: quien decidió CUMPLIÓ su revisión (solo se cierra SU tarea).
+    // La del otro co-revisor sigue viva hasta el límite de pre-aprobación: si comenta,
+    // cumple; si lo deja vencer sin revisar, el barrido la cierra con incumplimiento.
+    await closeDeliverableAutoTasks(deliverableId, ["review"], { assigneeId: session!.id });
     await createDeliverableAutoTask({
       projectId,
       deliverableId,
       title: autoTaskTitles.fix(deliverable.name, versionNumber),
-      description: `Aplica los cambios solicitados${note ? `: ${note.slice(0, 300)}` : ""}. El checklist con capturas está en el entregable. Al subir la nueva versión, esta tarea se completa sola.`,
+      description: `Aplica los cambios solicitados${note ? `: ${note.slice(0, 300)}` : ""}. El checklist con capturas está en el entregable. Al subir la nueva versión, esta tarea se completa sola.${fixDueAt ? " Si la corrección llega después del plazo, queda como incumplida." : ""}`,
       assigneeId: uploaderId,
-      dueDate: deliverable.reviewExpiresAt,
+      dueAt: fixDueAt ?? deliverable.reviewExpiresAt,
       actorId: session!.id,
     });
   }
@@ -1788,7 +1900,7 @@ export async function internalDecision(
         type: "review",
         event: "review_changes",
         title: `Cambios solicitados: ${deliverable.name}`,
-        body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}»${changeCount ? ` · ${changeCount} ${changeCount === 1 ? "punto" : "puntos"} en el checklist` : ""}.${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
+        body: `${session!.name} pidió cambios en la v${versionNumber} de «${deliverable.project.name}»${changeCount ? ` · ${changeCount} ${changeCount === 1 ? "punto" : "puntos"} en el checklist` : ""}.${fixDueAt ? ` Plazo de la corrección: ${formatBogota(fixDueAt)}.` : ""}${note ? ` Nota: ${note.slice(0, 300)}` : ""}`,
         link: `/revisiones/${deliverableId}`,
         actorId: session!.id,
       },
@@ -2488,5 +2600,32 @@ export async function clientDecideDeliverable(deliverableId: string, decision: "
     link: `/revisiones/${deliverableId}`,
     actorId: session.id,
   });
+  // ── Tareas del flujo ── (paridad con el enlace público /review/[token]): la decisión del
+  // cliente completa las tareas abiertas del ciclo; si pidió cambios, crea la tarea REAL
+  // «Corregir … (cambios del cliente)» con plazo por defecto de 24 horas hábiles — el
+  // cliente no fija plazos: el productor puede ajustarlo luego en la tarea.
+  const flowInfo = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: {
+      ownerId: true,
+      reviewExpiresAt: true,
+      project: { select: { leadId: true } },
+      versions: { orderBy: { number: "desc" }, take: 1, select: { uploadedById: true, number: true } },
+    },
+  });
+  await closeDeliverableAutoTasks(deliverableId, approved ? ["deliver", "review", "fix"] : ["deliver", "review"]);
+  if (!approved && flowInfo) {
+    const fixDueAt = defaultFixDeadline(new Date());
+    await db.deliverable.update({ where: { id: deliverableId }, data: { fixDueAt } });
+    await createDeliverableAutoTask({
+      projectId: deliverable.projectId,
+      deliverableId,
+      title: autoTaskTitles.fix(deliverable.name, latestApproved.number, true),
+      description: `El cliente (${session.name}) solicitó cambios${note ? `: ${note.trim().slice(0, 300)}` : ""}. Sus comentarios están en el entregable. Al subir la nueva versión, esta tarea se completa sola. Plazo: ${formatBogota(fixDueAt)} (después de esa hora queda como incumplida).`,
+      assigneeId: flowInfo.versions[0]?.uploadedById ?? flowInfo.ownerId ?? flowInfo.project.leadId,
+      dueAt: fixDueAt,
+      actorId: null,
+    });
+  }
   refresh(deliverable.projectId);
 }

@@ -38,9 +38,10 @@ export function InternalReview({
       fixedName
       decision={{ approveLabel: "Pre-aprobado", changesLabel: "Solicitar cambios" }}
       canDecide={canDecide}
+      askFixDeadline
       onComment={(fd) => addInternalReviewComment(deliverableId, fd)}
-      onDecision={(result, note, _name, versionNumber) =>
-        internalDecision(deliverableId, projectId, versionNumber, result, note || undefined)
+      onDecision={(result, note, _name, versionNumber, fixDueIso) =>
+        internalDecision(deliverableId, projectId, versionNumber, result, note || undefined, fixDueIso ?? null)
       }
       onEdit={(id, body) => editReviewComment(id, projectId, body)}
       onDelete={(id) => deleteReviewComment(id, projectId)}

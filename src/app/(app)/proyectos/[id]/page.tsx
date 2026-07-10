@@ -232,6 +232,8 @@ export default async function ProyectoPage({
     description: t.description,
     commentCount: t._count.comments,
     tags: t.tags.map((g) => ({ id: g.id, label: g.label, color: g.color })),
+    isDeliverableWork: t.isDeliverableWork,
+    breachedAt: t.breachedAt,
   }));
 
   // Pendientes vs completadas según las etiquetas de estado configurables (isDone):
@@ -289,12 +291,18 @@ export default async function ProyectoPage({
           initials: t.initials,
           color: t.avatarColor,
         }))}
+      workTasks={project.tasks
+        .filter((t) => t.isDeliverableWork && !t.completedAt && !t.deliverableId)
+        .map((t) => ({ id: t.id, title: t.title, assignee: t.assignee?.name ?? null }))}
       deliverables={project.deliverables.map((d) => ({
         id: d.id,
         name: d.name,
+        number: d.number,
         type: d.type,
         status: d.status,
         dueDate: d.dueDate,
+        internalReviewDueAt: d.internalReviewDueAt,
+        fixDueAt: d.fixDueAt,
         owner: d.owner,
         reviewerId: d.reviewerId,
         reviewerIds: d.reviewers.map((r) => r.userId),
@@ -536,6 +544,7 @@ export default async function ProyectoPage({
                         completedAtIso: t.completedAt?.toISOString() ?? null,
                         stage: t.stage,
                         assignee: t.assignee ? { initials: t.assignee.initials, avatarColor: t.assignee.avatarColor } : null,
+                        breached: !!t.breachedAt,
                       }))}
                     />
                   }
