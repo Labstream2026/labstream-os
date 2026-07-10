@@ -953,8 +953,8 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
 
   let where: Prisma.ChatChannelWhereInput;
   if (session.role === "cliente") {
-    // El portal del cliente solo alcanza el chat CON el equipo de sus proyectos.
-    where = { type: "PROJECT", audience: "CLIENT", project: { members: { some: { userId: session.id } } } };
+    // El portal del cliente solo alcanza el canal ÚNICO de sus proyectos (un chat por proyecto).
+    where = { type: "PROJECT", project: { members: { some: { userId: session.id } } } };
   } else {
     const isAdmin = session.role === "admin";
     where = {

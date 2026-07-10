@@ -25,11 +25,12 @@ export function canAccessChannel(
   // canal sea PÚBLICO). Es la puerta que cierra join/explore (que solo miraban isPublic) → sin esto
   // un usuario sin permiso de la sección podía auto-unirse a un grupo público asignado a ella.
   if (channel.section && !sessionHasSectionAccess(channel.section, session)) return false;
-  // PORTAL DEL CLIENTE: entra SOLO al canal CON EL CLIENTE (audience "CLIENT") de SU proyecto. El
-  // canal INTERNO del equipo (misma proyecto, audience "INTERNAL") queda fuera de su alcance, igual
-  // que públicos, DMs y otros proyectos (por eso NO cae al `isPublic` de abajo).
+  // PORTAL DEL CLIENTE: con UN solo chat por proyecto, el invitado entra al canal de SU proyecto
+  // (es responsable o miembro del proyecto). Todo lo demás sigue fuera de su alcance —públicos,
+  // DMs, el canal de la CUENTA (que es del equipo) y otros proyectos— por eso NO cae al
+  // `isPublic` de abajo.
   if (session.role === "cliente") {
-    return channel.audience === "CLIENT" && !!channel.project && (channel.project.leadId === session.id || (channel.project.members?.some((m) => m.userId === session.id) ?? false));
+    return !!channel.project && (channel.project.leadId === session.id || (channel.project.members?.some((m) => m.userId === session.id) ?? false));
   }
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;

@@ -13,10 +13,11 @@ import { CHAT_SECTIONS } from "@/lib/chat-section";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
 
-// Chip del tipo de canal dentro del grupo de un cliente (interno del equipo, con el cliente,
-// cuenta del cliente) o de un equipo por rol. Colorea sin gritar: borde + texto.
+// Chip del tipo de canal dentro del grupo de un cliente (proyecto, cuenta del cliente) o de un
+// equipo por rol. Colorea sin gritar: borde + texto. Con UN solo canal por proyecto, el chip del
+// canal de proyecto dice «proyecto» (la clave "interno" se conserva por compatibilidad).
 const KIND_META: Record<NonNullable<ChatListRow["kind"]>, { label: string; cls: string }> = {
-  interno: { label: "interno", cls: "border-border text-muted-foreground" },
+  interno: { label: "proyecto", cls: "border-border text-muted-foreground" },
   cliente: { label: "cliente", cls: "border-sky-500/40 text-sky-600 dark:text-sky-400" },
   cuenta: { label: "cuenta", cls: "border-violet-500/40 text-violet-600 dark:text-violet-400" },
   equipo: { label: "equipo", cls: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400" },

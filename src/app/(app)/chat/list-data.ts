@@ -226,19 +226,18 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
   // cliente) y GRUPOS sin cliente (equipos por rol, canales de equipo, etc.).
   const groupChannels = myChannels.filter((c) => c.type !== "DIRECT" && c.id !== dailyId);
   const rowOf = (c: (typeof groupChannels)[number]): ChatListRow => {
+    // UN solo canal por proyecto: el chip «proyecto» (kind "interno" heredado) cubre todos los
+    // canales de proyecto; ya no existe la variante «con el cliente».
     const kind = c.roleKey
       ? "equipo"
       : c.type === "CLIENT"
         ? "cuenta"
         : c.type === "PROJECT"
-          ? c.audience === "CLIENT"
-            ? "cliente"
-            : "interno"
+          ? "interno"
           : null;
     return {
       id: c.id,
-      // Con el chip «cliente» el sufijo del nombre sobra (project-chat nombra «Proyecto · cliente»).
-      name: kind === "cliente" ? c.name.replace(/ · cliente$/, "") : c.name,
+      name: c.name,
       initials: null,
       color: null,
       isPublic: c.isPublic,
@@ -303,14 +302,13 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
 // Rail de chats del PORTAL DEL CLIENTE: SOLO los canales de proyecto donde es miembro (para hablar
 // con el equipo), agrupados por su cliente. Sin canales públicos, DMs, explorar ni lista del equipo.
 async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
-  // Asegura el canal CON EL CLIENTE en cada proyecto del invitado (incluye los que ya existían
-  // antes de esta función). Solo crea lo que falte.
+  // Asegura (y migra, si venía la pareja vieja) el canal ÚNICO de cada proyecto del invitado.
   const myProjects = await db.projectMember.findMany({ where: { userId: session.id }, select: { projectId: true } });
   await Promise.all(myProjects.map((m) => ensureProjectChannels(m.projectId)));
 
   const channels = await db.chatChannel.findMany({
-    // El invitado SOLO ve el canal "CLIENT" (con el cliente); nunca el interno del equipo.
-    where: { type: "PROJECT", audience: "CLIENT", project: { members: { some: { userId: session.id } } } },
+    // UN solo chat por proyecto: el invitado ve el canal de cada proyecto donde es miembro.
+    where: { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
     orderBy: { createdAt: "desc" },
     include: {
       members: { select: { userId: true, muted: true } },
@@ -333,7 +331,7 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
   for (const c of channels) {
     const row: ChatListRow = {
       id: c.id,
-      name: c.name.replace(/ · cliente$/, ""),
+      name: c.name,
       initials: null,
       color: null,
       isPublic: c.isPublic,

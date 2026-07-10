@@ -1,17 +1,19 @@
 import { db } from "@/lib/db";
 import { getOrCreateClientChannel } from "@/lib/client-chat";
 
-// Canales de chat de un proyecto por AUDIENCIA:
-//  - INTERNAL: chat SOLO del equipo (siempre existe).
-//  - CLIENT:   chat con el cliente invitado (equipo + cliente). Solo existe si el proyecto tiene
-//              algún miembro con rol "cliente".
-// La "pestaña doble" (interno + con el cliente) aparece justo cuando existe el canal CLIENT.
-// Idempotente: se puede llamar en cada carga; crea lo que falte y no duplica.
+// UN SOLO canal de chat por proyecto (decisión del usuario, 2026-07-09): el equipo y el
+// invitado del portal conviven en el mismo canal — se acabó la pareja «interno» + «con el
+// cliente», que fragmentaba la conversación. Idempotente: se puede llamar en cada carga.
 //
-// Además SINCRONIZA la membresía de los canales con el equipo del proyecto: quien está en el
-// proyecto es miembro del chat automáticamente (no hay que invitarlo), y solo esas personas. Así
-// las @menciones, los no-leídos y los avisos de mensaje (que se apoyan en ChannelMember) llegan a
-// todo el equipo del proyecto sin gestión manual.
+// MIGRACIÓN EN CALIENTE de los proyectos con la pareja vieja: los mensajes del canal «con el
+// cliente» se mueven al canal del proyecto (quedan intercalados por fecha) y el canal sobrante
+// se elimina (miembros/estados caen en cascada). OJO: el canal del proyecto pasa a ser visible
+// para el invitado, INCLUIDO el historial interno previo del equipo.
+//
+// Además SINCRONIZA la membresía del canal con el proyecto COMPLETO (equipo + invitados del
+// portal): quien está en el proyecto es miembro del chat automáticamente (no hay que invitarlo),
+// y solo esas personas. Así las @menciones, los no-leídos y los avisos de mensaje (que se apoyan
+// en ChannelMember) llegan a todos sin gestión manual.
 
 export type ProjectChannels = { internalId: string; clientId: string | null };
 
@@ -48,22 +50,26 @@ export async function ensureProjectChannels(projectId: string): Promise<ProjectC
       leadId: true,
       clientId: true,
       channels: { select: { id: true, audience: true } },
-      // Miembros del proyecto con su rol: el equipo (todos menos los invitados) va al canal interno;
-      // el equipo + los invitados (rol cliente) van al canal con el cliente.
-      members: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } },
-      // Rol del responsable: si (por config atípica) fuera un usuario del portal cliente, NO entra al
-      // canal interno del equipo (va con los invitados). canAccessChannel ya lo bloquearía, pero así
-      // tampoco figura como miembro ni recibe avisos del canal interno.
+      // TODOS los miembros del proyecto (equipo + invitados del portal) van al canal único.
+      members: { select: { userId: true } },
+      // Rol del responsable: si (por config atípica) fuera un usuario del portal cliente, entra
+      // como miembro normal del canal, nunca como ADMIN.
       lead: { select: { role: { select: { key: true } } } },
     },
   });
   if (!project) return null;
   const leadIsCliente = project.lead?.role?.key === "cliente";
 
-  // INTERNAL: el canal del equipo. Adopta un canal de proyecto sin audiencia (heredado) o crea uno.
-  let internal = project.channels.find((c) => c.audience === "INTERNAL") ?? project.channels.find((c) => c.audience == null);
-  if (!internal) {
-    internal = await db.chatChannel.create({
+  // El canal ÚNICO del proyecto: adopta el interno o uno heredado sin audiencia; si el proyecto
+  // (atípicamente) solo tenía el canal «con el cliente», ese asciende a canal del proyecto.
+  const legacyClient = project.channels.find((c) => c.audience === "CLIENT") ?? null;
+  let channel = project.channels.find((c) => c.audience === "INTERNAL") ?? project.channels.find((c) => c.audience == null);
+  if (!channel && legacyClient) {
+    channel = legacyClient;
+    await db.chatChannel.update({ where: { id: channel.id }, data: { audience: "INTERNAL", name: project.name } });
+  }
+  if (!channel) {
+    channel = await db.chatChannel.create({
       data: {
         type: "PROJECT",
         audience: "INTERNAL",
@@ -74,32 +80,22 @@ export async function ensureProjectChannels(projectId: string): Promise<ProjectC
       },
       select: { id: true, audience: true },
     });
-  } else if (internal.audience == null) {
-    await db.chatChannel.update({ where: { id: internal.id }, data: { audience: "INTERNAL" } });
+  } else if (channel.audience == null) {
+    await db.chatChannel.update({ where: { id: channel.id }, data: { audience: "INTERNAL" } });
   }
 
-  // CLIENT: solo si el proyecto tiene un invitado.
-  const clienteIds = project.members.filter((m) => m.user.role?.key === "cliente").map((m) => m.userId);
-  const teamIds = project.members.filter((m) => m.user.role?.key !== "cliente").map((m) => m.userId);
-  // El responsable entra al equipo salvo que sea (atípicamente) un usuario del portal cliente, en
-  // cuyo caso va con los invitados (canal con el cliente), nunca al interno.
-  if (project.leadId && !leadIsCliente && !teamIds.includes(project.leadId)) teamIds.push(project.leadId);
-  if (project.leadId && leadIsCliente && !clienteIds.includes(project.leadId)) clienteIds.push(project.leadId);
-
-  const hasCliente = clienteIds.length > 0;
-  let clientCh = project.channels.find((c) => c.audience === "CLIENT") ?? null;
-  if (hasCliente && !clientCh) {
-    clientCh = await db.chatChannel.create({
-      data: { type: "PROJECT", audience: "CLIENT", name: `${project.name} · cliente`, projectId, isPublic: false },
-      select: { id: true, audience: true },
-    });
+  // Migración de la pareja vieja: los mensajes del canal «con el cliente» pasan al canal único
+  // (intercalados por fecha; hilos y adjuntos viajan con su mensaje) y el canal sobrante se borra.
+  if (legacyClient && legacyClient.id !== channel.id) {
+    await db.chatMessage.updateMany({ where: { channelId: legacyClient.id }, data: { channelId: channel.id } });
+    await db.chatChannel.delete({ where: { id: legacyClient.id } });
   }
 
-  // Sincroniza la membresía: el canal interno = solo el equipo; el canal con el cliente = equipo +
-  // invitados. De este modo estar en el proyecto ES estar en el chat (no hay que invitar a nadie) y
-  // solo esas personas figuran (el chat con el cliente "solo habla con el equipo del proyecto").
-  await syncChannelMembers(internal.id, teamIds, leadIsCliente ? null : project.leadId);
-  if (clientCh) await syncChannelMembers(clientCh.id, [...teamIds, ...clienteIds], project.leadId);
+  // Membresía = el proyecto COMPLETO (equipo + invitados del portal). El responsable queda como
+  // ADMIN del canal, salvo que sea (atípicamente) un usuario del portal: entra como miembro normal.
+  const memberIds = project.members.map((m) => m.userId);
+  if (project.leadId && !memberIds.includes(project.leadId)) memberIds.push(project.leadId);
+  await syncChannelMembers(channel.id, memberIds, leadIsCliente ? null : project.leadId);
 
   // El canal de la CUENTA del cliente se mantiene al día JUNTO con los del proyecto: deja de ser
   // "fantasma" (antes solo nacía al abrir el dock en /clientes/[id]) y su membresía refleja los
@@ -113,5 +109,5 @@ export async function ensureProjectChannels(projectId: string): Promise<ProjectC
     }
   }
 
-  return { internalId: internal.id, clientId: clientCh?.id ?? null };
+  return { internalId: channel.id, clientId: null };
 }
