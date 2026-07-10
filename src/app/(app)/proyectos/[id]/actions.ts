@@ -19,6 +19,7 @@ import { deliverableStatusMeta, statusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { validateAssignee } from "@/lib/task-assign";
 import { ensureProjectChannels } from "@/lib/project-chat";
+import { getOrCreateClientChannel } from "@/lib/client-chat";
 import { statusLabelOf } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
 import { closeDeliverableAutoTasks, createDeliverableAutoTask, createReviewTasksForReviewers, completeLinkedWorkTasks, autoTaskTitles, taskDueFromInstant } from "@/lib/deliverable-tasks";
@@ -933,6 +934,62 @@ export async function updateProject(projectId: string, formData: FormData) {
 // Edita SOLO nombre, descripción y fecha de entrega del proyecto, desde la ficha (pestaña
 // Resumen). A diferencia de updateProject, NO toca estado, prioridad, responsable, emoji ni
 // fecha de inicio: es una edición acotada para corregir el nombre/brief y reagendar la entrega.
+// ── Mover el proyecto a OTRO cliente ──
+// Gestión de cartera (proyectos creados bajo el cliente equivocado, reorganizaciones).
+// SOLO el administrador. Qué arrastra el cambio:
+//   · Todo lo que cuelga del proyecto (tareas, entregables, archivos, calendario, equipo
+//     interno) se va con él — referencian projectId, no clientId.
+//   · Los usuarios del PORTAL del cliente viejo se RETIRAN del proyecto (miembros GUEST y
+//     revisores): si se quedaran, verían un proyecto que ya es de otro cliente.
+//   · Los canales de chat se resincronizan (el del proyecto y las cuentas de ambos clientes).
+//   · Cotizaciones y facturas NO se tocan: son historia comercial del cliente que las pagó.
+export async function moveProjectToClient(projectId: string, targetClientId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede mover proyectos de cliente." };
+
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: { name: true, clientId: true, client: { select: { name: true } }, members: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } } },
+  });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  if (project.clientId === targetClientId) return { ok: true };
+  const target = await db.client.findUnique({ where: { id: targetClientId }, select: { name: true, archivedAt: true } });
+  if (!target) return { ok: false, error: "El cliente destino no existe." };
+  if (target.archivedAt) return { ok: false, error: "El cliente destino está archivado." };
+
+  const oldClientId = project.clientId;
+  // Usuarios del PORTAL (rol cliente) que participaban: pertenecen al cliente viejo.
+  const portalIds = project.members.filter((m) => m.user.role?.key === "cliente").map((m) => m.userId);
+
+  await db.project.update({ where: { id: projectId }, data: { clientId: targetClientId } });
+  if (portalIds.length) {
+    await db.projectMember.deleteMany({ where: { projectId, userId: { in: portalIds } } });
+    await db.deliverableReviewer.deleteMany({ where: { userId: { in: portalIds }, deliverable: { projectId } } });
+    await db.deliverable.updateMany({ where: { projectId, reviewerId: { in: portalIds } }, data: { reviewerId: null } });
+  }
+  // Chat: el canal del proyecto pierde a los GUEST retirados, y las cuentas de AMBOS
+  // clientes recalculan su membresía (el equipo del proyecto cambió de cuenta).
+  await ensureProjectChannels(projectId).catch(() => null);
+  await getOrCreateClientChannel(oldClientId).catch(() => null);
+  await getOrCreateClientChannel(targetClientId).catch(() => null);
+
+  await logActivity({
+    action: "project.move_client",
+    summary: `movió el proyecto «${project.name}» del cliente «${project.client.name}» a «${target.name}»`,
+    projectId,
+    entityType: "project",
+    entityId: projectId,
+  });
+  revalidatePath("/clientes");
+  revalidatePath(`/clientes/${oldClientId}`);
+  revalidatePath(`/clientes/${targetClientId}`);
+  revalidatePath("/proyectos");
+  revalidatePath(`/proyectos/${projectId}`);
+  revalidatePath("/timeline");
+  revalidatePath("/", "layout"); // sidebar: el proyecto cambia de grupo de cliente
+  return { ok: true };
+}
+
 export async function updateProjectDetails(projectId: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
   await ensureProjectAccess(projectId, "editar_proyectos");
   const name = String(formData.get("name") ?? "").trim();

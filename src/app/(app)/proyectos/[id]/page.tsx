@@ -18,6 +18,7 @@ import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
+import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksSpace } from "./tasks-space";
@@ -495,6 +496,14 @@ export default async function ProyectoPage({
                 name={project.name}
                 description={project.description}
                 dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
+              />
+            ) : null}
+            {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
+            {session?.role === "admin" ? (
+              <MoveProjectClient
+                projectId={project.id}
+                currentClientId={project.clientId}
+                clients={await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })}
               />
             ) : null}
             {/* Propuesta (alcance y entregables): expandida por defecto y renderizada; la edición
