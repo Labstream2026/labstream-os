@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
-import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
+import { emitCalendarCreate, emitCalendarDetail, emitCalendarEdit, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 import { holidayName } from "@/lib/holidays-co";
 import { emojiToText } from "@/components/icons/marks";
@@ -193,7 +193,8 @@ export function MyCalendar({
                             onDragStart={draggable ? (e) => { dragItem.current = ev; e.dataTransfer.effectAllowed = "move"; } : undefined}
                             onDragEnd={() => { dragItem.current = null; setOverKey(null); }}
                             onClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
-                            title={`${ev.title}${ev.projectName ? ` · ${emojiToText(ev.projectEmoji, "🗂️")} ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover" : ""}`}
+                            onDoubleClick={(e) => { e.stopPropagation(); if (ev.eventId && ev.canEdit) emitCalendarEdit(ev); else emitCalendarDetail(ev); }}
+                            title={`${ev.title}${ev.projectName ? ` · ${emojiToText(ev.projectEmoji, "🗂️")} ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover · doble clic para editar" : ""}`}
                             className={cn(
                               "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",
                               draggable && "cursor-grab active:cursor-grabbing",
@@ -233,14 +234,19 @@ export function MyCalendar({
       </div>
       )}
 
-      {/* Ventana continua de 6 meses con scroll propio; cabecera de día fija arriba (estilo Notion). */}
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 bg-card">
+      {/* Ventana continua de 6 meses con scroll propio; cabecera de día fija arriba (estilo Notion).
+          Ancho mínimo + scroll horizontal: cuando el contenedor es angosto (panel de chat abierto,
+          pantallas chicas) la rejilla NO se comprime hasta que las abreviaturas y los números se
+          solapan — hace scroll lateral, igual que la vista Semana. */}
+      <div className="min-h-0 flex-1 overflow-auto border-t border-border/50 bg-card">
+        <div className="min-w-[34rem]">
         <div className="sticky top-0 z-[2] grid grid-cols-7 border-b border-border/50 bg-card">
           {WEEKDAYS.map((w) => (
             <div key={w} className="py-2 text-center text-[11px] font-medium uppercase text-muted-foreground">{w}</div>
           ))}
         </div>
         {months.map((mo) => monthGrid(mo.y, mo.m))}
+        </div>
       </div>
 
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">

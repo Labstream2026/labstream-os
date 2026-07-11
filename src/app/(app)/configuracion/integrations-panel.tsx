@@ -4,6 +4,7 @@ import * as React from "react";
 import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2, Bot } from "lucide-react";
 import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw, saveOnlyOfficeSettings, testOnlyOffice } from "./actions";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
+import { CalendarSubscribe } from "@/app/(app)/perfil/calendar-subscribe";
 import { formatBogota } from "@/lib/bogota-time";
 
 export type CalTeamRow = { name: string; calendarName: string | null; lastSyncAt: string | null; lastError: string | null };
@@ -83,6 +84,8 @@ export function IntegrationsPanel({
   calendarTotal = 0,
   myEmail = "",
   myCalendarConnection = null,
+  feedToken = null,
+  feedBaseUrl = "",
 }: {
   email: boolean;
   caldav: boolean;
@@ -96,6 +99,8 @@ export function IntegrationsPanel({
   calendarTotal?: number;
   myEmail?: string;
   myCalendarConnection?: MyCalConn;
+  feedToken?: string | null;
+  feedBaseUrl?: string;
 }) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<string | null>(null);
@@ -223,6 +228,8 @@ export function IntegrationsPanel({
     </div>
     {/* Conexión personal del calendario (cada quien la suya; también disponible en Mi perfil). */}
     <CalendarConnect email={myEmail} connection={myCalendarConnection} />
+    {/* Suscripción del calendario personal en Google/Apple/Outlook (feed webcal de solo lectura). */}
+    <CalendarSubscribe initialToken={feedToken} baseUrl={feedBaseUrl} />
     </>
   );
 }

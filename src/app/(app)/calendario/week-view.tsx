@@ -3,15 +3,16 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
+import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, emitCalendarEdit, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent, moveMyTask } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 import { holidayName } from "@/lib/holidays-co";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 
-const HOUR_H = 44; // alto en px de cada hora
+const MIN_HOUR_H = 44; // alto MÍNIMO de cada hora (px); crece para llenar el alto disponible
 const GUTTER = 44; // ancho de la columna de horas (debe coincidir con gridTemplateColumns)
 const SNAP = 15; // minutos de imantado al arrastrar
+const DRAG_THRESHOLD = 4; // px que hay que mover para que un "mantener presionado" pase a arrastre
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 // Ventana horaria VISIBLE de la rejilla: 04:00–24:00 (se muestran las horas 4..23; la última
@@ -23,8 +24,9 @@ const END_HOUR = 24; // exclusivo: la rejilla llega hasta medianoche
 const START_MIN = START_HOUR * 60; // 240
 const VISIBLE_HOURS = END_HOUR - START_HOUR; // 20 filas
 // Minuto del día → píxeles desde la parte superior de la rejilla (respeta la ventana visible).
-function minToTop(min: number): number {
-  return ((min - START_MIN) / 60) * HOUR_H;
+// El alto de hora (hourH) es dinámico: crece para llenar el espacio disponible.
+function minToTop(min: number, hourH: number): number {
+  return ((min - START_MIN) / 60) * hourH;
 }
 
 // Cuántos chips "todo el día" se ven por día antes de que el resto quede tras el scroll
@@ -131,7 +133,7 @@ function layoutDay(timed: { it: CalItem; topMin: number; endMin: number }[]): Po
 type Drag = {
   // Exactamente uno de eventId/taskId: el bloque arrastrado es una cita o una tarea.
   id: string; eventId: string | null; taskId: string | null; mode: "move" | "resize";
-  startY: number; origTopMin: number; origDur: number; origDayIndex: number;
+  startY: number; startX: number; origTopMin: number; origDur: number; origDayIndex: number;
   gridLeft: number; colW: number; moved: boolean;
 };
 
@@ -157,11 +159,31 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   const gridRef = React.useRef<HTMLDivElement>(null);
   const [, startMove] = React.useTransition();
 
+  // Alto de cada hora en px: crece para LLENAR el alto visible (sin zona muerta abajo) y nunca
+  // baja de MIN_HOUR_H (por debajo de eso, la rejilla hace scroll). Se mide con ResizeObserver.
+  const [hourH, setHourH] = React.useState(MIN_HOUR_H);
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const h = el.clientHeight;
+      if (h > 0) setHourH(Math.max(MIN_HOUR_H, Math.floor(h / VISIBLE_HOURS)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Estado de arrastre (mover/redimensionar) y su previsualización flotante.
   const [drag, setDrag] = React.useState<Drag | null>(null);
   const [preview, setPreview] = React.useState<Live | null>(null);
   const liveRef = React.useRef<Live | null>(null);
   const suppressClick = React.useRef(false);
+  // "Mantener presionado" pendiente: se registra al apoyar el puntero pero NO inicia el arrastre
+  // hasta cruzar DRAG_THRESHOLD. Así un clic simple o doble clic NO se convierten en arrastre y
+  // el navegador dispara click/dblclick de forma nativa (no hacemos preventDefault en pointerdown).
+  const pendingRef = React.useRef<Drag | null>(null);
 
   const weekStart = dayCount === 7 ? startOfWeek(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
   const days = Array.from({ length: dayCount }, (_, i) => {
@@ -171,30 +193,77 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   });
   const today = new Date();
 
-  // Auto-scroll a ~7 AM al montar.
+  // Auto-scroll a ~7 AM una sola vez (tras medir el alto). Si la rejilla llena el alto visible
+  // no hay scroll y queda en 0; si es pequeña, deja las 7 AM cerca del borde superior.
+  const didAutoScroll = React.useRef(false);
   React.useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, minToTop(7 * 60) - 8);
-  }, []);
+    if (didAutoScroll.current || !scrollRef.current) return;
+    scrollRef.current.scrollTop = Math.max(0, minToTop(7 * 60, hourH) - 8);
+    didAutoScroll.current = true;
+  }, [hourH]);
 
   // Selección: marca el bloque y emite el detalle al panel derecho (dock).
   const select = (it: CalItem | null) => { setSelectedId(it?.id ?? null); emitCalendarDetail(it); onSelect?.(it); };
   // Al desmontar (salir del calendario o cambiar de vista), limpia el detalle del dock.
   React.useEffect(() => () => emitCalendarDetail(null), []);
 
-  // Arranca un arrastre (mover el bloque o redimensionar por el borde inferior).
-  const beginDrag = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize") => {
-    if (e.button !== 0 || !isMovable(p.it) || !gridRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // Captura el puntero: el arrastre sigue al dedo/cursor aunque salga del bloque (móvil incluido).
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* noop */ }
+  // Doble clic en un bloque: EDITAR (solo citas que el usuario creó). El resto cae a vista previa.
+  const openEdit = (it: CalItem) => {
+    if (it.eventId && it.canEdit) emitCalendarEdit(it);
+    else select(it);
+  };
+
+  // Descriptor de arrastre a partir de un bloque (aún NO lo activa).
+  const buildDrag = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize"): Drag | null => {
+    if (!gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
     const colW = (rect.width - GUTTER) / dayCount;
-    const init: Live = { dayIndex, topMin: p.topMin, endMin: p.endMin, moved: false };
+    return { id: p.it.id, eventId: p.it.eventId ?? null, taskId: p.it.taskId ?? null, mode, startY: e.clientY, startX: e.clientX, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false };
+  };
+  // Activa el arrastre YA (muestra la previsualización flotante).
+  const activateDrag = (d: Drag) => {
+    const init: Live = { dayIndex: d.origDayIndex, topMin: d.origTopMin, endMin: d.origTopMin + d.origDur, moved: false };
     liveRef.current = init;
     setPreview(init);
-    setDrag({ id: p.it.id, eventId: p.it.eventId ?? null, taskId: p.it.taskId ?? null, mode, startY: e.clientY, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false });
+    setDrag(d);
   };
+  // "Mantener presionado" sobre un bloque: registra el press pendiente pero NO arranca el arrastre
+  // (sin preventDefault) → el navegador dispara click/dblclick de forma nativa. El arrastre real se
+  // activa cuando el puntero se mueve más de DRAG_THRESHOLD (efecto de abajo).
+  const armMove = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number) => {
+    if (e.button !== 0 || !isMovable(p.it)) return;
+    pendingRef.current = buildDrag(e, p, dayIndex, "move");
+  };
+  // Redimensionar por el borde inferior: gesto deliberado → arranca de inmediato.
+  const startResize = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number) => {
+    if (e.button !== 0 || !isMovable(p.it)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const d = buildDrag(e, p, dayIndex, "resize");
+    if (d) activateDrag(d);
+  };
+
+  // Promoción del "mantener presionado" a arrastre al cruzar el umbral (evita convertir un clic o
+  // un doble clic en un movimiento accidental de la cita).
+  React.useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const pend = pendingRef.current;
+      if (!pend || drag) return;
+      if (Math.abs(e.clientX - pend.startX) + Math.abs(e.clientY - pend.startY) > DRAG_THRESHOLD) {
+        pendingRef.current = null;
+        activateDrag(pend);
+      }
+    };
+    const clear = () => { pendingRef.current = null; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", clear);
+    window.addEventListener("pointercancel", clear);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", clear);
+      window.removeEventListener("pointercancel", clear);
+    };
+  }, [drag]);
 
   // Mientras hay arrastre: seguir el puntero (snap 15 min) y, al soltar, guardar. Se usan POINTER
   // events (no mouse) para que el arrastre funcione también con el DEDO en móvil/tablet; el
@@ -202,7 +271,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   React.useEffect(() => {
     if (!drag) return;
     const onMove = (e: PointerEvent) => {
-      const dyMin = Math.round(((e.clientY - drag.startY) / HOUR_H * 60) / SNAP) * SNAP;
+      const dyMin = Math.round(((e.clientY - drag.startY) / hourH * 60) / SNAP) * SNAP;
       let dayIndex = drag.origDayIndex, topMin = drag.origTopMin, endMin = drag.origTopMin + drag.origDur;
       if (drag.mode === "move") {
         topMin = Math.max(START_MIN, Math.min(1440 - drag.origDur, drag.origTopMin + dyMin));
@@ -246,7 +315,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
     };
-  }, [drag, days, startMove]);
+  }, [drag, days, startMove, hourH, dayCount]);
 
   // Clasifica cada item por día: cronometrado (evento con hora) vs todo-el-día (tareas, rodajes, eventos all-day).
   const parsed = items.map((it) => {
@@ -322,10 +391,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                   <div className={cn("space-y-1 overscroll-contain", chips.length > MAX_ALLDAY_VISIBLE && "max-h-[132px] overflow-y-auto")}>
                   {chips.map((p) => {
                     return (
-                      <button key={p.it.id} onClick={() => select(p.it)}
+                      <button key={p.it.id} onClick={() => select(p.it)} onDoubleClick={() => openEdit(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: blockColor(p.it, itemSolid(p.it)) }}
-                        title={`${p.it.title}${projTip(p.it)}`}>
+                        title={`${p.it.title}${projTip(p.it)}${p.it.eventId && p.it.canEdit ? " · doble clic para editar" : ""}`}>
                         <KindGlyph kind={p.it.kind} /><span className="truncate">{p.it.title}</span>
                       </button>
                     );
@@ -341,11 +410,11 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
           {/* Rejilla de horas (scroll, llena el alto disponible) */}
           <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", drag && "select-none")}>
-            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))`, height: VISIBLE_HOURS * HOUR_H }}>
+            <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `${GUTTER}px repeat(${dayCount}, minmax(0,1fr))`, height: VISIBLE_HOURS * hourH }}>
               {/* Columna de horas */}
               <div className="relative">
                 {hours.map((h, idx) => (
-                  <div key={h} style={{ height: HOUR_H }} className="relative">
+                  <div key={h} style={{ height: hourH }} className="relative">
                     {/* La primera etiqueta (4 AM) va DENTRO de la celda para no cortarse contra el borde superior. */}
                     <span className="absolute right-1.5 text-[10px] text-muted-foreground" style={{ top: idx === 0 ? 1 : -7 }}>{h % 12 === 0 ? 12 : h % 12}{h < 12 ? "AM" : "PM"}</span>
                   </div>
@@ -368,32 +437,36 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                     onClick={canCreate ? (e) => {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top;
-                      const minutes = Math.max(START_MIN, Math.min(END_HOUR * 60 - 15, START_MIN + (y / HOUR_H) * 60));
+                      const minutes = Math.max(START_MIN, Math.min(END_HOUR * 60 - 15, START_MIN + (y / hourH) * 60));
                       const hh = Math.floor(minutes / 60);
                       const mm = (Math.round((minutes % 60) / 15) * 15) % 60;
                       emitCalendarCreate(localDateStr(d), `${pad2(hh)}:${pad2(mm)}`);
                     } : undefined}
                     className={cn("relative border-l border-border/40", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
                   >
-                    {hours.map((h) => (<div key={h} style={{ height: HOUR_H }} className="border-b border-border/25" />))}
-                    {isToday ? <NowLine /> : null}
+                    {hours.map((h) => (<div key={h} style={{ height: hourH }} className="border-b border-border/25" />))}
+                    {isToday ? <NowLine hourH={hourH} /> : null}
                     {positioned.map((p) => {
                       const t = calTone(p.it.kind);
-                      const top = minToTop(p.topMin);
-                      const height = Math.max(18, ((p.endMin - p.topMin) / 60) * HOUR_H);
+                      const top = minToTop(p.topMin, hourH);
+                      const height = Math.max(18, ((p.endMin - p.topMin) / 60) * hourH);
                       const tiny = height < 30; // bloques muy cortos: una sola línea
                       const draggable = isMovable(p.it);
                       const canResize = Boolean(p.it.eventId); // solo las citas tienen duración; las tareas se mueven pero no se redimensionan
+                      const editable = Boolean(p.it.eventId && p.it.canEdit);
                       const isDragging = drag?.id === p.it.id;
+                      // Sufijo del tooltip según lo que se puede hacer (mantener/arrastrar/doble clic).
+                      const hint = [draggable ? (canResize ? "mantén y arrastra para mover, tira del borde para la duración" : "mantén y arrastra para reprogramar") : "", editable ? "doble clic para editar" : ""].filter(Boolean).join(" · ");
                       return (
                         <button
                           key={p.it.id}
-                          onPointerDown={draggable ? (e) => beginDrag(e, p, dayIndex, "move") : undefined}
+                          onPointerDown={draggable ? (e) => armMove(e, p, dayIndex) : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (suppressClick.current) { suppressClick.current = false; return; }
                             select(p.it);
                           }}
+                          onDoubleClick={(e) => { e.stopPropagation(); openEdit(p.it); }}
                           className={cn(
                             "group absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md",
                             selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "",
@@ -401,7 +474,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                             isDragging && "opacity-40",
                           )}
                           style={{ top, height, left: `calc(${p.left}% + 2px)`, width: `calc(${p.width}% - 4px)`, background: blockColor(p.it, t.solid), color: "#fff", touchAction: draggable ? "none" : undefined }}
-                          title={draggable ? (canResize ? `${p.it.title}${projTip(p.it)} · arrastra para mover, tira del borde para cambiar la duración` : `${p.it.title}${projTip(p.it)} · arrastra para reprogramar`) : `${p.it.title}${projTip(p.it)}`}>
+                          title={`${p.it.title}${projTip(p.it)}${hint ? ` · ${hint}` : ""}`}>
                           <span className="truncate font-semibold">{p.it.title}</span>
                           {p.it.time && !tiny ? <span className="truncate text-white/80">{p.it.time}</span> : null}
                           {/* Proyecto de la tarea (discreto): segunda línea solo si el bloque tiene espacio. */}
@@ -410,7 +483,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                           ) : null}
                           {draggable && canResize ? (
                             <span
-                              onPointerDown={(e) => beginDrag(e, p, dayIndex, "resize")}
+                              onPointerDown={(e) => startResize(e, p, dayIndex)}
                               className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100"
                               style={{ background: "rgba(255,255,255,0.35)", touchAction: "none" }}
                             />
@@ -426,8 +499,8 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
               {drag && preview && dragItem ? (
                 (() => {
                   const t = calTone(dragItem.kind);
-                  const top = minToTop(preview.topMin);
-                  const height = Math.max(18, ((preview.endMin - preview.topMin) / 60) * HOUR_H);
+                  const top = minToTop(preview.topMin, hourH);
+                  const height = Math.max(18, ((preview.endMin - preview.topMin) / 60) * hourH);
                   return (
                     <div
                       className="pointer-events-none absolute z-30 flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-[11px] leading-tight text-white shadow-lg ring-2 ring-white/70"
@@ -453,7 +526,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   );
 }
 
-function NowLine() {
+function NowLine({ hourH }: { hourH: number }) {
   // Hora de pared de Bogotá (igual en SSR y cliente, sin importar la zona del navegador):
   // coherente con los eventos, que se ubican por su hora de pared. Antes usaba
   // new Date().getHours() → en el servidor (UTC) la línea salía 5 h adelante (a las 11 PM).
@@ -464,5 +537,5 @@ function NowLine() {
   }, []);
   // Fuera de la ventana visible (madrugada antes de las 4:00) no se pinta la línea.
   if (min < START_MIN || min >= END_HOUR * 60) return null;
-  return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: minToTop(min) }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
+  return <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-500" style={{ top: minToTop(min, hourH) }}><span className="absolute -left-1 -top-1 size-2 rounded-full bg-rose-500" /></div>;
 }

@@ -13,6 +13,7 @@ import { DemoPanel } from "./demo-panel";
 import { RolesManager } from "./roles-manager";
 import { UserPermissions } from "./user-permissions";
 import { IntegrationsPanel } from "./integrations-panel";
+import { CalendarSubscribe } from "@/app/(app)/perfil/calendar-subscribe";
 import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "./labels-manager";
 import { MarcebotSettings } from "./marcebot-settings";
@@ -42,16 +43,20 @@ export default async function ConfiguracionPage() {
   // Colaboradores NO admin: solo ven lo que pueden gestionar ellos mismos — conectar su
   // calendario de Synology. Las secciones sensibles (usuarios, roles, correo) son solo admin.
   if (!isAdmin) {
-    const myCalRow = await db.calendarConnection.findUnique({
-      where: { userId: session.id },
-      select: { serverUrl: true, username: true, calendarUrl: true, calendarName: true, lastSyncAt: true, lastError: true },
-    });
+    const [myCalRow, meUser] = await Promise.all([
+      db.calendarConnection.findUnique({
+        where: { userId: session.id },
+        select: { serverUrl: true, username: true, calendarUrl: true, calendarName: true, lastSyncAt: true, lastError: true },
+      }),
+      db.user.findUnique({ where: { id: session.id }, select: { calendarFeedToken: true } }),
+    ]);
     const myCal = myCalRow ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null } : null;
     return (
       <div className="mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
         <h1 className="text-3xl font-bold tracking-tight">Integraciones</h1>
         <p className="mt-1 text-sm text-muted-foreground">Conecta tu calendario de Synology para sincronizar tus citas en ambos sentidos.</p>
         <CalendarConnect email={session.email ?? ""} connection={myCal} />
+        <CalendarSubscribe initialToken={meUser?.calendarFeedToken ?? null} baseUrl={process.env.NEXTAUTH_URL ?? ""} />
       </div>
     );
   }
@@ -228,10 +233,11 @@ export default async function ConfiguracionPage() {
   const myCalendarConnection = myCalRow
     ? { ...myCalRow, lastSyncAt: myCalRow.lastSyncAt ? myCalRow.lastSyncAt.toISOString() : null }
     : null;
+  const myFeed = await db.user.findUnique({ where: { id: session!.id }, select: { calendarFeedToken: true } });
   const ooCfg = await getOnlyOfficeConfig();
   const integracionesNode = (
     <div className="space-y-4">
-      <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={ooCfg.enabled} onlyofficeSettings={{ docsUrl: ooCfg.docsUrl, callbackBase: ooCfg.callbackBase, internalUrl: ooCfg.internalUrl, hasSecret: !!ooCfg.jwtSecret }} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} />
+      <IntegrationsPanel email={emailOn} caldav={caldavEnabled} ai={aiEnabled} onlyoffice={ooCfg.enabled} onlyofficeSettings={{ docsUrl: ooCfg.docsUrl, callbackBase: ooCfg.callbackBase, internalUrl: ooCfg.internalUrl, hasSecret: !!ooCfg.jwtSecret }} mailSettings={mailSettings} openclawOn={openClawSettings.enabled} openclawSettings={openClawSettings} calendarTeam={calendarTeam} calendarTotal={calTotal} myEmail={session!.email ?? ""} myCalendarConnection={myCalendarConnection} feedToken={myFeed?.calendarFeedToken ?? null} feedBaseUrl={process.env.NEXTAUTH_URL ?? ""} />
       <CalendarSyncSettings initial={calSyncConfig} />
     </div>
   );

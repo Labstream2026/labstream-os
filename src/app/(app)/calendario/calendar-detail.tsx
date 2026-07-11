@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
+import { CalendarPlus, ChevronDown, Download, Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarHex } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
+import { googleCalUrl, outlookCalUrl, downloadIcs, type CalExport } from "@/lib/add-to-calendar";
 import type { CalItem } from "./my-calendar";
 import { deleteMyEvent, respondToEvent } from "./actions";
 
@@ -117,6 +118,7 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
             </div>
           </div>
         ) : null}
+        <AddToCalendarMenu item={item} />
         {item.link ? (
           <a href={item.link} className="inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Abrir</a>
         ) : null}
@@ -161,6 +163,46 @@ function RsvpBar({ eventId, myStatus }: { eventId: string; myStatus?: string | n
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Menú «Añadir a mi calendario»: enlaces a Google/Outlook y descarga .ics (Apple y cualquier
+// otro). Sirve para citas, entregas y rodajes — todo lo que tiene fecha. No necesita conexión
+// previa: la conversión de zona horaria es la misma que usa el .ics del sistema (toInstant).
+function AddToCalendarMenu({ item }: { item: CalItem }) {
+  const [open, setOpen] = React.useState(false);
+  const start = new Date(item.start ?? item.date);
+  if (Number.isNaN(start.getTime())) return null;
+  const exp: CalExport = {
+    uid: item.eventId ? `${item.eventId}@labstreamsas.com` : item.taskId ? `task-${item.taskId}@labstreamsas.com` : undefined,
+    title: item.title,
+    start,
+    end: item.end ? new Date(item.end) : null,
+    // Las citas usan su bandera; entregas/rodajes/hitos sin hora son de todo el día.
+    allDay: item.allDay ?? item.kind !== "event",
+    location: item.location ?? null,
+    description: item.description ?? null,
+  };
+  const chip = "inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent";
+  return (
+    <div className="border-t border-border pt-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        <span className="inline-flex items-center gap-1.5"><CalendarPlus className="size-4" /> Añadir a mi calendario</span>
+        <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <a href={googleCalUrl(exp)} target="_blank" rel="noopener noreferrer" className={chip}>Google</a>
+          <button type="button" onClick={() => downloadIcs(exp)} className={chip}>Apple</button>
+          <a href={outlookCalUrl(exp)} target="_blank" rel="noopener noreferrer" className={chip}>Outlook</a>
+          <button type="button" onClick={() => downloadIcs(exp)} className={chip}><Download className="size-3.5" /> .ics</button>
+        </div>
+      ) : null}
     </div>
   );
 }

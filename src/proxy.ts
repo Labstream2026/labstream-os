@@ -23,7 +23,9 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   del redirect a /login (si no, una petición con Bearer recibiría el HTML del login).
 // - /subir + /api/upload: portal PÚBLICO de subida del cliente (token firmado); el cliente sube su
 //   material sin cuenta, así que la página y su endpoint deben quedar fuera del redirect a /login.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1"];
+// - /api/calendar/feed: feed de suscripción de calendario (webcal/ics de solo lectura). Lo lee el
+//   servidor de Google/Apple/Outlook SIN cookie; se autentica por el token secreto de la URL.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/calendar/feed"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no

@@ -243,6 +243,9 @@ export async function removeEventForUsers(eventId: string, userIds: string[]): P
 
 const WINDOW_BACK_DAYS = 31;
 const WINDOW_FWD_DAYS = 366;
+// Colombia = UTC−5 (sin horario de verano). La app guarda "hora de pared en UTC"; el instante
+// real = pared + 5 h. Se usa para alinear la ventana de borrado local con la del servidor.
+const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
 
 // ── Sincronización de TAREAS/RODAJES del usuario hacia su Synology ─────────────
 // Cada tarea abierta del usuario (responsable o dueño) con fecha de entrega o de
@@ -336,11 +339,18 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     // falla, cae al calendario configurado. Los eventos de todos se fusionan y la lógica de
     // import/borrado sigue igual (reconcilia por UID base sobre el conjunto completo).
     let calUrls: string[];
+    // Si el descubrimiento NO fue fiable (falló o no devolvió colecciones) caemos al calendario
+    // primario, pero entonces solo vemos una PARTE de los calendarios del usuario: reconciliar
+    // borrados en ese estado eliminaría por error los eventos de las colecciones no consultadas.
+    // Por eso lo tratamos igual que un REPORT incompleto (no borra en esta corrida).
+    let discoveryReliable = true;
     try {
       const cals = await discoverCalendars(auth);
-      calUrls = cals.length ? cals.map((c) => c.url) : [conn.calendarUrl];
+      if (cals.length) calUrls = cals.map((c) => c.url);
+      else { calUrls = [conn.calendarUrl]; discoveryReliable = false; }
     } catch {
       calUrls = [conn.calendarUrl];
+      discoveryReliable = false;
     }
     const mergedEvents: RemoteEvent[] = [];
     let mergedComplete = true;
@@ -384,9 +394,13 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
 
       const existing = await db.calendarEvent.findUnique({ where: { uid: parsed.uid }, select: { id: true, source: true } });
       if (!existing) {
-        // Evento nuevo creado en Synology → lo importamos como propio del usuario.
-        const created = await db.calendarEvent.create({
-          data: {
+        // Evento nuevo creado en Synology → lo importamos como propio del usuario. UPSERT por uid
+        // (no create): si el sondeo del scheduler y el del cron se solapan, ambos pueden ver
+        // "no existe" a la vez; con create colisionarían en el índice único de uid (P2002).
+        // reminderMinutes: null → NO duplicamos el aviso (Synology ya recuerda estos eventos).
+        const created = await db.calendarEvent.upsert({
+          where: { uid: parsed.uid },
+          create: {
             uid: parsed.uid,
             title: parsed.title,
             description: parsed.description,
@@ -396,11 +410,18 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
             allDay: parsed.allDay,
             source: "synology",
             createdById: conn.userId,
+            reminderMinutes: null,
             syncedAt: now,
             attendees: { create: [{ userId: conn.userId }] },
           },
+          update: { syncedAt: now },
+          select: { id: true },
         });
-        await db.eventSyncRef.create({ data: { eventId: created.id, userId: conn.userId, href, etag } });
+        await db.eventSyncRef.upsert({
+          where: { eventId_userId: { eventId: created.id, userId: conn.userId } },
+          create: { eventId: created.id, userId: conn.userId, href, etag },
+          update: { href, etag },
+        });
         imported++;
       } else {
         // Mantener href/etag al día siempre.
@@ -438,11 +459,18 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     // locales pero el servidor no devolvió NINGUNO, nos negamos a borrar en masa:
     // ese patrón "todo desaparece de golpe" es casi siempre un fallo de lectura,
     // no que el usuario haya vaciado su calendario entre dos sondeos.
+    // La columna `start` guarda HORA DE PARED (= instante real − 5 h), pero from/to son
+    // instantes reales (así se consultó al servidor). Para elegir candidatos a borrado hay que
+    // comparar en la MISMA escala: un evento de pared S estuvo en la ventana del servidor solo si
+    // from ≤ S+5h ≤ to, es decir from−5h ≤ S ≤ to−5h. Sin esto, un evento en la banda de 5 h del
+    // borde futuro se borraría por error (el servidor no lo devuelve pero su `start` sí cae ≤ to).
+    const fromWall = new Date(from.getTime() - BOGOTA_OFFSET_MS);
+    const toWall = new Date(to.getTime() - BOGOTA_OFFSET_MS);
     const localSyno = await db.calendarEvent.findMany({
       where: {
         source: "synology",
         createdById: conn.userId,
-        start: { gte: from, lte: to },
+        start: { gte: fromWall, lte: toWall },
         uid: { not: null },
       },
       select: { id: true, uid: true },
@@ -454,11 +482,11 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
     // Negativa al borrado masivo sobre listado vacío (B1).
     const suspiciousEmptyWipe = serverReturnedNothing && haveLocalEvents;
 
-    if (!reportComplete || suspiciousEmptyWipe) {
+    if (!reportComplete || !discoveryReliable || suspiciousEmptyWipe) {
       // No tocamos nada: preferimos NUNCA borrar a borrar por error. Se registra
       // como skip para diagnóstico; los borrados reales se propagarán cuando el
       // servidor devuelva un listado completo.
-      const reason = !reportComplete ? "respuesta REPORT incompleta" : "listado vacío con eventos locales";
+      const reason = !reportComplete ? "respuesta REPORT incompleta" : !discoveryReliable ? "descubrimiento de calendarios no fiable" : "listado vacío con eventos locales";
       await db.calendarConnection.update({
         where: { id: conn.id },
         data: { lastSyncAt: now, lastError: null },
@@ -487,13 +515,23 @@ export async function syncUserCalendar(conn: CalendarConnection): Promise<{ impo
   }
 }
 
-// Sondea TODAS las conexiones activas (lo llama el cron).
+// Sondea TODAS las conexiones activas (lo llaman el scheduler en-proceso y el cron del NAS).
+// Candado en-proceso: scheduler y cron corren en el MISMO proceso Node; si se solapan, dos
+// sondeos del mismo usuario colisionan (PUTs duplicados, y antes P2002). El guard evita la
+// corrida concurrente; el que llega segundo sale sin hacer nada (el primero ya está sondeando).
 export async function syncAllCalendars(): Promise<{ users: number; imported: number; updated: number; deleted: number }> {
-  const conns = await db.calendarConnection.findMany({ where: { enabled: true, NOT: { calendarUrl: null } } });
-  let imported = 0, updated = 0, deleted = 0;
-  for (const conn of conns) {
-    const r = await syncUserCalendar(conn);
-    imported += r.imported; updated += r.updated; deleted += r.deleted;
+  const g = globalThis as unknown as { __labstreamSyncing?: boolean };
+  if (g.__labstreamSyncing) return { users: 0, imported: 0, updated: 0, deleted: 0 };
+  g.__labstreamSyncing = true;
+  try {
+    const conns = await db.calendarConnection.findMany({ where: { enabled: true, NOT: { calendarUrl: null } } });
+    let imported = 0, updated = 0, deleted = 0;
+    for (const conn of conns) {
+      const r = await syncUserCalendar(conn);
+      imported += r.imported; updated += r.updated; deleted += r.deleted;
+    }
+    return { users: conns.length, imported, updated, deleted };
+  } finally {
+    g.__labstreamSyncing = false;
   }
-  return { users: conns.length, imported, updated, deleted };
 }

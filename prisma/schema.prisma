@@ -86,6 +86,9 @@ model User {
   eps          String?
   arl          String?
   birthDate    DateTime?
+  // Token secreto del feed de suscripción de calendario (webcal/ics de solo lectura para
+  // Google/Apple/Outlook). null = feed sin generar; rotarlo revoca el enlace anterior.
+  calendarFeedToken String? @unique
   // WhatsApp: número (E.164, p. ej. +57300...) para RECIBIR notificaciones del bot y para
   // identificar al remitente de mensajes entrantes. `whatsappCommand` = puede COMANDAR al bot
   // por WhatsApp (crear notas/tareas/citas, consultar); si es false solo recibe (no se procesan

@@ -12,7 +12,9 @@ function pad(n: number) {
 // necesita el INSTANTE real (UTC verdadero) = hora de pared + 5 h (Colombia = UTC-5, sin
 // horario de verano). Sin esto, un evento de 4:00 p. m. saldría a las 11:00 en Synology/correo.
 const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
-function toInstant(d: Date): Date {
+// Convierte una "hora de pared en UTC" al instante real (UTC verdadero). Exportado para que los
+// enlaces «Añadir a Google/Outlook» y el feed de suscripción usen la MISMA conversión que el .ics.
+export function toInstant(d: Date): Date {
   return new Date(d.getTime() + BOGOTA_OFFSET_MS);
 }
 
@@ -61,13 +63,10 @@ export type IcsEvent = {
   sequence?: number;
 };
 
-export function buildIcs(e: IcsEvent): string {
+// Bloque VEVENT (sin el envoltorio VCALENDAR): reutilizado por buildIcs (un evento) y por
+// buildIcsCalendar (feed de suscripción con muchos eventos en un solo VCALENDAR).
+function veventLines(e: IcsEvent): string[] {
   const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Labstream OS//ES",
-    "CALSCALE:GREGORIAN",
-    `METHOD:${e.method ?? "REQUEST"}`,
     "BEGIN:VEVENT",
     `UID:${e.uid}`,
     `DTSTAMP:${icsDate(new Date())}`,
@@ -113,7 +112,43 @@ export function buildIcs(e: IcsEvent): string {
     lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(e.title)}`, `TRIGGER:-PT${Math.round(reminder)}M`, "END:VALARM");
   }
 
-  lines.push("END:VEVENT", "END:VCALENDAR");
+  lines.push("END:VEVENT");
+  return lines;
+}
+
+export function buildIcs(e: IcsEvent): string {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Labstream OS//ES",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${e.method ?? "REQUEST"}`,
+    ...veventLines(e),
+    "END:VCALENDAR",
+  ];
   // iCal exige CRLF.
+  return lines.join("\r\n");
+}
+
+// Calendario de SUSCRIPCIÓN (feed webcal/ics): un solo VCALENDAR con MUCHOS VEVENT, para que
+// Google/Apple/Outlook lo lean de solo lectura y lo refresquen periódicamente. METHOD:PUBLISH
+// (no es una invitación). X-WR-CALNAME da el nombre visible; REFRESH-INTERVAL sugiere cada
+// cuánto re-leer (los clientes lo respetan de forma laxa: Apple ~horas, Google ~1 día).
+export function buildIcsCalendar(events: IcsEvent[], opts?: { calName?: string; refreshMinutes?: number }): string {
+  const refresh = Math.max(15, Math.round(opts?.refreshMinutes ?? 60));
+  const name = opts?.calName ?? "Labstream";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Labstream OS//ES",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${esc(name)}`,
+    `NAME:${esc(name)}`,
+    `REFRESH-INTERVAL;VALUE=DURATION:PT${refresh}M`,
+    `X-PUBLISHED-TTL:PT${refresh}M`,
+    ...events.flatMap((e) => veventLines({ ...e, method: "PUBLISH" })),
+    "END:VCALENDAR",
+  ];
   return lines.join("\r\n");
 }

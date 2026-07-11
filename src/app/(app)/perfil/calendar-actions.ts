@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -102,6 +103,45 @@ export async function disconnectCalendar(): Promise<CalendarConnResult> {
   await db.calendarConnection.deleteMany({ where: { userId: session.id } });
   revalidatePath("/perfil");
   return { ok: true };
+}
+
+// ── Feed de suscripción de calendario (webcal/ics para Google/Apple/Outlook) ──
+// Token secreto de 32 hex por usuario: la URL del feed lo lleva y ES la autenticación. Rotarlo
+// revoca el enlace anterior; borrarlo apaga el feed.
+export type FeedResult = { ok: boolean; token?: string | null; error?: string };
+
+// Devuelve el token del feed, generándolo si aún no existe (al abrir el panel de suscripción).
+export async function getCalendarFeedToken(): Promise<FeedResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const me = await db.user.findUnique({ where: { id: session.id }, select: { calendarFeedToken: true } });
+  let token = me?.calendarFeedToken ?? null;
+  if (!token) {
+    token = randomBytes(16).toString("hex");
+    await db.user.update({ where: { id: session.id }, data: { calendarFeedToken: token } });
+  }
+  return { ok: true, token };
+}
+
+// Genera un token NUEVO (revoca el anterior: los calendarios suscritos dejan de actualizarse).
+export async function rotateCalendarFeedToken(): Promise<FeedResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const token = randomBytes(16).toString("hex");
+  await db.user.update({ where: { id: session.id }, data: { calendarFeedToken: token } });
+  revalidatePath("/configuracion");
+  revalidatePath("/perfil");
+  return { ok: true, token };
+}
+
+// Apaga el feed (borra el token): la URL deja de servir el calendario.
+export async function disableCalendarFeed(): Promise<FeedResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado" };
+  await db.user.update({ where: { id: session.id }, data: { calendarFeedToken: null } });
+  revalidatePath("/configuracion");
+  revalidatePath("/perfil");
+  return { ok: true, token: null };
 }
 
 // Fuerza una sincronización inmediata (sin esperar al cron) — útil para probar.
