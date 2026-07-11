@@ -218,6 +218,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     if (!gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
     const colW = (rect.width - GUTTER) / dayCount;
+    // Contenedor degenerado (más angosto que la propia columna de horas): no arrastrar, o el
+    // cálculo de columna daría NaN/Infinity y days[NaN] rompería onUp.
+    if (!(colW > 0)) return null;
     return { id: p.it.id, eventId: p.it.eventId ?? null, taskId: p.it.taskId ?? null, mode, startY: e.clientY, startX: e.clientX, origTopMin: p.topMin, origDur: p.endMin - p.topMin, origDayIndex: dayIndex, gridLeft: rect.left + GUTTER, colW, moved: false };
   };
   // Activa el arrastre YA (muestra la previsualización flotante).
@@ -291,7 +294,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
       setDrag(null);
       setPreview(null);
       if (!live || !live.moved) return;
-      suppressClick.current = true; // evita que el click posterior re-seleccione
+      suppressClick.current = true; // evita que el click posterior (bloque o columna) actúe
+      // Red de seguridad: si tras el arrastre NO llega ningún click sintético (p. ej. algunos
+      // gestos táctiles), limpia el flag para no tragarse el siguiente click real.
+      setTimeout(() => { suppressClick.current = false; }, 0);
       // Se escribe en UTC (campos UTC = hora de pared) para conservar la convención de la
       // app: así el ISO guardado coincide con lo que muestran el detalle y la rejilla.
       const base = days[live.dayIndex];
@@ -435,6 +441,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                   <div
                     key={d.toISOString()}
                     onClick={canCreate ? (e) => {
+                      // Tras arrastrar un bloque, el navegador dispara un click sintético que —al no
+                      // capturar el puntero— cae en la COLUMNA (el bloque no sigue al cursor). Sin este
+                      // guard, cada arrastre/redimensión abriría el modal de "crear". Consume el flag.
+                      if (suppressClick.current) { suppressClick.current = false; return; }
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top;
                       const minutes = Math.max(START_MIN, Math.min(END_HOUR * 60 - 15, START_MIN + (y / hourH) * 60));
