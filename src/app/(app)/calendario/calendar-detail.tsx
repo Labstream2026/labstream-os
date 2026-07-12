@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarPlus, ChevronDown, Download, Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
+import { ArrowRight, CalendarPlus, ChevronDown, Download, Mail, MapPin, Pencil, Trash2, Video } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarHex } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -120,7 +120,13 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
         ) : null}
         <AddToCalendarMenu item={item} />
         {item.link ? (
-          <a href={item.link} className="inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Abrir</a>
+          <a
+            href={item.link}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-base font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          >
+            {item.kind === "task" || item.kind === "shoot" ? "Ir a la tarea" : item.link.startsWith("/proyectos/") ? "Ir al proyecto" : "Abrir"}
+            <ArrowRight className="size-5" />
+          </a>
         ) : null}
         {item.canEdit && item.eventId ? <EventControls item={item} onClose={onClose} /> : null}
       </div>

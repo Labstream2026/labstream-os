@@ -96,7 +96,9 @@ export function AppShell({
   // (escritorio) para darles más espacio. Algunas ya tienen su propio chat (Chat del
   // día, Chats) y otras son de lectura/trabajo amplio (Wiki, Asistente IA, Reportes,
   // Inicio, Plantillas).
-  const FULL_WIDTH_ROUTES = ["/", "/estados", "/chat", "/plantillas", "/wiki", "/asistente", "/reportes", "/revisiones"];
+  // /calendario: el detalle de la cita/tarea sale como modal centrado (no en panel lateral), así
+  // que el calendario usa todo el ancho y NO monta el dock de chat de la derecha.
+  const FULL_WIDTH_ROUTES = ["/", "/estados", "/chat", "/plantillas", "/wiki", "/asistente", "/reportes", "/revisiones", "/calendario"];
   // El cliente (portal del cliente) nunca ve el panel de chat del equipo (es interno).
   const hideChatDock = isCliente || FULL_WIDTH_ROUTES.some((r) =>
     r === "/" ? pathname === "/" : pathname === r || pathname.startsWith(`${r}/`),

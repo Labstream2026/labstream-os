@@ -58,7 +58,7 @@ export default async function CalendarioPage() {
         OR: [{ dueDate: { gte: windowStart } }, { shootDate: { gte: windowStart } }],
       },
       select: {
-        id: true, title: true, dueDate: true, dueTime: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,
+        id: true, title: true, description: true, dueDate: true, dueTime: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,
         assignee: { select: { name: true, initials: true, avatarColor: true } },
         project: { select: { id: true, name: true, emoji: true, ...accessSelect } },
       },
@@ -143,6 +143,7 @@ export default async function CalendarioPage() {
         urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state),
         allDay: !timed,
         time: timed ? (t.dueTime ?? null) : null,
+        description: t.description,
         projectName: t.project?.name ?? null,
         projectEmoji: t.project?.emoji ?? null,
         assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null,
@@ -157,6 +158,7 @@ export default async function CalendarioPage() {
       start: t.shootDate!.toISOString(),
       kind: "shoot" as const,
       allDay: true,
+      description: t.description,
       projectName: t.project?.name ?? null,
       projectEmoji: t.project?.emoji ?? null,
       assignee: t.assignee ? { name: t.assignee.name, initials: t.assignee.initials, color: t.assignee.avatarColor } : null,
@@ -178,7 +180,7 @@ export default async function CalendarioPage() {
         <CalendarBoard
           items={items}
           onCreate={createMyEvent}
-          detailMode="dock"
+          detailMode="inline"
           shell
           team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
           timelineNode={timelineNode}

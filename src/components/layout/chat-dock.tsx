@@ -4,8 +4,6 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks, CircleCheck } from "lucide-react";
 import { completeMyTask } from "@/app/(app)/mis-tareas/actions";
-import { type CalItem } from "@/app/(app)/calendario/my-calendar";
-import { CalendarDetailCard, CAL_DETAIL_EVENT } from "@/app/(app)/calendario/calendar-detail";
 import { cn } from "@/lib/utils";
 import { formatBogotaDate } from "@/lib/bogota-time";
 import { EntityEmoji } from "@/components/icons/marks";
@@ -67,7 +65,6 @@ export function ChatDock({
   // En "Chat del día" el chat ya es el contenido principal → a la derecha mostramos
   // las tareas pendientes en vez de repetir el chat.
   const onEstados = pathname === "/estados";
-  const onCalendar = pathname === "/calendario";
   const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
@@ -141,15 +138,6 @@ export function ChatDock({
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
   }, [width]);
 
-  // ── Calendario: panel partido (detalle arriba / chat abajo) ──
-  // La vista del calendario emite la cita/tarea seleccionada por un evento de ventana.
-  const [calItem, setCalItem] = React.useState<CalItem | null>(null);
-  React.useEffect(() => {
-    if (!onCalendar) { setCalItem(null); return; }
-    const onDetail = (e: Event) => setCalItem((e as CustomEvent).detail as CalItem | null);
-    window.addEventListener(CAL_DETAIL_EVENT, onDetail);
-    return () => window.removeEventListener(CAL_DETAIL_EVENT, onDetail);
-  }, [onCalendar]);
   // ── Estado a renderizar ──
   const isDM = !!dmUserId;
   const usingGeneral = !isDM && !onRealProject && !onRealClient;
@@ -317,23 +305,9 @@ export function ChatDock({
     </div>
   );
 
-  // Calendario: el panel derecho es SOLO el detalle de la cita/tarea (sin chat). Se abre con
-  // doble clic / doble toque sobre una cita; con un solo clic solo se selecciona.
-  const calendarBody = (
-    <div className="flex h-full w-full flex-col">
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {calItem ? (
-          <CalendarDetailCard item={calItem} onClose={() => setCalItem(null)} />
-        ) : (
-          <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
-            Doble clic (o doble toque) en una cita o tarea para ver su detalle aquí.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const panel = onCalendar ? calendarBody : onEstados ? tasksBody : body;
+  // En el calendario el dock NO se monta (app-shell lo oculta): el detalle de la cita/tarea sale
+  // como modal centrado sobre el propio calendario, no en un panel lateral.
+  const panel = onEstados ? tasksBody : body;
 
   if (variant === "mobile") {
     return <div className="h-full w-full bg-background">{panel}</div>;

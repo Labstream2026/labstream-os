@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays, Check, GanttChartSquare, Plus } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, GanttChartSquare, Plus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
@@ -139,6 +139,35 @@ export function CalendarBoard({
     return [...map.entries()].map(([name, color]) => ({ name, color })).sort((a, b) => a.name.localeCompare(b.name));
   }, [items]);
 
+  // Sidebar «Personas»: por defecto la lista llena hasta abajo (scroll propio). Si el panel queda
+  // muy BAJO (interfaz encogida / ventana corta), pasa a un menú DESPLEGABLE para no aplastar el
+  // mini-calendario ni «Mis calendarios». Se mide el alto del aside (estable, no depende del contenido).
+  const asideRef = React.useRef<HTMLElement>(null);
+  const [personasCompact, setPersonasCompact] = React.useState(false);
+  React.useEffect(() => {
+    const el = asideRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => { const h = el.clientHeight; if (h > 0) setPersonasCompact(h < 560); };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Una fila de persona (casilla de color + nombre); compartida por la lista y el desplegable.
+  const personRow = (p: { name: string; color: string | null }) => {
+    const on = !hiddenPeople.has(p.name);
+    const hex = p.color ? avatarHex(p.color) : "#6366f1";
+    return (
+      <label key={p.name} className="flex cursor-pointer items-center gap-2 text-sm">
+        <input type="checkbox" checked={on} onChange={() => togglePerson(p.name)} className="sr-only" />
+        <span className="flex size-4 shrink-0 items-center justify-center rounded-full" style={{ background: on ? hex : "transparent", border: `1.5px solid ${hex}` }}>
+          {on ? <Check className="size-2.5 text-white" /> : null}
+        </span>
+        <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{p.name}</span>
+      </label>
+    );
+  };
+
   // Items a mostrar (no-shell): filtro por persona única (select).
   const shownItems = React.useMemo(() => {
     if (!personFilter) return items;
@@ -248,8 +277,16 @@ export function CalendarBoard({
     <>
       {modal && onCreate ? <EventModal state={modal} team={team} onClose={() => setModal(null)} /> : null}
       {detailMode === "inline" && detail ? (
-        <div className="fixed inset-0 z-40 flex items-start justify-end bg-black/30 p-4 sm:p-6" onClick={() => setDetail(null)}>
-          <div className="mt-2 max-h-[85vh] w-full max-w-sm overflow-hidden rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm duration-150 animate-in fade-in"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setDetail(null)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-2xl duration-200 animate-in fade-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
             <CalendarDetailCard item={detail} onClose={() => setDetail(null)} />
           </div>
         </div>
@@ -296,53 +333,57 @@ export function CalendarBoard({
           <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
         ) : (
           <div className="flex min-h-0 flex-1 gap-4">
-            {/* Sidebar: crear + mini-calendario + Mis calendarios */}
-            <aside className="hidden w-56 shrink-0 flex-col gap-4 overflow-y-auto pr-1 lg:flex">
-              {onCreate ? (
-                <button
-                  onClick={() => emitCalendarCreate(localDateStr(anchor))}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
-                >
-                  <Plus className="size-4" /> Crear
-                </button>
-              ) : null}
-              <MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} />
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mis calendarios</p>
-                <div className="space-y-1.5">
-                  {KIND_LAYERS.map((L) => {
-                    const on = !hiddenKinds.has(L.key);
-                    return (
-                      <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
-                        <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
-                          {on ? <Check className="size-3 text-white" /> : null}
-                        </span>
-                        <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              {peopleWithColor.length > 0 ? (
+            {/* Sidebar: crear + mini-calendario + Mis calendarios + Personas (llena hasta abajo). */}
+            <aside ref={asideRef} className={cn("hidden w-56 shrink-0 flex-col gap-4 pr-1 lg:flex", personasCompact && "overflow-y-auto")}>
+              <div className="flex shrink-0 flex-col gap-4">
+                {onCreate ? (
+                  <button
+                    onClick={() => emitCalendarCreate(localDateStr(anchor))}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+                  >
+                    <Plus className="size-4" /> Crear
+                  </button>
+                ) : null}
+                <MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} />
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personas</p>
-                  <div className="max-h-56 space-y-1.5 overflow-y-auto">
-                    {peopleWithColor.map((p) => {
-                      const on = !hiddenPeople.has(p.name);
-                      const hex = p.color ? avatarHex(p.color) : "#6366f1";
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mis calendarios</p>
+                  <div className="space-y-1.5">
+                    {KIND_LAYERS.map((L) => {
+                      const on = !hiddenKinds.has(L.key);
                       return (
-                        <label key={p.name} className="flex cursor-pointer items-center gap-2 text-sm">
-                          <input type="checkbox" checked={on} onChange={() => togglePerson(p.name)} className="sr-only" />
-                          <span className="flex size-4 shrink-0 items-center justify-center rounded-full" style={{ background: on ? hex : "transparent", border: `1.5px solid ${hex}` }}>
-                            {on ? <Check className="size-2.5 text-white" /> : null}
+                        <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
+                          <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
+                            {on ? <Check className="size-3 text-white" /> : null}
                           </span>
-                          <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{p.name}</span>
+                          <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
                         </label>
                       );
                     })}
                   </div>
                 </div>
+              </div>
+              {peopleWithColor.length > 0 ? (
+                personasCompact ? (
+                  // Interfaz encogida (panel bajo) → menú desplegable, para no aplastar lo de arriba.
+                  <details className="group shrink-0">
+                    <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                      <span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /> Personas · {peopleWithColor.length}</span>
+                      <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="mt-2 max-h-72 space-y-1.5 overflow-y-auto pr-1">
+                      {peopleWithColor.map(personRow)}
+                    </div>
+                  </details>
+                ) : (
+                  // Con espacio → la lista llena hasta abajo de la página (con scroll propio).
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <p className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personas</p>
+                    <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+                      {peopleWithColor.map(personRow)}
+                    </div>
+                  </div>
+                )
               ) : null}
             </aside>
 
