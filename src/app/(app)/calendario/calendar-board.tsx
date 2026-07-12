@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays, Check, ChevronDown, GanttChartSquare, Plus, Users } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, GanttChartSquare, PieChart, Plus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
@@ -72,6 +72,18 @@ export function CalendarBoard({
     if (typeof window !== "undefined" && window.innerWidth < 768) setView("mes");
   }, []);
   const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
+  // Persistir el modo de color (Tipo/Persona): al reabrir el calendario se conserva el elegido.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const restore = () => {
+      try { const c = window.localStorage.getItem("cal:color:v1"); if (c === "tipo" || c === "persona") setColorBy(c); } catch { /* ignore */ }
+    };
+    restore();
+  }, []);
+  const pickColorBy = (c: ColorBy) => {
+    setColorBy(c);
+    try { window.localStorage.setItem("cal:color:v1", c); } catch { /* ignore */ }
+  };
   const [personFilter, setPersonFilter] = React.useState<string>("");
   const [modal, setModal] = React.useState<EventModalState | null>(null);
   const [detail, setDetail] = React.useState<CalItem | null>(null);
@@ -95,15 +107,17 @@ export function CalendarBoard({
   const [hiddenPeople, setHiddenPeople] = React.useState<Set<string>>(() => new Set());
   React.useEffect(() => {
     if (!shell || typeof window === "undefined") return;
+    let savedView = false;
     try {
       const v = window.localStorage.getItem("cal:view:v1");
-      if (v === "dia" || v === "semana" || v === "mes" || v === "agenda") setShellView(v);
+      if (v === "dia" || v === "semana" || v === "mes" || v === "agenda") { setShellView(v); savedView = true; }
       const hk = window.localStorage.getItem("cal:hiddenKinds:v1");
       if (hk) setHiddenKinds(new Set(JSON.parse(hk) as string[]));
       const hp = window.localStorage.getItem("cal:hiddenPeople:v1");
       if (hp) setHiddenPeople(new Set(JSON.parse(hp) as string[]));
     } catch { /* localStorage no disponible: valores por defecto */ }
-    if (window.innerWidth < 768) setShellView("mes");
+    // Solo se fuerza Mes en móvil si NO había una vista guardada: si el usuario eligió Semana, se respeta.
+    if (!savedView && window.innerWidth < 768) setShellView("mes");
   }, [shell]);
   const pickShellView = (v: ShellView) => {
     setShellView(v);
@@ -139,21 +153,7 @@ export function CalendarBoard({
     return [...map.entries()].map(([name, color]) => ({ name, color })).sort((a, b) => a.name.localeCompare(b.name));
   }, [items]);
 
-  // Sidebar «Personas»: por defecto la lista llena hasta abajo (scroll propio). Si el panel queda
-  // muy BAJO (interfaz encogida / ventana corta), pasa a un menú DESPLEGABLE para no aplastar el
-  // mini-calendario ni «Mis calendarios». Se mide el alto del aside (estable, no depende del contenido).
-  const asideRef = React.useRef<HTMLElement>(null);
-  const [personasCompact, setPersonasCompact] = React.useState(false);
-  React.useEffect(() => {
-    const el = asideRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const measure = () => { const h = el.clientHeight; if (h > 0) setPersonasCompact(h < 560); };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  // Una fila de persona (casilla de color + nombre); compartida por la lista y el desplegable.
+  // Una fila de persona (casilla de color + nombre) para el desplegable «Personas».
   const personRow = (p: { name: string; color: string | null }) => {
     const on = !hiddenPeople.has(p.name);
     const hex = p.color ? avatarHex(p.color) : "#6366f1";
@@ -263,7 +263,7 @@ export function CalendarBoard({
       {(["tipo", "persona"] as const).map((c) => (
         <button
           key={c}
-          onClick={() => setColorBy(c)}
+          onClick={() => pickColorBy(c)}
           className={cn("rounded-md px-2 py-1 font-medium capitalize transition-colors", colorBy === c ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
         >
           {c === "tipo" ? "Tipo" : "Persona"}
@@ -333,61 +333,57 @@ export function CalendarBoard({
           <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
         ) : (
           <div className="flex min-h-0 flex-1 gap-4">
-            {/* Sidebar: crear + mini-calendario + Mis calendarios + Personas (llena hasta abajo). */}
-            <aside ref={asideRef} className={cn("hidden w-56 shrink-0 flex-col gap-4 pr-1 lg:flex", personasCompact && "overflow-y-auto")}>
-              <div className="flex shrink-0 flex-col gap-4">
-                {onCreate ? (
-                  <button
-                    onClick={() => emitCalendarCreate(localDateStr(anchor))}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
-                  >
-                    <Plus className="size-4" /> Crear
-                  </button>
-                ) : null}
-                <MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} />
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mis calendarios</p>
-                  <div className="space-y-1.5">
-                    {KIND_LAYERS.map((L) => {
-                      const on = !hiddenKinds.has(L.key);
-                      return (
-                        <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                          <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
-                          <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
-                            {on ? <Check className="size-3 text-white" /> : null}
-                          </span>
-                          <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
+            {/* Sidebar: crear + mini-calendario + Mis calendarios + desplegables (Personas y
+                Estadísticas de tiempo). Todo colapsable para aprovechar el espacio; el calendario
+                usa el resto del ancho (ya no hay panel a la derecha). */}
+            <aside className="hidden w-56 shrink-0 flex-col gap-4 overflow-y-auto pr-1 lg:flex">
+              {onCreate ? (
+                <button
+                  onClick={() => emitCalendarCreate(localDateStr(anchor))}
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+                >
+                  <Plus className="size-4" /> Crear
+                </button>
+              ) : null}
+              <div className="shrink-0"><MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} /></div>
+              <div className="shrink-0">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mis calendarios</p>
+                <div className="space-y-1.5">
+                  {KIND_LAYERS.map((L) => {
+                    const on = !hiddenKinds.has(L.key);
+                    return (
+                      <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
+                        <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
+                          {on ? <Check className="size-3 text-white" /> : null}
+                        </span>
+                        <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
               {peopleWithColor.length > 0 ? (
-                personasCompact ? (
-                  // Interfaz encogida (panel bajo) → menú desplegable, para no aplastar lo de arriba.
-                  <details className="group shrink-0">
-                    <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
-                      <span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /> Personas · {peopleWithColor.length}</span>
-                      <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="mt-2 max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                      {peopleWithColor.map(personRow)}
-                    </div>
-                  </details>
-                ) : (
-                  // Con espacio → la lista llena hasta abajo de la página (con scroll propio).
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <p className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Personas</p>
-                    <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-                      {peopleWithColor.map(personRow)}
-                    </div>
+                <details className="group shrink-0" open>
+                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                    <span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /> Personas · {peopleWithColor.length}</span>
+                    <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="mt-2 max-h-72 space-y-1.5 overflow-y-auto pr-1">
+                    {peopleWithColor.map(personRow)}
                   </div>
-                )
+                </details>
               ) : null}
+              <details className="group shrink-0" open>
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                  <span className="inline-flex items-center gap-1.5"><PieChart className="size-3.5" /> Estadísticas de tiempo</span>
+                  <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-2"><CalendarStatsPanel data={stats} /></div>
+              </details>
             </aside>
 
-            {/* Centro: la vista activa */}
+            {/* Centro: la vista activa (usa todo el ancho restante) */}
             <div className="flex min-h-0 flex-1 flex-col">
               {shellView === "mes" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shellItems} canCreate={Boolean(onCreate)} colorBy={colorBy} anchor={anchor} onAnchorChange={setAnchor} /></div>
@@ -397,11 +393,6 @@ export function CalendarBoard({
                 <div className="min-h-0 flex-1"><WeekView items={shellItems} canCreate={Boolean(onCreate)} colorBy={colorBy} anchor={anchor} onAnchorChange={setAnchor} days={shellView === "dia" ? 1 : 7} /></div>
               )}
             </div>
-
-            {/* Estadísticas de tiempo */}
-            <aside className="hidden w-64 shrink-0 overflow-y-auto pl-1 xl:block">
-              <CalendarStatsPanel data={stats} />
-            </aside>
           </div>
         )}
         {overlays}
