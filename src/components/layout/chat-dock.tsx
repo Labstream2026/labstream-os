@@ -150,32 +150,6 @@ export function ChatDock({
     window.addEventListener(CAL_DETAIL_EVENT, onDetail);
     return () => window.removeEventListener(CAL_DETAIL_EVENT, onDetail);
   }, [onCalendar]);
-  // Alto (%) de la mitad superior (detalle); redimensionable, recordado.
-  const splitRef = React.useRef<HTMLDivElement>(null);
-  const [topPct, setTopPct] = React.useState(45);
-  React.useEffect(() => {
-    const v = Number(window.localStorage.getItem("ui:calSplit"));
-    if (v >= 20 && v <= 80) setTopPct(v);
-  }, []);
-  const vdrag = React.useRef(false);
-  React.useEffect(() => {
-    function move(e: MouseEvent) {
-      if (!vdrag.current || !splitRef.current) return;
-      const r = splitRef.current.getBoundingClientRect();
-      const pct = Math.min(80, Math.max(20, ((e.clientY - r.top) / r.height) * 100));
-      setTopPct(pct);
-    }
-    function up() {
-      if (!vdrag.current) return;
-      vdrag.current = false;
-      document.body.style.userSelect = "";
-      window.localStorage.setItem("ui:calSplit", String(Math.round(topPct)));
-    }
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-  }, [topPct]);
-
   // ── Estado a renderizar ──
   const isDM = !!dmUserId;
   const usingGeneral = !isDM && !onRealProject && !onRealClient;
@@ -343,27 +317,19 @@ export function ChatDock({
     </div>
   );
 
-  // Calendario: panel partido — detalle de la cita/tarea (arriba) + chat (abajo),
-  // con divisor redimensionable. Optimiza el espacio del lado derecho.
+  // Calendario: el panel derecho es SOLO el detalle de la cita/tarea (sin chat). Se abre con
+  // doble clic / doble toque sobre una cita; con un solo clic solo se selecciona.
   const calendarBody = (
-    <div ref={splitRef} className="flex h-full w-full flex-col">
-      <div style={{ height: `${topPct}%` }} className="min-h-0 overflow-hidden border-b border-border">
+    <div className="flex h-full w-full flex-col">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {calItem ? (
           <CalendarDetailCard item={calItem} onClose={() => setCalItem(null)} />
         ) : (
           <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
-            Selecciona una cita o tarea en el calendario para ver su detalle aquí.
+            Doble clic (o doble toque) en una cita o tarea para ver su detalle aquí.
           </div>
         )}
       </div>
-      <div
-        onMouseDown={() => { vdrag.current = true; document.body.style.userSelect = "none"; }}
-        className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-b border-border bg-muted/30 hover:bg-primary/20"
-        title="Arrastra para repartir el espacio"
-      >
-        <span className="h-0.5 w-8 rounded-full bg-border group-hover:bg-primary" />
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">{body}</div>
     </div>
   );
 

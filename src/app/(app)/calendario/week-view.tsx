@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalItem } from "./my-calendar";
-import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, emitCalendarEdit, personColor, type ColorBy } from "./calendar-detail";
+import { calTone, itemSolid, emitCalendarDetail, emitCalendarCreate, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent, moveMyTask } from "./actions";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 import { holidayName } from "@/lib/holidays-co";
@@ -202,16 +202,12 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     didAutoScroll.current = true;
   }, [hourH]);
 
-  // Selección: marca el bloque y emite el detalle al panel derecho (dock).
-  const select = (it: CalItem | null) => { setSelectedId(it?.id ?? null); emitCalendarDetail(it); onSelect?.(it); };
+  // Un clic: solo RESALTA el bloque (no abre nada). Doble clic / doble toque: abre el detalle
+  // (estatus) en el panel derecho. La edición se hace desde ese detalle (botón Editar).
+  const highlight = (it: CalItem | null) => { setSelectedId(it?.id ?? null); onSelect?.(it); };
+  const openDetail = (it: CalItem) => { setSelectedId(it.id); emitCalendarDetail(it); onSelect?.(it); };
   // Al desmontar (salir del calendario o cambiar de vista), limpia el detalle del dock.
   React.useEffect(() => () => emitCalendarDetail(null), []);
-
-  // Doble clic en un bloque: EDITAR (solo citas que el usuario creó). El resto cae a vista previa.
-  const openEdit = (it: CalItem) => {
-    if (it.eventId && it.canEdit) emitCalendarEdit(it);
-    else select(it);
-  };
 
   // Descriptor de arrastre a partir de un bloque (aún NO lo activa).
   const buildDrag = (e: React.PointerEvent, p: { it: CalItem; topMin: number; endMin: number }, dayIndex: number, mode: "move" | "resize"): Drag | null => {
@@ -397,10 +393,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                   <div className={cn("space-y-1 overscroll-contain", chips.length > MAX_ALLDAY_VISIBLE && "max-h-[132px] overflow-y-auto")}>
                   {chips.map((p) => {
                     return (
-                      <button key={p.it.id} onClick={() => select(p.it)} onDoubleClick={() => openEdit(p.it)}
+                      <button key={p.it.id} onClick={() => highlight(p.it)} onDoubleClick={() => openDetail(p.it)}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: blockColor(p.it, itemSolid(p.it)) }}
-                        title={`${p.it.title}${projTip(p.it)}${p.it.eventId && p.it.canEdit ? " · doble clic para editar" : ""}`}>
+                        title={`${p.it.title}${projTip(p.it)} · doble clic para ver el detalle`}>
                         <KindGlyph kind={p.it.kind} /><span className="truncate">{p.it.title}</span>
                       </button>
                     );
@@ -463,10 +459,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       const tiny = height < 30; // bloques muy cortos: una sola línea
                       const draggable = isMovable(p.it);
                       const canResize = Boolean(p.it.eventId); // solo las citas tienen duración; las tareas se mueven pero no se redimensionan
-                      const editable = Boolean(p.it.eventId && p.it.canEdit);
                       const isDragging = drag?.id === p.it.id;
-                      // Sufijo del tooltip según lo que se puede hacer (mantener/arrastrar/doble clic).
-                      const hint = [draggable ? (canResize ? "mantén y arrastra para mover, tira del borde para la duración" : "mantén y arrastra para reprogramar") : "", editable ? "doble clic para editar" : ""].filter(Boolean).join(" · ");
+                      // Sufijo del tooltip: doble clic abre el detalle; mantener+arrastrar mueve.
+                      const hint = [draggable ? (canResize ? "mantén y arrastra para mover, tira del borde para la duración" : "mantén y arrastra para reprogramar") : "", "doble clic para ver el detalle"].filter(Boolean).join(" · ");
                       return (
                         <button
                           key={p.it.id}
@@ -474,9 +469,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                           onClick={(e) => {
                             e.stopPropagation();
                             if (suppressClick.current) { suppressClick.current = false; return; }
-                            select(p.it);
+                            highlight(p.it);
                           }}
-                          onDoubleClick={(e) => { e.stopPropagation(); openEdit(p.it); }}
+                          onDoubleClick={(e) => { e.stopPropagation(); openDetail(p.it); }}
                           className={cn(
                             "group absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md",
                             selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "",

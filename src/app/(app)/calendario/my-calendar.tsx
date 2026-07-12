@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
-import { emitCalendarCreate, emitCalendarDetail, emitCalendarEdit, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
+import { emitCalendarCreate, emitCalendarDetail, calTone, itemSolid, personColor, type ColorBy } from "./calendar-detail";
 import { moveMyEvent } from "./actions";
 import { holidayName } from "@/lib/holidays-co";
 import { emojiToText } from "@/components/icons/marks";
@@ -192,9 +192,9 @@ export function MyCalendar({
                             draggable={draggable}
                             onDragStart={draggable ? (e) => { dragItem.current = ev; e.dataTransfer.effectAllowed = "move"; } : undefined}
                             onDragEnd={() => { dragItem.current = null; setOverKey(null); }}
-                            onClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
-                            onDoubleClick={(e) => { e.stopPropagation(); if (ev.eventId && ev.canEdit) emitCalendarEdit(ev); else emitCalendarDetail(ev); }}
-                            title={`${ev.title}${ev.projectName ? ` · ${emojiToText(ev.projectEmoji, "🗂️")} ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover · doble clic para editar" : ""}`}
+                            onClick={(e) => { e.stopPropagation(); }}
+                            onDoubleClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
+                            title={`${ev.title}${ev.projectName ? ` · ${emojiToText(ev.projectEmoji, "🗂️")} ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover" : ""} · doble clic para ver el detalle`}
                             className={cn(
                               "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",
                               draggable && "cursor-grab active:cursor-grabbing",

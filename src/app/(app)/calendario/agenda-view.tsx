@@ -85,8 +85,9 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                   <button
                     key={it.id}
                     type="button"
-                    onClick={() => emitCalendarDetail(it)}
+                    onDoubleClick={() => emitCalendarDetail(it)}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted"
+                    title={`${it.title} · doble clic para ver el detalle`}
                   >
                     <span className="size-2.5 shrink-0 rounded-full" style={{ background: dot }} />
                     <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">{timeLabel}</span>
