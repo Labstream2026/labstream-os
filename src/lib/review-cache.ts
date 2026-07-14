@@ -183,10 +183,28 @@ export function serveCachedReview(cached: CachedReview, rangeHeader: string | nu
   };
   const m = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
   if (m && size > 0) {
-    let start = m[1] ? parseInt(m[1], 10) : 0;
-    let end = m[2] ? parseInt(m[2], 10) : size - 1;
-    if (!Number.isFinite(start) || start < 0) start = 0;
-    if (!Number.isFinite(end) || end >= size) end = size - 1;
+    let start: number;
+    let end: number;
+    if (!m[1] && m[2]) {
+      // Rango SUFIJO ("bytes=-N") = los ÚLTIMOS N bytes. Así es como el navegador busca el índice
+      // (átomo «moov») de un MP4 no optimizado para web, que va al FINAL del archivo. Devolverle
+      // los PRIMEROS N dejaba al <video> sin encontrar el índice → cargando para siempre, sin
+      // duración ni fotograma (justo el síntoma que se estaba arreglando).
+      const n = parseInt(m[2], 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        return new Response("Rango no satisfacible", {
+          status: 416,
+          headers: { "content-range": `bytes */${size}`, "accept-ranges": "bytes" },
+        });
+      }
+      start = Math.max(0, size - n);
+      end = size - 1;
+    } else {
+      start = m[1] ? parseInt(m[1], 10) : 0;
+      end = m[2] ? parseInt(m[2], 10) : size - 1;
+      if (!Number.isFinite(start) || start < 0) start = 0;
+      if (!Number.isFinite(end) || end >= size) end = size - 1;
+    }
     if (start > end || start >= size) {
       return new Response("Rango no satisfacible", {
         status: 416,

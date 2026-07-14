@@ -88,10 +88,24 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const rangeHeader = req.headers.get("range");
   const m = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
   if (m && size > 0) {
-    let start = m[1] ? parseInt(m[1], 10) : 0;
-    let end = m[2] ? parseInt(m[2], 10) : size - 1;
-    if (!Number.isFinite(start) || start < 0) start = 0;
-    if (!Number.isFinite(end) || end >= size) end = size - 1;
+    let start: number;
+    let end: number;
+    if (!m[1] && m[2]) {
+      // Rango SUFIJO ("bytes=-N") = los ÚLTIMOS N bytes: así busca el navegador el índice («moov»)
+      // de un MP4 no optimizado para web, que va al FINAL. Servirle los PRIMEROS N dejaba al
+      // <video> sin encontrar el índice y cargando indefinidamente.
+      const n = parseInt(m[2], 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        return new NextResponse("Rango no satisfacible", { status: 416, headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });
+      }
+      start = Math.max(0, size - n);
+      end = size - 1;
+    } else {
+      start = m[1] ? parseInt(m[1], 10) : 0;
+      end = m[2] ? parseInt(m[2], 10) : size - 1;
+      if (!Number.isFinite(start) || start < 0) start = 0;
+      if (!Number.isFinite(end) || end >= size) end = size - 1;
+    }
     if (start > end || start >= size) {
       return new NextResponse("Rango no satisfacible", { status: 416, headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });
     }
