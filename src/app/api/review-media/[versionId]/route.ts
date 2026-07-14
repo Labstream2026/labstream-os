@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
+import { getCachedReview, ensureReviewCached, serveCachedReview } from "@/lib/review-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,16 @@ export async function GET(
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
   const media = await resolveDriveMediaFile(version.fileUrl);
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });
+
+  // CACHÉ DEL NAS: si ya bajamos este video antes, se sirve desde disco (rápido, con Range) y NO
+  // se vuelve a tocar Drive → así deja de agotarse la cuota de descargas anónimas de Google (la
+  // causa del 502 que dejaba el <video> sin cargar, sin segundo ni captura de fotograma).
+  const cached = await getCachedReview(versionId);
+  if (cached) return serveCachedReview(cached, req.headers.get("range"));
+  // Sin caché aún: dispara la descarga ÚNICA a segundo plano (deduplicada) y, mientras tanto, se
+  // proxia Drive en vivo para ESTA petición (comportamiento previo). En cuanto termine, las
+  // siguientes visitas ya se sirven del NAS sin volver a golpear Drive.
+  void ensureReviewCached(versionId, media.id, media.name);
 
   // Descarga directa, resolviendo el interstitial de análisis de virus para archivos
   // grandes (masters de varias horas) y preservando Range para el seek.
