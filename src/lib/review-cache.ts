@@ -21,8 +21,13 @@ const CACHE_DIR = path.join(STORAGE_DIR, "review-cache");
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024; // 20 GB: tope del caché (LRU por último acceso)
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024; // un único archivo > 4 GB no se cachea (se proxia en vivo)
 
-// Descargas en curso (un solo contenedor Node) para no bajar el mismo archivo dos veces a la vez.
-const inFlight = new Set<string>();
+// Descargas en curso: comparte la MISMA descarga entre peticiones concurrentes (un contenedor Node),
+// para que N visitas simultáneas de un video aún sin cachear NO disparen N descargas de Drive.
+const inFlight = new Map<string, Promise<CachedReview | null>>();
+// Enfriamiento tras un fallo (p. ej. "Quota exceeded" de Drive): durante este tiempo NO se reintenta
+// la descarga de esa versión, para no machacar un archivo bloqueado y dejar que Google lo libere.
+const lastFail = new Map<string, number>();
+const FAIL_COOLDOWN_MS = 10 * 60_000;
 
 const binPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.bin`);
 const metaPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.json`);
@@ -48,43 +53,56 @@ export async function getCachedReview(versionId: string): Promise<CachedReview |
   }
 }
 
-// Baja el archivo de Drive a la caché UNA vez (idempotente y deduplicado). NO lanza: si el archivo
-// está bloqueado por cuota, es privado o falla la red, simplemente no queda cacheado y se reintenta
-// en la siguiente apertura. Pensado para llamarse "fire-and-forget" desde la ruta del proxy.
-export async function ensureReviewCached(versionId: string, driveId: string, name: string): Promise<void> {
-  if (inFlight.has(versionId)) return;
-  if (await getCachedReview(versionId)) return;
-  inFlight.add(versionId);
+// Asegura la caché de una versión: si ya está, la devuelve; si no, la baja de Drive UNA vez
+// (deduplicando peticiones concurrentes y respetando el enfriamiento tras fallo). Devuelve la
+// CachedReview lista para servir, o null si no se pudo (bloqueada por cuota, privada, muy grande…).
+// NO lanza. La ruta la espera un poco y, si llega a tiempo, sirve de esta MISMA descarga (una sola
+// vez se toca Drive por archivo, en vez de proxiar en vivo en cada visita).
+export async function ensureReviewCached(versionId: string, driveId: string, name: string): Promise<CachedReview | null> {
+  const hit = await getCachedReview(versionId);
+  if (hit) return hit;
+  const running = inFlight.get(versionId);
+  if (running) return running; // otra petición ya la está bajando: comparte su resultado
+  const failedAt = lastFail.get(versionId);
+  if (failedAt && Date.now() - failedAt < FAIL_COOLDOWN_MS) return null; // en enfriamiento
+  const p = downloadToCache(versionId, driveId, name).finally(() => inFlight.delete(versionId));
+  inFlight.set(versionId, p);
+  return p;
+}
+
+async function downloadToCache(versionId: string, driveId: string, name: string): Promise<CachedReview | null> {
   try {
     await fs.mkdir(CACHE_DIR, { recursive: true });
     const res = await fetchDriveDownload(driveId);
-    if (!res.ok && res.status !== 206) return;
     const ctype = res.headers.get("content-type") || "";
-    // Drive devuelve HTML cuando el archivo está bloqueado por cuota o no es público → no es
-    // reproducible: no cacheamos esa "basura" (se reintentará cuando Drive lo libere).
-    if (ctype.includes("text/html")) return;
+    // Drive devuelve HTML cuando el archivo está bloqueado por cuota o no es público → no cacheable.
+    if ((!res.ok && res.status !== 206) || ctype.includes("text/html") || !res.body) {
+      lastFail.set(versionId, Date.now());
+      return null;
+    }
     const len = Number(res.headers.get("content-length") || "0");
-    if (len && len > MAX_FILE_BYTES) return; // demasiado grande: se sigue proxiando en vivo
-    if (!res.body) return;
+    if (len && len > MAX_FILE_BYTES) return null; // demasiado grande: se proxia en vivo (no es fallo de cuota)
 
     const part = partPath(versionId);
     await pipeline(Readable.fromWeb(res.body as unknown as NodeWebReadableStream), createWriteStream(part));
     const st = await fs.stat(part);
     if (st.size === 0) {
       await fs.rm(part, { force: true });
-      return;
+      lastFail.set(versionId, Date.now());
+      return null;
     }
-    const mime =
-      ctype && !ctype.includes("octet-stream") ? ctype.split(";")[0].trim() : guessDriveMime(name);
+    const mime = ctype && !ctype.includes("octet-stream") ? ctype.split(";")[0].trim() : guessDriveMime(name);
     // El .bin primero y la meta .json al final: getCachedReview exige AMBOS, así que una descarga
     // a medias (sin meta) nunca se sirve como completa.
     await fs.rename(part, binPath(versionId));
     await fs.writeFile(metaPath(versionId), JSON.stringify({ mime, name, size: st.size, at: Date.now() }));
+    lastFail.delete(versionId);
     void enforceLru().catch(() => {});
+    return { path: binPath(versionId), size: st.size, mime };
   } catch {
     await fs.rm(partPath(versionId), { force: true }).catch(() => {});
-  } finally {
-    inFlight.delete(versionId);
+    lastFail.set(versionId, Date.now());
+    return null;
   }
 }
 

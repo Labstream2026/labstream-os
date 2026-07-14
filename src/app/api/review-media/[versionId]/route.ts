@@ -57,10 +57,14 @@ export async function GET(
   // causa del 502 que dejaba el <video> sin cargar, sin segundo ni captura de fotograma).
   const cached = await getCachedReview(versionId);
   if (cached) return serveCachedReview(cached, req.headers.get("range"));
-  // Sin caché aún: dispara la descarga ÚNICA a segundo plano (deduplicada) y, mientras tanto, se
-  // proxia Drive en vivo para ESTA petición (comportamiento previo). En cuanto termine, las
-  // siguientes visitas ya se sirven del NAS sin volver a golpear Drive.
-  void ensureReviewCached(versionId, media.id, media.name);
+  // Sin caché aún: cachea UNA vez (deduplicando visitas simultáneas, con enfriamiento tras fallo).
+  // Espera un poco: si el video es liviano se sirve YA desde el NAS con una sola descarga de Drive;
+  // si tarda más, la descarga sigue en segundo plano y esta petición cae al proxy en vivo (previo).
+  const justCached = await Promise.race([
+    ensureReviewCached(versionId, media.id, media.name),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+  ]);
+  if (justCached) return serveCachedReview(justCached, req.headers.get("range"));
 
   // Descarga directa, resolviendo el interstitial de análisis de virus para archivos
   // grandes (masters de varias horas) y preservando Range para el seek.
