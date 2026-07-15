@@ -205,6 +205,16 @@ export function ReviewStage({
   const [replyingId, setReplyingId] = React.useState<string | null>(null);
   const [replyText, setReplyText] = React.useState("");
   const [replyToClient, setReplyToClient] = React.useState(false);
+  // Hilo abierto para responder DENTRO de la hoja del modo inmersivo. Va aparte de `replyingId`
+  // porque la lista de la vista normal sigue MONTADA detrás del overlay: con el id compartido, su
+  // textarea (que lleva autoFocus) se montaría en el mismo commit que la nuestra y, al ir después
+  // en el árbol, le robaría el foco a un campo que el cliente ni siquiera ve. El borrador
+  // (`replyText`), `sendReply` y `rowError` sí se reutilizan tal cual.
+  // Se declara AQUÍ (y no junto al resto del estado inmersivo, más abajo) a propósito: `sendReply`
+  // la usa y el compilador de React solo da por estable un setState declarado ANTES de la función
+  // que lo llama — si no, deja de compilar el escenario y react-hooks/purity marca el `Date.now()`
+  // de sendReply como impuro en render.
+  const [immReplyId, setImmReplyId] = React.useState<string | null>(null);
   // Error de una acción de FILA (prioridad, reabrir, responder): se muestra bajo esa corrección y
   // no tumba la página. El servidor es la autoridad (puede rechazar por permisos) y al fallar se
   // revierte el estado optimista.
@@ -297,6 +307,9 @@ export function ReviewStage({
         await onReply(rootId, text, toClient);
         setLocalComments((prev) => [...prev, optimistic]);
         setReplyingId(null);
+        // Cierra también el hilo de la hoja inmersiva (ver `immReplyId`). Inocuo para las vistas
+        // vertical/horizontal: allí nunca se abre, así que siempre vale null.
+        setImmReplyId(null);
         setReplyText("");
         setReplyToClient(false);
       } catch (e) {
@@ -506,6 +519,10 @@ export function ReviewStage({
   const toastTimer = React.useRef<number | null>(null);
   const sentTcRef = React.useRef<number | null>(null);
   const sheetRef = React.useRef<HTMLDivElement>(null);
+  // Hoja de LECTURA del inmersivo (correcciones, notas, versión y decisión). Va aparte de
+  // `sheetOpen` (la hoja de ESCRITURA) a propósito: son excluyentes y cada una tiene su ciclo —
+  // aquella congela el segundo y adjunta la captura, esta solo lee.
+  const [panelOpen, setPanelOpen] = React.useState(false);
   // <video> del mismo origen (subido/proxy): frame + time a la vez. Solo ahí controlamos
   // play/pausa con el toque; los iframes (YouTube/Vimeo/Drive) conservan sus controles.
   const sameOriginVideo = caps.frame && caps.time;
@@ -520,6 +537,19 @@ export function ReviewStage({
     [merged, version],
   );
   const closeSheet = React.useCallback(() => setSheetOpen(false), []);
+  // Estables (useCallback), por lo mismo que openSheet/exitImmersive: `openPanel` es prop del HUD
+  // memoizado — con una función en línea, escribir en cualquier hoja lo re-renderizaría por tecla.
+  const openPanel = React.useCallback(() => {
+    // Leer las correcciones (o decidir) con el reel corriendo detrás no tiene sentido, y de paso
+    // evita que el player siga trabajando mientras la hoja re-renderiza al escribir.
+    playerRef.current?.pause();
+    // `sendError` lo comparten submitMoment y submitNote: el error de un envío anterior no debe
+    // reaparecer en la otra hoja.
+    setSendError(null);
+    setSheetOpen(false);
+    setPanelOpen(true);
+  }, []);
+  const closePanel = React.useCallback(() => { setPanelOpen(false); setImmReplyId(null); }, []);
 
   // En celular, cualquier reel VERTICAL entra DIRECTO en pantalla completa —tanto el cliente como
   // el equipo (pre-aprobación interna)—, porque abrir la revisión desde el móvil es el caso normal
@@ -568,7 +598,7 @@ export function ReviewStage({
     if (t != null) setTc(t);
     setSheetOpen(true);
   }, []);
-  const exitImmersive = React.useCallback(() => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); }, []);
+  const exitImmersive = React.useCallback(() => { setImmersive(false); setSheetOpen(false); setDrawOpen(false); setPanelOpen(false); setImmReplyId(null); }, []);
 
   // Botón «atrás» del celular: en inmersivo, volver CIERRA la pantalla completa en vez de
   // salir de la página (patrón de app nativa). Se apila una entrada al entrar y se consume
@@ -577,7 +607,7 @@ export function ReviewStage({
   React.useEffect(() => {
     if (!immersive) return;
     try { window.history.pushState({ lsImmersive: true }, ""); pushedRef.current = true; } catch { pushedRef.current = false; }
-    const onPop = () => { pushedRef.current = false; setImmersive(false); setSheetOpen(false); setDrawOpen(false); };
+    const onPop = () => { pushedRef.current = false; setImmersive(false); setSheetOpen(false); setDrawOpen(false); setPanelOpen(false); setImmReplyId(null); };
     window.addEventListener("popstate", onPop);
     return () => {
       window.removeEventListener("popstate", onPop);
@@ -589,6 +619,26 @@ export function ReviewStage({
     sentTcRef.current = playerRef.current?.getTime() ?? tc;
     setSheetSent(true);
     submitMoment();
+  };
+
+  // ── Acciones de la hoja de lectura ── sin useCallback a propósito: solo las usa ImmersiveSheet,
+  // que NO está memoizada (sus listas cambian con cada corrección). Envolverlas daría una falsa
+  // sensación de estabilidad; el que exige props estables es el HUD.
+  // Mismo reset que el selector de versión de la vista normal. NO cierra la hoja: al cambiar de
+  // versión el cliente quiere ver ahí mismo las correcciones de la nueva.
+  const pickVersionFromPanel = (i: number) => {
+    setVIdx(i); setTc(null); setDrawing(null); setDrawOpen(false); setImmReplyId(null);
+  };
+  // Saltar a una corrección: reutiliza seek() (que reanuda) y cierra la hoja para que el momento
+  // se VEA — si no, el salto ocurriría detrás de la hoja.
+  const jumpFromPanel = (t: number) => { seek(t); setPanelOpen(false); setImmReplyId(null); };
+  // Decidir sin salir de pantalla completa: MISMO flujo que la vista normal (onDecisionIntent si
+  // viene, si no decide()). Se cierra la hoja y se pausa antes porque el modal del portal se pinta
+  // encima con backdrop-blur y dejar el video corriendo detrás cuesta GPU y desconcierta.
+  const decideFromPanel = (result: "APROBADO" | "CAMBIOS") => {
+    setPanelOpen(false);
+    playerRef.current?.pause();
+    if (onDecisionIntent) onDecisionIntent(result); else void decide(result);
   };
   // Cierra la hoja cuando el envío (optimista) termina sin error, avisa y reanuda el video.
   React.useEffect(() => {
@@ -701,6 +751,13 @@ export function ReviewStage({
                   onExit={exitImmersive}
                   versionLabel={`v${version?.number ?? 1}`}
                   moments={dotMoments}
+                  // Hoja de LECTURA: `panelOpen` apaga el chrome (tapa el video igual que el
+                  // lienzo) y `momentsCount` alimenta el contador de la píldora. Memo-seguras:
+                  // booleano, número y useCallback estable — el HUD NO debe re-renderizarse al
+                  // escribir en ninguna hoja.
+                  panelOpen={panelOpen}
+                  momentsCount={allMoments.length}
+                  onOpenPanel={openPanel}
                 />
 
                 {/* Hoja de corrección: el segundo va congelado y la captura del fotograma se
@@ -731,6 +788,39 @@ export function ReviewStage({
                     </button>
                   </div>
                 </div>
+
+                {/* Hoja de LECTURA: lo que en la vista normal vive a la derecha del player
+                    (versión · correcciones con hilos · notas · decisión), sin salir del reel.
+                    Desde el celular el overlay lo tapa todo, así que sin esto el cliente no podía
+                    ni leer lo ya pedido ni aprobar sin salirse. */}
+                <ImmersiveSheet
+                  open={panelOpen}
+                  onClose={closePanel}
+                  versions={versions}
+                  vIdx={vIdx}
+                  onPickVersion={pickVersionFromPanel}
+                  moments={allMoments}
+                  notes={notes}
+                  repliesByParent={repliesByParent}
+                  onJump={jumpFromPanel}
+                  canReply={!!onReply}
+                  replyingId={immReplyId}
+                  replyText={replyText}
+                  onReplyOpen={(id) => { setImmReplyId(id); setReplyText(""); setRowError(null); }}
+                  onReplyChange={setReplyText}
+                  onReplySend={sendReply}
+                  onReplyCancel={() => setImmReplyId(null)}
+                  rowError={rowError}
+                  noteBody={noteBody}
+                  onNoteChange={setNoteBody}
+                  onNoteSend={submitNote}
+                  decision={decision}
+                  decided={decided}
+                  canDecide={canDecide}
+                  onDecide={decideFromPanel}
+                  sendError={sendError}
+                  pending={pending}
+                />
 
                 {/* Controles del dibujo (el lienzo es el DrawOverlay de siempre, sobre el frame pausado) */}
                 {drawOpen ? (
@@ -1170,7 +1260,7 @@ function EditBox({ value, onChange, onSave, onCancel, disabled }: { value: strin
 // queda solo el chrome mínimo: salir, velocidad (si la fuente la soporta) y la burbuja «Comentar».
 type HudMoment = { id: string; timecode: number; authorName: string; body: string; fromClient: boolean };
 const HUD_HIDE_MS = 2600; // reproduciendo, el chrome se desvanece tras este tiempo sin tocar
-const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateCapable, sheetOpen, drawOpen, onCloseSheet, onOpenSheet, onExit, versionLabel, moments }: {
+const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateCapable, sheetOpen, drawOpen, onCloseSheet, onOpenSheet, onExit, versionLabel, moments, panelOpen, momentsCount, onOpenPanel }: {
   playerRef: React.MutableRefObject<PlayerApi | null>;
   // <video> del mismo origen: el toque pausa/reanuda y hay barra propia. Iframes (YouTube/
   // Vimeo/Drive) usan sus propios controles y NO se les roba el toque ni se duplica la barra.
@@ -1184,6 +1274,11 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
   onExit: () => void;
   versionLabel: string;
   moments: HudMoment[];
+  // La hoja de LECTURA está abierta: tapa el video igual que el lienzo de dibujo → el chrome
+  // estorba y el toque de pausa no debe robarle el gesto a la hoja.
+  panelOpen: boolean;
+  momentsCount: number;
+  onOpenPanel: () => void;
 }) {
   const [durT, setDurT] = React.useState(0);
   const [paused, setPaused] = React.useState(true);
@@ -1243,7 +1338,7 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
   }, [playerRef, poke]);
 
   // La hoja o el lienzo tapan el HUD: se cierra la burbujita del punto si estaba abierta.
-  React.useEffect(() => { if (sheetOpen || drawOpen) setDotPop(null); }, [sheetOpen, drawOpen]);
+  React.useEffect(() => { if (sheetOpen || drawOpen || panelOpen) setDotPop(null); }, [sheetOpen, drawOpen, panelOpen]);
   React.useEffect(() => () => {
     if (popTimer.current != null) window.clearTimeout(popTimer.current);
     if (chromeTimer.current != null) window.clearTimeout(chromeTimer.current);
@@ -1263,6 +1358,9 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
     playerRef.current?.seek(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * durRef.current, false);
   };
 
+  // El lienzo de dibujo y la hoja de lectura TAPAN el video: en ambos casos el chrome estorba
+  // (se vería atenuado bajo el velo) y no debe quedarse con los toques de la hoja.
+  const covered = drawOpen || panelOpen;
   // Iframe (sin toque propio): chrome mínimo SIEMPRE visible — no podríamos re-invocarlo con un
   // toque porque los toques se los queda el iframe.
   const show = !canTap || chrome || paused;
@@ -1270,7 +1368,7 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
   return (
     <>
       {/* Toque en el video = pausa/reanuda + trae el chrome; también cierra la hoja o la burbujita. */}
-      {canTap && !drawOpen ? (
+      {canTap && !covered ? (
         <button
           type="button"
           aria-label={paused ? "Reproducir" : "Pausar"}
@@ -1286,12 +1384,12 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
           className="absolute inset-0 z-10 cursor-default select-none"
         />
       ) : null}
-      {canTap && paused && !sheetOpen && !drawOpen ? (
+      {canTap && paused && !sheetOpen && !covered ? (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
       ) : null}
 
       {/* Barra superior: salir + versión + velocidad. Se desvanece reproduciendo. */}
-      {!drawOpen ? (
+      {!covered ? (
         <div className={`absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 bg-gradient-to-b from-black/60 to-transparent px-3 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity duration-300 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <button type="button" onClick={onExit} aria-label="Salir de pantalla completa" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-black/45 text-sm text-white hover:bg-black/65">✕</button>
           <div className="min-w-0">
@@ -1303,7 +1401,7 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
       ) : null}
 
       {/* Burbuja «Comentar»: pausa, congela el segundo y abre la hoja de corrección. */}
-      {!sheetOpen && !drawOpen ? (
+      {!sheetOpen && !covered ? (
         <button
           type="button"
           onClick={onOpenSheet}
@@ -1314,8 +1412,26 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
         </button>
       ) : null}
 
+      {/* Píldora «Correcciones»: abre la hoja de LECTURA (lista con hilos, notas, versión y
+          decisión). Desde el celular es el único camino a todo eso, porque el overlay tapa la
+          columna de la vista normal. Va APILADA sobre «Comentar» (misma esquina, 9rem): a la
+          izquierda chocaría con la burbujita de un punto tocado (dotPop, hasta ~14.75rem). */}
+      {!sheetOpen && !covered ? (
+        <button
+          type="button"
+          onClick={onOpenPanel}
+          aria-label={`Ver correcciones (${momentsCount}), notas y decidir`}
+          className={`absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] right-4 z-30 flex h-11 items-center gap-1.5 rounded-full bg-black/55 px-4 text-sm font-medium text-white shadow-lg transition-opacity duration-300 hover:bg-black/70 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        >
+          📋 Correcciones
+          {momentsCount > 0 ? (
+            <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold leading-none text-primary-foreground">{momentsCount}</span>
+          ) : null}
+        </button>
+      ) : null}
+
       {/* Progreso + puntos de corrección (solo video propio: el iframe ya trae su barra). */}
-      {canTap && durT > 0 && !drawOpen ? (
+      {canTap && durT > 0 && !covered ? (
         <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8 transition-opacity duration-300 ${show ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
             <span ref={tcRef} className="font-mono text-white/85">0:00</span>
@@ -1410,6 +1526,275 @@ function RatePill({ playerRef, onPoke }: { playerRef: React.MutableRefObject<Pla
     <button type="button" onClick={cycle} aria-label={`Velocidad ${rate}×`} className="ml-auto shrink-0 rounded-full bg-black/45 px-3 py-1.5 font-mono text-xs font-medium text-white hover:bg-black/65">
       {rate}×
     </button>
+  );
+}
+
+// ── Hoja de LECTURA del modo inmersivo ── todo lo que en la vista normal vive a la derecha del
+// player, en una hoja deslizable: versión, correcciones (captura, chips, hilos y respuesta), notas
+// generales y la decisión. La monta SOLO la rama inmersiva (portal del cliente, reel vertical en
+// celular): allí el overlay tapa la columna de comentarios, así que sin esto el cliente no podía
+// leer lo que ya se pidió, ni responder, ni aprobar sin salirse a la vista normal.
+//
+// NO va memoizada a propósito: sus listas derivan de `merged` y cambian con cada corrección. El que
+// NO debe re-renderizarse mientras el video corre es ImmersiveHud (React.memo + props estables);
+// esta hoja solo se re-renderiza cuando el cliente escribe o toca algo — y para entonces el video
+// ya está en pausa (openPanel lo pausa), así que no hay frames que perder.
+//
+// Los chips llegan en SOLO LECTURA (PriorityChip sin onToggle, StatusChip solo recibe el
+// comentario): en el portal el cliente no cambia prioridades ni reabre correcciones.
+function ImmersiveSheet({
+  open, onClose, versions, vIdx, onPickVersion, moments, notes, repliesByParent, onJump,
+  canReply, replyingId, replyText, onReplyOpen, onReplyChange, onReplySend, onReplyCancel,
+  rowError, noteBody, onNoteChange, onNoteSend, decision, decided, canDecide, onDecide,
+  sendError, pending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  versions: StageVersion[];
+  vIdx: number;
+  onPickVersion: (i: number) => void;
+  moments: StageComment[];
+  notes: StageComment[];
+  repliesByParent: Map<string, StageComment[]>;
+  onJump: (t: number) => void;
+  canReply: boolean;
+  replyingId: string | null;
+  replyText: string;
+  onReplyOpen: (id: string) => void;
+  onReplyChange: (v: string) => void;
+  onReplySend: (parent: StageComment) => void;
+  onReplyCancel: () => void;
+  rowError: { id: string; message: string } | null;
+  noteBody: string;
+  onNoteChange: (v: string) => void;
+  onNoteSend: () => void;
+  decision: { approveLabel: string; changesLabel: string } | null;
+  decided: boolean;
+  canDecide: boolean;
+  onDecide: (result: "APROBADO" | "CAMBIOS") => void;
+  sendError: string | null;
+  pending: boolean;
+}) {
+  const [tab, setTab] = React.useState<"correcciones" | "notas">("correcciones");
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Mismo trato que la hoja de corrección: iOS no redimensiona los `fixed` al abrir el teclado, así
+  // que la hoja se pega al borde superior del teclado con visualViewport. Sin esto, responder un
+  // hilo o escribir una nota se haría a ciegas. Vive aquí (y no en el escenario) porque es
+  // exclusivo de esta hoja: solo escribe estilos, nunca estado.
+  React.useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    const el = ref.current;
+    if (!vv || !el) return;
+    const onResize = () => { el.style.bottom = `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`; };
+    onResize();
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => { vv.removeEventListener("resize", onResize); vv.removeEventListener("scroll", onResize); el.style.bottom = "0px"; };
+  }, [open]);
+
+  return (
+    <>
+      {/* Velo: tocar fuera cierra. Sólido (bg-black/60) y SIN backdrop-blur: desenfocar un video
+          es caro en la GPU del celular y producía tirones. z-[35] queda sobre el chrome del HUD
+          (z-30) y bajo la hoja (z-40). */}
+      <div
+        onClick={onClose}
+        aria-hidden
+        className={`absolute inset-0 z-[35] bg-black/60 transition-opacity duration-200 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      />
+      <div
+        ref={ref}
+        role="dialog"
+        aria-label="Correcciones, notas y decisión"
+        className={`absolute inset-x-0 bottom-0 z-40 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-white/10 bg-zinc-900 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 transition-transform duration-200 ${open ? "translate-y-0" : "pointer-events-none translate-y-[110%]"}`}
+      >
+        {/* El handle ES el botón de cerrar: gesto esperado en celular y área de toque generosa. */}
+        <button type="button" onClick={onClose} aria-label="Cerrar" className="mx-auto mb-1 flex h-6 w-16 shrink-0 items-center justify-center">
+          <span className="block h-1 w-9 rounded-full bg-white/25" />
+        </button>
+
+        {/* Versión: mismas pastillas que la vista normal, dentro del overlay. NO cierra la hoja —
+            al cambiar de versión el cliente quiere ver aquí mismo las correcciones de la nueva. */}
+        {versions.length > 1 ? (
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-1.5 px-4">
+            <span className="text-[11px] text-white/50">Versión</span>
+            {versions.map((v, i) => (
+              <button
+                key={v.number}
+                type="button"
+                onClick={() => onPickVersion(i)}
+                aria-pressed={i === vIdx}
+                className={`min-w-11 rounded-full px-3 py-1.5 text-xs font-medium ${i === vIdx ? "bg-primary text-primary-foreground" : "bg-white/10 text-white/80 hover:bg-white/20"}`}
+              >
+                v{v.number}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Pestañas: correcciones (con segundo/captura) vs. notas generales — mismo corte que la
+            vista normal (`moments` vs `notes`). */}
+        <div className="mx-4 mb-2 flex shrink-0 rounded-xl bg-white/[0.06] p-1">
+          {([["correcciones", `Correcciones (${moments.length})`], ["notas", `Notas (${notes.length})`]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setTab(k)}
+              aria-pressed={tab === k}
+              className={`flex-1 rounded-lg px-2 py-2 text-xs font-medium transition-colors ${tab === k ? "bg-primary text-primary-foreground" : "text-white/60"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* overscroll-contain: el rebote de la lista no se propaga al overlay.
+            La lista solo se pinta ABIERTA: cerrada no cuesta nada, y detrás sigue montada la de la
+            vista normal, que ya re-renderiza con cada tecla — no hay que pagarla dos veces. */}
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 pb-2">
+          {!open ? null : tab === "correcciones" ? (
+            moments.length === 0 ? (
+              <p className="py-8 text-center text-[13px] text-white/50">Aún no hay correcciones en esta versión. Toca «💬 Comentar» sobre el reel para dejar la primera.</p>
+            ) : (
+              moments.map((c) => {
+                const replies = repliesByParent.get(c.id) ?? [];
+                return (
+                  <div key={c.id} className={`rounded-xl border p-3 ${c.resolved ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-white/10 bg-white/[0.04]"}`}>
+                    <div className="flex gap-2.5">
+                      {/* Miniatura de la captura: tocarla salta al momento. Tamaño fijo pequeño con
+                          object-cover y lazy — cada imagen es un data-URI de hasta ~480 KB y
+                          pintarlas grandes castigaría la memoria del celular. */}
+                      {c.drawing?.image ? (
+                        <button
+                          type="button"
+                          onClick={() => { if (c.timecode != null) onJump(c.timecode); }}
+                          disabled={c.timecode == null}
+                          aria-label={c.timecode != null ? `Ir a ${fmtTime(c.timecode)}` : "Captura del momento"}
+                          className="size-16 shrink-0 overflow-hidden rounded-lg border border-white/10"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={c.drawing.image} alt="Captura del momento" loading="lazy" className="h-full w-full object-cover" />
+                        </button>
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[13px] font-medium text-white">{c.authorName}</span>
+                          {c.fromClient
+                            ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
+                            : <span className="rounded bg-white/10 px-1.5 text-[10px] text-white/70">equipo</span>}
+                          {c.timecode != null ? (
+                            <button type="button" onClick={() => onJump(c.timecode!)} className="rounded-md bg-primary/15 px-2 py-1 font-mono text-[11px] font-medium text-primary">▶ {fmtTime(c.timecode)}</button>
+                          ) : null}
+                        </div>
+                        {/* Estado y prioridad en SOLO LECTURA (PriorityChip sin onToggle). */}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <StatusChip comment={c} />
+                          <PriorityChip priority={c.priority ?? "OBLIGATORIA"} />
+                          {c.editedAt ? <EditedMark /> : null}
+                        </div>
+                        <p className={`mt-1.5 whitespace-pre-wrap break-words text-[13px] ${c.resolved ? "text-white/45 line-through" : "text-white/90"}`}>{c.body}</p>
+                        {rowError?.id === c.id ? <p className="mt-1 text-[11px] text-red-300">{rowError.message}</p> : null}
+
+                        {/* ── Hilo ── respuestas anidadas + responder (mismo sendReply de siempre). */}
+                        {replies.length > 0 || canReply ? (
+                          <div className="mt-2 space-y-2 border-l-2 border-white/15 pl-2.5">
+                            {replies.map((r) => (
+                              <div key={r.id}>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[11px] font-medium text-white/85">{r.authorName}</span>
+                                  {r.fromClient
+                                    ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
+                                    : <span className="rounded bg-white/15 px-1.5 text-[10px] text-white/70">equipo</span>}
+                                  {r.editedAt ? <EditedMark /> : null}
+                                </div>
+                                <p className="whitespace-pre-wrap break-words text-[12px] text-white/75">{r.body}</p>
+                              </div>
+                            ))}
+                            {canReply ? (
+                              replyingId === c.id ? (
+                                <div className="space-y-1.5">
+                                  <textarea
+                                    value={replyText}
+                                    onChange={(e) => onReplyChange(e.target.value)}
+                                    rows={2}
+                                    autoFocus
+                                    placeholder="Escribe tu respuesta…"
+                                    className="w-full rounded-lg border border-white/15 bg-white/10 px-2.5 py-2 text-[13px] text-white outline-none placeholder:text-white/40 focus:ring-2 focus:ring-primary"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => onReplySend(c)} disabled={pending || !replyText.trim()} className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50">
+                                      {pending ? "Enviando…" : "Responder"}
+                                    </button>
+                                    <button type="button" onClick={onReplyCancel} disabled={pending} className="rounded-full px-3 py-2 text-xs font-medium text-white/60">Cancelar</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button type="button" onClick={() => onReplyOpen(c.id)} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-medium text-white/75 hover:bg-white/20">Responder</button>
+                              )
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )
+          ) : notes.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-white/50">Aún no hay notas. Escribe abajo una impresión general del reel (sin segundo ni captura).</p>
+          ) : (
+            notes.map((c) => (
+              <div key={c.id} className="rounded-xl border border-dashed border-white/15 bg-white/[0.04] p-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[13px] font-medium text-white">{c.authorName}</span>
+                  {c.fromClient
+                    ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
+                    : <span className="rounded bg-white/15 px-1.5 text-[10px] text-white/70">equipo</span>}
+                  {c.editedAt ? <EditedMark /> : null}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap break-words text-[13px] text-white/90">{c.body}</p>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Añadir una nota general (sin segundo ni captura): reutiliza noteBody/submitNote, que ya
+            manda isNote=true. El nombre no se pide: en el portal viene fijo (fixedName). */}
+        {open && tab === "notas" ? (
+          <div className="shrink-0 border-t border-white/10 px-4 pt-2.5">
+            {sendError ? <p className="mb-1.5 text-[11px] text-red-300">{sendError}</p> : null}
+            <div className="flex items-center gap-2">
+              <input
+                value={noteBody}
+                onChange={(e) => onNoteChange(e.target.value)}
+                placeholder="Nota general…"
+                className="min-w-0 flex-1 rounded-full border border-white/15 bg-white/10 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/40 focus:ring-2 focus:ring-primary"
+              />
+              <button type="button" onClick={onNoteSend} disabled={pending || !noteBody.trim()} className="h-11 shrink-0 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
+                {pending ? "…" : "Añadir"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Decisión: MISMA lógica que la vista normal (decided → aviso; canDecide → botones; y
+            `decision === null`, el usuario invitado, no pinta nada aquí tampoco). */}
+        {decision ? (
+          <div className="mt-2 shrink-0 border-t border-white/10 px-4 pt-3">
+            {decided ? (
+              <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-center text-[13px] font-medium text-emerald-300">✅ Entregable aprobado.</p>
+            ) : canDecide ? (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => onDecide("APROBADO")} disabled={pending} className="flex-1 rounded-full bg-emerald-600 px-3 py-3 text-sm font-semibold text-white disabled:opacity-50">{decision.approveLabel}</button>
+                <button type="button" onClick={() => onDecide("CAMBIOS")} disabled={pending} className="flex-1 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-3 text-sm font-medium text-amber-300 disabled:opacity-50">{decision.changesLabel}</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 

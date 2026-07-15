@@ -441,7 +441,11 @@ function DecisionModal({
   }, [state.phase, target, approved]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+    // z-[90]: por ENCIMA del modo inmersivo del reel, que es un overlay OPACO a z-[60]
+    // (review-stage). Desde la pantalla completa el cliente decide sin salir, y a z-50 este modal
+    // se pintaba DEBAJO del negro del overlay (mismo contexto de apilamiento raíz): tocaba
+    // «Aprobar» y no veía nada. Queda sobre el tour (z-[80]) y bajo confirm/prompt (z-[100]).
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/10 via-card to-card p-7 text-center shadow-2xl sm:p-9">
         <div className="pointer-events-none absolute -right-12 -top-12 size-44 rounded-full bg-primary/15 blur-3xl" />
         <div className="relative">
