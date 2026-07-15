@@ -9,7 +9,14 @@ WORKDIR /app
 # ── deps ──
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Reintentos de red: el deploy purga la caché de build (claude-job.sh), así que `npm ci` vuelve a
+# bajar ~540 paquetes en CADA despliegue, y la salida del NAS al registro de npm corta conexiones a
+# ratos (ECONNRESET → «exit code: 152»), tumbando el deploy a medias. Con reintentos y espera
+# creciente, un corte transitorio ya no obliga a relanzar el despliegue a mano.
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm ci
 
 # ── builder ──
 FROM base AS builder
