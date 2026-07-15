@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
-import { getCachedReview, ensureReviewCached, serveCachedReview } from "@/lib/review-cache";
+import { getCachedReview, ensureReviewCached, serveCachedReview, isCachingInFlight } from "@/lib/review-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,8 +66,19 @@ export async function GET(
   ]);
   if (justCached) return serveCachedReview(justCached, req.headers.get("range"));
 
-  // Descarga directa, resolviendo el interstitial de análisis de virus para archivos
-  // grandes (masters de varias horas) y preservando Range para el seek.
+  // La copia SIGUE bajándose (un video de ~100 MB tarda más que la espera de arriba): NO proxiamos
+  // Drive en vivo. El <video> pide decenas de rangos y cada uno es otro golpe a Drive; con varias
+  // personas abriendo la misma versión recién subida, eso AGOTA la cuota diaria del archivo antes de
+  // que la copia termine, Google lo bloquea y ya no se cachea nunca (le pasó a «Macara led» v3).
+  // Devolvemos 502: el reproductor cae al visor de Google (se ve, sin captura) y la copia termina
+  // tranquila con UNA sola descarga → la siguiente visita ya sale del NAS, con captura y para siempre.
+  if (isCachingInFlight(versionId)) {
+    return new Response("Preparando la copia de revisión en el NAS", { status: 502 });
+  }
+
+  // Aquí solo se llega cuando NO vamos a cachear (archivo enorme, o en enfriamiento tras un fallo):
+  // descarga directa, resolviendo el interstitial de análisis de virus para archivos grandes
+  // (masters de varias horas) y preservando Range para el seek.
   const range = req.headers.get("range") || undefined;
 
   let upstream: Response;

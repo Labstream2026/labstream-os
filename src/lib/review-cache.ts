@@ -36,6 +36,16 @@ const partPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.part`
 
 export type CachedReview = { path: string; size: number; mime: string };
 
+// ¿Se está bajando AHORA la copia de esta versión? La ruta lo consulta para NO proxiar Drive en
+// vivo mientras tanto: el <video> pide decenas de rangos y cada uno seria otro golpe a Drive, que
+// agota la cuota diaria del archivo ANTES de que la copia termine — y entonces Google lo bloquea y
+// ya no se puede cachear nunca (circulo vicioso). Preferimos que esa primera visita caiga al visor
+// de Google (se ve, sin captura) y que la copia termine tranquila: la siguiente visita ya sale del
+// NAS, con captura y para siempre.
+export function isCachingInFlight(versionId: string): boolean {
+  return inFlight.has(versionId);
+}
+
 // Devuelve la caché SOLO si está completa (existe el .bin no vacío y su meta .json). null si no.
 export async function getCachedReview(versionId: string): Promise<CachedReview | null> {
   try {
