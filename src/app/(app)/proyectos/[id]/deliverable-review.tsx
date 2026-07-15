@@ -111,19 +111,74 @@ export type ReviewThreadComment = {
   createdAt: Date | string;
 };
 
+// Filtros del checklist (solo estado del cliente: no tocan el servidor).
+const REVIEW_FILTERS = [
+  { key: "todas", label: "Todas" },
+  { key: "pendientes", label: "Pendientes" },
+  { key: "hechas", label: "Hechas" },
+] as const;
+type ReviewFilter = (typeof REVIEW_FILTERS)[number]["key"];
+
+// Fila COMPACTA de una corrección: círculo para tildar, autor + chips, texto y la captura
+// del fotograma como MINIATURA a la derecha (nunca a lo ancho: en la tarjeta el espacio es
+// oro). El clic en la miniatura la amplía con el lightbox global (`data-lightbox`).
+function CorrectionRow({ c, pending, onToggle }: { c: ReviewThreadComment; pending: boolean; onToggle: () => void }) {
+  return (
+    <div className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-sm", c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border")}>
+      <button
+        onClick={onToggle}
+        disabled={pending}
+        title={c.resolved ? "Marcar como pendiente" : "Marcar como realizada"}
+        className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
+      >
+        {c.resolved ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Circle className="size-5" />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium">{c.authorName}</span>
+          {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+          {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{formatTimecode(c.timecode)}</span> : null}
+          {/* Prioridad: lo que es imprescindible corregir se distingue de lo opcional. */}
+          {(c.priority ?? "OBLIGATORIA") === "SUGERENCIA" ? (
+            <span className="rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">Sugerencia</span>
+          ) : (
+            <span className="rounded bg-orange-100 px-1.5 text-[10px] font-medium text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">Obligatoria</span>
+          )}
+          {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Hecha</span> : null}
+        </div>
+        <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
+      </div>
+      {c.image ? (
+        <a href={c.image} data-lightbox rel="noreferrer" title="Ampliar captura" className="shrink-0 cursor-zoom-in">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={c.image} alt="Captura de la corrección" className="h-16 w-11 rounded border border-border object-cover" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 // Checklist de correcciones del entregable, en la VISTA DEL ENTREGABLE (lo trabaja el
-// editor): cada cambio pedido (interno o del cliente) muestra su CAPTURA del fotograma y
-// el comentario, con una casilla para marcarlo como realizado (avisa al equipo). Las
-// notas generales (sin captura) se listan aparte. El checklist vive aquí, no en el
-// workspace de pre-aprobación ni en el portal del cliente.
+// editor): cada cambio pedido (interno o del cliente) es una fila compacta con casilla
+// para marcarlo como realizado (avisa al equipo). Las notas generales (sin casilla) se
+// listan aparte. El checklist vive aquí, no en el workspace de pre-aprobación ni en el
+// portal del cliente.
 export function ReviewThread({ deliverableId, projectId, comments }: { deliverableId: string; projectId: string; comments: ReviewThreadComment[] }) {
   const [pending, start] = React.useTransition();
   const [body, setBody] = React.useState("");
   // Estado «realizado» optimista (resolveReviewComment no revalida la página).
   const [override, setOverride] = React.useState<Record<string, boolean>>({});
+  const [filter, setFilter] = React.useState<ReviewFilter>("todas");
   // Acordeón por versión: null = aún sin tocar (abre solo la última); luego, conjunto explícito.
   const [openVersions, setOpenVersions] = React.useState<Set<number | "none"> | null>(null);
-  if (comments.length === 0) return null;
+  if (comments.length === 0) {
+    // Vacío amable: la pestaña Correcciones se ve siempre, aunque nadie haya pedido nada aún.
+    return (
+      <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+        Sin correcciones todavía. Cuando el cliente o el equipo pidan cambios, aparecerán aquí.
+      </p>
+    );
+  }
   // Las RESPUESTAS de un hilo (parentId) no son correcciones: no se tildan ni cuentan en el
   // checklist. La conversación se lee en el workspace de revisión, donde va anidada bajo su madre.
   const roots = comments.filter((c) => c.parentId == null);
@@ -136,10 +191,12 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
     setOverride((p) => ({ ...p, [c.id]: next }));
     start(() => resolveReviewComment(c.id, projectId, next));
   };
+  const matchesFilter = (c: ReviewThreadComment) =>
+    filter === "todas" || (filter === "pendientes" ? !c.resolved : c.resolved);
 
-  // Agrupa las correcciones por versión (más nueva arriba; las sin versión, al final) para
-  // que cada bloque sea un acordeón: con muchas versiones ocupa poco y NO se pierden las
-  // capturas de las versiones ya enviadas — solo quedan plegadas.
+  // Agrupa las correcciones por versión (más nueva arriba; las sin versión, al final). El
+  // acordeón por grupo SOLO aparece con varias versiones: con una sola, la lista plana evita
+  // el doble conteo («checklist 0/5» + «versión 0/5») que no aportaba nada.
   const groups = (() => {
     const map = new Map<number | "none", ReviewThreadComment[]>();
     for (const c of changes) {
@@ -151,6 +208,7 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
       .sort((a, b) => (a === "none" ? 1 : b === "none" ? -1 : (b as number) - (a as number)))
       .map((k) => ({ key: k, items: map.get(k)! }));
   })();
+  const multiVersion = groups.length > 1;
   const latestKey = groups[0]?.key;
   // Por defecto, solo la versión más nueva queda abierta; el resto, plegado.
   const openSet = openVersions ?? new Set(latestKey != null ? [latestKey] : []);
@@ -160,83 +218,77 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
     if (next.has(k)) next.delete(k); else next.add(k);
     setOpenVersions(next);
   };
+  const visibleCount = changes.filter(matchesFilter).length;
 
   return (
-    <div className="mt-3 border-t border-border pt-3">
+    <div>
       {changes.length > 0 ? (
         <>
-          <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-            Checklist de correcciones · {done}/{changes.length} hechos
-          </p>
-          <div className="space-y-2">
-            {groups.map(({ key, items }) => {
-              const gDone = items.filter((c) => c.resolved).length;
-              const open = openSet.has(key);
-              return (
-                <div key={String(key)} className="overflow-hidden rounded-lg border border-border">
-                  <button
-                    type="button"
-                    onClick={() => toggleVersion(key)}
-                    className="flex w-full items-center gap-2 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-muted/70"
-                  >
-                    {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
-                    <span>{key === "none" ? "Sin versión" : `Versión ${key}`}</span>
-                    <span className={cn("ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium", gDone === items.length ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-background text-muted-foreground")}>
-                      {gDone}/{items.length} hechos
-                    </span>
-                  </button>
-                  {open ? (
-                    <div className="space-y-2 p-2">
-                      {items.map((c) => (
-                        <div key={c.id} className={cn("flex items-start gap-2 rounded-lg border px-2.5 py-2 text-sm", c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border")}>
-                          <button
-                            onClick={() => toggle(c)}
-                            disabled={pending}
-                            title={c.resolved ? "Marcar como pendiente" : "Marcar como realizado"}
-                            className="mt-0.5 shrink-0 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
-                          >
-                            {c.resolved ? <CheckCircle2 className="size-5 text-emerald-600" /> : <Circle className="size-5" />}
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-xs font-medium">{c.authorName}</span>
-                              {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
-                              {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{formatTimecode(c.timecode)}</span> : null}
-                              {/* Prioridad: lo que es imprescindible corregir se distingue de lo opcional. */}
-                              {(c.priority ?? "OBLIGATORIA") === "SUGERENCIA" ? (
-                                <span className="rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">Sugerencia</span>
-                              ) : (
-                                <span className="rounded bg-orange-100 px-1.5 text-[10px] font-medium text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">Obligatoria</span>
-                              )}
-                              {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
-                              {/* Reabrir: si se dio por hecha por error, se vuelve a pendiente. El
-                                  círculo ya lo alterna, pero como botón con nombre se encuentra. */}
-                              {c.resolved ? (
-                                <button
-                                  type="button"
-                                  onClick={() => toggle(c)}
-                                  disabled={pending}
-                                  className="ml-auto rounded px-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                                >
-                                  Reabrir
-                                </button>
-                              ) : null}
-                            </div>
-                            <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
-                            {c.image ? (
-                              // Captura del fotograma: el editor ve exactamente dónde es la corrección.
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={c.image} alt="Captura de la corrección" className="mt-1.5 w-full max-w-sm rounded-md border border-border" />
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
+          {/* Filtros + contador VIVO: incluye el estado optimista, a diferencia del resumen
+              del <summary> de la tarjeta, que es una instantánea del servidor. */}
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {REVIEW_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+                  filter === f.key ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+            <span className="ml-auto text-[11px] text-muted-foreground">{done}/{changes.length} hechas</span>
           </div>
+
+          {visibleCount === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+              {filter === "hechas" ? "Aún no hay correcciones hechas." : "No queda nada pendiente."}
+            </p>
+          ) : multiVersion ? (
+            <div className="space-y-2">
+              {groups.map(({ key, items }) => {
+                // El filtro se aplica dentro de cada grupo; el conteo del encabezado sigue
+                // siendo el total del grupo (es el dato útil para saber cuánto falta).
+                const visible = items.filter(matchesFilter);
+                if (visible.length === 0) return null;
+                const gDone = items.filter((c) => c.resolved).length;
+                const open = openSet.has(key);
+                return (
+                  <div key={String(key)} className="overflow-hidden rounded-lg border border-border">
+                    <button
+                      type="button"
+                      onClick={() => toggleVersion(key)}
+                      className="flex w-full items-center gap-2 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-semibold hover:bg-muted/70"
+                    >
+                      {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+                      <span>{key === "none" ? "Sin versión" : `Versión ${key}`}</span>
+                      <span className={cn("ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium", gDone === items.length ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-background text-muted-foreground")}>
+                        {gDone}/{items.length} hechas
+                      </span>
+                    </button>
+                    {open ? (
+                      <div className="space-y-1.5 p-2">
+                        {visible.map((c) => (
+                          <CorrectionRow key={c.id} c={c} pending={pending} onToggle={() => toggle(c)} />
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            // Un solo grupo de versión: lista plana, sin encabezado (el contador vivo de
+            // arriba ya dice cuánto va).
+            <div className="space-y-1.5">
+              {changes.filter(matchesFilter).map((c) => (
+                <CorrectionRow key={c.id} c={c} pending={pending} onToggle={() => toggle(c)} />
+              ))}
+            </div>
+          )}
         </>
       ) : null}
 
