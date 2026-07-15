@@ -103,6 +103,11 @@ export type ReviewThreadComment = {
   isNote: boolean;
   resolved: boolean;
   fromClient: boolean;
+  // Qué es bloqueante (OBLIGATORIA) y qué es opcional (SUGERENCIA), para que el editor sepa por
+  // dónde empezar. Opcional: las llamadas viejas siguen valiendo (se asume OBLIGATORIA).
+  priority?: "OBLIGATORIA" | "SUGERENCIA";
+  // Si viene, es una RESPUESTA del hilo de otra corrección: no es un ítem del checklist.
+  parentId?: string | null;
   createdAt: Date | string;
 };
 
@@ -119,7 +124,10 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
   // Acordeón por versión: null = aún sin tocar (abre solo la última); luego, conjunto explícito.
   const [openVersions, setOpenVersions] = React.useState<Set<number | "none"> | null>(null);
   if (comments.length === 0) return null;
-  const withRes = comments.map((c) => (c.id in override ? { ...c, resolved: override[c.id] } : c));
+  // Las RESPUESTAS de un hilo (parentId) no son correcciones: no se tildan ni cuentan en el
+  // checklist. La conversación se lee en el workspace de revisión, donde va anidada bajo su madre.
+  const roots = comments.filter((c) => c.parentId == null);
+  const withRes = roots.map((c) => (c.id in override ? { ...c, resolved: override[c.id] } : c));
   const changes = withRes.filter((c) => !c.isNote);
   const notes = withRes.filter((c) => c.isNote);
   const done = changes.filter((c) => c.resolved).length;
@@ -194,7 +202,25 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
                               <span className="text-xs font-medium">{c.authorName}</span>
                               {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
                               {c.timecode != null ? <span className="rounded bg-primary/10 px-1.5 font-mono text-[10px] text-primary">{formatTimecode(c.timecode)}</span> : null}
+                              {/* Prioridad: lo que es imprescindible corregir se distingue de lo opcional. */}
+                              {(c.priority ?? "OBLIGATORIA") === "SUGERENCIA" ? (
+                                <span className="rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">Sugerencia</span>
+                              ) : (
+                                <span className="rounded bg-orange-100 px-1.5 text-[10px] font-medium text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">Obligatoria</span>
+                              )}
                               {c.resolved ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                              {/* Reabrir: si se dio por hecha por error, se vuelve a pendiente. El
+                                  círculo ya lo alterna, pero como botón con nombre se encuentra. */}
+                              {c.resolved ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggle(c)}
+                                  disabled={pending}
+                                  className="ml-auto rounded px-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                                >
+                                  Reabrir
+                                </button>
+                              ) : null}
                             </div>
                             <p className={cn("whitespace-pre-wrap text-[13px]", c.resolved ? "text-muted-foreground line-through" : "text-foreground/90")}>{c.body}</p>
                             {c.image ? (

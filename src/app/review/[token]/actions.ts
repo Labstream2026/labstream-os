@@ -155,6 +155,68 @@ export async function addReviewComment(token: string, formData: FormData) {
   // (ReviewStage) para que el reproductor de video NO se reinicie al comentar.
 }
 
+// El cliente RESPONDE dentro del hilo de una corrección (en vez de abrir un comentario suelto que
+// nadie sabe a qué contesta). Mismo patrón que addReviewComment: autorización por token, límite
+// de ritmo y aviso al equipo. La corrección madre se valida contra el entregable DEL TOKEN.
+export async function addReviewReply(token: string, parentId: string, body: string, authorName?: string) {
+  // Responder escribe en BD y avisa al equipo: mismo límite estricto que comentar.
+  if (!rateLimit(`review-reply:${await rlKey(token)}`, 10, 60_000)) {
+    throw new Error("Demasiadas respuestas seguidas. Espera un momento e inténtalo de nuevo.");
+  }
+  const { id: deliverableId, name, projectId } = await resolveDeliverable(token);
+
+  const parent = await db.reviewComment.findUnique({
+    where: { id: parentId },
+    select: { id: true, deliverableId: true, parentId: true, versionNumber: true, fromClient: true, visibleToClient: true },
+  });
+  // La madre tiene que ser de ESTE entregable (un id de otro entregable no cuela por el token)…
+  if (!parent || parent.deliverableId !== deliverableId) throw new Error("Esa corrección no existe en esta revisión.");
+  // …y estar de cara al cliente: bajo un comentario INTERNO del equipo (que él nunca ve) no se
+  // responde, aunque alguien traiga su id a mano.
+  if (!parent.fromClient && !parent.visibleToClient) throw new Error("Esa corrección no existe en esta revisión.");
+
+  const clean = body.trim().slice(0, 4000);
+  if (!clean) return;
+
+  // Usuario invitado con sesión: la respuesta queda atribuida a su usuario, como en addReviewComment.
+  const inviter = await sessionMember(projectId);
+  const who = inviter?.name ?? ((authorName ?? "").trim().slice(0, 80) || "Cliente");
+  // Hilos de UN nivel: responder a una respuesta cuelga de la misma corrección madre.
+  const rootId = parent.parentId ?? parent.id;
+
+  await db.reviewComment.create({
+    data: {
+      deliverableId,
+      parentId: rootId,
+      authorName: who,
+      authorUserId: inviter?.id ?? undefined,
+      body: clean,
+      versionNumber: parent.versionNumber,
+      fromClient: true,
+    },
+  });
+  await logActivity({
+    action: "deliverable.client_comment",
+    summary: `respondió en la revisión de «${name}»`,
+    projectId,
+    entityType: "deliverable",
+    entityId: deliverableId,
+    actorName: `${who} (cliente)`,
+  });
+  // Aviso al equipo con el MISMO tope de correo que los comentarios (misma clave por entregable):
+  // una ronda de comentarios y respuestas seguidos no debe disparar una avalancha de correos.
+  if (rateLimit(`review-comment-mail:${deliverableId}`, 1, 10 * 60_000)) {
+    await notifyManyAndEmail(await projectTeamIds(projectId), {
+      type: "review",
+      event: "review_client",
+      title: `Cliente respondió: ${name}`,
+      body: `${who} respondió en una corrección de la revisión. Ábrela para verlo.`,
+      link: `/revisiones/${deliverableId}`,
+    });
+  }
+  // No revalidamos: la respuesta se muestra de forma optimista (el video no se reinicia).
+}
+
 // El cliente marca una foto de la galería: ME_GUSTA / NO_ME_GUSTA / PENDIENTE (toggle) + nota
 // opcional. Límite generoso porque el cliente puede recorrer muchas fotos seguidas. No revalida
 // la página (la galería actualiza de forma optimista); el valor queda guardado para el equipo.

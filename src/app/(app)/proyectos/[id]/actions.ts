@@ -2054,7 +2054,14 @@ export async function resolveReviewComment(commentId: string, _projectId: string
   });
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
-  await db.reviewComment.update({ where: { id: commentId }, data: { resolved } });
+  // Trazabilidad: quién la marcó como hecha y cuándo (se ve en ambos lados, equipo y cliente).
+  // Al REABRIRLA se limpia, para que no quede un «hecho por» de una corrección pendiente.
+  await db.reviewComment.update({
+    where: { id: commentId },
+    data: resolved
+      ? { resolved: true, resolvedAt: new Date(), resolvedById: session!.id }
+      : { resolved: false, resolvedAt: null, resolvedById: null },
+  });
   if (resolved) {
     const change = c.body.replace(/^\(anotación\)$/, "anotación").slice(0, 80);
     await notifyMany(
@@ -2087,31 +2094,96 @@ async function reviewCommentForMutation(commentId: string) {
   });
 }
 
-// Edita el texto de un comentario interno de revisión. SOLO mientras es borrador
-// (lockedAt == null), por su autor o quien gestiona el proyecto. Tras «Solicitar cambios»
-// el comentario queda sellado e inmutable (es lo que trabaja el editor en Entregables).
+// Edita el texto de una corrección del EQUIPO, por su autor o quien gestiona el proyecto.
+// Se permite también cuando YA está sellada («Solicitar cambios»): corregir una redacción mala
+// es más útil que dejarla inmutable; queda constancia con editedAt. Lo que NO se toca nunca es
+// un comentario del CLIENTE (no somos quién para reescribir lo que él dijo).
 export async function editReviewComment(commentId: string, _projectId: string, body: string) {
   const c = await reviewCommentForMutation(commentId);
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
   const mine = c.authorUserId === session!.id;
   if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
-  if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede editar.");
+  if (c.fromClient) throw new Error("No se puede editar un comentario del cliente.");
   const next = body.trim().slice(0, 4000);
   if (!next) throw new Error("El comentario no puede quedar vacío.");
-  await db.reviewComment.update({ where: { id: commentId }, data: { body: next } });
+  // editedAt solo cuando ya estaba sellada: en borrador, editar es lo normal y no merece marca.
+  await db.reviewComment.update({
+    where: { id: commentId },
+    data: { body: next, ...(c.lockedAt ? { editedAt: new Date() } : {}) },
+  });
   // Sin revalidar: el workspace lo refleja de forma optimista (no reinicia el video).
 }
 
-// Borra un comentario interno de revisión, con las mismas reglas que editar.
+// Retira una corrección del EQUIPO (borrador o ya enviada), con las mismas reglas que editar.
+// Retirar una corrección enviada es legítimo: a veces se pide un cambio que luego se descarta.
 export async function deleteReviewComment(commentId: string, _projectId: string) {
   const c = await reviewCommentForMutation(commentId);
   const session = await getSession();
   if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
   const mine = c.authorUserId === session!.id;
   if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
-  if (c.fromClient || c.lockedAt) throw new Error("Este comentario ya está enviado y no se puede borrar.");
-  await db.reviewComment.delete({ where: { id: commentId } });
+  if (c.fromClient) throw new Error("No se puede borrar un comentario del cliente.");
+  await db.reviewComment.delete({ where: { id: commentId } }); // las respuestas del hilo caen en cascada
+}
+
+// Marca una corrección como OBLIGATORIA (bloqueante) o SUGERENCIA (opcional), para que el editor
+// sepa qué es imprescindible. Solo sobre correcciones del equipo, por su autor o quien gestiona.
+export async function setReviewCommentPriority(commentId: string, _projectId: string, priority: "OBLIGATORIA" | "SUGERENCIA") {
+  const c = await reviewCommentForMutation(commentId);
+  const session = await getSession();
+  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
+  const mine = c.authorUserId === session!.id;
+  if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
+  if (priority !== "OBLIGATORIA" && priority !== "SUGERENCIA") throw new Error("Prioridad inválida.");
+  await db.reviewComment.update({ where: { id: commentId }, data: { priority } });
+  // Sin revalidar: la UI lo refleja de forma optimista (no reinicia el video).
+}
+
+// Responde ANCLADO a una corrección concreta (hilo), en vez de dejar una respuesta suelta.
+// `visibleToClient` decide si la respuesta se ve en el portal del cliente: se responde al
+// cliente en su hilo, o se discute internamente bajo una corrección del equipo.
+export async function replyToReviewComment(commentId: string, _projectId: string, body: string, visibleToClient: boolean) {
+  const parent = await db.reviewComment.findUnique({
+    where: { id: commentId },
+    select: {
+      deliverableId: true,
+      versionNumber: true,
+      parentId: true,
+      fromClient: true,
+      deliverable: { select: { name: true, projectId: true, project: { select: accessSelect } } },
+    },
+  });
+  const session = await getSession();
+  if (!parent || !canWriteProject(parent.deliverable.project, session)) noAutorizado();
+  const next = body.trim().slice(0, 4000);
+  if (!next) throw new Error("La respuesta no puede quedar vacía.");
+  // Hilos de UN nivel: responder a una respuesta cuelga de la misma corrección madre.
+  const rootId = parent.parentId ?? commentId;
+  const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
+  const created = await db.reviewComment.create({
+    data: {
+      deliverableId: parent.deliverableId,
+      parentId: rootId,
+      authorUserId: session!.id,
+      authorName: me?.name ?? "Equipo",
+      body: next,
+      versionNumber: parent.versionNumber,
+      fromClient: false,
+      visibleToClient,
+      // Una respuesta no es una corrección: no debe contar en el checklist como bloqueante.
+      priority: "SUGERENCIA",
+    },
+    select: { id: true },
+  });
+  await logActivity({
+    action: "deliverable.reply_thread",
+    summary: `respondió en la revisión de «${parent.deliverable.name}»`,
+    projectId: parent.deliverable.projectId,
+    entityType: "deliverable",
+    entityId: parent.deliverableId,
+  });
+  return created.id;
 }
 
 // Respuesta del equipo a la revisión del cliente (se ve en el portal público).

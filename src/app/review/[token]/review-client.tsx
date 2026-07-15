@@ -4,7 +4,7 @@ import * as React from "react";
 import { Copy, Check, CheckCircle2, Loader2, Clapperboard, Pencil, PartyPopper, HeartHandshake, AlertTriangle, Download, Target, CircleCheck } from "lucide-react";
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
 import { Logo } from "@/components/brand/logo";
-import { addReviewComment, setReviewDecision, setCoverDecision } from "./actions";
+import { addReviewComment, addReviewReply, setReviewDecision, setCoverDecision } from "./actions";
 import { PreApprovePanel } from "./pre-approve-panel";
 import { DownloadCenter, type Rendition } from "./download-center";
 import { ReviewOnboarding } from "./review-onboarding";
@@ -376,6 +376,9 @@ export function ReviewClient({
         decision={invited ? null : { approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
         mediaTabs={mediaTabs.length ? mediaTabs : undefined}
         onComment={(fd) => addReviewComment(token, fd)}
+        // El cliente responde en el hilo de una corrección. Su respuesta siempre es suya
+        // (fromClient), así que el escenario no le ofrece el tic de «visible para el cliente».
+        onReply={(commentId, body) => addReviewReply(token, commentId, body, name || "Cliente")}
         onDecisionIntent={onDecisionIntent}
       />
       {invited ? (

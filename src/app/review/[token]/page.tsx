@@ -75,7 +75,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       // El portal del cliente SOLO carga los comentarios del cliente (fromClient) y las
       // RESPUESTAS del equipo dirigidas a él (visibleToClient, las de «Responder al cliente»).
       // Los comentarios INTERNOS de pre-aprobación nunca salen del servidor por este enlace.
-      reviewComments: { where: { OR: [{ fromClient: true }, { visibleToClient: true }] }, orderBy: { createdAt: "asc" } },
+      // El filtro vale también para las RESPUESTAS de hilo: una respuesta interna del equipo
+      // (fromClient=false, visibleToClient=false) ni siquiera sale del servidor por este enlace.
+      reviewComments: {
+        where: { OR: [{ fromClient: true }, { visibleToClient: true }] },
+        orderBy: { createdAt: "asc" },
+        include: { resolvedBy: { select: { name: true } } },
+      },
       photos: { orderBy: { position: "asc" } },
       // Archivos finales por formato (centro de descargas del cliente).
       renditions: { orderBy: { position: "asc" }, select: { id: true, format: true, label: true, url: true } },
@@ -247,6 +253,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
               fromClient: c.fromClient,
               visibleToClient: c.visibleToClient,
               resolved: c.resolved,
+              // El cliente ve el estado y la prioridad de cada corrección (solo lectura), y las
+              // respuestas del hilo que le llegaron (parentId las ancla bajo su corrección).
+              priority: c.priority,
+              resolvedAt: c.resolvedAt?.toISOString() ?? null,
+              resolvedByName: c.resolvedBy?.name ?? null,
+              editedAt: c.editedAt?.toISOString() ?? null,
+              parentId: c.parentId,
               createdAt: c.createdAt.toISOString(),
             }))}
           />

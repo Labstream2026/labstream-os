@@ -4,6 +4,7 @@ import * as React from "react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
+import { formatBogota } from "@/lib/bogota-time";
 import { formatTimecode } from "@/lib/ui";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -28,6 +29,8 @@ export type StageVersion = {
   timecodeCapable: boolean;
 };
 
+export type StagePriority = "OBLIGATORIA" | "SUGERENCIA";
+
 export type StageComment = {
   id: string;
   authorName: string;
@@ -41,8 +44,20 @@ export type StageComment = {
   // modo cliente, a diferencia de los comentarios internos de pre-aprobación.
   visibleToClient?: boolean;
   resolved?: boolean;
-  // Sellado: si está en true, el comentario ya se envió («Solicitar cambios») y no se
-  // puede editar ni borrar. Los borradores (false/undefined) sí, en el modo interno.
+  // Prioridad de la corrección: OBLIGATORIA (bloqueante) o SUGERENCIA (opcional), para que el
+  // editor sepa qué es imprescindible. Por defecto OBLIGATORIA (todo cuenta, como siempre).
+  priority?: StagePriority;
+  // Trazabilidad del «hecho»: cuándo se marcó (y quién, si el servidor lo trae). Se muestra en
+  // AMBOS lados: el cliente también tiene derecho a saber si su corrección ya se atendió.
+  resolvedAt?: string | null;
+  resolvedByName?: string | null;
+  // Marca discreta «editado»: el servidor solo la pone cuando se corrigió una corrección YA
+  // sellada (editar un borrador es lo normal y no merece marca).
+  editedAt?: string | null;
+  // Hilo de UN nivel: si viene, este comentario es una RESPUESTA a la corrección madre.
+  parentId?: string | null;
+  // Sellado: si está en true, el comentario ya se envió («Solicitar cambios»). Ya NO significa
+  // inmutable — su autor (o quien gestiona) puede corregirlo o retirarlo, con marca de editado.
   locked?: boolean;
   createdAt: string;
 };
@@ -88,6 +103,9 @@ export function ReviewStage({
   onDecision,
   onDecisionIntent,
   onResolve,
+  onReopen,
+  onReply,
+  onSetPriority,
   onEdit,
   onDelete,
   immersiveEligible = false,
@@ -121,7 +139,17 @@ export function ReviewStage({
   // confirmación + mensaje de cierre). Si se pasa, los botones llaman a esto y NO a onDecision.
   onDecisionIntent?: (result: "APROBADO" | "CAMBIOS") => void;
   onResolve?: (commentId: string, resolved: boolean) => Promise<void>;
-  // Editar/borrar comentarios propios mientras son borradores (modo interno). Si no se
+  // REABRIR una corrección ya marcada como hecha. Va aparte de onResolve a propósito: onResolve
+  // enciende el checklist con casillas (que vive en la pestaña de Entregables, donde trabaja el
+  // editor), mientras que reabrir es un botón suelto para el workspace de pre-aprobación.
+  onReopen?: (commentId: string) => Promise<void>;
+  // Responder DENTRO del hilo de una corrección (un solo nivel). `visibleToClient` solo lo decide
+  // el equipo (modo interno): así puede contestarle al cliente o discutir en privado bajo una
+  // corrección. En modo cliente el wrapper lo ignora (su respuesta siempre es del cliente).
+  onReply?: (commentId: string, body: string, visibleToClient: boolean) => Promise<string | void>;
+  // Alternar OBLIGATORIA/SUGERENCIA. Solo se pasa en modo interno; en el portal es solo lectura.
+  onSetPriority?: (commentId: string, priority: StagePriority) => Promise<void>;
+  // Editar/retirar comentarios del EQUIPO (modo interno), incluso ya sellados. Si no se
   // pasan, no se muestran los controles.
   onEdit?: (commentId: string, body: string) => Promise<void>;
   onDelete?: (commentId: string) => Promise<void>;
@@ -168,25 +196,114 @@ export function ReviewStage({
   const [deletedIds, setDeletedIds] = React.useState<Set<string>>(new Set());
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editText, setEditText] = React.useState("");
+  // Prioridad cambiada en esta sesión y correcciones editadas (marca «editado»), también optimistas.
+  const [priorityOverride, setPriorityOverride] = React.useState<Record<string, StagePriority>>({});
+  const [editedIds, setEditedIds] = React.useState<Set<string>>(new Set());
+  // Hilo abierto para responder + su borrador. `replyToClient` arranca en FALSE a propósito: una
+  // respuesta interna que se le escape al cliente es mucho peor que una que no le llegue, así que
+  // mandársela exige un tic explícito.
+  const [replyingId, setReplyingId] = React.useState<string | null>(null);
+  const [replyText, setReplyText] = React.useState("");
+  const [replyToClient, setReplyToClient] = React.useState(false);
+  // Error de una acción de FILA (prioridad, reabrir, responder): se muestra bajo esa corrección y
+  // no tumba la página. El servidor es la autoridad (puede rechazar por permisos) y al fallar se
+  // revierte el estado optimista.
+  const [rowError, setRowError] = React.useState<{ id: string; message: string } | null>(null);
+  const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
   const startEdit = (c: StageComment) => { setEditingId(c.id); setEditText(c.body); };
-  const saveEdit = (id: string) => {
+  const saveEdit = (c: StageComment) => {
     if (!onEdit) return;
     const next = editText.trim();
     if (!next) return;
-    setBodyOverride((p) => ({ ...p, [id]: next }));
+    setBodyOverride((p) => ({ ...p, [c.id]: next }));
+    // Marca «editado» solo si ya estaba SELLADA: es exactamente lo que hace el servidor.
+    if (c.locked) setEditedIds((p) => new Set(p).add(c.id));
     setEditingId(null);
-    start(async () => { await onEdit(id, next); });
+    start(async () => { await onEdit(c.id, next); });
   };
   const removeComment = async (id: string) => {
     if (!onDelete) return;
-    if (!(await confirm({ message: "¿Borrar este comentario? No se puede deshacer.", confirmLabel: "Borrar", danger: true }))) return;
+    if (!(await confirm({ message: "¿Retirar este comentario? Si tiene respuestas, también se irán. No se puede deshacer.", confirmLabel: "Retirar", danger: true }))) return;
     setDeletedIds((p) => new Set(p).add(id));
     start(async () => { await onDelete(id); });
   };
-  // ¿Se puede editar/borrar este comentario? Solo borradores internos (no del cliente,
-  // no sellados) y en modo interno con los callbacks disponibles.
-  const canMutate = (c: StageComment) => mode === "internal" && !c.fromClient && !c.locked && (!!onEdit || !!onDelete);
+  // ¿Se puede editar/retirar este comentario? Los del EQUIPO (no los del cliente), en modo interno
+  // y con los callbacks disponibles. Sellado ya NO lo impide: corregir una redacción mala o retirar
+  // una corrección que se descartó es más útil que dejarla inmutable (queda marca de «editado»).
+  // Quién puede hacerlo de verdad (autor o gestor del proyecto) lo decide el servidor.
+  const canMutate = (c: StageComment) => mode === "internal" && !c.fromClient && (!!onEdit || !!onDelete);
+
+  // Reabre una corrección marcada como hecha (vuelve a pendiente y limpia el «hecho por»).
+  const reopen = (id: string) => {
+    if (!onReopen) return;
+    setResolvedOverride((p) => ({ ...p, [id]: false }));
+    setRowError(null);
+    start(async () => {
+      try {
+        await onReopen(id);
+      } catch (e) {
+        setResolvedOverride((p) => ({ ...p, [id]: true }));
+        setRowError({ id, message: errMsg(e, "No se pudo reabrir la corrección.") });
+      }
+    });
+  };
+
+  // Alterna OBLIGATORIA ↔ SUGERENCIA.
+  const togglePriority = (c: StageComment) => {
+    if (!onSetPriority) return;
+    const prev = c.priority ?? "OBLIGATORIA";
+    const next: StagePriority = prev === "OBLIGATORIA" ? "SUGERENCIA" : "OBLIGATORIA";
+    setPriorityOverride((p) => ({ ...p, [c.id]: next }));
+    setRowError(null);
+    start(async () => {
+      try {
+        await onSetPriority(c.id, next);
+      } catch (e) {
+        setPriorityOverride((p) => ({ ...p, [c.id]: prev }));
+        setRowError({ id: c.id, message: errMsg(e, "No se pudo cambiar la prioridad.") });
+      }
+    });
+  };
+
+  // Envía la respuesta del hilo. Hilos de UN nivel: si se responde a una respuesta, cuelga de la
+  // misma corrección madre (igual que el servidor).
+  const sendReply = (parent: StageComment) => {
+    if (!onReply) return;
+    const text = replyText.trim();
+    if (!text) return;
+    const rootId = parent.parentId ?? parent.id;
+    // En el portal el cliente responde SIEMPRE de cara al equipo; el tic solo existe en interno.
+    const toClient = mode === "client" ? true : replyToClient;
+    const optimistic: StageComment = {
+      id: `local-reply-${Date.now()}`,
+      authorName: name || defaultName || (mode === "client" ? "Cliente" : "Equipo"),
+      body: text,
+      timecode: null,
+      versionNumber: parent.versionNumber,
+      drawing: null,
+      isNote: false,
+      fromClient: mode === "client",
+      visibleToClient: toClient,
+      // Una respuesta no es una corrección: no cuenta como bloqueante en el checklist.
+      priority: "SUGERENCIA",
+      parentId: rootId,
+      resolved: false,
+      createdAt: new Date().toISOString(),
+    };
+    setRowError(null);
+    start(async () => {
+      try {
+        await onReply(rootId, text, toClient);
+        setLocalComments((prev) => [...prev, optimistic]);
+        setReplyingId(null);
+        setReplyText("");
+        setReplyToClient(false);
+      } catch (e) {
+        setRowError({ id: parent.id, message: errMsg(e, "No se pudo enviar la respuesta. Inténtalo de nuevo.") });
+      }
+    });
+  };
 
   React.useEffect(() => {
     if (fixedName) return;
@@ -204,14 +321,37 @@ export function ReviewStage({
       .filter((c) => mode !== "client" || c.fromClient || c.visibleToClient)
       .map((c) => {
         let next = c;
-        if (c.id in resolvedOverride) next = { ...next, resolved: resolvedOverride[c.id] };
+        // Al REABRIR se limpia el «hecho por/cuándo», igual que hace el servidor.
+        if (c.id in resolvedOverride) {
+          const r = resolvedOverride[c.id];
+          next = { ...next, resolved: r, ...(r ? {} : { resolvedAt: null, resolvedByName: null }) };
+        }
         if (c.id in bodyOverride) next = { ...next, body: bodyOverride[c.id] };
+        if (c.id in priorityOverride) next = { ...next, priority: priorityOverride[c.id] };
+        if (editedIds.has(c.id)) next = { ...next, editedAt: next.editedAt ?? new Date().toISOString() };
         return next;
       });
-  }, [comments, localComments, resolvedOverride, bodyOverride, deletedIds, mode]);
+  }, [comments, localComments, resolvedOverride, bodyOverride, priorityOverride, editedIds, deletedIds, mode]);
 
-  // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas.
-  const ofVersion = merged.filter((c) => c.versionNumber == null || c.versionNumber === version?.number);
+  // ── Hilos (un solo nivel) ── las RESPUESTAS no son correcciones sueltas: se agrupan bajo su
+  // corrección madre. Se agrupan desde `merged`, que YA pasó la defensa del modo cliente, y solo
+  // se pintan bajo las correcciones que de verdad se listan: si la madre no es visible para el
+  // cliente, no se lista y sus respuestas no se pintan nunca (aunque alguna fuera visible).
+  const repliesByParent = React.useMemo(() => {
+    const map = new Map<string, StageComment[]>();
+    for (const c of merged) {
+      if (!c.parentId) continue;
+      const list = map.get(c.parentId);
+      if (list) list.push(c);
+      else map.set(c.parentId, [c]);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return map;
+  }, [merged]);
+
+  // Comentarios de la versión actual: separados en momentos (con captura/timecode) y notas. Las
+  // respuestas quedan fuera de ambas listas — van anidadas bajo su madre.
+  const ofVersion = merged.filter((c) => (c.versionNumber == null || c.versionNumber === version?.number) && c.parentId == null);
   const allMoments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
   const resolvedCount = allMoments.filter((c) => c.resolved).length;
   const moments = hideResolved ? allMoments.filter((c) => !c.resolved) : allMoments;
@@ -374,7 +514,7 @@ export function ReviewStage({
   const dotMoments = React.useMemo(
     () =>
       merged
-        .filter((c) => !c.isNote && c.timecode != null && (c.versionNumber == null || c.versionNumber === version?.number))
+        .filter((c) => !c.isNote && c.parentId == null && c.timecode != null && (c.versionNumber == null || c.versionNumber === version?.number))
         .sort((a, b) => (a.timecode ?? 0) - (b.timecode ?? 0))
         .map((c) => ({ id: c.id, timecode: c.timecode!, authorName: c.authorName, body: c.body, fromClient: c.fromClient })),
     [merged, version],
@@ -721,6 +861,8 @@ export function ReviewStage({
               </p>
             ) : (
               moments.map((c) => {
+                // Respuestas del hilo de ESTA corrección (ya filtradas por el modo en `merged`).
+                const replies = repliesByParent.get(c.id) ?? [];
                 // La tarjeta del comentario es la MISMA en ambos layouts. En vertical la captura va
                 // inline debajo del texto; en horizontal se saca a una columna a la derecha (abajo).
                 const comment = (
@@ -746,19 +888,89 @@ export function ReviewStage({
                         {c.timecode != null ? (
                           <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
                         ) : null}
+                        {/* Estado y prioridad: los ven AMBOS lados. Antes «resuelto» solo existía en
+                            el checklist del editor y el cliente no sabía si ya se había atendido. */}
+                        <StatusChip comment={c} />
+                        <PriorityChip
+                          priority={c.priority ?? "OBLIGATORIA"}
+                          onToggle={mode === "internal" && onSetPriority ? () => togglePriority(c) : undefined}
+                          disabled={pending}
+                        />
+                        {c.editedAt ? <EditedMark /> : null}
                         <span className="ml-auto flex items-center gap-1.5">
-                          {c.resolved && onResolve ? <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">✓ hecho</span> : null}
+                          {mode === "internal" && onReopen && c.resolved ? (
+                            <button type="button" onClick={() => reopen(c.id)} disabled={pending} title="Volver a dejarla como pendiente" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">Reabrir</button>
+                          ) : null}
                           {canMutate(c) ? <CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /> : null}
                         </span>
                       </div>
                       {editingId === c.id ? (
-                        <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                        <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c)} onCancel={() => setEditingId(null)} disabled={pending} />
                       ) : (
                         <p className={`mt-1 whitespace-pre-wrap break-words ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
                       )}
                       {vertical && c.drawing?.image ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
+                      ) : null}
+                      {rowError?.id === c.id ? <p className="mt-1 text-[11px] text-destructive">{rowError.message}</p> : null}
+                      {/* ── Hilo ── respuestas anidadas (sangradas y más pequeñas) + «Responder». */}
+                      {replies.length > 0 || onReply ? (
+                        <div className="mt-2 space-y-2 border-l-2 border-border pl-2.5">
+                          {replies.map((r) => (
+                            <div key={r.id} className="text-[13px]">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs font-medium">{r.authorName}</span>
+                                {!r.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                                {/* Solo para el equipo: de un vistazo, qué respuestas ve el cliente
+                                    y cuáles son discusión interna (al cliente nunca le llegan). */}
+                                {mode === "internal" && !r.fromClient ? (
+                                  r.visibleToClient
+                                    ? <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">visible para el cliente</span>
+                                    : <span className="rounded bg-muted px-1.5 text-[10px] text-muted-foreground">interna</span>
+                                ) : null}
+                                {r.editedAt ? <EditedMark /> : null}
+                                {canMutate(r) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(r) : undefined} onDelete={onDelete ? () => removeComment(r.id) : undefined} disabled={pending} /></span> : null}
+                              </div>
+                              {editingId === r.id ? (
+                                <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(r)} onCancel={() => setEditingId(null)} disabled={pending} />
+                              ) : (
+                                <p className="whitespace-pre-wrap break-words text-foreground/80">{r.body}</p>
+                              )}
+                            </div>
+                          ))}
+                          {onReply ? (
+                            replyingId === c.id ? (
+                              <div className="space-y-1.5">
+                                <textarea
+                                  value={replyText}
+                                  onChange={(e) => setReplyText(e.target.value)}
+                                  rows={2}
+                                  autoFocus
+                                  placeholder="Escribe tu respuesta…"
+                                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] outline-none focus:ring-2 focus:ring-ring"
+                                  onKeyDown={(e) => { if (e.key === "Escape") setReplyingId(null); }}
+                                />
+                                {mode === "internal" ? (
+                                  <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                    <input type="checkbox" checked={replyToClient} onChange={(e) => setReplyToClient(e.target.checked)} className="size-3.5 rounded border-input accent-primary" />
+                                    Visible para el cliente (si no, queda interna del equipo)
+                                  </label>
+                                ) : null}
+                                <div className="flex items-center gap-2">
+                                  <button type="button" onClick={() => sendReply(c)} disabled={pending || !replyText.trim()} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                                    {pending ? "Enviando…" : "Responder"}
+                                  </button>
+                                  <button type="button" onClick={() => setReplyingId(null)} disabled={pending} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">Cancelar</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => { setReplyingId(c.id); setReplyText(""); setReplyToClient(false); setRowError(null); }} className="text-[11px] font-medium text-muted-foreground hover:text-foreground">
+                                Responder
+                              </button>
+                            )
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   </div>
@@ -821,10 +1033,11 @@ export function ReviewStage({
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">{c.authorName}</span>
                       {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                      {c.editedAt ? <EditedMark /> : null}
                       {canMutate(c) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /></span> : null}
                     </div>
                     {editingId === c.id ? (
-                      <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c.id)} onCancel={() => setEditingId(null)} disabled={pending} />
+                      <EditBox value={editText} onChange={setEditText} onSave={() => saveEdit(c)} onCancel={() => setEditingId(null)} disabled={pending} />
                     ) : (
                       <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-foreground/90">{c.body}</p>
                     )}
@@ -868,7 +1081,50 @@ export function ReviewStage({
   );
 }
 
-// Botones compactos de editar/borrar un comentario (borrador, modo interno).
+// Chip de ESTADO de una corrección. Lo ven los DOS lados (equipo y cliente): antes «resuelto»
+// solo existía en el checklist del editor y el cliente no tenía forma de saber si lo que pidió
+// ya estaba atendido. Con resolvedAt se dice cuándo y, si el servidor lo trae, quién.
+function StatusChip({ comment }: { comment: StageComment }) {
+  if (!comment.resolved) {
+    return <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Pendiente</span>;
+  }
+  // Fecha en hora de Bogotá (TZ explícita): mismo texto en servidor y cliente, sin desfase.
+  const when = comment.resolvedAt ? formatBogota(comment.resolvedAt, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null;
+  const detail = [comment.resolvedByName, when].filter(Boolean).join(" · ");
+  return (
+    <span title={detail ? `Hecho · ${detail}` : "Hecho"} className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+      ✓ Hecho{detail ? <span className="font-normal"> · {detail}</span> : null}
+    </span>
+  );
+}
+
+// Chip de PRIORIDAD: qué es bloqueante (Obligatoria) y qué es opcional (Sugerencia). En modo
+// interno se alterna con un clic; en el portal del cliente es solo lectura (sin onToggle).
+function PriorityChip({ priority, onToggle, disabled }: { priority: StagePriority; onToggle?: () => void; disabled?: boolean }) {
+  const s = priority === "SUGERENCIA"
+    ? { label: "Sugerencia", cls: "bg-muted text-muted-foreground" }
+    : { label: "Obligatoria", cls: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300" };
+  if (!onToggle) return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>{s.label}</span>;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      title={priority === "OBLIGATORIA" ? "Cambiar a sugerencia (opcional)" : "Cambiar a obligatoria (bloqueante)"}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-75 disabled:opacity-50 ${s.cls}`}
+    >
+      {s.label}
+    </button>
+  );
+}
+
+// Marca discreta de que el texto se corrigió DESPUÉS de sellarse (el equipo sabe que lo que lee
+// no es literalmente lo que se envió).
+function EditedMark() {
+  return <span title="El texto se editó después de enviarse" className="text-[10px] italic text-muted-foreground">editado</span>;
+}
+
+// Botones compactos de editar/retirar un comentario del equipo (modo interno).
 function CommentActions({ onEdit, onDelete, disabled }: { onEdit?: () => void; onDelete?: () => void; disabled?: boolean }) {
   return (
     <span className="flex items-center gap-1">
@@ -876,7 +1132,7 @@ function CommentActions({ onEdit, onDelete, disabled }: { onEdit?: () => void; o
         <button type="button" onClick={onEdit} disabled={disabled} title="Editar" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">Editar</button>
       ) : null}
       {onDelete ? (
-        <button type="button" onClick={onDelete} disabled={disabled} title="Borrar" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">Borrar</button>
+        <button type="button" onClick={onDelete} disabled={disabled} title="Retirar" className="rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">Retirar</button>
       ) : null}
     </span>
   );

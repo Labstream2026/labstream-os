@@ -104,6 +104,8 @@ type Deliverable = {
     isNote: boolean;
     resolved: boolean;
     fromClient: boolean;
+    priority?: "OBLIGATORIA" | "SUGERENCIA";
+    parentId?: string | null;
     createdAt: Date;
   }[];
 };

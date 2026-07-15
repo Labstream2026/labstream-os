@@ -1,7 +1,15 @@
 "use client";
 
 import { ReviewStage, type StageVersion, type StageComment } from "@/components/review/review-stage";
-import { addInternalReviewComment, internalDecision, editReviewComment, deleteReviewComment } from "@/app/(app)/proyectos/[id]/actions";
+import {
+  addInternalReviewComment,
+  internalDecision,
+  editReviewComment,
+  deleteReviewComment,
+  replyToReviewComment,
+  resolveReviewComment,
+  setReviewCommentPriority,
+} from "@/app/(app)/proyectos/[id]/actions";
 
 // Workspace de revisión del responsable: reproduce el material, deja comentarios con
 // captura y decide (Pre-aprobado / Solicitar cambios). El CHECKLIST de correcciones (con
@@ -45,6 +53,12 @@ export function InternalReview({
       }
       onEdit={(id, body) => editReviewComment(id, projectId, body)}
       onDelete={(id) => deleteReviewComment(id, projectId)}
+      // Hilos: el equipo responde bajo la corrección y elige si el cliente lo ve.
+      onReply={(id, body, visibleToClient) => replyToReviewComment(id, projectId, body, visibleToClient)}
+      onSetPriority={(id, priority) => setReviewCommentPriority(id, projectId, priority)}
+      // Reabrir lo que se dio por hecho. NO se pasa onResolve a propósito: las casillas del
+      // checklist son del editor y viven en la pestaña de Entregables, no en este workspace.
+      onReopen={(id) => resolveReviewComment(id, projectId, false)}
     />
   );
 }

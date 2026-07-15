@@ -120,6 +120,8 @@ model User {
   createdProposals Proposal[]           @relation("ProposalCreator")
   deliverableDecisions DeliverableDecision[] @relation("DecisionAuthor")
   reviewComments   ReviewComment[]      @relation("ReviewCommentAuthor")
+  // Correcciones que esta persona marcó como hechas (trazabilidad del checklist).
+  reviewCommentsResolved ReviewComment[] @relation("ReviewCommentResolver")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
@@ -1668,13 +1670,34 @@ model ReviewComment {
   // a diferencia de los comentarios internos de pre-aprobación (fromClient=false y esto en false).
   visibleToClient Boolean   @default(false)
   // Bloqueo: mientras es NULL el comentario interno es un borrador editable/borrable en el
-  // workspace de pre-aprobación. Al «Solicitar cambios» se sella (queda inmutable) y es lo
-  // que llega como checklist a la pestaña de Entregables.
+  // workspace de pre-aprobación. Al «Solicitar cambios» se sella y pasa a ser el checklist de
+  // la pestaña de Entregables. Sellado ya NO significa inmutable: su autor (o quien gestiona
+  // el proyecto) puede corregir el texto o retirarlo; queda constancia en editedAt.
   lockedAt      DateTime?
+  // ── Hilos ── respuesta ANCLADA a otra corrección (en vez de una respuesta suelta al final).
+  // Cascade: al borrar la corrección madre se van sus respuestas.
+  parent        ReviewComment?  @relation("ReviewCommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId      String?
+  replies       ReviewComment[] @relation("ReviewCommentThread")
+  // ── Prioridad ── qué es bloqueante y qué es opcional, para que el editor sepa qué es
+  // imprescindible corregir. Por defecto OBLIGATORIA (comportamiento previo: todo cuenta).
+  priority      ReviewPriority @default(OBLIGATORIA)
+  // ── Trazabilidad ── cuándo se marcó como hecha (y por quién) y cuándo se editó por última vez.
+  resolvedAt    DateTime?
+  resolvedBy    User?       @relation("ReviewCommentResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedById  String?
+  editedAt      DateTime?
   createdAt     DateTime    @default(now())
 
   @@index([deliverableId, createdAt])
   @@index([authorUserId])
+  @@index([parentId])
+}
+
+// Prioridad de una corrección: si es bloqueante o solo una sugerencia.
+enum ReviewPriority {
+  OBLIGATORIA
+  SUGERENCIA
 }
 
 model DeliverableVersion {

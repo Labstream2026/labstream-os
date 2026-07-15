@@ -345,6 +345,10 @@ export default async function ProyectoPage({
           isNote: c.isNote,
           resolved: c.resolved,
           fromClient: c.fromClient,
+          // El checklist del editor distingue lo bloqueante de lo opcional, y las respuestas de
+          // hilo (parentId) no son ítems que tildar.
+          priority: c.priority,
+          parentId: c.parentId,
           createdAt: c.createdAt,
         })),
         photos: d.photos.map((p) => ({

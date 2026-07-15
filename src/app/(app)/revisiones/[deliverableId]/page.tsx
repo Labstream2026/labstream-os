@@ -31,7 +31,8 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
       project: { select: { id: true, name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } }, client: { select: { name: true } } } },
       reviewers: { select: { userId: true } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
-      reviewComments: { orderBy: { createdAt: "asc" } },
+      // resolvedBy: quién dio por hecha cada corrección (se muestra junto al chip «Hecho»).
+      reviewComments: { orderBy: { createdAt: "asc" }, include: { resolvedBy: { select: { name: true } } } },
     },
   });
   if (!deliverable) notFound();
@@ -54,7 +55,13 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     drawing: (c.drawingData as { image?: string } | null) ?? null,
     isNote: c.isNote,
     fromClient: c.fromClient,
+    visibleToClient: c.visibleToClient,
     resolved: c.resolved,
+    priority: c.priority,
+    resolvedAt: c.resolvedAt?.toISOString() ?? null,
+    resolvedByName: c.resolvedBy?.name ?? null,
+    editedAt: c.editedAt?.toISOString() ?? null,
+    parentId: c.parentId,
     locked: c.lockedAt != null,
     createdAt: c.createdAt.toISOString(),
   }));
