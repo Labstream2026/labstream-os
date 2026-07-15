@@ -18,7 +18,8 @@ import { fetchDriveDownload, guessDriveMime } from "@/lib/drive";
 // NAS y de ahí en adelante todo se sirve desde disco (rápido, con Range) sin volver a gastar cupo.
 
 const CACHE_DIR = path.join(STORAGE_DIR, "review-cache");
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024; // 20 GB: tope del caché (LRU por último acceso)
+const MAX_TOTAL_BYTES = 40 * 1024 * 1024 * 1024; // 40 GB: tope del caché (LRU por último acceso). Hay
+// proyectos de varios GB por pieza, así que 20 GB se quedaba corto y expulsaba videos aún en revisión.
 const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024; // un único archivo > 4 GB no se cachea (se proxia en vivo)
 
 // Descargas en curso: comparte la MISMA descarga entre peticiones concurrentes (un contenedor Node),
