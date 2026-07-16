@@ -73,6 +73,15 @@ services:
       ONLYOFFICE_INTERNAL_URL: ${ONLYOFFICE_INTERNAL_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
+      # Cuenta de servicio de Google (JSON completo, crudo o en base64) para descargar los videos
+      # de Drive AUTENTICADO. Las descargas anónimas tienen un tope diario POR ARCHIVO: el video
+      # que más revisa el equipo es el primero que Google bloquea ("Quota exceeded") y entonces se
+      # queda sin cargar, sin segundo ni captura de fotograma. Autenticadas pasan al cupo del
+      # proyecto de Google Cloud (1 TB/día), inalcanzable a esta escala.
+      # Si falta, NO rompe nada: se sigue descargando en anónimo como hasta ahora.
+      # Se recomienda base64 (`base64 -w0 clave.json`): el JSON de Google trae saltos de línea en
+      # la clave privada que un .env parte en varias líneas.
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
       # Correo por Resend (API HTTP por 443) — esquiva el bloqueo de puertos SMTP.
       # Si está RESEND_API_KEY, se usa Resend en vez de SMTP.
       RESEND_API_KEY: ${RESEND_API_KEY:-}

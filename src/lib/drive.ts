@@ -1,4 +1,5 @@
 import { detectSource } from "@/lib/media-source";
+import { getGoogleAccessToken } from "@/lib/google-auth";
 
 // Resolución de medios de Google Drive (servidor). Los editores normalmente comparten
 // la CARPETA de Drive, no el archivo de video directo. Este helper toma una URL de Drive
@@ -74,8 +75,39 @@ function decodeHtml(s: string): string {
 // `confirm`/`uuid`: la parseamos del formulario y reintentamos la descarga real. `&confirm=t`
 // por sí solo NO basta en archivos grandes. Preserva el header Range (seek en videos largos).
 const DRIVE_DL = "https://drive.usercontent.google.com/download";
+const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
+
+// Descarga AUTENTICADA por la API de Drive, si hay cuenta de servicio configurada. Devuelve null
+// cuando no la hay o cuando la cuenta no alcanza ese archivo, para que el llamador caiga al camino
+// anónimo de siempre. Ventaja sobre el anónimo: el cupo pasa a ser el del proyecto de Google Cloud
+// (enorme y compartido) en vez del tope diario POR ARCHIVO de las descargas anónimas —que es lo que
+// bloqueaba justo los videos más revisados—. Además la API entrega los bytes directamente: no hay
+// interstitial de antivirus que resolver.
+async function fetchDriveDownloadAuthed(id: string, range?: string): Promise<Response | null> {
+  const token = await getGoogleAccessToken();
+  if (!token) return null; // sin credencial configurada (o Google la rechazó): modo anónimo
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (range) headers.Range = range;
+  try {
+    // acknowledgeAbuse: los masters pesados suelen quedar marcados como "no se pudo analizar";
+    // es el equivalente por API a confirmar ese aviso, que el camino anónimo ya hace.
+    // supportsAllDrives: los editores a veces trabajan en unidades compartidas.
+    const url = `${DRIVE_API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`;
+    const res = await fetch(url, { headers, redirect: "follow" });
+    if (res.ok || res.status === 206) return res;
+    // 403/404 = el archivo no está compartido con la cuenta de servicio (enlace restringido a
+    // personas concretas). El anónimo puede que sí llegue si es "cualquiera con el enlace", así
+    // que se cede el turno en vez de fallar. Se descarta el cuerpo para no dejar la conexión viva.
+    await res.body?.cancel().catch(() => {});
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchDriveDownload(id: string, range?: string): Promise<Response> {
+  const authed = await fetchDriveDownloadAuthed(id, range);
+  if (authed) return authed;
   const headers: Record<string, string> = { "User-Agent": "Mozilla/5.0" };
   if (range) headers.Range = range;
   const first = await fetch(`${DRIVE_DL}?id=${encodeURIComponent(id)}&export=download`, { headers, redirect: "follow" });
