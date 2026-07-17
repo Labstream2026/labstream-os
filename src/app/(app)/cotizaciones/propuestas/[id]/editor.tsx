@@ -13,13 +13,13 @@ import { ProposalRenderer } from "../proposal-renderer";
 import { ProposalPresentation } from "../proposal-presentation";
 import { BlockEditPanel } from "./block-edit";
 import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
-import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal } from "../actions";
+import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword } from "../actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
 export function ProposalEditor({
-  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", clients = [], publicUrl,
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, clients = [], publicUrl,
 }: {
   id: string;
   code: string;
@@ -29,6 +29,7 @@ export function ProposalEditor({
   initialStatus: ProposalStatus;
   initialExpiresAt: string;
   initialClientId?: string;
+  initialHasPassword?: boolean;
   clients?: { id: string; name: string; emoji: string | null }[];
   publicUrl: string;
 }) {
@@ -42,6 +43,9 @@ export function ProposalEditor({
   const [preview, setPreview] = React.useState(false);
   const [editing, setEditing] = React.useState<number | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
+  const [hasPassword, setHasPassword] = React.useState(initialHasPassword);
+  const [pwInput, setPwInput] = React.useState("");
+  const [pwBusy, setPwBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
   const dirtyRef = React.useRef(false);
@@ -97,6 +101,16 @@ export function ProposalEditor({
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });
+  }
+  async function savePassword(remove: boolean) {
+    setPwBusy(true);
+    try {
+      const r = await setProposalPassword(id, remove ? "" : pwInput);
+      setHasPassword(r.hasPassword);
+      setPwInput("");
+    } finally {
+      setPwBusy(false);
+    }
   }
 
   const meta = STATUS_META[status];
@@ -181,6 +195,43 @@ export function ProposalEditor({
               <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
             </label>
           </div>
+          {/* Reja de contraseña (opcional): protege el enlace público con una clave. Se guarda aparte
+              de «Guardar ajustes» (es su propia acción). */}
+          <div className="rounded-md border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Contraseña de acceso (opcional)</span>
+              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", hasPassword ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
+                {hasPassword ? "🔒 Protegida" : "Sin contraseña"}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                type="password"
+                value={pwInput}
+                onChange={(e) => setPwInput(e.target.value)}
+                placeholder={hasPassword ? "Cambiar contraseña" : "Escribe una contraseña"}
+                className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              />
+              <button
+                onClick={() => savePassword(false)}
+                disabled={pwBusy || !pwInput.trim()}
+                className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
+              >
+                {hasPassword ? "Cambiar" : "Proteger"}
+              </button>
+              {hasPassword ? (
+                <button
+                  onClick={() => savePassword(true)}
+                  disabled={pwBusy}
+                  className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                >
+                  Quitar
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">El cliente deberá escribirla para ver la propuesta. Compártela por un canal aparte del enlace.</p>
+          </div>
+
           <div className="flex justify-end">
             <button onClick={saveMeta} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar ajustes</button>
           </div>

@@ -1,6 +1,8 @@
+import { cookies } from "next/headers";
 import { db } from "@/lib/db";
-import { verifyProposalToken } from "@/lib/proposals/token";
+import { verifyProposalToken, verifyProposalUnlock } from "@/lib/proposals/token";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
+import { ProposalGate } from "./gate";
 import { Logo } from "@/components/brand/logo";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
@@ -38,10 +40,22 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   const p = await db.proposal.findUnique({ where: { id } });
   if (!p) return <PublicLinkInvalid />;
 
-  // Cuenta una visita del cliente (no bloquea el render si falla).
-  await db.proposal.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});
-
   const brand = { ...BRAND_DEFAULT, ...((p.brand as unknown as Brand) ?? {}) };
+
+  // Reja de contraseña: si la propuesta está protegida y no hay cookie de desbloqueo válida para
+  // ESTA propuesta, se muestra la reja en vez del contenido (y no se cuenta la visita).
+  if (p.accessPasswordHash) {
+    const store = await cookies();
+    const ck = store.get(`proposal-unlock-${id}`)?.value;
+    // Ligado al hash vigente: si el equipo cambió la contraseña, la cookie vieja ya no vale.
+    const unlocked = ck ? verifyProposalUnlock(ck, p.accessPasswordHash) === id : false;
+    if (!unlocked) {
+      return <ProposalGate token={token} company={brand.company} tagline={brand.tagline} accent={brand.accent} dark={brand.theme === "presentacion"} />;
+    }
+  }
+
+  // Cuenta una visita del cliente (solo cuando de verdad ve el contenido; no bloquea el render si falla).
+  await db.proposal.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});
   // Saneo servidor del HTML de los bloques antes del render público (cubre propuestas guardadas
   // antes del saneo al escribir) y enhebrado del token en las imágenes internas. El editor
   // (cliente) NO pasa por aquí: usa su propio renderer y su sesión.

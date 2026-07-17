@@ -6,7 +6,7 @@ import sanitizeHtml from "sanitize-html";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession, hasPermission } from "@/lib/auth";
+import { getSession, hasPermission, hashPassword } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { buildProposal } from "@/lib/proposals/templates";
 import { newBlock, BRAND_DEFAULT, type Block, type Brand, type Answers, type BlockType } from "@/lib/proposals/types";
@@ -41,6 +41,18 @@ async function ensureProposalAccess(id: string): Promise<void> {
 function refresh(id?: string) {
   revalidatePath("/cotizaciones");
   if (id) revalidatePath(`/cotizaciones/propuestas/${id}`);
+}
+
+// Fija o quita la contraseña de la reja del portal público. Guarda el HASH bcrypt (nunca la clave).
+// Enviar vacío = quitar la reja. Solo el equipo con acceso a la propuesta. Devuelve si quedó protegida.
+export async function setProposalPassword(id: string, password: string): Promise<{ ok: boolean; hasPassword: boolean }> {
+  await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(id);
+  const pass = typeof password === "string" ? password.trim() : "";
+  const accessPasswordHash = pass ? await hashPassword(pass) : null;
+  await db.proposal.update({ where: { id }, data: { accessPasswordHash } });
+  refresh(id);
+  return { ok: true, hasPassword: accessPasswordHash != null };
 }
 
 // Código PROP-#### a prueba de colisiones (deriva del máximo + reintento ante P2002).

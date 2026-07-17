@@ -839,6 +839,10 @@ model Proposal {
   status      ProposalStatus @default(BORRADOR)
   expiresAt   DateTime? // fecha de validez → deriva "VENCIDA"
   views       Int            @default(0) // se incrementa al abrir el enlace del cliente
+  // Reja de contraseña OPCIONAL del portal público: si está, el cliente debe escribir la clave
+  // (además del enlace firmado) para ver la propuesta. Se guarda el HASH bcrypt, nunca la clave.
+  // NULL = sin reja (acceso solo por el enlace, como hasta ahora).
+  accessPasswordHash String?
   answers     Json? // respuestas del asistente (regeneración / referencia)
   brand       Json // snapshot de marca (empresa, acento, contacto)
   blocks      Json // lista ordenada de bloques del documento
