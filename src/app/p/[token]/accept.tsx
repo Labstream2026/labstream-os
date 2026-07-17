@@ -4,15 +4,20 @@ import * as React from "react";
 import { Check, Loader2 } from "lucide-react";
 import { acceptProposal } from "./actions";
 
-export function AcceptProposal({ token, accent }: { token: string; accent: string }) {
+export function AcceptProposal({ token, accent, dark = false }: { token: string; accent: string; dark?: boolean }) {
   const [pending, start] = React.useTransition();
   const [done, setDone] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   return (
-    <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
-      <p className="text-sm text-neutral-600">¿Te gusta la propuesta? Acéptala y coordinamos los siguientes pasos.</p>
-      {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+    <div
+      className={dark ? "rounded-2xl p-6 text-center" : "rounded-2xl bg-white p-6 text-center shadow-sm"}
+      style={dark ? { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" } : undefined}
+    >
+      <p className="text-sm" style={dark ? { color: "rgba(238,241,246,0.74)" } : undefined}>
+        <span className={dark ? "" : "text-neutral-600"}>¿Te gusta la propuesta? Acéptala y coordinamos los siguientes pasos.</span>
+      </p>
+      {error ? <p className="mt-2 text-sm text-rose-500">{error}</p> : null}
       <button
         disabled={pending || done}
         onClick={() => {

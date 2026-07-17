@@ -8,6 +8,7 @@ import { formatMoney } from "@/lib/ui";
 import { clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { mesCal } from "@/lib/proposals/calendar";
 import { sanitizeProposalHtml } from "@/lib/proposals/sanitize";
+import { safeBgUrl, safeExternalUrl } from "@/lib/proposals/safe-url";
 
 function str(v: unknown, d = ""): string {
   return typeof v === "string" ? v : v == null ? d : String(v);
@@ -41,10 +42,15 @@ function VideoEmbed({ url, caption }: { url: string; caption?: string }) {
   if (/\.(mp4|webm|mov)$/i.test(u)) {
     return <video src={u} controls className="aspect-video w-full rounded-xl border border-border bg-black" />;
   }
-  return (
-    <a href={u} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
+  // Enlace de respaldo SOLO si es http(s): evita que un `javascript:`/`data:` guardado sea clicable
+  // (XSS almacenado) en el portal público.
+  const safe = safeExternalUrl(u);
+  return safe ? (
+    <a href={safe} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
       Ver video →
     </a>
+  ) : (
+    <p className="text-sm text-muted-foreground">Video no disponible</p>
   );
 }
 
@@ -59,8 +65,9 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
       const bg = str(block.bg);
       // Con imagen de fondo: la foto + un degradado oscuro encima para legibilidad.
       // Sin imagen: degradado del color de acento.
-      const heroStyle: React.CSSProperties = bg
-        ? { backgroundImage: `linear-gradient(135deg, ${accent}cc, rgba(15,23,42,0.78)), url("${bg}")`, backgroundSize: "cover", backgroundPosition: "center" }
+      const safeBg = safeBgUrl(bg);
+      const heroStyle: React.CSSProperties = safeBg
+        ? { backgroundImage: `linear-gradient(135deg, ${accent}cc, rgba(15,23,42,0.78)), url("${safeBg}")`, backgroundSize: "cover", backgroundPosition: "center" }
         : { background: `linear-gradient(135deg, ${accent}, ${accent}cc 55%, #0f172a)` };
       return (
         <header className="overflow-hidden rounded-2xl px-6 py-14 text-center text-white sm:px-12 sm:py-20" style={heroStyle}>
@@ -205,7 +212,8 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
       const hasPrice = explicitPrice > 0;
       const basePrice = explicitPrice;
       const { discount, subtotal, tax, total } = clientTotals({ price: basePrice, discountPct, iva });
-      const included = sections.flatMap((s) => s.items.map((i) => i.t)).filter(Boolean);
+      // arr(s?.items): una sección malformada (sin items o null) NO debe tumbar el render del portal.
+      const included = sections.flatMap((s) => arr<{ t?: string }>((s as { items?: unknown })?.items).map((it) => it?.t)).filter(Boolean);
       const showIncluded = block.showIncluded !== false && included.length > 0;
       return (
         <section className="space-y-4">

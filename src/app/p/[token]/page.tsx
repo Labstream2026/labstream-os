@@ -4,6 +4,7 @@ import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
+import { ProposalPresentation } from "@/app/(app)/cotizaciones/propuestas/proposal-presentation";
 import { sanitizeBlockBodies } from "@/lib/proposals/html-sanitize";
 import { PrintButton } from "@/components/print-button";
 import { AcceptProposal } from "./accept";
@@ -51,6 +52,47 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   const status = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
   const accepted = status === "ACEPTADA";
   const expired = status === "VENCIDA";
+
+  // Tema "presentacion": experiencia inmersiva oscura a pantalla completa (misma propuesta, otro
+  // envoltorio). El documento clásico sigue igual para las propuestas en tema "documento".
+  if (brand.theme === "presentacion") {
+    return (
+      <div className="min-h-screen text-white" style={{ background: "#0d1017" }}>
+        <div
+          className="sticky top-0 z-20 flex items-center justify-between gap-3 px-5 py-3"
+          style={{ background: "rgba(13,16,23,0.82)", backdropFilter: "blur(8px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+        >
+          <div>
+            <p className="text-sm font-semibold">{brand.company}</p>
+            <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>{brand.tagline}</p>
+          </div>
+        </div>
+
+        <ProposalPresentation blocks={blocks} brand={brand} variant="full" />
+
+        <section className="px-6 py-20" style={{ background: "#0d1017" }}>
+          <div className="mx-auto max-w-xl">
+            {accepted ? (
+              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
+                ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
+              </div>
+            ) : expired ? (
+              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
+                Esta propuesta venció. Escríbenos para actualizarla.
+              </div>
+            ) : (
+              <AcceptProposal token={token} accent={brand.accent} dark />
+            )}
+          </div>
+        </section>
+
+        <div className="flex items-center justify-center gap-1.5 py-8 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+          <span>Hecho con</span>
+          <Logo className="h-3.5 opacity-60" alt="Labstream Studio" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">

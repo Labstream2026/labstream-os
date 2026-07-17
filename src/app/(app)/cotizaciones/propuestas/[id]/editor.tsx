@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
 import { ProposalRenderer } from "../proposal-renderer";
+import { ProposalPresentation } from "../proposal-presentation";
 import { BlockEditPanel } from "./block-edit";
 import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
 import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal } from "../actions";
@@ -150,6 +151,18 @@ export function ProposalEditor({
               {clients.map((c) => (<option key={c.id} value={c.id}>{c.emoji ? `${c.emoji} ` : ""}{c.name}</option>))}
             </select>
           </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Estilo de presentación al cliente</span>
+            <select
+              value={brand.theme ?? "documento"}
+              onChange={(e) => setBrand({ ...brand, theme: e.target.value as Brand["theme"] })}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="documento">Documento — clásico, columna clara</option>
+              <option value="presentacion">Presentación — inmersiva, pantalla completa oscura</option>
+            </select>
+            <span className="mt-1 block text-[11px] text-muted-foreground">Cambia cómo la ve el cliente. Usa «Vista previa» para verlo.</span>
+          </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Empresa (marca)</span>
@@ -176,7 +189,13 @@ export function ProposalEditor({
 
       {/* Documento */}
       {preview ? (
-        <ProposalRenderer blocks={blocks} brand={brand} />
+        brand.theme === "presentacion" ? (
+          <div className="overflow-hidden rounded-xl border border-border">
+            <ProposalPresentation blocks={blocks} brand={brand} variant="preview" />
+          </div>
+        ) : (
+          <ProposalRenderer blocks={blocks} brand={brand} />
+        )
       ) : (
         <div className="space-y-3">
           {blocks.map((b, i) => (

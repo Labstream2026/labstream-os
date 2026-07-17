@@ -24,6 +24,8 @@ export type BlockType =
 
 export type Block = { type: BlockType; [key: string]: unknown };
 
+export type ProposalTheme = "documento" | "presentacion";
+
 export type Brand = {
   company: string;
   tagline: string;
@@ -31,6 +33,11 @@ export type Brand = {
   email: string;
   whatsapp: string;
   logo?: string;
+  // Estilo de presentación al cliente. "documento" (por defecto) = el layout clásico en columna.
+  // "presentacion" = experiencia inmersiva a pantalla completa (secciones oscuras, tipografía
+  // grande, aparición al desplazar), como una presentación de diapositivas. Se guarda dentro del
+  // snapshot de marca (JSON), así que NO requiere migración de base de datos.
+  theme?: ProposalTheme;
 };
 
 export type ProposalStatus = "BORRADOR" | "ENVIADA" | "ACEPTADA" | "VENCIDA";
