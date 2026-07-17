@@ -36,17 +36,17 @@ export function DeliverableAdminActions({
   publishable: boolean;
 }) {
   const [pending, start] = React.useTransition();
-  const publishBtn =
-    "inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300";
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {/* Marcar / quitar publicado. Solo aparece para productores y sobre algo aprobado. */}
+      {/* Marcar / quitar publicado. Solo aparece para productores y sobre algo aprobado. El botón de
+          MARCAR va DESTACADO (relleno) para que en la vista de Aprobados sea la acción evidente que
+          el equipo usa para pasar la pieza a Publicados; el de quitar queda discreto. */}
       {canPublish && published ? (
         <button
           type="button"
           onClick={() => start(() => setDeliverablePublished(deliverableId, projectId, false))}
           disabled={pending}
-          className={publishBtn}
+          className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
           title="Quitar el sello de publicado (vuelve a Aprobados)"
         >
           <RotateCcw className="size-3.5" /> Quitar publicado
@@ -56,7 +56,7 @@ export function DeliverableAdminActions({
           type="button"
           onClick={() => start(() => setDeliverablePublished(deliverableId, projectId, true))}
           disabled={pending}
-          className={publishBtn}
+          className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-violet-700 disabled:opacity-50"
           title="Marcar como publicado: ya salió al aire"
         >
           <Rocket className="size-3.5" /> Marcar publicado
