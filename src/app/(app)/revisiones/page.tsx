@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, CheckCircle2, Rocket } from "lucide-react";
+import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, CheckCircle2, Rocket, Eye } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -125,6 +125,8 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
         reviewRevokedAt: true,
         reviewExpiresAt: true,
         archivedAt: true,
+        // Visitas del cliente al enlace: 0 = pre-aprobado pero aún sin abrir; >0 = ya lo está viendo.
+        reviewVisits: true,
         // Sello de publicación (interno): fecha + quién lo marcó, para la pestaña «Publicados».
         publishedAt: true,
         publishedBy: { select: { name: true } },
@@ -179,6 +181,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
     canPublish: canManageProject(d.project, session) && sessionCanApprove,
     publishedAt: d.publishedAt,
     publishedByName: d.publishedBy?.name ?? null,
+    reviewVisits: d.reviewVisits,
     reviewUrl: `${REVIEW_BASE}/review/${signReviewToken(d.id)}`,
     linkActive: !d.reviewRevokedAt && (!d.reviewExpiresAt || d.reviewExpiresAt.getTime() > now),
     archived: d.archivedAt != null,
@@ -208,9 +211,13 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   const pendientesOtros = visible
     .filter((d) => d.status === "REVISION_INTERNA" && !d.mine)
     .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
-  const conCliente = visible.filter((d) => d.status === "ENVIADO_CLIENTE");
+  // Etapa "con el cliente" (ENVIADO_CLIENTE = ya pre-aprobado internamente) partida en dos según si
+  // el cliente ABRIÓ el enlace (reviewVisits): así se distingue lo que solo está pre-aprobado y en
+  // espera, de lo que el cliente ya está revisando (y de quien se espera una decisión).
+  const enviadosCliente = visible.filter((d) => d.status === "ENVIADO_CLIENTE");
+  const preAprobados = enviadosCliente.filter((d) => d.reviewVisits === 0);
+  const conCliente = enviadosCliente.filter((d) => d.reviewVisits > 0);
   const cambios = visible.filter((d) => d.status === "CORRECCIONES");
-  const urgentes = [...pendientes, ...cambios].filter((d) => urgency(d.updatedAt).tier === "danger").length;
 
   // Enlaces de la barra de control, conservando el resto de parámetros.
   const hrefFor = (over: { tab?: TabKey; group?: GroupMode; scope?: "mine" | "all"; uploader?: string | null }) => {
@@ -323,14 +330,15 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
         <>
           <div className="mb-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             <Metric label="Pendientes de ti" value={pendientes.length} Icon={Clock} tone="amber" />
-            <Metric label="Con el cliente" value={conCliente.length} Icon={Send} tone="sky" />
-            <Metric label="Con cambios" value={cambios.length} Icon={RefreshCw} tone="amber" />
-            <Metric label="Urgentes · 3+ días" value={urgentes} Icon={Flame} tone="rose" highlight />
+            <Metric label="Pre-aprobados" value={preAprobados.length} Icon={Send} tone="sky" />
+            <Metric label="Con el cliente" value={conCliente.length} Icon={Eye} tone="teal" />
+            <Metric label="Con cambios" value={cambios.length} Icon={RefreshCw} tone="rose" />
           </div>
           <div className="space-y-8">
             <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" hint="Los más urgentes primero" items={pendientes} primary />
             <Group title="En pre-aprobación de otros" Icon={Clock} accent="sky" cta="Ver" hint="Las revisa otro compañero" items={pendientesOtros} neutral />
-            <Group title="Con el cliente" Icon={Send} accent="sky" cta="Ver" hint="Solo informativo" items={conCliente} neutral />
+            <Group title="Pre-aprobados · esperando al cliente" Icon={Send} accent="sky" cta="Ver" hint="El cliente aún no lo ha abierto" items={preAprobados} neutral />
+            <Group title="Con el cliente · ya lo está viendo" Icon={Eye} accent="teal" cta="Ver" hint="El cliente ya lo abrió" items={conCliente} neutral />
             <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" cta="Atender" items={cambios} />
           </div>
         </>
@@ -357,6 +365,7 @@ type Item = {
   canPublish: boolean;
   publishedAt: Date | null;
   publishedByName: string | null;
+  reviewVisits: number;
   reviewUrl: string;
   linkActive: boolean;
   archived: boolean;
@@ -365,6 +374,7 @@ type Item = {
 const METRIC_TONE: Record<string, string> = {
   amber: "text-amber-600 dark:text-amber-400",
   sky: "text-sky-600 dark:text-sky-400",
+  teal: "text-teal-600 dark:text-teal-400",
   rose: "text-rose-600 dark:text-rose-400",
 };
 
@@ -382,11 +392,13 @@ function Metric({ label, value, Icon, tone, highlight }: { label: string; value:
 const ACCENT: Record<string, string> = {
   amber: "text-amber-600 dark:text-amber-400",
   sky: "text-sky-600 dark:text-sky-400",
+  teal: "text-teal-600 dark:text-teal-400",
   rose: "text-rose-600 dark:text-rose-400",
 };
 const BADGE: Record<string, string> = {
   amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  teal: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
   rose: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
 };
 
@@ -545,6 +557,12 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
               title={`Publicado ${sinceLabel(urgency(d.publishedAt))}${d.publishedByName ? ` por ${d.publishedByName}` : ""}`}
             >
               <Rocket className="size-3" /> Publicado{d.publishedByName ? ` · ${d.publishedByName.split(" ")[0]}` : ""}
+            </span>
+          ) : showStatus && d.status === "ENVIADO_CLIENTE" ? (
+            // Afinamos "Enviado a cliente" según si el cliente ya abrió el enlace: pre-aprobado (sin
+            // abrir) vs con el cliente (ya lo vio). Mismo criterio que los grupos de «Por aprobar».
+            <span className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${d.reviewVisits > 0 ? "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300" : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"}`}>
+              {d.reviewVisits > 0 ? "Con el cliente" : "Pre-aprobado"}
             </span>
           ) : showStatus ? (
             <span className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${st.className}`}>{st.label}</span>
