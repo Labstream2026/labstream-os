@@ -1703,9 +1703,47 @@ export async function setDeliverableStatus(id: string, _projectId: string, statu
   if (!isDeliverableStatus(status)) throw new Error("Estado inválido");
   const deliverable = await db.deliverable.findUnique({ where: { id }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const projectId = await ensureAccessVia(deliverable, null);
-  await db.deliverable.update({ where: { id }, data: { status } });
+  // Invariante: el sello de publicado solo vive sobre algo aprobado/entregado. Si se mueve el estado
+  // a cualquier otro (p. ej. de vuelta a CORRECCIONES a mano), se quita el sello para que no quede
+  // atascado en «Publicados» siendo en realidad algo en revisión.
+  const clearPublished = status !== "APROBADO" && status !== "ENTREGADO";
+  await db.deliverable.update({ where: { id }, data: clearPublished ? { status, publishedAt: null, publishedById: null } : { status } });
   await logActivity({ action: "deliverable.status", summary: `cambió el estado del entregable «${deliverable!.name}» a ${deliverableStatusMeta(status).label}`, projectId, entityType: "deliverable", entityId: id });
   refresh(projectId);
+}
+
+// Marca (o quita) el sello de PUBLICADO de un entregable. "Publicado" es un HECHO con fecha y autor,
+// SEPARADO del estado de aprobación (ver el campo publishedAt en el schema): por eso vive aparte y no
+// como un estado más del enum. Solo lo pueden marcar los PRODUCTORES —gestionan el proyecto Y tienen
+// `aprobar_entregables` (admin y gerente incluidos)—, el mismo gate que la pre-aprobación interna del
+// gestor. Solo tiene sentido sobre algo YA aprobado por el cliente: publicar algo aún en revisión o
+// con cambios se saltaría el flujo. El cliente nunca ve este sello (es control interno del equipo).
+export async function setDeliverablePublished(deliverableId: string, _projectId: string, published: boolean) {
+  const session = await getSession();
+  const deliverable = await db.deliverable.findUnique({
+    where: { id: deliverableId },
+    select: { name: true, projectId: true, status: true, publishedAt: true, project: { select: accessSelect } },
+  });
+  if (!deliverable) noAutorizado();
+  if (!(canManageProject(deliverable.project, session) && hasPermission(session, "aprobar_entregables"))) noAutorizado();
+  if (published) {
+    // Publicar exige que el CLIENTE ya lo haya aprobado (APROBADO) o esté entregado: no se marca
+    // "al aire" algo que sigue en revisión interna, con el cliente o con cambios.
+    if (deliverable.status !== "APROBADO" && deliverable.status !== "ENTREGADO") {
+      throw new Error("Solo se puede marcar como publicado un entregable aprobado por el cliente.");
+    }
+    // Idempotente: si ya estaba publicado, se conserva la fecha y el autor originales.
+    if (!deliverable.publishedAt) {
+      await db.deliverable.update({ where: { id: deliverableId }, data: { publishedAt: new Date(), publishedById: session!.id } });
+      await logActivity({ action: "deliverable.published", summary: `marcó como publicado el entregable «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+    }
+  } else if (deliverable.publishedAt) {
+    // Solo si estaba publicado: evita un update no-op y una entrada de auditoría espuria al
+    // llamar "despublicar" sobre algo que ya no lo estaba (idempotente, como la rama de publicar).
+    await db.deliverable.update({ where: { id: deliverableId }, data: { publishedAt: null, publishedById: null } });
+    await logActivity({ action: "deliverable.unpublished", summary: `quitó el sello de publicado del entregable «${deliverable.name}»`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
+  }
+  refresh(deliverable.projectId);
 }
 
 // Formato/tipo de un entregable: EDITABLE después de publicarlo (p. ej. cambiar de vertical a
@@ -1798,7 +1836,10 @@ export async function addDeliverableVersion(
   // La nueva versión pasa a revisión interna (compuerta bloqueante) o directo al cliente.
   // Se guarda el nuevo límite de pre-aprobación (si vino) y se LIMPIA el plazo de corrección:
   // la corrección ya llegó (a tiempo o tarde, eso queda registrado en la tarea).
-  await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA", internalReviewDueAt: internalDueAt, fixDueAt: null } });
+  // También se QUITA el sello de publicado: si el entregable ya estaba publicado, este corte nuevo
+  // lo supera y vuelve al flujo de revisión — sin esto, se quedaría atascado en «Publicados»
+  // (publishedAt no nulo) e invisible en «Por aprobar», ocultando que necesita revisarse otra vez.
+  await db.deliverable.update({ where: { id: deliverableId }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA", internalReviewDueAt: internalDueAt, fixDueAt: null, publishedAt: null, publishedById: null } });
   await logActivity({ action: "deliverable.version", summary: directToClient ? `subió la versión v${number} de «${deliverable.name}» (enviada DIRECTO al cliente para revisión)` : `subió la versión v${number} de «${deliverable.name}» (pendiente de pre-aprobación interna)`, projectId: deliverable.projectId, entityType: "deliverable", entityId: deliverableId });
   // Mandar la versión a revisión completa las tareas "ítem de entregable" vinculadas.
   await completeLinkedWorkTasks(deliverableId);

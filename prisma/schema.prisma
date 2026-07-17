@@ -122,6 +122,8 @@ model User {
   reviewComments   ReviewComment[]      @relation("ReviewCommentAuthor")
   // Correcciones que esta persona marcó como hechas (trazabilidad del checklist).
   reviewCommentsResolved ReviewComment[] @relation("ReviewCommentResolver")
+  // Entregables que esta persona marcó como PUBLICADOS (trazabilidad del sello de publicación).
+  publishedDeliverables Deliverable[]   @relation("DeliverablePublisher")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
@@ -1578,6 +1580,15 @@ model Deliverable {
   coverDecisionBy   String? // nombre del cliente que decidió
   coverDecisionAt   DateTime?
   coverDecisionNote String? // detalle si pidió cambios
+  // Publicación (INTERNA): el productor marca la pieza como publicada cuando de verdad salió al
+  // aire. Es un HECHO con fecha y autor, INDEPENDIENTE del estado de aprobación: un entregable
+  // aprobado por el cliente puede no publicarse nunca (hay proyectos que no se publican) y por eso
+  // "publicado" NO es un estado más del enum, sino este dato aparte —así los aprobados-sin-publicar
+  // no quedan en un limbo—. NULL = aún no publicado. Separa las pestañas «Aprobados» y «Publicados»
+  // en /revisiones. El cliente no lo ve (es control del equipo).
+  publishedAt   DateTime?
+  publishedBy   User?     @relation("DeliverablePublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  publishedById String?
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
@@ -1585,6 +1596,8 @@ model Deliverable {
   @@index([reviewerId])
   // El conteo del layout y marcebot filtran entregables por estado.
   @@index([status])
+  // La pestaña «Publicados» de /revisiones filtra por publishedAt (no nulo).
+  @@index([publishedAt])
 }
 
 // Co-revisores de un entregable: VARIAS personas que pueden pre-aprobar/solicitar cambios en la

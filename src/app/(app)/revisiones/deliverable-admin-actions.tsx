@@ -1,15 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ArchiveRestore, Trash2, Link2Off } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, Link2Off, Rocket, RotateCcw } from "lucide-react";
 import { CopyLink } from "@/components/copy-link";
 import { ConfirmSubmit } from "@/components/confirm-submit";
-import { setDeliverableArchived, deleteDeliverable } from "../proyectos/[id]/actions";
+import { setDeliverableArchived, deleteDeliverable, setDeliverablePublished } from "../proyectos/[id]/actions";
 
 // Acciones de GESTIÓN de un entregable en la bandeja /revisiones — solo para quien puede gestionar
 // el proyecto (canManage). Reutiliza los mismos server actions del panel del proyecto: archivar NO
 // toca el enlace de entrega (sigue vivo); solo "Borrar" lo mata. `linkActive` = el enlace de
 // revisión sigue funcionando (ni revocado ni caducado).
+//
+// Publicar: SOLO productores (`canPublish` = gestiona + permiso de aprobar) y SOLO sobre algo ya
+// aprobado por el cliente (`publishable`). "Publicado" es un sello con fecha, aparte del estado —por
+// eso el botón vive aquí y no en la máquina de estados—.
 export function DeliverableAdminActions({
   deliverableId,
   projectId,
@@ -17,6 +21,9 @@ export function DeliverableAdminActions({
   linkActive,
   archived,
   name,
+  canPublish,
+  published,
+  publishable,
 }: {
   deliverableId: string;
   projectId: string;
@@ -24,10 +31,37 @@ export function DeliverableAdminActions({
   linkActive: boolean;
   archived: boolean;
   name: string;
+  canPublish: boolean;
+  published: boolean;
+  publishable: boolean;
 }) {
   const [pending, start] = React.useTransition();
+  const publishBtn =
+    "inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300";
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {/* Marcar / quitar publicado. Solo aparece para productores y sobre algo aprobado. */}
+      {canPublish && published ? (
+        <button
+          type="button"
+          onClick={() => start(() => setDeliverablePublished(deliverableId, projectId, false))}
+          disabled={pending}
+          className={publishBtn}
+          title="Quitar el sello de publicado (vuelve a Aprobados)"
+        >
+          <RotateCcw className="size-3.5" /> Quitar publicado
+        </button>
+      ) : canPublish && publishable ? (
+        <button
+          type="button"
+          onClick={() => start(() => setDeliverablePublished(deliverableId, projectId, true))}
+          disabled={pending}
+          className={publishBtn}
+          title="Marcar como publicado: ya salió al aire"
+        >
+          <Rocket className="size-3.5" /> Marcar publicado
+        </button>
+      ) : null}
       {linkActive ? (
         <CopyLink url={reviewUrl} label="Copiar enlace" />
       ) : (

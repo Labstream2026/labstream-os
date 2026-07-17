@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar } from "lucide-react";
+import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Inbox, Archive, Users, Calendar, CheckCircle2, Rocket } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere, canManageProject } from "@/lib/project-access";
 import { UserAvatar } from "@/components/user-avatar";
 import { deliverableStatusMeta } from "@/lib/ui";
@@ -70,6 +70,7 @@ function clientHex(accent: string | null | undefined): string | null {
 export const dynamic = "force-dynamic";
 
 type GroupMode = "estado" | "cliente" | "fecha";
+type TabKey = "por-aprobar" | "aprobados" | "publicados" | "archivados";
 
 // Bandeja de GESTIÓN de entregables (equipo). "Activos": los que esperan una acción de revisión
 // (pre-aprobación / con el cliente / cambios). "Archivados": los ya entregados o parqueados a mano
@@ -84,20 +85,31 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
 
   const { scope, tab, group, uploader } = await searchParams;
   const onlyMine = scope === "mine";
-  const archivedTab = tab === "archivados";
+  const activeTab: TabKey = tab === "aprobados" ? "aprobados" : tab === "publicados" ? "publicados" : tab === "archivados" ? "archivados" : "por-aprobar";
   const groupMode: GroupMode = group === "cliente" ? "cliente" : group === "fecha" ? "fecha" : "estado";
   const uploaderId = uploader || null;
+  // ¿Puede el usuario marcar entregables como publicados? Es a nivel de sesión (mismo permiso que la
+  // pre-aprobación interna); el gate por proyecto se combina con canManage más abajo, por ítem.
+  const sessionCanApprove = hasPermission(session, "aprobar_entregables");
 
   const acc = accessibleProjectWhere(session);
-  // Activos = en revisión y sin archivar. Archivados = archivados a mano O ya finalizados (aprobado/
-  // entregado); su enlace sigue vivo hasta borrar. Los conjuntos son disjuntos (activos exige
-  // archivedAt null + estado en revisión; ninguno de esos cae en la rama de archivados).
-  const activeWhere: Prisma.DeliverableWhereInput = { project: acc, archivedAt: null, status: { in: ["REVISION_INTERNA", "ENVIADO_CLIENTE", "CORRECCIONES"] } };
-  const archivedWhere: Prisma.DeliverableWhereInput = { project: acc, OR: [{ archivedAt: { not: null } }, { status: { in: ["APROBADO", "ENTREGADO"] } }] };
+  // Cuatro bandejas DISJUNTAS. La clave: "aprobado por el cliente" (APROBADO/ENTREGADO) y "publicado"
+  // son cosas distintas → van en pestañas distintas. Un publicado siempre está aprobado, así que
+  // publishedAt no-nulo lo saca de «Aprobados». Archivar (parquear) gana sobre todo: si algo se
+  // archiva, va a «Archivados» aunque estuviera aprobado o publicado.
+  //  · Por aprobar: en revisión, sin archivar, sin publicar.
+  //  · Aprobados:   aprobado/entregado por el cliente, sin publicar y sin archivar.
+  //  · Publicados:  con sello de publicación (publishedAt), sin archivar.
+  //  · Archivados:  parqueados a mano; su enlace de entrega sigue vivo hasta borrarlo.
+  const porAprobarWhere: Prisma.DeliverableWhereInput = { project: acc, archivedAt: null, publishedAt: null, status: { in: ["REVISION_INTERNA", "ENVIADO_CLIENTE", "CORRECCIONES"] } };
+  const aprobadosWhere: Prisma.DeliverableWhereInput = { project: acc, archivedAt: null, publishedAt: null, status: { in: ["APROBADO", "ENTREGADO"] } };
+  const publicadosWhere: Prisma.DeliverableWhereInput = { project: acc, archivedAt: null, publishedAt: { not: null } };
+  const archivadosWhere: Prisma.DeliverableWhereInput = { project: acc, archivedAt: { not: null } };
+  const whereByTab: Record<TabKey, Prisma.DeliverableWhereInput> = { "por-aprobar": porAprobarWhere, aprobados: aprobadosWhere, publicados: publicadosWhere, archivados: archivadosWhere };
 
-  const [rows, activeCount, archivedCount] = await Promise.all([
+  const [rows, porAprobarCount, aprobadosCount, publicadosCount, archivadosCount] = await Promise.all([
     db.deliverable.findMany({
-      where: archivedTab ? archivedWhere : activeWhere,
+      where: whereByTab[activeTab],
       select: {
         id: true,
         name: true,
@@ -113,6 +125,9 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
         reviewRevokedAt: true,
         reviewExpiresAt: true,
         archivedAt: true,
+        // Sello de publicación (interno): fecha + quién lo marcó, para la pestaña «Publicados».
+        publishedAt: true,
+        publishedBy: { select: { name: true } },
         // El proyecto trae lo necesario para pintar (cliente + color) Y para resolver canManage
         // (isPrivate/leadId/members y, para la rama de editor, los miembros del cliente).
         project: {
@@ -129,10 +144,12 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
         versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, durationSec: true, uploadedBy: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
         _count: { select: { reviewComments: true } },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: activeTab === "publicados" ? { publishedAt: "desc" } : { updatedAt: "desc" },
     }),
-    db.deliverable.count({ where: activeWhere }),
-    db.deliverable.count({ where: archivedWhere }),
+    db.deliverable.count({ where: porAprobarWhere }),
+    db.deliverable.count({ where: aprobadosWhere }),
+    db.deliverable.count({ where: publicadosWhere }),
+    db.deliverable.count({ where: archivadosWhere }),
   ]);
 
   // Responsable de la pre-aprobación: CUALQUIER revisor asignado (co-revisores). Si no hay revisores,
@@ -158,6 +175,10 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
     _count: d._count,
     mine: isMyResponsibility(d),
     manage: canManageProject(d.project, session),
+    // Publicar exige gestionar el proyecto Y el permiso de aprobar (mismo gate que setDeliverablePublished).
+    canPublish: canManageProject(d.project, session) && sessionCanApprove,
+    publishedAt: d.publishedAt,
+    publishedByName: d.publishedBy?.name ?? null,
     reviewUrl: `${REVIEW_BASE}/review/${signReviewToken(d.id)}`,
     linkActive: !d.reviewRevokedAt && (!d.reviewExpiresAt || d.reviewExpiresAt.getTime() > now),
     archived: d.archivedAt != null,
@@ -180,18 +201,25 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   const pendientes = visible
     .filter((d) => d.status === "REVISION_INTERNA" && d.mine)
     .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime()); // los que más esperan, primero
+  // REVISION_INTERNA que NO es responsabilidad de quien mira (típico de admin/gerente, que ve todos
+  // los proyectos, o de un miembro cuyo compañero es el revisor asignado): antes no caía en ningún
+  // grupo de la vista por Estado, así que el tablero pintaba MENOS tarjetas que el número de la
+  // pestaña y del encabezado. Se listan como grupo neutro (no es una acción MÍA) para que cuadre.
+  const pendientesOtros = visible
+    .filter((d) => d.status === "REVISION_INTERNA" && !d.mine)
+    .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
   const conCliente = visible.filter((d) => d.status === "ENVIADO_CLIENTE");
   const cambios = visible.filter((d) => d.status === "CORRECCIONES");
   const urgentes = [...pendientes, ...cambios].filter((d) => urgency(d.updatedAt).tier === "danger").length;
 
   // Enlaces de la barra de control, conservando el resto de parámetros.
-  const hrefFor = (over: { tab?: "activos" | "archivados"; group?: GroupMode; scope?: "mine" | "all"; uploader?: string | null }) => {
-    const t = over.tab ?? (archivedTab ? "archivados" : "activos");
+  const hrefFor = (over: { tab?: TabKey; group?: GroupMode; scope?: "mine" | "all"; uploader?: string | null }) => {
+    const t = over.tab ?? activeTab;
     const g = over.group ?? groupMode;
     const s = over.scope ?? (onlyMine ? "mine" : "all");
     const u = over.uploader === undefined ? uploaderId : over.uploader; // null explícito = quitar filtro
     const p = new URLSearchParams();
-    if (t === "archivados") p.set("tab", "archivados");
+    if (t !== "por-aprobar") p.set("tab", t); // «Por aprobar» es la pestaña por defecto (sin parámetro)
     if (g !== "estado") p.set("group", g);
     if (s === "mine") p.set("scope", "mine");
     if (u) p.set("uploader", u);
@@ -200,20 +228,24 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   };
 
   const total = visible.length;
+  const TAB_META: Record<TabKey, { title: string; desc: string }> = {
+    "por-aprobar": {
+      title: "Proyectos a revisar",
+      desc: total > 0 ? `${total} entregable${total === 1 ? "" : "s"} esperan una acción. Abre uno para ver el video, comentar y decidir.` : "Todo al día.",
+    },
+    aprobados: { title: "Aprobados por el cliente", desc: "Ya aprobados y aún sin publicar. Cuando salgan al aire, márcalos como publicados." },
+    publicados: { title: "Publicados", desc: "Piezas que ya salieron al aire, con la fecha en que se publicaron." },
+    archivados: { title: "Entregables archivados", desc: "Parqueados a mano. Su enlace de entrega sigue funcionando hasta que lo borres." },
+  };
+  const tabMeta = TAB_META[activeTab];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
       <header className="mb-5">
         <PageHeader
           icon={<IconRevisiones />}
-          title={archivedTab ? "Entregables archivados" : "Proyectos a revisar"}
-          description={
-            archivedTab
-              ? "Ya entregados o parqueados. Su enlace de entrega sigue funcionando hasta que lo borres."
-              : total > 0
-                ? `${total} entregable${total === 1 ? "" : "s"} esperan una acción. Abre uno para ver el video, comentar y decidir.`
-                : "Todo al día."
-          }
+          title={tabMeta.title}
+          description={tabMeta.desc}
           actions={
             <div className="inline-flex overflow-hidden rounded-lg border border-border text-sm">
               <Link href={hrefFor({ scope: "mine" })} className={`px-3 py-1.5 ${onlyMine ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>Solo míos</Link>
@@ -222,15 +254,23 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
           }
         />
 
-        {/* Pestañas (Activos / Archivados) + agrupación (Estado / Cliente / Fecha). */}
+        {/* Pestañas (Por aprobar / Aprobados / Publicados / Archivados) + agrupación. */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex overflow-hidden rounded-lg border border-border text-sm">
-            <Link href={hrefFor({ tab: "activos" })} className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${!archivedTab ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>
-              <Inbox className="size-4" /> Activos <span className="text-xs text-muted-foreground">{activeCount}</span>
-            </Link>
-            <Link href={hrefFor({ tab: "archivados" })} className={`inline-flex items-center gap-1.5 border-l border-border px-3 py-1.5 ${archivedTab ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}>
-              <Archive className="size-4" /> Archivados <span className="text-xs text-muted-foreground">{archivedCount}</span>
-            </Link>
+          <div className="inline-flex flex-wrap overflow-hidden rounded-lg border border-border text-sm">
+            {([
+              { key: "por-aprobar", label: "Por aprobar", Icon: Inbox, count: porAprobarCount },
+              { key: "aprobados", label: "Aprobados", Icon: CheckCircle2, count: aprobadosCount },
+              { key: "publicados", label: "Publicados", Icon: Rocket, count: publicadosCount },
+              { key: "archivados", label: "Archivados", Icon: Archive, count: archivadosCount },
+            ] as const).map((t, i) => (
+              <Link
+                key={t.key}
+                href={hrefFor({ tab: t.key })}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${i > 0 ? "border-l border-border" : ""} ${activeTab === t.key ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}
+              >
+                <t.Icon className="size-4" /> {t.label} <span className="text-xs text-muted-foreground">{t.count}</span>
+              </Link>
+            ))}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Agrupar por</span>
@@ -266,10 +306,20 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       {visible.length === 0 ? (
         <EmptyState
           icon={<IconRevisiones />}
-          title={archivedTab ? "No hay entregables archivados" : "No hay nada por revisar"}
-          description={archivedTab ? "Los que archives o entregues aparecerán aquí, con su enlace vivo." : "Cuando el equipo suba una versión nueva, aparecerá aquí."}
+          title={
+            activeTab === "archivados" ? "No hay entregables archivados"
+              : activeTab === "aprobados" ? "Nada aprobado todavía"
+                : activeTab === "publicados" ? "Nada publicado todavía"
+                  : "No hay nada por revisar"
+          }
+          description={
+            activeTab === "archivados" ? "Los que archives aparecerán aquí, con su enlace vivo."
+              : activeTab === "aprobados" ? "Cuando el cliente apruebe una pieza, aparecerá aquí lista para publicar."
+                : activeTab === "publicados" ? "Marca un aprobado como publicado y aparecerá aquí."
+                  : "Cuando el equipo suba una versión nueva, aparecerá aquí."
+          }
         />
-      ) : !archivedTab && groupMode === "estado" ? (
+      ) : activeTab === "por-aprobar" && groupMode === "estado" ? (
         <>
           <div className="mb-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             <Metric label="Pendientes de ti" value={pendientes.length} Icon={Clock} tone="amber" />
@@ -279,12 +329,13 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
           </div>
           <div className="space-y-8">
             <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" hint="Los más urgentes primero" items={pendientes} primary />
+            <Group title="En pre-aprobación de otros" Icon={Clock} accent="sky" cta="Ver" hint="Las revisa otro compañero" items={pendientesOtros} neutral />
             <Group title="Con el cliente" Icon={Send} accent="sky" cta="Ver" hint="Solo informativo" items={conCliente} neutral />
             <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" cta="Atender" items={cambios} />
           </div>
         </>
       ) : (
-        <GenericGroups items={visible} mode={groupMode} cta={archivedTab ? "Abrir" : "Revisar"} />
+        <GenericGroups items={visible} mode={groupMode} cta={activeTab === "archivados" ? "Abrir" : activeTab === "por-aprobar" ? "Revisar" : "Ver"} />
       )}
     </div>
   );
@@ -303,6 +354,9 @@ type Item = {
   _count: { reviewComments: number };
   mine: boolean;
   manage: boolean;
+  canPublish: boolean;
+  publishedAt: Date | null;
+  publishedByName: string | null;
   reviewUrl: string;
   linkActive: boolean;
   archived: boolean;
@@ -483,7 +537,16 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
               <span className="opacity-80"><EntityEmoji value={d.project.emoji} fallback="🎬" /></span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
             </p>
           </div>
-          {showStatus ? (
+          {/* Sello «Publicado» (interno) manda sobre el chip de estado: en la pestaña Publicados es lo
+              que importa. Si no está publicado y se pidió mostrar estado, va el chip de estado normal. */}
+          {d.publishedAt ? (
+            <span
+              className="inline-flex w-fit items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+              title={`Publicado ${sinceLabel(urgency(d.publishedAt))}${d.publishedByName ? ` por ${d.publishedByName}` : ""}`}
+            >
+              <Rocket className="size-3" /> Publicado{d.publishedByName ? ` · ${d.publishedByName.split(" ")[0]}` : ""}
+            </span>
+          ) : showStatus ? (
             <span className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${st.className}`}>{st.label}</span>
           ) : null}
           <div className="mt-auto flex items-center gap-2">
@@ -500,10 +563,20 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
         </div>
       </Link>
 
-      {/* Acciones de gestión (solo quien puede gestionar): copiar enlace, archivar/desarchivar, borrar. */}
+      {/* Acciones de gestión (solo quien puede gestionar): publicar, copiar enlace, archivar, borrar. */}
       {d.manage ? (
         <div className="relative z-10 border-t border-border/70 bg-card/50 px-3 py-2">
-          <DeliverableAdminActions deliverableId={d.id} projectId={d.project.id} reviewUrl={d.reviewUrl} linkActive={d.linkActive} archived={d.archived} name={d.name} />
+          <DeliverableAdminActions
+            deliverableId={d.id}
+            projectId={d.project.id}
+            reviewUrl={d.reviewUrl}
+            linkActive={d.linkActive}
+            archived={d.archived}
+            name={d.name}
+            canPublish={d.canPublish}
+            published={d.publishedAt != null}
+            publishable={d.status === "APROBADO" || d.status === "ENTREGADO"}
+          />
         </div>
       ) : null}
     </div>
