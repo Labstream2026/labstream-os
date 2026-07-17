@@ -6,9 +6,29 @@ import { headers, cookies } from "next/headers";
 import { verifyProposalToken, signProposalUnlock } from "@/lib/proposals/token";
 import { verifyPassword } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { notifyAndEmail } from "@/lib/notify";
+import { sendEmail, emailButton } from "@/lib/email";
 
 // Nombre de la cookie de desbloqueo POR propuesta: así desbloquear una no pisa el acceso a otra.
 const unlockCookie = (id: string) => `proposal-unlock-${id}`;
+
+const APP_URL = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+// Escapa texto del cliente antes de meterlo en el HTML del correo (evita inyección/XSS).
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+// IP del cliente (último salto de X-Forwarded-For = el que ve el proxy de confianza; el primero lo
+// pone el cliente y es falsificable). Solo para dejar constancia, no para autorizar.
+async function clientIp(): Promise<string | null> {
+  try {
+    const h = await headers();
+    const xff = h.get("x-forwarded-for");
+    return (xff ? xff.split(",").pop()?.trim() : h.get("x-real-ip")) || null;
+  } catch {
+    return null;
+  }
+}
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Clave de rate-limit a partir del token (autorización del portal) y, si está disponible,
 // la IP. Evita que un token filtrado se use para inundar la BD.
@@ -27,21 +47,77 @@ async function rlKey(token: string): Promise<string> {
   return `${token}:${ip}`;
 }
 
-// Acción PÚBLICA (sin sesión): el cliente acepta la propuesta desde su enlace.
-// La autorización es el token firmado; solo permite pasar a ACEPTADA.
-export async function acceptProposal(token: string) {
+// Acción PÚBLICA (sin sesión): el cliente acepta la propuesta desde su enlace. Autorización = token
+// firmado. Captura nombre y correo del cliente para dejar CONSTANCIA de quién y cuándo aceptó, avisa
+// al equipo (in-app + correo) y le manda al cliente un correo de confirmación a su propio buzón. El
+// registro se guarda SIEMPRE; los correos son best-effort (si el correo no está configurado, no
+// rompen la aceptación). Devuelve {ok,error} para pintar el error en el formulario.
+export async function acceptProposal(token: string, name: string, email: string): Promise<{ ok: boolean; error?: string; emailed?: boolean }> {
   if (!rateLimit(`accept-proposal:${await rlKey(token)}`, 20, 60_000)) {
-    throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
+    return { ok: false, error: "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo." };
   }
+  const nm = (typeof name === "string" ? name : "").trim().slice(0, 120);
+  const em = (typeof email === "string" ? email : "").trim().slice(0, 160);
+  if (nm.length < 2) return { ok: false, error: "Escribe tu nombre." };
+  if (!EMAIL_RE.test(em)) return { ok: false, error: "Escribe un correo válido." };
+
   const id = verifyProposalToken(token);
-  if (!id) throw new Error("Enlace inválido");
-  const p = await db.proposal.findUnique({ where: { id }, select: { status: true, expiresAt: true } });
-  if (!p) throw new Error("Propuesta inexistente");
-  if (p.status === "ACEPTADA") return;
-  if (p.expiresAt && new Date(p.expiresAt).getTime() < Date.now()) throw new Error("La propuesta venció");
-  // Atómico: solo pasa a ACEPTADA si aún no lo está (evita carrera de doble clic).
-  await db.proposal.updateMany({ where: { id, status: { not: "ACEPTADA" } }, data: { status: "ACEPTADA" } });
+  if (!id) return { ok: false, error: "Enlace inválido o vencido." };
+  const p = await db.proposal.findUnique({
+    where: { id },
+    select: { status: true, expiresAt: true, title: true, code: true, createdById: true, brand: true },
+  });
+  if (!p) return { ok: false, error: "Propuesta no disponible." };
+  if (p.status === "ACEPTADA") return { ok: true }; // ya aceptada: idempotente, sin re-avisar
+  if (p.expiresAt && new Date(p.expiresAt).getTime() < Date.now()) return { ok: false, error: "Esta propuesta venció." };
+
+  const ip = await clientIp();
+  // Atómico: solo pasa a ACEPTADA si aún no lo está (evita la carrera de doble clic / doble pestaña).
+  // updateMany devuelve el número de filas tocadas: 0 = otro ya la aceptó → no re-avisamos.
+  const res = await db.proposal.updateMany({
+    where: { id, status: { not: "ACEPTADA" } },
+    data: { status: "ACEPTADA", acceptedAt: new Date(), acceptedByName: nm, acceptedByEmail: em, acceptedByIp: ip },
+  });
   revalidatePath(`/p/${token}`);
+  if (res.count === 0) return { ok: true }; // ganó otra petición concurrente; ya quedó aceptada
+
+  const brand = (p.brand ?? {}) as { company?: string; email?: string };
+  const company = brand.company || "Labstream";
+  const nombrePieza = p.title || p.code;
+
+  // Aviso al EQUIPO (autor de la propuesta): notificación in-app + correo si está configurado.
+  await notifyAndEmail(p.createdById, {
+    type: "proposal",
+    title: `Propuesta aceptada: ${nombrePieza}`,
+    body: `${nm} (${em}) aceptó la propuesta «${nombrePieza}».`,
+    link: `/cotizaciones/propuestas/${id}`,
+  }).catch(() => {});
+
+  // Correo de CONFIRMACIÓN al cliente, a su propio buzón: su copia de la aceptación (constancia por
+  // su lado). Best-effort: si el correo no está configurado, sendEmail devuelve {ok:false} sin lanzar,
+  // y `emailed` queda en false para que el portal NO afirme que se envió un correo que no salió.
+  // Nota: el destinatario es el correo que TECLEA quien tenga el enlace; con el enlace filtrado se
+  // podría mandar UN comprobante a una dirección ajena (acotado a 1 por propuesta, y el enlace ya
+  // daba acceso a ver/aceptar). Es el compromiso inherente de una aceptación sin sesión.
+  const verUrl = `${APP_URL}/p/${token}`;
+  let emailed = false;
+  try {
+    const r = await sendEmail({
+      to: em,
+      subject: `Confirmación: aceptaste la propuesta «${nombrePieza}»`,
+      text: `Hola ${nm},\n\nRecibimos tu aceptación de la propuesta «${nombrePieza}» de ${company}. Nos pondremos en contacto para coordinar los siguientes pasos.\n\nVer la propuesta: ${verUrl}`,
+      html: `<p style="margin:0 0 6px;color:#6b6b6b;font-size:14px">Hola ${esc(nm)},</p>
+        <h1 style="margin:0 0 12px;font-size:19px;font-weight:700;color:#111;line-height:1.35">Recibimos tu aceptación</h1>
+        <p style="margin:0 0 16px;color:#444;font-size:15px;line-height:1.65">Confirmamos que aceptaste la propuesta <strong>«${esc(nombrePieza)}»</strong> de ${esc(company)}. Nos pondremos en contacto para coordinar los siguientes pasos. Este correo es tu comprobante.</p>
+        ${emailButton("Ver la propuesta  →", verUrl)}`,
+      replyTo: brand.email || undefined,
+    });
+    emailed = r.ok;
+  } catch {
+    emailed = false;
+  }
+
+  return { ok: true, emailed };
 }
 
 // Acción PÚBLICA (sin sesión): el cliente escribe la contraseña de la reja para desbloquear la

@@ -37,6 +37,7 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
       initialExpiresAt={expiresAt}
       initialClientId={p.clientId ?? ""}
       initialHasPassword={p.accessPasswordHash != null}
+      acceptance={p.acceptedAt ? { name: p.acceptedByName, email: p.acceptedByEmail, at: new Date(p.acceptedAt).toISOString() } : null}
       clients={clients.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
       publicUrl={publicUrl}
     />

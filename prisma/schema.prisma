@@ -843,6 +843,13 @@ model Proposal {
   // (además del enlace firmado) para ver la propuesta. Se guarda el HASH bcrypt, nunca la clave.
   // NULL = sin reja (acceso solo por el enlace, como hasta ahora).
   accessPasswordHash String?
+  // Constancia de la ACEPTACIÓN por el cliente: se captura al aceptar desde el portal (nombre y
+  // correo que escribe el cliente, fecha/hora e IP). Queda como prueba de quién y cuándo aceptó,
+  // independientemente de que el correo de confirmación esté configurado o no. NULL = sin aceptar.
+  acceptedAt      DateTime?
+  acceptedByName  String?
+  acceptedByEmail String?
+  acceptedByIp    String?
   answers     Json? // respuestas del asistente (regeneración / referencia)
   brand       Json // snapshot de marca (empresa, acento, contacto)
   blocks      Json // lista ordenada de bloques del documento

@@ -19,7 +19,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
 export function ProposalEditor({
-  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, clients = [], publicUrl,
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, acceptance = null, clients = [], publicUrl,
 }: {
   id: string;
   code: string;
@@ -30,6 +30,7 @@ export function ProposalEditor({
   initialExpiresAt: string;
   initialClientId?: string;
   initialHasPassword?: boolean;
+  acceptance?: { name: string | null; email: string | null; at: string } | null;
   clients?: { id: string; name: string; emoji: string | null }[];
   publicUrl: string;
 }) {
@@ -150,6 +151,17 @@ export function ProposalEditor({
           </button>
         </div>
       </div>
+
+      {/* Constancia de aceptación: quién y cuándo aceptó el cliente (registro guardado al aceptar). */}
+      {acceptance ? (
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-500/30 dark:bg-emerald-500/10">
+          <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+          <span className="font-medium text-emerald-800 dark:text-emerald-300">Aceptada por {acceptance.name || "el cliente"}</span>
+          {acceptance.email ? <span className="text-emerald-700/80 dark:text-emerald-300/70">· {acceptance.email}</span> : null}
+          {/* timeZone fija Bogotá: mismo texto en SSR y cliente (sin desajuste de hidratación) y hora local correcta. */}
+          <span className="text-emerald-700/80 dark:text-emerald-300/70">· {new Date(acceptance.at).toLocaleString("es-CO", { dateStyle: "long", timeStyle: "short", timeZone: "America/Bogota" })}</span>
+        </div>
+      ) : null}
 
       {/* Ajustes (título, marca, validez) */}
       {showSettings ? (
