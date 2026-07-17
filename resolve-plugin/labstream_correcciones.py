@@ -500,7 +500,10 @@ def run_panel():
 
     def fill_versions():
         combo = items["Version"]
-        combo.Clear()
+        try:
+            combo.Clear()
+        except Exception:
+            pass  # Resolve muy viejo sin Clear(): duplicaría entradas al refrescar, no rompe
         combo.AddItem("Todas las versiones")
         if state["data"]:
             for v in state["data"]["versions"]:
