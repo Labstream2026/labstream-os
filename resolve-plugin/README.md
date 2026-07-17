@@ -10,16 +10,25 @@ dentro de Resolve. Hay **dos piezas**:
 
 ## Panel (fase 2) — instalación
 
-1. Copia la carpeta `panel/` a la máquina del editor.
-2. **Windows**: clic derecho en `panel/instalar-panel-windows.ps1` → *Ejecutar con PowerShell* (pide admin).
-   **Mac**: doble clic en `panel/instalar-panel-mac.command` (pide contraseña). Si macOS no lo deja
-   ejecutar (pasa cuando la carpeta llegó por zip/Drive y perdió el permiso), ábrelo desde Terminal:
-   `bash instalar-panel-mac.command` — hace exactamente lo mismo.
+1. Descomprime el zip **completo** en una carpeta (no ejecutes desde dentro del zip).
+2. **Windows**: doble clic en **`INSTALAR-Windows.bat`** y acepta el permiso de administrador.
+   (No hagas doble clic en el `.ps1`: Windows lo abre en el Bloc de notas en vez de ejecutarlo.)
+   **Mac**: doble clic en `instalar-panel-mac.command` y escribe tu contraseña. Si macOS no lo deja
+   (llegó por zip/Drive y perdió el permiso), en Terminal: `bash instalar-panel-mac.command`.
    El instalador copia el plugin a la carpeta de Workflow Integrations de Resolve y toma el módulo
-   `WorkflowIntegration.node` del propio Resolve instalado (por eso requiere Studio).
-3. Reinicia Resolve → **Workspace ▸ Workflow Integrations ▸ Labstream Correcciones**.
+   `WorkflowIntegration.node` del propio Resolve del equipo (por eso requiere Studio).
+3. **Cierra DaVinci Resolve por completo** y vuelve a abrirlo → **Workspace ▸ Workflow Integrations ▸
+   Labstream Correcciones**. (Los plugins solo se cargan al arrancar Resolve; reabrir un proyecto no basta.)
 4. La primera vez, inicia sesión como siempre (Authentik o correo/contraseña). La sesión queda
    guardada en el panel.
+
+### Si NO aparece en el menú
+
+Corre el diagnóstico (no instala nada, solo informa) y envía lo que salga:
+**Windows** → doble clic en `DIAGNOSTICO-Windows.bat` · **Mac** → `diagnostico-mac.command`.
+Causas típicas: el instalador no se ejecutó como administrador; se hizo doble clic al `.ps1`
+(se abre en el Bloc de notas, no se ejecuta); DaVinci es la versión **gratuita** (los Workflow
+Integrations solo van en **Studio**); o Resolve no se reinició del todo tras instalar.
 
 ### Qué hace
 

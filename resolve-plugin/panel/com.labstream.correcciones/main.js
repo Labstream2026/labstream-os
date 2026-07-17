@@ -330,7 +330,14 @@ app.whenReady().then(() => {
   } catch (err) {
     console.warn("No se pudo inicializar WorkflowIntegration:", err);
   }
-  createWindow();
+  // createWindow dentro del try: un fallo al crear la ventana no debe quedar como
+  // unhandled rejection (aunque sea un proceso aparte y nunca puede tumbar Resolve).
+  try {
+    createWindow();
+  } catch (err) {
+    console.error("No se pudo crear la ventana del panel:", err);
+    app.quit();
+  }
 });
 
 app.on("window-all-closed", () => {
