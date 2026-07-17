@@ -32,6 +32,10 @@ dentro de Resolve. Hay **dos piezas**:
 - **Sincronizar marcadores** → pinta cada corrección en el timeline: 🔴 obligatoria pendiente,
   🟡 sugerencia, 🟢 hecha. Usa la marca interna `lsos:` y nunca toca tus marcadores.
 - Solo muestra **revisión de entregables** — sin tareas, chat ni nada más de la app.
+- **Modo paleta**: Resolve no permite acoplar ventanas de terceros a sus paneles, así que el
+  panel hace lo más parecido — flota SIEMPRE encima de Resolve (no se esconde al hacer clic en
+  el timeline; **F2** lo alterna), recuerda su posición y tamaño, y la primera vez se pega al
+  borde derecho de la pantalla como barra lateral.
 
 ### Ligereza
 

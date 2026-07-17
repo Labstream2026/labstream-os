@@ -13,8 +13,9 @@
 //   ls:info     → nombre/fps del timeline abierto
 // La página detecta el puente (window.labstream) y habilita esos botones.
 
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, screen } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { secondsToOffsetFrames, framesToTimecode, markerColor } = require("./timecode");
 
 const PLUGIN_ID = "com.labstream.correcciones";
@@ -194,13 +195,59 @@ function allowedUrl(url) {
   }
 }
 
+// Resolve no permite acoplar ventanas de terceros a sus paneles, así que el panel se comporta
+// como PALETA: siempre visible sobre Resolve (no se esconde al hacer clic en el timeline; F2 lo
+// alterna), recuerda posición/tamaño entre sesiones y, la primera vez, se pega al borde derecho
+// de la pantalla como una barra lateral.
+function stateFile() {
+  return path.join(app.getPath("userData"), "labstream-panel-window.json");
+}
+
+function loadWindowState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+    return s && typeof s === "object" ? s : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWindowState() {
+  if (!mainWindow) return;
+  try {
+    fs.writeFileSync(
+      stateFile(),
+      JSON.stringify({ bounds: mainWindow.getNormalBounds(), alwaysOnTop: mainWindow.isAlwaysOnTop() }),
+    );
+  } catch {}
+}
+
+// Solo se restauran coordenadas que sigan cayendo en un monitor conectado (si el editor
+// desenchufó la segunda pantalla, el panel no puede renacer fuera del escritorio).
+function sanitizeBounds(b) {
+  if (!b || typeof b.x !== "number" || typeof b.y !== "number" || !(b.width > 200) || !(b.height > 200)) return null;
+  const a = screen.getDisplayMatching(b).workArea;
+  const visible = b.x < a.x + a.width - 60 && b.x + b.width > a.x + 60 && b.y >= a.y - 20 && b.y < a.y + a.height - 60;
+  return visible ? b : null;
+}
+
 function createWindow() {
+  const state = loadWindowState();
+  const saved = sanitizeBounds(state.bounds);
+  // Primera vez: barra lateral pegada al borde derecho del monitor principal, a toda altura.
+  const wa = screen.getPrimaryDisplay().workArea;
+  const fallback = { width: 440, height: wa.height, x: wa.x + wa.width - 440, y: wa.y };
+  const bounds = saved ?? fallback;
+  const alwaysOnTop = state.alwaysOnTop !== false; // por defecto, encima (como paleta acoplada)
+
   mainWindow = new BrowserWindow({
-    width: 460,
-    height: 960,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 360,
     minHeight: 520,
-    useContentSize: true,
+    alwaysOnTop,
     autoHideMenuBar: true,
     backgroundColor: "#0b0b0e",
     title: "Labstream · Correcciones",
@@ -214,6 +261,8 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
+  // Nivel "floating": flota sobre la ventana normal de Resolve sin pelearse con menús/diálogos.
+  if (alwaysOnTop) mainWindow.setAlwaysOnTop(true, "floating");
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!allowedUrl(url)) {
@@ -225,12 +274,20 @@ function createWindow() {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: "deny" };
   });
-  // F5 / Cmd+R recargan el panel (sin menú no habría atajo).
+  // F5 / Cmd+R recargan el panel; F2 alterna «siempre encima» (modo paleta ↔ ventana normal).
   mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
     const reload = input.key === "F5" || ((input.control || input.meta) && input.key.toLowerCase() === "r");
-    if (input.type === "keyDown" && reload) {
+    if (reload) {
       event.preventDefault();
       mainWindow.webContents.loadURL(PANEL_URL);
+      return;
+    }
+    if (input.key === "F2") {
+      event.preventDefault();
+      const next = !mainWindow.isAlwaysOnTop();
+      mainWindow.setAlwaysOnTop(next, "floating");
+      saveWindowState();
     }
   });
   mainWindow.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
@@ -239,6 +296,7 @@ function createWindow() {
     }
   });
 
+  mainWindow.on("close", saveWindowState);
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
