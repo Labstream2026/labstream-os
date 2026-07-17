@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Labstream · Correcciones</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #0b0b0e; color: #d4d4d8; font: 14px/1.6 system-ui, sans-serif; text-align: center; }
+  a { color: #a5b4fc; }
+  .box { max-width: 300px; padding: 24px; }
+  small { color: #71717a; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <p><strong>No se pudo cargar el panel.</strong></p>
+    <p><small>Revisa la conexión a internet (o la VPN/red del estudio) y vuelve a intentar.</small></p>
+    <p><a id="retry" href="#">Reintentar</a></p>
+    <p><small id="detail"></small></p>
+  </div>
+  <script>
+    var q = new URLSearchParams(location.search);
+    var url = q.get("url") || "https://os.labstreamsas.com/resolve";
+    document.getElementById("retry").href = url;
+    document.getElementById("detail").textContent = q.get("desc") || "";
+  </script>
+</body>
+</html>

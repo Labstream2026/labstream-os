@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.labstream.correcciones</Id>
+        <Name>Labstream Correcciones</Name>
+        <Version>2.0</Version>
+        <Description>Correcciones de os.labstreamsas.com dentro de Resolve: saltar al timecode, marcar hechas y pintar marcadores.</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

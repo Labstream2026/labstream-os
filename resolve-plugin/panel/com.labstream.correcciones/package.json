@@ -1,0 +1,7 @@
+{
+  "name": "com.labstream.correcciones",
+  "version": "2.0.0",
+  "description": "Panel de correcciones de Labstream OS para DaVinci Resolve Studio (Workflow Integration).",
+  "main": "main.js",
+  "private": true
+}
