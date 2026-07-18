@@ -816,7 +816,11 @@ export async function getChannelReaders(channelId: string): Promise<ChannelReade
     where: { id: channelId },
     select: { type: true, slug: true, members: { select: { userId: true, lastReadAt: true, user: { select: { name: true, initials: true, avatarColor: true, isSystemBot: true, active: true } } } } },
   });
-  if (!channel || channel.type === "DIRECT") return [];
+  // Fuera en DMs (basta la palomita) y en canales de DIFUSIÓN (general/estados-equipo): mostrar
+  // «Visto por N» del equipo entero sería un acuse de lectura masivo que el diseño NO quiere
+  // (mismo criterio que el guard isBroadcast de notifyChannelMessage).
+  const isBroadcast = channel?.type === "GENERAL" && !!channel.slug;
+  if (!channel || channel.type === "DIRECT" || isBroadcast) return [];
   // Estado por-usuario (admin sin membresía, o lectura más reciente que la de la membresía).
   const states = await db.userChannelState
     .findMany({ where: { channelId }, select: { userId: true, lastReadAt: true } })

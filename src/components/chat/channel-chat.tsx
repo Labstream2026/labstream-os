@@ -484,20 +484,24 @@ export function ChannelChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // «Visto por»: refresca los lectores al montar y cada vez que cambian los mensajes (debounce
-  // 1,2 s para no consultar por cada tecla/SSE) y al volver a la pestaña. El servidor devuelve
-  // [] en DMs y canales de difusión, así que ahí «readers» queda vacío y no se pinta nada.
+  // «Visto por»: refresca los lectores al montar, al cambiar los mensajes (debounce 1,2 s), al
+  // volver a la pestaña, Y con un latido cada 15 s mientras la pestaña está visible — sin este
+  // último, si alguien LEE tu último mensaje sin escribir otro y tu pestaña sigue enfocada, el
+  // acuse nunca aparecía (no cambia messages.length ni hay visibilitychange). El servidor
+  // devuelve [] en DMs y difusión, así que ahí «readers» queda vacío y no se pinta nada.
   React.useEffect(() => {
     let cancelled = false;
     const load = () => {
+      if (document.visibilityState !== "visible") return;
       getChannelReaders(channelId)
         .then((r) => { if (!cancelled) setReaders(r); })
         .catch(() => {});
     };
     const t = setTimeout(load, 1200);
-    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    const beat = setInterval(load, 15000);
+    const onVis = () => load();
     document.addEventListener("visibilitychange", onVis);
-    return () => { cancelled = true; clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+    return () => { cancelled = true; clearTimeout(t); clearInterval(beat); document.removeEventListener("visibilitychange", onVis); };
   }, [channelId, messages.length]);
 
   // Limpia los indicadores de "escribiendo…" caducados.
