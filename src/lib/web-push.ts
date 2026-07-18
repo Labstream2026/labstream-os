@@ -30,6 +30,11 @@ export type PushPayload = {
   title: string;
   body?: string;
   url?: string;
+  // Icono de marca y tag de agrupación (el service worker los usa al mostrar la notificación).
+  // Con un tag por entidad, un aviso nuevo del mismo origen reemplaza al anterior sin tapar a
+  // los demás; sin tag por defecto cada aviso es único y no se pisan.
+  icon?: string;
+  tag?: string;
   // Datos y botones de acción para el service worker (p. ej. posponer/hecho de un recordatorio).
   data?: Record<string, unknown>;
   actions?: PushAction[];

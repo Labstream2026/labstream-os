@@ -77,7 +77,10 @@ export async function showNative(n: {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
   try {
-    const note = new Notification(n.title, { body: n.body ?? undefined, tag: "labstream" });
+    // Tag ÚNICO por aviso: antes un tag fijo "labstream" colapsaba los avisos y solo se veía el
+    // último (la campana dispara hasta 3 nuevos de una). Con tag único se muestran todos.
+    const tag = `labstream-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const note = new Notification(n.title, { body: n.body ?? undefined, tag, icon: "/icons/icon-192.png" });
     if (n.link) {
       note.onclick = () => {
         window.focus();

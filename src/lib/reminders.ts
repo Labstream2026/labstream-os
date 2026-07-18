@@ -57,6 +57,9 @@ export async function sweepReminders(opts: { force?: boolean; now?: Date } = {})
       link: r.task ? "/mis-tareas" : r.event ? "/calendario" : "/recordatorios",
       // Si el recordatorio lo dejó otra persona, la campana muestra su avatar/color.
       actorId: r.createdById,
+      // Responsable: aunque sea un recordatorio propio (sin actor), se pinta con el color de
+      // quien lo dejó → sabes "de quién es" en la campana.
+      subjectId: r.createdById,
       // Botones de acción en el push (service worker): posponer / marcar hecho.
       push: { reminderId: r.id, snooze: true },
     }).catch(() => {});

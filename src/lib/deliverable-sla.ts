@@ -83,6 +83,7 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
         await notify(t.assigneeId, {
           type: "review",
           event: "review_sla",
+          subjectId: t.assigneeId, // color del responsable del entregable
           title: `Se venció tu pre-aprobación: ${t.deliverable.name}`,
           body: `El plazo era ${formatBogota(t.deliverable.internalReviewDueAt!)} y no quedó registrada tu revisión. La tarea se cerró con incumplimiento.`,
           link: `/revisiones/${t.deliverable.id}`,
@@ -93,6 +94,7 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
         await notify(leadId, {
           type: "review",
           event: "review_sla",
+          subjectId: t.assigneeId, // color del responsable del entregable
           title: `Pre-aprobación vencida sin revisar: ${t.deliverable.name}`,
           body: `El plazo interno venció y una de las revisiones asignadas no se hizo («${t.deliverable.project.name}»).`,
           link: `/revisiones/${t.deliverable.id}`,
@@ -125,6 +127,7 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
       await notify(t.assigneeId, {
         type: "review",
         event: "review_sla",
+        subjectId: t.assigneeId, // color del responsable del entregable
         title: `Se venció el plazo de la corrección: ${t.deliverable.name}`,
         body: `El plazo era ${formatBogota(t.deliverable.fixDueAt!)}. Sube la nueva versión cuanto antes: la tarea ya quedó con incumplimiento.`,
         link: `/revisiones/${t.deliverable.id}`,
@@ -135,6 +138,7 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
       await notify(leadId, {
         type: "review",
         event: "review_sla",
+        subjectId: t.assigneeId, // color del responsable del entregable
         title: `Corrección vencida sin entregar: ${t.deliverable.name}`,
         body: `El plazo (${formatBogota(t.deliverable.fixDueAt!)}) venció y la nueva versión no ha llegado.`,
         link: `/revisiones/${t.deliverable.id}`,

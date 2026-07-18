@@ -25,7 +25,11 @@ export async function GET() {
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
       take: 40,
-      include: { actor: { select: { name: true, initials: true, avatarColor: true, avatarUrl: true } } },
+      include: {
+        actor: { select: { name: true, initials: true, avatarColor: true, avatarUrl: true } },
+        // Responsable: colorea el aviso cuando no hay actor (avisos del sistema).
+        subject: { select: { name: true, initials: true, avatarColor: true, avatarUrl: true } },
+      },
     }),
     db.notification.count({ where: { userId: session.id, read: false } }),
   ]);
@@ -36,6 +40,9 @@ export async function GET() {
       items: rows.map((n) => ({
         id: n.id,
         type: n.type,
+        category: n.category,
+        priority: n.priority,
+        groupKey: n.groupKey,
         title: n.title,
         body: n.body,
         link: n.link,
@@ -43,6 +50,10 @@ export async function GET() {
         createdAt: n.createdAt.toISOString(),
         actor: n.actor
           ? { name: n.actor.name, initials: n.actor.initials, color: n.actor.avatarColor, url: n.actor.avatarUrl }
+          : null,
+        // Responsable (para colorear los avisos del sistema con su color).
+        subject: n.subject
+          ? { name: n.subject.name, initials: n.subject.initials, color: n.subject.avatarColor, url: n.subject.avatarUrl }
           : null,
       })),
     }),

@@ -2,6 +2,17 @@ import { db } from "@/lib/db";
 import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
 import { sendPushToUser } from "@/lib/web-push";
 import { getUserEventPref, getUsersEventPrefs, ALL_ON } from "@/lib/user-notif-prefs";
+import { eventCategory, eventPriority } from "@/lib/notification-types";
+
+// Tag de agrupación para el Web Push: los avisos del mismo origen (un recordatorio, un canal de
+// chat) comparten tag → el nuevo REEMPLAZA al anterior en la bandeja sin tapar a los demás.
+// Sin agrupador, cada aviso es único (tag por id de notificación) para que no se pisen entre sí.
+function pushTag(n: { push?: { reminderId?: string }; groupKey?: string | null; event?: string | null }): string {
+  if (n.push?.reminderId) return `reminder:${n.push.reminderId}`;
+  if (n.groupKey) return `grp:${n.groupKey}`;
+  return `evt:${n.event ?? "aviso"}:${Math.random().toString(36).slice(2, 9)}`;
+}
+const PUSH_ICON = "/icons/icon-192.png";
 
 // ── Compuerta por TIPO de notificación (global, gestionada por el admin) ──
 // El catálogo de keys vive en `@/lib/notification-types`; la BD solo guarda lo DESACTIVADO.
@@ -50,6 +61,15 @@ export type NotifyInput = {
   link?: string;
   actorId?: string | null;
   event?: string | null;
+  // Persona a la que PERTENECE el aviso cuando no hay actor (avisos del sistema): la campana lo
+  // pinta con su color/avatar. Así un recordatorio propio, un SLA o una tarea recurrente saben
+  // "de quién son" aunque nadie los originara. Se colorea por actor ?? subject.
+  subjectId?: string | null;
+  // Agrupador para colapsar ráfagas del mismo origen en la campana y en el push (p. ej.
+  // "chat:<channelId>"). Los avisos con el mismo groupKey se juntan.
+  groupKey?: string | null;
+  // Override de prioridad (0 normal, 1 alta, 2 urgente). Si se omite, se deriva del catálogo.
+  priority?: number;
   // Extras para el Web Push: adjunta un recordatorio para ofrecer botones de acción
   // (posponer/hecho) directamente en la notificación del sistema.
   push?: { reminderId?: string; snooze?: boolean };
@@ -70,9 +90,18 @@ export async function notify(
   // Una notificación cuyo actor es el propio destinatario no aporta nada (uno no se avisa a sí
   // mismo): se descarta el actor para no agrupar «tú» en la campana.
   const actorId = n.actorId && n.actorId !== userId ? n.actorId : null;
+  // Responsable (subject): colorea el aviso aunque no haya actor. Se ignora si coincide con el
+  // actor (no duplica) — pero se conserva aunque sea el propio destinatario (mis recordatorios
+  // salen con mi color, para saber que son míos).
+  const subjectId = n.subjectId && n.subjectId !== actorId ? n.subjectId : null;
+  const category = eventCategory(n.event);
+  const priority = n.priority ?? eventPriority(n.event);
   if (pref.inApp) {
     await db.notification.create({
-      data: { userId, actorId, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null },
+      data: {
+        userId, actorId, subjectId, type: n.type, title: n.title, body: n.body ?? null,
+        link: n.link ?? null, category, priority, groupKey: n.groupKey ?? null,
+      },
     });
   }
   // Web Push al navegador (best-effort; sin claves VAPID es no-op).
@@ -82,6 +111,8 @@ export async function notify(
       title: n.title,
       body: n.body,
       url: n.link,
+      icon: PUSH_ICON,
+      tag: pushTag(n),
       ...(rid ? { data: { reminderId: rid } } : {}),
       ...(rid && n.push?.snooze
         ? { actions: [{ action: "snooze", title: "⏰ +10 min" }, { action: "done", title: "✓ Hecho" }] }
@@ -136,15 +167,25 @@ export async function notifyMany(
   const recipients = ids.filter((userId) => userId !== n.actorId);
   // Preferencia personal por canal de cada destinatario (sin fila → todo activo).
   const prefs = await getUsersEventPrefs(recipients, n.event);
+  const category = eventCategory(n.event);
+  const priority = n.priority ?? eventPriority(n.event);
+  const subjectId = n.subjectId && n.subjectId !== n.actorId ? n.subjectId : null;
   const inAppIds = recipients.filter((id) => (prefs.get(id) ?? ALL_ON).inApp);
   if (inAppIds.length) {
     await db.notification.createMany({
-      data: inAppIds.map((userId) => ({ userId, actorId: n.actorId ?? null, type: n.type, title: n.title, body: n.body ?? null, link: n.link ?? null })),
+      data: inAppIds.map((userId) => ({
+        userId, actorId: n.actorId ?? null, subjectId, type: n.type, title: n.title,
+        body: n.body ?? null, link: n.link ?? null, category, priority, groupKey: n.groupKey ?? null,
+      })),
     });
   }
-  // Web Push a cada uno que lo tenga activo (best-effort).
+  // Web Push a cada uno que lo tenga activo (best-effort). Tag por groupKey → las ráfagas del
+  // mismo canal se reemplazan en la bandeja en vez de apilarse.
+  const tag = pushTag(n);
   await Promise.all(
-    recipients.filter((id) => (prefs.get(id) ?? ALL_ON).push).map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link })),
+    recipients
+      .filter((id) => (prefs.get(id) ?? ALL_ON).push)
+      .map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link, icon: PUSH_ICON, tag })),
   );
 }
 

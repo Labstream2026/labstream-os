@@ -129,6 +129,7 @@ model User {
   pollVotes        PollVote[]
   notifications    Notification[]       @relation("NotificationRecipient")
   notificationsActed Notification[]     @relation("NotificationActor")
+  notificationsSubject Notification[]   @relation("NotificationSubject")
   clientFiles      ClientFile[]         @relation("ClientFileUploader")
   appKeys          AppKey[]             @relation("AppKeyUser")
   pushSubscriptions PushSubscription[]
@@ -1061,7 +1062,18 @@ model Notification {
   // se borra, queda NULL (no se pierde la notificación del destinatario).
   actor     User?    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
   actorId   String?
+  // Persona a la que PERTENECE el aviso cuando no hay actor (avisos del sistema): la campana la
+  // usa para pintar su color/avatar y saber "de quién es" aunque sea automático (recordatorio
+  // propio, SLA vencido, tarea recurrente). Se colorea por actor ?? subject.
+  subject   User?    @relation("NotificationSubject", fields: [subjectId], references: [id], onDelete: SetNull)
+  subjectId String?
   type      String // mention, event, task, etc.
+  // Categoría del catálogo (Tareas, Chat, Agenda…) — para agrupar/filtrar y dar icono estable.
+  category  String?
+  // Prioridad visual: 0 normal, 1 alta, 2 urgente/crítico (SLA, permisos).
+  priority  Int      @default(0)
+  // Agrupador para colapsar ráfagas del mismo origen (p. ej. "chat:<channelId>").
+  groupKey  String?
   title     String
   body      String?
   link      String?
@@ -1071,6 +1083,8 @@ model Notification {
   @@index([userId, read])
   @@index([userId, createdAt])
   @@index([actorId])
+  @@index([subjectId])
+  @@index([userId, groupKey])
 }
 
 // Suscripción de Web Push (navegador) de un usuario, por dispositivo/navegador.

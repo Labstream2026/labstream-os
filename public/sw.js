@@ -49,7 +49,13 @@ self.addEventListener("push", (event) => {
   const options = {
     body: data.body || "",
     data: { url: data.url || "/", reminderId: reminderId },
-    tag: "labstream-push",
+    // Icono de marca (antes salía el genérico del navegador).
+    icon: data.icon || "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    // Tag por ENTIDAD (recordatorio/canal): así un aviso nuevo del mismo origen reemplaza al
+    // anterior, pero avisos de orígenes distintos ya NO se pisan entre sí (antes un tag fijo
+    // hacía que cada push borrara al anterior y se perdieran).
+    tag: data.tag || ("labstream-" + (reminderId || Math.random().toString(36).slice(2))),
     renotify: true,
     // Botones de acción (recordatorios): posponer / marcar hecho sin abrir la app.
     actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : undefined,
