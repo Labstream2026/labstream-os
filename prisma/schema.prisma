@@ -1120,6 +1120,8 @@ model CalendarEvent {
   syncedAt    DateTime?
   externalRefs EventSyncRef[]
   guests      EventGuest[]
+  // Recordatorios personales atados a esta cita ("avísame 15 min antes").
+  reminders   Reminder[]         @relation("EventReminders")
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt @default(now())
 
@@ -1995,17 +1997,53 @@ model Reminder {
   createdById String
   task        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId      String?
-  // UNA_VEZ | DIARIO | SEMANAL | MENSUAL
+  // Atado a una cita del calendario: los avisos "relativos" (offsetMin) cuelgan de su inicio
+  // (p. ej. 15 min antes). Si la cita se borra, el vínculo se anula y esos avisos se apagan.
+  event       CalendarEvent? @relation("EventReminders", fields: [eventId], references: [id], onDelete: SetNull)
+  eventId     String?
+  // UNA_VEZ | DIARIO | SEMANAL | MENSUAL — describe la RECURRENCIA. Los momentos concretos
+  // viven en `alerts` (un recordatorio puede tener varios avisos). Para recurrentes se
+  // materializa un aviso a la vez y se regenera al disparar.
   frequency   String    @default("UNA_VEZ")
   weekdays    String? // "1,3,5" (0=domingo) para SEMANAL
   dayOfMonth  Int? // 1..31 para MENSUAL (si el mes es corto, ese mes se omite)
   timeOfDay   String    @default("08:00") // hora de pared de Bogotá "HH:mm"
-  nextFireAt  DateTime // instante UTC del próximo disparo (precalculado)
+  // Fin de la recurrencia (opcional): por fecha (última fecha de Bogotá en que aún dispara)
+  // y/o por conteo de disparos. null = sin fin.
+  untilYmd    String? // "YYYY-MM-DD" (Bogotá)
+  maxFires    Int?
+  firedCount  Int       @default(0) // cuántas veces ya sonó (para maxFires)
+  // Presentación: color (token), prioridad (0 baja … 3 urgente) e icono (marca "ls:…" o emoji).
+  color       String?
+  priority    Int       @default(1)
+  icon        String?
+  nextFireAt  DateTime // instante UTC del próximo aviso pendiente (denormalizado, para ordenar)
   lastFiredAt DateTime?
-  active      Boolean   @default(true) // false = pausado (recurrente) o ya disparado (una vez)
+  doneAt      DateTime? // marcado "hecho" por el destinatario (historial; distinto de borrar)
+  active      Boolean   @default(true) // false = pausado (recurrente) o ya sin avisos pendientes
   createdAt   DateTime  @default(now())
+  alerts      ReminderAlert[]
 
   @@index([active, nextFireAt])
   @@index([forUserId, active])
   @@index([taskId])
+  @@index([eventId])
+}
+
+// Un "aviso": el instante concreto en que un recordatorio SUENA. Un recordatorio puede tener
+// varios (hoy y mañana; mañana a las 8, 9 y 10). El barrido dispara los que ya vencieron.
+model ReminderAlert {
+  id         String    @id @default(cuid())
+  reminder   Reminder  @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  reminderId String
+  fireAt     DateTime // instante UTC del disparo (precalculado)
+  // Si el aviso es RELATIVO a la tarea/cita atada: minutos ANTES de su inicio (para recalcular
+  // fireAt si la cita se mueve). null = hora fija elegida por el usuario.
+  offsetMin  Int?
+  sentAt     DateTime?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@index([active, sentAt, fireAt])
+  @@index([reminderId])
 }

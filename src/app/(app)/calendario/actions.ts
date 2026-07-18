@@ -8,6 +8,7 @@ import { userCanAccessProject, hasFullAccess, canWriteProject } from "@/lib/proj
 import { notifyAndEmail } from "@/lib/notify";
 import { pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
 import { createCalendarEventCore } from "@/lib/calendar-create";
+import { syncEventAnchoredAlerts, disableEventAnchoredAlerts, syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
 
 const APP_TZ_HINT = ""; // las fechas se interpretan en hora del servidor app
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -131,6 +132,8 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
       },
     },
   });
+  // Si cambió el horario, recalcula los recordatorios personales atados ("avísame antes").
+  if (timeChanged) await syncEventAnchoredAlerts(eventId).catch(() => {});
 
   // Quitar de Synology a los retirados; re-escribir a los que quedan.
   if (removed.length) await removeEventForUsers(eventId, removed);
@@ -206,6 +209,8 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   if (end && (Number.isNaN(end.getTime()) || end <= start)) return;
   // Cambió el horario → el recordatorio vuelve a estar pendiente.
   await db.calendarEvent.update({ where: { id: eventId }, data: { start, end, reminderSentAt: null } });
+  // Recalcula los recordatorios personales atados a esta cita ("avísame 15 min antes").
+  await syncEventAnchoredAlerts(eventId).catch(() => {});
   await pushEventToParticipants(eventId);
   // Avisar a los asistentes (menos a mí) que la cita se movió.
   const when = event.allDay
@@ -244,6 +249,8 @@ export async function moveMyTask(taskId: string, startIso: string): Promise<void
   if (!mayMove) noAutorizado();
   // dueDate = día anclado a mediodía UTC; dueTime = "HH:mm" (la tarea sigue mostrándose a esa hora).
   await db.task.update({ where: { id: taskId }, data: { dueDate: new Date(`${date}T12:00:00.000Z`), dueTime: time } });
+  // Recalcula los recordatorios personales atados a la tarea ("avísame antes de esta tarea").
+  await syncTaskAnchoredAlerts(taskId).catch(() => {});
   // Avisar a los citados (asignado + dueño), menos a quien la movió.
   const when = new Date(`${date}T${time}:00.000Z`).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   const recipients = [...new Set([task.assigneeId, task.ownerId].filter((x): x is string => !!x && x !== session!.id))];
@@ -280,6 +287,8 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
     await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: session.id });
   }
   await sendEventCancellations(eventId).catch(() => 0);
+  // Apaga los avisos "X antes" de los recordatorios atados (el FK se pone en null al borrar).
+  await disableEventAnchoredAlerts(eventId).catch(() => {});
   // Quitarlo de Synology (necesita los EventSyncRef, que se borran en cascada).
   await removeEventFromParticipants(eventId);
   await db.calendarEvent.delete({ where: { id: eventId } });

@@ -127,6 +127,19 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
 
   if (Object.keys(data).length === 0) return apiJson({ ok: false, error: "Nada que actualizar." }, 400);
   const updated = await db.reminder.update({ where: { id }, data, select: REMINDER_SELECT });
+
+  // Reconciliar los AVISOS (ReminderAlert) con el resultado: el barrido dispara avisos, no el
+  // nextFireAt suelto. Al reprogramar/posponer se deja un único aviso; al pausar se apagan; al
+  // reactivar un UNA_VEZ se reabren los futuros no enviados.
+  if (data.nextFireAt) {
+    await db.reminderAlert.updateMany({ where: { reminderId: id, sentAt: null }, data: { active: false } });
+    await db.reminderAlert.create({ data: { reminderId: id, fireAt: data.nextFireAt as Date } });
+  } else if (data.active === false) {
+    await db.reminderAlert.updateMany({ where: { reminderId: id, sentAt: null }, data: { active: false } });
+  } else if (data.active === true) {
+    await db.reminderAlert.updateMany({ where: { reminderId: id, sentAt: null, fireAt: { gt: now } }, data: { active: true } });
+  }
+
   return apiJson({ ok: true, reminder: shapeReminder(updated) });
 });
 

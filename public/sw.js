@@ -45,19 +45,34 @@ self.addEventListener("push", (event) => {
     data = { title: event.data ? event.data.text() : "Labstream OS" };
   }
   const title = data.title || "Labstream OS";
+  const reminderId = (data.data && data.data.reminderId) || null;
   const options = {
     body: data.body || "",
-    data: { url: data.url || "/" },
+    data: { url: data.url || "/", reminderId: reminderId },
     tag: "labstream-push",
     renotify: true,
+    // Botones de acción (recordatorios): posponer / marcar hecho sin abrir la app.
+    actions: Array.isArray(data.actions) ? data.actions.slice(0, 2) : undefined,
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Clic en la notificación → enfocar una ventana existente y navegar, o abrir una nueva.
+// Clic en la notificación → si es un botón de acción de recordatorio, lo ejecuta en el
+// servidor (la cookie de sesión viaja en la petición del mismo origen); si no, enfoca/abre.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || "/";
+  const info = event.notification.data || {};
+  if ((event.action === "snooze" || event.action === "done") && info.reminderId) {
+    event.waitUntil(
+      fetch("/api/push/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reminderId: info.reminderId, action: event.action }),
+      }).catch(() => {}),
+    );
+    return;
+  }
+  const url = info.url || "/";
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

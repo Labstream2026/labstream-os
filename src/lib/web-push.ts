@@ -25,7 +25,15 @@ export function vapidPublicKey(): string | null {
   return process.env.VAPID_PUBLIC_KEY ?? null;
 }
 
-export type PushPayload = { title: string; body?: string; url?: string };
+export type PushAction = { action: string; title: string };
+export type PushPayload = {
+  title: string;
+  body?: string;
+  url?: string;
+  // Datos y botones de acción para el service worker (p. ej. posponer/hecho de un recordatorio).
+  data?: Record<string, unknown>;
+  actions?: PushAction[];
+};
 
 /** Envía un push a todas las suscripciones del usuario. Best-effort: borra las
  *  suscripciones muertas (404/410) y nunca lanza. */

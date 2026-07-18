@@ -15,6 +15,39 @@ export const WEEKDAY_LABELS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"
 
 const DAY_MS = 86_400_000;
 const BOGOTA_OFFSET = "-05:00";
+export const BOGOTA_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+// ── Presentación de un recordatorio (color + prioridad) ──
+// Colores como TOKEN estable (no hex crudo) para que el tema los resuelva igual en la app.
+export const REMINDER_COLORS = [
+  { key: "naranja", hex: "#F47A20", label: "Naranja" },
+  { key: "rojo", hex: "#E24B4A", label: "Rojo" },
+  { key: "ambar", hex: "#EF9F27", label: "Ámbar" },
+  { key: "verde", hex: "#639922", label: "Verde" },
+  { key: "azul", hex: "#378ADD", label: "Azul" },
+  { key: "violeta", hex: "#7F77DD", label: "Violeta" },
+] as const;
+export const REMINDER_COLOR_KEYS: string[] = REMINDER_COLORS.map((c) => c.key);
+export function reminderColorHex(key: string | null | undefined): string | null {
+  return REMINDER_COLORS.find((c) => c.key === key)?.hex ?? null;
+}
+
+// Prioridad: 0 baja … 3 urgente.
+export const PRIORITY_LABELS = ["Baja", "Normal", "Alta", "Urgente"] as const;
+export function isValidPriority(p: unknown): p is number {
+  return Number.isInteger(p) && (p as number) >= 0 && (p as number) <= 3;
+}
+
+// ── Anclas para avisos RELATIVOS (atados a tarea/cita) ──
+// El calendario guarda la hora "de pared en UTC" → el instante real es +5 h.
+export function eventAnchorInstant(startWallUtc: Date): Date {
+  return new Date(startWallUtc.getTime() + BOGOTA_OFFSET_MS);
+}
+// Tarea: su fecha (parte YYYY-MM-DD) + hora de pared de Bogotá (dueTime) → instante real UTC.
+export function taskAnchorInstant(dueDateIso: string, dueTime: string | null): Date {
+  const ymd = dueDateIso.slice(0, 10);
+  return utcFromBogota(ymd, dueTime && isValidTime(dueTime) ? dueTime : "09:00");
+}
 
 // Instante UTC de una fecha+hora de pared de Bogotá.
 export function utcFromBogota(ymd: string, hhmm: string): Date {

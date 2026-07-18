@@ -134,6 +134,10 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
     select: REMINDER_SELECT,
   });
 
+  // El barrido dispara AVISOS (ReminderAlert): materializamos el primero (la app admite varios;
+  // por API se crea un aviso, y los recurrentes regeneran el siguiente al sonar).
+  await db.reminderAlert.create({ data: { reminderId: created.id, fireAt: nextFireAt } });
+
   // Si es para otra persona, se le avisa de una vez (con el avatar de quien lo dejó).
   if (forUserId !== ctx.session.id) {
     await notify(forUserId, {

@@ -43,7 +43,17 @@ function escapeHtml(s: string): string {
 // Forma de una notificación. `actorId` = quién la ORIGINA (para agrupar por persona y pintar
 // su avatar/color en la campana). Si se omite o es null → evento del sistema (recordatorios,
 // tareas recurrentes, Marcebot), que en la campana se muestra con un icono neutro.
-export type NotifyInput = { type: string; title: string; body?: string; link?: string; actorId?: string | null; event?: string | null };
+export type NotifyInput = {
+  type: string;
+  title: string;
+  body?: string;
+  link?: string;
+  actorId?: string | null;
+  event?: string | null;
+  // Extras para el Web Push: adjunta un recordatorio para ofrecer botones de acción
+  // (posponer/hecho) directamente en la notificación del sistema.
+  push?: { reminderId?: string; snooze?: boolean };
+};
 
 // Crea una notificación in-app para un usuario. Devuelve `true` si se envió, `false` si se
 // omitió (sin destinatario o tipo desactivado por el admin) — así notifyAndEmail sabe si
@@ -67,7 +77,16 @@ export async function notify(
   }
   // Web Push al navegador (best-effort; sin claves VAPID es no-op).
   if (pref.push) {
-    await sendPushToUser(userId, { title: n.title, body: n.body, url: n.link });
+    const rid = n.push?.reminderId;
+    await sendPushToUser(userId, {
+      title: n.title,
+      body: n.body,
+      url: n.link,
+      ...(rid ? { data: { reminderId: rid } } : {}),
+      ...(rid && n.push?.snooze
+        ? { actions: [{ action: "snooze", title: "⏰ +10 min" }, { action: "done", title: "✓ Hecho" }] }
+        : {}),
+    });
   }
   // true = el evento está habilitado a nivel global (para que notifyAndEmail evalúe el correo por
   // su propio canal), aunque el usuario haya apagado la campana/push.
