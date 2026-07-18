@@ -19,6 +19,10 @@ export type PollData = { id: string; question: string; options: PollOptionData[]
 
 export type ReactionItem = { emoji: string; userId: string };
 
+// Vista previa del mensaje CITADO (cita estilo WhatsApp): lo mínimo para pintar el bloque
+// sobre el mensaje sin recargar. null si el citado se borró (queda «mensaje no disponible»).
+export type QuotedPreview = { id: string; author: string | null; body: string } | null;
+
 export type ChatMessagePayload = {
   id: string;
   channelId: string;
@@ -31,6 +35,7 @@ export type ChatMessagePayload = {
   reactions?: ReactionItem[];
   pinned?: boolean;
   editedAt?: string | null;
+  quoted?: QuotedPreview;
 };
 
 const globalForBus = globalThis as unknown as { __chatBus?: EventEmitter };

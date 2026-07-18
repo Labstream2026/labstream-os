@@ -39,6 +39,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
         take: 100,
         include: {
           author: { select: { name: true, initials: true, avatarColor: true } },
+          quoted: { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } },
           attachments: true,
           reactions: { select: { emoji: true, userId: true } },
           poll: {
@@ -237,6 +238,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
             deleted: !!m.deletedAt,
             createdAt: m.createdAt.toISOString(),
             author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
+            quoted: m.quoted && !m.quoted.deletedAt ? { id: m.quoted.id, author: m.quoted.author?.name ?? null, body: m.quoted.body.slice(0, 160) } : null,
             attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name), fileAssetId: a.fileAssetId ?? null })),
             pinned: m.pinned,
             editedAt: m.editedAt ? m.editedAt.toISOString() : null,

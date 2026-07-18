@@ -66,6 +66,7 @@ const messageInclude = {
   take: 100,
   include: {
     author: { select: { name: true, initials: true, avatarColor: true } },
+    quoted: { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } },
     attachments: true,
     reactions: { select: { emoji: true, userId: true } },
     poll: {
@@ -76,6 +77,7 @@ const messageInclude = {
   },
 };
 
+type QuotedRaw = { id: string; body: string; deletedAt: Date | null; author: { name: string } | null } | null;
 type RawMessage = {
   id: string;
   body: string;
@@ -85,6 +87,7 @@ type RawMessage = {
   editedAt: Date | null;
   deletedAt: Date | null;
   author: { name: string; initials: string | null; avatarColor: string | null } | null;
+  quoted: QuotedRaw;
   attachments: { id: string; name: string; mime: string | null; fileAssetId: string | null }[];
   reactions: { emoji: string; userId: string }[];
   poll: { id: string; question: string; options: { id: string; text: string; _count: { votes: number } }[] } | null;
@@ -101,6 +104,7 @@ function shape(messages: RawMessage[], myVotes: Map<string, string>) {
     pinned: m.pinned,
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
+    quoted: m.quoted && !m.quoted.deletedAt ? { id: m.quoted.id, author: m.quoted.author?.name ?? null, body: m.quoted.body.slice(0, 160) } : null,
     attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name), fileAssetId: a.fileAssetId })),
     reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
     poll: m.poll

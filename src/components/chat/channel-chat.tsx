@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -30,6 +30,8 @@ export type ChatMsg = {
   editedAt?: string | null;
   deleted?: boolean; // borrado suave: solo lo recibe el admin (lo ve en gris)
   status?: "sending" | "sent" | "error" | "pending";
+  // Cita estilo WhatsApp: a qué mensaje responde (autor + snippet). null = citado no disponible.
+  quoted?: { id: string; author: string | null; body: string } | null;
 };
 
 export type ChatMe = { id: string; name: string; initials: string | null; color: string | null };
@@ -444,6 +446,8 @@ export function ChannelChat({
   // el botón flotante «ir al último N»).
   const [atBottom, setAtBottom] = React.useState(true);
   const [newCount, setNewCount] = React.useState(0);
+  // Cita estilo WhatsApp: el mensaje al que estás respondiendo (se muestra sobre el composer).
+  const [quoting, setQuoting] = React.useState<ChatMsg | null>(null);
   // Reenviar a otro canal del mismo cliente: destinos perezosos + estado por mensaje.
   const [forwardFor, setForwardFor] = React.useState<string | null>(null);
   const [forwardTargets, setForwardTargets] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -875,9 +879,9 @@ export function ChannelChat({
       setOnline(true);
       const raw = localStorage.getItem(queueKey);
       if (!raw) return;
-      const queued: { tempId: string; body: string; parentId: string | null }[] = JSON.parse(raw);
+      const queued: { tempId: string; body: string; parentId: string | null; quotedId?: string | null }[] = JSON.parse(raw);
       localStorage.removeItem(queueKey);
-      for (const q of queued) await deliver(q.tempId, q.body, q.parentId);
+      for (const q of queued) await deliver(q.tempId, q.body, q.parentId, q.quotedId ?? null);
     };
     const goOffline = () => setOnline(false);
     window.addEventListener("online", flush);
@@ -889,9 +893,9 @@ export function ChannelChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queueKey]);
 
-  function persist(tempId: string, body: string, parentId: string | null) {
+  function persist(tempId: string, body: string, parentId: string | null, quotedId?: string | null) {
     const arr = JSON.parse(localStorage.getItem(queueKey) || "[]");
-    arr.push({ tempId, body, parentId });
+    arr.push({ tempId, body, parentId, quotedId: quotedId ?? null });
     localStorage.setItem(queueKey, JSON.stringify(arr));
   }
   function unpersist(tempId: string) {
@@ -901,10 +905,10 @@ export function ChannelChat({
     localStorage.setItem(queueKey, JSON.stringify(arr));
   }
 
-  async function deliver(tempId: string, body: string, parentId: string | null) {
+  async function deliver(tempId: string, body: string, parentId: string | null, quotedId?: string | null) {
     setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "sending" } : m)));
     try {
-      const real = await sendMessage(channelId, body, parentId, detectMentions(body, members));
+      const real = await sendMessage(channelId, body, parentId, detectMentions(body, members), quotedId ?? null);
       if (!real) return;
       unpersist(tempId);
       setMessages((prev) => {
@@ -913,14 +917,14 @@ export function ChannelChat({
         return [...withoutTemp, { ...real, status: "sent" }];
       });
     } catch {
-      persist(tempId, body, parentId);
+      persist(tempId, body, parentId, quotedId);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: navigator.onLine ? "error" : "pending" } : m)),
       );
     }
   }
 
-  function submitText(body: string, parentId: string | null) {
+  function submitText(body: string, parentId: string | null, quotedId?: string | null, quotedPreview?: ChatMsg["quoted"]) {
     const clean = body.trim();
     if (!clean) return;
     const tempId = `temp-${Date.now()}-${Math.round(performance.now())}`;
@@ -933,14 +937,15 @@ export function ChannelChat({
         createdAt: new Date().toISOString(),
         author: me,
         status: navigator.onLine ? "sending" : "pending",
+        quoted: quotedPreview ?? null,
       },
     ]);
     if (!parentId) scrollToBottom();
     if (!navigator.onLine) {
-      persist(tempId, clean, parentId);
+      persist(tempId, clean, parentId, quotedId);
       return;
     }
-    void deliver(tempId, clean, parentId);
+    void deliver(tempId, clean, parentId, quotedId);
   }
 
   // Añadir archivos al composer validando el tamaño EN EL CLIENTE (el servidor filtra >50MB
@@ -1003,11 +1008,13 @@ export function ChannelChat({
       const fd = new FormData();
       fd.set("channelId", channelId);
       fd.set("body", sentText);
+      if (quoting) fd.set("quotedId", quoting.id);
       sentFiles.forEach((f) => fd.append("files", f));
       setUploading(true);
       setAttachErr(null);
       setText("");
       setFiles([]);
+      setQuoting(null);
       clearDraft();
       try {
         // El servidor devuelve el mensaje ya guardado: se muestra al instante
@@ -1031,8 +1038,14 @@ export function ChannelChat({
       }
       return;
     }
-    submitText(text, null);
+    submitText(
+      text,
+      null,
+      quoting?.id ?? null,
+      quoting ? { id: quoting.id, author: quoting.author?.name ?? null, body: quoting.body.slice(0, 160) } : null,
+    );
     setText("");
+    setQuoting(null);
     clearDraft();
     setMentionQuery(null);
   }
@@ -1421,6 +1434,10 @@ export function ChannelChat({
                         </div>
                       ) : null}
                     </div>
+                    {/* Responder CITANDO (estilo WhatsApp): pone el mensaje como cita sobre el composer. */}
+                    <button type="button" onClick={() => { setQuoting(m); composerRef.current?.focus(); }} className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground md:flex" title="Responder (citar)">
+                      <Reply className="size-3.5" />
+                    </button>
                     <button type="button" onClick={toggleThread} className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground md:flex" title="Responder en hilo">
                       <MessageSquare className="size-3.5" />
                     </button>
@@ -1430,6 +1447,9 @@ export function ChannelChat({
                     <details data-autoclose className="relative">
                       <summary className="flex size-6 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" title="Más acciones"><MoreVertical className="size-3.5" /></summary>
                       <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg">
+                        <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; setQuoting(m); composerRef.current?.focus(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted md:hidden">
+                          <Reply className="size-3.5" /> Responder (citar)
+                        </button>
                         <button onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; toggleThread(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted md:hidden">
                           <MessageSquare className="size-3.5" /> Responder en hilo
                         </button>
@@ -1491,6 +1511,21 @@ export function ChannelChat({
                       </div>
                     </details>
                   </div>
+                ) : null}
+                {/* Cita: bloque del mensaje al que responde este, clicable para saltar al original. */}
+                {m.quoted ? (
+                  <button
+                    type="button"
+                    onClick={() => m.quoted && jumpToMessage(m.quoted.id)}
+                    className="mb-1 flex w-full max-w-2xl items-start gap-1.5 rounded-md border-l-2 border-primary/60 bg-muted/40 px-2 py-1 text-left text-xs hover:bg-muted/70"
+                    title="Ir al mensaje citado"
+                  >
+                    <CornerUpLeft className="mt-0.5 size-3 shrink-0 text-primary/70" />
+                    <span className="min-w-0">
+                      <span className="font-medium text-foreground/80">{m.quoted.author ?? "Alguien"}</span>
+                      <span className="ml-1 text-muted-foreground">{m.quoted.body}</span>
+                    </span>
+                  </button>
                 ) : null}
                 {editing === m.id ? (
                   <div className="mt-0.5 w-full max-w-2xl">
@@ -1699,6 +1734,17 @@ export function ChannelChat({
             <div className="mb-2 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <span>{attachErr}</span>
               <button type="button" onClick={() => setAttachErr(null)} className="shrink-0 font-medium hover:underline">Cerrar</button>
+            </div>
+          ) : null}
+          {/* Cita activa (estilo WhatsApp): a qué mensaje respondes; la X cancela. */}
+          {quoting ? (
+            <div className="mb-2 flex items-start gap-2 rounded-md border-l-2 border-primary bg-muted/50 px-2.5 py-1.5 text-xs">
+              <CornerUpLeft className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-primary">Respondiendo a {isMine(quoting.author) ? "ti" : quoting.author?.name ?? "un mensaje"}</p>
+                <p className="truncate text-muted-foreground">{quoting.body || "📎 Adjunto"}</p>
+              </div>
+              <button type="button" onClick={() => setQuoting(null)} aria-label="Cancelar cita" className="shrink-0 text-muted-foreground hover:text-destructive"><X className="size-3.5" /></button>
             </div>
           ) : null}
           {files.length > 0 ? (

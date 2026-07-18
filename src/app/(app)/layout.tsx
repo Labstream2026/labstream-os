@@ -58,6 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           take: 50,
           include: {
             author: { select: { name: true, initials: true, avatarColor: true } },
+            quoted: { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } },
             attachments: true,
             reactions: { select: { emoji: true, userId: true } },
             poll: {
@@ -202,6 +203,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 author: m.author
                   ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor }
                   : null,
+                quoted: m.quoted && !m.quoted.deletedAt ? { id: m.quoted.id, author: m.quoted.author?.name ?? null, body: m.quoted.body.slice(0, 160) } : null,
                 attachments: m.attachments.map((a) => ({
                   id: a.id,
                   name: a.name,

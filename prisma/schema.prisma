@@ -974,6 +974,12 @@ model ChatMessage {
   parent      ChatMessage?        @relation("Thread", fields: [parentId], references: [id], onDelete: SetNull)
   parentId    String? // si está, es respuesta dentro de un hilo
   replies     ChatMessage[]       @relation("Thread")
+  // Cita estilo WhatsApp: este mensaje RESPONDE a otro (sin abrir hilo). SetNull para que
+  // borrar el citado no borre la cita (queda «mensaje no disponible»). No confundir con
+  // parentId (hilo): la cita es una referencia visual en la conversación principal.
+  quoted      ChatMessage?        @relation("Quote", fields: [quotedId], references: [id], onDelete: SetNull)
+  quotedId    String?
+  quotedBy    ChatMessage[]       @relation("Quote")
   attachments MessageAttachment[]
   reactions   MessageReaction[]
   poll        Poll?

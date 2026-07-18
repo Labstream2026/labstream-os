@@ -475,7 +475,7 @@ async function notifyChannelMessage(channelId: string, authorId: string, authorN
 // quienes ya respondieron, AUNQUE tengan el canal en «solo menciones» (participar en el hilo
 // es opt-in, como en Slack). El nivel «nada» sí lo silencia. Devuelve los cubiertos para que
 // el aviso genérico del canal no los duplique.
-async function notifyThreadReply(channelId: string, parentId: string, authorId: string, authorName: string, body: string, messageId: string): Promise<Set<string>> {
+async function notifyThreadReply(channelId: string, parentId: string, authorId: string, authorName: string, body: string, _messageId: string): Promise<Set<string>> {
   const covered = new Set<string>();
   const parent = await db.chatMessage.findUnique({
     where: { id: parentId },
@@ -583,6 +583,7 @@ export async function sendMessage(
   body: string,
   parentId?: string | null,
   _mentionIds?: string[], // el cliente puede pasar menciones, pero se recalculan en el servidor
+  quotedId?: string | null, // cita estilo WhatsApp (referencia a otro mensaje de ESTE canal)
 ): Promise<ChatMessagePayload | null> {
   const text = body.trim();
   if (!text) return null;
@@ -594,11 +595,14 @@ export async function sendMessage(
   // El hilo debe ser de ESTE canal: parentId viene del cliente (no es de fiar) y un padre de
   // otro canal colgaría la respuesta allí y avisaría a participantes ajenos con este texto.
   const safeParentId = await validParentId(channelId, parentId ?? null);
+  // La cita también debe ser de ESTE canal (mismo motivo de seguridad que el hilo).
+  const safeQuotedId = await validQuotedId(channelId, quotedId ?? null);
 
   const msg = await db.chatMessage.create({
-    data: { channelId, body: text, parentId: safeParentId, authorId: session!.id },
+    data: { channelId, body: text, parentId: safeParentId, quotedId: safeQuotedId, authorId: session!.id },
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
+      quoted: { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } },
       channel: { select: { name: true, type: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
     },
   });
@@ -613,6 +617,7 @@ export async function sendMessage(
       ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor }
       : null,
     attachments: [],
+    quoted: quotedPreviewOf(msg.quoted),
   };
   // PRIMERO se publica al canal en vivo y la acción DEVUELVE ya: las notificaciones (que pueden
   // incluir correo SMTP lento e iterar destinatarios) corren en after(), DESPUÉS de responder.
@@ -634,6 +639,23 @@ async function validParentId(channelId: string, parentId: string | null): Promis
   const parent = await db.chatMessage.findUnique({ where: { id: parentId }, select: { channelId: true } });
   return parent && parent.channelId === channelId ? parentId : null;
 }
+
+// Un quotedId solo vale si existe y pertenece al MISMO canal (viene del cliente).
+async function validQuotedId(channelId: string, quotedId: string | null): Promise<string | null> {
+  if (!quotedId) return null;
+  const q = await db.chatMessage.findUnique({ where: { id: quotedId }, select: { channelId: true } });
+  return q && q.channelId === channelId ? quotedId : null;
+}
+
+// Vista previa del mensaje citado para el payload/render: autor + snippet. El citado borrado (o
+// nulo) → null («mensaje no disponible» en la UI). Snippet corto: la cita es una referencia.
+type QuotedRow = { id: string; body: string; deletedAt: Date | null; author: { name: string } | null } | null;
+function quotedPreviewOf(q: QuotedRow) {
+  if (!q || q.deletedAt) return null;
+  return { id: q.id, author: q.author?.name ?? null, body: q.body.slice(0, 160) };
+}
+// include reutilizable para traer la cita en las consultas de mensajes.
+export const quotedInclude = { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } } as const;
 
 // ── Archivado de adjuntos del chat en Archivos del proyecto ──
 
@@ -742,11 +764,13 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
 
   // Igual que sendMessage: el hilo debe pertenecer a ESTE canal (parentId viene del cliente).
   const safeParentId = await validParentId(channelId, parentId);
+  const safeQuotedId = await validQuotedId(channelId, String(formData.get("quotedId") ?? "") || null);
 
   const msg = await db.chatMessage.create({
-    data: { channelId, body, parentId: safeParentId, authorId: session!.id },
+    data: { channelId, body, parentId: safeParentId, quotedId: safeQuotedId, authorId: session!.id },
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
+      quoted: quotedInclude,
       // projectId: si el canal es de un PROYECTO, los documentos se archivan también en su
       // pestaña Archivos (espejo automático de abajo).
       channel: { select: { type: true, projectId: true, members: { select: { userId: true, user: { select: { isSystemBot: true } } } } } },
@@ -790,6 +814,7 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
       ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor }
       : null,
     attachments: created,
+    quoted: quotedPreviewOf(msg.quoted),
   };
   publishMessage(payload);
   const who = msg.author?.name ?? "Alguien";

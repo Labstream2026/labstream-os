@@ -20,6 +20,7 @@ function buildInclude(userId: string) {
   return {
     include: {
       author: { select: { name: true, initials: true, avatarColor: true } },
+      quoted: { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } },
       attachments: true,
       reactions: { select: { emoji: true, userId: true } },
       poll: {
@@ -32,6 +33,7 @@ function buildInclude(userId: string) {
   };
 }
 
+type QuotedRow = { id: string; body: string; deletedAt: Date | null; author: { name: string } | null } | null;
 type Row = {
   id: string;
   body: string;
@@ -41,10 +43,17 @@ type Row = {
   editedAt: Date | null;
   deletedAt: Date | null;
   author: { name: string; initials: string | null; avatarColor: string | null } | null;
+  quoted: QuotedRow;
   attachments: { id: string; name: string; mime: string | null; fileAssetId: string | null }[];
   reactions: { emoji: string; userId: string }[];
   poll: { id: string; question: string; options: { id: string; text: string; _count: { votes: number } }[]; votes: { optionId: string }[] } | null;
 };
+
+// Vista previa del citado (compartida con el shape del dock/layout): autor + snippet; borrado → null.
+export function quotedPreview(q: QuotedRow) {
+  if (!q || q.deletedAt) return null;
+  return { id: q.id, author: q.author?.name ?? null, body: q.body.slice(0, 160) };
+}
 
 function shape(rows: Row[]) {
   return rows.map((m) => ({
@@ -56,6 +65,7 @@ function shape(rows: Row[]) {
     pinned: m.pinned,
     editedAt: m.editedAt ? m.editedAt.toISOString() : null,
     author: m.author ? { name: m.author.name, initials: m.author.initials, color: m.author.avatarColor } : null,
+    quoted: quotedPreview(m.quoted),
     attachments: m.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, editable: isEditableOffice(a.name), fileAssetId: a.fileAssetId })),
     reactions: m.reactions.map((r) => ({ emoji: r.emoji, userId: r.userId })),
     poll: m.poll
