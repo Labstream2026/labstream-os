@@ -39,6 +39,7 @@ import { IconTablero, IconLista } from "@/components/icons";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
+import { ProjectChatTab } from "./project-chat-tab";
 import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
 import { loadInventory, conflictsForPlans } from "@/lib/equipos";
@@ -54,6 +55,7 @@ const TABS = [
   { key: "cronograma", label: "Cronograma", group: "contenido" },
   { key: "entregables", label: "Entregables", group: "entregables" },
   { key: "archivos", label: "Archivos", group: "entregables" },
+  { key: "chat", label: "Chat", group: "operacion" },
   { key: "equipos", label: "Equipos", group: "operacion" },
   { key: "actividad", label: "Actividad", group: "operacion" },
 ];
@@ -436,7 +438,7 @@ export default async function ProyectoPage({
       <div className="mx-auto max-w-7xl">
       {/* Tabs */}
       <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.filter((t) => (t.key !== "actividad" || hasPermission(session, "ver_actividad")) && (t.key !== "equipos" || !isCliente)).map((t, i, arr) => {
+        {TABS.filter((t) => (t.key !== "actividad" || hasPermission(session, "ver_actividad")) && (t.key !== "equipos" || !isCliente) && (t.key !== "chat" || !isCliente)).map((t, i, arr) => {
           const active = tab === t.key;
           const count = (counts as Record<string, number>)[t.key];
           // Separador entre grupos (Contenido · Entregables · Operación).
@@ -688,6 +690,14 @@ export default async function ProyectoPage({
             kits={equiposData.kits}
             team={team.map((m) => ({ id: m.id, name: m.name, initials: m.initials, color: m.avatarColor }))}
             canWrite={canWriteProject(project, session)}
+          />
+        ) : null}
+
+        {tab === "chat" && session && session.role !== "cliente" ? (
+          <ProjectChatTab
+            projectId={id}
+            me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+            isAdmin={session.role === "admin"}
           />
         ) : null}
       </div>

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel, userCanAccessChannel } from "@/lib/chat-access";
 import { getOrCreateClientChannel } from "@/lib/client-chat";
+import { ensureProjectChannels } from "@/lib/project-chat";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { getChatListData } from "@/app/(app)/chat/list-data";
 import type { SessionUser } from "@/lib/session";
@@ -239,6 +240,9 @@ export async function GET(req: Request) {
   // El dock es del EQUIPO (el cliente ya salió arriba): sirve el canal INTERNO del proyecto (no el
   // canal con el cliente). `audience: not CLIENT` cubre también canales heredados (audience null).
   if (projectId) {
+    // Asegura que el canal del proyecto EXISTA (se crea perezoso): así la pestaña Chat del
+    // proyecto y el dock siempre encuentran un canal, aunque nadie haya abierto el chat aún.
+    await ensureProjectChannels(projectId).catch(() => {});
     const channel = await db.chatChannel.findFirst({
       where: { projectId, audience: { not: "CLIENT" } },
       include: {
