@@ -6,7 +6,7 @@ import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, type ChannelReader } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
@@ -438,6 +438,9 @@ export function ChannelChat({
   const [forwardDone, setForwardDone] = React.useState<string | null>(null);
   // Permalink: mensaje resaltado al llegar con ?msg=... (se apaga solo).
   const [highlighted, setHighlighted] = React.useState<string | null>(null);
+  // «Visto por»: lectores del canal (lastReadAt). Se refresca al montar, al cambiar los mensajes
+  // (con debounce) y al volver a la pestaña. Vacío en DMs (no aplica) y hasta la 1ª carga.
+  const [readers, setReaders] = React.useState<ChannelReader[]>([]);
 
   const q = search.trim().toLowerCase();
   const roots = messages
@@ -452,6 +455,21 @@ export function ChannelChat({
 
   // ¿El mensaje es mío? (para alinearlo a la derecha con burbuja propia).
   const isMine = (a: ChatMsg["author"]) => !!a && a.name === me.name && a.color === me.color;
+  // «Visto por» va SOLO bajo mi último mensaje enviado (patrón Teams): id del último root propio
+  // ya confirmado, y los lectores que lo vieron (lastReadAt ≥ su fecha).
+  const lastMineId = React.useMemo(() => {
+    for (let i = roots.length - 1; i >= 0; i--) {
+      const m = roots[i];
+      if (isMine(m.author) && !m.deleted && (!m.status || m.status === "sent")) return m.id;
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots]);
+  const lastMineAt = lastMineId ? roots.find((m) => m.id === lastMineId)?.createdAt ?? null : null;
+  const seenByForLast = React.useMemo(
+    () => (lastMineAt ? readers.filter((r) => r.at >= lastMineAt) : []),
+    [readers, lastMineAt],
+  );
   // Línea «Mensajes nuevos»: primer mensaje raíz AJENO posterior a la última lectura al
   // abrir el canal. Se congela al montar (deps vacías) para que no se mueva mientras
   // llegan mensajes ni cuando markChannelRead actualice la lectura en el servidor.
@@ -465,6 +483,22 @@ export function ChannelChat({
     return first?.id ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // «Visto por»: refresca los lectores al montar y cada vez que cambian los mensajes (debounce
+  // 1,2 s para no consultar por cada tecla/SSE) y al volver a la pestaña. El servidor devuelve
+  // [] en DMs y canales de difusión, así que ahí «readers» queda vacío y no se pinta nada.
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      getChannelReaders(channelId)
+        .then((r) => { if (!cancelled) setReaders(r); })
+        .catch(() => {});
+    };
+    const t = setTimeout(load, 1200);
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [channelId, messages.length]);
 
   // Limpia los indicadores de "escribiendo…" caducados.
   React.useEffect(() => {
@@ -820,13 +854,36 @@ export function ChannelChat({
     void deliver(tempId, clean, parentId);
   }
 
+  // Añadir archivos al composer validando el tamaño EN EL CLIENTE (el servidor filtra >50MB
+  // en silencio; sin este chequeo el adjunto desaparecía sin explicación). Los que pasan se
+  // suman a la selección; los que no, se listan en un error claro.
+  const MAX_FILE_MB = 50;
+  function addFiles(incoming: File[]) {
+    const ok: File[] = [];
+    const tooBig: string[] = [];
+    for (const f of incoming) {
+      if (f.size > MAX_FILE_MB * 1024 * 1024) tooBig.push(f.name);
+      else ok.push(f);
+    }
+    if (tooBig.length) {
+      setAttachErr(`Supera${tooBig.length === 1 ? "" : "n"} el máximo de ${MAX_FILE_MB} MB: ${tooBig.join(", ")}`);
+    } else {
+      setAttachErr(null);
+    }
+    if (ok.length) setFiles((prev) => [...prev, ...ok]);
+  }
+
   async function submitMain(e: React.FormEvent) {
     e.preventDefault();
     if (files.length > 0) {
+      // Guardar texto y archivos ANTES de limpiar: si el envío falla, se RESTAURAN (antes se
+      // limpiaban de entrada y un fallo —p. ej. adjunto rechazado— se tragaba el mensaje).
+      const sentText = text.trim();
+      const sentFiles = files;
       const fd = new FormData();
       fd.set("channelId", channelId);
-      fd.set("body", text.trim());
-      files.forEach((f) => fd.append("files", f));
+      fd.set("body", sentText);
+      sentFiles.forEach((f) => fd.append("files", f));
       setUploading(true);
       setAttachErr(null);
       setText("");
@@ -835,8 +892,17 @@ export function ChannelChat({
         // El servidor devuelve el mensaje ya guardado: se muestra al instante
         // (sin depender del SSE, que puede no llegar al propio emisor).
         const saved = await sendMessageWithAttachments(fd);
-        if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+        if (saved) {
+          upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+        } else {
+          // El servidor devolvió null (sin acceso, o TODO el adjunto se filtró): restaurar.
+          setText(sentText);
+          setFiles(sentFiles);
+          setAttachErr("No se pudo enviar. Revisa el tamaño del archivo (máx. 50 MB) o tu conexión.");
+        }
       } catch {
+        setText(sentText);
+        setFiles(sentFiles);
         setAttachErr("No se pudo enviar el archivo. Revisa el tamaño o tu conexión.");
       } finally {
         setUploading(false);
@@ -1328,6 +1394,17 @@ export function ChannelChat({
               </div>
             </div>
             )}
+            {/* «Visto por N» bajo mi último mensaje: quién del canal ya lo vio (lastReadAt). */}
+            {m.id === lastMineId && seenByForLast.length > 0 ? (
+              <div className="mt-0.5 flex items-center gap-1.5 pl-11 text-[11px] text-muted-foreground" title={`Visto por ${seenByForLast.map((r) => r.name).join(", ")}`}>
+                <span className="flex -space-x-1.5">
+                  {seenByForLast.slice(0, 5).map((r) => (
+                    <UserAvatar key={r.id} initials={r.initials} name={r.name} color={r.color} size="sm" ring />
+                  ))}
+                </span>
+                <span>Visto por {seenByForLast.length}</span>
+              </div>
+            ) : null}
             </React.Fragment>
           );
         })}
@@ -1463,7 +1540,7 @@ export function ChannelChat({
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => addFiles(Array.from(e.target.files ?? []))}
             />
             <button
               type="button"
