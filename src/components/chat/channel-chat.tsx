@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -419,7 +419,9 @@ export function ChannelChat({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = React.useState(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const cameraRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const composerWrapRef = React.useRef<HTMLDivElement>(null);
@@ -594,6 +596,29 @@ export function ChannelChat({
     if (!el) return true;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }, []);
+
+  // Teclado en pantalla (iOS/PWA): iOS NO encoge el layout al abrir el teclado (interactiveWidget
+  // solo lo respeta Android), así que el composer quedaría tapado. Se compensa con visualViewport:
+  // se añade al fondo del chat un padding = alto del teclado, empujando el composer justo encima.
+  // Solo en móvil (< 768px) para no afectar el escritorio ni el dock.
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    const el = rootRef.current;
+    if (!vv || !el) return;
+    const apply = () => {
+      const kb = window.innerWidth < 768 ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+      el.style.paddingBottom = kb > 0 ? `${kb}px` : "";
+      if (kb > 0 && nearBottom()) scrollToBottom();
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      el.style.paddingBottom = "";
+    };
+  }, [nearBottom, scrollToBottom]);
 
   // Catch-up: trae de la BD los mensajes posteriores al último conocido y los integra. Cierra el
   // hueco del bus SSE en memoria (cortes de red, pestaña en segundo plano, reinicio del servidor,
@@ -1184,6 +1209,7 @@ export function ChannelChat({
 
   return (
     <div
+      ref={rootRef}
       className="relative flex h-full flex-col"
       onDragOver={readOnly ? undefined : (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={readOnly ? undefined : (e) => { if (e.currentTarget === e.target) setDragOver(false); }}
@@ -1201,7 +1227,7 @@ export function ChannelChat({
         {searchOpen ? (
           <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
             <Search className="size-3.5 text-muted-foreground" />
-            <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en el chat…" className="w-full bg-transparent text-xs outline-none" />
+            <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en el chat…" className="w-full bg-transparent text-base outline-none sm:text-xs" />
             <button type="button" aria-label="Cerrar búsqueda" onClick={() => { setSearch(""); setSearchOpen(false); }} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
           </div>
         ) : (
@@ -1484,7 +1510,7 @@ export function ChannelChat({
                           value={replyText[m.id] ?? ""}
                           onChange={(e) => setReplyText((p) => ({ ...p, [m.id]: e.target.value }))}
                           placeholder="Responder en el hilo…"
-                          className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
                         />
                         <button className="text-xs font-medium text-primary disabled:opacity-40" disabled={!(replyText[m.id] ?? "").trim()}>
                           Enviar
@@ -1546,7 +1572,7 @@ export function ChannelChat({
               value={pollQ}
               onChange={(e) => setPollQ(e.target.value)}
               placeholder="Pregunta de la encuesta…"
-              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
             />
             {pollOpts.map((o, i) => (
               <input
@@ -1554,7 +1580,7 @@ export function ChannelChat({
                 value={o}
                 onChange={(e) => setPollOpts((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
                 placeholder={`Opción ${i + 1}`}
-                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
               />
             ))}
             <div className="flex items-center gap-3">
@@ -1662,7 +1688,17 @@ export function ChannelChat({
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => addFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+            />
+            {/* Cámara directa (móvil): capture abre la cámara trasera para una foto de set/claqueta
+                en 2 toques. En escritorio el botón se oculta (no aporta). */}
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
             />
             <button
               type="button"
@@ -1672,6 +1708,15 @@ export function ChannelChat({
               title="Adjuntar archivo"
             >
               <Paperclip className="size-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+              aria-label="Tomar foto"
+              title="Tomar foto"
+            >
+              <Camera className="size-5" />
             </button>
             <button
               type="button"

@@ -36,6 +36,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Al abrir el teclado en pantalla, el navegador ENCOGE el layout (no solo panea): el composer
+  // del chat queda pegado sobre el teclado en vez de taparse. Android Chrome ≥108 lo respeta;
+  // iOS lo ignora (ahí lo compensa el efecto visualViewport del composer).
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#0b0b0e" },
