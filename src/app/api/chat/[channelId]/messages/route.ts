@@ -94,12 +94,42 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ chan
 
   const isAdmin = session.role === "admin"; // el admin ve los borrados (en gris) para seguimiento
   const url = new URL(req.url);
+  const searchQ = (url.searchParams.get("q") ?? "").trim();
+  const around = url.searchParams.get("around");
   const after = parseDate(url.searchParams.get("after"));
   const before = parseDate(url.searchParams.get("before"));
   const take = Math.min(Math.max(Number(url.searchParams.get("take")) || (before ? 50 : 100), 1), MAX_TAKE);
 
   const base = { channelId, ...(isAdmin ? {} : { deletedAt: null }) };
   const inc = buildInclude(session.id);
+
+  // BÚSQUEDA en el historial COMPLETO del canal (texto del cuerpo, sin distinguir mayúsculas): antes
+  // solo se filtraban los mensajes ya cargados en el cliente, así que lo viejo era imposible de
+  // encontrar. Devuelve las coincidencias recientes primero; el cliente las lista y, al hacer clic,
+  // salta con contexto (?around=). Nunca incluye borrados (buscar en borrados confunde, aun de admin).
+  if (searchQ) {
+    const found = (await db.chatMessage.findMany({
+      where: { channelId, deletedAt: null, body: { contains: searchQ, mode: "insensitive" } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      ...inc,
+    })) as unknown as Row[];
+    return NextResponse.json({ results: shape(found) });
+  }
+
+  // VENTANA alrededor de un mensaje (para SALTAR a un resultado de búsqueda que aún no está cargado):
+  // el mensaje objetivo + un puñado antes y después, en orden cronológico. El cliente los fusiona en
+  // su lista y hace scroll hasta él. hasMore=false: la carga infinita sigue trayendo lo anterior sola.
+  if (around) {
+    const target = await db.chatMessage.findFirst({ where: { ...base, id: around }, select: { createdAt: true } });
+    if (!target) return NextResponse.json({ messages: [], hasMore: false });
+    const [older, fromTarget] = await Promise.all([
+      db.chatMessage.findMany({ where: { ...base, createdAt: { lt: target.createdAt } }, orderBy: { createdAt: "desc" }, take: 25, ...inc }),
+      db.chatMessage.findMany({ where: { ...base, createdAt: { gte: target.createdAt } }, orderBy: { createdAt: "asc" }, take: 26, ...inc }),
+    ]);
+    const windowRows = [...(older as unknown as Row[]).reverse(), ...(fromTarget as unknown as Row[])];
+    return NextResponse.json({ messages: shape(windowRows), hasMore: false });
+  }
 
   let rows: Row[];
   let hasMore = false;

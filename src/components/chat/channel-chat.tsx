@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -413,6 +413,11 @@ export function ChannelChat({
   const [editText, setEditText] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [searchOpen, setSearchOpen] = React.useState(false);
+  // Búsqueda server-side en TODO el historial del canal (no solo lo ya cargado): resultados + estado.
+  const [searchResults, setSearchResults] = React.useState<ChatMsg[] | null>(null);
+  const [searching, setSearching] = React.useState(false);
+  // Salto pendiente a un mensaje recién traído con ?around= (espera a que se pinte en el DOM).
+  const [pendingJump, setPendingJump] = React.useState<string | null>(null);
   // Paginación hacia atrás: el fetch inicial trae solo la ventana reciente; estos permiten
   // cargar el historial anterior por demanda sin recargar la página.
   const [hasOlder, setHasOlder] = React.useState(initialMessages.length >= 50);
@@ -460,10 +465,8 @@ export function ChannelChat({
   // (con debounce) y al volver a la pestaña. Vacío en DMs (no aplica) y hasta la 1ª carga.
   const [readers, setReaders] = React.useState<ChannelReader[]>([]);
 
-  const q = search.trim().toLowerCase();
   const roots = messages
     .filter((m) => !m.parentId)
-    .filter((m) => !q || m.body.toLowerCase().includes(q))
     // Ordenar por fecha: el render depende del orden del array; así los mensajes que lleguen
     // por SSE/catch-up/paginación fuera de orden quedan siempre cronológicos (como las respuestas).
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -610,6 +613,83 @@ export function ChannelChat({
   React.useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // ── Búsqueda en el historial COMPLETO (server-side) ──
+  // Antes la lupa solo filtraba los mensajes ya cargados: lo viejo era imposible de encontrar. Ahora
+  // consulta la BD (debounced) y, al hacer clic en un resultado, salta a él aunque no esté cargado.
+  React.useEffect(() => {
+    let cancelled = false;
+    // Todo el setState va DENTRO del callback diferido (nunca síncrono en el cuerpo del efecto).
+    const run = async () => {
+      const term = search.trim();
+      if (!searchOpen || term.length < 2) {
+        if (!cancelled) {
+          setSearchResults(null);
+          setSearching(false);
+        }
+        return;
+      }
+      if (!cancelled) setSearching(true);
+      try {
+        const res = await fetch(`/api/chat/${channelId}/messages?q=${encodeURIComponent(term)}`, { cache: "no-store" });
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled) setSearchResults(Array.isArray(data?.results) ? data.results : []);
+      } catch {
+        if (!cancelled) setSearchResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    };
+    const t = setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [search, searchOpen, channelId]);
+
+  // Abrir un resultado: si ya está cargado va directo; si no, trae su VENTANA (?around=), la fusiona
+  // y deja el salto pendiente hasta que el mensaje aparezca pintado. Cierra la búsqueda al saltar.
+  const openResult = React.useCallback(
+    async (id: string) => {
+      if (messagesRef.current.some((m) => m.id === id)) {
+        jumpToMessage(id);
+      } else {
+        try {
+          const res = await fetch(`/api/chat/${channelId}/messages?around=${encodeURIComponent(id)}`, { cache: "no-store" });
+          if (res.ok) {
+            const data = await res.json();
+            const incoming: ChatMsg[] = data?.messages ?? [];
+            if (incoming.length) {
+              setMessages((prev) => {
+                const ids = new Set(prev.map((m) => m.id));
+                const add = incoming.filter((m) => !ids.has(m.id)).map((m) => ({ ...m, status: "sent" as const }));
+                return add.length ? [...prev, ...add] : prev;
+              });
+              setHasOlder(true); // puede haber historial más viejo por encima de la ventana traída
+            }
+          }
+        } catch {
+          /* best-effort: si falla la ventana, al menos cerramos la búsqueda */
+        }
+        setPendingJump(id);
+      }
+      setSearchOpen(false);
+      setSearch("");
+      setSearchResults(null);
+    },
+    [channelId, jumpToMessage],
+  );
+
+  // Ejecuta el salto pendiente en cuanto el mensaje objetivo ya está en el DOM (tras fusionar la
+  // ventana). Diferido a rAF: espera al pintado antes de hacer scroll y evita el setState síncrono.
+  React.useEffect(() => {
+    if (!pendingJump || !document.getElementById(`msg-${pendingJump}`)) return;
+    const raf = requestAnimationFrame(() => {
+      jumpToMessage(pendingJump);
+      setPendingJump(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [messages, pendingJump, jumpToMessage]);
 
   // ¿El scroll está (casi) al fondo? Se usa para no arrancar al usuario que lee historial arriba.
   const nearBottom = React.useCallback(() => {
@@ -1272,10 +1352,36 @@ export function ChannelChat({
       {/* Barra: buscar + mensajes fijados */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {searchOpen ? (
-          <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
-            <Search className="size-3.5 text-muted-foreground" />
-            <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en el chat…" className="w-full bg-transparent text-base outline-none sm:text-xs" />
-            <button type="button" aria-label="Cerrar búsqueda" onClick={() => { setSearch(""); setSearchOpen(false); }} className="text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+          <div className="relative flex-1">
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1">
+              <Search className="size-3.5 shrink-0 text-muted-foreground" />
+              <input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar en todo el chat…" className="w-full bg-transparent text-base outline-none sm:text-xs" />
+              {searching ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" /> : null}
+              <button type="button" aria-label="Cerrar búsqueda" onClick={() => { setSearch(""); setSearchOpen(false); setSearchResults(null); }} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+            </div>
+            {/* Resultados del historial COMPLETO: clic → salta al mensaje (trayéndolo si hace falta). */}
+            {searchResults !== null ? (
+              <div className="absolute inset-x-0 top-full z-40 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+                {searchResults.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-xs text-muted-foreground">{searching ? "Buscando…" : "Sin resultados en este chat."}</p>
+                ) : (
+                  searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => void openResult(r.id)}
+                      className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left hover:bg-muted"
+                    >
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-xs font-medium text-foreground">{isMine(r.author) ? "Tú" : r.author?.name ?? "—"}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{formatBogota(r.createdAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                      </span>
+                      <span className="line-clamp-2 text-xs text-muted-foreground">{r.body || "—"}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
           </div>
         ) : (
           <>
