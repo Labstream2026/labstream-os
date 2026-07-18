@@ -20,7 +20,7 @@ export async function GET() {
   // Barrido de SLA de entregables (pre-aprobaciones/correcciones vencidas), mismo patrón.
   void sweepDeliverableSla().catch(() => {});
 
-  const [rows, unread] = await Promise.all([
+  const [rows, unread, me] = await Promise.all([
     db.notification.findMany({
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
@@ -32,11 +32,16 @@ export async function GET() {
       },
     }),
     db.notification.count({ where: { userId: session.id, read: false } }),
+    db.user.findUnique({ where: { id: session.id }, select: { dndUntil: true } }),
   ]);
+
+  // "No molestar" vigente (para el control de la campana). Se limpia solo al pasar la hora.
+  const dndUntil = me?.dndUntil && me.dndUntil.getTime() > Date.now() ? me.dndUntil.toISOString() : null;
 
   return new NextResponse(
     JSON.stringify({
       unread,
+      dndUntil,
       items: rows.map((n) => ({
         id: n.id,
         type: n.type,

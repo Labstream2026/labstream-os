@@ -89,6 +89,15 @@ model User {
   // Token secreto del feed de suscripción de calendario (webcal/ics de solo lectura para
   // Google/Apple/Outlook). null = feed sin generar; rotarlo revoca el enlace anterior.
   calendarFeedToken String? @unique
+  // ── Silencio de notificaciones ──
+  // "No molestar" hasta este instante (UTC): mientras esté vigente, se silencian PUSH y CORREO;
+  // la campana in-app sigue acumulando (no se pierde nada). null = sin pausa.
+  dndUntil     DateTime?
+  // Horario silencioso recurrente (horas de pared de Bogotá, 0–23): de quietStart a quietEnd no
+  // se manda push/correo. Puede cruzar medianoche (p. ej. 22→7). null = sin horario.
+  quietStart   Int?
+  quietEnd     Int?
+  notifMutes   NotificationMute[]
   // WhatsApp: número (E.164, p. ej. +57300...) para RECIBIR notificaciones del bot y para
   // identificar al remitente de mensajes entrantes. `whatsappCommand` = puede COMANDAR al bot
   // por WhatsApp (crear notas/tareas/citas, consultar); si es false solo recibe (no se procesan
@@ -1085,6 +1094,21 @@ model Notification {
   @@index([actorId])
   @@index([subjectId])
   @@index([userId, groupKey])
+}
+
+// Silenciar por PROYECTO o por PERSONA: mientras exista la fila, el usuario deja de recibir
+// avisos originados por ese proyecto/persona (in-app, push y correo). Se gestiona desde la campana
+// y las preferencias.
+model NotificationMute {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  kind      String // "project" | "user"
+  targetId  String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, kind, targetId])
+  @@index([userId])
 }
 
 // Suscripción de Web Push (navegador) de un usuario, por dispositivo/navegador.

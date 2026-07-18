@@ -3,6 +3,7 @@ import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
 import { sendPushToUser } from "@/lib/web-push";
 import { getUserEventPref, getUsersEventPrefs, ALL_ON } from "@/lib/user-notif-prefs";
 import { eventCategory, eventPriority } from "@/lib/notification-types";
+import { isSilencedNow, mutedKeys, isMutedBy } from "@/lib/notif-silence";
 
 // Tag de agrupación para el Web Push: los avisos del mismo origen (un recordatorio, un canal de
 // chat) comparten tag → el nuevo REEMPLAZA al anterior en la bandeja sin tapar a los demás.
@@ -68,6 +69,8 @@ export type NotifyInput = {
   // Agrupador para colapsar ráfagas del mismo origen en la campana y en el push (p. ej.
   // "chat:<channelId>"). Los avisos con el mismo groupKey se juntan.
   groupKey?: string | null;
+  // Proyecto del que nace el aviso: permite que el destinatario SILENCIE ese proyecto.
+  projectId?: string | null;
   // Override de prioridad (0 normal, 1 alta, 2 urgente). Si se omite, se deriva del catálogo.
   priority?: number;
   // Extras para el Web Push: adjunta un recordatorio para ofrecer botones de acción
@@ -96,6 +99,11 @@ export async function notify(
   const subjectId = n.subjectId && n.subjectId !== actorId ? n.subjectId : null;
   const category = eventCategory(n.event);
   const priority = n.priority ?? eventPriority(n.event);
+  // Silenciar por proyecto/persona: si el destinatario silenció el origen, no se envía nada.
+  if (isMutedBy(await mutedKeys(userId), { actorId: n.actorId, subjectId: n.subjectId, projectId: n.projectId })) return false;
+  // No molestar / horario silencioso: NO borra el aviso (la campana lo acumula), pero silencia
+  // push y correo mientras esté vigente.
+  const silenced = await isSilencedNow(userId);
   if (pref.inApp) {
     await db.notification.create({
       data: {
@@ -104,8 +112,8 @@ export async function notify(
       },
     });
   }
-  // Web Push al navegador (best-effort; sin claves VAPID es no-op).
-  if (pref.push) {
+  // Web Push al navegador (best-effort; sin claves VAPID es no-op). No se manda en silencio.
+  if (pref.push && !silenced) {
     const rid = n.push?.reminderId;
     await sendPushToUser(userId, {
       title: n.title,
@@ -137,6 +145,8 @@ export async function notifyAndEmail(
   if (!(await isEmailEnabled())) return;
   // Canal correo de la preferencia del usuario (cacheado → no re-consulta tras el notify de arriba).
   if (!(await getUserEventPref(userId, n.event)).email) return;
+  // No molestar / horario silencioso: tampoco se manda el correo mientras esté vigente.
+  if (await isSilencedNow(userId)) return;
   try {
     const user = await db.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user?.email) return;
@@ -164,7 +174,19 @@ export async function notifyMany(
   // Compuerta global por tipo: si el admin desactivó este evento, no se envía nada.
   if (!(await eventEnabled(n.event))) return;
   // El actor nunca se anota a sí mismo (se descarta de la lista de destinatarios).
-  const recipients = ids.filter((userId) => userId !== n.actorId);
+  const initial = ids.filter((userId) => userId !== n.actorId);
+  // Silencio por destinatario: quién silenció el origen (se excluye del todo) y quién está en
+  // "No molestar"/horario (recibe in-app pero sin push).
+  const silence = await Promise.all(
+    initial.map(async (id) => ({
+      id,
+      muted: isMutedBy(await mutedKeys(id), { actorId: n.actorId, subjectId: n.subjectId, projectId: n.projectId }),
+      silenced: await isSilencedNow(id),
+    })),
+  );
+  const recipients = silence.filter((s) => !s.muted).map((s) => s.id);
+  if (!recipients.length) return;
+  const silencedSet = new Set(silence.filter((s) => !s.muted && s.silenced).map((s) => s.id));
   // Preferencia personal por canal de cada destinatario (sin fila → todo activo).
   const prefs = await getUsersEventPrefs(recipients, n.event);
   const category = eventCategory(n.event);
@@ -179,12 +201,12 @@ export async function notifyMany(
       })),
     });
   }
-  // Web Push a cada uno que lo tenga activo (best-effort). Tag por groupKey → las ráfagas del
-  // mismo canal se reemplazan en la bandeja en vez de apilarse.
+  // Web Push a cada uno que lo tenga activo y NO esté en silencio. Tag por groupKey → las
+  // ráfagas del mismo canal se reemplazan en la bandeja en vez de apilarse.
   const tag = pushTag(n);
   await Promise.all(
     recipients
-      .filter((id) => (prefs.get(id) ?? ALL_ON).push)
+      .filter((id) => (prefs.get(id) ?? ALL_ON).push && !silencedSet.has(id))
       .map((userId) => sendPushToUser(userId, { title: n.title, body: n.body, url: n.link, icon: PUSH_ICON, tag })),
   );
 }

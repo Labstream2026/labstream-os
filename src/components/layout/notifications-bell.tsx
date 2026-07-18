@@ -3,13 +3,13 @@
 import * as React from "react";
 import { IconNotificaciones } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, Clock, Shield, Bot, Users, X, Trash2 } from "lucide-react";
+import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, Clock, Shield, Bot, Users, X, Trash2, Moon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
 import { avatarTint } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { markAllNotificationsRead, markNotificationRead, deleteNotification } from "@/lib/notify-actions";
+import { markAllNotificationsRead, markNotificationRead, deleteNotification, setDoNotDisturb, type DndKind } from "@/lib/notify-actions";
 import {
   showNative,
   ensureNotifyPermission,
@@ -82,6 +82,10 @@ function timeAgo(iso: string): string {
 // Fecha/hora absoluta (para el tooltip de la hora).
 function timeExact(iso: string): string {
   return new Date(iso).toLocaleString("es-CO", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+// Etiqueta de "No molestar activo" ("hasta 3:45 p. m.").
+function dndLabel(iso: string): string {
+  return "hasta " + new Date(iso).toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit" });
 }
 
 // Agrupa por franja temporal (Hoy / Ayer / Esta semana / Antes).
@@ -269,6 +273,9 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const [list, setList] = React.useState<NotificationItem[]>(items);
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
   const [perm, setPerm] = React.useState<ReturnType<typeof notifyPermission>>("default");
+  // "No molestar": instante ISO hasta el que está activo, o null. Silencia push/correo; la
+  // campana in-app sigue acumulando.
+  const [dndUntil, setDndUntil] = React.useState<string | null>(null);
 
   const seen = React.useRef<Set<string>>(new Set(items.map((n) => n.id)));
 
@@ -280,7 +287,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     try {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (!res.ok) return;
-      const data = (await res.json()) as { items: NotificationItem[]; unread: number };
+      const data = (await res.json()) as { items: NotificationItem[]; unread: number; dndUntil?: string | null };
       const focused = typeof document !== "undefined" && document.hasFocus();
       const fresh = data.items.filter((n) => !n.read && !seen.current.has(n.id));
       if (!focused) {
@@ -289,7 +296,15 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
       for (const n of data.items) seen.current.add(n.id);
       setList(data.items);
       setUnread(data.unread);
+      setDndUntil(data.dndUntil ?? null);
     } catch { /* sin red: reintenta en el siguiente ciclo */ }
+  }, []);
+
+  // Un refresco al montar para conocer el estado de "No molestar" sin esperar al primer sondeo.
+  React.useEffect(() => { void refresh(); }, [refresh]);
+
+  const applyDnd = React.useCallback((kind: DndKind) => {
+    void setDoNotDisturb(kind).then((r) => { if (r.ok) setDndUntil(r.until); });
   }, []);
   const refreshIfStale = React.useCallback(() => { if (Date.now() - lastRun.current > 4000) void refresh(); }, [refresh]);
 
@@ -402,6 +417,22 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
               <span className="shrink-0 whitespace-nowrap text-sm font-semibold">Notificaciones</span>
               <div className="flex items-center gap-1.5">
+                {/* No molestar: silencia push/correo; la campana sigue acumulando. */}
+                <details className="relative">
+                  <summary className={cn("flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium", dndUntil ? "bg-[#F47A20]/15 text-[#F47A20]" : "text-muted-foreground hover:bg-accent")}>
+                    <Moon className="size-3.5" /> {dndUntil ? dndLabel(dndUntil) : "No molestar"}
+                  </summary>
+                  <div className="absolute right-0 z-30 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-xs shadow-lg">
+                    {dndUntil ? (
+                      <button type="button" onClick={(e) => { applyDnd("off"); (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left font-medium text-primary hover:bg-muted">Reactivar avisos</button>
+                    ) : null}
+                    {(["30m", "1h", "untilTomorrow"] as DndKind[]).map((k) => (
+                      <button key={k} type="button" onClick={(e) => { applyDnd(k); (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-muted">
+                        {k === "30m" ? "Durante 30 minutos" : k === "1h" ? "Durante 1 hora" : "Hasta mañana"}
+                      </button>
+                    ))}
+                  </div>
+                </details>
                 {unread > 0 ? (
                   <button type="button" onClick={markAll} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary hover:bg-accent">
                     <CheckCheck className="size-3.5" /> Marcar todas
