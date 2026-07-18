@@ -14,6 +14,8 @@ import { QuickCreateFab } from "@/components/quick-create/quick-create-fab";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
 import { saveUserPreference } from "@/app/(app)/perfil/preference-actions";
+import { ChatLiveProvider, useChatLive } from "@/components/layout/chat-live";
+import { IconChat } from "@/components/icons";
 
 export type GeneralChannel = { id: string; name: string; messages: ChatMsg[] } | null;
 
@@ -92,17 +94,20 @@ export function AppShell({
 
   const pathname = usePathname();
 
-  // Páginas que aprovechan todo el ancho: ocultamos el panel de chat de la derecha
-  // (escritorio) para darles más espacio. Algunas ya tienen su propio chat (Chat del
-  // día, Chats) y otras son de lectura/trabajo amplio (Wiki, Asistente IA, Reportes,
-  // Inicio, Plantillas).
-  // /calendario: el detalle de la cita/tarea sale como modal centrado (no en panel lateral), así
-  // que el calendario usa todo el ancho y NO monta el dock de chat de la derecha.
+  // Páginas que aprovechan todo el ancho: en ellas el panel de chat NO roba espacio del
+  // layout — pero ya no desaparece: se abre como OVERLAY flotante por encima (botón del
+  // topbar), así el chat funciona en TODA la app (antes en estas 9 rutas no había ninguna
+  // superficie de chat: ni leer ni escribir).
   const FULL_WIDTH_ROUTES = ["/", "/estados", "/chat", "/plantillas", "/wiki", "/asistente", "/reportes", "/revisiones", "/calendario"];
-  // El cliente (portal del cliente) nunca ve el panel de chat del equipo (es interno).
-  const hideChatDock = isCliente || FULL_WIDTH_ROUTES.some((r) =>
+  const fullWidth = FULL_WIDTH_ROUTES.some((r) =>
     r === "/" ? pathname === "/" : pathname === r || pathname.startsWith(`${r}/`),
   );
+  const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
+  // El cliente (portal del cliente) nunca ve el panel de chat del equipo (es interno).
+  const dockMode: "none" | "aside" | "overlay" = isCliente ? "none" : fullWidth ? "overlay" : "aside";
+  // El overlay y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
+  const [overlayOpen, setOverlayOpen] = React.useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
 
   // Atajo ⌘K / Ctrl+K para abrir el buscador.
   React.useEffect(() => {
@@ -133,12 +138,15 @@ export function AppShell({
     });
   };
 
-  // Cerrar cajones móviles al navegar entre páginas.
+  // Cerrar cajones móviles y paneles flotantes al navegar entre páginas.
   React.useEffect(() => {
     setMobileMenuOpen(false);
+    setOverlayOpen(false);
+    setMobileChatOpen(false);
   }, [pathname]);
 
   return (
+    <ChatLiveProvider>
     <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
@@ -177,10 +185,10 @@ export function AppShell({
         <Topbar
           team={team}
           notifications={notifications}
-          onTogglePanel={toggleChat}
+          onTogglePanel={dockMode === "overlay" ? () => setOverlayOpen((v) => !v) : toggleChat}
           onToggleSidebar={toggleSidebar}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
-          showChatToggle={!hideChatDock}
+          showChatToggle={dockMode !== "none"}
         />
         {/* Las pestañas (escritorio) ahora viven dentro de la barra superior (Topbar). */}
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior
@@ -199,10 +207,34 @@ export function AppShell({
         />
       </div>
 
-      {/* Panel de chat de escritorio (redimensionable; muestra el chat del proyecto).
-          Se oculta en páginas de ancho completo para darles todo el espacio. */}
-      {!hideChatDock ? (
+      {/* Panel de chat de escritorio (redimensionable; muestra el chat del contexto). */}
+      {dockMode === "aside" ? (
         <ChatDock variant="desktop" open={chatOpen} me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} />
+      ) : null}
+
+      {/* Rutas de ancho completo: el chat se abre como overlay flotante (botón del topbar),
+          sin robar ancho al contenido. */}
+      {dockMode === "overlay" && overlayOpen ? (
+        <div className="fixed bottom-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
+          <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setOverlayOpen(false)} />
+        </div>
+      ) : null}
+
+      {/* Móvil: burbuja flotante + hoja deslizante con el chat del contexto — responder sin
+          abandonar la página (antes el único camino era bottom-nav → /chat → buscar canal). */}
+      {dockMode !== "none" && !isChatPage && !mobileChatOpen ? (
+        <MobileChatBubble onOpen={() => setMobileChatOpen(true)} fallbackUnread={chatUnread} />
+      ) : null}
+      {dockMode !== "none" && mobileChatOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileChatOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 h-[82dvh] overflow-hidden rounded-t-2xl border-t border-border bg-background animate-in slide-in-from-bottom duration-200">
+            <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-border" aria-hidden />
+            <div className="h-[calc(100%-0.75rem)]">
+              <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setMobileChatOpen(false)} />
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* Cierra los menús <details> al hacer clic fuera o con Escape */}
@@ -222,5 +254,29 @@ export function AppShell({
         isCliente={isCliente}
       />
     </div>
+    </ChatLiveProvider>
+  );
+}
+
+// Burbuja flotante de chat (solo móvil): abre la hoja deslizante con el chat del contexto.
+// Vive como componente propio para poder consumir el contexto vivo (badge de no-leídos).
+function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; fallbackUnread?: number }) {
+  const live = useChatLive();
+  const unread = live.total ?? fallbackUnread;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label="Abrir chat"
+      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg active:scale-95 md:hidden print:hidden"
+      style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}
+    >
+      <IconChat className="size-6" />
+      {unread > 0 ? (
+        <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-5 text-primary-foreground">
+          {unread > 99 ? "99+" : unread}
+        </span>
+      ) : null}
+    </button>
   );
 }

@@ -42,8 +42,26 @@ export function channelEvent(channelId: string) {
   return `channel:${channelId}`;
 }
 
+// Evento GLOBAL: cada mensaje nuevo se re-emite también aquí para el stream por USUARIO
+// (/api/chat/stream), que alimenta los badges vivos del sidebar/rail en toda la app.
+// Solo mensajes (lo único que altera no-leídos y previews); reacciones/ediciones no.
+export const ANY_MESSAGE_EVENT = "any-message";
+// Cambios que ALTERAN conteos sin ser un mensaje nuevo (borrar mensaje, vaciar conversación):
+// el stream global solo re-cuenta (sin preview) para que los badges no queden inflados.
+export const ANY_RECOUNT_EVENT = "any-recount";
+
+// Lectura de un canal por un usuario (markChannelRead): su stream global recalcula los
+// badges al instante, aunque la lectura ocurra en otra pestaña o en el dock.
+export function userReadEvent(userId: string) {
+  return `read:${userId}`;
+}
+export function publishChannelRead(userId: string, channelId: string) {
+  chatBus.emit(userReadEvent(userId), { channelId });
+}
+
 export function publishMessage(msg: ChatMessagePayload) {
   chatBus.emit(channelEvent(msg.channelId), msg);
+  chatBus.emit(ANY_MESSAGE_EVENT, msg);
 }
 
 // Actualización de votos de una encuesta (mismo canal SSE, discriminada por `kind`).
@@ -62,6 +80,7 @@ export function publishMessageEdit(channelId: string, messageId: string, body: s
 }
 export function publishMessageDelete(channelId: string, messageId: string) {
   chatBus.emit(channelEvent(channelId), { kind: "delete", channelId, messageId });
+  chatBus.emit(ANY_RECOUNT_EVENT, { channelId });
 }
 export function publishMessagePin(channelId: string, messageId: string, pinned: boolean) {
   chatBus.emit(channelEvent(channelId), { kind: "pin", channelId, messageId, pinned });
@@ -69,6 +88,7 @@ export function publishMessagePin(channelId: string, messageId: string, pinned: 
 // Conversación borrada (todos sus mensajes): los usuarios la vacían; el admin los ve en gris.
 export function publishConversationClear(channelId: string) {
   chatBus.emit(channelEvent(channelId), { kind: "clear", channelId });
+  chatBus.emit(ANY_RECOUNT_EVENT, { channelId });
 }
 
 // Indicador de "escribiendo…" (efímero).

@@ -162,7 +162,7 @@ export async function leaveChannel(channelId: string) {
   await db.channelMember.delete({ where: { channelId_userId: { channelId, userId: session.id } } }).catch(() => null);
   revalidatePath("/chat");
 }
-import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, publishConversationClear, type ChatMessagePayload, type PollData, type ReactionItem, type AttachmentPayload } from "@/lib/chat-bus";
+import { publishMessage, publishPollUpdate, publishReactionUpdate, publishMessageEdit, publishMessageDelete, publishMessagePin, publishTyping, publishConversationClear, publishChannelRead, type ChatMessagePayload, type PollData, type ReactionItem, type AttachmentPayload } from "@/lib/chat-bus";
 
 // ── Editar / borrar / fijar mensajes ──
 
@@ -283,6 +283,9 @@ export async function markChannelRead(channelId: string): Promise<void> {
       })
       .catch(() => null); // canal borrado en paralelo o BD sin migrar: no rompe la lectura
   }
+  // El stream global del usuario (/api/chat/stream) recalcula sus badges al instante:
+  // leer aquí baja el contador también en las otras pestañas y en el dock.
+  publishChannelRead(session.id, channelId);
 }
 
 // Fijar/desfijar un canal arriba del rail para el USUARIO actual. Vive en UserChannelState

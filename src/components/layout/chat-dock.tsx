@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname } from "next/navigation";
-import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks, CircleCheck } from "lucide-react";
+import { Hash, Lock, Globe, Users, X, ArrowLeft, UserPlus, Building2, ListChecks, CircleCheck, ChevronDown } from "lucide-react";
 import { completeMyTask } from "@/app/(app)/mis-tareas/actions";
 import { cn } from "@/lib/utils";
 import { formatBogotaDate } from "@/lib/bogota-time";
@@ -10,6 +10,7 @@ import { EntityEmoji } from "@/components/icons/marks";
 import { UserAvatar } from "@/components/user-avatar";
 import { ChannelChat, type ChatMe, type ChatMsg, type Member } from "@/components/chat/channel-chat";
 import { ChannelSettings } from "@/components/chat/channel-settings";
+import { useChatLive } from "@/components/layout/chat-live";
 
 export type DockTeamMember = { id: string; name: string; initials: string | null; color: string | null };
 type DockChannel = {
@@ -19,8 +20,19 @@ type DockChannel = {
   isPublic: boolean;
   canManage: boolean;
   members: { id: string; name: string; initials: string | null; color: string | null; role?: string }[];
+  projectId?: string | null;
 };
-type DockPayload = { channel: DockChannel | null; canAccess: boolean; messages: ChatMsg[] };
+type DockPayload = {
+  channel: DockChannel | null;
+  canAccess: boolean;
+  messages: ChatMsg[];
+  // Extras que igualan el dock a /chat/[id] (los calcula /api/chat/dock).
+  initialLastReadAt?: string | null;
+  mentionExtras?: { name: string; hint: string }[];
+  canArchive?: boolean;
+};
+// Fila del selector de conversación (lista compacta de /api/chat/dock?list=1).
+type ConvoRow = { id: string; name: string; kind: string; unread: number; muted: boolean; context: string | null };
 type DockTask = {
   id: string;
   title: string;
@@ -68,10 +80,15 @@ export function ChatDock({
   const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
+  // Conversación elegida a mano en el selector (manda sobre el canal del contexto).
+  const [manualId, setManualId] = React.useState<string | null>(null);
   const [dock, setDock] = React.useState<DockPayload | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [showMembers, setShowMembers] = React.useState(false);
   const [tasks, setTasks] = React.useState<DockTask[] | null>(null);
+  // Selector de conversación: lista perezosa (se pide al abrirlo) + badges vivos.
+  const [convos, setConvos] = React.useState<ConvoRow[] | null>(null);
+  const live = useChatLive();
 
   // Tareas pendientes para el panel de "Chat del día".
   React.useEffect(() => {
@@ -84,16 +101,30 @@ export function ChatDock({
     return () => { cancelled = true; };
   }, [onEstados, pathname]);
 
-  // Al cambiar de proyecto/cliente, se sale del DM y se vuelve al chat del contexto.
-  React.useEffect(() => { setDmUserId(null); setShowMembers(false); }, [contextKey]);
+  // Al cambiar de proyecto/cliente, se sale del DM/manual y se vuelve al chat del contexto.
+  React.useEffect(() => { setDmUserId(null); setManualId(null); setShowMembers(false); }, [contextKey]);
 
-  // Resolver el canal a mostrar: DM > proyecto > cliente > general.
+  // Resolver el canal a mostrar: manual (selector) > DM > proyecto > cliente > general.
+  // El general también se pide por ?channel= para traer los extras (línea de no-leídos,
+  // @canal/@Rol, Guardar en Archivos); mientras llega, se pinta con el prop server-render.
+  const generalId = generalChannel?.id ?? null;
   React.useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!dmUserId && !onRealProject && !onRealClient) { setDock(null); return; } // usa el general (prop)
+      const q = manualId
+        ? `channel=${manualId}`
+        : dmUserId
+          ? `dm=${dmUserId}`
+          : onRealProject
+            ? `project=${projectId}`
+            : onRealClient
+              ? `client=${clientId}`
+              : generalId
+                ? `channel=${generalId}`
+                : null;
+      if (!q) { setDock(null); return; }
+      setDock(null); // el destino cambió: no pintar el canal anterior mientras llega el nuevo
       setLoading(true);
-      const q = dmUserId ? `dm=${dmUserId}` : onRealProject ? `project=${projectId}` : `client=${clientId}`;
       try {
         // Reintento corto: en dev la ruta puede compilarse en frío en la 1.ª petición.
         let r = await fetch(`/api/chat/dock?${q}`, { credentials: "include" });
@@ -112,7 +143,16 @@ export function ChatDock({
     }
     load();
     return () => { cancelled = true; };
-  }, [dmUserId, projectId, clientId, onRealProject, onRealClient]);
+  }, [manualId, dmUserId, projectId, clientId, onRealProject, onRealClient, generalId]);
+
+  // Lista del selector (perezosa): se pide al abrir el desplegable la primera vez.
+  const loadConvos = React.useCallback(() => {
+    if (convos !== null) return;
+    fetch("/api/chat/dock?list=1", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { rows: [] }))
+      .then((d) => setConvos(d.rows ?? []))
+      .catch(() => setConvos([]));
+  }, [convos]);
 
   // Ancho redimensionable (escritorio).
   const [width, setWidth] = React.useState(DEFAULT_W);
@@ -139,18 +179,28 @@ export function ChatDock({
   }, [width]);
 
   // ── Estado a renderizar ──
-  const isDM = !!dmUserId;
-  const usingGeneral = !isDM && !onRealProject && !onRealClient;
-  const effectiveChannel = usingGeneral
-    ? generalChannel
+  const isManual = !!manualId;
+  const isDM = !isManual && !!dmUserId;
+  // Sin manual/DM/contexto, el destino es el general: el prop server-render pinta al instante
+  // y el fetch por ?channel= lo releva con los extras (línea de no-leídos, @canal/@Rol…).
+  const generalFallback = !isManual && !isDM && !onRealProject && !onRealClient;
+  const effectiveChannel =
+    dock?.channel ??
+    (generalFallback && generalChannel
       ? { id: generalChannel.id, name: generalChannel.name, type: "GENERAL", isPublic: true, canManage: false, members: [] as DockChannel["members"] }
-      : null
-    : dock?.channel ?? null;
-  const messages = usingGeneral ? generalChannel?.messages ?? [] : dock?.messages ?? [];
-  const canAccess = usingGeneral ? !!generalChannel : dock?.canAccess ?? false;
+      : null);
+  const messages = dock?.messages ?? (generalFallback ? generalChannel?.messages ?? [] : []);
+  const canAccess = dock ? dock.canAccess : generalFallback ? !!generalChannel : false;
+  const usingGeneral = !!effectiveChannel && effectiveChannel.id === generalId;
   const dmName = isDM ? team.find((t) => t.id === dmUserId)?.name ?? "Mensaje directo" : null;
 
-  const mentionMembers: Member[] = team.map((t) => ({ id: t.id, name: t.name }));
+  // Menciones acotadas al CANAL cuando el servidor las trae (antes: todo el equipo, incluso
+  // en canales privados); el equipo completo queda de respaldo (general/DM/primer pintado).
+  const mentionMembers: Member[] = dock?.channel?.members?.length
+    ? dock.channel.members.map((m) => ({ id: m.id, name: m.name }))
+    : team.map((t) => ({ id: t.id, name: t.name }));
+  // Total de no-leídos vivo (badge del selector de conversación).
+  const liveTotal = live.total ?? 0;
 
   const body = (
     <div className="flex h-full w-full flex-col">
@@ -194,11 +244,58 @@ export function ChatDock({
           </>
         ) : (
           <>
-            {usingGeneral ? <Hash className="size-4 text-muted-foreground" /> : effectiveChannel?.type === "CLIENT" ? <Building2 className="size-4 text-indigo-600" /> : effectiveChannel?.isPublic ? <Globe className="size-4 text-emerald-600" /> : <Lock className="size-4 text-amber-600" />}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{usingGeneral ? `Equipo · ${effectiveChannel?.name ?? "general"}` : effectiveChannel?.name ?? "Chat"}</p>
-              <p className="truncate text-[11px] text-muted-foreground">{usingGeneral ? "Canal del equipo" : effectiveChannel?.type === "CLIENT" ? "Todos los que trabajan con el cliente" : effectiveChannel?.isPublic ? "Público para el equipo" : "Privado · por invitación"}</p>
-            </div>
+            {usingGeneral ? <Hash className="size-4 shrink-0 text-muted-foreground" /> : effectiveChannel?.type === "CLIENT" ? <Building2 className="size-4 shrink-0 text-indigo-600" /> : effectiveChannel?.isPublic ? <Globe className="size-4 shrink-0 text-emerald-600" /> : <Lock className="size-4 shrink-0 text-amber-600" />}
+            {/* Selector de conversación: el dock ya no está atado al canal del contexto —
+                desde cualquier página se puede abrir CUALQUIER chat, con no-leídos vivos. */}
+            <details data-autoclose className="relative min-w-0 flex-1">
+              <summary
+                onClick={loadConvos}
+                className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted [&::-webkit-details-marker]:hidden"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{usingGeneral ? `Equipo · ${effectiveChannel?.name ?? "general"}` : effectiveChannel?.name ?? "Elegir chat"}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{usingGeneral ? "Canal del equipo" : effectiveChannel?.type === "CLIENT" ? "Todos los que trabajan con el cliente" : effectiveChannel?.type === "DIRECT" ? "Mensaje directo · privado" : effectiveChannel ? (effectiveChannel.isPublic ? "Público para el equipo" : "Privado · por invitación") : "Abre una conversación"}</p>
+                </div>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                {liveTotal > 0 ? (
+                  <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{liveTotal > 99 ? "99+" : liveTotal}</span>
+                ) : null}
+              </summary>
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-80 w-[17rem] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
+                {convos === null ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">Cargando conversaciones…</p>
+                ) : convos.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">Sin conversaciones.</p>
+                ) : (
+                  convos.map((c) => {
+                    const n = live.unreadOf(c.id) ?? c.unread;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={(e) => {
+                          setManualId(c.id);
+                          setDmUserId(null);
+                          e.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60",
+                          effectiveChannel?.id === c.id && "bg-accent",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 leading-tight">
+                          <span className="block truncate">{c.name}</span>
+                          {c.context ? <span className="block truncate text-[10px] text-muted-foreground">{c.context}</span> : null}
+                        </span>
+                        {n > 0 ? (
+                          <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", c.muted ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground")}>{n}</span>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </details>
             {!usingGeneral && effectiveChannel ? (
               <button type="button" onClick={() => setShowMembers((v) => !v)} title="Miembros del chat" className={cn("flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs", showMembers ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted")}>
                 {effectiveChannel.canManage ? <UserPlus className="size-3.5" /> : <Users className="size-3.5" />}
@@ -251,7 +348,20 @@ export function ChatDock({
             </p>
           </div>
         ) : (
-          <ChannelChat key={effectiveChannel.id} channelId={effectiveChannel.id} me={me} isAdmin={isAdmin} members={mentionMembers} initialMessages={messages} projectId={effectiveChannel.type === "PROJECT" && onRealProject ? projectId : null} />
+          <ChannelChat
+            // El general se pinta primero con el prop server-render y se releva con el fetch
+            // (extras incluidos): el sufijo remonta UNA vez para aplicar la ventana completa.
+            key={`${effectiveChannel.id}:${dock ? "full" : "boot"}`}
+            channelId={effectiveChannel.id}
+            me={me}
+            isAdmin={isAdmin}
+            members={mentionMembers}
+            initialMessages={messages}
+            initialLastReadAt={dock?.initialLastReadAt ?? null}
+            mentionExtras={dock?.mentionExtras ?? []}
+            canArchive={dock?.canArchive ?? false}
+            projectId={effectiveChannel.type === "PROJECT" ? dock?.channel?.projectId ?? (onRealProject ? projectId : null) : null}
+          />
         )}
       </div>
     </div>

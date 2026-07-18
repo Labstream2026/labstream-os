@@ -5,6 +5,7 @@ import type { SessionUser } from "@/lib/session";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { ensureRoleChannels } from "@/lib/role-chat";
 import { sessionHasSectionAccess } from "@/lib/chat-section-access";
+import { unreadByChannel } from "@/lib/chat-unread";
 
 // Datos de la lista de chats (rail navegador). Compartido por el layout (rail de
 // escritorio) y la página índice (lista a pantalla completa en móvil), para no duplicar
@@ -47,34 +48,8 @@ export type ChatListData = {
   team: { id: string; name: string }[];
 };
 
-// No leídos por canal: mensajes de otros posteriores a mi última lectura. Para MIEMBROS la
-// lectura vive en ChannelMember.lastReadAt (sin fila de lectura previa cuenta TODO, como
-// siempre). Para quien VE el canal SIN membresía (el admin: la membresía la sincroniza el
-// proyecto/rol y no se puede crear a mano) la lectura vive en UserChannelState.lastReadAt y
-// el conteo EMPIEZA al abrir el canal la primera vez (sin fila → 0, no una avalancha de
-// badges históricos el día del despliegue).
-async function unreadByChannel(userId: string, channelIds: string[]): Promise<Map<string, number>> {
-  if (channelIds.length === 0) return new Map();
-  // Para un MIEMBRO manda la lectura más RECIENTE de las dos: si venía leyendo el canal sin
-  // membresía (admin con UserChannelState) y lo suman al equipo, su historial ya leído no
-  // reaparece como no leído (ChannelMember nace con lastReadAt NULL).
-  const rows = await db.$queryRaw<{ channelId: string; count: bigint }[]>`
-    SELECT m."channelId" AS "channelId", COUNT(*)::bigint AS count
-    FROM "ChatMessage" m
-    LEFT JOIN "ChannelMember" cm ON cm."channelId" = m."channelId" AND cm."userId" = ${userId}
-    LEFT JOIN "UserChannelState" ucs ON ucs."channelId" = m."channelId" AND ucs."userId" = ${userId}
-    WHERE m."channelId" IN (${Prisma.join(channelIds)})
-      AND m."parentId" IS NULL
-      AND m."deletedAt" IS NULL
-      AND (m."authorId" IS NULL OR m."authorId" <> ${userId})
-      AND (
-        (cm."userId" IS NOT NULL AND m."createdAt" > GREATEST(COALESCE(cm."lastReadAt", 'epoch'::timestamp), COALESCE(ucs."lastReadAt", 'epoch'::timestamp)))
-        OR (cm."userId" IS NULL AND ucs."lastReadAt" IS NOT NULL AND m."createdAt" > ucs."lastReadAt")
-      )
-    GROUP BY m."channelId"
-  `.catch(() => [] as { channelId: string; count: bigint }[]); // BD sin migrar (UserChannelState aún no existe): rail sin badges > rail caído
-  return new Map(rows.map((r) => [r.channelId, Number(r.count)] as const));
-}
+// No leídos por canal: vive en src/lib/chat-unread.ts (unreadByChannel), COMPARTIDO con el
+// badge global del layout y el stream /api/chat/stream para que los números cuadren siempre.
 
 // Último mensaje visible por canal (para el subtítulo del rail y el orden por actividad).
 type LastMessage = { body: string; at: Date; author: string | null };

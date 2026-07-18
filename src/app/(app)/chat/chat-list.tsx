@@ -12,6 +12,7 @@ import { createChannel, toggleChannelPin, searchMessages, type MessageSearchHit 
 import { CHAT_SECTIONS } from "@/lib/chat-section";
 import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
+import { useChatLive } from "@/components/layout/chat-live";
 
 // Chip del tipo de canal dentro del grupo de un cliente (proyecto, cuenta del cliente) o de un
 // equipo por rol. Colorea sin gritar: borde + texto. Con UN solo canal por proyecto, el chip del
@@ -58,15 +59,86 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   };
 
   // Leído estilo WhatsApp: al abrir un chat, su badge de no-leídos se limpia AL INSTANTE en
-  // el cliente (el rail vive en el layout y no se re-renderiza al navegar; markChannelRead ya
-  // persiste lastReadAt en el servidor para la próxima carga).
+  // el cliente (markChannelRead ya persiste lastReadAt en el servidor).
   const [readIds, setReadIds] = React.useState<Set<string>>(() => new Set());
   React.useEffect(() => {
     if (activeId) setReadIds((prev) => (prev.has(activeId) ? prev : new Set(prev).add(activeId)));
   }, [activeId]);
-  const seen = (id: string | null, n: number) => (id && readIds.has(id) ? 0 : n);
+  // ── Rail VIVO ── El stream global (/api/chat/stream) trae los conteos reales (con debounce)
+  // y un aviso ligero por mensaje para refrescar el preview y el orden sin recargar.
+  const live = useChatLive();
+  const subscribe = live.subscribe;
+  const [livePrev, setLivePrev] = React.useState<Map<string, { last: string; lastAt: string }>>(() => new Map());
+  const knownIds = React.useMemo(() => {
+    const s = new Set<string>();
+    if (data.daily.channelId) s.add(data.daily.channelId);
+    for (const r of [...data.pinned, ...data.dms, ...data.groups]) s.add(r.id);
+    for (const g of data.clientGroups) for (const r of g.channels) s.add(r.id);
+    // Explorar también es «conocido»: un canal público ojeado sin unirse tiene estado de
+    // lectura (el stream le emite actividad) y NO debe disparar el refresh de canal-nuevo.
+    for (const c of data.explore) s.add(c.id);
+    return s;
+  }, [data]);
+  const activeIdRef = React.useRef(activeId);
+  React.useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+  const refreshAt = React.useRef(0);
+  React.useEffect(() => {
+    return subscribe((m) => {
+      if (m.parentId) return; // las respuestas de hilo no cambian preview/orden del rail
+      if (!knownIds.has(m.channelId)) {
+        // Mensaje en un canal que el rail no conoce (¿me añadieron a un proyecto/canal?):
+        // recargar el rail server-render, con throttle para no ciclar.
+        if (Date.now() - refreshAt.current > 60000) {
+          refreshAt.current = Date.now();
+          router.refresh();
+        }
+        return;
+      }
+      // El canal dejó de estar «recién leído» si llega algo nuevo y NO lo tengo abierto:
+      // sin esto, readIds lo forzaba a 0 para siempre y el badge nuevo no aparecía.
+      if (m.channelId !== activeIdRef.current) {
+        setReadIds((prev) => {
+          if (!prev.has(m.channelId)) return prev;
+          const next = new Set(prev);
+          next.delete(m.channelId);
+          return next;
+        });
+      }
+      const who = m.author ? `${m.author.split(" ")[0]}: ` : "";
+      const body = m.body.replace(/\s+/g, " ").trim();
+      setLivePrev((prev) => {
+        const next = new Map(prev);
+        next.set(m.channelId, { last: `${who}${body}`, lastAt: m.createdAt });
+        return next;
+      });
+    });
+  }, [subscribe, knownIds, router]);
+
+  // Conteo final de una fila: lo «recién leído» (readIds) manda SIEMPRE a cero — el resumen
+  // vivo puede llegar 1-2 s tarde tras markChannelRead y el badge parpadeaba al salir del
+  // canal; la suscripción de arriba saca al canal de readIds cuando llega algo nuevo.
+  // Con resumen vivo manda el stream; sin resumen aún, el valor server-render.
+  const unreadOf = (id: string | null, fallback: number) => {
+    if (!id) return 0;
+    if (readIds.has(id) || id === activeId) return 0;
+    if (live.version > 0) return live.unreadOf(id) ?? 0;
+    return fallback;
+  };
+  // Fila con overlay vivo: conteo + (si el stream trajo algo más nuevo) preview y hora.
+  const withLive = (r: ChatListRow): ChatListRow => {
+    const unread = unreadOf(r.id, r.unread);
+    const p = livePrev.get(r.id);
+    if (p && (!r.lastAt || p.lastAt > r.lastAt)) {
+      return { ...r, unread, last: p.last, lastAt: p.lastAt, when: "ahora" };
+    }
+    return unread === r.unread ? r : { ...r, unread };
+  };
+  const byActivity = (a: ChatListRow, b: ChatListRow) =>
+    (b.lastAt ? Date.parse(b.lastAt) : 0) - (a.lastAt ? Date.parse(a.lastAt) : 0);
   // Los canales SILENCIADOS no suman al badge de su sección (se ven en gris en su fila).
-  const sum = (rows: ChatListRow[]) => rows.reduce((n, c) => n + (c.muted ? 0 : seen(c.id, c.unread)), 0);
+  const sum = (rows: ChatListRow[]) => rows.reduce((n, c) => n + (c.muted ? 0 : c.unread), 0);
 
   const togglePin = (id: string) =>
     startTransition(async () => {
@@ -80,11 +152,14 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   const searching = q.length > 0;
   const match = (r: ChatListRow) =>
     !searching || norm(r.name).includes(q) || (r.last ? norm(r.last).includes(q) : false) || norm(r.meta).includes(q);
-  const pinned = data.pinned.filter(match);
-  const dms = data.dms.filter(match);
-  const groups = data.groups.filter(match);
+  // Overlay vivo + re-orden por actividad (un mensaje nuevo sube su conversación, como Slack).
+  // Los fijados conservan su orden de fijado a propósito.
+  const pinned = data.pinned.filter(match).map(withLive);
+  const dms = data.dms.filter(match).map(withLive).sort(byActivity);
+  const groups = data.groups.filter(match).map(withLive).sort(byActivity);
   const clientGroups = data.clientGroups
     .map((g) => (searching && norm(g.clientName).includes(q) ? g : { ...g, channels: g.channels.filter(match) }))
+    .map((g) => ({ ...g, channels: g.channels.map(withLive).sort(byActivity) }))
     .filter((g) => g.channels.length > 0);
   const explore = data.explore.filter((c) => !searching || norm(c.name).includes(q));
   const dailyVisible = data.daily.channelId && (!searching || norm(data.daily.name).includes(q));
@@ -236,7 +311,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             defaultOpen
           >
             {pinned.map((c) => (
-              <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} {...rowProps} indent showMeta />
+              <Row key={c.id} row={c} {...rowProps} indent showMeta />
             ))}
           </Collapsible>
         ) : null}
@@ -257,8 +332,8 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
                 <span className="font-medium">{data.daily.name}</span>
                 <span className="truncate text-[11px] text-muted-foreground">Canal del equipo · día a día</span>
               </span>
-              {seen(data.daily.channelId, data.daily.unread) > 0 ? (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{seen(data.daily.channelId, data.daily.unread)}</span>
+              {unreadOf(data.daily.channelId, data.daily.unread) > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{unreadOf(data.daily.channelId, data.daily.unread)}</span>
               ) : null}
             </Link>
           </div>
@@ -287,7 +362,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
                 forceOpen={searching || g.channels.some((c) => c.id === activeId)}
               >
                 {g.channels.map((c) => (
-                  <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} {...rowProps} indent />
+                  <Row key={c.id} row={c} {...rowProps} indent />
                 ))}
               </Collapsible>
             ))}
@@ -306,7 +381,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             defaultOpen
           >
             {dms.length === 0 ? <Empty>Sin mensajes directos.</Empty> : dms.map((c) => (
-              <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} {...rowProps} indent />
+              <Row key={c.id} row={c} {...rowProps} indent />
             ))}
           </Collapsible>
         ) : null}
@@ -323,7 +398,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             defaultOpen
           >
             {groups.map((c) => (
-              <Row key={c.id} row={{ ...c, unread: seen(c.id, c.unread) }} {...rowProps} indent />
+              <Row key={c.id} row={c} {...rowProps} indent />
             ))}
           </Collapsible>
         ) : null}

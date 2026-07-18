@@ -394,6 +394,10 @@ export function ChannelChat({
     ));
   }, []);
   const [online, setOnline] = React.useState(true);
+  // Salud del stream SSE del canal: "ok" | "reconnecting" (corte/502 del proxy en un deploy:
+  // EventSource lo da por muerto DEFINITIVAMENTE y sin esto el chat quedaba sordo hasta
+  // recargar) | "revoked" (el servidor avisó que perdí acceso al canal).
+  const [conn, setConn] = React.useState<"ok" | "reconnecting" | "revoked">("ok");
   const [myVotes, setMyVotes] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(
       initialMessages.filter((m) => m.poll && m.myOptionId).map((m) => [m.poll!.id, m.myOptionId!]),
@@ -531,9 +535,14 @@ export function ChannelChat({
   const catchUp = React.useCallback(async () => {
     let latest = "";
     for (const m of messagesRef.current) if (m.createdAt > latest) latest = m.createdAt;
-    if (!latest) return;
     try {
-      const res = await fetch(`/api/chat/${channelId}/messages?after=${encodeURIComponent(latest)}`, { cache: "no-store" });
+      // Canal VACÍO al reconciliar: sin ?after se trae la ventana reciente completa (los
+      // primeros mensajes de un canal nuevo pudieron llegar durante un hueco del SSE y
+      // antes no se recuperaban nunca).
+      const url = latest
+        ? `/api/chat/${channelId}/messages?after=${encodeURIComponent(latest)}`
+        : `/api/chat/${channelId}/messages`;
+      const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
       const incoming: ChatMsg[] = data?.messages ?? [];
@@ -597,9 +606,15 @@ export function ChannelChat({
   }, [nearBottom, scrollToBottom]);
 
   React.useEffect(() => {
-    const es = new EventSource(`/api/chat/${channelId}/stream`);
-    es.onopen = () => void catchUp();
-    es.onmessage = (e) => {
+    // Conexión SSE con reconexión PROPIA: EventSource solo auto-reintenta errores de red;
+    // una respuesta no-200 (502 del reverse proxy durante un deploy/reinicio) lo marca
+    // fallido para siempre y el canal quedaba mudo sin ninguna señal. Aquí: backoff +
+    // franja «reconectando…» + catchUp() al reabrir (reconcilia el hueco con la BD).
+    let es: EventSource | null = null;
+    let stopped = false;
+    let retryMs = 1000;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleEvent = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
         if (data?.kind === "poll") {
@@ -637,13 +652,64 @@ export function ChannelChat({
         }
         const m = data as ChatMsg;
         upsert({ ...m, status: "sent", reactions: m.reactions ?? [] });
-        if (!m.parentId) scrollToBottom();
+        // Solo arrastra al fondo si el lector YA estaba al fondo (o si el mensaje es mío):
+        // leer historial arriba no debe interrumpirse por cada mensaje entrante.
+        if (!m.parentId && (nearBottom() || isMine(m.author))) scrollToBottom();
       } catch {
         /* ignore */
       }
     };
-    return () => es.close();
-  }, [channelId, upsert, scrollToBottom, me.id, isAdmin, catchUp]);
+    const connect = () => {
+      if (stopped) return;
+      es = new EventSource(`/api/chat/${channelId}/stream`);
+      es.onopen = () => {
+        retryMs = 1000;
+        setConn("ok");
+        void catchUp();
+      };
+      es.onmessage = handleEvent;
+      // El servidor expulsa con `revoked` si pierdo acceso al canal: avisar en vez de morir mudo.
+      es.addEventListener("revoked", () => {
+        stopped = true;
+        setConn("revoked");
+        es?.close();
+      });
+      es.onerror = () => {
+        if (stopped) return;
+        setConn("reconnecting");
+        es?.close();
+        const delay = retryMs;
+        retryTimer = setTimeout(async () => {
+          if (stopped) return;
+          // Tras varios reintentos, sondear el acceso: un 403 (me revocaron con el stream
+          // caído) no es un corte de red y no debe reintentar para siempre. EventSource no
+          // expone el status, así que se pregunta al endpoint de mensajes.
+          if (delay >= 8000) {
+            try {
+              const probe = await fetch(`/api/chat/${channelId}/messages?after=${encodeURIComponent(new Date().toISOString())}`, { cache: "no-store" });
+              if (probe.status === 401 || probe.status === 403) {
+                stopped = true;
+                setConn("revoked");
+                return;
+              }
+            } catch {
+              /* red caída de verdad: seguir reintentando */
+            }
+          }
+          connect();
+        }, delay);
+        retryMs = Math.min(retryMs * 2, 15000);
+      };
+    };
+    connect();
+    return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+    };
+    // isMine es una función del render (compara con `me`); estable a efectos prácticos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, upsert, scrollToBottom, me.id, isAdmin, catchUp, nearBottom]);
 
   React.useEffect(() => {
     scrollToBottom();
@@ -1271,6 +1337,14 @@ export function ChannelChat({
       {!online ? (
         <p className="bg-amber-500/10 px-4 py-1 text-center text-[11px] text-amber-600 dark:text-amber-400">
           Sin conexión — los mensajes se enviarán al reconectar
+        </p>
+      ) : conn === "reconnecting" ? (
+        <p className="bg-amber-500/10 px-4 py-1 text-center text-[11px] text-amber-600 dark:text-amber-400">
+          Reconectando con el chat… los mensajes nuevos aparecerán al volver
+        </p>
+      ) : conn === "revoked" ? (
+        <p className="bg-destructive/10 px-4 py-1 text-center text-[11px] text-destructive">
+          Perdiste acceso a este canal — ya no recibirás mensajes nuevos
         </p>
       ) : null}
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IconInicio, IconEntregas, IconTareas, IconCliente, IconProyectos, IconChat, IconCalendario, IconMas, type IconProps } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { useChatLive } from "@/components/layout/chat-live";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
 // Inicio · Tareas · Proyectos · Chat son destinos; "Más" abre el cajón del menú.
@@ -28,6 +29,9 @@ export function BottomNav({
 }) {
   const pathname = usePathname();
   const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
+  // Badge VIVO: el stream global manda; el valor server-render solo arranca.
+  const live = useChatLive();
+  const unread = live.total ?? chatUnread;
 
   // El portal del cliente navega entre SUS proyectos, el calendario y el chat de su proyecto.
   // Íconos del set propio de Labstream (duotono): misma firma que un ícono de UI (className).
@@ -82,9 +86,9 @@ export function BottomNav({
             {chatActive ? <span className={indicator} /> : null}
             <span className="relative">
               <IconChat className={cn("size-6", !chatActive && "opacity-80")} />
-              {chatUnread > 0 ? (
+              {unread > 0 ? (
                 <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
-                  {chatUnread > 99 ? "99+" : chatUnread}
+                  {unread > 99 ? "99+" : unread}
                 </span>
               ) : null}
             </span>

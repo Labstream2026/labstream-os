@@ -31,6 +31,7 @@ import { Logo, LogoMark } from "@/components/brand/logo";
 import { logout } from "@/lib/auth-actions";
 import { archiveClient } from "@/app/(app)/clientes/actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useChatLive } from "@/components/layout/chat-live";
 
 export type SidebarUser = {
   name: string;
@@ -115,6 +116,9 @@ export function Sidebar({
   const router = useRouter();
   const [, startDelete] = useTransition();
   const { confirm, dialog } = useConfirmDialog();
+  // Badge de Chats VIVO: el stream global manda; el valor server-render solo arranca.
+  const live = useChatLive();
+  const chatBadge = live.total ?? chatUnread;
 
   // Archivar un cliente (solo admin): borrado SUAVE. Sale de las listas pero se conserva
   // todo (facturas, cotizaciones, proyectos) y se puede restaurar desde /clientes.
@@ -225,7 +229,7 @@ export function Sidebar({
           let label = item.label;
           let icon = item.icon;
           if (item.href === "/clientes" && !canClients) { href = "/proyectos"; label = isCliente ? "Mis proyectos" : "Proyectos"; icon = IconProyectos; }
-          const badge = item.href === "/chat" ? chatUnread || undefined : item.href === "/revisiones" ? reviewPending || undefined : item.href === "/recordatorios" ? remindersToday || undefined : undefined;
+          const badge = item.href === "/chat" ? chatBadge || undefined : item.href === "/revisiones" ? reviewPending || undefined : item.href === "/recordatorios" ? remindersToday || undefined : undefined;
           const active = item.href === "/revisiones" ? pathname.startsWith("/revisiones") : item.href === "/mis-entregas" ? pathname.startsWith("/mis-entregas") : pathname === href;
           return navRow(href, label, icon, active, badge);
         })}

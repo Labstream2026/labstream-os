@@ -5,6 +5,7 @@ import { canAccessChannel } from "@/lib/chat-access";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { canSeeWiki } from "@/lib/wiki-access";
+import { getChatUnreadSummary } from "@/lib/chat-unread";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { labelOptions } from "@/lib/colors";
@@ -76,19 +77,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }),
   ]);
 
-  // Total de mensajes no leídos en los canales/DMs del usuario (badge del sidebar).
-  // Una sola consulta con JOIN en vez de un count por canal (evita N+1).
-  const unreadRows = await db.$queryRaw<{ total: bigint }[]>`
-    SELECT COUNT(*)::bigint AS total
-    FROM "ChatMessage" m
-    JOIN "ChannelMember" cm ON cm."channelId" = m."channelId"
-    WHERE cm."userId" = ${session.id}
-      AND m."parentId" IS NULL
-      AND m."deletedAt" IS NULL
-      AND (m."authorId" IS NULL OR m."authorId" <> ${session.id})
-      AND m."createdAt" > COALESCE(cm."lastReadAt", 'epoch'::timestamp)
-  `;
-  const chatUnread = Number(unreadRows[0]?.total ?? 0);
+  // Total de mensajes no leídos (badge del sidebar): MISMA contabilidad que el rail de /chat
+  // (GREATEST con UserChannelState, sin silenciados y solo canales visibles HOY).
+  // Este valor es solo el arranque: el stream /api/chat/stream lo mantiene vivo en el cliente.
+  const chatUnread = (await getChatUnreadSummary(session))?.total ?? 0;
 
   // Entregables pendientes de MI pre-aprobación (badge de «Proyectos a revisar»).
   // Solo los que ME corresponden como RESPONSABLE: soy el reviewer asignado; o si el
