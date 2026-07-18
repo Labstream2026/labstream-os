@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -420,6 +420,7 @@ export function ChannelChat({
   const [mentionIndex, setMentionIndex] = React.useState(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const topSentinelRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const cameraRef = React.useRef<HTMLInputElement>(null);
   const emojiBtnRef = React.useRef<HTMLButtonElement>(null);
@@ -439,6 +440,10 @@ export function ChannelChat({
   const [voicePreview, setVoicePreview] = React.useState<{ url: string; file: File } | null>(null);
   // Se está arrastrando un archivo sobre el chat (para resaltar la zona de soltar).
   const [dragOver, setDragOver] = React.useState(false);
+  // ¿El scroll está al fondo? y cuántos mensajes llegaron mientras leías historial arriba (para
+  // el botón flotante «ir al último N»).
+  const [atBottom, setAtBottom] = React.useState(true);
+  const [newCount, setNewCount] = React.useState(0);
   // Reenviar a otro canal del mismo cliente: destinos perezosos + estado por mensaje.
   const [forwardFor, setForwardFor] = React.useState<string | null>(null);
   const [forwardTargets, setForwardTargets] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -578,6 +583,16 @@ export function ChannelChat({
     });
   }, []);
 
+  // Saltar a un mensaje concreto (fijado, resultado…): lo centra y lo resalta 2,6 s. Si no está
+  // en la ventana cargada no hace nada (el permalink ?msg= sí pagina; aquí basta el salto local).
+  const jumpToMessage = React.useCallback((id: string) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlighted(id);
+    setTimeout(() => setHighlighted(null), 2600);
+  }, []);
+
   const upsert = React.useCallback((m: ChatMsg) => {
     setMessages((prev) =>
       prev.some((x) => x.id === m.id) ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m],
@@ -696,6 +711,21 @@ export function ChannelChat({
     return () => window.removeEventListener("chat-media-loaded", onMedia);
   }, [nearBottom, scrollToBottom]);
 
+  // Carga infinita hacia arriba: cuando la sentinela del tope entra en vista (con margen), carga
+  // el historial anterior sola (loadOlder ya preserva la posición del scroll). El botón manual
+  // sigue de respaldo. rootMargin adelanta la carga un poco antes de llegar al borde.
+  React.useEffect(() => {
+    const sentinel = topSentinelRef.current;
+    const root = scrollRef.current;
+    if (!sentinel || !root || !hasOlder) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting && !loadingOlder) void loadOlder(); },
+      { root, rootMargin: "300px 0px 0px 0px" },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasOlder, loadingOlder, loadOlder]);
+
   React.useEffect(() => {
     // Conexión SSE con reconexión PROPIA: EventSource solo auto-reintenta errores de red;
     // una respuesta no-200 (502 del reverse proxy durante un deploy/reinicio) lo marca
@@ -746,6 +776,8 @@ export function ChannelChat({
         // Solo arrastra al fondo si el lector YA estaba al fondo (o si el mensaje es mío):
         // leer historial arriba no debe interrumpirse por cada mensaje entrante.
         if (!m.parentId && (nearBottom() || isMine(m.author))) scrollToBottom();
+        // Mensaje AJENO llegado mientras lees arriba: cuenta para el botón «ir al último N».
+        else if (!m.parentId && !isMine(m.author)) setNewCount((n) => n + 1);
       } catch {
         /* ignore */
       }
@@ -1262,15 +1294,34 @@ export function ChannelChat({
           {pinned.map((p) => (
             <div key={p.id} className="flex items-center gap-1.5 text-xs">
               <Pin className="size-3 shrink-0 text-muted-foreground" />
-              <span className="truncate text-muted-foreground"><span className="font-medium text-foreground">{isMine(p.author) ? "Tú" : p.author?.name}:</span> {p.body}</span>
+              {/* Clic en el fijado → salta al mensaje original (antes no era clicable). */}
+              <button
+                type="button"
+                onClick={() => jumpToMessage(p.id)}
+                className="min-w-0 flex-1 truncate text-left text-muted-foreground hover:text-foreground"
+                title="Ir al mensaje fijado"
+              >
+                <span className="font-medium text-foreground">{isMine(p.author) ? "Tú" : p.author?.name}:</span> {p.body}
+              </button>
               {!readOnly ? <button onClick={() => pin(p.id, true)} className="ml-auto shrink-0 text-muted-foreground hover:text-destructive" title="Desfijar"><X className="size-3" /></button> : null}
             </div>
           ))}
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="relative flex-1 overflow-y-auto"
+        onScroll={() => {
+          const bottom = nearBottom();
+          setAtBottom(bottom);
+          if (bottom && newCount) setNewCount(0);
+        }}
+      >
         <div className="mx-auto w-full max-w-3xl px-4 py-3">
+        {/* Sentinela para carga infinita hacia arriba: al acercarse al tope, carga el historial
+            anterior sola (el botón queda de respaldo). */}
+        <div ref={topSentinelRef} aria-hidden />
         {hasOlder ? (
           <div className="flex justify-center py-1">
             <button
@@ -1538,6 +1589,21 @@ export function ChannelChat({
         })}
         </div>
       </div>
+
+      {/* Botón flotante «ir al último»: aparece al leer historial arriba, con el nº de mensajes
+          llegados mientras tanto. Anclado sobre el composer (la raíz es relative). */}
+      {!atBottom ? (
+        <button
+          type="button"
+          onClick={() => { scrollToBottom(); setNewCount(0); }}
+          className="absolute bottom-24 right-4 z-30 flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-lg hover:bg-muted"
+          aria-label="Ir al último mensaje"
+        >
+          {newCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">{newCount > 99 ? "99+" : newCount}</span> : null}
+          {newCount > 0 ? "nuevos" : "Ir al último"}
+          <ChevronDown className="size-3.5" />
+        </button>
+      ) : null}
 
       {!online ? (
         <p className="bg-amber-500/10 px-4 py-1 text-center text-[11px] text-amber-600 dark:text-amber-400">
