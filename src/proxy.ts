@@ -18,6 +18,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /api/files-asset: archivo de proyecto servido por token firmado (lo usa el portal).
 // - /api/openclaw: webhook inverso de OpenClaw (entrega imágenes/archivos al chat); usa
 //   OPENCLAW_INBOUND_TOKEN, no la sesión del navegador.
+// - /api/mcp: servidor MCP para agentes de IA; se autentica por AppKey (Authorization: Bearer lsk_),
+//   NUNCA por sesión → debe quedar fuera del redirect a /login (igual que /api/v1).
 // - /api/v1: API intermedia para servicios externos; se autentica por AppKey (Authorization:
 //   Bearer) en cada ruta vía withApiKey(), NO por la cookie de sesión. Por eso debe quedar fuera
 //   del redirect a /login (si no, una petición con Bearer recibiría el HTML del login).
@@ -27,7 +29,7 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   servidor de Google/Apple/Outlook SIN cookie; se autentica por el token secreto de la URL.
 // - /api/resolve-plugin: API del plugin de DaVinci Resolve (correcciones en el timeline). Se
 //   autentica por el token firmado del enlace de revisión (mismo que /review), no por cookie.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/calendar/feed", "/api/resolve-plugin"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no
