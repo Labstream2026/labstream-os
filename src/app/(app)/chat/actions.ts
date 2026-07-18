@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessChannel, userCanManageChannel, canAccessChannel } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
+import { createTask } from "@/app/(app)/proyectos/[id]/actions";
 import { CHAT_SECTIONS, sectionMeta } from "@/lib/chat-section";
 import { userHasSectionAccess, sessionHasSectionAccess } from "@/lib/chat-section-access";
 
@@ -638,6 +639,29 @@ async function validParentId(channelId: string, parentId: string | null): Promis
   if (!parentId) return null;
   const parent = await db.chatMessage.findUnique({ where: { id: parentId }, select: { channelId: true } });
   return parent && parent.channelId === channelId ? parentId : null;
+}
+
+// Crear una TAREA a partir de un mensaje del chat (canal de proyecto): la nota nace con el texto
+// del mensaje como título y un enlace de vuelta al mensaje (permalink ?msg=). Lo que se acuerda
+// en el chat deja de perderse. Reusa createTask (validación de acceso/permiso, actividad, avisos).
+export async function createTaskFromMessage(channelId: string, messageId: string): Promise<{ ok: boolean; projectId?: string; error?: string }> {
+  const session = await getSession();
+  if (!session || !(await userCanAccessChannel(channelId, session))) return { ok: false, error: "Sin acceso a este chat." };
+  const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true } });
+  if (!channel?.projectId) return { ok: false, error: "Este chat no pertenece a un proyecto." };
+  if (!hasPermission(session, "crear_tareas")) return { ok: false, error: "No tienes permiso para crear tareas." };
+  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { body: true, channelId: true } });
+  if (!msg || msg.channelId !== channelId) return { ok: false, error: "Mensaje no encontrado." };
+  const title = (msg.body.replace(/\s+/g, " ").trim().slice(0, 120)) || "Tarea desde el chat";
+  const fd = new FormData();
+  fd.set("title", title);
+  fd.set("description", `Creada desde el chat.\nMensaje original: /chat/${channelId}?msg=${messageId}`);
+  try {
+    await createTask(channel.projectId, fd); // valida crear_tareas + acceso, registra actividad
+  } catch {
+    return { ok: false, error: "No se pudo crear la tarea." };
+  }
+  return { ok: true, projectId: channel.projectId };
 }
 
 // Un quotedId solo vale si existe y pertenece al MISMO canal (viene del cliente).

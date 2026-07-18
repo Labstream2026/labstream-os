@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, type ChannelReader } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, createTaskFromMessage, type ChannelReader } from "@/app/(app)/chat/actions";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
@@ -448,6 +448,8 @@ export function ChannelChat({
   const [newCount, setNewCount] = React.useState(0);
   // Cita estilo WhatsApp: el mensaje al que estás respondiendo (se muestra sobre el composer).
   const [quoting, setQuoting] = React.useState<ChatMsg | null>(null);
+  // «Crear tarea» desde un mensaje: id del mensaje → estado del intento (para el feedback inline).
+  const [taskFrom, setTaskFrom] = React.useState<{ id: string; state: "loading" | "done" | "error"; projectId?: string; error?: string } | null>(null);
   // Reenviar a otro canal del mismo cliente: destinos perezosos + estado por mensaje.
   const [forwardFor, setForwardFor] = React.useState<string | null>(null);
   const [forwardTargets, setForwardTargets] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -1474,6 +1476,22 @@ export function ChannelChat({
                         >
                           <Share2 className="size-3.5" /> Reenviar a…
                         </button>
+                        {/* Crear tarea desde el mensaje: solo en canales de PROYECTO (projectId), lo
+                            que se acuerda en el chat deja de perderse. */}
+                        {projectId ? (
+                          <button
+                            onClick={async (e) => {
+                              (e.currentTarget.closest("details") as HTMLDetailsElement).open = false;
+                              setTaskFrom({ id: m.id, state: "loading" });
+                              const r = await createTaskFromMessage(channelId, m.id).catch(() => ({ ok: false as const, error: "Error de red." }));
+                              setTaskFrom(r.ok ? { id: m.id, state: "done", projectId: r.projectId } : { id: m.id, state: "error", error: r.error });
+                              setTimeout(() => setTaskFrom((cur) => (cur?.id === m.id ? null : cur)), 6000);
+                            }}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted"
+                          >
+                            <ListChecks className="size-3.5" /> Crear tarea
+                          </button>
+                        ) : null}
                         {forwardFor === m.id ? (
                           <div className="mt-1 max-h-40 overflow-y-auto border-t border-border pt-1">
                             {forwardDone === m.id ? (
@@ -1544,6 +1562,22 @@ export function ChannelChat({
                 <Attachments items={m.attachments} author={m.author} projectId={projectId} readOnly={readOnly} canArchive={canArchive} onArchived={markArchived} />
                 {m.poll ? (
                   <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
+                ) : null}
+                {/* Feedback de «Crear tarea» desde este mensaje. */}
+                {taskFrom?.id === m.id ? (
+                  <div className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
+                    <ListChecks className="size-3.5 text-primary" />
+                    {taskFrom.state === "loading" ? (
+                      <span className="text-muted-foreground">Creando tarea…</span>
+                    ) : taskFrom.state === "done" ? (
+                      <>
+                        <span className="text-emerald-600 dark:text-emerald-400">Tarea creada</span>
+                        <a href={`/proyectos/${taskFrom.projectId}?tab=tareas`} className="font-medium text-primary hover:underline">Ver tareas →</a>
+                      </>
+                    ) : (
+                      <span className="text-destructive">{taskFrom.error ?? "No se pudo crear la tarea."}</span>
+                    )}
+                  </div>
                 ) : null}
 
                 {/* Pie SOLO cuando hay contenido real (reacciones o respuestas): nunca aparece
