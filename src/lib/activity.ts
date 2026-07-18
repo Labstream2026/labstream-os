@@ -63,6 +63,8 @@ export async function logActivity(input: {
 // atiende la cuenta ve el pulso de TODOS los proyectos de ese cliente en un solo chat.
 const CHAT_MIRROR_ACTIONS = new Set([
   "project.status", // el proyecto cambió de estado
+  "task.create", // nació una tarea (aparece el trabajo nuevo en el pulso del proyecto)
+  "task.complete", // se completó una tarea (progreso; SOLO al pasar a "Terminada", no en cada cambio de estado)
   "deliverable.status", // un entregable cambió de estado
   "deliverable.preapproval", // pre-aprobación interna / cambios solicitados
   "deliverable.client_approved", // el cliente aprobó
