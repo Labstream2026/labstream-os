@@ -432,6 +432,11 @@ export function ChannelChat({
   const recTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTypingRef = React.useRef(0);
   const queueKey = `labstream-chat-queue:${channelId}`;
+  const draftKey = `labstream-chat-draft:${channelId}`;
+  // Nota de voz grabada, a la espera de escucharla/enviarla/descartarla (preview antes de mandar).
+  const [voicePreview, setVoicePreview] = React.useState<{ url: string; file: File } | null>(null);
+  // Se está arrastrando un archivo sobre el chat (para resaltar la zona de soltar).
+  const [dragOver, setDragOver] = React.useState(false);
   // Reenviar a otro canal del mismo cliente: destinos perezosos + estado por mensaje.
   const [forwardFor, setForwardFor] = React.useState<string | null>(null);
   const [forwardTargets, setForwardTargets] = React.useState<{ id: string; name: string }[] | null>(null);
@@ -503,6 +508,29 @@ export function ChannelChat({
     document.addEventListener("visibilitychange", onVis);
     return () => { cancelled = true; clearTimeout(t); clearInterval(beat); document.removeEventListener("visibilitychange", onVis); };
   }, [channelId, messages.length]);
+
+  // Borrador persistente por canal: al abrir un canal se restaura lo que estabas escribiendo (no
+  // se pierde al saltar entre chats). Se guarda en onComposerChange y se limpia al enviar.
+  // Como la página /chat/[id] NO remonta ChannelChat al cambiar de canal (el estado `text`
+  // persiste), se asigna SIEMPRE el borrador del canal actual (o "" si no tiene) — así un canal
+  // sin borrador no hereda el texto del canal anterior.
+  React.useEffect(() => {
+    const restore = () => {
+      try {
+        setText(window.localStorage.getItem(draftKey) ?? "");
+      } catch {
+        /* localStorage no disponible */
+      }
+    };
+    restore();
+  }, [draftKey]);
+
+  // Al desmontar (o cambiar de canal), suelta la URL de la nota de voz en preview.
+  React.useEffect(() => {
+    return () => {
+      if (voicePreview) URL.revokeObjectURL(voicePreview.url);
+    };
+  }, [voicePreview]);
 
   // Limpia los indicadores de "escribiendo…" caducados.
   React.useEffect(() => {
@@ -877,6 +905,37 @@ export function ChannelChat({
     if (ok.length) setFiles((prev) => [...prev, ...ok]);
   }
 
+  // Pegar una imagen del portapapeles (Ctrl/⌘+V) directo al chat — flujo diario en una productora
+  // (pantallazo de un fotograma). Los items de imagen del clipboard entran como adjuntos.
+  function onComposerPaste(e: React.ClipboardEvent) {
+    const imgs = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f);
+    if (imgs.length) {
+      e.preventDefault();
+      // El pantallazo suele venir sin nombre útil: le ponemos uno legible con la hora.
+      addFiles(imgs.map((f) => (f.name && f.name !== "image.png" ? f : new File([f], `pegado-${Date.now()}.${(f.type.split("/")[1] || "png")}`, { type: f.type }))));
+    }
+  }
+  // Arrastrar y soltar archivos sobre el chat.
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (dropped.length) addFiles(dropped);
+  }
+
+  // ¿El adjunto es una imagen? → miniatura previa en el chip (en vez del icono genérico).
+  const imgPreviews = React.useMemo(() => {
+    const map = new Map<File, string>();
+    for (const f of files) if (f.type.startsWith("image/")) map.set(f, URL.createObjectURL(f));
+    return map;
+  }, [files]);
+  React.useEffect(() => {
+    return () => { for (const url of imgPreviews.values()) URL.revokeObjectURL(url); };
+  }, [imgPreviews]);
+
   async function submitMain(e: React.FormEvent) {
     e.preventDefault();
     if (files.length > 0) {
@@ -892,6 +951,7 @@ export function ChannelChat({
       setAttachErr(null);
       setText("");
       setFiles([]);
+      clearDraft();
       try {
         // El servidor devuelve el mensaje ya guardado: se muestra al instante
         // (sin depender del SSE, que puede no llegar al propio emisor).
@@ -916,6 +976,7 @@ export function ChannelChat({
     }
     submitText(text, null);
     setText("");
+    clearDraft();
     setMentionQuery(null);
   }
 
@@ -945,11 +1006,13 @@ export function ChannelChat({
       stopRecCleanup();
     }
   }
-  function finishRecording(send: boolean) {
+  // Detener la grabación: keep=false cancela; keep=true pasa la nota a PREVIEW (para escucharla
+  // antes de mandarla), no la envía directo (antes finishRecording(true) subía al instante).
+  function finishRecording(keep: boolean) {
     const mr = recRef.current;
     setRecording(false);
     if (!mr) { stopRecCleanup(); return; }
-    mr.onstop = async () => {
+    mr.onstop = () => {
       // mr.mimeType puede venir vacío en iOS; usamos el tipo del primer chunk o caemos a mp4
       // (formato nativo de iOS), NO a webm —que iOS no graba— para no mal-etiquetar el archivo.
       const type = mr.mimeType || recChunks.current[0]?.type || "audio/mp4";
@@ -957,32 +1020,52 @@ export function ChannelChat({
       recChunks.current = [];
       recRef.current = null;
       stopRecCleanup();
-      if (!send || blob.size === 0) return;
+      if (!keep || blob.size === 0) return;
       const ext = type.includes("webm") ? "weba" : type.includes("ogg") ? "ogg" : "m4a";
       const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type });
-      const fd = new FormData();
-      fd.set("channelId", channelId);
-      fd.set("body", "");
-      fd.append("files", file);
-      setUploading(true);
-      setAttachErr(null);
-      try {
-        const saved = await sendMessageWithAttachments(fd);
-        if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
-      } catch {
-        setAttachErr("No se pudo enviar la nota de voz.");
-      } finally {
-        setUploading(false);
-        scrollToBottom();
-      }
+      setVoicePreview({ url: URL.createObjectURL(file), file });
     };
     try { mr.stop(); } catch { stopRecCleanup(); }
   }
+  // Descartar la nota de voz en preview (sin enviarla).
+  function discardVoice() {
+    if (voicePreview) URL.revokeObjectURL(voicePreview.url);
+    setVoicePreview(null);
+  }
+  // Enviar la nota de voz que está en preview.
+  async function sendVoice() {
+    if (!voicePreview) return;
+    const file = voicePreview.file;
+    URL.revokeObjectURL(voicePreview.url);
+    setVoicePreview(null);
+    const fd = new FormData();
+    fd.set("channelId", channelId);
+    fd.set("body", "");
+    fd.append("files", file);
+    setUploading(true);
+    setAttachErr(null);
+    try {
+      const saved = await sendMessageWithAttachments(fd);
+      if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+    } catch {
+      setAttachErr("No se pudo enviar la nota de voz.");
+    } finally {
+      setUploading(false);
+      scrollToBottom();
+    }
+  }
   React.useEffect(() => () => stopRecCleanup(), []);
 
-  // Cambio del texto del composer: dispara "escribiendo…" (throttle) y detecta @menciones.
+  // Cambio del texto del composer: dispara "escribiendo…" (throttle), detecta @menciones y guarda
+  // el borrador del canal (para que sobreviva a cambiar de chat).
   function onComposerChange(v: string) {
     setText(v);
+    try {
+      if (v) window.localStorage.setItem(draftKey, v);
+      else window.localStorage.removeItem(draftKey);
+    } catch {
+      /* localStorage no disponible */
+    }
     const now = Date.now();
     if (now - lastTypingRef.current > 2500) {
       lastTypingRef.current = now;
@@ -990,6 +1073,10 @@ export function ChannelChat({
     }
     const m = /(?:^|\s)@([\p{L}0-9]*)$/u.exec(v);
     setMentionQuery(m ? m[1] : null);
+  }
+  // Vacía el borrador guardado (al enviar): el texto ya se limpia con setText("").
+  function clearDraft() {
+    try { window.localStorage.removeItem(draftKey); } catch { /* ignore */ }
   }
   function insertMention(name: string) {
     setText((t) => t.replace(/(^|\s)@([\p{L}0-9]*)$/u, `$1@${name} `));
@@ -1096,8 +1183,19 @@ export function ChannelChat({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="relative flex h-full flex-col"
+      onDragOver={readOnly ? undefined : (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); setDragOver(true); } }}
+      onDragLeave={readOnly ? undefined : (e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+      onDrop={readOnly ? undefined : onDrop}
+    >
       {dialog}
+      {/* Soltar archivos: overlay de destino mientras se arrastra algo sobre el chat. */}
+      {dragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
+          <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">Suelta para adjuntar</span>
+        </div>
+      ) : null}
       {/* Barra: buscar + mensajes fijados */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {searchOpen ? (
@@ -1513,14 +1611,23 @@ export function ChannelChat({
           ) : null}
           {files.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
-              {files.map((f, i) => (
-                <span key={i} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
-                  <FileText className="size-3" /> {f.name}
-                  <button type="button" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}>
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
+              {files.map((f, i) => {
+                const preview = imgPreviews.get(f);
+                return (
+                  <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-muted py-1 pl-1 pr-2 text-xs">
+                    {preview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={preview} alt={f.name} className="size-8 rounded object-cover" />
+                    ) : (
+                      <FileText className="ml-1 size-3" />
+                    )}
+                    <span className="max-w-[10rem] truncate">{f.name}</span>
+                    <button type="button" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))} aria-label={`Quitar ${f.name}`}>
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
           ) : null}
           <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
@@ -1533,7 +1640,18 @@ export function ChannelChat({
                   <span className="size-2.5 animate-pulse rounded-full bg-rose-500" />
                   Grabando… {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
                 </span>
-                <button type="button" onClick={() => finishRecording(true)} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Enviar nota de voz" title="Enviar nota de voz">
+                <button type="button" onClick={() => finishRecording(true)} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" aria-label="Detener y escuchar" title="Detener y escuchar antes de enviar">
+                  <Check className="size-5" />
+                </button>
+              </div>
+            ) : voicePreview ? (
+              // Escucha previa: revisar la nota antes de mandarla (descartar / reproducir / enviar).
+              <div className="flex w-full items-center gap-2 px-1 py-1">
+                <button type="button" onClick={discardVoice} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" aria-label="Descartar nota de voz" title="Descartar">
+                  <Trash2 className="size-5" />
+                </button>
+                <audio src={voicePreview.url} controls className="h-9 min-w-0 flex-1" />
+                <button type="button" onClick={sendVoice} disabled={uploading} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40" aria-label="Enviar nota de voz" title="Enviar nota de voz">
                   <Send className="size-4" />
                 </button>
               </div>
@@ -1586,6 +1704,7 @@ export function ChannelChat({
               ref={composerRef}
               value={text}
               onChange={(e) => onComposerChange(e.target.value)}
+              onPaste={onComposerPaste}
               onKeyDown={(e) => {
                 // Con el menú de @menciones abierto, el teclado navega/elige (no envía).
                 if (mentionMatches.length > 0) {
