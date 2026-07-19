@@ -1328,17 +1328,20 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   // Responsable de la revisión: solo se acepta si es miembro/responsable del proyecto.
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
-  // Consecutivo POR PROYECTO (#1, #2…): identifica la pieza para siempre (también en la
-  // pestaña «Aprobados»). max+1 dentro de una transacción corta.
-  const number = await db.$transaction(async (tx) => {
+  // Consecutivo POR PROYECTO (#1, #2…): identifica la pieza para siempre (también en la pestaña
+  // «Aprobados»). A prueba de CARRERA: se toma un advisory-lock por proyecto DENTRO de la transacción
+  // y se crea el entregable SIN soltarlo, así el max()+create quedan serializados (antes ambos iban
+  // por separado: dos creaciones simultáneas leían el mismo max y creaban el MISMO #N). El lock se
+  // libera al hacer commit.
+  const d = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`deliv:${projectId}`}, 0))`;
     const top = await tx.deliverable.aggregate({ where: { projectId }, _max: { number: true } });
-    return (top._max.number ?? 0) + 1;
+    const number = (top._max.number ?? 0) + 1;
+    return tx.deliverable.create({ data: { projectId, name, number, type: isDeliverableType(type) ? type : "REEL", reviewExpiresAt, internalReviewDueAt, reviewerId, ownerId: session.id } });
   });
-
-  const d = await db.deliverable.create({ data: { projectId, name, number, type: isDeliverableType(type) ? type : "REEL", reviewExpiresAt, internalReviewDueAt, reviewerId, ownerId: session.id } });
   // El conjunto de co-revisores refleja el revisor primario al crear (luego se pueden añadir más).
   if (reviewerId) await db.deliverableReviewer.create({ data: { deliverableId: d.id, userId: reviewerId } });
-  await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}» (#${number})`, projectId, entityType: "deliverable", entityId: d.id });
+  await logActivity({ action: "deliverable.create", summary: `creó el entregable «${name}» (#${d.number})`, projectId, entityType: "deliverable", entityId: d.id });
 
   // Tareas "ítem de entregable" elegidas en el desplegable: quedan VINCULADAS a esta pieza
   // y se completan solas cuando el editor manda la versión a pre-aprobación. Solo tareas
