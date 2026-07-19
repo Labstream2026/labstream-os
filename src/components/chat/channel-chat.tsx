@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, ChevronRight, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, ChevronRight, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2, Sparkles } from "lucide-react";
 import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
@@ -511,6 +511,11 @@ export function ChannelChat({
   const [actOpen, setActOpen] = React.useState(false);
   const [actFlash, setActFlash] = React.useState(false); // realce breve al llegar una novedad
   const actOpenRef = React.useRef(false); // evita cerrar sobre estado viejo en el handler del SSE
+  // «Ponerte al día»: resumen de lo que te perdiste desde la última lectura (initialLastReadAt).
+  type CatchupData = { total: number; authors: { name: string; count: number }[]; mentionedYou: boolean; summary: string[] | null };
+  const [catchup, setCatchup] = React.useState<CatchupData | null>(null);
+  const [catchupLoading, setCatchupLoading] = React.useState(false);
+  const [catchupDismissed, setCatchupDismissed] = React.useState(false);
 
   const roots = messages
     .filter((m) => !m.parentId)
@@ -718,6 +723,37 @@ export function ChannelChat({
 
   // Espejo del estado del panel para leerlo desde el handler del SSE sin recrearlo (no es setState).
   React.useEffect(() => { actOpenRef.current = actOpen; }, [actOpen]);
+
+  // «Ponerte al día»: si al abrir el canal hay bastantes mensajes sin leer, pide a Marcebot un
+  // resumen de lo que te perdiste. setState solo dentro de load() (nunca síncrono en el efecto).
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setCatchup(null);
+      setCatchupDismissed(false);
+      if (!initialLastReadAt) return;
+      const since = new Date(initialLastReadAt).getTime();
+      // ¿Hay suficiente sin leer? (ajeno, no borrado, posterior a la última lectura.)
+      const unread = messagesRef.current.filter(
+        (m) => !m.deleted && new Date(m.createdAt).getTime() > since && !(m.author && m.author.name === me.name && m.author.color === me.color),
+      ).length;
+      if (unread < 3) return;
+      setCatchupLoading(true);
+      try {
+        const res = await fetch(`/api/chat/${channelId}/catchup?since=${encodeURIComponent(initialLastReadAt)}`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data?.total >= 1) setCatchup(data);
+        }
+      } catch {
+        /* best-effort: sin resumen si falla */
+      } finally {
+        if (!cancelled) setCatchupLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [channelId, initialLastReadAt, me.name, me.color]);
 
   // Abrir un resultado: si ya está cargado va directo; si no, trae su VENTANA (?around=), la fusiona
   // y deja el salto pendiente hasta que el mensaje aparezca pintado. Cierra la búsqueda al saltar.
@@ -1463,6 +1499,35 @@ export function ChannelChat({
         </button>
       ) : null}
       {actOpen ? <ActivityPanel items={actItems} status={actStatus} onClose={() => setActOpen(false)} /> : null}
+      {/* «Ponerte al día»: resumen de lo que te perdiste (solo aparece con bastante sin leer). */}
+      {!catchupDismissed && (catchup || catchupLoading) ? (
+        <div className="shrink-0 border-b border-border bg-primary/[0.04] px-3 py-2.5">
+          <div className="mx-auto flex max-w-3xl items-start gap-2.5">
+            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="size-3.5" /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-xs font-semibold text-foreground">Ponerte al día</span>
+                {catchup ? <span className="text-[11px] text-muted-foreground">· {catchup.total} mensaje{catchup.total === 1 ? "" : "s"} sin leer</span> : null}
+                {catchup?.mentionedYou ? <span className="rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">te mencionaron</span> : null}
+              </div>
+              {catchupLoading && !catchup ? (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" /> Marcebot está resumiendo lo que te perdiste…</p>
+              ) : catchup?.summary && catchup.summary.length ? (
+                <ul className="mt-1 space-y-0.5">
+                  {catchup.summary.map((s, i) => (
+                    <li key={i} className="flex gap-1.5 text-xs text-muted-foreground"><span className="mt-px text-primary">•</span><span>{s}</span></li>
+                  ))}
+                </ul>
+              ) : catchup ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {catchup.authors.length ? `De ${catchup.authors.slice(0, 3).map((a) => a.name).join(", ")}${catchup.authors.length > 3 ? " y más" : ""}.` : "Mensajes nuevos en el canal."}
+                </p>
+              ) : null}
+            </div>
+            <button type="button" aria-label="Descartar" onClick={() => setCatchupDismissed(true)} className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3.5" /></button>
+          </div>
+        </div>
+      ) : null}
       {/* Barra: buscar + mensajes fijados */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {searchOpen ? (
