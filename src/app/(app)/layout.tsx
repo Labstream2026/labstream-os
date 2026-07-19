@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
+import { isDndActive } from "@/lib/notif-silence";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { canSeeWiki } from "@/lib/wiki-access";
@@ -131,6 +132,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ? general
       : null;
 
+  // Estado de disponibilidad + «No molestar» vigente (frescos; no viven en el JWT). Lookup por PK, barato.
+  const meState = await db.user
+    .findUnique({ where: { id: session.id }, select: { presence: true, dndUntil: true } })
+    .catch(() => null);
+  const dndActive = isDndActive(meState?.dndUntil);
+
   return (
     <AppShell
       user={{
@@ -139,6 +146,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         initials: session.initials,
         color: session.color,
         avatarUrl: session.avatarUrl,
+        presence: meState?.presence ?? null,
+        dnd: dndActive,
       }}
       me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
       isAdmin={session.role === "admin"}

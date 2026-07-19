@@ -40,6 +40,12 @@ export async function mutedKeys(userId: string): Promise<Set<string>> {
 }
 
 // ¿Está silenciado el ORIGEN de este aviso? (persona actor/responsable o proyecto).
+// ¿«No molestar» vigente ahora? Helper puro (el Date.now() vive AQUÍ, en un lib, no en el render de
+// un server component, donde la regla de pureza lo marcaría).
+export function isDndActive(until: Date | null | undefined): boolean {
+  return !!until && until.getTime() > Date.now();
+}
+
 export function isMutedBy(muted: Set<string>, opts: { actorId?: string | null; subjectId?: string | null; projectId?: string | null }): boolean {
   if (muted.size === 0) return false;
   if (opts.actorId && muted.has(`user:${opts.actorId}`)) return true;

@@ -39,6 +39,7 @@ import { EntityEmoji } from "@/components/icons/marks";
 import { TONE_MAP } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
+import { PresencePicker } from "@/components/layout/presence-picker";
 import { Logo, LogoMark } from "@/components/brand/logo";
 import { logout } from "@/lib/auth-actions";
 import { archiveClient } from "@/app/(app)/clientes/actions";
@@ -60,6 +61,8 @@ export type SidebarUser = {
   initials: string | null;
   color: string | null;
   avatarUrl?: string | null;
+  presence?: string | null; // estado manual: activo/ocupado/ausente
+  dnd?: boolean; // "No molestar" vigente (prioriza el punto en rojo)
 };
 
 export type SidebarProject = { id: string; name: string; emoji: string | null };
@@ -536,12 +539,13 @@ export function Sidebar({
           {isCliente ? null : adminRow("/ajustes", "Ajustes", Settings, pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion"))}
           <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
             <Link href="/ajustes?s=perfil" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg hover:opacity-80" title="Mi perfil">
-              <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
+              <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" presence={user.presence} dnd={user.dnd} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{user.name}</span>
                 <span className="block truncate text-xs text-sidebar-muted">{user.title}</span>
               </span>
             </Link>
+            {isCliente ? null : <PresencePicker presence={user.presence} dnd={user.dnd} />}
             <form action={logout}>
               <button type="submit" title="Cerrar sesión" className="flex size-7 items-center justify-center rounded-md text-sidebar-muted hover:bg-sidebar-accent/40 hover:text-sidebar-foreground">
                 <LogOut className="size-4" />
@@ -622,7 +626,7 @@ export function Sidebar({
               "ring-2 ring-primary ring-offset-2 ring-offset-sidebar",
           )}
         >
-          <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
+          <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" presence={user.presence} dnd={user.dnd} />
           <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
             {user.name} · Ajustes
           </span>
