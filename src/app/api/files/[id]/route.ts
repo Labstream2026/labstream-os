@@ -88,8 +88,20 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (range && inline) {
     const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
     if (m && (m[1] || m[2])) {
-      let start = m[1] ? parseInt(m[1], 10) : 0;
-      let end = m[2] ? parseInt(m[2], 10) : total - 1;
+      let start: number;
+      let end: number;
+      if (m[1] === "" && m[2] !== "") {
+        // SUFIJO «bytes=-N»: los ÚLTIMOS N bytes (iOS/Safari lo usa para leer el átomo moov al final
+        // de un MP4). Antes el código lo interpretaba como bytes 0..N (los PRIMEROS N) → el vídeo no
+        // reproducía. Ahora se devuelve la cola real del archivo.
+        const n = parseInt(m[2], 10);
+        const len = Number.isFinite(n) ? Math.min(Math.max(n, 1), total) : total;
+        start = total - len;
+        end = total - 1;
+      } else {
+        start = m[1] ? parseInt(m[1], 10) : 0;
+        end = m[2] ? parseInt(m[2], 10) : total - 1;
+      }
       if (!Number.isFinite(start) || start < 0) start = 0;
       if (!Number.isFinite(end) || end >= total) end = total - 1;
       if (start > end || start >= total) {

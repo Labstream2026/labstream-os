@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import { canAccessProject } from "@/lib/project-access";
 import { getSession } from "@/lib/auth";
 import { notify } from "@/lib/notify";
 import {
@@ -432,6 +433,19 @@ export type TaskReminderItem = {
 export async function getTaskReminders(taskId: string): Promise<TaskReminderItem[]> {
   const session = await teamSession();
   if (!session) return [];
+  // No filtrar los recordatorios (título + destinatario) de una tarea a la que el usuario no tiene
+  // acceso: antes bastaba con adivinar el id de la tarea. Tarea de proyecto → exige acceso al
+  // proyecto; tarea personal (sin proyecto) → solo su dueño o su responsable.
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: { ownerId: true, assigneeId: true, project: { select: { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } } },
+  });
+  if (!task) return [];
+  if (task.project) {
+    if (!canAccessProject(task.project, session)) return [];
+  } else if (task.ownerId !== session.id && task.assigneeId !== session.id) {
+    return [];
+  }
   const rows = await db.reminder.findMany({
     where: { taskId, active: true, doneAt: null },
     orderBy: { nextFireAt: "asc" },

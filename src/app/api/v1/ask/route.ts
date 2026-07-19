@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
+import { hasPermission } from "@/lib/auth";
 import { askOpenClaw, isRateLimitError, type ChatTurn } from "@/lib/openclaw/client";
 
 export const runtime = "nodejs";
@@ -9,7 +10,9 @@ export const dynamic = "force-dynamic";
 // Útil para redacción/clasificación genérica o para depurar la conexión con OpenClaw. No accede a
 // proyectos/tareas/finanzas: no hay permisos de dominio que aplicar (solo una key válida).
 // Cuerpo: { message: string, system?: string }
-export const POST = withApiKey(async (req: NextRequest, _ctx: ApiKeyContext) => {
+export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
+  // Mismo candado que /api/v1/agent y la app: sin ver_asistente no se usa el LLM por la API.
+  if (!hasPermission(ctx.session, "ver_asistente")) return apiJson({ ok: false, error: "Sin permiso para el Asistente IA (ver_asistente)." }, 403);
   if (bodyTooLarge(req)) return apiJson({ ok: false, error: "Cuerpo demasiado grande." }, 413);
   let body: { message?: unknown; system?: unknown };
   try {

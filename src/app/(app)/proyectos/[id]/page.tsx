@@ -101,9 +101,9 @@ export default async function ProyectoPage({
             photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
         // Excluye de Archivos los FileAsset que son fotos de entregables (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
+        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {

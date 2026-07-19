@@ -24,6 +24,9 @@ export const dynamic = "force-dynamic";
 
 // Versiones del protocolo MCP que entendemos (más nueva primero). Al `initialize`, si el cliente
 // pide una que soportamos, se la devolvemos; si no, respondemos con la más nueva nuestra.
+// Tope de mensajes por POST (lote JSON-RPC): acota el abuso de meter miles de operaciones en una
+// sola petición y las cobra al rate-limit. Generoso para uso legítimo de un agente.
+const MCP_MAX_BATCH = 50;
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 const SERVER_INFO = { name: "labstream-os", version: "1.0.0", title: "Labstream OS" };
@@ -213,6 +216,10 @@ export async function POST(req: NextRequest) {
     });
   };
 
+  // Tope de tamaño del cuerpo (antes de parsear): un cuerpo enorme no debe llegar a memoria.
+  if (Number(req.headers.get("content-length") || 0) > 256 * 1024) {
+    return json(rpcError(null, -32600, "Cuerpo demasiado grande."), 413);
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -223,6 +230,17 @@ export async function POST(req: NextRequest) {
   // Un mensaje suelto o un lote (array) de mensajes JSON-RPC.
   const batch = Array.isArray(body);
   const messages = (batch ? body : [body]) as RpcMessage[];
+  // ANTI-ABUSO del lote: sin esto, UN solo POST con miles de mensajes JSON-RPC ejecutaría miles de
+  // operaciones (con una llave de escritura, miles de mutaciones) contando como UNA sola petición,
+  // eludiendo el rate-limit. Se acota el lote y se cobra CADA mensaje contra el límite (ya se cobró 1).
+  if (messages.length > MCP_MAX_BATCH) {
+    return json(rpcError(null, -32600, `Lote demasiado grande (máx. ${MCP_MAX_BATCH} mensajes por POST).`), 413);
+  }
+  for (let i = 1; i < messages.length; i++) {
+    if (!rateLimit(`mcp:${key.prefixVisible}`, key.rateLimitPerMin, 60_000)) {
+      return json(rpcError(null, -32000, "Límite de peticiones excedido."), 429);
+    }
+  }
   auditToolCalls(messages);
   const responses: object[] = [];
   for (const msg of messages) {

@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { withApiKey, apiJson, bodyTooLarge, clampText, type ApiKeyContext } from "@/lib/api-key-auth";
+import { hasPermission } from "@/lib/auth";
 import { runAgent } from "@/lib/openclaw/agent";
 import { executeAgentTool, toolsForApi } from "@/lib/openclaw/tools";
 import { isRateLimitError, type ChatTurn } from "@/lib/openclaw/client";
@@ -29,6 +30,9 @@ function systemPrompt(name: string, role: string): string {
 type InMessage = { role?: unknown; content?: unknown };
 
 export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
+  // Mismo candado que la app y /api/ai: los roles a los que se les niega el Asistente (cliente,
+  // freelancer) NO deben usarlo por la API. La sesión efectiva ya es permisos∩scopes del titular.
+  if (!hasPermission(ctx.session, "ver_asistente")) return apiJson({ ok: false, error: "Sin permiso para el Asistente IA (ver_asistente)." }, 403);
   if (bodyTooLarge(req)) return apiJson({ ok: false, error: "Cuerpo demasiado grande." }, 413);
   let body: { message?: unknown; messages?: unknown };
   try {
