@@ -267,8 +267,13 @@ export function internalCost(sections: BudgetSection[], contingencyPct = 0) {
 // (nunca el desglose de costos internos).
 export function clientTotals(opts: { price: number; discountPct?: number; iva?: number }) {
   const base = Math.max(0, Number(opts.price) || 0);
-  const discount = Math.round((base * (Number(opts.discountPct) || 0)) / 100);
+  // El descuento se ACOTA a [0,100] y el IVA a ≥0: el editor de bloques no valida estos campos, así
+  // que sin el clamp un descuento >100% daría un total NEGATIVO y uno negativo lo INFLARÍA — y esa
+  // cifra es justo la que ve el cliente en el portal público. Se defiende en el punto de cálculo.
+  const discountPct = Math.max(0, Math.min(100, Number(opts.discountPct) || 0));
+  const discount = Math.round((base * discountPct) / 100);
   const subtotal = base - discount;
-  const tax = Math.round((subtotal * (Number(opts.iva) || 0)) / 100);
+  const iva = Math.max(0, Number(opts.iva) || 0);
+  const tax = Math.round((subtotal * iva) / 100);
   return { base, discount, subtotal, tax, total: subtotal + tax };
 }

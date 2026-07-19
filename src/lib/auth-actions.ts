@@ -41,6 +41,11 @@ function loginRateLimited(key: string, max = LOGIN_RL_MAX, windowMs = LOGIN_RL_W
   return false;
 }
 
+// Hash bcrypt VÁLIDO (cost 10) usado SOLO para igualar el tiempo de respuesta cuando la cuenta no
+// existe / está inactiva / sin contraseña. No es de ninguna cuenta real; solo importa que su formato
+// sea válido para que bcrypt.compare ejecute el KDF completo (mismo coste que un login legítimo).
+const TIMING_DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
@@ -66,6 +71,10 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   });
 
   if (!user || !user.active || !user.passwordHash) {
+    // Quema el MISMO coste bcrypt que la rama válida antes de responder: sin esto, la rama sin
+    // usuario contesta decenas de ms más rápido y revela por temporización qué correos están
+    // registrados (enumeración, CWE-208). El mensaje ya es genérico; ahora el TIEMPO también.
+    await verifyPassword(password, TIMING_DUMMY_HASH).catch(() => false);
     return { error: "Correo o contraseña incorrectos." };
   }
   const ok = await verifyPassword(password, user.passwordHash);

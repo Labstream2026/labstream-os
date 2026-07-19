@@ -372,13 +372,15 @@ function detectMentionTargets(
 // El correo solo sale si el SMTP está configurado (Configuración → Integraciones); si no,
 // queda solo el aviso in-app. El título dice QUIÉN te mencionó y DÓNDE para que se note.
 // El nivel de aviso «nada» (UserChannelState) silencia también las menciones.
-async function notifyMentions(channelId: string, authorId: string, authorName: string, body: string, messageId: string) {
-  if (!body.includes("@")) return;
+// Devuelve el conjunto de usuarios REALMENTE avisados por mención, para que notifyChannelMessage no
+// les mande ADEMÁS el aviso genérico del canal (la mención ya es la notificación más rica y de mayor señal).
+async function notifyMentions(channelId: string, authorId: string, authorName: string, body: string, messageId: string): Promise<Set<string>> {
+  if (!body.includes("@")) return new Set();
   const channel = await db.chatChannel.findUnique({
     where: { id: channelId },
     select: { name: true, isPublic: true, type: true, slug: true, audience: true, section: true, projectId: true, members: { select: { userId: true } } },
   });
-  if (!channel) return;
+  if (!channel) return new Set();
   const [users, roles] = await Promise.all([
     db.user.findMany({ where: { active: true }, select: { id: true, name: true, isSystemBot: true, role: { select: { key: true } } } }),
     db.role.findMany({ where: { key: { notIn: ["cliente", "demo"] } }, select: { key: true, name: true } }),
@@ -413,7 +415,7 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
   const adminIds = new Set(users.filter((u) => u.role?.key === "admin").map((u) => u.id));
   const openChannel = channel.isPublic && !channel.section;
   const idArr = [...ids].filter((id) => !bots.has(id) && (openChannel || memberIds.has(id) || adminIds.has(id)));
-  if (idArr.length === 0) return;
+  if (idArr.length === 0) return new Set();
   const off = await db.userChannelState.findMany({
     where: { channelId, userId: { in: idArr }, notifyLevel: "none" },
     select: { userId: true },
@@ -421,8 +423,10 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
   const offSet = new Set(off.map((s) => s.userId));
   // En un DM el "nombre del canal" es interno; el contexto es la conversación directa.
   const where = channel.type === "DIRECT" ? "en un mensaje directo" : `en ${channel.name}`;
+  const notified = new Set<string>();
   for (const userId of idArr) {
     if (offSet.has(userId)) continue;
+    notified.add(userId);
     await notifyAndEmail(userId, {
       type: "mention",
       event: "chat_mention",
@@ -437,6 +441,7 @@ async function notifyMentions(channelId: string, authorId: string, authorName: s
       groupKey: `chat-mention:${channelId}`,
     });
   }
+  return notified;
 }
 
 // Notifica a los miembros del canal (menos al autor) que llegó un mensaje nuevo.
@@ -642,8 +647,11 @@ export async function sendMessage(
   const who = msg.author?.name ?? "Alguien";
   after(async () => {
     const inThread = safeParentId ? await notifyThreadReply(channelId, safeParentId, session!.id, who, text, msg.id) : undefined;
-    await notifyMentions(channelId, session!.id, who, text, msg.id);
-    await notifyChannelMessage(channelId, session!.id, who, text, msg.id, inThread);
+    const mentioned = await notifyMentions(channelId, session!.id, who, text, msg.id);
+    // Excluir del aviso GENÉRICO de canal tanto a los participantes del hilo como a los MENCIONADOS:
+    // ya recibieron una notificación más rica; si no, el mencionado recibía DOS avisos (y dos push).
+    const alreadyNotified = new Set<string>([...(inThread ?? []), ...mentioned]);
+    await notifyChannelMessage(channelId, session!.id, who, text, msg.id, alreadyNotified);
   });
   return payload;
 }

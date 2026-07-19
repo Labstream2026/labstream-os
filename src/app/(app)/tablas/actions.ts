@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { getCurrentUser } from "@/lib/current-user";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { canSeeWiki } from "@/lib/wiki-access";
 import { notify, notifyAndEmail } from "@/lib/notify";
 import { appUid, pushEventToParticipants, removeEventFromParticipants, removeEventForUsers } from "@/lib/calendar-sync";
@@ -41,7 +41,10 @@ async function ensureTableAccess(tableId: string, write = true): Promise<void> {
   });
   if (!t) noAutorizado();
   if (t.project) {
-    if (!canAccessProject(t.project, session)) noAutorizado();
+    // VER una tabla basta con acceso al proyecto; MODIFICARLA exige poder ESCRIBIR (canWriteProject
+    // excluye al rol `demo` de solo lectura y a los miembros GUEST/cliente). Antes ambas ramas usaban
+    // canAccessProject, así que demo/invitado podían crear/editar/borrar tablas, filas y celdas.
+    if (write ? !canWriteProject(t.project, session) : !canAccessProject(t.project, session)) noAutorizado();
   } else {
     // Tablas de wiki o globales (inventario/ubicación): solo equipo interno (no invitados).
     if (!(await canSeeWiki(session))) noAutorizado();

@@ -48,7 +48,9 @@ export default async function FacturaPage({ params }: { params: Promise<{ id: st
         </p>
       </div>
 
-      <InvoiceView invoice={invoice} canEdit={canEdit} canApprove={canApprove} />
+      {/* Solo un BORRADOR es editable: una factura emitida es un documento contable (el backend
+          también lo bloquea en updateInvoiceMeta). Así no se muestra un formulario que solo daría error. */}
+      <InvoiceView invoice={invoice} canEdit={canEdit && invoice.status === "BORRADOR"} canApprove={canApprove} />
     </div>
   );
 }

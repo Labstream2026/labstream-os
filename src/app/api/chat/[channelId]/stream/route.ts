@@ -19,6 +19,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ channelId:
   const event = channelEvent(channelId);
   const encoder = new TextEncoder();
 
+  // Se expone la limpieza fuera de start() para poder llamarla también desde cancel() (algunos
+  // runtimes expresan la desconexión SOLO como cancel(), sin un abort limpio del signal).
+  let cleanup: (() => void) | null = null;
+
   const stream = new ReadableStream({
     start(controller) {
       const send = (data: string) => {
@@ -58,6 +62,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ channelId:
       }, 20000);
 
       const close = () => {
+        cleanup = null;
         clearInterval(tick);
         chatBus.off(event, onMessage);
         try {
@@ -66,7 +71,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ channelId:
           /* ya cerrado */
         }
       };
+      cleanup = close;
+      // Si el cliente YA abortó durante los await de auth (cambiar de canal rápido en un chat activo),
+      // el evento 'abort' no se re-dispara al añadir el listener → sin esto el listener del bus y el
+      // setInterval (que hace un query a BD cada 20s) quedarían VIVOS PARA SIEMPRE por conexión muerta.
+      if (_req.signal.aborted) { close(); return; }
       _req.signal.addEventListener("abort", close);
+    },
+    cancel() {
+      cleanup?.();
     },
   });
 

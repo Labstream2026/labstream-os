@@ -69,8 +69,18 @@ export async function runRecurringTasks(now: Date = new Date()): Promise<Recurri
 
   let created = 0;
   for (const rule of rules) {
-    if (rule.lastCreatedOn === today.ymd) continue; // ya se creó hoy (idempotencia)
+    if (rule.lastCreatedOn === today.ymd) continue; // idempotencia rápida contra el snapshot
     if (!dueToday(rule, today)) continue;
+
+    // RECLAMO ATÓMICO del día ANTES de crear: si el cron diario y el de marcebot (que también llama
+    // aquí) se solapan, sin esto ambos leerían lastCreatedOn=ayer, pasarían el check-then-act y
+    // crearían DOS tareas idénticas (+ doble correo/actividad). El updateMany condicionado a
+    // lastCreatedOn≠hoy (Prisma `not` incluye null → cubre el primer día) solo deja ganar a UNO.
+    const claim = await db.recurringTask.updateMany({
+      where: { id: rule.id, lastCreatedOn: { not: today.ymd } },
+      data: { lastCreatedOn: today.ymd },
+    });
+    if (claim.count !== 1) continue; // otro barrido concurrente ya reclamó hoy
 
     const dueDate = new Date(today.noon.getTime() + Math.max(0, rule.dueOffsetDays) * DAY);
     const position = rule.projectId ? await db.task.count({ where: { projectId: rule.projectId } }) : 0;
@@ -90,7 +100,7 @@ export async function runRecurringTasks(now: Date = new Date()): Promise<Recurri
       },
       select: { id: true },
     });
-    await db.recurringTask.update({ where: { id: rule.id }, data: { lastCreatedOn: today.ymd } });
+    // (el día ya se reclamó atómicamente arriba; no hace falta el update incondicional de antes)
 
     if (rule.assigneeId && rule.assigneeId !== rule.createdById) {
       await notifyAndEmail(rule.assigneeId, {

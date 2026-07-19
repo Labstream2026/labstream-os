@@ -13,9 +13,14 @@ export async function dispatchDueNoteReminders(now: Date = new Date()): Promise<
   });
   let sent = 0;
   for (const n of due) {
+    // RECLAMO ATÓMICO antes de notificar: el cron frecuente y el diario (red de seguridad) pueden
+    // solaparse y leer la misma nota como pendiente. El updateMany condicionado a reminderSentAt=null
+    // solo deja ganar a UNO. Además marca ANTES de notificar (si el mark fallara después del notify,
+    // la nota se re-notificaría en cada barrido → spam); aquí solo se notifica si se ganó el reclamo.
+    const claim = await db.note.updateMany({ where: { id: n.id, reminderSentAt: null }, data: { reminderSentAt: now } });
+    if (claim.count !== 1) continue; // otro barrido ya lo reclamó
     const body = n.content.trim().replace(/\s+/g, " ").slice(0, 140) || undefined;
     await notify(n.createdById, { type: "note", title: `⏰ Recordatorio: ${n.title}`, body, link: "/notas" }).catch(() => null);
-    await db.note.update({ where: { id: n.id }, data: { reminderSentAt: now } }).catch(() => null);
     sent++;
   }
   return { due: due.length, sent };

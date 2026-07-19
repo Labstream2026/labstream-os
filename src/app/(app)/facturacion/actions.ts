@@ -116,6 +116,12 @@ export async function setInvoiceStatus(invoiceId: string, status: string): Promi
 export async function updateInvoiceMeta(invoiceId: string, formData: FormData): Promise<void> {
   await requirePerm("crear_cotizaciones");
   await ensureInvoiceAccess(invoiceId);
+  const inv = await db.invoice.findUnique({ where: { id: invoiceId }, select: { status: true, code: true, clientId: true } });
+  if (!inv) return;
+  // CANDADO DE ESTADO: una factura EMITIDA (ENVIADA/PAGADA/ANULADA) es un documento contable; editar
+  // el IVA cambiaría el total ya facturado/cobrado (el total se calcula de taxRate, no se guarda).
+  // Solo los BORRADORES son editables, igual que las cotizaciones se bloquean al aprobarse.
+  if (inv.status !== "BORRADOR") throw new Error("La factura ya fue emitida; no se puede editar. Anúlala y crea una nueva si necesitas cambios.");
   const issueRaw = String(formData.get("issueDate") ?? "").trim();
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
   const taxRaw = String(formData.get("taxRate") ?? "").trim();
@@ -128,6 +134,7 @@ export async function updateInvoiceMeta(invoiceId: string, formData: FormData): 
       notes: String(formData.get("notes") ?? "").trim() || null,
     },
   });
+  await logActivity({ action: "invoice.update", summary: `editó los datos de la factura ${inv.code}`, clientId: inv.clientId, entityType: "invoice", entityId: invoiceId });
   refresh(invoiceId);
 }
 
