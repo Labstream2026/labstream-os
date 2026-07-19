@@ -50,8 +50,16 @@ function parseOverrides(json: string | null | undefined): Record<string, Overrid
 // Caché de proceso (config GLOBAL de la organización, igual para todos). Se calienta por request
 // en el layout raíz, así siempre refleja lo último sin TTL.
 let _overrides: Record<string, Override> | null = null;
+let _warmed = false;
 export function setProjectStatusOverrides(json: string | null | undefined): void {
   _overrides = parseOverrides(json);
+  _warmed = true;
+}
+// ¿Ya se calentó la caché de overrides en este proceso? Los route handlers NO ejecutan el layout
+// raíz, así que un worker frío cuya PRIMERA petición sea una API (p.ej. /activity) resolvería la
+// píldora con los valores por defecto. Con esto pueden calentarla una sola vez, sin re-consultar la BD.
+export function projectStatusOverridesWarmed(): boolean {
+  return _warmed;
 }
 
 // Resuelve cómo se ve un estado (etiqueta + clases). Síncrono → lo usan los 8 sitios sin cambios.

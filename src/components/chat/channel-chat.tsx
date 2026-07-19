@@ -447,6 +447,7 @@ export function ChannelChat({
   projectId = null,
   initialLastReadAt = null,
   canArchive = false,
+  showActivity = true,
 }: {
   channelId: string;
   initialMessages: ChatMsg[];
@@ -465,6 +466,9 @@ export function ChannelChat({
   canArchive?: boolean;
   // Última lectura al abrir (ISO): pinta la línea «Mensajes nuevos» a partir de ahí.
   initialLastReadAt?: string | null;
+  // ¿Mostrar la BARRA DE ESTADO VIVA del proyecto? Refleja el FLUJO INTERNO (tareas, pre-aprobación,
+  // estados) → false para el rol `cliente`, que comparte el canal único pero no debe ver el interno.
+  showActivity?: boolean;
 }) {
   const [messages, setMessages] = React.useState<ChatMsg[]>(initialMessages);
   const [text, setText] = React.useState("");
@@ -523,6 +527,10 @@ export function ChannelChat({
   const [searching, setSearching] = React.useState(false);
   // Salto pendiente a un mensaje recién traído con ?around= (espera a que se pinte en el DOM).
   const [pendingJump, setPendingJump] = React.useState<string | null>(null);
+  // Vista de HISTORIAL: tras saltar a un resultado de búsqueda antiguo NO cargado, la lista se
+  // reemplaza por la ventana del resultado (para no dejar un hueco silencioso con la cola reciente).
+  // Mientras esté activa, el botón flotante «Ir a lo más reciente» recarga la cola del presente.
+  const [historyView, setHistoryView] = React.useState(false);
   // Paginación hacia atrás: el fetch inicial trae solo la ventana reciente; estos permiten
   // cargar el historial anterior por demanda sin recargar la página.
   const [hasOlder, setHasOlder] = React.useState(initialMessages.length >= 50);
@@ -792,7 +800,7 @@ export function ChannelChat({
   // Carga inicial de la actividad del proyecto (solo canales de proyecto). El setState va dentro de
   // load() (nunca síncrono en el cuerpo del efecto). Los eventos nuevos llegan luego por SSE.
   React.useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !showActivity) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -801,7 +809,15 @@ export function ChannelChat({
         const data = await res.json();
         if (cancelled || !data?.projectId) return;
         setActStatus(data.status ?? null);
-        setActItems(Array.isArray(data.items) ? data.items : []);
+        // FUSIONAR (no reemplazar): si una novedad llegó por SSE mientras esta carga estaba en vuelo,
+        // el snapshot del servidor no la tiene; sobrescribir la perdería (y dejaría actNew descuadrado).
+        // Se conservan los ítems previos que el snapshot no incluye (los recién llegados por SSE).
+        const serverItems: ActivityItem[] = Array.isArray(data.items) ? data.items : [];
+        setActItems((prev) => {
+          const seen = new Set(serverItems.map((i) => i.id));
+          const extra = prev.filter((p) => !seen.has(p.id));
+          return [...extra, ...serverItems].slice(0, 60);
+        });
         setActReady(true);
       } catch {
         /* best-effort: si falla, simplemente no aparece la barra */
@@ -809,7 +825,7 @@ export function ChannelChat({
     };
     load();
     return () => { cancelled = true; };
-  }, [channelId, projectId]);
+  }, [channelId, projectId, showActivity]);
 
   // Espejo del estado del panel para leerlo desde el handler del SSE sin recrearlo (no es setState).
   React.useEffect(() => { actOpenRef.current = actOpen; }, [actOpen]);
@@ -845,50 +861,60 @@ export function ChannelChat({
     return () => { cancelled = true; };
   }, [channelId, initialLastReadAt, me.name, me.color]);
 
-  // «Mis hilos»: hilos donde participo, con respuestas nuevas. Se refresca al cambiar de canal y al
-  // abrir el panel. setState dentro de load() (nunca síncrono en el cuerpo del efecto).
-  React.useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/chat/threads`, { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && Array.isArray(data?.threads)) setMyThreads(data.threads);
-        }
-      } catch {
-        /* best-effort */
+  // «Mis hilos»: hilos donde participo, con respuestas nuevas. Se refresca al cambiar de canal y,
+  // explícitamente, al ABRIR el panel (ver el botón «Hilos»). NO se refresca al CERRARLO: antes
+  // dependía de [channelId, threadsOpen], así que openLocalThread —que cierra el panel— disparaba un
+  // GET que competía con su propio markThreadRead sin await y resucitaba el badge «N nueva».
+  const loadThreads = React.useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/threads`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.threads)) setMyThreads(data.threads);
       }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [channelId, threadsOpen]);
+    } catch {
+      /* best-effort */
+    }
+  }, []);
+  React.useEffect(() => {
+    // Envuelto en una función async (no llamar loadThreads directo en el cuerpo del efecto): el
+    // setState vive tras el await del fetch, nunca síncrono en el efecto.
+    const run = async () => { await loadThreads(); };
+    void run();
+  }, [channelId, loadThreads]);
 
   // Abrir un resultado: si ya está cargado va directo; si no, trae su VENTANA (?around=), la fusiona
   // y deja el salto pendiente hasta que el mensaje aparezca pintado. Cierra la búsqueda al saltar.
   const openResult = React.useCallback(
-    async (id: string) => {
-      if (messagesRef.current.some((m) => m.id === id)) {
-        jumpToMessage(id);
+    async (id: string, parentId?: string | null) => {
+      // Un resultado que es RESPUESTA de hilo solo se ve con el hilo abierto: se salta al mensaje RAÍZ
+      // (parentId) y se abre su hilo, así el usuario aterriza en el hilo del match (las respuestas no
+      // tienen ancla propia mientras el hilo está colapsado). Los resultados raíz saltan a sí mismos.
+      const targetId = parentId || id;
+      if (parentId) setOpenThreads((prev) => new Set(prev).add(parentId));
+      if (messagesRef.current.some((m) => m.id === targetId)) {
+        // Si abrimos un hilo, damos un frame para que se pinte antes de saltar.
+        if (parentId) setTimeout(() => jumpToMessage(targetId), 60);
+        else jumpToMessage(targetId);
       } else {
         try {
-          const res = await fetch(`/api/chat/${channelId}/messages?around=${encodeURIComponent(id)}`, { cache: "no-store" });
+          const res = await fetch(`/api/chat/${channelId}/messages?around=${encodeURIComponent(targetId)}`, { cache: "no-store" });
           if (res.ok) {
             const data = await res.json();
-            const incoming: ChatMsg[] = data?.messages ?? [];
+            const incoming: ChatMsg[] = (data?.messages ?? []).map((m: ChatMsg) => ({ ...m, status: "sent" as const }));
             if (incoming.length) {
-              setMessages((prev) => {
-                const ids = new Set(prev.map((m) => m.id));
-                const add = incoming.filter((m) => !ids.has(m.id)).map((m) => ({ ...m, status: "sent" as const }));
-                return add.length ? [...prev, ...add] : prev;
-              });
-              setHasOlder(true); // puede haber historial más viejo por encima de la ventana traída
+              // REEMPLAZA la lista por la ventana del resultado (vista de HISTORIAL): evita el hueco
+              // silencioso entre esta ventana antigua y la cola reciente ya cargada. setPendingJump va
+              // SOLO en éxito (si la ventana falla/viene vacía no dejamos un salto pegado).
+              setMessages(incoming);
+              setHasOlder(true);
+              setHistoryView(true);
+              setPendingJump(targetId);
             }
           }
         } catch {
-          /* best-effort: si falla la ventana, al menos cerramos la búsqueda */
+          /* best-effort: si falla la ventana, solo cerramos la búsqueda */
         }
-        setPendingJump(id);
       }
       setSearchOpen(false);
       setSearch("");
@@ -896,6 +922,28 @@ export function ChannelChat({
     },
     [channelId, jumpToMessage],
   );
+
+  // Volver del modo HISTORIAL (tras saltar a un resultado antiguo) a la cola reciente del canal.
+  const returnToPresent = React.useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/${channelId}/messages`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const recent: ChatMsg[] = (data?.messages ?? []).map((m: ChatMsg) => ({ ...m, status: "sent" as const }));
+        if (recent.length) {
+          setMessages(recent);
+          setHasOlder(recent.length >= 50);
+          setHistoryView(false);
+          setNewCount(0);
+          scrollToBottom();
+          return;
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+    setHistoryView(false);
+  }, [channelId, scrollToBottom]);
 
   // Ejecuta el salto pendiente en cuanto el mensaje objetivo ya está en el DOM (tras fusionar la
   // ventana). Diferido a rAF: espera al pintado antes de hacer scroll y evita el setState síncrono.
@@ -1076,6 +1124,9 @@ export function ChannelChat({
         }
         if (data?.kind === "activity") {
           // Barra de estado viva: una novedad del proyecto (ya NO como mensaje del bot en el hilo).
+          // El rol `cliente` comparte el canal pero NO ve el flujo interno: se descarta el evento vivo
+          // (el histórico ya lo bloquea el endpoint /activity). Sin esto, el SSE del canal se lo filtra.
+          if (!showActivity) return;
           const it = data.item as ActivityItem;
           setActItems((prev) => (prev.some((x) => x.id === it.id) ? prev : [it, ...prev].slice(0, 60)));
           if (!actOpenRef.current) setActNew((n) => n + 1); // no molesta si el panel ya está abierto
@@ -1145,7 +1196,7 @@ export function ChannelChat({
     };
     // isMine es una función del render (compara con `me`); estable a efectos prácticos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, upsert, scrollToBottom, me.id, isAdmin, catchUp, nearBottom]);
+  }, [channelId, upsert, scrollToBottom, me.id, isAdmin, catchUp, nearBottom, showActivity]);
 
   React.useEffect(() => {
     scrollToBottom();
@@ -1657,7 +1708,7 @@ export function ChannelChat({
       ) : null}
       {/* Barra de ESTADO VIVA del proyecto: el pulso (antes mensajes del bot) sin interrumpir el hilo.
           Estado actual + última novedad, siempre a la vista; clic → panel de Actividad. */}
-      {projectId && actReady ? (
+      {projectId && showActivity && actReady ? (
         <button
           type="button"
           onClick={() => { setActOpen(true); setActNew(0); }}
@@ -1745,11 +1796,14 @@ export function ChannelChat({
                     <button
                       key={r.id}
                       type="button"
-                      onClick={() => void openResult(r.id)}
+                      onClick={() => void openResult(r.id, r.parentId)}
                       className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left hover:bg-muted"
                     >
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-xs font-medium text-foreground">{isMine(r.author) ? "Tú" : r.author?.name ?? "—"}</span>
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {isMine(r.author) ? "Tú" : r.author?.name ?? "—"}
+                          {r.parentId ? <span className="ml-1 font-normal text-muted-foreground">· en un hilo</span> : null}
+                        </span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">{formatBogota(r.createdAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                       </span>
                       <span className="line-clamp-2 text-xs text-muted-foreground">{r.body || "—"}</span>
@@ -1764,7 +1818,7 @@ export function ChannelChat({
             <button onClick={() => setSearchOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Buscar">
               <Search className="size-3.5" /> Buscar
             </button>
-            <button onClick={() => setThreadsOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Mis hilos: los hilos donde participas y sus respuestas nuevas">
+            <button onClick={() => { setThreadsOpen(true); void loadThreads(); }} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Mis hilos: los hilos donde participas y sus respuestas nuevas">
               <MessageSquare className="size-3.5" /> Hilos
               {threadNew.size > 0 ? <span className="ml-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">{threadNew.size}</span> : null}
             </button>
@@ -2094,7 +2148,7 @@ export function ChannelChat({
                 {open ? (
                   <div className="mt-2 w-full space-y-2 self-stretch border-l-2 border-border pl-3 text-left">
                     {replies.map((r) => (
-                      <div key={r.id} className="flex gap-2">
+                      <div key={r.id} id={`msg-${r.id}`} className="flex gap-2">
                         <UserAvatar initials={r.author?.initials} name={r.author?.name} color={r.author?.color} size="sm" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline gap-2">
@@ -2213,16 +2267,17 @@ export function ChannelChat({
       </div>
 
       {/* Botón flotante «ir al último»: aparece al leer historial arriba, con el nº de mensajes
-          llegados mientras tanto. Anclado sobre el composer (la raíz es relative). */}
-      {!atBottom ? (
+          llegados mientras tanto. En modo HISTORIAL (tras saltar a un resultado antiguo) SIEMPRE se
+          muestra y recarga la cola del presente. Anclado sobre el composer (la raíz es relative). */}
+      {historyView || !atBottom ? (
         <button
           type="button"
-          onClick={() => { scrollToBottom(); setNewCount(0); }}
+          onClick={() => { if (historyView) void returnToPresent(); else { scrollToBottom(); setNewCount(0); } }}
           className="absolute bottom-24 right-4 z-30 flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-lg hover:bg-muted"
-          aria-label="Ir al último mensaje"
+          aria-label={historyView ? "Ir a lo más reciente" : "Ir al último mensaje"}
         >
-          {newCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">{newCount > 99 ? "99+" : newCount}</span> : null}
-          {newCount > 0 ? "nuevos" : "Ir al último"}
+          {!historyView && newCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">{newCount > 99 ? "99+" : newCount}</span> : null}
+          {historyView ? "Ir a lo más reciente" : newCount > 0 ? "nuevos" : "Ir al último"}
           <ChevronDown className="size-3.5" />
         </button>
       ) : null}

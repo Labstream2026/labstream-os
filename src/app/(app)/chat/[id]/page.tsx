@@ -208,12 +208,14 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
 
       <div className="min-h-0 flex-1">
         <ChannelChat
+          key={id}
           channelId={id}
           isAdmin={isAdmin}
           highlightId={highlightId ?? null}
           mentionExtras={mentionExtras}
           projectId={channel.type === "PROJECT" ? channel.projectId : null}
           initialLastReadAt={lastReadAt ? lastReadAt.toISOString() : null}
+          showActivity={session.role !== "cliente"}
           canArchive={session.role !== "cliente" && session.role !== "demo" && hasPermission(session, "subir_archivos")}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
           members={(() => {

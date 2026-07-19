@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanAccessChannel } from "@/lib/chat-access";
 import { CHAT_MIRROR_ACTIONS } from "@/lib/activity";
-import { resolveProjectStatus } from "@/lib/project-status";
+import { resolveProjectStatus, setProjectStatusOverrides, projectStatusOverridesWarmed } from "@/lib/project-status";
+import { getOrgSettings } from "@/lib/org-settings";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,8 +21,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cha
   if (!session) return NextResponse.json({ error: "unauth" }, { status: 401 });
   if (!(await userCanAccessChannel(channelId, session))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
+  // El rol `cliente` (portal) comparte el canal ÚNICO del proyecto con el equipo (tras la migración a
+  // un solo canal), pero la BARRA DE ESTADO VIVA refleja el FLUJO INTERNO —tareas, pre-aprobación
+  // interna, estados como «Correcciones»/«Bloqueado»— que NUNCA debe salir al portal. Se silencia
+  // aquí (defensa en profundidad; el cliente web tampoco la pide para este rol).
+  if (session.role === "cliente") return NextResponse.json({ projectId: null, status: null, items: [] });
+
   const channel = await db.chatChannel.findUnique({ where: { id: channelId }, select: { projectId: true } });
   if (!channel?.projectId) return NextResponse.json({ projectId: null, status: null, items: [] });
+
+  // La píldora de estado usa overrides GLOBALes cacheados por proceso, que normalmente calienta el
+  // layout raíz. Si este handler es la primera petición de un worker frío (antes de cualquier render
+  // de página), la caché estaría vacía y la píldora caería a los valores por defecto. Se calienta una
+  // sola vez por proceso (getOrgSettings está cacheado por request → sin coste en las siguientes).
+  if (!projectStatusOverridesWarmed()) {
+    try { setProjectStatusOverrides((await getOrgSettings()).projectStatuses); } catch { /* best-effort */ }
+  }
 
   const [project, rows] = await Promise.all([
     db.project.findUnique({ where: { id: channel.projectId }, select: { status: true } }),
