@@ -642,11 +642,21 @@ export function Sidebar({
       </div>
 
       {/* PANEL de Producción (colapsable desde el topbar; redimensionable arrastrando) */}
-      {!collapsed ? (
-        <div
-          className="relative flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar animate-in fade-in slide-in-from-left-2 duration-200"
-          style={{ width, transitionProperty: dragging ? "none" : undefined }}
-        >
+      {/* PANEL de Producción. En Modo Enfoque (/chat) NO se desmonta: el ANCHO transiciona a 0 con una
+          curva suave y el contenido —de ancho FIJO— se clipa con overflow-hidden, para que el panel
+          se RETIRE (y vuelva a entrar) de forma FLUIDA sin reacomodar el texto durante la animación. */}
+      <div
+        className={cn(
+          "relative flex flex-col overflow-hidden bg-sidebar",
+          collapsed ? "border-r-0" : "border-r border-sidebar-border",
+          dragging ? "" : "transition-[width] duration-300 ease-[cubic-bezier(.33,1,.68,1)]",
+        )}
+        style={{ width: collapsed ? 0 : width }}
+        aria-hidden={collapsed}
+      >
+        {/* Contenido de ancho FIJO (no se reacomoda mientras el contenedor se cierra/abre). Al estar
+            retraído se marca `inert`: sigue en el DOM para la animación, pero no recibe foco ni clics. */}
+        <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width }} inert={collapsed || undefined}>
           {/* Cabecera del panel: el LOGO real de Labstream (subible en Ajustes → Marca) + buscar. */}
           <div className="flex items-center gap-2 px-3 pb-1 pt-3.5">
             <Link href={isCliente ? "/mis-entregas" : "/"} onClick={onNavigate} title="Ir a Inicio" className="min-w-0 flex-1">
@@ -665,8 +675,10 @@ export function Sidebar({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-2 pb-3">{produccion}</div>
+        </div>
 
-          {/* Asa de redimensionado: arrastra (240–400 px) · doble clic = ancho por defecto */}
+        {/* Asa de redimensionado (oculta al estar retraído): arrastra (240–400 px) · doble clic = ancho por defecto */}
+        {!collapsed ? (
           <div
             onPointerDown={onHandleDown}
             onPointerMove={onHandleMove}
@@ -678,8 +690,8 @@ export function Sidebar({
           >
             <div className={cn("absolute inset-y-3 left-[3px] w-[3px] rounded-full transition-colors", dragging ? "bg-primary" : "bg-transparent group-hover/asa:bg-primary/60")} />
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </aside>
   );
 }
