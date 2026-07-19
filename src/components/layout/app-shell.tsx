@@ -108,6 +108,10 @@ export function AppShell({
   // El overlay y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
   const [overlayOpen, setOverlayOpen] = React.useState(false);
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
+  // MODO ENFOQUE (/chat): el panel de «Producción/Clientes» se retira por defecto para que la
+  // conversación ocupe todo el ancho. El botón de colapsar de la barra lo trae de vuelta durante la
+  // sesión; al recargar vuelve a enfocarse. Fuera de /chat manda la preferencia normal (persistida).
+  const [chatFocus, setChatFocus] = React.useState(true);
 
   // Atajo ⌘K / Ctrl+K para abrir el buscador.
   React.useEffect(() => {
@@ -124,6 +128,12 @@ export function AppShell({
   // Al alternar, persiste en BD (best-effort) para que el estado siga al usuario entre el
   // móvil y el escritorio. Antes solo se guardaba en localStorage de ese navegador.
   const toggleSidebar = () => {
+    // En /chat el botón de colapsar controla el MODO ENFOQUE (mostrar/ocultar el panel de clientes);
+    // no se persiste (cada entrada a /chat arranca enfocada). Fuera de /chat, la preferencia normal.
+    if (isChatPage) {
+      setChatFocus((v) => !v);
+      return;
+    }
     setSidebarCollapsed((v) => {
       const next = !v;
       void saveUserPreference({ sidebarCollapsed: next });
@@ -150,7 +160,7 @@ export function AppShell({
     <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={isChatPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
