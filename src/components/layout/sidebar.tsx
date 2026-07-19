@@ -87,7 +87,8 @@ function ClientAvatar({ client, hex, className }: { client: SidebarClient; hex: 
   // ahí caemos a emoji/iniciales (con uno solo compartido, una foto rota saltaba también el logo).
   const [photoBroken, setPhotoBroken] = React.useState(false);
   const [logoBroken, setLogoBroken] = React.useState(false);
-  const base = cn("relative size-6 shrink-0 overflow-hidden rounded-[7px]", className);
+  // Más grande y CUADRADO (32px, esquinas suaves) para reconocer al cliente de un vistazo.
+  const base = cn("relative size-8 shrink-0 overflow-hidden rounded-[9px]", className);
   if (client.photoUrl && !photoBroken) {
     return (
       <span className={base}>
@@ -107,14 +108,14 @@ function ClientAvatar({ client, hex, className }: { client: SidebarClient; hex: 
   if (client.emoji) {
     return (
       <span className={cn(base, "grid place-items-center")} style={{ background: `${hex}22` }}>
-        <EntityEmoji value={client.emoji} fallback="•" className="size-4" />
+        <EntityEmoji value={client.emoji} fallback="•" className="size-5" />
       </span>
     );
   }
   const initials = client.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
   return (
     <span
-      className={cn(base, "grid place-items-center text-[10px] font-bold text-white")}
+      className={cn(base, "grid place-items-center text-[11px] font-bold text-white")}
       style={{ background: `linear-gradient(135deg, ${hex}, ${hex}cc)` }}
     >
       {initials}
@@ -364,7 +365,7 @@ export function Sidebar({
         </div>
         {open && hasProjects ? (
           <div
-            className="ml-[26px] flex flex-col gap-0.5 border-l-2 pb-1 pl-2.5 pt-0.5 animate-in fade-in slide-in-from-top-1 duration-150"
+            className="ml-[30px] flex flex-col gap-0.5 border-l-2 pb-1 pl-2.5 pt-0.5 animate-in fade-in slide-in-from-top-1 duration-150"
             style={{ borderColor: `${hex}66` }}
           >
             {c.projects.map((p) => projectRow(p, c, hex))}
@@ -429,7 +430,9 @@ export function Sidebar({
         </Link>
       ) : null}
 
-      {!isCliente ? (
+      {/* Administrativo: en ESCRITORIO vive en el rail (iconos, abajo); aquí solo se muestra en
+          el cajón MÓVIL, que es una sola columna sin rail. */}
+      {drawer && !isCliente ? (
         <>
           <button
             type="button"
@@ -453,6 +456,16 @@ export function Sidebar({
       ) : null}
     </>
   );
+
+  // Los ítems administrativos del RAIL (escritorio): iconos con tooltip, abajo del rail.
+  const RAIL_ADMIN = [
+    { href: "/cotizaciones", label: "Facturación", icon: IconFacturacion, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
+    { href: "/comercial", label: "Comercial", icon: IconComercial, show: canComercial, active: pathname.startsWith("/comercial") },
+    { href: "/wiki", label: "Wiki del equipo", icon: IconWiki, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") },
+    { href: "/biblioteca", label: "Biblioteca", icon: IconBiblioteca, show: canBiblioteca, active: pathname.startsWith("/biblioteca") },
+    { href: "/reportes", label: "Reportes", icon: IconReportes, show: canReports, active: pathname.startsWith("/reportes") },
+    { href: "/papelera", label: "Papelera", icon: IconPapelera, show: canPapelera, active: pathname.startsWith("/papelera") },
+  ].filter((r) => r.show && !isCliente);
 
   function adminRow(href: string, label: string, Icon: React.ComponentType<{ className?: string }>, active: boolean) {
     return (
@@ -565,7 +578,30 @@ export function Sidebar({
           </Link>
         ))}
         <div className="flex-1" />
-        <div className="mb-1 h-px w-7 bg-sidebar-border" />
+        {/* Administrativo: iconos con tooltip, abajo del rail (separados con una línea). */}
+        {RAIL_ADMIN.length ? (
+          <>
+            <div className="my-1 h-px w-7 bg-sidebar-border" />
+            {RAIL_ADMIN.map((r) => (
+              <Link
+                key={r.href}
+                href={r.href}
+                onClick={onNavigate}
+                aria-label={r.label}
+                className={cn(
+                  "group relative grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors duration-150",
+                  r.active ? "bg-primary text-primary-foreground shadow-sm" : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                )}
+              >
+                <r.icon className="size-[18px]" />
+                <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
+                  {r.label}
+                </span>
+              </Link>
+            ))}
+          </>
+        ) : null}
+        <div className="mb-1 mt-1 h-px w-7 bg-sidebar-border" />
         {isCliente ? null : (
           <Link
             href="/ajustes"
@@ -610,10 +646,14 @@ export function Sidebar({
           className="relative flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar animate-in fade-in slide-in-from-left-2 duration-200"
           style={{ width, transitionProperty: dragging ? "none" : undefined }}
         >
-          <div className="flex items-center gap-1.5 px-3 pb-1 pt-3.5">
-            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">
-              {isCliente ? "Mis proyectos" : "Producción"}
-            </span>
+          {/* Cabecera del panel: el LOGO real de Labstream (subible en Ajustes → Marca) + buscar. */}
+          <div className="flex items-center gap-2 px-3 pb-1 pt-3.5">
+            <Link href={isCliente ? "/mis-entregas" : "/"} onClick={onNavigate} title="Ir a Inicio" className="min-w-0 flex-1">
+              <Logo className="h-[22px]" />
+              <span className="mt-0.5 block truncate text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted">
+                {isCliente ? "Mis proyectos" : "Producción"}
+              </span>
+            </Link>
             <button
               onClick={onSearch}
               title="Buscar (⌘K)"

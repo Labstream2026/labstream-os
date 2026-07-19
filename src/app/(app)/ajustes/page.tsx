@@ -22,6 +22,8 @@ import { NotificationSettingsPanel } from "@/app/(app)/configuracion/notificatio
 import { ApiKeysPanel } from "@/app/(app)/configuracion/api-keys-panel";
 import { AuditoriaPanel } from "@/app/(app)/configuracion/auditoria-panel";
 import { BrandingPanel } from "@/app/(app)/configuracion/branding-panel";
+import { BrandLogoUploader } from "@/app/(app)/configuracion/brand-logo-uploader";
+import { customLogoState } from "@/lib/org-logo";
 import { ProjectStatusesPanel } from "@/app/(app)/configuracion/project-statuses-panel";
 import { getOrgSettings } from "@/lib/org-settings";
 import { projectStatusesFromJson } from "@/lib/project-status";
@@ -387,7 +389,13 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   );
 
   const brand = await getOrgSettings();
-  const brandingNode = <BrandingPanel primaryColor={brand.primaryColor} />;
+  const logoState = await customLogoState();
+  const brandingNode = (
+    <div className="space-y-4">
+      <BrandingPanel primaryColor={brand.primaryColor} />
+      <BrandLogoUploader custom={logoState} />
+    </div>
+  );
   const projectStatusesNode = <ProjectStatusesPanel initial={projectStatusesFromJson(brand.projectStatuses)} />;
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 

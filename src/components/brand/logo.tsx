@@ -8,14 +8,14 @@ import { cn } from "@/lib/utils";
 export const BRAND_ORANGE = "#F47A20";
 
 export function Logo({ className, alt = "Labstream Studio" }: { className?: string; alt?: string }) {
+  // Se sirve por /api/brand-logo/<variante>: el logo SUBIDO en Ajustes → Marca si existe, si no
+  // el de fábrica. "light" = para fondo claro (tinta oscura); "dark" = para fondo oscuro (blanco).
   return (
     <span className={cn("inline-flex items-center", className)}>
-      {/* Fondo claro → logo negro (logo-dark.png) */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/logo-dark.png" alt={alt} className="block h-full w-auto dark:hidden" />
-      {/* Fondo oscuro → logo blanco (logo.png) */}
+      <img src="/api/brand-logo/light" alt={alt} className="block h-full w-auto dark:hidden" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/logo.png" alt={alt} className="hidden h-full w-auto dark:block" />
+      <img src="/api/brand-logo/dark" alt={alt} className="hidden h-full w-auto dark:block" />
     </span>
   );
 }
