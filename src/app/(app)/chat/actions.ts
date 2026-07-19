@@ -701,7 +701,10 @@ function quotedPreviewOf(q: QuotedRow) {
   return { id: q.id, author: q.author?.name ?? null, body: q.body.slice(0, 160) };
 }
 // include reutilizable para traer la cita en las consultas de mensajes.
-export const quotedInclude = { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } } as const;
+// NO exportado: en un archivo "use server" TODOS los exports deben ser funciones async — exportar
+// este objeto lanzaba en runtime «A "use server" file can only export async functions, found
+// object» (digest @E352) y tumbaba las páginas que cargan estas acciones. Solo se usa aquí dentro.
+const quotedInclude = { select: { id: true, body: true, deletedAt: true, author: { select: { name: true } } } } as const;
 
 // ── Archivado de adjuntos del chat en Archivos del proyecto ──
 
