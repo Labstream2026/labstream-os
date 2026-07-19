@@ -19,6 +19,7 @@ export type ChatListRow = {
   isPublic: boolean;
   isDM: boolean;
   unread: number;
+  mentions: number; // menciones @ SIN leer en este canal (señal alta: prioriza y alimenta «Menciones»)
   muted: boolean; // silenciado por MÍ: badge en gris y fuera de los agregados de sección
   pinned: boolean; // fijado por MÍ (se saca de su sección y va en «Fijados»)
   kind: "interno" | "cliente" | "cuenta" | "equipo" | null; // chip del tipo de canal
@@ -146,13 +147,24 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
   // El "Chat del día" puede no estar en myChannels (no-miembro): se incluye en las consultas
   // por id para que su badge y su actividad funcionen igual.
   const allIds = [...new Set([...myChannels.map((c) => c.id), ...publicChannels.map((c) => c.id)])];
-  const [unread, lastMap, states] = await Promise.all([
+  const [unread, lastMap, states, mentionNotifs] = await Promise.all([
     unreadByChannel(session.id, allIds),
     lastMessageByChannel(allIds),
     db.userChannelState
       .findMany({ where: { userId: session.id }, select: { channelId: true, pinnedAt: true, notifyLevel: true } })
       .catch(() => [] as { channelId: string; pinnedAt: Date | null; notifyLevel: string | null }[]), // BD sin migrar: rail sin fijados/niveles
+    // Menciones @ SIN leer, por canal: notificaciones type "mention" no leídas; el canal se extrae
+    // del link «/chat/<id>?msg=…». Señal alta para priorizar y para el filtro «Menciones».
+    db.notification
+      .findMany({ where: { userId: session.id, type: "mention", read: false }, select: { link: true } })
+      .catch(() => [] as { link: string | null }[]),
   ]);
+  const mentionsByChannel = new Map<string, number>();
+  for (const n of mentionNotifs) {
+    const m = n.link?.match(/\/chat\/([^/?#]+)/);
+    if (m) mentionsByChannel.set(m[1], (mentionsByChannel.get(m[1]) ?? 0) + 1);
+  }
+  const mentionsOf = (channelId: string) => mentionsByChannel.get(channelId) ?? 0;
   const pinnedAtOf = new Map(states.filter((s) => s.pinnedAt).map((s) => [s.channelId, s.pinnedAt!.getTime()] as const));
   const levelOf = new Map(states.filter((s) => s.notifyLevel).map((s) => [s.channelId, s.notifyLevel!] as const));
   // Silenciado efectivo de una fila del rail: el nivel explícito manda (también existe para el
@@ -182,6 +194,7 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
         isPublic: c.isPublic,
         isDM: true,
         unread: unread.get(c.id) ?? 0,
+        mentions: mentionsOf(c.id),
         muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
         pinned: pinnedAtOf.has(c.id),
         kind: null,
@@ -218,6 +231,7 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
       isPublic: c.isPublic,
       isDM: false,
       unread: unread.get(c.id) ?? 0,
+      mentions: mentionsOf(c.id),
       muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
       pinned: pinnedAtOf.has(c.id),
       kind,
@@ -312,6 +326,7 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
       isPublic: c.isPublic,
       isDM: false,
       unread: unread.get(c.id) ?? 0,
+      mentions: 0, // el portal del cliente no usa priorización por menciones
       muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,
       pinned: pinnedAtOf.has(c.id),
       kind: null, // el invitado solo tiene chats con el equipo: el chip no aporta
