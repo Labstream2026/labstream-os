@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Plus, Trash2, Search, Package, AlertTriangle, Check, X, Save } from "lucide-react";
+import { Plus, Trash2, Search, Package, AlertTriangle, Check, X, Save, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmojiSelect } from "@/components/emoji-select";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -179,7 +179,7 @@ function PlanCard({
                 className="rounded bg-transparent text-xs outline-none hover:bg-muted"
               />
             ) : (
-              <span>📅 {fmtDate(plan.shootDate)}</span>
+              <span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5 shrink-0" /> {fmtDate(plan.shootDate)}</span>
             )}
             <span>· {plan.reservations.length} equipos · {packedCount}/{plan.reservations.length} listos</span>
           </div>

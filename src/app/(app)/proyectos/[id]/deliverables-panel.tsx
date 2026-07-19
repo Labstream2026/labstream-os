@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight, ChevronDown, Plus } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
@@ -209,12 +209,22 @@ export function DeliverablesPanel({
   return (
     <div className="space-y-5">
       {/* Nuevo entregable para revisión: nombre/video, link o archivo, responsable de
-          revisión (solo miembros), caducidad opcional del enlace y fecha de entrega. */}
+          revisión (solo miembros), caducidad opcional del enlace y fecha de entrega.
+          PLEGADO por defecto (el trabajo —la lista de entregables— es el foco); se abre con el
+          botón primario. Al enviar y revalidar, vuelve a cerrarse solo. */}
+      <details className="group/subir overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+            <Plus className="size-4" />
+          </span>
+          Subir para revisión
+          <span className="hidden font-normal text-muted-foreground sm:inline">· crea la v1 y pasa a pre-aprobación interna</span>
+          <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/subir:rotate-180" />
+        </summary>
       <form
         action={createDeliverable.bind(null, projectId)}
-        className="space-y-3 rounded-xl border border-border bg-card p-4"
+        className="space-y-3 border-t border-border p-4"
       >
-        <p className="text-sm font-semibold">Subir para revisión</p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] font-medium text-muted-foreground">
             Nombre
@@ -265,6 +275,7 @@ export function DeliverablesPanel({
         ) : null}
         <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
       </form>
+      </details>
 
       {(() => {
       const renderCard = (d: Deliverable) => {
@@ -316,6 +327,34 @@ export function DeliverablesPanel({
                 ) : null}
               </div>
             </div>
+
+            {/* Línea de fase: ubica el entregable en el flujo (Producción · Revisión · Aprobado)
+                sin abrirlo. Deriva de los 8 estados reales agrupados en 3 fases; el estado exacto
+                lo sigue mostrando la píldora de arriba. */}
+            {(() => {
+              const PHASES = [
+                ["PENDIENTE", "EN_PRODUCCION", "EN_EDICION"],
+                ["REVISION_INTERNA", "ENVIADO_CLIENTE", "CORRECCIONES"],
+                ["APROBADO", "ENTREGADO"],
+              ];
+              const LABELS = ["Producción", "Revisión", "Aprobado"];
+              const cur = PHASES.findIndex((s) => s.includes(d.status));
+              return (
+                <ol className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]" aria-label="Fase del entregable">
+                  {LABELS.map((lab, i) => {
+                    const done = cur > i;
+                    const active = cur === i;
+                    return (
+                      <li key={lab} className="flex items-center gap-1.5">
+                        {i > 0 ? <span aria-hidden className={cn("h-px w-4 shrink-0", cur >= i ? "bg-primary/60" : "bg-border")} /> : null}
+                        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", active ? "bg-primary ring-2 ring-primary/25" : done ? "bg-primary" : "bg-border")} />
+                        <span className={cn(active ? "font-semibold text-foreground" : done ? "text-foreground/70" : "text-muted-foreground")}>{lab}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              );
+            })()}
 
             {/* Contenido PLEGADO por defecto: así se ve de un vistazo qué entregable abrir.
                 El resumen del summary (mini barra de correcciones + versión/fotos + visitas)

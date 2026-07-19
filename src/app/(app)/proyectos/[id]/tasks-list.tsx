@@ -1,3 +1,4 @@
+import { CalendarDays, Clapperboard, ListChecks } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { PriorityPill } from "@/components/priority-pill";
 import { StatusSelect } from "@/components/actions/status-select";
@@ -55,8 +56,8 @@ export function TasksList({
             <th className="px-3 py-2 font-medium">Estado</th>
             <th className="px-3 py-2 font-medium">Prioridad</th>
             <th className="px-3 py-2 font-medium">Responsable</th>
-            <th className="px-3 py-2 font-medium">📅 Entrega</th>
-            <th className="px-3 py-2 font-medium">🎬 Rodaje</th>
+            <th className="px-3 py-2 font-medium"><span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5" /> Entrega</span></th>
+            <th className="px-3 py-2 font-medium"><span className="inline-flex items-center gap-1"><Clapperboard className="size-3.5" /> Rodaje</span></th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
@@ -82,7 +83,7 @@ export function TasksList({
                     <span className="ml-2 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo del flujo de entregables se venció sin cumplirse">Incumplida</span>
                   ) : null}
                   {t.checklist.length > 0 ? (
-                    <span className="ml-2 text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
+                    <span className="ml-2 inline-flex items-center gap-1 align-middle text-[11px] text-muted-foreground"><ListChecks className="size-3 shrink-0" /> {done}/{t.checklist.length}</span>
                   ) : null}
                 </td>
                 <td className="px-3 py-2">

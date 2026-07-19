@@ -15,7 +15,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { GripVertical, Pencil, MessageSquare } from "lucide-react";
+import { GripVertical, Pencil, MessageSquare, MoreHorizontal, CalendarDays, ListChecks } from "lucide-react";
 import { PriorityPill } from "@/components/priority-pill";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
@@ -204,7 +204,7 @@ function Column({
         />
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{count}</span>
         <details data-autoclose className="relative">
-          <summary className="cursor-pointer list-none px-1 text-xs text-muted-foreground opacity-100 hover:text-foreground md:opacity-0 md:group-hover:opacity-100">⋯</summary>
+          <summary className="flex cursor-pointer list-none items-center px-1 text-muted-foreground opacity-100 hover:text-foreground md:opacity-0 md:group-hover:opacity-100" title="Opciones de la fase"><MoreHorizontal className="size-4" /></summary>
           <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-2 shadow-lg">
             <p className="mb-1 text-[11px] font-medium text-muted-foreground">Color de la fase</p>
             <select
@@ -363,8 +363,8 @@ function CardContent({
       <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
         <PriorityPill priorities={priorities} value={t.priority} />
         {t.dueDate ? (
-          <span className={cn("text-[11px] font-medium", URGENCY_META[u.state].text)} title={urgencyLabel(u.state, u.days)}>
-            📅 {formatShortDate(t.dueDate)}
+          <span className={cn("inline-flex items-center gap-1 text-[11px] font-medium", URGENCY_META[u.state].text)} title={urgencyLabel(u.state, u.days)}>
+            <CalendarDays className="size-3 shrink-0" /> {formatShortDate(t.dueDate)}
           </span>
         ) : null}
         {t.isDeliverableWork ? (
@@ -374,7 +374,7 @@ function CardContent({
           <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="El plazo del flujo de entregables se venció sin cumplirse">Incumplida</span>
         ) : null}
         {t.checklist.length > 0 ? (
-          <span className="text-[11px] text-muted-foreground">✓ {done}/{t.checklist.length}</span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><ListChecks className="size-3 shrink-0" /> {done}/{t.checklist.length}</span>
         ) : null}
         {t.commentCount && t.commentCount > 0 ? (
           <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground" title={`${t.commentCount} nota${t.commentCount === 1 ? "" : "s"}`}>
