@@ -40,6 +40,19 @@ export async function setDoNotDisturb(kind: DndKind): Promise<{ ok: boolean; unt
   return { ok: true, until: until?.toISOString() ?? null };
 }
 
+// ── Estado de disponibilidad (manual) ──
+// La persona fija su punto: activo (verde) · ocupado (ámbar) · ausente (gris). "" lo limpia (= activo).
+// Es aparte del "No molestar" (dndUntil): si el DND está vigente, el punto se muestra rojo (prioriza).
+export type Presence = "activo" | "ocupado" | "ausente";
+const PRESENCE_VALUES: Presence[] = ["activo", "ocupado", "ausente"];
+export async function setPresence(value: Presence | ""): Promise<{ ok: boolean; presence: string | null }> {
+  const session = await getSession();
+  if (!session) return { ok: false, presence: null };
+  const presence = PRESENCE_VALUES.includes(value as Presence) ? (value as Presence) : null;
+  await db.user.update({ where: { id: session.id }, data: { presence } });
+  return { ok: true, presence };
+}
+
 // Horario silencioso recurrente (horas de pared de Bogotá 0–23). null/null lo desactiva.
 export async function setQuietHours(start: number | null, end: number | null): Promise<{ ok: boolean }> {
   const session = await getSession();

@@ -16,6 +16,9 @@ function initialsFromName(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+// Punto de estado por tamaño del avatar.
+const DOT_SIZES: Record<string, string> = { sm: "size-2", md: "size-2.5", lg: "size-3" };
+
 export function UserAvatar({
   initials,
   name,
@@ -24,6 +27,8 @@ export function UserAvatar({
   size = "md",
   className,
   ring,
+  presence,
+  dnd,
 }: {
   initials?: string | null;
   name?: string | null;
@@ -32,34 +37,35 @@ export function UserAvatar({
   size?: "sm" | "md" | "lg";
   className?: string;
   ring?: boolean;
+  // Estado de disponibilidad (punto en la esquina): "activo" (verde) · "ocupado" (ámbar) · "ausente"
+  // (gris). `dnd` (No molestar vigente) prioriza y lo pinta rojo. Sin ninguno, el avatar es idéntico.
+  presence?: string | null;
+  dnd?: boolean;
 }) {
   const label = (initials && initials.trim()) || (name ? initialsFromName(name) : "?");
-  if (url) {
+  const withDot = !!presence || !!dnd;
+  // Sin estado, el className se aplica al avatar (comportamiento anterior); con estado, al envoltorio.
+  const avatarClass = withDot ? undefined : className;
+  const avatar = url ? (
     // eslint-disable-next-line @next/next/no-img-element
-    return (
-      <img
-        src={url}
-        alt={label.slice(0, 2)}
-        className={cn(
-          "inline-block shrink-0 rounded-full object-cover",
-          SIZES[size],
-          ring && "ring-2 ring-background",
-          className,
-        )}
-      />
-    );
-  }
-  return (
+    <img
+      src={url}
+      alt={label.slice(0, 2)}
+      className={cn("inline-block shrink-0 rounded-full object-cover", SIZES[size], ring && "ring-2 ring-background", avatarClass)}
+    />
+  ) : (
     <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold select-none",
-        avatarColor(color),
-        SIZES[size],
-        ring && "ring-2 ring-background",
-        className,
-      )}
+      className={cn("inline-flex shrink-0 items-center justify-center rounded-full font-semibold select-none", avatarColor(color), SIZES[size], ring && "ring-2 ring-background", avatarClass)}
     >
       {label.slice(0, 2)}
+    </span>
+  );
+  if (!withDot) return avatar;
+  const dotColor = dnd ? "bg-rose-500" : presence === "ocupado" ? "bg-amber-500" : presence === "ausente" ? "bg-slate-400" : "bg-emerald-500";
+  return (
+    <span className={cn("relative inline-flex shrink-0", className)}>
+      {avatar}
+      <span className={cn("absolute bottom-0 right-0 rounded-full ring-2 ring-background", dotColor, DOT_SIZES[size])} aria-hidden />
     </span>
   );
 }

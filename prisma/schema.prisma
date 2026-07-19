@@ -93,6 +93,10 @@ model User {
   // "No molestar" hasta este instante (UTC): mientras esté vigente, se silencian PUSH y CORREO;
   // la campana in-app sigue acumulando (no se pierde nada). null = sin pausa.
   dndUntil     DateTime?
+  // Estado de disponibilidad que la persona fija A MANO (punto en su avatar y en la lista de chats):
+  // "activo" (verde) · "ocupado" (ámbar) · "ausente" (gris). null = activo por defecto. El "No
+  // molestar" es aparte (dndUntil, arriba); si está vigente, el punto se muestra en rojo (prioriza).
+  presence     String?
   // Horario silencioso recurrente (horas de pared de Bogotá, 0–23): de quietStart a quietEnd no
   // se manda push/correo. Puede cruzar medianoche (p. ej. 22→7). null = sin horario.
   quietStart   Int?
