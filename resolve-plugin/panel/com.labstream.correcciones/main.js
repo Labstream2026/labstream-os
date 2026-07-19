@@ -40,6 +40,9 @@ function getResolve() {
   if (!initialized) {
     initialized = Boolean(WorkflowIntegration.Initialize(PLUGIN_ID));
     if (!initialized) throw new Error("Resolve no aceptó la conexión del plugin.");
+    // La conexión se logró AHORA (Resolve no estaba listo al arrancar): registra el aviso de
+    // cierre en este momento, o la ventana quedaría huérfana al cerrar Resolve.
+    registerQuitCallback();
   }
   if (!resolveObj) resolveObj = WorkflowIntegration.GetResolve();
   if (!resolveObj) throw new Error("No se pudo obtener el objeto Resolve.");
@@ -307,12 +310,55 @@ function createWindow() {
 // pero cerrar RESOLVE dispara ResolveQuit → app.quit(), camino en el que window-all-closed
 // NO se emite (Electron); will-quit es la red de seguridad común a ambos.
 let cleaned = false;
+let watchdog = null;
 function cleanupOnce() {
   if (cleaned) return;
   cleaned = true;
+  if (watchdog) { clearInterval(watchdog); watchdog = null; }
   try {
     if (WorkflowIntegration && initialized) WorkflowIntegration.CleanUp();
   } catch {}
+}
+
+// Aviso OFICIAL de cierre de Resolve (ResolveQuit): cuando el editor cierra DaVinci, cerramos el
+// panel con él. Idempotente y llamado tanto al arrancar como cuando la conexión se logra más tarde
+// (getResolve perezoso). ANTES solo se registraba al arrancar; si Resolve aún no estaba listo, el
+// panel quedaba huérfano al cerrarlo — ese era el bug de "sigue corriendo tras cerrar Resolve".
+let quitRegistered = false;
+function registerQuitCallback() {
+  if (quitRegistered || !WorkflowIntegration || !initialized) return;
+  try {
+    WorkflowIntegration.RegisterCallback("ResolveQuit", () => {
+      cleanupOnce();
+      app.quit();
+    });
+    quitRegistered = true;
+  } catch {}
+}
+
+// RESPALDO a prueba de balas: cierra el panel cuando el proceso que lo lanzó (DaVinci Resolve)
+// desaparece, aunque ResolveQuit no llegue (p. ej. el editor nunca usó el panel, así que el
+// puente jamás se inicializó). Coste nulo: consulta la existencia de un PID cada 5 s.
+// process.kill(pid, 0) NO mata — solo comprueba (lanza ESRCH si el proceso ya no existe).
+function startLauncherWatchdog() {
+  const launcherPid = process.ppid; // el proceso que lanzó el panel = DaVinci Resolve
+  if (!launcherPid || launcherPid <= 1) return; // sin padre claro (arranque suelto): no vigilar
+  try {
+    process.kill(launcherPid, 0); // ¿existe? (signal 0 NO mata, solo consulta)
+  } catch {
+    return; // el padre ya no existía al arrancar: no vigilar (evita un autocierre inmediato)
+  }
+  watchdog = setInterval(() => {
+    try {
+      process.kill(launcherPid, 0); // sigue vivo → nada que hacer
+    } catch (e) {
+      if (e && e.code === "ESRCH") { // el lanzador (Resolve) se cerró → cerramos el panel con él
+        cleanupOnce();
+        app.quit();
+      }
+    }
+  }, 5000);
+  if (watchdog.unref) watchdog.unref(); // el timer por sí solo no mantiene vivo el proceso
 }
 
 app.whenReady().then(() => {
@@ -320,16 +366,12 @@ app.whenReady().then(() => {
   try {
     if (WorkflowIntegration) {
       initialized = Boolean(WorkflowIntegration.Initialize(PLUGIN_ID));
-      if (initialized) {
-        WorkflowIntegration.RegisterCallback("ResolveQuit", () => {
-          cleanupOnce();
-          app.quit();
-        });
-      }
+      registerQuitCallback();
     }
   } catch (err) {
     console.warn("No se pudo inicializar WorkflowIntegration:", err);
   }
+  startLauncherWatchdog();
   // createWindow dentro del try: un fallo al crear la ventana no debe quedar como
   // unhandled rejection (aunque sea un proceso aparte y nunca puede tumbar Resolve).
   try {
