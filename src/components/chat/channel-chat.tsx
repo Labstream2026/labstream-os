@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2 } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, ChevronRight, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2 } from "lucide-react";
+import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
@@ -331,6 +332,43 @@ function Reactions({ reactions, meId, onToggle }: { reactions: ReactionItem[] | 
   );
 }
 
+// Panel deslizante de ACTIVIDAD del proyecto (destino al pulsar la barra de estado viva). Reusa el
+// mismo timeline del proyecto (ActivityFeed). Se superpone al canal; el fondo cierra al tocarlo.
+function ActivityPanel({
+  items,
+  status,
+  onClose,
+}: {
+  items: ActivityItem[];
+  status: { label: string; className: string } | null;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="absolute inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Actividad del proyecto">
+      <button type="button" aria-label="Cerrar" onClick={onClose} className="flex-1 bg-black/25 backdrop-blur-[1px]" />
+      <div className="flex w-full max-w-sm flex-col border-l border-border bg-card shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-sm font-semibold">Actividad del proyecto</span>
+            {status ? (
+              <span className={`inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${status.className}`}>{status.label}</span>
+            ) : null}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <ActivityFeed items={items} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChannelChat({
   channelId,
   initialMessages,
@@ -464,6 +502,15 @@ export function ChannelChat({
   // «Visto por»: lectores del canal (lastReadAt). Se refresca al montar, al cambiar los mensajes
   // (con debounce) y al volver a la pestaña. Vacío en DMs (no aplica) y hasta la 1ª carga.
   const [readers, setReaders] = React.useState<ChannelReader[]>([]);
+  // Barra de estado viva: el pulso del proyecto (antes mensajes del bot) vive aquí, no en el hilo.
+  // Datos iniciales del endpoint /activity; eventos nuevos llegan por SSE (kind "activity").
+  const [actStatus, setActStatus] = React.useState<{ label: string; className: string } | null>(null);
+  const [actItems, setActItems] = React.useState<ActivityItem[]>([]);
+  const [actReady, setActReady] = React.useState(false);
+  const [actNew, setActNew] = React.useState(0); // novedades desde la última vez que se abrió el panel
+  const [actOpen, setActOpen] = React.useState(false);
+  const [actFlash, setActFlash] = React.useState(false); // realce breve al llegar una novedad
+  const actOpenRef = React.useRef(false); // evita cerrar sobre estado viejo en el handler del SSE
 
   const roots = messages
     .filter((m) => !m.parentId)
@@ -646,6 +693,31 @@ export function ChannelChat({
       clearTimeout(t);
     };
   }, [search, searchOpen, channelId]);
+
+  // Carga inicial de la actividad del proyecto (solo canales de proyecto). El setState va dentro de
+  // load() (nunca síncrono en el cuerpo del efecto). Los eventos nuevos llegan luego por SSE.
+  React.useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/chat/${channelId}/activity`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data?.projectId) return;
+        setActStatus(data.status ?? null);
+        setActItems(Array.isArray(data.items) ? data.items : []);
+        setActReady(true);
+      } catch {
+        /* best-effort: si falla, simplemente no aparece la barra */
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [channelId, projectId]);
+
+  // Espejo del estado del panel para leerlo desde el handler del SSE sin recrearlo (no es setState).
+  React.useEffect(() => { actOpenRef.current = actOpen; }, [actOpen]);
 
   // Abrir un resultado: si ya está cargado va directo; si no, trae su VENTANA (?around=), la fusiona
   // y deja el salto pendiente hasta que el mensaje aparezca pintado. Cierra la búsqueda al saltar.
@@ -855,6 +927,16 @@ export function ChannelChat({
         }
         if (data?.kind === "typing") {
           if (data.userId !== me.id) setTypingNames((prev) => ({ ...prev, [data.name]: Date.now() + 4000 }));
+          return;
+        }
+        if (data?.kind === "activity") {
+          // Barra de estado viva: una novedad del proyecto (ya NO como mensaje del bot en el hilo).
+          const it = data.item as ActivityItem;
+          setActItems((prev) => (prev.some((x) => x.id === it.id) ? prev : [it, ...prev].slice(0, 60)));
+          if (!actOpenRef.current) setActNew((n) => n + 1); // no molesta si el panel ya está abierto
+          setActReady(true); // aparece la barra aunque el canal no tuviera actividad previa
+          setActFlash(true);
+          window.setTimeout(() => setActFlash(false), 1000);
           return;
         }
         const m = data as ChatMsg;
@@ -1349,6 +1431,38 @@ export function ChannelChat({
           <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">Suelta para adjuntar</span>
         </div>
       ) : null}
+      {/* Barra de ESTADO VIVA del proyecto: el pulso (antes mensajes del bot) sin interrumpir el hilo.
+          Estado actual + última novedad, siempre a la vista; clic → panel de Actividad. */}
+      {projectId && actReady ? (
+        <button
+          type="button"
+          onClick={() => { setActOpen(true); setActNew(0); }}
+          className={`flex shrink-0 items-center gap-2.5 border-b border-border px-3 py-2 text-left transition-colors ${actFlash ? "bg-primary/10" : "hover:bg-muted/40"}`}
+          title="Ver la actividad del proyecto"
+        >
+          {actStatus ? (
+            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${actStatus.className}`}>
+              <span className="size-1.5 rounded-full bg-current" />
+              {actStatus.label}
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {actItems[0] ? (
+              <><span className="font-medium text-foreground">{actItems[0].user?.name ?? actItems[0].actorName ?? "Alguien"}</span> {actItems[0].summary}</>
+            ) : (
+              "Sin novedades todavía"
+            )}
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-primary">
+            {actNew > 0 ? (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">{actNew}</span>
+            ) : null}
+            Actividad
+            <ChevronRight className="size-3.5" />
+          </span>
+        </button>
+      ) : null}
+      {actOpen ? <ActivityPanel items={actItems} status={actStatus} onClose={() => setActOpen(false)} /> : null}
       {/* Barra: buscar + mensajes fijados */}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {searchOpen ? (

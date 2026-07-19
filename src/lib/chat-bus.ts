@@ -100,3 +100,19 @@ export function publishConversationClear(channelId: string) {
 export function publishTyping(channelId: string, userId: string, name: string) {
   chatBus.emit(channelEvent(channelId), { kind: "typing", channelId, userId, name });
 }
+
+// Evento de ACTIVIDAD del proyecto para la BARRA DE ESTADO VIVA: un evento notable (tarea nueva o
+// completada, entregable, cambio de estado…) ya NO se publica como mensaje del bot en el canal —
+// interrumpía la conversación; se emite aquí para que la barra viva del canal se refresque al
+// instante. Efímero (mismo kind-discriminado que poll/reacción): el histórico vive en ActivityLog.
+export type ChatActivityPayload = {
+  id: string;
+  action: string;
+  summary: string;
+  createdAt: string;
+  user: { name: string; initials: string | null; color: string | null } | null;
+  actorName: string | null;
+};
+export function publishActivity(channelId: string, item: ChatActivityPayload) {
+  chatBus.emit(channelEvent(channelId), { kind: "activity", channelId, item });
+}

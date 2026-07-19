@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { ensureMarcebot, postBotTextMessage } from "@/lib/marcebot/bot";
 import { getOrCreateClientChannel } from "@/lib/client-chat";
 import { rateLimit } from "@/lib/rate-limit";
+import { publishActivity } from "@/lib/chat-bus";
 
 // Registra un cambio en el log de actividad (fecha/hora automática + autor de la sesión).
 // Best-effort: nunca rompe la acción principal si el log falla.
@@ -20,10 +21,11 @@ export async function logActivity(input: {
   actorName?: string;
 }): Promise<void> {
   let actorId: string | null = null;
+  let logRow: { id: string; createdAt: Date } | null = null;
   try {
     const me = await getCurrentUser();
     actorId = me?.id ?? null;
-    await db.activityLog.create({
+    logRow = await db.activityLog.create({
       data: {
         action: input.action,
         summary: input.summary,
@@ -35,6 +37,7 @@ export async function logActivity(input: {
         // Guarda el nombre del autor sin cuenta (cliente) para el rastro de auditoría.
         actorName: actorId ? null : input.actorName ?? null,
       },
+      select: { id: true, createdAt: true },
     });
   } catch {
     // no propagamos: el registro de actividad es secundario.
@@ -47,21 +50,20 @@ export async function logActivity(input: {
     // las notificaciones también son best-effort.
   }
 
-  // Espejo al CHAT: los eventos de ESTADO se publican como mensaje automático en el canal del
-  // proyecto (y resumidos en el canal de la cuenta del cliente). También best-effort.
+  // Espejo al CHAT: los eventos notables alimentan la BARRA DE ESTADO VIVA del canal (ya no como
+  // mensaje del bot, que interrumpía) y el feed de la cuenta del cliente. También best-effort.
   try {
-    await mirrorToChat(input, actorId);
+    await mirrorToChat(input, actorId, logRow);
   } catch {
     // el espejo al chat es secundario: nunca rompe la acción principal.
   }
 }
 
-// ── Estados automáticos en el chat ──
-// Estas acciones (y SOLO estas, para no hacer ruido) se espejan como mensaje del bot en el canal
-// INTERNO del proyecto y, con el nombre del proyecto delante, en el canal de la CUENTA del cliente:
-// así el chat es el lugar donde se VEN los estados sin que nadie los escriba a mano, y quien
-// atiende la cuenta ve el pulso de TODOS los proyectos de ese cliente en un solo chat.
-const CHAT_MIRROR_ACTIONS = new Set([
+// ── Eventos notables del proyecto (el "pulso") ──
+// Estas acciones (y SOLO estas, para no hacer ruido) alimentan la BARRA DE ESTADO VIVA del canal
+// interno y el feed de la cuenta del cliente. Es también el filtro que usa el endpoint /activity
+// (barra + panel de Actividad), para que ambos muestren exactamente "lo que Marcebot anunciaba".
+export const CHAT_MIRROR_ACTIONS = new Set([
   "project.status", // el proyecto cambió de estado
   "task.create", // nació una tarea (aparece el trabajo nuevo en el pulso del proyecto)
   "task.complete", // se completó una tarea (progreso; SOLO al pasar a "Terminada", no en cada cambio de estado)
@@ -77,12 +79,9 @@ const CHAT_MIRROR_ACTIONS = new Set([
 async function mirrorToChat(
   input: { action: string; summary: string; projectId?: string | null; actorName?: string },
   actorId: string | null,
+  logRow: { id: string; createdAt: Date } | null,
 ): Promise<void> {
   if (!input.projectId || !CHAT_MIRROR_ACTIONS.has(input.action)) return;
-  // Tope anti-inundación: algunas de estas acciones son alcanzables por TOKEN público (decisión del
-  // cliente en /review): sin tope, un enlace filtrado podría meter decenas de mensajes del bot por
-  // minuto en el chat del equipo. 6 por acción/proyecto cada 10 min cubre el flujo real de sobra.
-  if (!rateLimit(`chat-mirror:${input.projectId}:${input.action}`, 6, 10 * 60_000)) return;
   const project = await db.project.findUnique({
     where: { id: input.projectId },
     select: {
@@ -96,18 +95,34 @@ async function mirrorToChat(
     },
   });
   if (!project) return;
-  const actor = actorId ? await db.user.findUnique({ where: { id: actorId }, select: { name: true } }) : null;
+  const actor = actorId
+    ? await db.user.findUnique({ where: { id: actorId }, select: { name: true, initials: true, avatarColor: true } })
+    : null;
   const who = actor?.name ?? input.actorName ?? "Alguien";
-  const bot = await ensureMarcebot();
 
+  // BARRA DE ESTADO VIVA (canal interno del equipo): el evento YA NO entra como mensaje del bot
+  // —eso interrumpía la conversación—; se empuja EFÍMERO a la barra viva del canal (mismo bus SSE,
+  // kind "activity"). El histórico lo sirve ActivityLog (endpoint /activity + panel). Sin tope: la
+  // barra siempre debe reflejar lo último. Si el log no se creó, no hay nada vivo que empujar.
   const internal = project.channels[0];
-  if (internal) await postBotTextMessage(bot.id, internal.id, `📣 ${who} ${input.summary}`);
+  if (internal && logRow) {
+    publishActivity(internal.id, {
+      id: logRow.id,
+      action: input.action,
+      summary: input.summary,
+      createdAt: logRow.createdAt.toISOString(),
+      user: actor ? { name: actor.name, initials: actor.initials, color: actor.avatarColor } : null,
+      actorName: actorId ? null : input.actorName ?? null,
+    });
+  }
 
-  // Versión con contexto para el canal de la cuenta. Lookup BARATO primero (este camino corre en
-  // cada acción espejada): solo si el canal no existe aún se llama getOrCreateClientChannel, que
-  // además de crearlo re-sincroniza TODA la membresía (queda para ese primer evento; el resto de
-  // sincronizaciones las hacen ensureProjectChannels y el dock, cuando la membresía cambia).
-  if (project.clientId) {
+  // Canal de la CUENTA del cliente: es un FEED (quien atiende la cuenta ve el pulso de TODOS sus
+  // proyectos en un solo chat), NO una conversación que seguir → ahí el evento SÍ se mantiene como
+  // mensaje del bot, con tope anti-inundación (algunas acciones son alcanzables por token público:
+  // sin tope, un enlace filtrado podría meter decenas de mensajes por minuto). 6/acción/proy/10min.
+  if (project.clientId && rateLimit(`chat-mirror:${input.projectId}:${input.action}`, 6, 10 * 60_000)) {
+    // Lookup BARATO primero; solo si el canal no existe aún se llama getOrCreateClientChannel (que
+    // además re-sincroniza TODA la membresía — queda para ese primer evento).
     let account = await db.chatChannel.findFirst({ where: { clientId: project.clientId }, select: { id: true } });
     if (!account) {
       try {
@@ -119,6 +134,7 @@ async function mirrorToChat(
       }
     }
     if (account && account.id !== internal?.id) {
+      const bot = await ensureMarcebot();
       await postBotTextMessage(
         bot.id,
         account.id,
