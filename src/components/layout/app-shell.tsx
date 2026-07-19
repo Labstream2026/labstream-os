@@ -159,6 +159,7 @@ export function AppShell({
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-72 max-w-[85%] animate-in slide-in-from-left duration-200">
             <Sidebar
+              drawer
               user={user}
               clients={clients}
               canAdmin={canAdmin}

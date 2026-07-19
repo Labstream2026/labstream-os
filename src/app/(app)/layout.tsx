@@ -171,6 +171,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           name: c.name,
           emoji: c.emoji,
           accentColor: c.accentColor,
+          // Identidad visual del sidebar: foto/logo reales de la ficha (con el fondo del logo).
+          photoUrl: c.photoUrl,
+          logoUrl: c.logoUrl,
+          logoBg: c.logoBg,
           projectCount: c.projects.length,
           projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji })),
         }))
