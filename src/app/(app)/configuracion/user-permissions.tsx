@@ -40,6 +40,7 @@ export function UserPermissions({
   const [roleName, setRoleName] = React.useState("");
   const [rolePerms, setRolePerms] = React.useState<Set<string>>(new Set());
   const [overrides, setOverrides] = React.useState<Record<string, boolean>>({});
+  const [err, setErr] = React.useState<string | null>(null);
 
   function load() {
     setLoading(true);
@@ -61,13 +62,26 @@ export function UserPermissions({
   }
 
   function setState(key: string, state: State) {
+    setErr(null);
+    // Optimista: refleja el cambio al instante.
     setOverrides((prev) => {
       const next = { ...prev };
       if (state === "inherit") delete next[key];
       else next[key] = state === "grant";
       return next;
     });
-    start(() => { void setUserPermissionOverride(userId, key, state); });
+    // Antes era fire-and-forget: si el servidor lo rechazaba (p. ej. sin «administrar_roles»), el
+    // interruptor se veía cambiado pero al reabrir volvía atrás SIN avisar. Ahora se comprueba el
+    // resultado, se re-sincroniza con el servidor y se muestra el motivo.
+    start(async () => {
+      try {
+        const r = await setUserPermissionOverride(userId, key, state);
+        if (r && r.ok === false) { setErr(r.error ?? "No se pudo aplicar el cambio."); load(); }
+      } catch {
+        setErr("No se pudo aplicar el cambio. Reintenta.");
+        load();
+      }
+    });
   }
 
   // Estado efectivo de un permiso = override si existe, si no lo que trae el rol.
@@ -108,6 +122,8 @@ export function UserPermissions({
               </div>
               <button type="button" aria-label="Cerrar" onClick={() => setOpen(false)} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"><X className="size-5" /></button>
             </div>
+
+            {err ? <p className="border-b border-border bg-destructive/10 px-4 py-2 text-xs text-destructive">{err}</p> : null}
 
             <div className="overflow-y-auto p-4">
               {loading ? (

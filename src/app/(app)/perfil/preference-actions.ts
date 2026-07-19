@@ -24,13 +24,19 @@ export async function saveUserPreference(patch: {
   if (patch.density === "normal" || patch.density === "compact") data.density = patch.density;
   if (typeof patch.startPage === "string" && START_PAGE_SET.has(patch.startPage)) data.startPage = patch.startPage;
   if (Object.keys(data).length === 0) return;
-  await db.userPreference.upsert({
-    where: { userId: session.id },
-    create: { userId: session.id, ...data },
-    update: data,
-  });
-  // reduceMotion/density/startPage afectan el render del servidor (shell / <html> / Inicio): revalida el layout.
-  if ("reduceMotion" in data || "density" in data || "startPage" in data) revalidatePath("/", "layout");
+  // Best-effort DE VERDAD: si la BD falla al persistir una preferencia, NO debe lanzar (la UI ya
+  // cambió de forma optimista). Sin este try/catch un fallo tumbaba la página con el cartel gris.
+  try {
+    await db.userPreference.upsert({
+      where: { userId: session.id },
+      create: { userId: session.id, ...data },
+      update: data,
+    });
+    // reduceMotion/density/startPage afectan el render del servidor (shell / <html> / Inicio): revalida el layout.
+    if ("reduceMotion" in data || "density" in data || "startPage" in data) revalidatePath("/", "layout");
+  } catch (e) {
+    console.error("[perfil] saveUserPreference:", e);
+  }
 }
 
 // Guarda las VISTAS GUARDADAS (filtros con nombre) de una superficie (p. ej. "mis-tareas").

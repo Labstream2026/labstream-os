@@ -25,13 +25,21 @@ export function LabelsManager({ kind, title, hint, rows }: { kind: Kind; title: 
   const [pending, start] = React.useTransition();
   const [newLabel, setNewLabel] = React.useState("");
   const [newColor, setNewColor] = React.useState("slate");
+  const [err, setErr] = React.useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
 
-  // Ejecuta una acción y refresca la página para reflejar el cambio al instante.
-  function run(fn: () => Promise<unknown>) {
+  // Ejecuta una acción y refresca al instante. Si la acción devuelve {ok:false} (o lanza), muestra
+  // el error EN LÍNEA en vez de tumbar la página — nunca escapa un error al límite de la app.
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
+    setErr(null);
     start(async () => {
-      await fn();
-      router.refresh();
+      try {
+        const r = await fn();
+        if (r && r.ok === false) { setErr(r.error ?? "No se pudo aplicar el cambio."); return; }
+        router.refresh();
+      } catch (e) {
+        setErr("No se pudo aplicar el cambio. Reintenta.");
+      }
     });
   }
 
@@ -40,6 +48,7 @@ export function LabelsManager({ kind, title, hint, rows }: { kind: Kind; title: 
       {dialog}
       <h3 className="font-semibold">{title}</h3>
       <p className="mb-3 mt-0.5 text-xs text-muted-foreground">{hint}</p>
+      {err ? <p className="mb-2 text-xs text-destructive">{err}</p> : null}
 
       <div className="space-y-1.5">
         {rows.map((r, i) => (

@@ -46,11 +46,18 @@ export async function updateMyAvatar(formData: FormData): Promise<ProfileResult>
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Selecciona una imagen" };
   if (!file.type.startsWith("image/")) return { ok: false, error: "El archivo debe ser una imagen" };
   if (file.size > 5 * 1024 * 1024) return { ok: false, error: "La imagen supera 5MB" };
-  const buf = Buffer.from(await file.arrayBuffer());
-  await saveBufferWithPreview("avatars", session.id, buf, file.type, { maxEdge: IMAGE_EDGES.AVATAR_EDGE });
-  const url = `/api/avatar/${session.id}?v=${Date.now()}`;
-  await db.user.update({ where: { id: session.id }, data: { avatarUrl: url } });
-  await resignSession(session.id);
+  // El guardado va al almacenamiento del NAS (bind-mount): si no está disponible LANZARÍA y
+  // tumbaría la página con el cartel gris. Lo atrapamos y devolvemos un error EN LÍNEA.
+  try {
+    const buf = Buffer.from(await file.arrayBuffer());
+    await saveBufferWithPreview("avatars", session.id, buf, file.type, { maxEdge: IMAGE_EDGES.AVATAR_EDGE });
+    const url = `/api/avatar/${session.id}?v=${Date.now()}`;
+    await db.user.update({ where: { id: session.id }, data: { avatarUrl: url } });
+    await resignSession(session.id);
+  } catch (e) {
+    console.error("[perfil] updateMyAvatar:", e);
+    return { ok: false, error: "No se pudo guardar la foto. Reintenta en un momento." };
+  }
   revalidatePath("/perfil");
   revalidatePath("/");
   return { ok: true };
@@ -59,8 +66,13 @@ export async function updateMyAvatar(formData: FormData): Promise<ProfileResult>
 export async function removeMyAvatar(): Promise<ProfileResult> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado" };
-  await db.user.update({ where: { id: session.id }, data: { avatarUrl: null } });
-  await resignSession(session.id);
+  try {
+    await db.user.update({ where: { id: session.id }, data: { avatarUrl: null } });
+    await resignSession(session.id);
+  } catch (e) {
+    console.error("[perfil] removeMyAvatar:", e);
+    return { ok: false, error: "No se pudo quitar la foto. Reintenta en un momento." };
+  }
   revalidatePath("/perfil");
   revalidatePath("/");
   return { ok: true };
@@ -89,12 +101,17 @@ export async function updateMyProfile(formData: FormData): Promise<ProfileResult
   // El portal cliente no maneja datos laborales (cédula/EPS/ARL/nacimiento) y su formulario no los
   // muestra: no los tocamos para no borrarlos por accidente si el formulario cambia.
   const isCliente = session.role === "cliente";
-  await db.user.update({
-    where: { id: session.id },
-    // El nombre solo se actualiza si vino no vacío (el usuario puede ajustarlo/acortarlo).
-    data: { title, initials, avatarColor: color, ...(name ? { name } : {}), ...(isCliente ? {} : { cedula, eps, arl, birthDate }) },
-  });
-  await resignSession(session.id);
+  try {
+    await db.user.update({
+      where: { id: session.id },
+      // El nombre solo se actualiza si vino no vacío (el usuario puede ajustarlo/acortarlo).
+      data: { title, initials, avatarColor: color, ...(name ? { name } : {}), ...(isCliente ? {} : { cedula, eps, arl, birthDate }) },
+    });
+    await resignSession(session.id);
+  } catch (e) {
+    console.error("[perfil] updateMyProfile:", e);
+    return { ok: false, error: "No se pudo guardar el perfil. Reintenta en un momento." };
+  }
 
   revalidatePath("/perfil");
   revalidatePath("/");

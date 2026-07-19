@@ -6,19 +6,25 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   AlarmClock,
   Archive,
+  BarChart3,
+  BookOpen,
   CalendarDays,
   ChevronRight,
   FileCheck2,
   Home,
+  Library,
   ListTodo,
   LogOut,
   MessageCircle,
   Package,
   Plus,
+  Receipt,
   Search,
   Settings,
   Star,
   StickyNote,
+  Trash2,
+  TrendingUp,
 } from "lucide-react";
 import {
   IconFacturacion,
@@ -458,13 +464,15 @@ export function Sidebar({
   );
 
   // Los ítems administrativos del RAIL (escritorio): iconos con tooltip, abajo del rail.
+  // Usan iconos de LÍNEA monocromos (lucide) para tener EXACTAMENTE el mismo estilo que los de
+  // arriba (mismo trazo, tamaño y estados activo/hover) — antes eran iconos duotono de colores.
   const RAIL_ADMIN = [
-    { href: "/cotizaciones", label: "Facturación", icon: IconFacturacion, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
-    { href: "/comercial", label: "Comercial", icon: IconComercial, show: canComercial, active: pathname.startsWith("/comercial") },
-    { href: "/wiki", label: "Wiki del equipo", icon: IconWiki, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") },
-    { href: "/biblioteca", label: "Biblioteca", icon: IconBiblioteca, show: canBiblioteca, active: pathname.startsWith("/biblioteca") },
-    { href: "/reportes", label: "Reportes", icon: IconReportes, show: canReports, active: pathname.startsWith("/reportes") },
-    { href: "/papelera", label: "Papelera", icon: IconPapelera, show: canPapelera, active: pathname.startsWith("/papelera") },
+    { href: "/cotizaciones", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
+    { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
+    { href: "/wiki", label: "Wiki del equipo", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") },
+    { href: "/biblioteca", label: "Biblioteca", icon: Library, show: canBiblioteca, active: pathname.startsWith("/biblioteca") },
+    { href: "/reportes", label: "Reportes", icon: BarChart3, show: canReports, active: pathname.startsWith("/reportes") },
+    { href: "/papelera", label: "Papelera", icon: Trash2, show: canPapelera, active: pathname.startsWith("/papelera") },
   ].filter((r) => r.show && !isCliente);
 
   function adminRow(href: string, label: string, Icon: React.ComponentType<{ className?: string }>, active: boolean) {
@@ -589,11 +597,11 @@ export function Sidebar({
                 onClick={onNavigate}
                 aria-label={r.label}
                 className={cn(
-                  "group relative grid size-9 shrink-0 place-items-center rounded-[10px] transition-colors duration-150",
+                  "group relative grid size-10 shrink-0 place-items-center rounded-xl transition-colors duration-150",
                   r.active ? "bg-primary text-primary-foreground shadow-sm" : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                 )}
               >
-                <r.icon className="size-[18px]" />
+                <r.icon className="size-5" />
                 <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
                   {r.label}
                 </span>
@@ -602,28 +610,21 @@ export function Sidebar({
           </>
         ) : null}
         <div className="mb-1 mt-1 h-px w-7 bg-sidebar-border" />
-        {isCliente ? null : (
-          <Link
-            href="/ajustes"
-            onClick={onNavigate}
-            aria-label="Ajustes"
-            className={cn(
-              "group relative grid size-10 shrink-0 place-items-center rounded-xl transition-colors duration-150",
-              pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion") || pathname.startsWith("/perfil")
-                ? "bg-primary text-primary-foreground"
-                : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-            )}
-          >
-            <Settings className="size-5" />
-            <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-              Ajustes
-            </span>
-          </Link>
-        )}
-        <Link href="/ajustes?s=perfil" onClick={onNavigate} aria-label="Mi perfil" className="group relative mt-1 grid shrink-0 place-items-center rounded-full transition-transform hover:scale-105">
+        {/* Tu avatar HACE de Ajustes: el engranaje desaparece y con solo tu foto/iniciales entras a
+            Ajustes (un aro de acento marca cuando ya estás dentro). Menos ruido, un solo destino. */}
+        <Link
+          href={isCliente ? "/ajustes?s=perfil" : "/ajustes"}
+          onClick={onNavigate}
+          aria-label="Ajustes"
+          className={cn(
+            "group relative mt-1 grid shrink-0 place-items-center rounded-full transition-transform hover:scale-105",
+            (pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion") || pathname.startsWith("/perfil")) &&
+              "ring-2 ring-primary ring-offset-2 ring-offset-sidebar",
+          )}
+        >
           <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
           <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-            {user.name}
+            {user.name} · Ajustes
           </span>
         </Link>
         <form action={logout} className="mt-1">

@@ -86,16 +86,6 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
 
   const perfilNode = (
     <div className="space-y-4">
-      <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
-        <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <div>
-          <p className="font-medium">Correo de notificaciones</p>
-          <p className="text-muted-foreground">
-            Tus notificaciones por correo llegan a <span className="font-medium text-foreground">{me.email}</span>.
-            Lo gestiona Authentik (SSO); para cambiarlo, contacta con el administrador del sistema.
-          </p>
-        </div>
-      </div>
       <ProfileForm
         name={me.name}
         email={me.email}
@@ -109,6 +99,17 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
         isCliente={isCliente}
       />
+      {/* La leyenda del correo va AL FINAL de la pestaña (nota informativa, no un dato editable). */}
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm">
+        <Mail className="mt-0.5 size-4 shrink-0 text-primary" />
+        <div>
+          <p className="font-medium">Correo de notificaciones</p>
+          <p className="text-muted-foreground">
+            Tus notificaciones por correo llegan a <span className="font-medium text-foreground">{me.email}</span>.
+            Lo gestiona Authentik (SSO); para cambiarlo, contacta con el administrador del sistema.
+          </p>
+        </div>
+      </div>
     </div>
   );
   const preferenciasNode = <PreferencesForm reduceMotion={prefs.reduceMotion} startPage={prefs.startPage} density={prefs.density} />;

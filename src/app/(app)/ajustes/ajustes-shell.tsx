@@ -89,12 +89,19 @@ export function AjustesShell({ sections, initial }: { sections: AjustesSection[]
         ))}
       </nav>
 
-      {/* Contenido de la sección activa */}
+      {/* Contenido de la sección activa — cabecera con chip de icono en acento (estilo unificado) */}
       <section className="min-w-0">
-        <p className="mb-1 text-xs text-muted-foreground">
-          Ajustes › {GROUP_LABEL[current.group]}
-        </p>
-        <h2 className="mb-4 text-xl font-semibold tracking-tight">{current.label}</h2>
+        <div className="mb-5 flex items-start gap-3">
+          {current.icon ? (
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary [&_svg]:size-6">
+              {current.icon}
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Ajustes › {GROUP_LABEL[current.group]}</p>
+            <h2 className="text-xl font-semibold tracking-tight">{current.label}</h2>
+          </div>
+        </div>
         <div key={current.key} className="animate-in fade-in slide-in-from-bottom-1 duration-200">
           {current.node}
         </div>
