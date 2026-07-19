@@ -556,7 +556,7 @@ function Row({
       {/* Barra de acento cuando hay una MENCIÓN sin leer (la señal más alta). */}
       {row.mentions > 0 && active !== row.id ? <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" /> : null}
       {row.isDM ? (
-        <UserAvatar initials={row.initials} color={row.color} size="sm" />
+        <UserAvatar initials={row.initials} color={row.color} size="sm" presence={row.otherPresence} dnd={row.otherDnd} />
       ) : row.isPublic ? (
         <Hash className="size-4 shrink-0 text-muted-foreground" />
       ) : (

@@ -6,6 +6,7 @@ import { ensureProjectChannels } from "@/lib/project-chat";
 import { ensureRoleChannels } from "@/lib/role-chat";
 import { sessionHasSectionAccess } from "@/lib/chat-section-access";
 import { unreadByChannel } from "@/lib/chat-unread";
+import { isDndActive } from "@/lib/notif-silence";
 
 // Datos de la lista de chats (rail navegador). Compartido por el layout (rail de
 // escritorio) y la página índice (lista a pantalla completa en móvil), para no duplicar
@@ -18,6 +19,8 @@ export type ChatListRow = {
   color: string | null;
   isPublic: boolean;
   isDM: boolean;
+  otherPresence?: string | null; // (solo DMs) estado del interlocutor: activo/ocupado/ausente
+  otherDnd?: boolean; // (solo DMs) el interlocutor tiene «No molestar» vigente
   unread: number;
   mentions: number; // menciones @ SIN leer en este canal (señal alta: prioriza y alimenta «Menciones»)
   muted: boolean; // silenciado por MÍ: badge en gris y fuera de los agregados de sección
@@ -129,7 +132,7 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
       where: { OR: [{ members: { some: { userId: session.id } } }, ...channelAccess] },
       orderBy: { createdAt: "desc" },
       include: {
-        members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
+        members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true, presence: true, dndUntil: true } } } },
         _count: { select: { messages: true } },
         // Para agrupar por cliente: canal de cliente (clientId directo) o de proyecto (→ su cliente).
         client: { select: { id: true, name: true, emoji: true } },
@@ -193,6 +196,8 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
         color: other?.avatarColor ?? null,
         isPublic: c.isPublic,
         isDM: true,
+        otherPresence: other?.presence ?? null,
+        otherDnd: isDndActive(other?.dndUntil ?? null),
         unread: unread.get(c.id) ?? 0,
         mentions: mentionsOf(c.id),
         muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
