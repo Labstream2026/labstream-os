@@ -138,14 +138,14 @@ export function Topbar({
             <MoreHorizontal className="size-5" />
           </summary>
           <div className="absolute right-0 z-30 mt-1 w-52 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
-            <Link href="/perfil" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+            <Link href="/ajustes?s=perfil" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
               <User className="size-4" /> Mi perfil
             </Link>
             <Link href="/calendario" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
               <IconCalendario className="size-4" /> Mi calendario
             </Link>
-            <Link href="/configuracion" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
-              <IconConfiguracion className="size-4" /> Configuración
+            <Link href="/ajustes" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+              <IconConfiguracion className="size-4" /> Ajustes
             </Link>
             <form action={logout} className="border-t border-border">
               <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-destructive hover:bg-muted">

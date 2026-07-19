@@ -509,9 +509,9 @@ export function Sidebar({
           {produccion}
         </div>
         <div className="border-t border-sidebar-border p-3">
-          {isCliente ? null : adminRow("/configuracion", canAdmin ? "Configuración" : "Integraciones", Settings, pathname.startsWith("/configuracion"))}
+          {isCliente ? null : adminRow("/ajustes", "Ajustes", Settings, pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion"))}
           <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5">
-            <Link href="/perfil" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg hover:opacity-80" title="Mi perfil">
+            <Link href="/ajustes?s=perfil" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg hover:opacity-80" title="Mi perfil">
               <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{user.name}</span>
@@ -565,21 +565,23 @@ export function Sidebar({
         <div className="mb-1 h-px w-7 bg-sidebar-border" />
         {isCliente ? null : (
           <Link
-            href="/configuracion"
+            href="/ajustes"
             onClick={onNavigate}
-            aria-label={canAdmin ? "Configuración" : "Integraciones"}
+            aria-label="Ajustes"
             className={cn(
               "group relative grid size-10 shrink-0 place-items-center rounded-xl transition-colors duration-150",
-              pathname.startsWith("/configuracion") ? "bg-primary text-primary-foreground" : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion") || pathname.startsWith("/perfil")
+                ? "bg-primary text-primary-foreground"
+                : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
             )}
           >
             <Settings className="size-5" />
             <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-              {canAdmin ? "Configuración" : "Integraciones"}
+              Ajustes
             </span>
           </Link>
         )}
-        <Link href="/perfil" onClick={onNavigate} aria-label="Mi perfil" className="group relative mt-1 grid shrink-0 place-items-center rounded-full transition-transform hover:scale-105">
+        <Link href="/ajustes?s=perfil" onClick={onNavigate} aria-label="Mi perfil" className="group relative mt-1 grid shrink-0 place-items-center rounded-full transition-transform hover:scale-105">
           <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
           <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
             {user.name}
