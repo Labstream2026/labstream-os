@@ -30,14 +30,39 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, path: true, mime: true, project: { select: accessSelect } },
+    select: { name: true, path: true, mime: true, projectId: true, project: { select: accessSelect } },
   });
   if (!file || !file.path) return new NextResponse("No encontrado", { status: 404 });
 
+  let viewer: { id: string } | null = null;
   if (!verifyFileToken(id, token)) {
     const session = await getSession();
     if (!session) return new NextResponse("No autorizado", { status: 401 });
     if (!canAccessProject(file.project, session)) return new NextResponse("Prohibido", { status: 403 });
+    viewer = { id: session.id };
+  } else {
+    // Con token firmado puede venir el portal (sin cuenta) o alguien del equipo con cookie.
+    const session = await getSession().catch(() => null);
+    viewer = session ? { id: session.id } : null;
+  }
+
+  // Auditoría de descargas/aperturas: una vez por archivo servido. Los saltos del <video>
+  // (peticiones Range intermedias) no cuentan — solo la primera carga completa o byte 0.
+  {
+    const range = req.headers.get("range");
+    if (!range || /^bytes=0-/.test(range)) {
+      const { logActivity } = await import("@/lib/activity");
+      logActivity({
+        action: "file.download",
+        summary: `abrió/descargó «${file.name}»`,
+        projectId: file.projectId,
+        entityType: "file",
+        entityId: id,
+        userId: viewer ? viewer.id : null,
+        actorName: viewer ? undefined : "Enlace firmado (portal)",
+        silent: true,
+      }).catch(() => {});
+    }
   }
 
   const wantInline = !url.searchParams.get("download");

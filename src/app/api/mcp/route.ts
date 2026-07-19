@@ -193,6 +193,26 @@ export async function POST(req: NextRequest) {
     await db.appKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date(), lastUsedIp: ip } }).catch(() => {});
   });
 
+  // Auditoría: cada herramienta que usa una llave por MCP queda en el registro (con el
+  // titular como autor). Fire-and-forget: no retrasa la respuesta al agente.
+  const auditToolCalls = (msgs: RpcMessage[]) => {
+    after(async () => {
+      const { logActivity } = await import("@/lib/activity");
+      for (const m of msgs) {
+        if (m?.method !== "tools/call") continue;
+        const tool = typeof m.params?.name === "string" ? m.params.name : "(sin nombre)";
+        await logActivity({
+          action: "api.tool",
+          summary: `la llave «${key.name}» usó ${tool}`,
+          userId: session.id,
+          ip,
+          meta: { tool, key: key.name, via: "mcp" },
+          silent: true,
+        }).catch(() => {});
+      }
+    });
+  };
+
   let body: unknown;
   try {
     body = await req.json();
@@ -203,6 +223,7 @@ export async function POST(req: NextRequest) {
   // Un mensaje suelto o un lote (array) de mensajes JSON-RPC.
   const batch = Array.isArray(body);
   const messages = (batch ? body : [body]) as RpcMessage[];
+  auditToolCalls(messages);
   const responses: object[] = [];
   for (const msg of messages) {
     const res = await handleRpc(msg, session, readOnly);

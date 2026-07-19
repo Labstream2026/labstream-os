@@ -124,6 +124,19 @@ export function withApiKey(
     const ip = clientIp(req);
     after(async () => {
       await db.appKey.update({ where: { id: r.ctx.key.id }, data: { lastUsedAt: new Date(), lastUsedIp: ip } }).catch(() => {});
+      // Auditoría: las ESCRITURAS de la API quedan en el registro (los GET no: puro ruido).
+      if (req.method !== "GET") {
+        const path = new URL(req.url).pathname.replace(/^\/api\/v1/, "") || "/";
+        const { logActivity } = await import("@/lib/activity");
+        await logActivity({
+          action: "api.request",
+          summary: `la llave «${r.ctx.key.name}» hizo ${req.method} ${path}`,
+          userId: r.ctx.session.id,
+          ip,
+          meta: { key: r.ctx.key.name, method: req.method, path },
+          silent: true,
+        }).catch(() => {});
+      }
     });
 
     return handler(req, r.ctx, routeCtx);

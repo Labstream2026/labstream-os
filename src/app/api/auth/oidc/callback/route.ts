@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { authentikEnabled, exchangeCode, fetchUserinfo, decodeIdTokenClaims, verifyIdTokenSignature, isProvisionableEmail, REQUIRE_EMAIL_VERIFIED } from "@/lib/oidc";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
 import { safeNext } from "@/lib/safe-next";
+import { logActivity } from "@/lib/activity";
+import { describeDevice } from "@/lib/request-info";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -100,6 +102,20 @@ export async function GET(req: NextRequest) {
       perms: user.role.permissions.map((rp) => rp.permission.key),
       initials: user.initials,
       color: user.avatarColor,
+    });
+
+    // Auditoría de sesiones: entrada por SSO (Authentik) con IP y dispositivo. La IP se
+    // toma del ÚLTIMO salto de X-Forwarded-For (el de nuestro nginx), como en el login.
+    const xff = (req.headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const ipReq = xff.length ? xff[xff.length - 1] : (req.headers.get("x-real-ip") ?? "").trim() || null;
+    const device = describeDevice(req.headers.get("user-agent") ?? "");
+    await logActivity({
+      action: "session.login",
+      summary: `inició sesión${device ? ` · ${device}` : ""} · SSO`,
+      userId: user.id,
+      ip: ipReq,
+      meta: { device: device || null, via: "authentik" },
+      silent: true,
     });
 
     const res = NextResponse.redirect(new URL(next, base));

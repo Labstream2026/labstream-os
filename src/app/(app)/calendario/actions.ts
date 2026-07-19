@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessProject, hasFullAccess, canWriteProject } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
+import { logActivity } from "@/lib/activity";
 import { pushEventToParticipants, removeEventFromParticipants, removeEventForUsers, sendGuestInvites, sendEventCancellations } from "@/lib/calendar-sync";
 import { createCalendarEventCore } from "@/lib/calendar-create";
 import { syncEventAnchoredAlerts, disableEventAnchoredAlerts, syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
@@ -189,6 +190,7 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
       actorId: session.id,
     });
   }
+  await logActivity({ action: "event.update", summary: `editó la cita «${title}»`, entityType: "event", entityId: eventId, silent: true });
   revalidatePath("/calendario");
 }
 
@@ -220,6 +222,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
     if (a.userId === session.id) continue;
     await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id });
   }
+  await logActivity({ action: "event.move", summary: `reprogramó la cita «${event.title}»`, entityType: "event", entityId: eventId, silent: true });
   revalidatePath("/calendario");
 }
 

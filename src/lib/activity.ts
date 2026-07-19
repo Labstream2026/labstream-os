@@ -19,12 +19,26 @@ export async function logActivity(input: {
   exclude?: string[];
   // Nombre del autor cuando NO hay sesión (p.ej. el cliente desde el portal público).
   actorName?: string;
+  // Autor EXPLÍCITO cuando la sesión de cookie no aplica (login/SSO recién firmado,
+  // llaves API/MCP): sin esto, getCurrentUser() daría null y el evento quedaría anónimo.
+  userId?: string | null;
+  // Auditoría ampliada: IP del actor y detalle extra (dispositivo, herramienta, etc.).
+  ip?: string | null;
+  meta?: Record<string, unknown> | null;
+  // SOLO registrar (auditoría): sin notificaciones ni espejo al chat. Para eventos de
+  // volumen o vigilancia (sesiones, descargas, llamadas de llaves API) que no deben
+  // hacer ruido al equipo.
+  silent?: boolean;
 }): Promise<void> {
   let actorId: string | null = null;
   let logRow: { id: string; createdAt: Date } | null = null;
   try {
-    const me = await getCurrentUser();
-    actorId = me?.id ?? null;
+    if (input.userId !== undefined) {
+      actorId = input.userId;
+    } else {
+      const me = await getCurrentUser();
+      actorId = me?.id ?? null;
+    }
     logRow = await db.activityLog.create({
       data: {
         action: input.action,
@@ -36,12 +50,16 @@ export async function logActivity(input: {
         userId: actorId,
         // Guarda el nombre del autor sin cuenta (cliente) para el rastro de auditoría.
         actorName: actorId ? null : input.actorName ?? null,
+        ip: input.ip ?? null,
+        meta: input.meta ? (input.meta as object) : undefined,
       },
       select: { id: true, createdAt: true },
     });
   } catch {
     // no propagamos: el registro de actividad es secundario.
   }
+
+  if (input.silent) return;
 
   // Notificar a quien pertenece al proyecto/cliente (+ admins), aparte del log.
   try {

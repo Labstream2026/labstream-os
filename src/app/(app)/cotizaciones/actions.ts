@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
+import { logActivity } from "@/lib/activity";
 import { getQuoteSettings } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 import { isQuoteStatus } from "@/lib/enum-guards";
@@ -72,6 +73,7 @@ export async function createQuote(formData: FormData) {
         },
       }),
   });
+  await logActivity({ action: "quote.create", summary: `creó la cotización ${quote.code} «${title}»`, clientId, entityType: "quote", entityId: quote.id, silent: true });
   refresh(quote.id);
   redirect(`/cotizaciones/${quote.id}`);
 }
@@ -313,6 +315,12 @@ export async function setQuoteStatus(quoteId: string, status: string) {
       approvedAt: status === "APROBADA" ? new Date() : null,
     },
   });
+
+  {
+    const q = await db.quote.findUnique({ where: { id: quoteId }, select: { code: true, title: true, clientId: true } });
+    const verbo = status === "ENVIADA" ? "envió" : status === "APROBADA" ? "aprobó" : status === "RECHAZADA" ? "rechazó" : `pasó a ${status.toLowerCase()}`;
+    await logActivity({ action: "quote.status", summary: `${verbo} la cotización ${q?.code ?? ""} «${q?.title ?? ""}»`, clientId: q?.clientId ?? null, entityType: "quote", entityId: quoteId, silent: true });
+  }
 
   // Al APROBAR, si la cotización está ligada a un proyecto, llevamos el alcance y los
   // entregables al brief del proyecto para que el equipo arranque con la info (sin valores).

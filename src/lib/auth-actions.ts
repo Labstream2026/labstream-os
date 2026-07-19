@@ -3,9 +3,11 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { verifyPassword } from "@/lib/auth";
+import { verifyPassword, getSession } from "@/lib/auth";
 import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/session";
 import { safeNext } from "@/lib/safe-next";
+import { logActivity } from "@/lib/activity";
+import { getRequestInfo } from "@/lib/request-info";
 
 export type LoginState = { error?: string };
 
@@ -89,10 +91,30 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     maxAge: SESSION_MAX_AGE,
   });
 
+  // Auditoría de sesiones: quién entró, desde qué IP y dispositivo. Antes del redirect
+  // (redirect lanza) y con userId explícito (la cookie recién puesta aún no se "ve").
+  const info = await getRequestInfo();
+  await logActivity({
+    action: "session.login",
+    summary: `inició sesión${info.device ? ` · ${info.device}` : ""}`,
+    userId: user.id,
+    ip: info.ip,
+    meta: { device: info.device || null, via: "password" },
+    silent: true,
+  });
+
   redirect(next);
 }
 
 export async function logout() {
+  // Registra el cierre ANTES de borrar la cookie (después ya no sabríamos quién fue).
+  try {
+    const session = await getSession();
+    if (session) {
+      const info = await getRequestInfo();
+      await logActivity({ action: "session.logout", summary: "cerró sesión", userId: session.id, ip: info.ip, silent: true });
+    }
+  } catch {}
   const store = await cookies();
   store.delete(SESSION_COOKIE);
   redirect("/login");

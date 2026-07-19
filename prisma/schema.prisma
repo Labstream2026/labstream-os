@@ -396,11 +396,17 @@ model ActivityLog {
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId     String?
   actorName  String? // nombre del autor sin cuenta (p. ej. el cliente desde el portal público)
+  // Auditoría ampliada: IP del actor (sesiones/descargas) y detalle extra en JSON
+  // (dispositivo, herramienta usada por una llave API, etc.).
+  ip         String?
+  meta       Json?
   createdAt  DateTime @default(now())
 
   @@index([projectId, createdAt])
   @@index([clientId, createdAt])
   @@index([createdAt])
+  // La vista "Por persona" de Auditoría consulta por usuario + día.
+  @@index([userId, createdAt])
 }
 
 // ─────────────────────────────────────────────

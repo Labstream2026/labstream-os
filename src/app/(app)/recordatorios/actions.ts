@@ -19,6 +19,7 @@ import {
   type ReminderSchedule,
 } from "@/lib/reminder-schedule";
 import { markReminderDone, snoozeReminderTo, recomputeReminderNext } from "@/lib/reminder-alerts";
+import { logActivity } from "@/lib/activity";
 
 // ── Acciones de recordatorios ──
 // Cualquiera del equipo puede crear recordatorios propios o para uno/varios compañeros (como
@@ -260,6 +261,7 @@ export async function createReminder(input: NewReminderInput): Promise<Res> {
     }
   }
 
+  await logActivity({ action: "reminder.create", summary: `creó el recordatorio «${built.title}»`, entityType: "reminder", silent: true });
   revalidatePath("/recordatorios");
   return { ok: true };
 }
@@ -302,6 +304,7 @@ export async function updateReminder(id: string, input: NewReminderInput): Promi
     data: built.specs.map((s) => ({ reminderId: id, fireAt: s.fireAt, offsetMin: s.offsetMin })),
   });
 
+  await logActivity({ action: "reminder.update", summary: `editó el recordatorio «${built.title}»`, entityType: "reminder", entityId: id, silent: true });
   revalidatePath("/recordatorios");
   return { ok: true };
 }
@@ -349,9 +352,10 @@ export async function toggleReminder(id: string, active: boolean): Promise<Res> 
 export async function completeReminder(id: string): Promise<Res> {
   const session = await teamSession();
   if (!session) return { ok: false, error: "Sin permiso" };
-  const r = await db.reminder.findUnique({ where: { id }, select: { forUserId: true, createdById: true } });
+  const r = await db.reminder.findUnique({ where: { id }, select: { forUserId: true, createdById: true, title: true } });
   if (!r || !canManage(r, session)) return { ok: false, error: "Sin permiso" };
   await markReminderDone(id);
+  await logActivity({ action: "reminder.complete", summary: `marcó hecho el recordatorio «${r.title}»`, entityType: "reminder", entityId: id, silent: true });
   revalidatePath("/recordatorios");
   return { ok: true };
 }
@@ -394,9 +398,10 @@ export async function snoozeReminder(id: string, kind: string): Promise<Res> {
 export async function deleteReminder(id: string): Promise<Res> {
   const session = await teamSession();
   if (!session) return { ok: false, error: "Sin permiso" };
-  const r = await db.reminder.findUnique({ where: { id }, select: { forUserId: true, createdById: true } });
+  const r = await db.reminder.findUnique({ where: { id }, select: { forUserId: true, createdById: true, title: true } });
   if (!r || !canManage(r, session)) return { ok: false, error: "Sin permiso" };
   await db.reminder.delete({ where: { id } });
+  await logActivity({ action: "reminder.delete", summary: `borró el recordatorio «${r.title}»`, entityType: "reminder", entityId: id, silent: true });
   revalidatePath("/recordatorios");
   return { ok: true };
 }

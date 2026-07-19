@@ -10,6 +10,7 @@ import { wikiTemplate } from "@/lib/wiki-templates";
 import { saveBuffer, extOf, deleteRel } from "@/lib/storage";
 import { saveBufferWithPreview, previewRel } from "@/lib/image";
 import { extractWikiAttachments } from "@/lib/markdown";
+import { logActivity } from "@/lib/activity";
 
 // La wiki es del equipo interno: solo quien tiene acceso a la Wiki puede crear/
 // editar/borrar páginas. Roles externos (freelancer/cliente) e invitados quedan fuera.
@@ -49,6 +50,7 @@ export async function createWikiPage(formData: FormData): Promise<void> {
       ownerId: session.id,
     },
   });
+  await logActivity({ action: "wiki.create", summary: `creó la página «${page.title}» en la wiki`, entityType: "wiki", entityId: page.id, silent: true });
   revalidatePath("/wiki");
   redirect(`/wiki/${page.id}`);
 }
@@ -61,6 +63,7 @@ export async function updateWikiPage(id: string, formData: FormData): Promise<vo
   const section = String(formData.get("section") ?? "").trim() || null;
   const tags = parseTags(String(formData.get("tags") ?? ""));
   await db.wikiPage.update({ where: { id }, data: { title, icon, content, section, tags } });
+  await logActivity({ action: "wiki.update", summary: `editó la página «${title}» de la wiki`, entityType: "wiki", entityId: id, silent: true });
   revalidatePath("/wiki");
   redirect(`/wiki/${id}`); // tras guardar, volver al modo lectura
 }
@@ -121,7 +124,8 @@ export async function deleteWikiPage(id: string): Promise<void> {
       await deleteRel(previewRel(`wikifile/${key}`)); // derivado .opt.webp si era imagen
     }
   }
-  await db.wikiPage.delete({ where: { id } });
+  const deleted = await db.wikiPage.delete({ where: { id }, select: { title: true } });
+  await logActivity({ action: "wiki.delete", summary: `borró la página «${deleted.title}» de la wiki`, entityType: "wiki", entityId: id, silent: true });
   revalidatePath("/wiki");
   redirect("/wiki");
 }
