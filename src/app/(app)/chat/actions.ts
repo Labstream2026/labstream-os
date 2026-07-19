@@ -830,8 +830,17 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
     const att = await db.messageAttachment.create({
       data: { messageId: msg.id, name: file.name, path: "", mime, size: buf.length },
     });
-    const rel = await saveBufferWithPreview(`chat/${att.id}`, file.name, buf, file.type);
-    await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
+    // El guardado va al NAS (bind-mount, a veces caído): si LANZA aquí, antes quedaba un adjunto
+    // HUÉRFANO con path:"" (404 para siempre) y el mensaje no se difundía → el usuario reintentaba
+    // y DUPLICABA. Ahora, si un archivo no se guarda, se borra su fila y se continúa con el resto.
+    try {
+      const rel = await saveBufferWithPreview(`chat/${att.id}`, file.name, buf, file.type);
+      await db.messageAttachment.update({ where: { id: att.id }, data: { path: rel } });
+    } catch (e) {
+      console.error("[chat] adjunto no guardado (NAS):", e);
+      await db.messageAttachment.delete({ where: { id: att.id } }).catch(() => {});
+      continue;
+    }
     // Espejo automático en Archivos del proyecto: DOCUMENTOS del chat de proyecto (no imágenes
     // ni audio). Best-effort: si el espejo falla, el mensaje y su adjunto salen igual.
     let fileAssetId: string | null = null;
@@ -1159,7 +1168,11 @@ export async function forwardMessage(messageId: string, targetChannelId: string)
     author: msg.author ? { name: msg.author.name, initials: msg.author.initials, color: msg.author.avatarColor } : null,
     attachments: [],
   });
-  await notifyChannelMessage(targetChannelId, session.id, msg.author?.name ?? "Alguien", body, msg.id);
+  // El aviso va en after() (best-effort), igual que sendMessage: antes iba en línea y, si notify
+  // fallaba, un reenvío YA hecho se veía como fallido (y quedaba una promesa rechazada sin atrapar).
+  after(async () => {
+    await notifyChannelMessage(targetChannelId, session.id, msg.author?.name ?? "Alguien", body, msg.id);
+  });
   return { ok: true };
 }
 

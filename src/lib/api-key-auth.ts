@@ -139,7 +139,14 @@ export function withApiKey(
       }
     });
 
-    return handler(req, r.ctx, routeCtx);
+    // Red de seguridad: si un handler LANZA sin atrapar, el integrador debe recibir el MISMO
+    // sobre {ok:false,error} que el resto de la API — no un 500 de Next en HTML crudo.
+    try {
+      return await handler(req, r.ctx, routeCtx);
+    } catch (e) {
+      console.error("[api/v1] error no atrapado en el handler:", e);
+      return apiJson({ ok: false, error: "Error interno del servidor." }, 500);
+    }
   };
 }
 

@@ -49,12 +49,17 @@ export async function setSavedViews(surface: string, views: { id: string; name: 
   try { const p = row?.savedViews ? JSON.parse(row.savedViews) : []; if (Array.isArray(p)) all = p; } catch { all = []; }
   const others = all.filter((v) => v && v.surface !== surface);
   const clean = (views ?? []).slice(0, 50).map((v) => ({ surface, id: String(v.id).slice(0, 40), name: String(v.name ?? "").slice(0, 60), query: String(v.query ?? "").slice(0, 500) }));
-  await db.userPreference.upsert({
-    where: { userId: session.id },
-    create: { userId: session.id, savedViews: JSON.stringify([...others, ...clean]) },
-    update: { savedViews: JSON.stringify([...others, ...clean]) },
-  });
-  return { ok: true };
+  try {
+    await db.userPreference.upsert({
+      where: { userId: session.id },
+      create: { userId: session.id, savedViews: JSON.stringify([...others, ...clean]) },
+      update: { savedViews: JSON.stringify([...others, ...clean]) },
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("[perfil] setSavedViews:", e);
+    return { ok: false };
+  }
 }
 
 // Preferencia personal de notificación: activa/desactiva un CANAL (app/push/correo) para un evento.
@@ -69,10 +74,17 @@ export async function setNotifPref(
   if (!NOTIFICATION_EVENT_KEYS.has(eventKey)) return { ok: false };
   const data = channel === "inApp" ? { inApp: enabled } : channel === "push" ? { push: enabled } : channel === "email" ? { email: enabled } : null;
   if (!data) return { ok: false };
-  await db.userNotificationPref.upsert({
-    where: { userId_eventKey: { userId: session.id, eventKey } },
-    create: { userId: session.id, eventKey, ...data },
-    update: data,
-  });
-  return { ok: true };
+  // try/catch: sin él, un fallo de BD al alternar un canal en Ajustes→Notificaciones subía al
+  // límite de error y tumbaba la página con el cartel gris (mismo caso ya arreglado en saveUserPreference).
+  try {
+    await db.userNotificationPref.upsert({
+      where: { userId_eventKey: { userId: session.id, eventKey } },
+      create: { userId: session.id, eventKey, ...data },
+      update: data,
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("[perfil] setNotifPref:", e);
+    return { ok: false };
+  }
 }

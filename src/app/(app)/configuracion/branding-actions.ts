@@ -40,7 +40,14 @@ export async function uploadOrgLogo(formData: FormData): Promise<{ ok: boolean; 
   const buf = Buffer.from(await file.arrayBuffer());
   const rel = orgLogoRel(variant); // "brand/org-logo-<variant>.png"
   const slash = rel.lastIndexOf("/");
-  await saveBuffer(rel.slice(0, slash), rel.slice(slash + 1), buf);
+  // El guardado va al NAS (bind-mount): si LANZA, antes el spinner "Subiendo" quedaba girando
+  // para siempre sin aviso. Lo atrapamos y devolvemos un error EN LÍNEA (como updateMyAvatar).
+  try {
+    await saveBuffer(rel.slice(0, slash), rel.slice(slash + 1), buf);
+  } catch (e) {
+    console.error("[branding] uploadOrgLogo:", e);
+    return { ok: false, error: "No se pudo guardar el logo. Reintenta en un momento." };
+  }
   revalidatePath("/", "layout");
   return { ok: true };
 }

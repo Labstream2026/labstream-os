@@ -463,8 +463,10 @@ export async function setCoverDecision(token: string, decision: string, name?: s
   const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
   const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true, type: true } });
   if (!d?.coverFileAssetId) throw new Error("Este entregable no tiene una portada para revisar");
-  // La portada es propia de los REELS (vertical); en horizontales no hay decisión de portada.
-  if (!(d.type === "REEL" || d.type === "SHORT")) throw new Error("Este entregable no tiene portada para aprobar");
+  // La portada es propia de los formatos VERTICALES; en horizontales no hay decisión de portada.
+  // Debe cubrir los MISMOS tipos que la página muestra el panel (REEL, SHORT y REEL_CELULAR) — si
+  // no, un REEL_CELULAR con portada mostraba el botón y al pulsarlo lanzaba error siempre.
+  if (!(d.type === "REEL" || d.type === "SHORT" || d.type === "REEL_CELULAR")) throw new Error("Este entregable no tiene portada para aprobar");
   // Anti-carrera: la decisión aplica a la portada que el cliente VIO. Si el equipo subió una
   // nueva mientras tanto, se rechaza para que no quede aprobada una portada distinta sin verla.
   if (expectedFor && expectedFor !== d.coverFileAssetId) {

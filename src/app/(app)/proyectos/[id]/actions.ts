@@ -151,13 +151,15 @@ export async function createTask(projectId: string, formData: FormData) {
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
   const dueDate = dueRaw ? new Date(`${dueRaw}T12:00:00.000Z`) : bogotaNoon();
   const startRaw = String(formData.get("startDate") ?? "").trim();
-  const startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
+  let startDate = startRaw ? new Date(`${startRaw}T12:00:00.000Z`) : bogotaNoon();
   const description = String(formData.get("description") ?? "").trim() || null;
   // Hora de finalización OBLIGATORIA al crear: si no llega una válida, por defecto 9:00 am.
   const dueTimeRaw = String(formData.get("dueTime") ?? "").trim();
   const dueTime = /^\d{1,2}:\d{2}$/.test(dueTimeRaw) ? dueTimeRaw : "09:00";
-  // Coherencia: una tarea no puede empezar DESPUÉS de entregarse.
-  if (startDate.getTime() > dueDate.getTime()) throw new Error("La fecha de inicio no puede ser posterior a la fecha de entrega.");
+  // Coherencia: una tarea no puede empezar DESPUÉS de entregarse. Este formulario es un
+  // <form action> sin manejo de error, así que LANZAR aquí tumbaba todo el tablero a la pantalla
+  // gris. En su lugar se AJUSTA el inicio a la fecha de entrega (queda coherente, sin crash).
+  if (startDate.getTime() > dueDate.getTime()) startDate = dueDate;
   // Ítem de ENTREGABLE: queda elegible en el desplegable al crear un entregable y se
   // completa sola cuando el editor manda la versión a pre-aprobación.
   const isDeliverableWork = formData.get("isDeliverableWork") === "on" || formData.get("isDeliverableWork") === "true";
@@ -704,7 +706,10 @@ export async function setTaskEstimate(taskId: string, _projectId: string, formDa
   const projectId = await ensureAccessVia(task);
   const raw = String(formData.get("hours") ?? "").trim();
   const estimatedMinutes = raw ? parseHoursToMinutes(raw) : null;
-  if (raw && estimatedMinutes == null) throw new Error("Horas inválidas");
+  // Texto no numérico ("abc", "medio día"): no-op en vez de lanzar — este campo viene de un
+  // <form> que se auto-envía al salir (onBlur) y no maneja el error, así que un throw tumbaba
+  // el panel de la tarea. Simplemente no se guarda nada.
+  if (raw && estimatedMinutes == null) return;
   await db.task.update({ where: { id: taskId }, data: { estimatedMinutes } });
   await logActivity({
     action: "task.estimate",
@@ -1980,8 +1985,14 @@ export async function internalDecision(
   // lo acota, pero esto blinda la invocación directa del server action (no regresar un entregable ya
   // aprobado por el cliente, ni pre-aprobar una versión vieja).
   const latestVersion = deliverable.versions[0]?.number ?? 0;
-  if (versionNumber !== latestVersion) throw new Error(`Solo se puede decidir sobre la última versión (v${latestVersion}).`);
-  if (deliverable.status !== "REVISION_INTERNA") throw new Error("El entregable no está en revisión interna; no se puede decidir.");
+  // Estado OBSOLETO: otro co-revisor ya decidió, o el equipo subió una versión nueva mientras
+  // esta pestaña seguía abierta. Antes se LANZABA y el revisor caía a la pantalla gris; ahora se
+  // re-sincroniza la vista y se sale sin error — verá el estado real y podrá decidir de nuevo.
+  if (versionNumber !== latestVersion || deliverable.status !== "REVISION_INTERNA") {
+    revalidatePath(`/proyectos/${deliverable.projectId}`);
+    revalidatePath(`/revisiones/${deliverableId}`);
+    return;
+  }
   const projectId = deliverable.projectId;
   const approved = result === "APROBADO";
   // Plazo de la corrección en curso (se fija más abajo si el resultado es CAMBIOS).
