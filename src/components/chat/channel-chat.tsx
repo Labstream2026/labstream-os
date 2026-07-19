@@ -7,7 +7,8 @@ import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/acti
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import { formatBogota } from "@/lib/bogota-time";
-import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, createTaskFromMessage, type ChannelReader } from "@/app/(app)/chat/actions";
+import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, markThreadRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, createTaskFromMessage, type ChannelReader } from "@/app/(app)/chat/actions";
+import { useRouter } from "next/navigation";
 import { PollWidget } from "@/components/chat/poll-widget";
 import { VoiceNote } from "@/components/chat/voice-note";
 import { EmojiPicker, QUICK_REACTIONS } from "@/components/chat/emoji-picker";
@@ -369,6 +370,71 @@ function ActivityPanel({
   );
 }
 
+type MyThread = { rootId: string; channelId: string; channelName: string; author: { name: string; initials: string | null; color: string | null } | null; body: string; totalReplies: number; newCount: number; latestReplyAt: string };
+
+// Panel «Mis hilos»: los hilos donde participo, con las respuestas nuevas destacadas. Clic → si el
+// hilo es de ESTE canal salta a él; si es de otro, navega a ese canal en el mensaje raíz.
+function ThreadsPanel({
+  threads,
+  currentChannelId,
+  onOpenLocal,
+  onNavigate,
+  onClose,
+}: {
+  threads: MyThread[];
+  currentChannelId: string;
+  onOpenLocal: (rootId: string) => void;
+  onNavigate: (channelId: string, rootId: string) => void;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="absolute inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Mis hilos">
+      <button type="button" aria-label="Cerrar" onClick={onClose} className="flex-1 bg-black/25 backdrop-blur-[1px]" />
+      <div className="flex w-full max-w-sm flex-col border-l border-border bg-card shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <span className="flex items-center gap-2 text-sm font-semibold"><MessageSquare className="size-4 text-muted-foreground" /> Mis hilos</span>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {threads.length === 0 ? (
+            <p className="px-3 py-10 text-center text-xs text-muted-foreground">Aún no sigues ningún hilo. Cuando respondas dentro de un hilo, aparecerá aquí con sus respuestas nuevas.</p>
+          ) : (
+            threads.map((t) => (
+              <button
+                key={t.rootId}
+                type="button"
+                onClick={() => (t.channelId === currentChannelId ? onOpenLocal(t.rootId) : onNavigate(t.channelId, t.rootId))}
+                className="flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left hover:bg-muted"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-[11px] font-medium text-muted-foreground">#{t.channelName}</span>
+                  {t.newCount > 0 ? (
+                    <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">{t.newCount} nueva{t.newCount === 1 ? "" : "s"}</span>
+                  ) : (
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{t.totalReplies} resp.</span>
+                  )}
+                </span>
+                <span className="flex items-start gap-2">
+                  {t.author ? <UserAvatar initials={t.author.initials} name={t.author.name} color={t.author.color} size="sm" /> : null}
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 text-xs text-foreground">{t.body || "(sin texto)"}</span>
+                    <span className="mt-0.5 block text-[10px] text-muted-foreground">{formatBogota(t.latestReplyAt, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChannelChat({
   channelId,
   initialMessages,
@@ -517,6 +583,10 @@ export function ChannelChat({
   const [catchup, setCatchup] = React.useState<CatchupData | null>(null);
   const [catchupLoading, setCatchupLoading] = React.useState(false);
   const [catchupDismissed, setCatchupDismissed] = React.useState(false);
+  // «Mis hilos» + badge de respuestas nuevas (hilos donde participo, cross-canal).
+  const router = useRouter();
+  const [myThreads, setMyThreads] = React.useState<MyThread[]>([]);
+  const [threadsOpen, setThreadsOpen] = React.useState(false);
 
   const roots = messages
     .filter((m) => !m.parentId)
@@ -526,6 +596,8 @@ export function ChannelChat({
   const repliesFor = (id: string) =>
     messages.filter((m) => m.parentId === id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const pinned = messages.filter((m) => m.pinned && !m.parentId);
+  // Respuestas nuevas por hilo (badge en el indicador «N respuestas» y en el botón «Mis hilos»).
+  const threadNew = new Map(myThreads.filter((t) => t.newCount > 0).map((t) => [t.rootId, t.newCount] as const));
 
   // ¿El mensaje es mío? (para alinearlo a la derecha con burbuja propia).
   const isMine = (a: ChatMsg["author"]) => !!a && a.name === me.name && a.color === me.color;
@@ -661,6 +733,19 @@ export function ChannelChat({
     );
   }, []);
 
+  // Abrir un hilo de «Mis hilos» que está en ESTE canal: cierra el panel, abre el hilo, lo marca
+  // leído y salta al mensaje raíz. Los de OTRO canal navegan a ese canal en el raíz (?msg=).
+  const openLocalThread = React.useCallback((rootId: string) => {
+    setThreadsOpen(false);
+    setOpenThreads((prev) => new Set(prev).add(rootId));
+    void markThreadRead(rootId);
+    setMyThreads((ts) => ts.map((t) => (t.rootId === rootId ? { ...t, newCount: 0 } : t)));
+    setTimeout(() => jumpToMessage(rootId), 60);
+  }, [jumpToMessage]);
+  const navigateThread = React.useCallback((chId: string, rootId: string) => {
+    router.push(`/chat/${chId}?msg=${rootId}`);
+  }, [router]);
+
   // Espejo de mensajes para leer el último/primer createdAt sin recrear callbacks por cada cambio.
   const messagesRef = React.useRef(messages);
   React.useEffect(() => {
@@ -755,6 +840,25 @@ export function ChannelChat({
     load();
     return () => { cancelled = true; };
   }, [channelId, initialLastReadAt, me.name, me.color]);
+
+  // «Mis hilos»: hilos donde participo, con respuestas nuevas. Se refresca al cambiar de canal y al
+  // abrir el panel. setState dentro de load() (nunca síncrono en el cuerpo del efecto).
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/chat/threads`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && Array.isArray(data?.threads)) setMyThreads(data.threads);
+        }
+      } catch {
+        /* best-effort */
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [channelId, threadsOpen]);
 
   // Abrir un resultado: si ya está cargado va directo; si no, trae su VENTANA (?around=), la fusiona
   // y deja el salto pendiente hasta que el mensaje aparezca pintado. Cierra la búsqueda al saltar.
@@ -1528,6 +1632,15 @@ export function ChannelChat({
         </button>
       ) : null}
       {actOpen ? <ActivityPanel items={actItems} status={actStatus} onClose={() => setActOpen(false)} /> : null}
+      {threadsOpen ? (
+        <ThreadsPanel
+          threads={myThreads}
+          currentChannelId={channelId}
+          onOpenLocal={openLocalThread}
+          onNavigate={navigateThread}
+          onClose={() => setThreadsOpen(false)}
+        />
+      ) : null}
       {/* «Ponerte al día»: resumen de lo que te perdiste (solo aparece con bastante sin leer). */}
       {!catchupDismissed && (catchup || catchupLoading) ? (
         <div className="shrink-0 border-b border-border bg-primary/[0.04] px-3 py-2.5">
@@ -1595,6 +1708,10 @@ export function ChannelChat({
           <>
             <button onClick={() => setSearchOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Buscar">
               <Search className="size-3.5" /> Buscar
+            </button>
+            <button onClick={() => setThreadsOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" title="Mis hilos: los hilos donde participas y sus respuestas nuevas">
+              <MessageSquare className="size-3.5" /> Hilos
+              {threadNew.size > 0 ? <span className="ml-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">{threadNew.size}</span> : null}
             </button>
             <span className="ml-auto flex items-center gap-2">
               {pinned.length > 0 ? (
@@ -1682,7 +1799,14 @@ export function ChannelChat({
             setOpenThreads((prevSet) => {
               const next = new Set(prevSet);
               if (next.has(m.id)) next.delete(m.id);
-              else next.add(m.id);
+              else {
+                next.add(m.id);
+                // Abrir un hilo con respuestas nuevas lo marca leído y baja su badge.
+                if (threadNew.get(m.id)) {
+                  void markThreadRead(m.id);
+                  setMyThreads((ts) => ts.map((t) => (t.rootId === m.id ? { ...t, newCount: 0 } : t)));
+                }
+              }
               return next;
             });
           return (
@@ -1907,6 +2031,7 @@ export function ChannelChat({
                     >
                       <MessageSquare className="size-3" />
                       {replies.length > 0 ? `${replies.length} respuesta${replies.length === 1 ? "" : "s"}` : "Responder"}
+                      {threadNew.get(m.id) ? <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary-foreground">{threadNew.get(m.id)} nueva{threadNew.get(m.id) === 1 ? "" : "s"}</span> : null}
                     </button>
                   </div>
                 ) : null}

@@ -266,6 +266,20 @@ export async function notifyTyping(channelId: string): Promise<void> {
 // NO-miembro que puede ver el canal (el admin: la membresía la sincronizan
 // ensureProjectChannels/ensureRoleChannels y no se puede crear a mano) → su lectura vive en
 // UserChannelState, que es lo que consulta el conteo de no leídos del rail para no-miembros.
+// Marca un HILO como leído por el usuario (alimenta «Mis hilos» y el badge de respuestas nuevas):
+// al abrir el hilo se guarda "ahora"; las respuestas posteriores y ajenas contarán como «nuevas».
+export async function markThreadRead(rootId: string): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  const root = await db.chatMessage.findUnique({ where: { id: rootId }, select: { channelId: true } });
+  if (!root || !(await userCanAccessChannel(root.channelId, session))) return;
+  await db.threadRead.upsert({
+    where: { userId_rootId: { userId: session.id, rootId } },
+    create: { userId: session.id, rootId, lastSeenAt: new Date() },
+    update: { lastSeenAt: new Date() },
+  });
+}
+
 export async function markChannelRead(channelId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;

@@ -121,6 +121,7 @@ model User {
   chatMessages     ChatMessage[]        @relation("MessageAuthor")
   channelMemberships ChannelMember[]
   channelStates    UserChannelState[]
+  threadReads      ThreadRead[]
   projectMemberships ProjectMember[]
   clientMemberships  ClientMember[]
   createdQuotes    Quote[]              @relation("QuoteCreator")
@@ -959,6 +960,21 @@ model UserChannelState {
 
   @@id([userId, channelId])
   @@index([channelId])
+}
+
+// Marca de LECTURA de un HILO por USUARIO (para «Mis hilos» y el badge de respuestas nuevas):
+// cuándo vio por última vez el hilo cuyo mensaje raíz es rootId. Las respuestas posteriores y
+// ajenas cuentan como «nuevas». rootId es el ChatMessage.id del padre; sin FK a ChatMessage a
+// propósito: una marca huérfana (si el padre se borrara en duro) no estorba.
+model ThreadRead {
+  id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  rootId     String
+  lastSeenAt DateTime @default(now())
+
+  @@unique([userId, rootId])
+  @@index([userId])
 }
 
 model ChatMessage {
