@@ -9,6 +9,7 @@ import { aiEnabled } from "@/lib/ai";
 import { getOnlyOfficeConfig } from "@/lib/onlyoffice";
 import { UserControls } from "@/app/(app)/configuracion/user-controls";
 import { CleanupNamesButton } from "@/app/(app)/configuracion/cleanup-names-button";
+import { MarcebotCleanupButton } from "@/app/(app)/configuracion/marcebot-cleanup-button";
 import { DemoPanel } from "@/app/(app)/configuracion/demo-panel";
 import { RolesManager } from "@/app/(app)/configuracion/roles-manager";
 import { UserPermissions } from "@/app/(app)/configuracion/user-permissions";
@@ -395,6 +396,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   const mantenimientoNode = (
     <div className="space-y-4">
       <CleanupNamesButton />
+      <MarcebotCleanupButton />
       <DemoPanel exists={!!demoUser} active={demoUser?.active ?? false} />
     </div>
   );

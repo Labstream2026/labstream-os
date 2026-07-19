@@ -34,11 +34,16 @@ function feedWhere(f: { userId?: string; group?: string; from?: string; to?: str
   if (f.group && GROUP_PREFIXES[f.group]) {
     where.OR = GROUP_PREFIXES[f.group].map((p) => ({ action: { startsWith: p } }));
   }
+  // Valida las fechas antes de pasarlas a Prisma: un valor no parseable da Invalid Date y
+  // Prisma LANZA (PrismaClientValidationError) al serializar el argumento — sin este guard
+  // un rango mal formado (URL a mano, marcador viejo) tumbaría la consulta con un 500.
   if (f.from || f.to) {
-    where.createdAt = {
-      ...(f.from ? { gte: new Date(f.from) } : {}),
-      ...(f.to ? { lt: new Date(f.to) } : {}),
-    };
+    const gte = f.from ? new Date(f.from) : undefined;
+    const lt = f.to ? new Date(f.to) : undefined;
+    const range: Record<string, Date> = {};
+    if (gte && !Number.isNaN(gte.getTime())) range.gte = gte;
+    if (lt && !Number.isNaN(lt.getTime())) range.lt = lt;
+    if (Object.keys(range).length) where.createdAt = range;
   }
   return where;
 }
@@ -117,6 +122,9 @@ export async function getUserDay(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return { rows: [], week: [] };
 
   const dayStart = new Date(`${ymd}T00:00:00.000-05:00`);
+  // El regex acepta fechas de calendario imposibles ("2026-13-45") que dan Invalid Date y
+  // harían LANZAR a Prisma. Si no es una fecha real, devolvemos vacío en vez de romper.
+  if (Number.isNaN(dayStart.getTime())) return { rows: [], week: [] };
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
   const rows = await db.activityLog.findMany({
     where: { userId, createdAt: { gte: dayStart, lt: dayEnd } },

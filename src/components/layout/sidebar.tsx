@@ -83,21 +83,24 @@ function clientHex(c: Pick<SidebarClient, "name" | "accentColor">): string {
 // Identidad visual del cliente: foto real → logo (con su fondo) → emoji teñido → iniciales
 // sobre su color. Nunca queda un hueco.
 function ClientAvatar({ client, hex, className }: { client: SidebarClient; hex: string; className?: string }) {
-  const [broken, setBroken] = React.useState(false);
+  // Estados SEPARADOS: si la foto falla, todavía se intenta el logo; si el logo falla, recién
+  // ahí caemos a emoji/iniciales (con uno solo compartido, una foto rota saltaba también el logo).
+  const [photoBroken, setPhotoBroken] = React.useState(false);
+  const [logoBroken, setLogoBroken] = React.useState(false);
   const base = cn("relative size-6 shrink-0 overflow-hidden rounded-[7px]", className);
-  if (client.photoUrl && !broken) {
+  if (client.photoUrl && !photoBroken) {
     return (
       <span className={base}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={client.photoUrl} alt="" onError={() => setBroken(true)} className="absolute inset-0 h-full w-full object-cover" />
+        <img src={client.photoUrl} alt="" onError={() => setPhotoBroken(true)} className="absolute inset-0 h-full w-full object-cover" />
       </span>
     );
   }
-  if (client.logoUrl && !broken) {
+  if (client.logoUrl && !logoBroken) {
     return (
       <span className={base} style={{ background: client.logoBg || "#ffffff" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={client.logoUrl} alt="" onError={() => setBroken(true)} className="absolute inset-0 h-full w-full object-contain p-0.5" />
+        <img src={client.logoUrl} alt="" onError={() => setLogoBroken(true)} className="absolute inset-0 h-full w-full object-contain p-0.5" />
       </span>
     );
   }

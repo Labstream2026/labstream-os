@@ -164,6 +164,7 @@ export function AppShell({
               clients={clients}
               canAdmin={canAdmin}
               canQuotes={canQuotes}
+              canComercial={canComercial}
               canAsistente={canAsistente}
               canWiki={canWiki}
               canBiblioteca={canBiblioteca}
@@ -175,6 +176,7 @@ export function AppShell({
               isCliente={isCliente}
               chatUnread={chatUnread}
               reviewPending={reviewPending}
+              remindersToday={remindersToday}
               onSearch={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
               onNavigate={() => setMobileMenuOpen(false)}
             />

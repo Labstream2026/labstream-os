@@ -24,11 +24,19 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {};
   if (userId) where.userId = userId;
   if (group && GROUP_PREFIXES[group]) where.OR = GROUP_PREFIXES[group].map((p) => ({ action: { startsWith: p } }));
+  // Valida las fechas del querystring: un valor no parseable da Invalid Date y Prisma LANZA
+  // (un 500). Este endpoint es alcanzable por URL, así que un rango a mano no debe tumbarlo.
   if (from || to) {
-    where.createdAt = {
-      ...(from ? { gte: new Date(from) } : {}),
-      ...(to ? { lt: new Date(to) } : {}),
+    const parse = (v: string) => {
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d;
     };
+    const gte = from ? parse(from) : undefined;
+    const lt = to ? parse(to) : undefined;
+    const range: Record<string, Date> = {};
+    if (gte) range.gte = gte;
+    if (lt) range.lt = lt;
+    if (Object.keys(range).length) where.createdAt = range;
   }
 
   const rows = await db.activityLog.findMany({
@@ -57,7 +65,13 @@ export async function GET(req: NextRequest) {
     second: "2-digit",
     hour12: false,
   });
-  const esc = (s: string) => `"${s.replaceAll('"', '""')}"`;
+  // Escapa para CSV y NEUTRALIZA inyección de fórmulas: una celda que empieza por = + - @
+  // (o tab/CR) se ejecutaría como fórmula en Excel/Sheets. Algunos campos (actorName) vienen
+  // del portal público de revisión —texto no confiable— así que se antepone una comilla.
+  const esc = (s: string) => {
+    const v = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return `"${v.replaceAll('"', '""')}"`;
+  };
   const lines = [
     ["Fecha (Bogotá)", "Usuario", "Acción", "Detalle", "Proyecto", "Cliente", "IP"].map(esc).join(";"),
     ...rows.map((r) =>
