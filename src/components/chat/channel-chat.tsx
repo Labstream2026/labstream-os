@@ -1151,6 +1151,15 @@ export function ChannelChat({
     scrollToBottom();
   }, [scrollToBottom]);
 
+  // Al ABRIR un canal (cambia channelId) se marca leído ENSEGUIDA si la pestaña está visible:
+  // abrir el chat = verlo, así que la notificación/no-leídos debe desaparecer al instante, sin
+  // esperar el debounce ni depender de que el scroll ya esté al fondo. El barrido por-mensaje
+  // de abajo sigue cubriendo los mensajes que lleguen mientras el canal está abierto.
+  React.useEffect(() => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    void markChannelRead(channelId);
+  }, [channelId]);
+
   // Marca el canal como leído solo si la pestaña está visible (con debounce para no
   // llamar por cada mensaje). Así los no-leídos no se borran si llegan en segundo plano.
   React.useEffect(() => {
