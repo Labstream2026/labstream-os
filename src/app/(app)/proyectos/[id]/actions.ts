@@ -16,6 +16,7 @@ import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
+import { rateLimit } from "@/lib/rate-limit";
 import { deliverableStatusMeta, statusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { validateAssignee } from "@/lib/task-assign";
@@ -2741,6 +2742,51 @@ export async function reopenProject(projectId: string): Promise<{ ok: boolean; e
   await logActivity({ action: "project.reopen", summary: `reabrió el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/proyectos");
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// El CLIENTE (o cualquier miembro) pide RETOMAR un proyecto terminado: no lo reabre —solo avisa al
+// equipo—. El equipo decide y usa reopenProject. Anti-spam: 1 solicitud por proyecto/persona / 10 min.
+export async function requestReopenProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado." };
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: {
+      name: true, leadId: true, finishedAt: true,
+      members: { select: { userId: true } },
+      client: { select: { members: { select: { userId: true } } } },
+    },
+  });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  if (!project.finishedAt) return { ok: true }; // ya activo: nada que pedir
+  // El solicitante debe pertenecer al proyecto (miembro del equipo o del cliente) o ser admin.
+  const clientIds = new Set((project.client?.members ?? []).map((m) => m.userId));
+  const isMember =
+    project.leadId === session.id ||
+    project.members.some((m) => m.userId === session.id) ||
+    clientIds.has(session.id);
+  if (!isMember && session.role !== "admin") return { ok: false, error: "No autorizado." };
+  if (!rateLimit(`reopen-req:${projectId}:${session.id}`, 1, 10 * 60_000)) return { ok: true }; // ya pidió hace poco
+  // Avisa al EQUIPO (responsable + miembros no-cliente + admins); nunca a otros clientes.
+  const teamIds = new Set<string>();
+  if (project.leadId) teamIds.add(project.leadId);
+  project.members.forEach((m) => teamIds.add(m.userId));
+  const admins = await db.user.findMany({ where: { active: true, role: { key: "admin" } }, select: { id: true } });
+  admins.forEach((a) => teamIds.add(a.id));
+  teamIds.delete(session.id);
+  const recipients = [...teamIds].filter((id) => !clientIds.has(id));
+  if (recipients.length) {
+    await notifyMany(recipients, {
+      type: "project",
+      event: "project_reopen_request",
+      title: `${session.name} pidió retomar «${project.name}»`,
+      body: "El cliente quiere reabrir/editar este proyecto terminado.",
+      link: `/proyectos/${projectId}`,
+      actorId: session.id,
+    }).catch(() => null);
+  }
+  await logActivity({ action: "project.reopen_request", summary: `pidió retomar el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId }).catch(() => null);
   return { ok: true };
 }
 

@@ -57,7 +57,7 @@ export default async function HomePage() {
     // Actividad reciente de los proyectos VISIBLES para el usuario (reemplaza al antiguo
     // bloque de Clientes, que era redundante con la página de Clientes del menú).
     db.activityLog.findMany({
-      where: { project: accessibleProjectWhere(session) },
+      where: { project: { ...accessibleProjectWhere(session), finishedAt: null } },
       orderBy: { createdAt: "desc" },
       take: 8,
       select: {
@@ -70,8 +70,8 @@ export default async function HomePage() {
         user: { select: { name: true, avatarColor: true, initials: true } },
       },
     }),
-    db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null } }),
-    db.project.count({ where: { status: "PAUSADO", archivedAt: null } }),
+    db.project.count({ where: { status: { notIn: INACTIVE as never }, archivedAt: null, finishedAt: null } }),
+    db.project.count({ where: { status: "PAUSADO", archivedAt: null, finishedAt: null } }),
     db.task.findMany({
       // Admin → tareas de TODO el equipo; resto → solo las suyas.
       where: isAdmin ? { status: { in: OPEN as never } } : { assigneeId: me.id, status: { in: OPEN as never } },

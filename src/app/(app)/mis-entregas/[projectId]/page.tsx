@@ -10,6 +10,7 @@ import { DELIVERABLE_TYPE, deliverableOrientation, formatTimecode } from "@/lib/
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
 import { CoverThumb } from "./cover-thumb";
+import { ReopenRequestButton } from "./reopen-request";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
       emoji: true,
       isPrivate: true,
       leadId: true,
+      finishedAt: true,
       members: { select: { userId: true, role: true } },
       client: { select: { name: true, members: { select: { userId: true, role: true } } } },
       deliverables: {
@@ -95,6 +97,17 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
           <CheckCircle2 className="size-3.5" /> {approved} de {total} aprobadas
         </span>
       </header>
+
+      {/* Proyecto TERMINADO: el cliente lo ve (solo lectura) y puede pedir al equipo que lo retome. */}
+      {project.finishedAt ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Este proyecto está terminado</p>
+            <p className="text-xs text-muted-foreground">Se conserva aquí para que lo consultes. ¿Necesitas retomarlo o hacer un cambio? Avísale al equipo.</p>
+          </div>
+          {session.role === "cliente" ? <ReopenRequestButton projectId={project.id} /> : null}
+        </div>
+      ) : null}
 
       {blocks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center text-sm text-muted-foreground">

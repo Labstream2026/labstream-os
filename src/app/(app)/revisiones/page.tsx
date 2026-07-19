@@ -92,7 +92,8 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   // pre-aprobación interna); el gate por proyecto se combina con canManage más abajo, por ítem.
   const sessionCanApprove = hasPermission(session, "aprobar_entregables");
 
-  const acc = accessibleProjectWhere(session);
+  // Los proyectos TERMINADOS no aparecen en Revisiones (están en su archivo, no en el flujo activo).
+  const acc = { ...accessibleProjectWhere(session), finishedAt: null };
   // Cuatro bandejas DISJUNTAS. La clave: "aprobado por el cliente" (APROBADO/ENTREGADO) y "publicado"
   // son cosas distintas → van en pestañas distintas. Un publicado siempre está aprobado, así que
   // publishedAt no-nulo lo saca de «Aprobados». Archivar (parquear) gana sobre todo: si algo se
