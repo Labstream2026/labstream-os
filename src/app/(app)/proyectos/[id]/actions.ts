@@ -2708,6 +2708,42 @@ export async function archiveProject(projectId: string): Promise<{ ok: boolean; 
   return { ok: true };
 }
 
+// Marca un proyecto como TERMINADO: sale de las listas ACTIVAS y va al archivo de «Terminados»
+// (NO a la papelera). Conserva todo y se puede REABRIR. Lo hace quien gestiona el proyecto.
+export async function finishProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  let session: SessionUser;
+  try {
+    session = await ensureProjectManage(projectId);
+  } catch {
+    return { ok: false, error: "No autorizado para terminar este proyecto." };
+  }
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, finishedAt: true, archivedAt: true } });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  if (project.archivedAt) return { ok: false, error: "El proyecto está en la papelera; restáuralo primero." };
+  if (project.finishedAt) return { ok: true }; // ya terminado
+  await db.project.update({ where: { id: projectId }, data: { finishedAt: new Date(), finishedById: session.id } });
+  await logActivity({ action: "project.finish", summary: `marcó como TERMINADO el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/proyectos");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// Reabre/retoma un proyecto TERMINADO: vuelve a las listas activas. Lo hace quien gestiona el proyecto.
+export async function reopenProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await ensureProjectManage(projectId);
+  } catch {
+    return { ok: false, error: "No autorizado para reabrir este proyecto." };
+  }
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  await db.project.update({ where: { id: projectId }, data: { finishedAt: null, finishedById: null } });
+  await logActivity({ action: "project.reopen", summary: `reabrió el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
+  revalidatePath("/proyectos");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // Restaura un proyecto archivado (vuelve a las listas). Lo hace quien puede ver la papelera.
 export async function restoreProject(projectId: string): Promise<void> {
   const session = await getSession();

@@ -585,11 +585,17 @@ model Project {
   // Borrado SUAVE (papelera): archivar saca el proyecto de las listas pero conserva todo
   // (tareas, archivos, entregables, chat) y se puede RESTAURAR. No hay borrado físico.
   archivedAt  DateTime?
+  // TERMINADO (archivo de proyectos completados): distinto de la papelera. Un proyecto terminado
+  // sale de las listas ACTIVAS y vive en «Terminados» (indefinidamente, sin pasar a la papelera),
+  // pero sigue accesible y se puede REABRIR/retomar. El cliente lo ve en su portal (solo lectura).
+  finishedAt  DateTime?
+  finishedById String?
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@index([archivedAt])
+  @@index([finishedAt])
 }
 
 // Nota rápida del equipo: una idea, recordatorio o apunte. Se puede crear desde la app, el
