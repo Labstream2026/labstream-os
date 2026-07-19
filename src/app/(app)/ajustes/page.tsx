@@ -19,7 +19,7 @@ import { LabelsManager } from "@/app/(app)/configuracion/labels-manager";
 import { MarcebotSettings } from "@/app/(app)/configuracion/marcebot-settings";
 import { NotificationSettingsPanel } from "@/app/(app)/configuracion/notification-settings-panel";
 import { ApiKeysPanel } from "@/app/(app)/configuracion/api-keys-panel";
-import { AuditLogPanel } from "@/app/(app)/configuracion/audit-log-panel";
+import { AuditoriaPanel } from "@/app/(app)/configuracion/auditoria-panel";
 import { BrandingPanel } from "@/app/(app)/configuracion/branding-panel";
 import { ProjectStatusesPanel } from "@/app/(app)/configuracion/project-statuses-panel";
 import { getOrgSettings } from "@/lib/org-settings";
@@ -347,29 +347,41 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   const canAudit = hasPermission(session, "ver_actividad");
   const auditRows = canAudit
     ? await db.activityLog.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 200,
-        include: {
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 50,
+        select: {
+          id: true,
+          action: true,
+          summary: true,
+          createdAt: true,
+          ip: true,
+          userId: true,
+          actorName: true,
           user: { select: { name: true, initials: true, avatarColor: true } },
           project: { select: { name: true } },
           client: { select: { name: true } },
         },
       })
     : [];
+  const hoyBogota = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
   const auditNode = (
-    <AuditLogPanel
-      rows={auditRows.map((a) => ({
+    <AuditoriaPanel
+      initialRows={auditRows.map((a) => ({
         id: a.id,
         action: a.action,
         summary: a.summary,
-        entityType: a.entityType,
         when: a.createdAt.toISOString(),
+        ip: a.ip,
+        userId: a.userId,
         userName: a.user?.name ?? a.actorName ?? null,
         userInitials: a.user?.initials ?? null,
         userColor: a.user?.avatarColor ?? null,
         projectName: a.project?.name ?? null,
         clientName: a.client?.name ?? null,
       }))}
+      initialCursor={auditRows.length === 50 ? auditRows[auditRows.length - 1].id : null}
+      users={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))}
+      today={hoyBogota}
     />
   );
 
