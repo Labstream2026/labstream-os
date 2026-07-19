@@ -1,5 +1,6 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { getSession, hasPermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accessibleProjectWhere } from "@/lib/project-access";
@@ -38,8 +39,21 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   const canFin = hasPermission(session, "ver_finanzas");
   const canFiles = hasPermission(session, "ver_archivos");
   const canNotes = hasPermission(session, "ver_notas");
+  // Canales de chat visibles: mismo criterio de acceso que la lista de chats (miembro, o canal de
+  // proyecto/cliente que puedo ver). El cliente solo alcanza los de SUS proyectos.
+  const channelAccess: Prisma.ChatChannelWhereInput[] =
+    session.role === "cliente"
+      ? [{ type: "PROJECT", project: { members: { some: { userId: session.id } } } }]
+      : session.role === "admin"
+        ? [{ type: { in: ["PROJECT", "CLIENT"] } }, { members: { some: { userId: session.id } } }]
+        : [
+            { members: { some: { userId: session.id } } },
+            { type: { in: ["PROJECT", "CLIENT"] }, isPublic: true },
+            { type: "PROJECT", project: { leadId: session.id } },
+            { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+          ];
 
-  const [tasks, delivs, quotes, invoices, proposals, files, notes] = await Promise.all([
+  const [tasks, delivs, quotes, invoices, proposals, files, notes, channels] = await Promise.all([
     // Tareas: en un proyecto que puedo ver, o asignadas a/por mí (tareas personales sin proyecto).
     db.task.findMany({
       where: { title: like, OR: [{ project: projWhere }, { assigneeId: session.id }, { assignedById: session.id }] },
@@ -87,6 +101,12 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
           take: TAKE,
         })
       : Promise.resolve([]),
+    // Canales de chat por NOMBRE (proyectos, clientes, grupos); el acceso se acota arriba.
+    db.chatChannel.findMany({
+      where: { name: like, OR: channelAccess },
+      select: { id: true, name: true, type: true, client: { select: { name: true } }, project: { select: { name: true, client: { select: { name: true } } } } },
+      take: TAKE,
+    }),
   ]);
 
   const hits: SearchHit[] = [];
@@ -97,6 +117,11 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   for (const p of proposals) hits.push({ id: `pp-${p.id}`, label: p.title || p.code, sub: p.code, href: `/cotizaciones/propuestas/${p.id}`, group: "Propuestas", kind: "proposal" });
   for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file" });
   for (const n of notes) hits.push({ id: `n-${n.id}`, label: n.title, sub: "Nota", href: "/notas", group: "Notas", kind: "note" });
+  for (const c of channels) {
+    const client = c.client?.name ?? c.project?.client?.name ?? null;
+    const sub = c.type === "PROJECT" ? c.project?.name ?? client ?? "Proyecto" : c.type === "CLIENT" ? client ?? "Cliente" : "Canal";
+    hits.push({ id: `ch-${c.id}`, label: c.name, sub, href: `/chat/${c.id}`, group: "Chats", kind: "chat" });
+  }
 
   return hits;
 }
