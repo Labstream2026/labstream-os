@@ -426,8 +426,10 @@ export async function setUserActive(userId: string, active: boolean): Promise<Ad
 
 // Borra un usuario por completo. Sus pertenencias (miembros de proyecto/cliente/
 // canal, reacciones, votos, notificaciones, asistencias) se borran en cascada; el
-// contenido en propiedad (tareas, archivos, mensajes) queda con autor nulo. No se
-// puede borrar la propia cuenta ni al último administrador activo.
+// contenido en propiedad (tareas, archivos, mensajes) queda con autor nulo. Antes del
+// borrado se RESCATA lo que otras personas siguen usando y que solo cuelga de este
+// usuario por ser su creador: recordatorios creados PARA terceros y notas COMPARTIDAS.
+// No se puede borrar la propia cuenta ni al último administrador activo.
 export async function deleteUser(userId: string): Promise<AdminActionResult> {
   const session = await requireAdmin();
   if (!session) return { ok: false, error: "No autorizado" };
@@ -438,7 +440,26 @@ export async function deleteUser(userId: string): Promise<AdminActionResult> {
     const admins = await db.user.count({ where: { active: true, role: { key: "admin" } } });
     if (admins <= 1) return { ok: false, error: "Es el único administrador activo." };
   }
-  await db.user.delete({ where: { id: userId } });
+  // `Reminder.createdBy` y `Note.createdBy` tienen onDelete: Cascade, así que borrar al usuario
+  // se llevaría por delante contenido AJENO que solo depende de él como creador. Lo rescatamos
+  // reasignando su autoría al admin que ejecuta el borrado (activo y distinto de userId) ANTES
+  // de borrar, dentro de una transacción con el propio delete:
+  //  · recordatorios que creó PARA otra persona (forUserId ≠ él) → los sigue viendo/gestionando
+  //    su destinatario; sin esto el cascade los borraría. (Sus recordatorios propios sí caen,
+  //    porque forUserId = él también cascada por la relación forUser.)
+  //  · notas con visibilidad de equipo/proyecto que el resto del equipo sigue viendo. (Sus notas
+  //    privadas sí se borran con él.)
+  await db.$transaction([
+    db.reminder.updateMany({
+      where: { createdById: userId, NOT: { forUserId: userId } },
+      data: { createdById: session.id },
+    }),
+    db.note.updateMany({
+      where: { createdById: userId, visibility: { in: ["team", "project"] } },
+      data: { createdById: session.id },
+    }),
+    db.user.delete({ where: { id: userId } }),
+  ]);
   await logActivity({
     action: "user.delete",
     summary: `eliminó al usuario ${target.name}`,
