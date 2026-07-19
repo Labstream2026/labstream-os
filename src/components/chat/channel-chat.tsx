@@ -530,6 +530,8 @@ export function ChannelChat({
   const [typingNames, setTypingNames] = React.useState<Record<string, number>>({}); // name → expiry ts
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = React.useState(0);
+  // Destino del autocompletado de @: null = composer principal; rootId = composer de ESE hilo.
+  const [mentionTarget, setMentionTarget] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const topSentinelRef = React.useRef<HTMLDivElement>(null);
@@ -540,6 +542,8 @@ export function ChannelChat({
   const composerWrapRef = React.useRef<HTMLDivElement>(null);
   // Grabación de nota de voz (en vivo, estilo WhatsApp).
   const [recording, setRecording] = React.useState(false);
+  // Destino de la grabación/preview de voz: null = composer principal; rootId = composer de ESE hilo.
+  const [recTarget, setRecTarget] = React.useState<string | null>(null);
   const [recSecs, setRecSecs] = React.useState(0);
   const recRef = React.useRef<MediaRecorder | null>(null);
   const recChunks = React.useRef<Blob[]>([]);
@@ -1389,8 +1393,12 @@ export function ChannelChat({
     recStream.current?.getTracks().forEach((t) => t.stop());
     recStream.current = null;
   }
-  async function startRecording() {
-    if (recording || uploading) return;
+  async function startRecording(target: string | null = null) {
+    // Estado de voz SINGULAR (una nota a la vez): no arrancar si ya se graba, se sube, o hay una nota
+    // en preview sin resolver (enviar/descartar). Sin este guard, grabar en otro composer pisa/pierde
+    // la nota pendiente o la deja enviable desde el sitio equivocado.
+    if (recording || uploading || voicePreview) return;
+    setRecTarget(target); // null = principal; rootId = enviar la nota como respuesta de ese hilo
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recStream.current = stream;
@@ -1423,7 +1431,7 @@ export function ChannelChat({
       recChunks.current = [];
       recRef.current = null;
       stopRecCleanup();
-      if (!keep || blob.size === 0) return;
+      if (!keep || blob.size === 0) { setRecTarget(null); return; } // cancelada/vacía: sin dueño pendiente
       const ext = type.includes("webm") ? "weba" : type.includes("ogg") ? "ogg" : "m4a";
       const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type });
       setVoicePreview({ url: URL.createObjectURL(file), file });
@@ -1434,16 +1442,21 @@ export function ChannelChat({
   function discardVoice() {
     if (voicePreview) URL.revokeObjectURL(voicePreview.url);
     setVoicePreview(null);
+    setRecTarget(null);
   }
-  // Enviar la nota de voz que está en preview.
+  // Enviar la nota de voz que está en preview. Si venía de un hilo (recTarget), la manda como
+  // respuesta de ese hilo (parentId); si no, al canal. No arrastra el scroll principal en un hilo.
   async function sendVoice() {
     if (!voicePreview) return;
     const file = voicePreview.file;
+    const target = recTarget;
     URL.revokeObjectURL(voicePreview.url);
     setVoicePreview(null);
+    setRecTarget(null);
     const fd = new FormData();
     fd.set("channelId", channelId);
     fd.set("body", "");
+    if (target) fd.set("parentId", target);
     fd.append("files", file);
     setUploading(true);
     setAttachErr(null);
@@ -1454,10 +1467,29 @@ export function ChannelChat({
       setAttachErr("No se pudo enviar la nota de voz.");
     } finally {
       setUploading(false);
-      scrollToBottom();
+      if (!target) scrollToBottom();
     }
   }
   React.useEffect(() => () => stopRecCleanup(), []);
+
+  // RED DE SEGURIDAD de la nota de voz de un HILO: si la nota (grabando o en preview) apunta a un hilo
+  // cuyo composer YA NO está montado —colapsado, raíz borrada por mí, por otro vía SSE, o conversación
+  // vaciada—, su UI de descartar/enviar desaparece y voicePreview (estado global) dejaría el micrófono
+  // BLOQUEADO en toda la app sin nada que resolver. Como el estado de voz es singular, en vez de
+  // parchear cada vía de desmontaje, aquí se vigila un único invariante: el hilo objetivo debe estar
+  // abierto y su raíz presente y no borrada; si no, se descarta. Diferido (rAF) → sin setState síncrono.
+  React.useEffect(() => {
+    if (!recTarget) return; // la voz del composer PRINCIPAL nunca se desmonta salvo al irse del canal
+    const root = messages.find((x) => x.id === recTarget);
+    const resolvable = openThreads.has(recTarget) && !!root && !root.deleted;
+    if (resolvable) return;
+    const id = requestAnimationFrame(() => {
+      if (recording) finishRecording(false);
+      else if (voicePreview) discardVoice();
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recTarget, openThreads, messages, recording, voicePreview]);
 
   // Cambio del texto del composer: dispara "escribiendo…" (throttle), detecta @menciones y guarda
   // el borrador del canal (para que sobreviva a cambiar de chat).
@@ -1475,16 +1507,23 @@ export function ChannelChat({
       void notifyTyping(channelId);
     }
     const m = /(?:^|\s)@([\p{L}0-9]*)$/u.exec(v);
-    setMentionQuery(m ? m[1] : null);
+    if (m) { setMentionQuery(m[1]); setMentionTarget(null); }
+    else setMentionQuery(null);
   }
   // Vacía el borrador guardado (al enviar): el texto ya se limpia con setText("").
   function clearDraft() {
     try { window.localStorage.removeItem(draftKey); } catch { /* ignore */ }
   }
   function insertMention(name: string) {
-    setText((t) => t.replace(/(^|\s)@([\p{L}0-9]*)$/u, `$1@${name} `));
+    const re = /(^|\s)@([\p{L}0-9]*)$/u;
+    if (mentionTarget == null) {
+      setText((t) => t.replace(re, `$1@${name} `));
+      composerRef.current?.focus();
+    } else {
+      const rid = mentionTarget;
+      setReplyText((p) => ({ ...p, [rid]: (p[rid] ?? "").replace(re, `$1@${name} `) }));
+    }
     setMentionQuery(null);
-    composerRef.current?.focus();
   }
   // Lista para mencionar: el equipo del canal + destinos especiales (@canal, @Rol).
   const mentionPool = members;
@@ -1507,11 +1546,18 @@ export function ChannelChat({
   React.useEffect(() => {
     if (mentionQuery == null) return;
     const onDown = (e: MouseEvent) => {
-      if (composerWrapRef.current && !composerWrapRef.current.contains(e.target as Node)) setMentionQuery(null);
+      const el = e.target as Element | null;
+      // Clic en una sugerencia (menú @ del principal O de un hilo): NO cerrar aquí — si cerráramos en
+      // mousedown, el botón se desmontaría antes de su onClick y la mención no se insertaría (con ratón).
+      if (el?.closest?.("[data-mention-menu]")) return;
+      // Clic dentro del composer principal cuando el menú ES del principal: mantener abierto (como antes).
+      if (mentionTarget === null && composerWrapRef.current?.contains(e.target as Node)) return;
+      // Cualquier otro clic (fuera, o en el principal mientras el menú es de un hilo): cerrar.
+      setMentionQuery(null);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [mentionQuery]);
+  }, [mentionQuery, mentionTarget]);
 
   const { confirm, dialog } = useConfirmDialog();
   const [attachErr, setAttachErr] = React.useState<string | null>(null);
@@ -1795,20 +1841,20 @@ export function ChannelChat({
             && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60_000
             && m.id !== firstUnreadId;
           const hasFooter = (m.reactions?.length ?? 0) > 0 || replies.length > 0;
-          const toggleThread = () =>
-            setOpenThreads((prevSet) => {
-              const next = new Set(prevSet);
-              if (next.has(m.id)) next.delete(m.id);
-              else {
-                next.add(m.id);
-                // Abrir un hilo con respuestas nuevas lo marca leído y baja su badge.
-                if (threadNew.get(m.id)) {
-                  void markThreadRead(m.id);
-                  setMyThreads((ts) => ts.map((t) => (t.rootId === m.id ? { ...t, newCount: 0 } : t)));
-                }
+          const toggleThread = () => {
+            if (openThreads.has(m.id)) {
+              // Colapsar: si el hilo tenía una nota de voz a medias, la limpia la RED DE SEGURIDAD
+              // (efecto que vigila recTarget), que cubre TODA vía de desmontaje (colapso, borrado, SSE).
+              setOpenThreads((prev) => { const n = new Set(prev); n.delete(m.id); return n; });
+            } else {
+              setOpenThreads((prev) => new Set(prev).add(m.id));
+              // Abrir un hilo con respuestas nuevas lo marca leído y baja su badge.
+              if (threadNew.get(m.id)) {
+                void markThreadRead(m.id);
+                setMyThreads((ts) => ts.map((t) => (t.rootId === m.id ? { ...t, newCount: 0 } : t)));
               }
-              return next;
-            });
+            }
+          };
           return (
             <React.Fragment key={m.id}>
             {showDay ? (
@@ -2057,34 +2103,82 @@ export function ChannelChat({
                       </div>
                     ))}
                     {!readOnly ? (
-                      <div className="space-y-1.5">
-                        {/* Adjuntos pendientes del hilo (chips con quitar). */}
-                        {(threadFiles[m.id]?.length ?? 0) > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {(threadFiles[m.id] ?? []).map((f, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs">
-                                <Paperclip className="size-3 text-muted-foreground" />
-                                <span className="max-w-[10rem] truncate">{f.name}</span>
-                                <button type="button" aria-label="Quitar adjunto" onClick={() => setThreadFiles((p) => ({ ...p, [m.id]: (p[m.id] ?? []).filter((_, idx) => idx !== i) }))} className="text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
-                              </span>
-                            ))}
+                      <div className="relative space-y-1.5">
+                        {/* Menú de @menciones del HILO (apuntando a este composer). */}
+                        {mentionTarget === m.id && mentionMatches.length > 0 ? (
+                          <div data-mention-menu className="absolute bottom-full left-0 z-40 mb-1 w-64 max-w-full overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
+                            <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
+                            <div className="max-h-48 overflow-y-auto py-1">
+                              {mentionMatches.map((mem, idx) => (
+                                <button key={mem.id} type="button" onMouseEnter={() => setMentionIndex(idx)} onClick={() => insertMention(mem.name)} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm", idx === mentionIndex ? "bg-primary/10" : "hover:bg-muted")}>
+                                  {mem.hint ? <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><AtSign className="size-3.5" /></span> : <UserAvatar initials={mem.initials} name={mem.name} color={mem.color} size="sm" />}
+                                  <span className="truncate font-medium">{mem.hint ? mem.name : mentionLabel(mem.name)}</span>
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         ) : null}
-                        <form onSubmit={(e) => { e.preventDefault(); void sendThreadReply(m.id); }} className="flex items-end gap-2">
-                          <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title="Adjuntar archivo">
-                            <Paperclip className="size-4" />
-                            <input type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) setThreadFiles((p) => ({ ...p, [m.id]: [...(p[m.id] ?? []), ...fs] })); e.target.value = ""; }} />
-                          </label>
-                          <textarea
-                            rows={1}
-                            value={replyText[m.id] ?? ""}
-                            onChange={(e) => setReplyText((p) => ({ ...p, [m.id]: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendThreadReply(m.id); } }}
-                            placeholder="Responder en el hilo…  ·  @ para mencionar · Enter envía"
-                            className="max-h-32 min-h-[2.25rem] flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
-                          />
-                          <button className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40" disabled={!(replyText[m.id] ?? "").trim() && (threadFiles[m.id]?.length ?? 0) === 0} aria-label="Enviar"><Send className="size-4" /></button>
-                        </form>
+                        {recording && recTarget === m.id ? (
+                          <div className="flex items-center gap-3 rounded-md border border-border bg-card px-2 py-1.5">
+                            <button type="button" onClick={() => finishRecording(false)} className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-destructive" aria-label="Cancelar grabación"><Trash2 className="size-4" /></button>
+                            <span className="flex flex-1 items-center gap-2 text-xs text-muted-foreground"><span className="size-2 animate-pulse rounded-full bg-rose-500" /> Grabando… {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}</span>
+                            <button type="button" onClick={() => finishRecording(true)} className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground" aria-label="Detener y escuchar"><Check className="size-4" /></button>
+                          </div>
+                        ) : voicePreview && recTarget === m.id ? (
+                          <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5">
+                            <button type="button" onClick={discardVoice} className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-destructive" aria-label="Descartar nota de voz"><Trash2 className="size-4" /></button>
+                            <audio src={voicePreview.url} controls className="h-8 min-w-0 flex-1" />
+                            <button type="button" onClick={sendVoice} disabled={uploading} className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40" aria-label="Enviar nota de voz"><Send className="size-4" /></button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Adjuntos pendientes del hilo (chips con quitar). */}
+                            {(threadFiles[m.id]?.length ?? 0) > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {(threadFiles[m.id] ?? []).map((f, i) => (
+                                  <span key={i} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs">
+                                    <Paperclip className="size-3 text-muted-foreground" />
+                                    <span className="max-w-[10rem] truncate">{f.name}</span>
+                                    <button type="button" aria-label="Quitar adjunto" onClick={() => setThreadFiles((p) => ({ ...p, [m.id]: (p[m.id] ?? []).filter((_, idx) => idx !== i) }))} className="text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            <form onSubmit={(e) => { e.preventDefault(); void sendThreadReply(m.id); }} className="flex items-end gap-2">
+                              <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title="Adjuntar archivo">
+                                <Paperclip className="size-4" />
+                                <input type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) setThreadFiles((p) => ({ ...p, [m.id]: [...(p[m.id] ?? []), ...fs] })); e.target.value = ""; }} />
+                              </label>
+                              <textarea
+                                rows={1}
+                                value={replyText[m.id] ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setReplyText((p) => ({ ...p, [m.id]: v }));
+                                  const mm = /(?:^|\s)@([\p{L}0-9]*)$/u.exec(v);
+                                  if (mm) { setMentionQuery(mm[1]); setMentionTarget(m.id); }
+                                  else if (mentionTarget === m.id) setMentionQuery(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (mentionTarget === m.id && mentionMatches.length > 0) {
+                                    if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return; }
+                                    if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
+                                    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(mentionMatches[Math.min(mentionIndex, mentionMatches.length - 1)].name); return; }
+                                    if (e.key === "Escape") { e.preventDefault(); setMentionQuery(null); return; }
+                                  }
+                                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendThreadReply(m.id); }
+                                }}
+                                placeholder="Responder en el hilo…  ·  @ menciona · Enter envía"
+                                className="max-h-32 min-h-[2.25rem] flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
+                              />
+                              {(replyText[m.id] ?? "").trim() || (threadFiles[m.id]?.length ?? 0) > 0 ? (
+                                <button type="submit" className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40" aria-label="Enviar"><Send className="size-4" /></button>
+                              ) : (
+                                <button type="button" onClick={() => startRecording(m.id)} disabled={uploading || recording || !!voicePreview} className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40" aria-label="Grabar nota de voz" title={voicePreview || recording ? "Termina la nota de voz en curso primero" : "Grabar nota de voz"}><Mic className="size-4" /></button>
+                              )}
+                            </form>
+                          </>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -2183,8 +2277,8 @@ export function ChannelChat({
           </form>
         ) : null}
         <div ref={composerWrapRef} className="relative mx-auto w-full max-w-3xl">
-        {mentionMatches.length > 0 ? (
-          <div className="absolute bottom-full left-3 z-40 mb-1 w-72 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
+        {mentionMatches.length > 0 && mentionTarget === null ? (
+          <div data-mention-menu className="absolute bottom-full left-3 z-40 mb-1 w-72 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl ring-1 ring-black/5">
             <p className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Mencionar a…</p>
             <div className="max-h-56 overflow-y-auto py-1">
               {mentionMatches.map((mem, idx) => {
@@ -2253,7 +2347,7 @@ export function ChannelChat({
             </div>
           ) : null}
           <div className="flex items-end gap-1.5 rounded-2xl border border-border bg-card px-2 py-1.5">
-            {recording ? (
+            {recording && recTarget === null ? (
               <div className="flex w-full items-center gap-3 px-1 py-1.5">
                 <button type="button" onClick={() => finishRecording(false)} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" aria-label="Cancelar grabación" title="Cancelar">
                   <Trash2 className="size-5" />
@@ -2266,7 +2360,7 @@ export function ChannelChat({
                   <Check className="size-5" />
                 </button>
               </div>
-            ) : voicePreview ? (
+            ) : voicePreview && recTarget === null ? (
               // Escucha previa: revisar la nota antes de mandarla (descartar / reproducir / enviar).
               <div className="flex w-full items-center gap-2 px-1 py-1">
                 <button type="button" onClick={discardVoice} className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" aria-label="Descartar nota de voz" title="Descartar">
@@ -2347,8 +2441,8 @@ export function ChannelChat({
               onChange={(e) => onComposerChange(e.target.value)}
               onPaste={onComposerPaste}
               onKeyDown={(e) => {
-                // Con el menú de @menciones abierto, el teclado navega/elige (no envía).
-                if (mentionMatches.length > 0) {
+                // Con el menú de @menciones abierto (y apuntando al composer principal), el teclado navega/elige.
+                if (mentionMatches.length > 0 && mentionTarget === null) {
                   if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return; }
                   if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
                   if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(mentionMatches[Math.min(mentionIndex, mentionMatches.length - 1)].name); return; }
@@ -2384,11 +2478,11 @@ export function ChannelChat({
             ) : (
               <button
                 type="button"
-                onClick={startRecording}
-                disabled={uploading}
+                onClick={() => startRecording(null)}
+                disabled={uploading || recording || !!voicePreview}
                 className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
                 aria-label="Grabar nota de voz"
-                title="Grabar nota de voz"
+                title={voicePreview || recording ? "Termina la nota de voz en curso primero" : "Grabar nota de voz"}
               >
                 <Mic className="size-5" />
               </button>
