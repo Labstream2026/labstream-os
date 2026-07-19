@@ -3,8 +3,7 @@ import { db } from "@/lib/db";
 import { withApiKey, apiJson, type ApiKeyContext } from "@/lib/api-key-auth";
 import { hasPermission } from "@/lib/auth";
 import { accessibleClientWhere, userCanAccessClient } from "@/lib/client-access";
-import { clientLineValue } from "@/lib/quote-compose";
-import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
+import { createOrGetInvoiceForQuote } from "@/lib/invoice-from-quote";
 import { logActivity } from "@/lib/activity";
 import { readJson, str } from "@/lib/api-v1";
 
@@ -42,27 +41,12 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
   if (!quote) return apiJson({ ok: false, error: "Cotización no encontrada." }, 404);
   if (!(await userCanAccessClient(quote.clientId, ctx.session))) return apiJson({ ok: false, error: "Sin acceso a esta cotización." }, 403);
   if (quote.status !== "APROBADA") return apiJson({ ok: false, error: "Solo se puede facturar una cotización aprobada." }, 409);
-  const existing = await db.invoice.findFirst({ where: { quoteId: quote.id }, select: { id: true, code: true } });
-  if (existing) return apiJson({ ok: true, invoice: { id: existing.id, code: existing.code }, alreadyExisted: true });
 
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 30);
-  const invoice = await createWithSequentialCode({
-    prefix: "FAC",
-    findMaxCode: () => maxCodeFrom((args) => db.invoice.findMany(args)),
-    create: (code) => db.invoice.create({
-      data: {
-        code, status: "BORRADOR", currency: quote.currency, taxRate: quote.taxRate, notes: quote.notes, dueDate,
-        clientId: quote.clientId, projectId: quote.projectId, quoteId: quote.id, createdById: ctx.session.id,
-        items: { create: quote.items.map((i) => {
-          const value = clientLineValue({ quantity: i.quantity, unitPrice: i.unitPrice }, quote.contingencyPct);
-          const qtyNote = i.quantity !== 1 ? ` (×${i.quantity}${i.unit ? ` ${i.unit}` : ""})` : "";
-          return { section: i.section, description: `${i.description}${qtyNote}`, quantity: 1, unitPrice: value, position: i.position };
-        }) },
-      },
-      select: { id: true, code: true, status: true },
-    }),
-  });
+  // A prueba de DOBLE FACTURACIÓN: check + create serializados con advisory-lock dentro del
+  // helper (espejo de createInvoiceFromQuote). Dos POST simultáneos con el mismo quoteId (doble
+  // envío, reintento de un agente) no crean dos facturas: el segundo recibe la ya existente.
+  const { invoice, alreadyExisted } = await createOrGetInvoiceForQuote(quote, ctx.session.id);
+  if (alreadyExisted) return apiJson({ ok: true, invoice: { id: invoice.id, code: invoice.code }, alreadyExisted: true });
   await logActivity({ action: "invoice.create", summary: `generó la factura ${invoice.code} desde ${quote.code} (vía API)`, clientId: quote.clientId, entityType: "invoice", entityId: invoice.id }).catch(() => null);
   return apiJson({ ok: true, invoice: { id: invoice.id, code: invoice.code, status: invoice.status } }, 201);
 });

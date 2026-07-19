@@ -7,8 +7,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
-import { clientLineValue } from "@/lib/quote-compose";
-import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
+import { createOrGetInvoiceForQuote } from "@/lib/invoice-from-quote";
 import { isInvoiceStatus } from "@/lib/enum-guards";
 
 async function requirePerm(key: string) {
@@ -32,9 +31,6 @@ function refresh(invoiceId?: string) {
   if (invoiceId) revalidatePath(`/facturacion/${invoiceId}`);
 }
 
-// Código FAC-#### a prueba de colisiones (deriva del máximo + reintento ante P2002).
-const nextInvoiceMax = () => maxCodeFrom((args) => db.invoice.findMany(args));
-
 // Genera una factura (snapshot) a partir de una cotización: copia ítems, IVA, moneda,
 // cliente y proyecto. Vencimiento por defecto a 30 días.
 export async function createInvoiceFromQuote(quoteId: string) {
@@ -48,52 +44,16 @@ export async function createInvoiceFromQuote(quoteId: string) {
   // Solo se factura una cotización APROBADA (no basta con que el botón esté oculto:
   // la acción puede invocarse directamente).
   if (quote.status !== "APROBADA") throw new Error("Solo se puede facturar una cotización aprobada.");
-  // Evita facturas duplicadas: si ya existe una para esta cotización (p. ej. doble clic
-  // o re-render), abre la existente en lugar de crear otra con código FAC distinto.
-  const existing = await db.invoice.findFirst({ where: { quoteId: quote.id }, select: { id: true } });
+
+  // A prueba de DOBLE FACTURACIÓN: el check «¿ya existe factura para esta cotización?» + el
+  // create van serializados con advisory-lock dentro del helper. Si ya existía (doble submit,
+  // re-render, reintento de agente), se devuelve la misma factura sin crear otra FAC distinta.
+  const { invoice, alreadyExisted } = await createOrGetInvoiceForQuote(quote, session.id);
+  if (!alreadyExisted) {
+    await logActivity({ action: "invoice.create", summary: `generó la factura ${invoice.code} desde ${quote.code}`, clientId: quote.clientId, entityType: "invoice", entityId: invoice.id });
+    refresh(invoice.id);
+  }
   // Documento unificado: volvemos a la cotización (pestaña "Facturado" muestra la factura).
-  if (existing) redirect(`/cotizaciones/${quoteId}`);
-
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 30);
-
-  const invoice = await createWithSequentialCode({
-    prefix: "FAC",
-    findMaxCode: nextInvoiceMax,
-    create: (code) =>
-      db.invoice.create({
-        data: {
-          code,
-          status: "BORRADOR",
-          currency: quote.currency,
-          taxRate: quote.taxRate,
-          notes: quote.notes,
-          dueDate,
-          clientId: quote.clientId,
-          projectId: quote.projectId,
-          quoteId: quote.id,
-          createdById: session.id,
-          items: {
-            // Se factura el PRECIO AL CLIENTE (con el imprevisto ya incluido), igual que la
-            // cotización aprobada. Cada concepto va como una línea con su valor final exacto;
-            // la cantidad/unidad original queda en la descripción para que se lea claro.
-            create: quote.items.map((i) => {
-              const value = clientLineValue({ quantity: i.quantity, unitPrice: i.unitPrice }, quote.contingencyPct);
-              const qtyNote = i.quantity !== 1 ? ` (×${i.quantity}${i.unit ? ` ${i.unit}` : ""})` : "";
-              return {
-                section: i.section,
-                description: `${i.description}${qtyNote}`,
-                quantity: 1,
-                unitPrice: value,
-                position: i.position,
-              };
-            }),
-          },
-        },
-      }),
-  });
-  await logActivity({ action: "invoice.create", summary: `generó la factura ${invoice.code} desde ${quote.code}`, clientId: quote.clientId, entityType: "invoice", entityId: invoice.id });
-  refresh(invoice.id);
   redirect(`/cotizaciones/${quoteId}`);
 }
 
