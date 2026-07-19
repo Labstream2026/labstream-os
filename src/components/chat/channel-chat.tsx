@@ -405,6 +405,7 @@ export function ChannelChat({
   const [files, setFiles] = React.useState<File[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [replyText, setReplyText] = React.useState<Record<string, string>>({});
+  const [threadFiles, setThreadFiles] = React.useState<Record<string, File[]>>({}); // adjuntos por hilo
   const [openThreads, setOpenThreads] = React.useState<Set<string>>(new Set());
   // Popup de reacciones rápidas abierto desde la barra flotante (id del mensaje).
   const [quickFor, setQuickFor] = React.useState<string | null>(null);
@@ -1198,6 +1199,34 @@ export function ChannelChat({
     return () => { for (const url of imgPreviews.values()) URL.revokeObjectURL(url); };
   }, [imgPreviews]);
 
+  // Responder EN EL HILO con composer completo (texto multilínea + adjuntos). Estado propio por hilo
+  // → no toca el composer principal. Reusa los caminos probados: sendMessageWithAttachments si hay
+  // archivos (con parentId), si no submitText. Las menciones se detectan del texto en el servidor.
+  async function sendThreadReply(parentId: string) {
+    const body = (replyText[parentId] ?? "").trim();
+    const tfiles = threadFiles[parentId] ?? [];
+    if (!body && tfiles.length === 0) return;
+    setReplyText((p) => ({ ...p, [parentId]: "" }));
+    setThreadFiles((p) => ({ ...p, [parentId]: [] }));
+    if (tfiles.length > 0) {
+      const fd = new FormData();
+      fd.set("channelId", channelId);
+      fd.set("body", body);
+      fd.set("parentId", parentId);
+      tfiles.forEach((f) => fd.append("files", f));
+      try {
+        const saved = await sendMessageWithAttachments(fd);
+        if (saved) upsert({ ...saved, status: "sent", reactions: saved.reactions ?? [] });
+        else { setReplyText((p) => ({ ...p, [parentId]: body })); setThreadFiles((p) => ({ ...p, [parentId]: tfiles })); } // restaurar si falló
+      } catch {
+        setReplyText((p) => ({ ...p, [parentId]: body }));
+        setThreadFiles((p) => ({ ...p, [parentId]: tfiles }));
+      }
+    } else {
+      submitText(body, parentId);
+    }
+  }
+
   async function submitMain(e: React.FormEvent) {
     e.preventDefault();
     if (files.length > 0) {
@@ -1903,24 +1932,35 @@ export function ChannelChat({
                       </div>
                     ))}
                     {!readOnly ? (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          submitText(replyText[m.id] ?? "", m.id);
-                          setReplyText((p) => ({ ...p, [m.id]: "" }));
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <input
-                          value={replyText[m.id] ?? ""}
-                          onChange={(e) => setReplyText((p) => ({ ...p, [m.id]: e.target.value }))}
-                          placeholder="Responder en el hilo…"
-                          className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
-                        />
-                        <button className="text-xs font-medium text-primary disabled:opacity-40" disabled={!(replyText[m.id] ?? "").trim()}>
-                          Enviar
-                        </button>
-                      </form>
+                      <div className="space-y-1.5">
+                        {/* Adjuntos pendientes del hilo (chips con quitar). */}
+                        {(threadFiles[m.id]?.length ?? 0) > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(threadFiles[m.id] ?? []).map((f, i) => (
+                              <span key={i} className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs">
+                                <Paperclip className="size-3 text-muted-foreground" />
+                                <span className="max-w-[10rem] truncate">{f.name}</span>
+                                <button type="button" aria-label="Quitar adjunto" onClick={() => setThreadFiles((p) => ({ ...p, [m.id]: (p[m.id] ?? []).filter((_, idx) => idx !== i) }))} className="text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <form onSubmit={(e) => { e.preventDefault(); void sendThreadReply(m.id); }} className="flex items-end gap-2">
+                          <label className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" title="Adjuntar archivo">
+                            <Paperclip className="size-4" />
+                            <input type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) setThreadFiles((p) => ({ ...p, [m.id]: [...(p[m.id] ?? []), ...fs] })); e.target.value = ""; }} />
+                          </label>
+                          <textarea
+                            rows={1}
+                            value={replyText[m.id] ?? ""}
+                            onChange={(e) => setReplyText((p) => ({ ...p, [m.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendThreadReply(m.id); } }}
+                            placeholder="Responder en el hilo…  ·  @ para mencionar · Enter envía"
+                            className="max-h-32 min-h-[2.25rem] flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-base outline-none focus:ring-1 focus:ring-ring sm:text-sm"
+                          />
+                          <button className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-40" disabled={!(replyText[m.id] ?? "").trim() && (threadFiles[m.id]?.length ?? 0) === 0} aria-label="Enviar"><Send className="size-4" /></button>
+                        </form>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
