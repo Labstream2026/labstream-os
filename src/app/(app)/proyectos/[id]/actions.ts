@@ -15,6 +15,7 @@ import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
+import { syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
 import { deliverableStatusMeta, statusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { validateAssignee } from "@/lib/task-assign";
@@ -301,6 +302,7 @@ export async function setTaskDueDate(taskId: string, _projectId: string, formDat
   }
   // Si se quita la fecha de entrega, la hora de entrega deja de tener sentido → se limpia.
   await db.task.update({ where: { id: taskId }, data: dueDate ? { dueDate } : { dueDate: null, dueTime: null } });
+  await syncTaskAnchoredAlerts(taskId); // recalcula los avisos «X antes» atados a la tarea a la nueva hora
   const session = await getSession();
   if (task!.assigneeId && task!.assigneeId !== session?.id) {
     await notifyAndEmail(task!.assigneeId, {
@@ -327,6 +329,7 @@ export async function setTaskDueTime(taskId: string, _projectId: string, formDat
   const raw = String(formData.get("dueTime") ?? "").trim();
   const dueTime = /^\d{1,2}:\d{2}$/.test(raw) ? raw : null;
   await db.task.update({ where: { id: taskId }, data: { dueTime } });
+  await syncTaskAnchoredAlerts(taskId); // la hora de entrega mueve el ancla de los avisos «X antes»
   await logActivity({ action: "task.dueTime", summary: dueTime ? `fijó la hora de entrega de «${task!.title}» a las ${dueTime}` : `quitó la hora de entrega de «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
   revalidatePath("/calendario");
   refresh(projectId);
@@ -425,6 +428,7 @@ export async function setTaskDates(taskId: string, _projectId: string, formData:
     }
   }
   await db.task.update({ where: { id: taskId }, data });
+  await syncTaskAnchoredAlerts(taskId); // reprogramar fechas recalcula los avisos «X antes» atados
   const session = await getSession();
 
   // Descripción legible del cambio (qué fechas quedaron) para la notificación y el log.
@@ -524,6 +528,7 @@ export async function adminUpdateTask(taskId: string, _projectId: string, formDa
       completedAt,
     },
   });
+  await syncTaskAnchoredAlerts(taskId); // la edición admin puede mover fecha/hora → recalcular avisos
 
   // El nuevo responsable debe poder abrir el proyecto (aunque sea privado).
   if (projectId && newAssigneeId) {
@@ -1777,13 +1782,17 @@ export async function addDeliverableVersion(
   const newInternalDue = /^\d{4}-\d{2}-\d{2}$/.test(irdRaw)
     ? new Date(`${irdRaw}T${/^\d{1,2}:\d{2}$/.test(irtRaw) ? irtRaw.padStart(5, "0") : "18:00"}:00.000-05:00`)
     : null;
-  const internalDueAt = newInternalDue ?? deliverable.internalReviewDueAt;
+  // Si NO se indica una fecha nueva, se hereda la del entregable SOLO si sigue VIGENTE: un plazo
+  // interno YA VENCIDO no debe pasar a la nueva versión — la tarea «Pre-aprobar vN» nacería ya
+  // incumplida (y el barrido de SLA la marcaría al instante). Vencido → sin plazo hasta fijar uno.
+  const carriedDue = deliverable.internalReviewDueAt && deliverable.internalReviewDueAt.getTime() > Date.now() ? deliverable.internalReviewDueAt : null;
+  const internalDueAt = newInternalDue ?? carriedDue;
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const last = await db.deliverableVersion.findFirst({
     where: { deliverableId },
     orderBy: { number: "desc" },
   });
-  const number = (last?.number ?? 0) + 1;
+  let number = (last?.number ?? 0) + 1;
 
   // Archivo subido (opcional): se guarda como FileAsset del proyecto y se vincula
   // a la versión, para que el portal del cliente pueda mostrarlo/reproducirlo.
@@ -1811,21 +1820,37 @@ export async function addDeliverableVersion(
   // (miembros invitados), la versión no pasa por la compuerta interna — queda aprobada y
   // va derecho al portal del cliente, que trabaja los cambios directamente con el editor.
   const directToClient = deliverable.reviewers.length > 0 && deliverable.reviewers.every((r) => r.user.role?.key === "cliente");
-  await db.deliverableVersion.create({
-    data: {
-      deliverableId,
-      number,
-      notes,
-      fileUrl,
-      fileAssetId,
-      durationSec: parseDurationSec(formData),
-      uploadedById: session!.id,
-      // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla), salvo
-      // en revisión directa (revisor = cliente).
-      internalApproved: directToClient,
-      internalApprovedAt: directToClient ? new Date() : null,
-    },
-  });
+  // Dos subidas simultáneas calcularían el MISMO number → P2002 por @@unique([deliverableId, number])
+  // (500 + FileAsset huérfano). Se reintenta recomputando el número; si falla del todo, se limpia el
+  // FileAsset recién creado para no dejar basura en disco/BD.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await db.deliverableVersion.create({
+        data: {
+          deliverableId,
+          number,
+          notes,
+          fileUrl,
+          fileAssetId,
+          durationSec: parseDurationSec(formData),
+          uploadedById: session!.id,
+          // Pendiente de pre-aprobación interna (no llega al cliente hasta aprobarla), salvo
+          // en revisión directa (revisor = cliente).
+          internalApproved: directToClient,
+          internalApprovedAt: directToClient ? new Date() : null,
+        },
+      });
+      break;
+    } catch (e) {
+      if (attempt < 4 && (e as { code?: string })?.code === "P2002") {
+        const fresh = await db.deliverableVersion.findFirst({ where: { deliverableId }, orderBy: { number: "desc" }, select: { number: true } });
+        number = (fresh?.number ?? 0) + 1;
+        continue;
+      }
+      if (fileAssetId) await db.fileAsset.delete({ where: { id: fileAssetId } }).catch(() => {});
+      throw e;
+    }
+  }
   // Auto-portada: si el entregable aún no tiene portada, usa el fotograma capturado al subir.
   if (!deliverable.coverFileAssetId) {
     const posterFile = posterDataUrlToFile(String(formData.get("poster") ?? ""));
@@ -1935,7 +1960,7 @@ export async function internalDecision(
   // El cliente nunca ve esto: es un control interno.
   fixDueIso?: string | null,
 ) {
-  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewExpiresAt: true, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
+  const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, ownerId: true, reviewerId: true, reviewExpiresAt: true, status: true, versions: { orderBy: { number: "desc" }, take: 1, select: { number: true } }, reviewers: { select: { userId: true } }, project: { select: { ...accessSelect, name: true } } } });
   const session = await getSession();
   // Decide el responsable del proyecto/admin O CUALQUIER revisor asignado (co-revisores).
   // El gestor del proyecto necesita además aprobar_entregables; un revisor asignado siempre puede.
@@ -1948,6 +1973,12 @@ export async function internalDecision(
     ))
   );
   if (!deliverable || !mayDecide) noAutorizado();
+  // Igual que la API v1: solo se decide sobre la ÚLTIMA versión y solo en REVISION_INTERNA. La UI ya
+  // lo acota, pero esto blinda la invocación directa del server action (no regresar un entregable ya
+  // aprobado por el cliente, ni pre-aprobar una versión vieja).
+  const latestVersion = deliverable.versions[0]?.number ?? 0;
+  if (versionNumber !== latestVersion) throw new Error(`Solo se puede decidir sobre la última versión (v${latestVersion}).`);
+  if (deliverable.status !== "REVISION_INTERNA") throw new Error("El entregable no está en revisión interna; no se puede decidir.");
   const projectId = deliverable.projectId;
   const approved = result === "APROBADO";
   // Plazo de la corrección en curso (se fija más abajo si el resultado es CAMBIOS).

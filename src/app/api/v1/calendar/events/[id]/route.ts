@@ -6,6 +6,7 @@ import { pushEventToParticipants, sendEventCancellations, removeEventFromPartici
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { readJson, str, isYmd, isHm, shapeEvent, eventVisible, EVENT_INCLUDE } from "@/lib/api-v1";
+import { syncEventAnchoredAlerts, disableEventAnchoredAlerts } from "@/lib/reminder-alerts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,8 +80,12 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
   }
   if (Object.keys(data).length === 0) return apiJson({ ok: false, error: "Nada que actualizar." }, 400);
 
+  // Al REPROGRAMAR: el aviso propio de la cita («empieza en X») debe volver a sonar a la hora nueva.
+  if (reschedule) data.reminderSentAt = null;
   await db.calendarEvent.update({ where: { id }, data });
   await pushEventToParticipants(id).catch(() => null);
+  // …y los avisos «X antes» de los recordatorios atados se recalculan al nuevo inicio.
+  if (reschedule) await syncEventAnchoredAlerts(id).catch(() => null);
 
   // Avisar a los asistentes (menos al titular) si la cita cambió de fecha/hora.
   if (reschedule) {
@@ -119,6 +124,9 @@ export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, r
   }
   await sendEventCancellations(id).catch(() => 0);
   await removeEventFromParticipants(id).catch(() => null);
+  // Apaga los avisos «X antes» atados ANTES de borrar (después, el FK eventId queda null y no se
+  // encontrarían): si no, el recordatorio sonaría para una cita ya cancelada.
+  await disableEventAnchoredAlerts(id).catch(() => null);
   await db.calendarEvent.delete({ where: { id } });
   await logActivity({ action: "event.delete", summary: `canceló la cita «${event.title}» (vía API)`, projectId: event.projectId ?? undefined, entityType: "event", entityId: id }).catch(() => null);
   return apiJson({ ok: true });

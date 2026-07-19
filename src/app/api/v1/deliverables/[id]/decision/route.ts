@@ -39,6 +39,14 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rout
   const exists = await db.deliverableVersion.findFirst({ where: { deliverableId: id, number: versionNumber }, select: { id: true } });
   if (!exists) return apiJson({ ok: false, error: `No existe la versión v${versionNumber}.` }, 404);
 
+  // GUARDA DE ESTADO + VERSIÓN: solo se decide sobre la ÚLTIMA versión y solo mientras el entregable
+  // está en REVISION_INTERNA. Sin esto, un revisor podía «aprobar» una versión vieja y REGRESAR un
+  // entregable ya aprobado por el cliente a ENVIADO_CLIENTE, re-notificándolo.
+  const state = await db.deliverable.findUnique({ where: { id }, select: { status: true, versions: { orderBy: { number: "desc" }, take: 1, select: { number: true } } } });
+  const latest = state?.versions[0]?.number ?? 0;
+  if (versionNumber !== latest) return apiJson({ ok: false, error: `Solo se puede decidir sobre la ÚLTIMA versión (v${latest}), no una anterior.` }, 409);
+  if (state?.status !== "REVISION_INTERNA") return apiJson({ ok: false, error: `El entregable no está en revisión interna (estado ${state?.status}); no se puede decidir.` }, 409);
+
   await db.deliverableDecision.create({ data: { deliverableId: id, versionNumber, stage: "INTERNA", result, byUserId: ctx.session.id, note } });
   if (result === "APROBADO") {
     await db.deliverableVersion.updateMany({ where: { deliverableId: id, number: versionNumber }, data: { internalApproved: true, internalApprovedAt: new Date() } });

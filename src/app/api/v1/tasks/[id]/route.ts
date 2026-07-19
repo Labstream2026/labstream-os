@@ -6,6 +6,7 @@ import { completionTransition } from "@/lib/task-completion";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 import { readJson, str, isYmd, isHm, noon, shapeTask, canReadTask, canWriteTask, canEditTaskMetaApi, recalcProgress, loadProjectForWrite, TASK_SELECT } from "@/lib/api-v1";
+import { syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -176,6 +177,8 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
 
   if (Object.keys(data).length === 0) return apiJson({ ok: false, error: "Nada que actualizar." }, 400);
   await db.task.update({ where: { id }, data });
+  // Si cambió la fecha/hora de entrega, recalcula los avisos «X antes» atados (igual que la app).
+  if ("dueDate" in data || "dueTime" in data) await syncTaskAnchoredAlerts(id).catch(() => null);
 
   // Efectos colaterales idénticos a la app.
   if (wantsAssignee && newAssignee && newAssignee !== prevAssignee && task.projectId) {
