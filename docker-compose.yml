@@ -8,6 +8,13 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # LÍMITE DE MEMORIA. Sin esto, un pico de sharp/pdf-lib (o una fuga) hace que el OOM-killer del
+    # kernel mate node → "contenedor detenido inesperadamente" → restart → se repite, y sin señal
+    # clara de la causa. Con el límite, si la app se dispara la mata SOLO a ella (OOMKilled=true,
+    # diagnóstico inequívoco en `docker inspect`) sin tumbar Postgres/OnlyOffice. 3 GB dejan aire de
+    # sobra en un NAS de 16 GB (la app en reposo usa <1 GB). Va de la mano de NODE_OPTIONS abajo.
+    mem_limit: 3g
+    mem_reservation: 512m
     ports:
       # Loopback (127.0.0.1:3200): lo usa el reverse proxy de DSM → os.labstreamsas.com.
       - "127.0.0.1:3200:3000"
@@ -20,6 +27,12 @@ services:
       - "192.168.0.22:3200:3000"
     environment:
       NODE_ENV: production
+      # V8 debe hacer GC ANTES de llegar al mem_limit (3g). Sin fijarlo, Node ve la RAM del host
+      # (16 GB) y deja crecer el heap ~4 GB → supera el límite del contenedor → OOMKilled aunque
+      # sobre RAM en el NAS. 2 GB de heap dejan ~1 GB para memoria nativa (sharp/libvips) dentro
+      # de los 3 GB. La memoria de sharp NO cuenta contra el heap (es nativa); por eso además se
+      # limita sharp en src/lib/image.ts (concurrency/cache).
+      NODE_OPTIONS: "--max-old-space-size=2048"
       # Next.js (standalone) se ata a $HOSTNAME; Docker lo fija al ID del contenedor, con lo
       # que Next escucharía SOLO en una interfaz. Forzando 0.0.0.0 escucha en TODAS, para que
       # el docker-proxy del publish en 172.23.0.1 (arriba) pueda reenviar el callback del

@@ -1,6 +1,16 @@
 import sharp from "sharp";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
 
+// Ajuste de MEMORIA para el NAS. Por defecto sharp (libvips) usa un hilo por núcleo y mantiene
+// una caché en RAM; con varias subidas a la vez (o una foto grande/HEIC) el pico de RSS se
+// dispara y el kernel puede matar el proceso Node por OOM → el contenedor «se detiene
+// inesperadamente» y `restart: unless-stopped` lo revive, repitiéndose. Serializamos el trabajo
+// de libvips y apagamos su caché: procesar imágenes va un pelín más lento, pero el pico queda
+// acotado. La memoria de sharp es NATIVA (fuera del heap de V8), por eso --max-old-space-size NO
+// la limita y hay que acotarla aquí. Idempotente: sharp es un singleton nativo por proceso.
+sharp.concurrency(1);
+sharp.cache(false);
+
 // Optimización de imágenes al subir. Guardamos SIEMPRE el original (descarga a
 // resolución completa) y, si es una imagen rasterizable, un derivado WebP ligero
 // para previsualizar: lado largo ≤ MAX_EDGE, conserva la relación de aspecto y
