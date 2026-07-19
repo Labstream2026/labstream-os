@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
-import { Plus, SearchX } from "lucide-react";
+import { Plus, SearchX, Archive } from "lucide-react";
 import { IconProyectos, IconTablero, IconTableroH, IconLista } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
@@ -22,10 +22,17 @@ const norm = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").to
 export default async function ProyectosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string }>;
+  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string; vista?: string }>;
 }) {
   const sp = await searchParams;
   const session = await getSession();
+  // «Terminados»: archivo de proyectos completados. La vista ACTIVA excluye los terminados
+  // (finishedAt=null); la vista «Terminados» muestra solo esos (finishedAt≠null). Ninguna incluye
+  // los de la papelera (accessibleProjectWhere ya filtra archivedAt).
+  const terminados = sp.vista === "terminados";
+  const projectWhere = { ...accessibleProjectWhere(session), finishedAt: terminados ? { not: null } : null };
+  // Contador de terminados para la pestaña (independiente de la vista actual).
+  const finishedCount = await db.project.count({ where: { ...accessibleProjectWhere(session), finishedAt: { not: null } } }).catch(() => 0);
   // Solo traemos de la BD los proyectos que el usuario puede ver (no todos para
   // descartarlos en JS): el filtro de acceso va en la propia consulta.
   const allClients = await db.client.findMany({
@@ -33,7 +40,7 @@ export default async function ProyectosPage({
     orderBy: { createdAt: "asc" },
     include: {
       projects: {
-        where: accessibleProjectWhere(session),
+        where: projectWhere,
         orderBy: { createdAt: "asc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },
@@ -212,15 +219,33 @@ export default async function ProyectosPage({
         </Link>
       </div>
 
+      {/* Vista ACTIVOS / TERMINADOS (archivo de proyectos completados, aparte de la papelera). */}
+      <div className="mt-5 flex items-center gap-2">
+        <Link href="/proyectos" className={cn("rounded-full px-3 py-1 text-sm font-medium transition-colors", !terminados ? "bg-foreground text-background" : "border border-border text-muted-foreground hover:bg-muted")}>
+          Activos
+        </Link>
+        <Link href="/proyectos?vista=terminados" className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors", terminados ? "bg-foreground text-background" : "border border-border text-muted-foreground hover:bg-muted")}>
+          <Archive className="size-3.5" /> Terminados{finishedCount > 0 ? ` (${finishedCount})` : ""}
+        </Link>
+      </div>
+
       {!anyProjects ? (
-        <div className="mt-12 flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
-          <div className="text-4xl">🎬</div>
-          <h2 className="mt-3 text-lg font-semibold">Aún no hay proyectos</h2>
-          <p className="mt-1 max-w-sm text-sm text-muted-foreground">Crea tu primer proyecto para organizar tareas, entregables, cronograma y archivos por cliente.</p>
-          <Link href="/proyectos/nuevo" className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            <Plus className="size-4" /> Crear proyecto
-          </Link>
-        </div>
+        terminados ? (
+          <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+            <Archive className="size-8 text-muted-foreground" />
+            <h2 className="mt-3 text-lg font-semibold">No hay proyectos terminados</h2>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">Cuando marques un proyecto como «Terminado», se guardará aquí (sin borrarse) y podrás reabrirlo cuando quieras.</p>
+          </div>
+        ) : (
+          <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
+            <div className="text-4xl">🎬</div>
+            <h2 className="mt-3 text-lg font-semibold">Aún no hay proyectos</h2>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">Crea tu primer proyecto para organizar tareas, entregables, cronograma y archivos por cliente.</p>
+            <Link href="/proyectos/nuevo" className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <Plus className="size-4" /> Crear proyecto
+            </Link>
+          </div>
+        )
       ) : (
         <div className="mt-6 space-y-4">
           <ProjectFilters statusOptions={statusOptions} clientOptions={clientOptions} />

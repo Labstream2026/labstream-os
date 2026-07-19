@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Globe, Lock, X, Archive, ChevronDown, Users } from "lucide-react";
+import { Globe, Lock, X, ChevronDown, Users, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,8 @@ import {
   addProjectMember,
   removeProjectMember,
   archiveProject,
+  finishProject,
+  reopenProject,
 } from "@/app/(app)/proyectos/[id]/actions";
 
 type Person = { id: string; name: string; initials: string | null; color: string | null };
@@ -28,6 +30,7 @@ export function ProjectSettings({
   team,
   canArchive = false,
   canAssignLead = false,
+  isFinished = false,
 }: {
   projectId: string;
   isPrivate: boolean;
@@ -36,6 +39,7 @@ export function ProjectSettings({
   team: Person[];
   canArchive?: boolean;
   canAssignLead?: boolean;
+  isFinished?: boolean;
 }) {
   const [pending, start] = React.useTransition();
   const router = useRouter();
@@ -43,15 +47,33 @@ export function ProjectSettings({
 
   const onArchive = async () => {
     const ok = await confirm({
-      title: "Mover a la papelera",
-      message: "El proyecto saldrá de las listas pero NO se borra nada: se conserva todo y podrás restaurarlo desde la Papelera.",
+      title: "Borrar proyecto",
+      message: "El proyecto irá a la Papelera (sale de las listas). No se borra nada de inmediato: podrás restaurarlo desde la Papelera antes de eliminarlo definitivamente.",
       confirmLabel: "Mover a la papelera",
       danger: true,
     });
     if (!ok) return;
     const r = await archiveProject(projectId);
     if (r.ok) router.push("/proyectos");
-    else await confirm({ title: "No se pudo", message: r.error ?? "Error al archivar.", confirmLabel: "Entendido" });
+    else await confirm({ title: "No se pudo", message: r.error ?? "Error al borrar.", confirmLabel: "Entendido" });
+  };
+
+  // TERMINAR: archivo de proyectos completados (aparte de la papelera). REABRIR: vuelve a activos.
+  const onFinish = async () => {
+    const ok = await confirm({
+      title: "Marcar como terminado",
+      message: "El proyecto saldrá de las listas activas y pasará al archivo de «Terminados». No se borra nada y podrás reabrirlo cuando quieras.",
+      confirmLabel: "Marcar como terminado",
+    });
+    if (!ok) return;
+    const r = await finishProject(projectId);
+    if (r.ok) router.push("/proyectos?vista=terminados");
+    else await confirm({ title: "No se pudo", message: r.error ?? "Error al terminar.", confirmLabel: "Entendido" });
+  };
+  const onReopen = async () => {
+    const r = await reopenProject(projectId);
+    if (r.ok) router.refresh();
+    else await confirm({ title: "No se pudo", message: r.error ?? "Error al reabrir.", confirmLabel: "Entendido" });
   };
 
   const memberIds = new Set(members.map((m) => m.id));
@@ -166,17 +188,41 @@ export function ProjectSettings({
         </div>
       </details>
 
-      {canArchive ? (
-        <button
-          type="button"
-          onClick={onArchive}
-          disabled={pending}
-          className="ml-auto inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-          title="Mover el proyecto a la papelera"
-        >
-          <Archive className="size-3.5" /> Archivar
-        </button>
-      ) : null}
+      {/* Fin de vida del proyecto: TERMINAR (archivo, reversible) vs BORRAR (papelera). */}
+      <div className="ml-auto flex items-center gap-2">
+        {isFinished ? (
+          <button
+            type="button"
+            onClick={onReopen}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-60"
+            title="Reabrir el proyecto (vuelve a las listas activas)"
+          >
+            <RotateCcw className="size-3.5" /> Reabrir
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onFinish}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-60 dark:text-emerald-400"
+            title="Marcar como terminado (archivo de terminados, no se borra)"
+          >
+            <CheckCircle2 className="size-3.5" /> Terminar
+          </button>
+        )}
+        {canArchive ? (
+          <button
+            type="button"
+            onClick={onArchive}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+            title="Borrar el proyecto (va a la papelera, recuperable)"
+          >
+            <Trash2 className="size-3.5" /> Borrar
+          </button>
+        ) : null}
+      </div>
       {dialog}
     </div>
   );

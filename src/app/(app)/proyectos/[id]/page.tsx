@@ -480,6 +480,7 @@ export default async function ProyectoPage({
                 team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
                 canArchive={hasPermission(session, "eliminar_proyectos")}
                 canAssignLead={session?.role === "admin" || project.leadId === session?.id}
+                isFinished={!!project.finishedAt}
               />
             ) : null}
             {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
