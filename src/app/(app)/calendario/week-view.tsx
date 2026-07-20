@@ -193,15 +193,6 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   });
   const today = new Date();
 
-  // Auto-scroll a ~7 AM una sola vez (tras medir el alto). Si la rejilla llena el alto visible
-  // no hay scroll y queda en 0; si es pequeña, deja las 7 AM cerca del borde superior.
-  const didAutoScroll = React.useRef(false);
-  React.useEffect(() => {
-    if (didAutoScroll.current || !scrollRef.current) return;
-    scrollRef.current.scrollTop = Math.max(0, minToTop(7 * 60, hourH) - 8);
-    didAutoScroll.current = true;
-  }, [hourH]);
-
   // Un clic: solo RESALTA el bloque (no abre nada). Doble clic / doble toque: abre el detalle
   // (estatus) en el panel derecho. La edición se hace desde ese detalle (botón Editar).
   const highlight = (it: CalItem | null) => { setSelectedId(it?.id ?? null); onSelect?.(it); };
@@ -332,6 +323,18 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
   const dragItem = drag ? parsed.find((p) => p.it.id === drag.id)?.it : null;
 
+  // Auto-scroll UNA sola vez (tras medir el alto): a la PRIMERA hora con actividad de los días
+  // visibles (con ~45 min de aire arriba), o a las 7 AM si no hay nada cronometrado. Si la
+  // rejilla llena el alto visible no hay scroll y queda en 0.
+  const timedStarts = parsed.filter((p) => p.timed && days.some((d) => evOnDay(p.start, d))).map((p) => minutesOf(p.start));
+  const focusMin = timedStarts.length ? Math.max(START_MIN, Math.min(...timedStarts) - 45) : 7 * 60;
+  const didAutoScroll = React.useRef(false);
+  React.useEffect(() => {
+    if (didAutoScroll.current || !scrollRef.current) return;
+    scrollRef.current.scrollTop = Math.max(0, minToTop(focusMin, hourH) - 8);
+    didAutoScroll.current = true;
+  }, [hourH, focusMin]);
+
   const monthLabel = dayCount === 1
     ? new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long" }).format(anchor)
     : new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(weekStart);
@@ -364,8 +367,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
             {days.map((d) => {
               const isToday = sameDay(d, today);
               const holiday = holidayName(localDateStr(d));
+              const wknd = dayCount === 7 && (d.getDay() === 0 || d.getDay() === 6);
               return (
-                <div key={d.toISOString()} title={holiday ? `Festivo en Colombia: ${holiday}` : undefined} className={cn("flex items-center justify-center gap-1.5 px-1 py-2 text-center", holiday && !isToday && "bg-amber-50/70 dark:bg-amber-500/[0.07]", isToday && "bg-rose-50/60 dark:bg-rose-500/[0.06]")}>
+                <div key={d.toISOString()} title={holiday ? `Festivo en Colombia: ${holiday}` : undefined} className={cn("flex items-center justify-center gap-1.5 px-1 py-2 text-center", wknd && !isToday && !holiday && "bg-muted/40", holiday && !isToday && "bg-amber-50/70 dark:bg-amber-500/[0.07]", isToday && "bg-rose-50/60 dark:bg-rose-500/[0.06]")}>
                   <span className="text-[11px] uppercase text-muted-foreground">{DAYS[d.getDay()]}</span>
                   <span className={cn("inline-flex size-6 items-center justify-center rounded-md text-xs", isToday ? "bg-rose-500 font-semibold text-white" : holiday ? "font-semibold text-amber-700 dark:text-amber-300" : "font-medium text-foreground")}>{d.getDate()}</span>
                 </div>
@@ -383,8 +387,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
               const chips = parsed.filter((p) => !p.timed && evOnDay(p.start, d)).sort((a, b) => compareChips(a.it, b.it));
               const isToday = sameDay(d, today);
               const holiday = holidayName(localDateStr(d));
+              const wknd = dayCount === 7 && (d.getDay() === 0 || d.getDay() === 6);
               return (
-                <div key={d.toISOString()} className={cn("min-h-8 p-1", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
+                <div key={d.toISOString()} className={cn("min-h-8 p-1", wknd && !isToday && "bg-muted/25", isToday && "bg-rose-50/40 dark:bg-rose-500/[0.04]")}>
                   {holiday ? (
                     <div className="mb-1 flex w-full items-center gap-1 truncate rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" title={`Festivo en Colombia: ${holiday}`}>
                       <span className="truncate">🎉 {holiday}</span>
@@ -433,6 +438,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                   });
                 const positioned = layoutDay(dayTimed);
                 const isToday = sameDay(d, today);
+                const wknd = dayCount === 7 && (d.getDay() === 0 || d.getDay() === 6);
                 return (
                   <div
                     key={d.toISOString()}
@@ -448,7 +454,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       const mm = (Math.round((minutes % 60) / 15) * 15) % 60;
                       emitCalendarCreate(localDateStr(d), `${pad2(hh)}:${pad2(mm)}`);
                     } : undefined}
-                    className={cn("relative border-l border-border/40", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
+                    className={cn("relative border-l border-border/40", wknd && !isToday && "bg-muted/25", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
                   >
                     {hours.map((h) => (<div key={h} style={{ height: hourH }} className="border-b border-border/25" />))}
                     {isToday ? <NowLine hourH={hourH} /> : null}

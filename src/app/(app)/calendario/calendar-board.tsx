@@ -32,12 +32,33 @@ const SHELL_VIEWS: { key: ShellView; label: string }[] = [
   { key: "agenda", label: "Agenda" },
 ];
 // Capas de «Mis calendarios» (por tipo de evento). El color casa con calTone().solid.
-const KIND_LAYERS: { key: CalItem["kind"]; label: string; color: string }[] = [
-  { key: "event", label: "Citas y reuniones", color: "#6366f1" },
-  { key: "task", label: "Entregas", color: "#f59e0b" },
-  { key: "shoot", label: "Rodajes", color: "#f43f5e" },
-  { key: "milestone", label: "Hitos de proyecto", color: "#0ea5e9" },
+const KIND_LAYERS: { key: CalItem["kind"]; label: string; short: string; emoji: string; color: string }[] = [
+  { key: "event", label: "Citas y reuniones", short: "Citas", emoji: "📅", color: "#6366f1" },
+  { key: "task", label: "Entregas", short: "Entregas", emoji: "📦", color: "#f59e0b" },
+  { key: "shoot", label: "Rodajes", short: "Rodajes", emoji: "🎬", color: "#f43f5e" },
+  { key: "milestone", label: "Hitos de proyecto", short: "Hitos", emoji: "🚩", color: "#0ea5e9" },
 ];
+
+// Vistas del calendario EMBEBIDO (proyecto/cliente): ahora también Agenda y Día.
+type EmbView = "agenda" | "dia" | "semana" | "mes";
+const EMB_VIEWS: { key: EmbView; label: string }[] = [
+  { key: "agenda", label: "Agenda" },
+  { key: "dia", label: "Día" },
+  { key: "semana", label: "Semana" },
+  { key: "mes", label: "Mes" },
+];
+// Fechas del strip «Próximo»: los items guardan la hora de pared en campos UTC → se formatea en UTC.
+const NEXT_DAY_FMT = new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+const MONTH_FMT = new Intl.DateTimeFormat("es-CO", { month: "short" });
+// «en 3 h» / «mañana» / «en 2 días», comparando instantes de pared.
+function relWall(targetMs: number, nowMs: number): string {
+  const d = Math.floor(targetMs / 86_400_000) - Math.floor(nowMs / 86_400_000);
+  if (d <= 0) {
+    const h = Math.round((targetMs - nowMs) / 3_600_000);
+    return h <= 0 ? "ya" : h === 1 ? "en 1 h" : `en ${h} h`;
+  }
+  return d === 1 ? "mañana" : `en ${d} días`;
+}
 
 // Conmutador de vistas del calendario. En modo `shell` (solo /calendario) presenta la
 // experiencia completa tipo Google Calendar: mini-calendario + «Mis calendarios» a la izquierda,
@@ -65,12 +86,24 @@ export function CalendarBoard({
   // Experiencia completa (mini-calendario + capas + estadísticas + Día/Agenda). Solo /calendario.
   shell?: boolean;
 }) {
-  const [view, setView] = React.useState<"semana" | "mes">(defaultView);
-  // En móvil la vista Semana (7 columnas × 24 horas) es ilegible; arranca en Mes. No se
-  // persiste la vista, así que esto solo fija el ARRANQUE: el usuario puede tocar "Semana".
+  const [view, setView] = React.useState<EmbView>(defaultView);
+  // Vista embebida: restaura la última elegida EN ESTA SUPERFICIE (clave por ruta: cada
+  // proyecto/cliente recuerda la suya). Sin guardada, en móvil arranca en Mes (la semana de
+  // 7 columnas es ilegible en pantalla chica).
   React.useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) setView("mes");
+    if (typeof window === "undefined") return;
+    let v: EmbView | null = null;
+    try {
+      const s = window.localStorage.getItem(`cal:embview:${window.location.pathname}`);
+      if (s === "agenda" || s === "dia" || s === "semana" || s === "mes") v = s;
+    } catch { /* ignore */ }
+    if (!v && window.innerWidth < 768) v = "mes";
+    if (v) setView(v);
   }, []);
+  const pickView = (v: EmbView) => {
+    setView(v);
+    try { window.localStorage.setItem(`cal:embview:${window.location.pathname}`, v); } catch { /* ignore */ }
+  };
   const [colorBy, setColorBy] = React.useState<ColorBy>("tipo");
   // Persistir el modo de color (Tipo/Persona): al reabrir el calendario se conserva el elegido.
   React.useEffect(() => {
@@ -168,11 +201,12 @@ export function CalendarBoard({
     );
   };
 
-  // Items a mostrar (no-shell): filtro por persona única (select).
-  const shownItems = React.useMemo(() => {
-    if (!personFilter) return items;
-    return items.filter((it) => it.assignee?.name === personFilter || (it.attendees ?? []).some((a) => a.name === personFilter));
-  }, [items, personFilter]);
+  // Items a mostrar (no-shell): capas por tipo + filtro por persona única (select).
+  const shownItems = React.useMemo(() => items.filter((it) => {
+    if (hiddenKinds.has(it.kind)) return false;
+    if (personFilter && !(it.assignee?.name === personFilter || (it.attendees ?? []).some((a) => a.name === personFilter))) return false;
+    return true;
+  }), [items, personFilter, hiddenKinds]);
 
   // Items a mostrar (shell): oculta capas por tipo y por persona.
   const shellItems = React.useMemo(() => items.filter((it) => {
@@ -185,6 +219,31 @@ export function CalendarBoard({
   // Días con eventos (para el punto del mini-calendario) y estadísticas del rango visible.
   const markers = React.useMemo(() => new Set(shellItems.map((it) => it.date.slice(0, 10))), [shellItems]);
   const stats = React.useMemo(() => computeCalendarStats(shellItems, anchor), [shellItems, anchor]);
+
+  // ── Piezas del calendario EMBEBIDO ──
+  // «Ahora» de pared: la app guarda horas de pared en campos UTC, así que la hora local del
+  // equipo (Colombia) se lee como si fuera UTC para poder comparar contra los items.
+  const wallNowMs = React.useMemo(
+    () => Date.UTC(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), anchor.getHours(), anchor.getMinutes()),
+    [anchor],
+  );
+  // Lo PRÓXIMO del proyecto/cliente (respeta capas y filtro de persona): franja de arriba.
+  const nextUp = React.useMemo(() => {
+    let best: CalItem | null = null;
+    let bestMs = Infinity;
+    for (const it of shownItems) {
+      const ms = new Date(it.start ?? it.date).getTime();
+      if (!Number.isNaN(ms) && ms >= wallNowMs - 5 * 60_000 && ms < bestMs) { best = it; bestMs = ms; }
+    }
+    return best;
+  }, [shownItems, wallNowMs]);
+  // Contadores del MES visible por tipo (se pintan en las tarjetas-interruptor de capa).
+  const monthKey = `${anchor.getFullYear()}-${pad(anchor.getMonth() + 1)}`;
+  const kindCounts = React.useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const it of items) if (it.date.slice(0, 7) === monthKey) c[it.kind] = (c[it.kind] ?? 0) + 1;
+    return c;
+  }, [items, monthKey]);
 
   // Navegación del shell según la vista (mes/semana/día/agenda).
   const navShell = (dir: -1 | 1) => setAnchor((a) => {
@@ -400,7 +459,14 @@ export function CalendarBoard({
     );
   }
 
-  // ── Modo EMBEBIDO (proyecto/cliente): interfaz compacta de siempre ──
+  // ── Modo EMBEBIDO (proyecto/cliente): Agenda/Día/Semana/Mes + «Próximo» + capas con contador ──
+  const nextStart = nextUp ? new Date(nextUp.start ?? nextUp.date) : null;
+  const nextPeople = nextUp
+    ? [...new Set([nextUp.assignee?.name, ...(nextUp.attendees ?? []).map((a) => a.name)].filter(Boolean) as string[])]
+    : [];
+  const maxKindCount = Math.max(1, ...KIND_LAYERS.map((L) => kindCounts[L.key] ?? 0));
+  const monthShort = MONTH_FMT.format(anchor).replace(".", "").toUpperCase();
+
   return (
     <div className="flex h-full flex-col gap-3">
       <div className={cn("flex shrink-0 flex-wrap items-center gap-2", timelineNode ? "justify-between" : "justify-end")}>
@@ -422,27 +488,80 @@ export function CalendarBoard({
         ) : null}
         {colorSwitch}
         <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
-          {(["semana", "mes"] as const).map((v) => (
+          {EMB_VIEWS.map((v) => (
             <button
-              key={v}
-              onClick={() => setView(v)}
-              className={cn("rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors", view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+              key={v.key}
+              onClick={() => pickView(v.key)}
+              className={cn("rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors", view === v.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
             >
-              <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="size-4" /> {v === "semana" ? "Semana" : "Mes"}
-              </span>
+              {v.label}
             </button>
           ))}
         </div>
         </div>
         )}
       </div>
+
+      {/* Franja «Próximo»: lo más inmediato del proyecto/cliente siempre a la vista; clic → detalle. */}
+      {!showingCrono && nextUp && nextStart ? (
+        <button
+          type="button"
+          onClick={() => setDetail(nextUp)}
+          className="group flex w-full shrink-0 items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5 text-left transition-colors hover:bg-primary/10"
+        >
+          <span className="relative flex size-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-50 motion-reduce:hidden" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">
+              {KIND_LAYERS.find((L) => L.key === nextUp.kind)?.emoji} {nextUp.title}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {cap(NEXT_DAY_FMT.format(nextStart))}
+              {!nextUp.allDay ? <> · {wallTime(nextStart)}{nextUp.endTime ? `–${nextUp.endTime}` : ""}</> : null}
+              {" · "}
+              <strong className="font-semibold text-primary">{relWall(nextStart.getTime(), wallNowMs)}</strong>
+              {nextPeople.length ? <> · con {nextPeople.slice(0, 2).join(" y ")}{nextPeople.length > 2 ? ` +${nextPeople.length - 2}` : ""}</> : null}
+            </span>
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-primary opacity-70 transition-opacity group-hover:opacity-100">Ver →</span>
+        </button>
+      ) : null}
+
+      {/* Capas por tipo con contador del mes: cada tarjeta es también el interruptor de su capa. */}
+      {!showingCrono && items.length > 0 ? (
+        <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
+          {KIND_LAYERS.map((L) => {
+            const on = !hiddenKinds.has(L.key);
+            const n = kindCounts[L.key] ?? 0;
+            return (
+              <button
+                key={L.key}
+                type="button"
+                onClick={() => toggleKind(L.key)}
+                title={on ? `Ocultar ${L.label.toLowerCase()}` : `Mostrar ${L.label.toLowerCase()}`}
+                className={cn("rounded-xl border px-3 py-2 text-left transition-all", on ? "border-border bg-card hover:border-border/70" : "border-dashed border-border opacity-40 hover:opacity-70")}
+              >
+                <span className="text-base font-bold leading-none tabular-nums">{n}</span>
+                <span className="mt-0.5 block truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{L.emoji} {L.short} · {monthShort}</span>
+                <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
+                  <span className="block h-full rounded-full transition-all" style={{ width: `${(n / maxKindCount) * 100}%`, background: L.color }} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {showingCrono ? (
         <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
-      ) : view === "semana" ? (
-        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
-      ) : (
+      ) : view === "agenda" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto"><AgendaView items={shownItems} anchor={anchor} days={30} colorBy={colorBy} /></div>
+      ) : view === "mes" ? (
         <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
+      ) : (
+        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} /></div>
       )}
       {overlays}
     </div>
