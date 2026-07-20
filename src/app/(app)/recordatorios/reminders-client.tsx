@@ -177,6 +177,22 @@ type FormPrefill = {
 
 type DrawerState = { mode: "new"; prefill?: FormPrefill; seq: number } | { mode: "edit"; row: ReminderRow } | null;
 
+// ── Reloj vivo ──
+// Tick de 30 s vía useSyncExternalStore (nada de setState en efectos). El snapshot se CUANTIZA
+// al tick para que sea estable entre renders (Date.now() crudo re-renderizaría sin parar); en el
+// servidor/hidratación se usa el nowMs de la página cuantizado igual (HTML consistente).
+const NOW_TICK = 30_000;
+function subscribeNowTick(cb: () => void): () => void {
+  const id = window.setInterval(cb, NOW_TICK);
+  return () => window.clearInterval(id);
+}
+function readNowTick(): number {
+  return Math.floor(Date.now() / NOW_TICK) * NOW_TICK;
+}
+function quantize(ms: number): number {
+  return Math.floor(ms / NOW_TICK) * NOW_TICK;
+}
+
 // Nombre corto para las píldoras de «Para»: primer nombre + inicial del segundo.
 function shortName(name: string): string {
   const words = name.split(/\s+[-–—]\s+/)[0].trim().split(/\s+/).filter(Boolean);
@@ -203,6 +219,9 @@ export function RemindersClient({
   const { confirm, dialog } = useConfirmDialog();
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  // «Ahora» vivo: avanza cada 30 s → cuenta regresiva del destacado, marcador «ahora» del
+  // timeline y agrupación por día siempre al día aunque la pestaña quede abierta.
+  const now = React.useSyncExternalStore(subscribeNowTick, readNowTick, () => quantize(nowMs));
   // Panel deslizante: crear (con prefill opcional) o editar; null cerrado.
   const [drawer, setDrawer] = React.useState<DrawerState>(null);
   const [colorFilter, setColorFilter] = React.useState<string | null>(null);
@@ -281,12 +300,12 @@ export function RemindersClient({
   for (const ev of anchorEvents) {
     if (linkedEventIds.has(ev.id)) continue;
     const ms = eventInstantMs(ev.startIso);
-    if (ms > nowMs + 16 * 60_000) suggestions.push({ kind: "event", id: ev.id, title: ev.title, whenIso: new Date(ms).toISOString() });
+    if (ms > now + 16 * 60_000) suggestions.push({ kind: "event", id: ev.id, title: ev.title, whenIso: new Date(ms).toISOString() });
   }
   for (const t of anchorTasks) {
     if (!t.dueIso || linkedTaskIds.has(t.id)) continue;
     const ms = taskInstantMs(t.dueIso, t.dueTime);
-    if (ms > nowMs + 16 * 60_000) suggestions.push({ kind: "task", id: t.id, title: t.title, whenIso: new Date(ms).toISOString() });
+    if (ms > now + 16 * 60_000) suggestions.push({ kind: "task", id: t.id, title: t.title, whenIso: new Date(ms).toISOString() });
   }
   suggestions.sort((a, b) => new Date(a.whenIso).getTime() - new Date(b.whenIso).getTime());
   const shownSuggestions = suggestions.slice(0, 3);
@@ -305,9 +324,9 @@ export function RemindersClient({
     { key: "semana", label: "Esta semana", items: [] },
     { key: "despues", label: "Más adelante", items: [] },
   ];
-  const todayY = bogYmd(nowMs);
-  const tomY = bogYmd(nowMs + 86_400_000);
-  const weekY = bogYmd(nowMs + 7 * 86_400_000);
+  const todayY = bogYmd(now);
+  const tomY = bogYmd(now + 86_400_000);
+  const weekY = bogYmd(now + 7 * 86_400_000);
   for (const r of shown) {
     const d = bogYmd(new Date(r.nextFireAtIso).getTime());
     const b = d <= todayY ? 0 : d === tomY ? 1 : d <= weekY ? 2 : 3;
@@ -349,7 +368,7 @@ export function RemindersClient({
       {/* Captura rápida: escribe con fecha/hora («mañana 7am», «cada lunes 9:00») y crea al
           instante; «Más opciones» abre el panel completo con lo interpretado ya puesto. */}
       <QuickCapture
-        nowMs={nowMs}
+        nowMs={now}
         busy={pending}
         onCreate={quickCreate}
         onAdvanced={(p) =>
@@ -395,7 +414,7 @@ export function RemindersClient({
       ) : (
         <>
           {/* ── Destacado «Ahora sigue» ── */}
-          {hero ? <NextUpHero r={hero} nowMs={nowMs} pending={pending} {...rowHandlers(hero)} /> : null}
+          {hero ? <NextUpHero r={hero} nowMs={now} pending={pending} {...rowHandlers(hero)} /> : null}
 
           {/* ── Sugeridos ── */}
           {shownSuggestions.length > 0 ? (
@@ -444,11 +463,16 @@ export function RemindersClient({
             b.items.length === 0 ? null : (
               <div key={b.key}>
                 <h2 className="mt-7 mb-2 text-sm font-semibold text-muted-foreground">{b.label} ({b.items.length})</h2>
-                <div className="space-y-2">
-                  {b.items.map((r) => (
-                    <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
-                  ))}
-                </div>
+                {b.key === "hoy" ? (
+                  // «Hoy» como línea de tiempo: hora a la izquierda, punto sobre la línea y marcador «ahora».
+                  <DayTimeline items={b.items} now={now} meId={meId} pending={pending} handlers={rowHandlers} />
+                ) : (
+                  <div className="space-y-2">
+                    {b.items.map((r) => (
+                      <Row key={r.id} r={r} meId={meId} nowMs={now} pending={pending} {...rowHandlers(r)} />
+                    ))}
+                  </div>
+                )}
               </div>
             ),
           )}
@@ -461,7 +485,7 @@ export function RemindersClient({
           <h2 className="mt-8 mb-2 text-sm font-semibold text-muted-foreground">Pausados ({paused.length})</h2>
           <div className="space-y-2 opacity-80">
             {paused.map((r) => (
-              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
+              <Row key={r.id} r={r} meId={meId} nowMs={now} pending={pending} {...rowHandlers(r)} />
             ))}
           </div>
         </>
@@ -473,11 +497,65 @@ export function RemindersClient({
           <summary className="mb-2 cursor-pointer text-sm font-semibold text-muted-foreground">Hechos ({done.length})</summary>
           <div className="space-y-2 opacity-70">
             {done.map((r) => (
-              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
+              <Row key={r.id} r={r} meId={meId} nowMs={now} pending={pending} {...rowHandlers(r)} />
             ))}
           </div>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+// ── Línea de tiempo del día (vista agenda para el bloque «Hoy») ──
+// Hora a la izquierda, punto del color del recordatorio sobre la línea y un marcador «ahora»
+// entre lo ya pasado y lo que viene (avanza solo con el reloj vivo).
+type RowHandlers = { onEdit: () => void; onToggle: (a: boolean) => void; onDone: () => void; onSnooze: (k: string) => void; onDelete: () => void };
+function DayTimeline({
+  items,
+  now,
+  meId,
+  pending,
+  handlers,
+}: {
+  items: ReminderRow[];
+  now: number;
+  meId: string;
+  pending: boolean;
+  handlers: (r: ReminderRow) => RowHandlers;
+}) {
+  const sorted = items.slice().sort((a, b) => new Date(a.nextFireAtIso).getTime() - new Date(b.nextFireAtIso).getTime());
+  // Índice del primer elemento futuro; el marcador «ahora» va justo antes (si hay algo pasado).
+  let markerIdx = sorted.findIndex((r) => new Date(r.nextFireAtIso).getTime() > now);
+  if (markerIdx === -1) markerIdx = sorted.length;
+  const marker = (
+    <div className="relative py-0.5">
+      <span className="absolute -left-[25px] top-1/2 size-2 -translate-y-1/2 rounded-full bg-primary" />
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-primary" suppressHydrationWarning>
+          ahora · {bogTimeFmt.format(new Date(now))}
+        </span>
+        <span className="h-px flex-1 bg-primary/30" />
+      </div>
+    </div>
+  );
+  return (
+    <div className="relative ml-14 space-y-2 border-l-2 border-border/70 pl-5">
+      {sorted.map((r, i) => {
+        const hex = reminderColorHex(r.color) ?? "#F47A20";
+        return (
+          <React.Fragment key={r.id}>
+            {i === markerIdx && markerIdx > 0 ? marker : null}
+            <div className="relative">
+              <span className="absolute -left-[78px] top-3.5 w-12 text-right text-[11px] font-semibold text-muted-foreground tabular-nums" suppressHydrationWarning>
+                {bogTimeFmt.format(new Date(r.nextFireAtIso))}
+              </span>
+              <span className="absolute -left-[26px] top-4 size-2.5 rounded-full border-2 bg-card" style={{ borderColor: hex }} />
+              <Row r={r} meId={meId} nowMs={now} pending={pending} {...handlers(r)} />
+            </div>
+          </React.Fragment>
+        );
+      })}
+      {markerIdx === sorted.length && sorted.length > 0 ? marker : null}
     </div>
   );
 }
