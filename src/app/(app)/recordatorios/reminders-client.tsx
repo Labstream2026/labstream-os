@@ -642,11 +642,11 @@ function Drawer({ open, title, onClose, children }: { open: boolean; title: stri
     <div className={cn("fixed inset-0 z-50", !open && "pointer-events-none")} aria-hidden={!open}>
       <div
         onClick={onClose}
-        className={cn("absolute inset-0 bg-black/30 backdrop-blur-[1px] transition-opacity duration-300", open ? "opacity-100" : "opacity-0")}
+        className={cn("absolute inset-0 bg-black/30 backdrop-blur-[1px] transition-opacity duration-300 motion-reduce:transition-none", open ? "opacity-100" : "opacity-0")}
       />
       <div
         className={cn(
-          "absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-[cubic-bezier(.33,1,.68,1)]",
+          "absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-[cubic-bezier(.33,1,.68,1)] motion-reduce:transition-none",
           open ? "translate-x-0" : "translate-x-full",
         )}
         role="dialog"
@@ -1140,11 +1140,61 @@ function Row({
   const pendingAlerts = r.alerts.filter((a) => a.active && !a.sentAtIso).sort((a, b) => new Date(a.fireAtIso).getTime() - new Date(b.fireAtIso).getTime());
   const stripe = hex ?? (suenaHoy ? "#F47A20" : undefined);
 
+  // ── Gestos táctiles (solo móvil): deslizar → derecha = Hecho · izquierda = posponer +1 h ──
+  // touch-action pan-y deja el scroll vertical nativo; solo se arma con dedo (pointerType touch)
+  // y nunca arrancando sobre un botón (evita disparar gesto + clic a la vez).
+  const swipeable = r.canManage && r.active && !r.doneAtIso && !pending;
+  const [dx, setDx] = React.useState(0);
+  const dragRef = React.useRef<{ x: number; id: number } | null>(null);
+  const SWIPE_TRIGGER = 72;
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!swipeable || e.pointerType !== "touch") return;
+    if ((e.target as HTMLElement).closest("button, a")) return;
+    dragRef.current = { x: e.clientX, id: e.pointerId };
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || e.pointerId !== dragRef.current.id) return;
+    setDx(Math.max(-120, Math.min(120, e.clientX - dragRef.current.x)));
+  };
+  const endDrag = (commit: boolean) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    if (commit) {
+      if (dx > SWIPE_TRIGGER) onDone();
+      else if (dx < -SWIPE_TRIGGER) onSnooze("1h");
+    }
+    setDx(0);
+  };
+
   return (
-    <div
-      className={cn("rounded-xl border border-border bg-card transition-colors hover:border-border/80", suenaHoy && !hex && "bg-[#F47A20]/[0.04]")}
-      style={stripe ? { borderLeft: `3px solid ${stripe}`, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 } : undefined}
-    >
+    <div className="relative overflow-hidden rounded-xl">
+      {/* Fondo revelado por el gesto */}
+      {dx !== 0 ? (
+        <div className={cn("absolute inset-0 flex items-center justify-between rounded-xl px-4", dx > 0 ? "bg-emerald-500/10" : "bg-amber-500/10")}>
+          <span className={cn("flex items-center gap-1.5 text-xs font-bold text-emerald-600 transition-opacity dark:text-emerald-400", dx > 24 ? "opacity-100" : "opacity-0")}>
+            <Check className="size-4" /> Hecho
+          </span>
+          <span className={cn("flex items-center gap-1.5 text-xs font-bold text-amber-600 transition-opacity dark:text-amber-400", dx < -24 ? "opacity-100" : "opacity-0")}>
+            <Clock className="size-4" /> +1 hora
+          </span>
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "rounded-xl border border-border bg-card transition-colors hover:border-border/80",
+          suenaHoy && !hex && "bg-[#F47A20]/[0.04]",
+          dx === 0 && "transition-transform duration-200 ease-out motion-reduce:transition-none",
+        )}
+        style={{
+          ...(stripe ? { borderLeft: `3px solid ${stripe}`, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 } : null),
+          transform: dx ? `translateX(${dx}px)` : undefined,
+          touchAction: "pan-y",
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={() => endDrag(true)}
+        onPointerCancel={() => endDrag(false)}
+      >
       <div className="flex items-start gap-3 px-4 py-3">
         {r.icon ? (
           <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-lg"><EntityEmoji value={r.icon} fallback="⏰" /></div>
@@ -1198,6 +1248,7 @@ function Row({
             <button onClick={onDelete} disabled={pending} title="Eliminar" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="size-4" /></button>
           </div>
         ) : null}
+      </div>
       </div>
     </div>
   );
