@@ -170,6 +170,7 @@ export function Sidebar({
   canReports = true,
   canClients = true,
   canPapelera = false,
+  canCreateTasks = false,
   isCliente = false,
   collapsed = false,
   drawer = false,
@@ -192,6 +193,8 @@ export function Sidebar({
   canReports?: boolean;
   canClients?: boolean;
   canPapelera?: boolean;
+  // Muestra el acceso rápido «+ Tarea» del cajón móvil (los modales viven en QuickCreateFab).
+  canCreateTasks?: boolean;
   isCliente?: boolean;
   collapsed?: boolean;
   drawer?: boolean;
@@ -528,6 +531,31 @@ export function Sidebar({
             <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
           </button>
         </div>
+        {/* CREAR, a mano en móvil: el FAB «+» ya no flota (chocaba con la burbuja de chat) —
+            desde «Más» se crea una tarea o una cita. Los botones disparan lsos:quick-create y
+            los modales viven en QuickCreateFab (montado en el shell). */}
+        {!isCliente && (canCreateTasks || canCalendar) ? (
+          <div className="flex gap-2 px-3 pb-2">
+            {canCreateTasks ? (
+              <button
+                type="button"
+                onClick={() => { onNavigate?.(); window.dispatchEvent(new CustomEvent("lsos:quick-create", { detail: { kind: "task" } })); }}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground active:scale-[0.98]"
+              >
+                <Plus className="size-4" /> Tarea
+              </button>
+            ) : null}
+            {canCalendar ? (
+              <button
+                type="button"
+                onClick={() => { onNavigate?.(); window.dispatchEvent(new CustomEvent("lsos:quick-create", { detail: { kind: "event" } })); }}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-sidebar-border bg-background/60 px-3 py-2 text-sm font-medium text-sidebar-foreground active:scale-[0.98]"
+              >
+                <Plus className="size-4" /> Cita
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="flex-1 overflow-y-auto px-2 pb-3">
           <nav className="pb-1">
             {NAV.filter((n) => n.show).map((n) => (

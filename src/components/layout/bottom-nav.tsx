@@ -3,14 +3,13 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconInicio, IconEntregas, IconTareas, IconCliente, IconProyectos, IconChat, IconCalendario, IconMas, type IconProps } from "@/components/icons";
+import { IconInicio, IconEntregas, IconTareas, IconCliente, IconProyectos, IconCalendario, IconMas, type IconProps } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { useChatLive } from "@/components/layout/chat-live";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
-// Inicio · Tareas · Proyectos · Chat son destinos; "Más" abre el cajón del menú.
-// Chat lleva a /chat (la BANDEJA con todos los chats: Marcebot, DMs, canales), no a una
-// conversación suelta.
+// Inicio · Tareas · Clientes · Calendario son destinos; «Más» abre el cajón del menú, que trae
+// arriba los accesos de CREAR (nueva tarea / nueva cita) — por eso el FAB «+» ya no flota en
+// móvil (chocaba con la burbuja de chat). El chat se abre desde su burbuja flotante (con badge).
 //
 // IMPORTANTE (PWA en celular): el área segura inferior (home indicator del iPhone) va como
 // padding EXTRA debajo de la fila de íconos, NO dentro de ella. Antes el alto `h-16` incluía
@@ -18,22 +17,18 @@ import { useChatLive } from "@/components/layout/chat-live";
 // cortados. Ahora la fila mide 64px siempre y el safe-area se suma por debajo.
 export function BottomNav({
   onMenu,
-  chatUnread = 0,
   canClients = true,
+  canCalendar = true,
   isCliente = false,
 }: {
   onMenu: () => void;
-  chatUnread?: number;
   canClients?: boolean;
+  canCalendar?: boolean;
   isCliente?: boolean;
 }) {
   const pathname = usePathname();
-  const chatActive = pathname === "/chat" || pathname.startsWith("/chat/");
-  // Badge VIVO: el stream global manda; el valor server-render solo arranca.
-  const live = useChatLive();
-  const unread = live.total ?? chatUnread;
 
-  // El portal del cliente navega entre SUS proyectos, el calendario y el chat de su proyecto.
+  // El portal del cliente navega entre SUS proyectos, el calendario y sus entregas.
   // Íconos del set propio de Labstream (duotono): misma firma que un ícono de UI (className).
   const links: { href: string; label: string; icon: (p: IconProps) => ReactElement; match: (p: string) => boolean }[] = isCliente
     ? [
@@ -45,10 +40,14 @@ export function BottomNav({
     : [
         { href: "/", label: "Inicio", icon: IconInicio, match: (p: string) => p === "/" },
         { href: "/mis-tareas", label: "Tareas", icon: IconTareas, match: (p: string) => p.startsWith("/mis-tareas") },
-        // "Clientes" (antes "Proyectos"); sin permiso de clientes, cae al tablero de proyectos.
+        // "Clientes"; sin permiso de clientes, cae al tablero de proyectos.
         canClients
           ? { href: "/clientes", label: "Clientes", icon: IconCliente, match: (p: string) => p.startsWith("/clientes") }
           : { href: "/proyectos", label: "Proyectos", icon: IconProyectos, match: (p: string) => p.startsWith("/proyectos") },
+        // Calendario reemplaza a Chat en la barra (el chat vive en su burbuja flotante, con badge).
+        ...(canCalendar
+          ? [{ href: "/calendario", label: "Calendario", icon: IconCalendario, match: (p: string) => p.startsWith("/calendario") }]
+          : []),
       ];
 
   // Celda táctil: ocupa toda la fila, centra ícono + etiqueta y da feedback al tocar.
@@ -76,25 +75,6 @@ export function BottomNav({
             </Link>
           );
         })}
-
-        {!isCliente ? (
-          <Link
-            href="/chat"
-            aria-current={chatActive ? "page" : undefined}
-            className={cn(cell, chatActive ? "text-primary" : "text-muted-foreground")}
-          >
-            {chatActive ? <span className={indicator} /> : null}
-            <span className="relative">
-              <IconChat className={cn("size-6", !chatActive && "opacity-80")} />
-              {unread > 0 ? (
-                <span className="absolute -right-2 -top-1.5 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              ) : null}
-            </span>
-            <span className="truncate">Chat</span>
-          </Link>
-        ) : null}
 
         <button type="button" onClick={onMenu} aria-label="Abrir menú" className={cn(cell, "text-muted-foreground")}>
           <IconMas className="size-6 opacity-80" />

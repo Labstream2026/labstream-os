@@ -181,6 +181,7 @@ export function AppShell({
               canReports={canReports}
               canClients={canClients}
               canPapelera={canPapelera}
+              canCreateTasks={canCreateTasks}
               isCliente={isCliente}
               chatUnread={chatUnread}
               reviewPending={reviewPending}
@@ -255,11 +256,12 @@ export function AppShell({
       {/* Visor de imágenes (abre en la misma página, cierra con Escape/×) */}
       <Lightbox />
 
-      {/* Barra de navegación inferior (móvil) */}
+      {/* Barra de navegación inferior (móvil): Inicio · Tareas · Clientes · Calendario · Más.
+          El chat se abre desde su burbuja (badge incluido) y crear vive en el cajón de «Más». */}
       <BottomNav
         onMenu={() => setMobileMenuOpen(true)}
-        chatUnread={chatUnread}
         canClients={canClients}
+        canCalendar={canCalendar}
         isCliente={isCliente}
       />
     </div>
@@ -305,7 +307,9 @@ function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; 
       // Se desvanece mientras el speed-dial del FAB está abierto (marcador .qc-dial-open):
       // sus acciones suben justo a este hueco y la burbuja las tapaba (mismo bug que en escritorio).
       className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg transition-opacity active:scale-95 md:hidden print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
-      style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}
+      // Justo encima de la barra inferior (64px + aire): el FAB «+» ya no flota en móvil
+      // (crear vive en el cajón de «Más»), así que la burbuja baja a su hueco natural.
+      style={{ bottom: "calc(5.25rem + env(safe-area-inset-bottom))" }}
     >
       <IconChat className="size-6" />
       {unread > 0 ? (

@@ -81,6 +81,19 @@ export function QuickCreateFab({
     setModal(kind);
   }
 
+  // Crear desde FUERA del FAB (los accesos «Nueva tarea / Nueva cita» del cajón de «Más» en
+  // móvil): un CustomEvent global abre el modal correspondiente respetando los permisos. En un
+  // proyecto con escritura, la tarea se crea EN ese proyecto (igual que el propio FAB).
+  React.useEffect(() => {
+    const onQuick = (e: Event) => {
+      const kind = (e as CustomEvent<{ kind?: string }>).detail?.kind;
+      if (kind === "task" && canCreateTasks) openModal(projectId && projCanWrite ? "task-project" : "task-personal");
+      if (kind === "event" && canCalendar) openModal("event");
+    };
+    window.addEventListener("lsos:quick-create", onQuick);
+    return () => window.removeEventListener("lsos:quick-create", onQuick);
+  }, [canCreateTasks, canCalendar, projectId, projCanWrite]);
+
   // Construye las acciones disponibles según la ruta actual.
   const actions: Action[] = [];
   if (isMisTareas) {
@@ -120,8 +133,8 @@ export function QuickCreateFab({
     }
   }
 
-  if (actions.length === 0) return null;
-
+  // OJO: aunque la ruta no aporte acciones para el FAB, el componente sigue montado — los
+  // MODALES también sirven a los accesos del cajón de «Más» (evento lsos:quick-create).
   const single = actions.length === 1;
   const onFabClick = () => {
     if (single) actions[0].run();
@@ -130,15 +143,16 @@ export function QuickCreateFab({
 
   return (
     <>
-      {/* Botón flotante + speed-dial. Posición ABSOLUTA respecto al bloque central de la
-          app (la columna de contenido tiene `relative`), para que quede abajo a la derecha
-          de ese bloque y NO se monte sobre el panel de chat de la derecha. En móvil queda
-          por encima de la barra de navegación inferior. Se oculta al imprimir.
+      {/* Botón flotante + speed-dial — SOLO ESCRITORIO (hidden md:flex): en móvil chocaba con
+          la burbuja de chat, así que crear vive en el cajón de «Más» (evento lsos:quick-create,
+          los modales de abajo son compartidos). Posición ABSOLUTA respecto al bloque central de
+          la app (la columna de contenido tiene `relative`). Se oculta al imprimir.
           `qc-dial-open` (marcador, sin estilos): las BURBUJAS de chat flotantes —que se apilan
           justo encima del FAB— lo detectan vía CSS body:has() y se desvanecen mientras el dial
           está abierto, porque sus acciones suben exactamente al hueco de la burbuja y quedaban
           tapadas (la burbuja tiene z mayor). Sin estado compartido entre componentes. */}
-      <div className={cn("absolute bottom-20 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6 md:right-6 print:hidden", !single && dialOpen && "qc-dial-open")}>
+      {actions.length > 0 ? (
+      <div className={cn("absolute z-40 hidden flex-col items-end gap-3 md:bottom-6 md:right-6 md:flex print:hidden", !single && dialOpen && "qc-dial-open")}>
         {!single && dialOpen ? (
           <div className="flex flex-col items-end gap-2">
             {actions.map(({ key, label, Icon, run: act }) => (
@@ -172,6 +186,7 @@ export function QuickCreateFab({
           <Plus className="size-7" />
         </button>
       </div>
+      ) : null}
 
       {/* Backdrop para cerrar el speed-dial al tocar fuera. */}
       {dialOpen && !single ? (

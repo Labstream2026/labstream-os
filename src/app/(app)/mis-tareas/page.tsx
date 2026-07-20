@@ -179,7 +179,13 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
           // que la recibió no (se la asignaron con esos datos).
           const canEditMeta = t.ownerId === user.id;
           return (
-            <div key={t.id} className={cn("flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3", URGENCY_META[u.state].row)}>
+            // Responsive: en MÓVIL la fila se parte en renglones limpios (título a ancho
+            // completo; luego prioridad+fecha+urgencia; luego estado+detalle) — antes el
+            // flex-wrap plano estrangulaba el título a dos letras y montaba los chips sobre
+            // el avatar de «Asignada por». En escritorio (sm+) todo vuelve a UNA línea.
+            <div key={t.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4 py-3", URGENCY_META[u.state].row)}>
+              {/* Renglón 1 (móvil): estrella + título/proyecto a TODO el ancho. */}
+              <div className="flex w-full min-w-0 items-start gap-3 sm:w-auto sm:flex-1 sm:items-center">
               <MyDayToggle taskId={t.id} initial={myDayPos.has(t.id)} />
               <div className="min-w-0 flex-1">
                 {t.project ? (
@@ -201,10 +207,13 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                     Asignada por
                     <UserAvatar initials={t.assignedBy!.initials} color={t.assignedBy!.avatarColor} size="sm" />
-                    {t.assignedBy!.name}
+                    <span className="truncate">{t.assignedBy!.name}</span>
                   </p>
                 ) : null}
               </div>
+              </div>
+              {/* Renglón 2 (móvil): prioridad + fecha + urgencia, como grupo. */}
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
               <PriorityPill priorities={priorities} value={t.priority} />
               {canEditMeta ? (
                 <DateInput
@@ -223,6 +232,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   {urgencyLabel(u.state, u.days)}
                 </span>
               )}
+              </div>
+              {/* Renglón 3 (móvil): estado + detalle. */}
+              <div className="flex items-center gap-2">
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
               <TaskDetailButton
                 task={{
@@ -243,6 +255,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 priorities={priorities}
                 canEditMeta={canEditMeta}
               />
+              </div>
             </div>
     );
   };
