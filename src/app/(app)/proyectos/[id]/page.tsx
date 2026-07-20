@@ -1,13 +1,10 @@
-import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, formatShortDate } from "@/lib/ui";
-import { CoverBanner } from "@/components/cover-banner";
 import { EntityEmoji } from "@/components/icons/marks";
-import { saveProjectAppearance, clearProjectCover } from "./appearance-actions";
 import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
@@ -19,7 +16,7 @@ import { canAccessProject, canManageProject, canWriteProject } from "@/lib/proje
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
-import { Lock, FileText, LayoutDashboard, ListTodo, CalendarDays, BarChart3, FileCheck2, FolderOpen, MessageCircle, Boxes, Activity, ScrollText } from "lucide-react";
+import { Lock, FileText } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
@@ -39,28 +36,27 @@ import { IconTablero, IconLista } from "@/components/icons";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
-import { ProjectChatTab } from "./project-chat-tab";
+import { ProjectChatBubble } from "./project-chat-bubble";
 import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
 import { loadInventory, conflictsForPlans } from "@/lib/equipos";
 
 export const dynamic = "force-dynamic";
 
-// Pestañas del proyecto agrupadas en 3 bloques (Contenido · Entregables · Operación). En
-// escritorio se muestran como RIEL vertical con encabezado de grupo, ícono y contador; en
-// móvil colapsan a una barra horizontal desplazable. Cada una lleva su ícono (lucide).
+// Pestañas del proyecto agrupadas en 3 bloques (Contenido · Entregables · Operación) para que
+// las 10 no se vean como un muro plano; un separador sutil marca cada grupo.
+// El Chat ya NO es una pestaña: vive en una BURBUJA flotante (ProjectChatBubble). Aquí quedan
+// las pestañas de navegación, que se muestran en el MENÚ LATERAL vertical (no en una barra arriba).
 const TABS = [
-  { key: "resumen", label: "Resumen", group: "contenido", Icon: LayoutDashboard },
-  { key: "tareas", label: "Tareas", group: "contenido", Icon: ListTodo },
-  { key: "calendario", label: "Calendario", group: "contenido", Icon: CalendarDays },
-  { key: "cronograma", label: "Cronograma", group: "contenido", Icon: BarChart3 },
-  { key: "entregables", label: "Entregables", group: "entregables", Icon: FileCheck2 },
-  { key: "archivos", label: "Archivos", group: "entregables", Icon: FolderOpen },
-  { key: "chat", label: "Chat", group: "operacion", Icon: MessageCircle },
-  { key: "equipos", label: "Equipos", group: "operacion", Icon: Boxes },
-  { key: "actividad", label: "Actividad", group: "operacion", Icon: Activity },
+  { key: "resumen", label: "Resumen", group: "contenido" },
+  { key: "tareas", label: "Tareas", group: "contenido" },
+  { key: "calendario", label: "Calendario", group: "contenido" },
+  { key: "cronograma", label: "Cronograma", group: "contenido" },
+  { key: "entregables", label: "Entregables", group: "entregables" },
+  { key: "archivos", label: "Archivos", group: "entregables" },
+  { key: "equipos", label: "Equipos", group: "operacion" },
+  { key: "actividad", label: "Actividad", group: "operacion" },
 ];
-// Etiqueta visible de cada grupo (encabezado del riel).
 const GROUP_LABEL: Record<string, string> = { contenido: "Contenido", entregables: "Entregables", operacion: "Operación" };
 
 export default async function ProyectoPage({
@@ -398,244 +394,153 @@ export default async function ProyectoPage({
         })
     : [];
 
-  // Pestañas visibles según permisos y si es cliente (mismo criterio en el riel de escritorio y
-  // en la barra móvil, para no duplicar la lógica).
+  // Pestañas visibles del proyecto (según permisos/rol) — se pintan en el menú lateral vertical.
   const visibleTabs = TABS.filter(
-    (t) =>
-      (t.key !== "actividad" || hasPermission(session, "ver_actividad")) &&
-      (t.key !== "equipos" || !isCliente) &&
-      (t.key !== "chat" || !isCliente),
+    (t) => (t.key !== "actividad" || hasPermission(session, "ver_actividad")) && (t.key !== "equipos" || !isCliente),
   );
 
   return (
     <div className="px-4 py-6 sm:px-8 sm:py-10">
-      <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Proyectos
-      </Link>
-
-      <div className="mt-4">
-        <CoverBanner
-          name={project.name}
-          emoji={project.emoji}
-          fallbackEmoji="🎬"
-          color={project.color}
-          bannerUrl={project.bannerUrl}
-          canEdit={canManageProject(project, session)}
-          onSave={saveProjectAppearance.bind(null, project.id)}
-          onClearCover={clearProjectCover.bind(null, project.id)}
-          compact
-          marks="proyectos"
-          subtitle={
-            <>
-              <Link href={`/clientes/${project.clientId}`} className="hover:underline">
-                <EntityEmoji value={project.client.emoji} /> {project.client.name}
-              </Link>{" "}
-              · {project.code} · {PROJECT_TYPE[project.type]}
-            </>
-          }
-        >
-          <div className="mt-2.5 flex flex-wrap items-center gap-3">
-            <Badge className={cn(status.className)}>{status.label}</Badge>
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${project.progress}%` }} />
-              </div>
-              <span className="text-xs text-muted-foreground">{project.progress}%</span>
-            </div>
+      {/* Cabecera MÍNIMA (una sola línea): volver + icono + nombre + cliente·código·tipo + estado +
+          progreso + equipo. Reemplaza el banner grande y la tarjeta repetida → menos protagonismo,
+          más espacio para el contenido. */}
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2">
+        <Link href="/proyectos" title="Volver a Proyectos" aria-label="Volver a Proyectos" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">←</Link>
+        <span className="grid size-9 shrink-0 place-items-center rounded-[10px] text-lg" style={{ background: `${project.color ?? "#6366f1"}22` }}>
+          <EntityEmoji value={project.emoji} fallback="🎬" />
+        </span>
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-bold leading-tight tracking-tight">{project.name}</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            <Link href={`/clientes/${project.clientId}`} className="hover:underline">
+              <EntityEmoji value={project.client.emoji} /> {project.client.name}
+            </Link>{" · "}{project.code}{" · "}{PROJECT_TYPE[project.type]}
+          </p>
+        </div>
+        <Badge className={cn("ml-1 shrink-0", status.className)}>{status.label}</Badge>
+        <div className="flex shrink-0 items-center gap-1.5" title={`${project.progress}% completado`}>
+          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:w-28">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${project.progress}%` }} />
           </div>
-        </CoverBanner>
+          <span className="text-xs tabular-nums text-muted-foreground">{project.progress}%</span>
+        </div>
+        <span className="flex-1" />
+        <div className="flex shrink-0 -space-x-2">
+          {team.slice(0, 5).map((t) => (
+            <UserAvatar key={t.id} initials={t.initials} color={t.avatarColor} size="sm" className="ring-2 ring-background" />
+          ))}
+          {team.length > 5 ? (
+            <span className="grid size-7 place-items-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground ring-2 ring-background">+{team.length - 5}</span>
+          ) : null}
+        </div>
       </div>
 
-      {/* El cabezal va a ancho completo; el resto del contenido se mantiene centrado. */}
-      <div className="mx-auto max-w-7xl">
-      {/* Navegación MÓVIL: barra horizontal desplazable (arriba). En escritorio se oculta: manda el riel. */}
-      <nav aria-label="Secciones del proyecto" className="mt-6 flex gap-1 overflow-x-auto border-b border-border lg:hidden">
-        {visibleTabs.map((t, i, arr) => {
-          const active = tab === t.key;
-          const count = (counts as Record<string, number>)[t.key];
-          const newGroup = i > 0 && arr[i - 1].group !== t.group;
-          return (
-            <Fragment key={t.key}>
-              {newGroup ? <span aria-hidden className="my-2 self-stretch border-l border-border/60" /> : null}
-              <Link
-                href={`/proyectos/${id}?tab=${t.key}`}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors",
-                  active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <t.Icon className="size-4 shrink-0" />
-                {t.label}
-                {count ? <span className={cn("rounded-full px-1.5 text-[11px] font-semibold tabular-nums", active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{count}</span> : null}
-              </Link>
-            </Fragment>
-          );
-        })}
-      </nav>
-
-      <div className="mt-6 lg:grid lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-8">
-        {/* Riel de navegación (ESCRITORIO): agrupado, pegajoso; arriba una identidad compacta del
-            proyecto que permanece visible al hacer scroll pasado el cabezal. */}
-        <nav aria-label="Secciones del proyecto" className="hidden self-start lg:sticky lg:top-6 lg:block lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-          <div className="mb-3 flex items-center gap-2.5 rounded-xl border border-border bg-card p-2.5 shadow-sm">
-            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-              <EntityEmoji value={project.emoji} fallback="🎬" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold leading-tight">{project.name}</div>
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                  <span className="block h-full rounded-full bg-primary" style={{ width: `${project.progress}%` }} />
-                </span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">{project.progress}%</span>
-              </div>
-            </div>
-          </div>
-          {visibleTabs.map((t, i, arr) => {
-            const active = tab === t.key;
+      {/* Layout de 2 columnas: MENÚ LATERAL vertical del proyecto (izq, el que te gusta) + contenido
+          (der). En móvil el menú va arriba como fila horizontal con scroll. */}
+      <div className="mx-auto mt-6 flex max-w-7xl flex-col gap-6 md:flex-row">
+      <nav className="shrink-0 md:w-44">
+        {/* Móvil: fila horizontal con scroll */}
+        <div className="-mb-px flex gap-1 overflow-x-auto border-b border-border md:hidden">
+          {visibleTabs.map((t) => {
             const count = (counts as Record<string, number>)[t.key];
-            const newGroup = i === 0 || arr[i - 1].group !== t.group;
             return (
-              <Fragment key={t.key}>
-                {newGroup ? <div className="px-2 pb-1 pt-3 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground first:pt-0.5">{GROUP_LABEL[t.group]}</div> : null}
-                <Link
-                  href={`/proyectos/${id}?tab=${t.key}`}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors",
-                    active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                >
-                  <t.Icon className={cn("size-[18px] shrink-0 transition-colors", active ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} />
-                  <span className="min-w-0 flex-1 truncate">{t.label}</span>
-                  {count ? <span className={cn("rounded-full px-1.5 text-[11px] font-semibold tabular-nums", active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>{count}</span> : null}
-                </Link>
-              </Fragment>
+              <Link key={t.key} href={`/proyectos/${id}?tab=${t.key}`} className={cn("shrink-0 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors", tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+                {t.label}{count ? <span className="ml-1.5 text-xs text-muted-foreground">{count}</span> : null}
+              </Link>
             );
           })}
-        </nav>
+        </div>
+        {/* Escritorio: columna vertical agrupada (Contenido · Entregables · Operación) */}
+        <div className="hidden md:sticky md:top-4 md:block">
+          {(["contenido", "entregables", "operacion"] as const).map((g) => {
+            const items = visibleTabs.filter((t) => t.group === g);
+            if (!items.length) return null;
+            return (
+              <div key={g} className="mb-1.5">
+                <p className="px-2.5 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{GROUP_LABEL[g]}</p>
+                {items.map((t) => {
+                  const count = (counts as Record<string, number>)[t.key];
+                  return (
+                    <Link key={t.key} href={`/proyectos/${id}?tab=${t.key}`} className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium transition-colors", tab === t.key ? "bg-primary/10 text-primary" : "text-foreground/80 hover:bg-muted hover:text-foreground")}>
+                      <span className="min-w-0 flex-1 truncate">{t.label}</span>
+                      {count ? <span className="text-xs text-muted-foreground">{count}</span> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </nav>
 
-        {/* Contenido de la pestaña activa */}
-        <div className="mt-6 min-w-0 lg:mt-0">
+      <div className="min-w-0 flex-1">
+      <div className="mt-0">
         {tab === "resumen" ? (
-          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-6">
-            {/* Riel de contexto: primero en móvil (da contexto antes que los formularios), a la
-                DERECHA y pegajoso en escritorio. Reemplaza las 4 cajas del antiguo resumen. */}
-            <aside className="mb-5 space-y-4 lg:order-2 lg:mb-0 lg:sticky lg:top-6">
-              {/* Estado + anillo de progreso (usa el color de marca --primary). */}
-              <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div
-                  className="grid size-14 shrink-0 place-items-center rounded-full"
-                  style={{ background: `conic-gradient(hsl(var(--primary)) ${project.progress}%, hsl(var(--muted)) 0)` }}
-                >
-                  <span className="grid size-11 place-items-center rounded-full bg-card text-xs font-semibold tabular-nums">{project.progress}%</span>
-                </div>
-                <div className="min-w-0">
-                  <Badge className={cn(status.className)}>{status.label}</Badge>
-                  <p className="mt-1.5 text-xs text-muted-foreground">Avance del proyecto</p>
-                </div>
+          <div className="space-y-5">
+            {canManageProject(project, session) ? (
+              <ProjectSettings
+                projectId={project.id}
+                isPrivate={project.isPrivate}
+                leadId={project.leadId}
+                members={project.members.flatMap((m) => {
+                  const u = team.find((t) => t.id === m.userId);
+                  return u
+                    ? [{ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor, role: m.role as string }]
+                    : [];
+                })}
+                team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+                canArchive={hasPermission(session, "eliminar_proyectos")}
+                canAssignLead={session?.role === "admin" || project.leadId === session?.id}
+                isFinished={!!project.finishedAt}
+              />
+            ) : null}
+            {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
+            <Resumen project={project} priorities={taskLabels.priorities} />
+            {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
+                (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
+            {isCliente ? (
+              <ClientTeamPanel
+                projectId={project.id}
+                members={project.members.flatMap((m) => {
+                  const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
+                  return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
+                })}
+              />
+            ) : null}
+            {/* Detalle del proyecto, debajo del resumen. */}
+            {hasPermission(session, "editar_proyectos") ? (
+              <ProjectDetailsForm
+                projectId={project.id}
+                name={project.name}
+                description={project.description}
+                dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
+              />
+            ) : null}
+            {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
+            {session?.role === "admin" ? (
+              <MoveProjectClient
+                projectId={project.id}
+                currentClientId={project.clientId}
+                clients={await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })}
+              />
+            ) : null}
+            {/* Propuesta (alcance y entregables): expandida por defecto y renderizada; la edición
+                se despliega a demanda desde el propio BriefPanel. Los Entregables ya no van en el
+                Resumen (viven en su propia pestaña). */}
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold">
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                Propuesta del proyecto
+                <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
               </div>
-              {/* Ficha meta: prioridad · entrega · responsable. */}
-              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span className="text-muted-foreground">Prioridad</span>
-                  <Badge className={cn(labelMeta(taskLabels.priorities, project.priority).chip)}>{labelMeta(taskLabels.priorities, project.priority).label}</Badge>
-                </div>
-                <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span className="text-muted-foreground">Entrega</span>
-                  <span className="font-medium">{formatShortDate(project.dueDate) ?? "—"}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span className="shrink-0 text-muted-foreground">Responsable</span>
-                  {project.lead ? (
-                    <span className="flex min-w-0 items-center gap-2 font-medium">
-                      <UserAvatar initials={project.lead.initials} color={project.lead.avatarColor} size="sm" />
-                      <span className="truncate">{project.lead.name}</span>
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Sin asignar</span>
-                  )}
-                </div>
+              <div className="border-t border-border p-4">
+                <BriefPanel
+                  projectId={id}
+                  scope={project.briefScope}
+                  deliverables={project.briefDeliverables}
+                  canWrite={canWriteProject(project, session)}
+                />
               </div>
-              {/* Equipo del proyecto (avatares). */}
-              {project.members.length ? (
-                <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                  <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Equipo · {project.members.length}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {project.members.slice(0, 8).flatMap((m) => {
-                      const u = team.find((t) => t.id === m.userId);
-                      return u ? [<UserAvatar key={u.id} initials={u.initials} color={u.avatarColor} size="sm" />] : [];
-                    })}
-                  </div>
-                </div>
-              ) : null}
-            </aside>
-
-            {/* Columna principal: ajustes, propuesta (la sustancia) y detalle editable. */}
-            <div className="min-w-0 space-y-5 lg:order-1">
-              {canManageProject(project, session) ? (
-                <ProjectSettings
-                  projectId={project.id}
-                  isPrivate={project.isPrivate}
-                  leadId={project.leadId}
-                  members={project.members.flatMap((m) => {
-                    const u = team.find((t) => t.id === m.userId);
-                    return u
-                      ? [{ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor, role: m.role as string }]
-                      : [];
-                  })}
-                  team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-                  canArchive={hasPermission(session, "eliminar_proyectos")}
-                  canAssignLead={session?.role === "admin" || project.leadId === session?.id}
-                  isFinished={!!project.finishedAt}
-                />
-              ) : null}
-              {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
-                  (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
-              {isCliente ? (
-                <ClientTeamPanel
-                  projectId={project.id}
-                  members={project.members.flatMap((m) => {
-                    const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
-                    return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
-                  })}
-                />
-              ) : null}
-              {/* Propuesta (alcance y entregables): expandida por defecto; la edición se despliega
-                  a demanda desde el propio BriefPanel. */}
-              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold">
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  Propuesta del proyecto
-                  <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
-                </div>
-                <div className="border-t border-border p-4">
-                  <BriefPanel
-                    projectId={id}
-                    scope={project.briefScope}
-                    deliverables={project.briefDeliverables}
-                    canWrite={canWriteProject(project, session)}
-                  />
-                </div>
-              </div>
-              {/* Detalle del proyecto, debajo de la propuesta. */}
-              {hasPermission(session, "editar_proyectos") ? (
-                <ProjectDetailsForm
-                  projectId={project.id}
-                  name={project.name}
-                  description={project.description}
-                  dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
-                />
-              ) : null}
-              {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
-              {session?.role === "admin" ? (
-                <MoveProjectClient
-                  projectId={project.id}
-                  currentClientId={project.clientId}
-                  clients={await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })}
-                />
-              ) : null}
             </div>
           </div>
         ) : null}
@@ -735,7 +640,7 @@ export default async function ProyectoPage({
             {/* Guiones: sección destacada arriba para adjuntar/ver guiones rápido (fusionada en Archivos). */}
             <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
-                <ScrollText className="size-4 shrink-0 text-muted-foreground" />
+                <span className="text-base">📝</span>
                 <h3 className="text-sm font-semibold">Guiones</h3>
                 {guionesFiles.length ? <span className="text-xs text-muted-foreground">· {guionesFiles.length}</span> : null}
               </div>
@@ -800,16 +705,70 @@ export default async function ProyectoPage({
           />
         ) : null}
 
-        {tab === "chat" && session && session.role !== "cliente" ? (
-          <ProjectChatTab
-            projectId={id}
-            me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
-            isAdmin={session.role === "admin"}
-          />
-        ) : null}
+      </div>
+      </div>
+      </div>
+
+      {/* Chat del proyecto = BURBUJA flotante (ya no una pestaña) con badge de no-leídos. */}
+      {session && session.role !== "cliente" ? (
+        <ProjectChatBubble
+          projectId={id}
+          me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}
+          isAdmin={session.role === "admin"}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function Resumen({
+  project,
+  priorities,
+}: {
+  project: {
+    progress: number;
+    priority: string;
+    dueDate: Date | null;
+    lead: { name: string; initials: string | null; avatarColor: string | null } | null;
+  };
+  priorities: import("@/lib/colors").LabelRow[];
+}) {
+  const priority = labelMeta(priorities, project.priority);
+  return (
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <Field label="Progreso">
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${project.progress}%` }} />
+          </div>
+          <span className="text-sm font-medium">{project.progress}%</span>
         </div>
-      </div>
-      </div>
+      </Field>
+      <Field label="Prioridad">
+        <Badge className={cn(priority.chip)}>{priority.label}</Badge>
+      </Field>
+      <Field label="Entrega">
+        <span className="text-sm">{formatShortDate(project.dueDate) ?? "—"}</span>
+      </Field>
+      <Field label="Responsable">
+        {project.lead ? (
+          <span className="flex items-center gap-2 text-sm">
+            <UserAvatar initials={project.lead.initials} color={project.lead.avatarColor} size="sm" />
+            {project.lead.name}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">Sin asignar</span>
+        )}
+      </Field>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      {children}
     </div>
   );
 }
