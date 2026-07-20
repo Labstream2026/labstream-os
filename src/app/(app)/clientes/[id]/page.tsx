@@ -9,12 +9,12 @@ import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
 import { ClientAppearance } from "./client-appearance";
 import { ClientHeader } from "./client-header";
-import { saveClientAppearance, clearClientImage } from "../actions";
+import { ClientViewNav } from "./client-view-nav";
+import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
@@ -263,72 +263,83 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
       <ClientHeader
         name={client.name}
+        company={client.company}
         description={client.description}
+        emoji={client.emoji}
         photoUrl={client.photoUrl}
         logoUrl={client.logoUrl}
         color={client.accentColor}
-        projectsCount={projects.length}
+        isActive={client.isActive}
+        stats={{ proyectos: projects.length, activos: active, cotizaciones: client._count.quotes }}
         canEdit={canEdit}
-        onSave={saveClientAppearance.bind(null, client.id)}
-        onClearImage={clearClientImage.bind(null, client.id)}
       />
 
       {!client.isActive ? (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">Inactivo</span>
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           Este cliente está desactivado y oculto de las listas. Reactívalo en Ajustes cuando llegue un proyecto nuevo.
         </div>
       ) : null}
 
-      <div className="mt-8 grid grid-cols-3 gap-4">
-        <Stat value={projects.length} label="Proyectos" />
-        <Stat value={active} label="Activos" />
-        <Stat value={client._count.quotes} label="Cotizaciones" />
-      </div>
-
-      <div className="mt-8">
-        <ViewTabs
+      <div className="mt-6">
+        <ClientViewNav
           storageKey={`cliente-view`}
-          views={[
-            { key: "proyectos", label: "Proyectos", icon: <IconProyectos />, node: board },
-            { key: "lista", label: "Lista", icon: <IconLista />, node: list },
+          groups={[
             {
-              key: "calendario", label: "Calendario", icon: <IconCalendario />,
-              node: (
-                <div className="h-[72vh] min-h-[26rem]">
-                  <CalendarBoard
-                    items={clientCalItems}
-                    onCreate={projects.length ? createMyEvent : undefined}
-                    projectId={projects[0]?.id ?? null}
-                    team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
-                  />
-                </div>
-              ),
+              label: "Producción",
+              views: [
+                { key: "proyectos", label: "Proyectos", icon: <IconProyectos />, node: board },
+                { key: "lista", label: "Lista", icon: <IconLista />, node: list },
+                {
+                  key: "calendario", label: "Calendario", icon: <IconCalendario />,
+                  node: (
+                    <div className="h-[72vh] min-h-[26rem]">
+                      <CalendarBoard
+                        items={clientCalItems}
+                        onCreate={projects.length ? createMyEvent : undefined}
+                        projectId={projects[0]?.id ?? null}
+                        team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                      />
+                    </div>
+                  ),
+                },
+              ],
             },
             {
-              key: "entregables",
-              label: clientDeliverables.length ? `Entregables · ${clientDeliverables.length}` : "Entregables",
-              icon: <IconEntregas />,
-              node: <ClientDeliverables deliverables={clientDeliverables} />,
+              label: "Material",
+              views: [
+                {
+                  key: "entregables",
+                  label: "Entregables",
+                  badge: clientDeliverables.length || undefined,
+                  icon: <IconEntregas />,
+                  node: <ClientDeliverables deliverables={clientDeliverables} />,
+                },
+                {
+                  key: "archivos",
+                  label: "Archivos",
+                  badge: client.files.length || undefined,
+                  icon: <IconArchivo />,
+                  node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
+                },
+              ],
             },
             {
-              key: "archivos",
-              label: client.files.length ? `Archivos · ${client.files.length}` : "Archivos",
-              icon: <IconArchivo />,
-              node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
-            },
+              label: "Comercial",
+              views: [
             ...(canBilling ? [{
               key: "facturacion",
-              label: billingPorFacturar.length ? `Facturación · ${billingPorFacturar.length}` : "Facturación",
+              label: "Facturación",
+              badge: billingPorFacturar.length || undefined,
               icon: <IconFacturacion />,
               node: <ClientBilling porFacturar={billingPorFacturar} invoices={billingInvoices} canCreate={canCreateInvoice} />,
             }] : []),
             {
               key: "propuestas",
               label: "Propuestas",
+              badge: proposals.length || undefined,
               icon: <IconPropuestas />,
               node: proposals.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin propuestas vinculadas. Vincúlalas desde el editor de la propuesta (Ajustes → Cliente vinculado).</p>
@@ -352,6 +363,11 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                 </div>
               ),
             },
+              ],
+            },
+            {
+              label: "Gestión",
+              views: [
             ...(canActividad ? [{
               key: "actividad",
               label: "Actividad",
@@ -382,6 +398,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     {/* Apariencia primero: toda la personalización visual reunida aquí. */}
                     {canEdit ? (
                       <ClientAppearance
+                        name={client.name}
+                        emoji={client.emoji}
                         color={client.accentColor}
                         photoUrl={client.photoUrl}
                         logoUrl={client.logoUrl}
@@ -389,6 +407,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                         bannerUrl={client.bannerUrl}
                         onSave={saveClientAppearance.bind(null, client.id)}
                         onClearImage={clearClientImage.bind(null, client.id)}
+                        onClearCover={clearClientCover.bind(null, client.id)}
                       />
                     ) : null}
                     {canEdit ? (
@@ -416,19 +435,11 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                 </div>
               ),
             },
+              ],
+            },
           ]}
         />
       </div>
-    </div>
-  );
-}
-
-function Stat({ value, label, hint }: { value: number; label: string; hint?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <p className="text-3xl font-bold">{value}</p>
-      <p className="text-sm font-medium">{label}</p>
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
