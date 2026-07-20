@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
@@ -61,6 +62,10 @@ export function Topbar({
   const segments = pathname.split("/").filter(Boolean);
   const showBack = segments.length >= 2 && segments[0] !== "chat";
   const backHref = `/${segments[0]}`;
+  // En el DETALLE de proyecto el título vive EN la barra (lo inyecta la página vía
+  // #topbar-page-slot): se ocultan la migaja móvil y los avatares globales (el equipo del
+  // proyecto ya se ve y se gestiona en la fila «en el equipo» del Resumen — sin repetirlo).
+  const isProjectDetail = segments[0] === "proyectos" && segments.length >= 2;
 
   return (
     <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
@@ -88,7 +93,7 @@ export function Topbar({
 
       {/* Migaja: en escritorio mandan las pestañas, así que aquí solo se muestra
           en móvil (donde no hay barra de pestañas). */}
-      <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium md:hidden">
+      <div className={cn("flex min-w-0 items-center gap-1.5 text-sm font-medium md:hidden", isProjectDetail && "hidden")}>
         {showBack ? (
           <Link
             href={backHref}
@@ -105,14 +110,18 @@ export function Topbar({
         <span className="truncate">{label}</span>
       </div>
 
-      {/* La barra de pestañas del navegador se quitó: navegas con el menú lateral (más limpio). */}
+      {/* Hueco donde las páginas inyectan su título (hoy: el detalle de proyecto). Vacío,
+          solo ocupa el espacio flexible del centro. */}
+      <div id="topbar-page-slot" className="flex min-w-0 flex-1 items-center" />
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
-        <div className="hidden -space-x-2 lg:flex">
-          {team.slice(0, 4).map((m, i) => (
-            <UserAvatar key={i} initials={m.initials} color={m.color} size="sm" ring />
-          ))}
-        </div>
+        {!isProjectDetail ? (
+          <div className="hidden -space-x-2 lg:flex">
+            {team.slice(0, 4).map((m, i) => (
+              <UserAvatar key={i} initials={m.initials} color={m.color} size="sm" ring />
+            ))}
+          </div>
+        ) : null}
         <ShareButton />
         <NotificationsBell items={notifications} />
         <ThemeToggle />

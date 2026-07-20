@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/user-avatar";
 import { statusMeta, PROJECT_TYPE, formatShortDate } from "@/lib/ui";
-import { EntityEmoji } from "@/components/icons/marks";
+import { ProjectTopbarTitle } from "./topbar-title";
 import { labelMeta } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
@@ -400,44 +400,27 @@ export default async function ProyectoPage({
   );
 
   return (
-    <div className="px-4 py-6 sm:px-8 sm:py-10">
-      {/* Cabecera MÍNIMA (una sola línea): volver + icono + nombre + cliente·código·tipo + estado +
-          progreso + equipo. Reemplaza el banner grande y la tarjeta repetida → menos protagonismo,
-          más espacio para el contenido. */}
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href="/proyectos" title="Volver a Proyectos" aria-label="Volver a Proyectos" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">←</Link>
-        <span className="grid size-9 shrink-0 place-items-center rounded-[10px] text-lg" style={{ background: `${project.color ?? "#6366f1"}22` }}>
-          <EntityEmoji value={project.emoji} fallback="🎬" />
-        </span>
-        <div className="min-w-0">
-          <h1 className="truncate text-lg font-bold leading-tight tracking-tight">{project.name}</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            <Link href={`/clientes/${project.clientId}`} className="hover:underline">
-              <EntityEmoji value={project.client.emoji} /> {project.client.name}
-            </Link>{" · "}{project.code}{" · "}{PROJECT_TYPE[project.type]}
-          </p>
-        </div>
-        <Badge className={cn("ml-1 shrink-0", status.className)}>{status.label}</Badge>
-        <div className="flex shrink-0 items-center gap-1.5" title={`${project.progress}% completado`}>
-          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:w-28">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${project.progress}%` }} />
-          </div>
-          <span className="text-xs tabular-nums text-muted-foreground">{project.progress}%</span>
-        </div>
-        <span className="flex-1" />
-        <div className="flex shrink-0 -space-x-2">
-          {team.slice(0, 5).map((t) => (
-            <UserAvatar key={t.id} initials={t.initials} color={t.avatarColor} size="sm" className="ring-2 ring-background" />
-          ))}
-          {team.length > 5 ? (
-            <span className="grid size-7 place-items-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground ring-2 ring-background">+{team.length - 5}</span>
-          ) : null}
-        </div>
-      </div>
+    <div className="px-4 py-4 sm:px-8 sm:py-5">
+      {/* Opción A: el título vive EN la barra superior (portal a #topbar-page-slot) — sin
+          cabecera dentro de la página, el contenido empieza de inmediato. El h1 accesible
+          queda oculto (el visible está en la barra). */}
+      <ProjectTopbarTitle
+        name={project.name}
+        emoji={project.emoji}
+        color={project.color}
+        clientId={project.clientId}
+        clientName={project.client.name}
+        code={project.code}
+        typeLabel={PROJECT_TYPE[project.type]}
+        statusLabel={status.label}
+        statusClassName={status.className}
+        progress={project.progress}
+      />
+      <h1 className="sr-only">{project.name} · {project.client.name} · {project.code} · {PROJECT_TYPE[project.type]}</h1>
 
       {/* Layout de 2 columnas: MENÚ LATERAL vertical del proyecto (izq, el que te gusta) + contenido
           (der). En móvil el menú va arriba como fila horizontal con scroll. */}
-      <div className="mx-auto mt-6 flex max-w-7xl flex-col gap-6 md:flex-row">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row">
       <nav className="shrink-0 md:w-44">
         {/* Móvil: fila horizontal con scroll */}
         <div className="-mb-px flex gap-1 overflow-x-auto border-b border-border md:hidden">

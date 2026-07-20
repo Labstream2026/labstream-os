@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Globe, Lock, X, ChevronDown, Users, CheckCircle2, RotateCcw, Trash2 } from "lucide-react";
+import { Globe, Lock, X, ChevronDown, Users, CheckCircle2, RotateCcw, Trash2, Search, MoreHorizontal } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
@@ -81,6 +81,15 @@ export function ProjectSettings({
   const responsables = members.filter((m) => m.role === "OWNER");
   const setRole = (userId: string, role: string) => start(() => addProjectMember(projectId, userId, role));
 
+  // «Añadir persona» con buscador (el select plano no escala con todo el equipo dentro).
+  const [query, setQuery] = React.useState("");
+  const q = query.trim().toLowerCase();
+  const results = q ? candidates.filter((u) => u.name.toLowerCase().includes(q)) : candidates;
+
+  // Quién RESPONDE por el proyecto, con nombre y apellido en la propia fila (antes «2 resp.»).
+  const lead = (leadId ? team.find((u) => u.id === leadId) ?? members.find((m) => m.id === leadId) : undefined) ?? responsables[0];
+  const quienResponde = lead ? lead.name.split(" ")[0] : null;
+
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5">
       <button
@@ -111,7 +120,7 @@ export function ProjectSettings({
           </span>
           <span className="text-xs text-muted-foreground">
             {members.length === 0 ? "Sin miembros" : `${members.length} en el equipo`}
-            {responsables.length ? ` · ${responsables.length} resp.` : ""}
+            {quienResponde ? ` · responde ${quienResponde}` : ""}
           </span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </summary>
@@ -161,23 +170,36 @@ export function ProjectSettings({
             {candidates.length === 0 ? (
               <p className="px-1 text-xs text-muted-foreground">Todo el equipo ya está en el proyecto.</p>
             ) : (
-              <select
-                defaultValue=""
-                disabled={pending}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  if (id) {
-                    setRole(id, "MEMBER");
-                    e.target.value = "";
-                  }
-                }}
-                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none"
-              >
-                <option value="" disabled>Añadir persona al proyecto…</option>
-                {candidates.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
+              <div>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={query}
+                    disabled={pending}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Añadir persona… (busca por nombre)"
+                    className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div className="mt-1 max-h-40 overflow-y-auto">
+                  {results.length === 0 ? (
+                    <p className="px-1 py-1 text-xs text-muted-foreground">Sin resultados para «{query}».</p>
+                  ) : (
+                    results.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        disabled={pending}
+                        onClick={() => { setQuery(""); setRole(u.id, "MEMBER"); }}
+                        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm hover:bg-accent disabled:opacity-50"
+                      >
+                        <UserAvatar initials={u.initials} color={u.color} size="sm" />
+                        <span className="min-w-0 flex-1 truncate">{u.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             )}
             {canAssignLead ? (
               <p className="px-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
@@ -212,15 +234,27 @@ export function ProjectSettings({
           </button>
         )}
         {canArchive ? (
-          <button
-            type="button"
-            onClick={onArchive}
-            disabled={pending}
-            className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-            title="Borrar el proyecto (va a la papelera, recuperable)"
-          >
-            <Trash2 className="size-3.5" /> Borrar
-          </button>
+          // «Borrar» no merece botón permanente: vive dentro de «⋯» (con su confirmación).
+          <details data-autoclose className="relative">
+            <summary
+              className="flex size-6 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Más opciones"
+              aria-label="Más opciones del proyecto"
+            >
+              <MoreHorizontal className="size-4" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={onArchive}
+                disabled={pending}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
+              >
+                <Trash2 className="size-4" /> Borrar proyecto…
+              </button>
+              <p className="px-2.5 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">Va a la papelera; se puede restaurar.</p>
+            </div>
+          </details>
         ) : null}
       </div>
       {dialog}
