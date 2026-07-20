@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play, Trash2, Loader2, Check, Clock, Pencil, X, Users } from "lucide-react";
+import { Plus, Pause, Play, Trash2, Loader2, Check, Clock, Pencil, X, Users, ArrowUpRight, Bell } from "lucide-react";
 import { IconRecordatorios } from "@/components/icons";
 import { EmojiPicker } from "@/components/chat/emoji-picker";
 import { EntityEmoji, SECTOR_MARKS, PROJECT_MARKS } from "@/components/icons/marks";
@@ -92,6 +93,17 @@ function humanOffset(m: number): string {
   return d === 1 ? "1 día antes" : `${d} días antes`;
 }
 
+// Instante real (UTC) de una cita: el calendario guarda "hora de pared en UTC" (+5 h).
+function eventInstantMs(startIso: string): number {
+  return new Date(startIso).getTime() + 5 * 3_600_000;
+}
+// Instante real (UTC) de una tarea: su fecha + hora de pared de Bogotá (o 09:00).
+function taskInstantMs(dueIso: string, dueTime: string | null): number {
+  const ymd = dueIso.slice(0, 10);
+  const hhmm = dueTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(dueTime) ? dueTime : "09:00";
+  return new Date(`${ymd}T${hhmm}:00.000-05:00`).getTime();
+}
+
 const FREQ_OPTIONS = [
   { key: "UNA_VEZ", label: "Una vez" },
   { key: "DIARIO", label: "Cada día" },
@@ -135,16 +147,17 @@ export function RemindersClient({
   const { confirm, dialog } = useConfirmDialog();
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
-  const [creating, setCreating] = React.useState(rows.length === 0);
-  const [editing, setEditing] = React.useState<ReminderRow | null>(null);
+  // Panel deslizante: "new" para crear, un ReminderRow para editar, null cerrado.
+  const [drawer, setDrawer] = React.useState<"new" | ReminderRow | null>(null);
   const [colorFilter, setColorFilter] = React.useState<string | null>(null);
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg?: () => void) => {
+  const closeDrawer = React.useCallback(() => setDrawer(null), []);
+
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
     start(async () => {
       const res = await fn();
       if (!res.ok) { setError(res.error ?? "No se pudo"); return; }
-      okMsg?.();
       router.refresh();
     });
   };
@@ -157,9 +170,35 @@ export function RemindersClient({
   const active = rows.filter((r) => r.active && !r.doneAtIso);
   const paused = rows.filter((r) => !r.active && !r.doneAtIso);
   const done = rows.filter((r) => r.doneAtIso);
-  const shown = colorFilter ? active.filter((r) => r.color === colorFilter) : active;
 
-  // Agrupar activos por día (Hoy / Mañana / Esta semana / Más adelante).
+  // Destacado «Ahora sigue»: el activo más próximo (independiente del filtro de color).
+  const hero = active[0] ?? null;
+
+  // Sugeridos: tareas/citas próximas (mías) que aún no tienen recordatorio → avisar 15 min antes.
+  const linkedTaskIds = new Set(rows.filter((r) => r.task).map((r) => r.task!.id));
+  const linkedEventIds = new Set(rows.filter((r) => r.event).map((r) => r.event!.id));
+  const suggestions: { kind: "task" | "event"; id: string; title: string; whenIso: string }[] = [];
+  for (const ev of anchorEvents) {
+    if (linkedEventIds.has(ev.id)) continue;
+    const ms = eventInstantMs(ev.startIso);
+    if (ms > nowMs + 16 * 60_000) suggestions.push({ kind: "event", id: ev.id, title: ev.title, whenIso: new Date(ms).toISOString() });
+  }
+  for (const t of anchorTasks) {
+    if (!t.dueIso || linkedTaskIds.has(t.id)) continue;
+    const ms = taskInstantMs(t.dueIso, t.dueTime);
+    if (ms > nowMs + 16 * 60_000) suggestions.push({ kind: "task", id: t.id, title: t.title, whenIso: new Date(ms).toISOString() });
+  }
+  suggestions.sort((a, b) => new Date(a.whenIso).getTime() - new Date(b.whenIso).getTime());
+  const shownSuggestions = suggestions.slice(0, 3);
+
+  const addSuggestion = (s: { kind: "task" | "event"; id: string; title: string }) => {
+    const input: NewReminderInput = { title: s.title, frequency: "UNA_VEZ", forUserIds: [meId], offsets: [15] };
+    if (s.kind === "task") input.taskId = s.id; else input.eventId = s.id;
+    run(() => createReminder(input));
+  };
+
+  // El resto de activos (sin el destacado), agrupados por día.
+  const shown = (colorFilter ? active.filter((r) => r.color === colorFilter) : active).filter((r) => r.id !== hero?.id);
   const buckets: { key: string; label: string; items: ReminderRow[] }[] = [
     { key: "hoy", label: "Hoy", items: [] },
     { key: "manana", label: "Mañana", items: [] },
@@ -175,88 +214,120 @@ export function RemindersClient({
     buckets[b].items.push(r);
   }
 
+  const rowHandlers = (r: ReminderRow) => ({
+    onEdit: () => setDrawer(r),
+    onToggle: (a: boolean) => run(() => toggleReminder(r.id, a)),
+    onDone: () => run(() => completeReminder(r.id)),
+    onSnooze: (k: string) => run(() => snoozeReminder(r.id, k)),
+    onDelete: () => onDelete(r),
+  });
+
+  const nothing = active.length === 0 && shownSuggestions.length === 0;
+
   return (
     <div>
       {dialog}
 
-      {/* ── Nuevo / editar ── */}
-      {editing ? (
-        <ReminderForm
-          key={editing.id}
-          initial={editing}
-          team={team}
-          anchorTasks={anchorTasks}
-          anchorEvents={anchorEvents}
-          meId={meId}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); router.refresh(); }}
-        />
-      ) : creating ? (
-        <ReminderForm
-          team={team}
-          anchorTasks={anchorTasks}
-          anchorEvents={anchorEvents}
-          meId={meId}
-          onClose={() => setCreating(false)}
-          onSaved={() => { setCreating(false); router.refresh(); }}
-        />
-      ) : (
-        <button onClick={() => setCreating(true)} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+      {/* Panel deslizante de crear/editar */}
+      <Drawer open={drawer !== null} title={drawer && drawer !== "new" ? "Editar recordatorio" : "Nuevo recordatorio"} onClose={closeDrawer}>
+        {drawer !== null ? (
+          <ReminderForm
+            key={drawer === "new" ? "new" : drawer.id}
+            initial={drawer === "new" ? undefined : drawer}
+            team={team}
+            anchorTasks={anchorTasks}
+            anchorEvents={anchorEvents}
+            meId={meId}
+            onClose={closeDrawer}
+            onSaved={() => { closeDrawer(); router.refresh(); }}
+          />
+        ) : null}
+      </Drawer>
+
+      {/* Barra superior: resumen + crear */}
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {active.length > 0 ? <><strong className="font-semibold text-foreground">{active.length}</strong> {active.length === 1 ? "recordatorio activo" : "recordatorios activos"}</> : "Sin recordatorios activos"}
+        </p>
+        <button onClick={() => setDrawer("new")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90">
           <Plus className="size-4" /> Nuevo recordatorio
         </button>
-      )}
+      </div>
 
-      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
 
-      {/* ── Filtro por color ── */}
-      {active.length > 0 ? (
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setColorFilter(null)}
-            className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", !colorFilter ? "border-primary bg-primary/10 text-foreground" : "border-input text-muted-foreground hover:bg-accent")}
-          >
-            Todos
-          </button>
-          {REMINDER_COLORS.filter((c) => active.some((r) => r.color === c.key)).map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setColorFilter(colorFilter === c.key ? null : c.key)}
-              className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium", colorFilter === c.key ? "border-foreground text-foreground" : "border-input text-muted-foreground hover:bg-accent")}
-            >
-              <span className="size-2.5 rounded-full" style={{ background: c.hex }} /> {c.label}
+      {nothing ? (
+        <EmptyState
+          icon={<IconRecordatorios />}
+          title="No tienes recordatorios activos"
+          description="Crea el primero: puede sonar varias veces, para ti o para el equipo, y atarse a una tarea o cita."
+          action={
+            <button onClick={() => setDrawer("new")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <Plus className="size-4" /> Crear recordatorio
             </button>
-          ))}
-        </div>
-      ) : null}
-
-      {/* ── Próximos, agrupados ── */}
-      {active.length === 0 ? (
-        <div className="mt-6">
-          <EmptyState
-            icon={<IconRecordatorios />}
-            title="No tienes recordatorios activos"
-            description="Crea el primero: puede sonar varias veces, para ti o para el equipo, y atarse a una tarea o cita."
-          />
-        </div>
+          }
+        />
       ) : (
-        buckets.map((b) =>
-          b.items.length === 0 ? null : (
-            <div key={b.key}>
-              <h2 className="mt-7 mb-2 text-sm font-semibold text-muted-foreground">{b.label} ({b.items.length})</h2>
+        <>
+          {/* ── Destacado «Ahora sigue» ── */}
+          {hero ? <NextUpHero r={hero} nowMs={nowMs} pending={pending} {...rowHandlers(hero)} /> : null}
+
+          {/* ── Sugeridos ── */}
+          {shownSuggestions.length > 0 ? (
+            <div className="mt-6">
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><Bell className="size-3.5" /> Sugeridos</h2>
               <div className="space-y-2">
-                {b.items.map((r) => (
-                  <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending}
-                    onEdit={() => setEditing(r)}
-                    onToggle={(a) => run(() => toggleReminder(r.id, a))}
-                    onDone={() => run(() => completeReminder(r.id))}
-                    onSnooze={(k) => run(() => snoozeReminder(r.id, k))}
-                    onDelete={() => onDelete(r)}
-                  />
+                {shownSuggestions.map((s) => (
+                  <div key={`${s.kind}:${s.id}`} className="flex items-center gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-3">
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-base">{s.kind === "task" ? "📋" : "📅"}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{s.kind === "task" ? "Tarea" : "Cita"}: {s.title}</p>
+                      <p className="text-xs text-muted-foreground" suppressHydrationWarning>{FMT.format(new Date(s.whenIso))} · sin recordatorio</p>
+                    </div>
+                    <button onClick={() => addSuggestion(s)} disabled={pending} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 disabled:opacity-50">
+                      <Plus className="size-3.5" /> Avísame 15 min antes
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
-          ),
-        )
+          ) : null}
+
+          {/* ── Filtro por color ── */}
+          {active.length > 1 && REMINDER_COLORS.some((c) => active.some((r) => r.color === c.key)) ? (
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setColorFilter(null)}
+                className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", !colorFilter ? "border-primary bg-primary/10 text-foreground" : "border-input text-muted-foreground hover:bg-accent")}
+              >
+                Todos
+              </button>
+              {REMINDER_COLORS.filter((c) => active.some((r) => r.color === c.key)).map((c) => (
+                <button
+                  key={c.key}
+                  onClick={() => setColorFilter(colorFilter === c.key ? null : c.key)}
+                  className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium", colorFilter === c.key ? "border-foreground text-foreground" : "border-input text-muted-foreground hover:bg-accent")}
+                >
+                  <span className="size-2.5 rounded-full" style={{ background: c.hex }} /> {c.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* ── Próximos, agrupados por día ── */}
+          {buckets.map((b) =>
+            b.items.length === 0 ? null : (
+              <div key={b.key}>
+                <h2 className="mt-7 mb-2 text-sm font-semibold text-muted-foreground">{b.label} ({b.items.length})</h2>
+                <div className="space-y-2">
+                  {b.items.map((r) => (
+                    <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
+                  ))}
+                </div>
+              </div>
+            ),
+          )}
+        </>
       )}
 
       {/* ── Pausados ── */}
@@ -265,13 +336,7 @@ export function RemindersClient({
           <h2 className="mt-8 mb-2 text-sm font-semibold text-muted-foreground">Pausados ({paused.length})</h2>
           <div className="space-y-2 opacity-80">
             {paused.map((r) => (
-              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending}
-                onEdit={() => setEditing(r)}
-                onToggle={(a) => run(() => toggleReminder(r.id, a))}
-                onDone={() => run(() => completeReminder(r.id))}
-                onSnooze={(k) => run(() => snoozeReminder(r.id, k))}
-                onDelete={() => onDelete(r)}
-              />
+              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
             ))}
           </div>
         </>
@@ -283,13 +348,7 @@ export function RemindersClient({
           <summary className="mb-2 cursor-pointer text-sm font-semibold text-muted-foreground">Hechos ({done.length})</summary>
           <div className="space-y-2 opacity-70">
             {done.map((r) => (
-              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending}
-                onEdit={() => setEditing(r)}
-                onToggle={(a) => run(() => toggleReminder(r.id, a))}
-                onDone={() => run(() => completeReminder(r.id))}
-                onSnooze={(k) => run(() => snoozeReminder(r.id, k))}
-                onDelete={() => onDelete(r)}
-              />
+              <Row key={r.id} r={r} meId={meId} nowMs={nowMs} pending={pending} {...rowHandlers(r)} />
             ))}
           </div>
         </details>
@@ -298,7 +357,57 @@ export function RemindersClient({
   );
 }
 
-// ── Formulario de crear/editar ──
+// ── Panel deslizante (slide-over) ──
+// Siempre montado: cuando está cerrado se traslada fuera de pantalla y desactiva los clics
+// (pointer-events-none en el contenedor cascada a hijos). Sin desmontar → animación fluida.
+function Drawer({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  return (
+    <div className={cn("fixed inset-0 z-50", !open && "pointer-events-none")} aria-hidden={!open}>
+      <div
+        onClick={onClose}
+        className={cn("absolute inset-0 bg-black/30 backdrop-blur-[1px] transition-opacity duration-300", open ? "opacity-100" : "opacity-0")}
+      />
+      <div
+        className={cn(
+          "absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-[cubic-bezier(.33,1,.68,1)]",
+          open ? "translate-x-0" : "translate-x-full",
+        )}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary"><IconRecordatorios /></div>
+          <h2 className="flex-1 text-sm font-semibold">{title}</h2>
+          <button onClick={onClose} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><X className="size-4" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Un paso numerado del formulario (qué / cuándo / opcional).
+function Step({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">{n}</div>
+      <div className="min-w-0 flex-1">
+        <p className="mb-2 text-sm font-semibold">{label}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Formulario de crear/editar (dentro del panel, por pasos) ──
 function ReminderForm({
   initial,
   team,
@@ -349,6 +458,7 @@ function ReminderForm({
   const [anchorId, setAnchorId] = React.useState<string>(initial?.event?.id ?? initial?.task?.id ?? "");
   const [offsets, setOffsets] = React.useState<number[]>(relOffsets.length ? relOffsets : [15]);
   const [iconOpen, setIconOpen] = React.useState(false);
+  const [optOpen, setOptOpen] = React.useState(Boolean(initial && (initial.color || initial.priority !== 1 || initial.forUser.id !== meId)));
   const iconBtn = React.useRef<HTMLButtonElement>(null);
 
   const anchored = anchorKind !== "none";
@@ -394,168 +504,280 @@ function ReminderForm({
   const toggleOffset = (m: number) => setOffsets((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]));
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="flex flex-col gap-3">
-        {/* Título + icono */}
-        <div className="flex items-center gap-2">
-          <button ref={iconBtn} type="button" onClick={() => setIconOpen((o) => !o)} title="Icono" className="flex size-10 shrink-0 items-center justify-center rounded-md border border-input bg-background text-xl hover:bg-accent">
-            <EntityEmoji value={icon} fallback="⏰" />
-          </button>
-          {iconOpen ? (
-            <EmojiPicker
-              anchorRef={iconBtn}
-              onClose={() => setIconOpen(false)}
-              onPick={(e) => { setIcon(e); setIconOpen(false); }}
-              marks={markList}
-              marksOnly
-              footer={icon ? (
-                <button type="button" onClick={() => { setIcon(""); setIconOpen(false); }} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">Quitar icono</button>
-              ) : undefined}
-            />
-          ) : null}
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="¿Qué hay que recordar? (p. ej. Grabación, Pagar nómina, Estiramiento…)" className={cn(inputCls, "w-full")} />
-        </div>
-
-        {/* Para (uno o varios) + prioridad */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground"><Users className="size-3.5" /> Para</span>
-          <div className="flex flex-wrap gap-1">
-            {team.map((u) => (
-              <button
-                key={u.id}
-                type="button"
-                onClick={() => toggleFor(u.id)}
-                className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", forIds.includes(u.id) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent")}
-              >
-                {u.id === meId ? "Mí" : u.name}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <div className="flex flex-col gap-6">
+          {/* Paso 1 — Qué */}
+          <Step n={1} label="¿Qué hay que recordar?">
+            <div className="flex items-center gap-2">
+              <button ref={iconBtn} type="button" onClick={() => setIconOpen((o) => !o)} title="Icono" className="flex size-10 shrink-0 items-center justify-center rounded-md border border-input bg-background text-xl hover:bg-accent">
+                <EntityEmoji value={icon} fallback="⏰" />
               </button>
-            ))}
-          </div>
-        </div>
-        {forIds.length > 1 ? <p className="-mt-1 text-[11px] text-muted-foreground">Se creará un recordatorio para cada persona ({forIds.length}).</p> : null}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Prioridad</span>
-          <div className="flex overflow-hidden rounded-md border border-input">
-            {PRIORITY_LABELS.map((label, i) => (
-              <button key={i} type="button" onClick={() => setPriority(i)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", priority === i ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{label}</button>
-            ))}
-          </div>
-          <span className="ml-2 text-xs font-medium text-muted-foreground">Color</span>
-          <div className="flex items-center gap-1.5">
-            <button type="button" onClick={() => setColor(null)} title="Sin color" className={cn("flex size-6 items-center justify-center rounded-full border border-input text-muted-foreground", !color && "ring-2 ring-foreground ring-offset-1 ring-offset-background")}><X className="size-3" /></button>
-            {REMINDER_COLORS.map((c) => (
-              <button key={c.key} type="button" onClick={() => setColor(c.key)} title={c.label} className={cn("size-6 rounded-full", color === c.key && "ring-2 ring-offset-1 ring-offset-background")} style={{ background: c.hex, boxShadow: color === c.key ? `0 0 0 2px ${c.hex}` : undefined }} />
-            ))}
-          </div>
-        </div>
-
-        {/* Atar a tarea/cita */}
-        <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Atar a</span>
-            <div className="flex overflow-hidden rounded-md border border-input">
-              {[{ k: "none", l: "Nada" }, { k: "task", l: "Una tarea" }, { k: "event", l: "Una cita" }].map((o) => (
-                <button key={o.k} type="button" onClick={() => { setAnchorKind(o.k as typeof anchorKind); setAnchorId(""); }} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", anchorKind === o.k ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{o.l}</button>
-              ))}
+              {iconOpen ? (
+                <EmojiPicker
+                  anchorRef={iconBtn}
+                  onClose={() => setIconOpen(false)}
+                  onPick={(e) => { setIcon(e); setIconOpen(false); }}
+                  marks={markList}
+                  marksOnly
+                  footer={icon ? (
+                    <button type="button" onClick={() => { setIcon(""); setIconOpen(false); }} className="flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted">Quitar icono</button>
+                  ) : undefined}
+                />
+              ) : null}
+              <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="p. ej. Grabación, Pagar nómina, Estiramiento…" className={cn(inputCls, "w-full")} />
             </div>
-            {anchorKind === "task" ? (
-              <select value={anchorId} onChange={(e) => setAnchorId(e.target.value)} className={cn(inputCls, "h-9 max-w-[260px] py-1")}>
-                <option value="">Elige una tarea…</option>
-                {anchorTasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-              </select>
-            ) : null}
-            {anchorKind === "event" ? (
-              <select value={anchorId} onChange={(e) => setAnchorId(e.target.value)} className={cn(inputCls, "h-9 max-w-[260px] py-1")}>
-                <option value="">Elige una cita…</option>
-                {anchorEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
-              </select>
-            ) : null}
-          </div>
-          {anchored ? (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] text-muted-foreground">avísame</span>
-              {OFFSET_OPTIONS.map((o) => (
-                <button key={o.m} type="button" onClick={() => toggleOffset(o.m)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", offsets.includes(o.m) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent")}>{o.label}</button>
-              ))}
-              {anchorTasks.length === 0 && anchorKind === "task" ? <span className="text-[11px] text-muted-foreground">(no tienes tareas con fecha)</span> : null}
-              {anchorEvents.length === 0 && anchorKind === "event" ? <span className="text-[11px] text-muted-foreground">(no tienes citas próximas)</span> : null}
-            </div>
-          ) : null}
-        </div>
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Nota opcional (aparece en la notificación)" className={cn(inputCls, "mt-2 w-full")} />
+          </Step>
 
-        {/* Programación (solo si no está atado) */}
-        {!anchored ? (
-          <>
-            <div className="flex overflow-hidden rounded-md border border-input self-start">
-              {FREQ_OPTIONS.map((f) => (
-                <button key={f.key} type="button" onClick={() => setFrequency(f.key)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", frequency === f.key ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{f.label}</button>
-              ))}
-            </div>
-
-            {frequency === "UNA_VEZ" ? (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Avisos (uno o varios)</span>
-                {alerts.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input type="date" value={a.date} onChange={(e) => setAlerts((cur) => cur.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))} className={cn(inputCls, "h-9 py-1")} />
-                    <input type="time" value={a.time} onChange={(e) => setAlerts((cur) => cur.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))} className={cn(inputCls, "h-9 py-1")} />
-                    {alerts.length > 1 ? (
-                      <button type="button" onClick={() => setAlerts((cur) => cur.filter((_, j) => j !== i))} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive"><X className="size-4" /></button>
-                    ) : null}
-                  </div>
-                ))}
-                <button type="button" onClick={() => setAlerts((cur) => [...cur, { date: cur[cur.length - 1]?.date ?? bogotaTomorrowYmd(), time: "09:00" }])} className="inline-flex w-fit items-center gap-1 rounded-full border border-input px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"><Plus className="size-3.5" /> Añadir aviso</button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {frequency === "SEMANAL" ? (
-                    <div className="flex gap-1">
-                      {WEEK_ORDER.map((d) => (
-                        <button key={d} type="button" onClick={() => setWeekdays((w) => (w.includes(d) ? w.filter((x) => x !== d) : [...w, d]))} className={cn("size-8 rounded-full text-xs font-medium transition-colors", weekdays.includes(d) ? "bg-primary text-primary-foreground" : "border border-input hover:bg-accent")}>{WEEKDAY_LABELS[d]}</button>
-                      ))}
-                    </div>
-                  ) : null}
-                  {frequency === "MENSUAL" ? (
-                    <label className="flex items-center gap-1.5 text-sm">el día
-                      <input type="number" min={1} max={31} value={dayOfMonth} onChange={(e) => setDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))} className={cn(inputCls, "h-9 w-16 py-1")} />
-                    </label>
-                  ) : null}
-                  <label className="flex items-center gap-1.5 text-sm">a las
-                    <input type="time" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} className={cn(inputCls, "h-9 py-1")} />
-                  </label>
+          {/* Paso 2 — Cuándo */}
+          <Step n={2} label="¿Cuándo?">
+            <div className="flex flex-col gap-3">
+              {/* Atar a tarea/cita */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Atar a</span>
+                <div className="flex overflow-hidden rounded-md border border-input">
+                  {[{ k: "none", l: "Nada" }, { k: "task", l: "Una tarea" }, { k: "event", l: "Una cita" }].map((o) => (
+                    <button key={o.k} type="button" onClick={() => { setAnchorKind(o.k as typeof anchorKind); setAnchorId(""); }} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", anchorKind === o.k ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{o.l}</button>
+                  ))}
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-xs font-medium text-muted-foreground">Termina</span>
-                  <div className="flex overflow-hidden rounded-md border border-input">
-                    {[{ k: "never", l: "Nunca" }, { k: "date", l: "En fecha" }, { k: "count", l: "Tras N veces" }].map((o) => (
-                      <button key={o.k} type="button" onClick={() => setEndMode(o.k as typeof endMode)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", endMode === o.k ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{o.l}</button>
+              </div>
+              {anchorKind === "task" ? (
+                <select value={anchorId} onChange={(e) => setAnchorId(e.target.value)} className={cn(inputCls, "h-9 w-full py-1")}>
+                  <option value="">Elige una tarea…</option>
+                  {anchorTasks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                </select>
+              ) : null}
+              {anchorKind === "event" ? (
+                <select value={anchorId} onChange={(e) => setAnchorId(e.target.value)} className={cn(inputCls, "h-9 w-full py-1")}>
+                  <option value="">Elige una cita…</option>
+                  {anchorEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+                </select>
+              ) : null}
+
+              {anchored ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">avísame</span>
+                  {OFFSET_OPTIONS.map((o) => (
+                    <button key={o.m} type="button" onClick={() => toggleOffset(o.m)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", offsets.includes(o.m) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent")}>{o.label}</button>
+                  ))}
+                  {anchorTasks.length === 0 && anchorKind === "task" ? <span className="text-[11px] text-muted-foreground">(no tienes tareas con fecha)</span> : null}
+                  {anchorEvents.length === 0 && anchorKind === "event" ? <span className="text-[11px] text-muted-foreground">(no tienes citas próximas)</span> : null}
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap overflow-hidden rounded-md border border-input self-start">
+                    {FREQ_OPTIONS.map((f) => (
+                      <button key={f.key} type="button" onClick={() => setFrequency(f.key)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", frequency === f.key ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{f.label}</button>
                     ))}
                   </div>
-                  {endMode === "date" ? <input type="date" value={untilYmd} onChange={(e) => setUntilYmd(e.target.value)} className={cn(inputCls, "h-9 py-1")} /> : null}
-                  {endMode === "count" ? (
-                    <label className="flex items-center gap-1.5">
-                      <input type="number" min={1} max={999} value={maxFires} onChange={(e) => setMaxFires(Math.max(1, Number(e.target.value) || 1))} className={cn(inputCls, "h-9 w-20 py-1")} /> veces
-                    </label>
-                  ) : null}
+
+                  {frequency === "UNA_VEZ" ? (
+                    <div className="flex flex-col gap-1.5">
+                      {alerts.map((a, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input type="date" value={a.date} onChange={(e) => setAlerts((cur) => cur.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))} className={cn(inputCls, "h-9 py-1")} />
+                          <input type="time" value={a.time} onChange={(e) => setAlerts((cur) => cur.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))} className={cn(inputCls, "h-9 py-1")} />
+                          {alerts.length > 1 ? (
+                            <button type="button" onClick={() => setAlerts((cur) => cur.filter((_, j) => j !== i))} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive"><X className="size-4" /></button>
+                          ) : null}
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => setAlerts((cur) => [...cur, { date: cur[cur.length - 1]?.date ?? bogotaTomorrowYmd(), time: "09:00" }])} className="inline-flex w-fit items-center gap-1 rounded-full border border-input px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"><Plus className="size-3.5" /> Añadir aviso</button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {frequency === "SEMANAL" ? (
+                          <div className="flex gap-1">
+                            {WEEK_ORDER.map((d) => (
+                              <button key={d} type="button" onClick={() => setWeekdays((w) => (w.includes(d) ? w.filter((x) => x !== d) : [...w, d]))} className={cn("size-8 rounded-full text-xs font-medium transition-colors", weekdays.includes(d) ? "bg-primary text-primary-foreground" : "border border-input hover:bg-accent")}>{WEEKDAY_LABELS[d]}</button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {frequency === "MENSUAL" ? (
+                          <label className="flex items-center gap-1.5 text-sm">el día
+                            <input type="number" min={1} max={31} value={dayOfMonth} onChange={(e) => setDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))} className={cn(inputCls, "h-9 w-16 py-1")} />
+                          </label>
+                        ) : null}
+                        <label className="flex items-center gap-1.5 text-sm">a las
+                          <input type="time" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} className={cn(inputCls, "h-9 py-1")} />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="text-xs font-medium text-muted-foreground">Termina</span>
+                        <div className="flex overflow-hidden rounded-md border border-input">
+                          {[{ k: "never", l: "Nunca" }, { k: "date", l: "En fecha" }, { k: "count", l: "Tras N veces" }].map((o) => (
+                            <button key={o.k} type="button" onClick={() => setEndMode(o.k as typeof endMode)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", endMode === o.k ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{o.l}</button>
+                          ))}
+                        </div>
+                        {endMode === "date" ? <input type="date" value={untilYmd} onChange={(e) => setUntilYmd(e.target.value)} className={cn(inputCls, "h-9 py-1")} /> : null}
+                        {endMode === "count" ? (
+                          <label className="flex items-center gap-1.5">
+                            <input type="number" min={1} max={999} value={maxFires} onChange={(e) => setMaxFires(Math.max(1, Number(e.target.value) || 1))} className={cn(inputCls, "h-9 w-20 py-1")} /> veces
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </Step>
+
+          {/* Paso 3 — Opcional (colapsado) */}
+          <Step n={3} label="Opcional">
+            <button type="button" onClick={() => setOptOpen((o) => !o)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+              <span className={cn("transition-transform", optOpen && "rotate-90")}>›</span> Para quién · color · prioridad
+            </button>
+            {optOpen ? (
+              <div className="mt-3 flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><Users className="size-3.5" /> Para</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {team.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggleFor(u.id)}
+                        className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", forIds.includes(u.id) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent")}
+                      >
+                        {u.id === meId ? "Mí" : u.name}
+                      </button>
+                    ))}
+                  </div>
+                  {forIds.length > 1 ? <p className="text-[11px] text-muted-foreground">Se creará un recordatorio para cada persona ({forIds.length}).</p> : null}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</span>
+                  <div className="flex w-fit overflow-hidden rounded-md border border-input">
+                    {PRIORITY_LABELS.map((label, i) => (
+                      <button key={i} type="button" onClick={() => setPriority(i)} className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", priority === i ? "bg-primary text-primary-foreground" : "hover:bg-accent")}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color</span>
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => setColor(null)} title="Sin color" className={cn("flex size-6 items-center justify-center rounded-full border border-input text-muted-foreground", !color && "ring-2 ring-foreground ring-offset-1 ring-offset-background")}><X className="size-3" /></button>
+                    {REMINDER_COLORS.map((c) => (
+                      <button key={c.key} type="button" onClick={() => setColor(c.key)} title={c.label} className={cn("size-6 rounded-full", color === c.key && "ring-2 ring-offset-1 ring-offset-background")} style={{ background: c.hex, boxShadow: color === c.key ? `0 0 0 2px ${c.hex}` : undefined }} />
+                    ))}
+                  </div>
                 </div>
               </div>
-            )}
-          </>
-        ) : null}
-
-        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Nota opcional (aparece en la notificación)" className={cn(inputCls, "w-full")} />
-
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-        <div className="flex items-center gap-2">
-          <button onClick={submit} disabled={pending || !title.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-            {pending ? <Loader2 className="size-4 animate-spin" /> : initial ? <Check className="size-4" /> : <Plus className="size-4" />} {initial ? "Guardar cambios" : "Crear recordatorio"}
-          </button>
-          <button onClick={onClose} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent">Cerrar</button>
+            ) : null}
+          </Step>
         </div>
       </div>
+
+      {/* Footer del panel */}
+      <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+        {error ? <p className="mr-auto text-xs text-destructive">{error}</p> : <span className="mr-auto" />}
+        <button onClick={onClose} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent">Cancelar</button>
+        <button onClick={submit} disabled={pending || !title.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          {pending ? <Loader2 className="size-4 animate-spin" /> : initial ? <Check className="size-4" /> : <Plus className="size-4" />} {initial ? "Guardar cambios" : "Crear recordatorio"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Menú de posponer reutilizable (fila y destacado).
+function SnoozeMenu({ onPick, variant = "ghost" }: { onPick: (kind: string) => void; variant?: "ghost" | "hero" }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="Posponer"
+        className={cn(
+          variant === "hero"
+            ? "inline-flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-white/30"
+            : "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+        )}
+      >
+        <Clock className="size-4" /> {variant === "hero" ? "Posponer" : null}
+      </button>
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-foreground shadow-lg">
+            {SNOOZE_OPTIONS.map((o) => (
+              <button key={o.k} onClick={() => { setOpen(false); onPick(o.k); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-muted">{o.label}</button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Destacado «Ahora sigue» ── (vista tipo agenda: lo próximo, en grande)
+function NextUpHero({
+  r,
+  nowMs,
+  pending,
+  onEdit,
+  onDone,
+  onSnooze,
+}: {
+  r: ReminderRow;
+  nowMs: number;
+  pending: boolean;
+  onEdit: () => void;
+  onToggle: (active: boolean) => void;
+  onDone: () => void;
+  onSnooze: (kind: string) => void;
+  onDelete: () => void;
+}) {
+  const hex = reminderColorHex(r.color) ?? "#F47A20";
+  const recurrente = r.frequency !== "UNA_VEZ";
+  const scheduleLabel = recurrente ? describeSchedule({ frequency: r.frequency, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay }) : null;
+  const link = r.task ? "/mis-tareas" : r.event ? "/calendario" : null;
+  const linkLabel = r.task ? "Ir a la tarea" : r.event ? "Ver en calendario" : null;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl p-5 text-white shadow-lg"
+      style={{ backgroundColor: hex, backgroundImage: `linear-gradient(135deg, ${hex}, color-mix(in srgb, ${hex} 78%, #000))` }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/20 text-2xl backdrop-blur">
+          <EntityEmoji value={r.icon} fallback="⏰" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-white/80">Ahora sigue</p>
+          <h2 className="mt-0.5 truncate text-lg font-bold tracking-tight">{r.title}</h2>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-white/90" suppressHydrationWarning>
+            <span className="font-medium">{FMT.format(new Date(r.nextFireAtIso))}</span>
+            <span className="text-white/70">· {relativo(r.nextFireAtIso, nowMs)}</span>
+            {r.priority >= 2 ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold">{PRIORITY_LABELS[r.priority]}</span> : null}
+            {scheduleLabel ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold">{scheduleLabel}</span> : null}
+          </p>
+          {r.notes ? <p className="mt-1 truncate text-xs text-white/75">{r.notes}</p> : null}
+        </div>
+      </div>
+
+      {r.canManage ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button onClick={onDone} disabled={pending} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 shadow-sm transition-transform hover:-translate-y-0.5 disabled:opacity-60" style={{ color: hex }}>
+            <Check className="size-4" /> Hecho
+          </button>
+          <SnoozeMenu onPick={onSnooze} variant="hero" />
+          {link ? (
+            <Link href={link} className="inline-flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-white/30">
+              {linkLabel} <ArrowUpRight className="size-3.5" />
+            </Link>
+          ) : null}
+          <button onClick={onEdit} disabled={pending} className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/15 hover:text-white">
+            <Pencil className="size-3.5" /> Editar
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -585,7 +807,6 @@ function Row({
   onSnooze: (kind: string) => void;
   onDelete: () => void;
 }) {
-  const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const recurrente = r.frequency !== "UNA_VEZ";
   const scheduleLabel = recurrente ? describeSchedule({ frequency: r.frequency, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay }) : null;
   const reactivable = recurrente || r.alerts.some((a) => !a.sentAtIso && new Date(a.fireAtIso).getTime() > nowMs);
@@ -596,7 +817,7 @@ function Row({
 
   return (
     <div
-      className={cn("rounded-xl border border-border bg-card", suenaHoy && !hex && "bg-[#F47A20]/[0.04]")}
+      className={cn("rounded-xl border border-border bg-card transition-colors hover:border-border/80", suenaHoy && !hex && "bg-[#F47A20]/[0.04]")}
       style={stripe ? { borderLeft: `3px solid ${stripe}`, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 } : undefined}
     >
       <div className="flex items-start gap-3 px-4 py-3">
@@ -642,21 +863,7 @@ function Row({
             {r.active && !r.doneAtIso ? (
               <button onClick={onDone} disabled={pending} title="Marcar hecho" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-600"><Check className="size-4" /></button>
             ) : null}
-            {r.active && !r.doneAtIso ? (
-              <div className="relative">
-                <button onClick={() => setSnoozeOpen((o) => !o)} disabled={pending} title="Posponer" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Clock className="size-4" /></button>
-                {snoozeOpen ? (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setSnoozeOpen(false)} />
-                    <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-lg">
-                      {SNOOZE_OPTIONS.map((o) => (
-                        <button key={o.k} onClick={() => { setSnoozeOpen(false); onSnooze(o.k); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-muted">{o.label}</button>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
+            {r.active && !r.doneAtIso ? <SnoozeMenu onPick={onSnooze} /> : null}
             <button onClick={onEdit} disabled={pending} title="Editar" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil className="size-4" /></button>
             {r.active && !r.doneAtIso ? (
               <button onClick={() => onToggle(false)} disabled={pending} title="Pausar" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pause className="size-4" /></button>
