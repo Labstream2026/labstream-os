@@ -336,7 +336,7 @@ export function Sidebar({
           {hasProjects ? (
             <button
               type="button"
-              onClick={() => setOpenMap((m) => ({ ...m, [c.id]: !open }))}
+              onClick={() => setOpenMap({ [c.id]: !open })} /* acordeón: abrir uno recoge los demás */
               aria-label={open ? "Contraer" : "Desplegar"}
               className="grid size-6 shrink-0 place-items-center rounded-md text-sidebar-muted hover:text-sidebar-foreground"
             >
@@ -345,7 +345,17 @@ export function Sidebar({
           ) : (
             <span className="w-6 shrink-0" />
           )}
-          <Link href={`/clientes/${c.id}`} onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2.5 py-[7px] pr-1">
+          <Link
+            href={`/clientes/${c.id}`}
+            onClick={() => {
+              // Abrir el cliente también DESPLIEGA sus proyectos y recoge los de los demás
+              // (acordeón): ya no hay que pasar por el botón de desplegar. La ficha del
+              // cliente se abre igual (la navegación del Link sigue su curso).
+              setOpenMap({ [c.id]: true });
+              onNavigate?.();
+            }}
+            className="flex min-w-0 flex-1 items-center gap-2.5 py-[7px] pr-1"
+          >
             <ClientAvatar client={c} hex={hex} />
             <span className="min-w-0 flex-1 truncate font-bold tracking-[0.005em] text-sidebar-foreground">{c.name}</span>
           </Link>
