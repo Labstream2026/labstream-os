@@ -29,10 +29,10 @@ export default async function RecordatoriosPage() {
         alerts: { orderBy: { fireAt: "asc" }, select: { id: true, fireAt: true, offsetMin: true, sentAt: true, active: true } },
       },
     }),
-    // Destinatarios posibles: el equipo (sin bots ni portal del cliente/demo).
+    // Destinatarios posibles: el equipo (sin bots ni portal del cliente/demo), con avatar.
     db.user.findMany({
       where: { active: true, isSystemBot: false, role: { key: { notIn: ["cliente", "demo"] } } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, initials: true, avatarColor: true, avatarUrl: true },
       orderBy: { name: "asc" },
     }),
     // Tareas con fecha (mías) para "atar a": avisar N antes de la tarea.

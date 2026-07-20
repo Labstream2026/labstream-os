@@ -3,8 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pause, Play, Trash2, Loader2, Check, Clock, Pencil, X, Users, ArrowUpRight, Bell } from "lucide-react";
+import { Plus, Pause, Play, Trash2, Loader2, Check, Clock, Pencil, X, Users, ArrowUpRight, Bell, Star, SlidersHorizontal } from "lucide-react";
 import { IconRecordatorios } from "@/components/icons";
+import { UserAvatar } from "@/components/user-avatar";
+import { parseReminderText, type ParsedReminder } from "@/lib/reminder-parse";
 import { EmojiPicker } from "@/components/chat/emoji-picker";
 import { EntityEmoji, SECTOR_MARKS, PROJECT_MARKS } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -52,7 +54,7 @@ export type ReminderRow = {
   alerts: AlertRow[];
   canManage: boolean;
 };
-export type TeamOption = { id: string; name: string };
+export type TeamOption = { id: string; name: string; initials: string | null; avatarColor: string | null; avatarUrl: string | null };
 export type AnchorTask = { id: string; title: string; dueIso: string | null; dueTime: string | null };
 export type AnchorEvent = { id: string; title: string; startIso: string };
 
@@ -128,6 +130,60 @@ const SNOOZE_OPTIONS = [
 ];
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
+// ── Plantillas (localStorage, por dispositivo) ──
+// Se leen con useSyncExternalStore (nada de setState en efectos): el servidor ve "[]" y el
+// cliente se sincroniza solo tras hidratar. Un evento propio avisa los cambios de esta pestaña.
+export type ReminderTemplate = {
+  id: string;
+  title: string;
+  icon: string | null;
+  color: string | null;
+  priority: number;
+  frequency: string;
+  timeOfDay: string;
+  weekdays: number[];
+  dayOfMonth: number;
+};
+const TPL_KEY = "lsos:reminder-tpl:v1";
+const TPL_EVENT = "lsos:reminder-tpl-changed";
+function subscribeTpl(cb: () => void): () => void {
+  window.addEventListener("storage", cb);
+  window.addEventListener(TPL_EVENT, cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener(TPL_EVENT, cb);
+  };
+}
+function readTplRaw(): string {
+  try { return window.localStorage.getItem(TPL_KEY) ?? "[]"; } catch { return "[]"; }
+}
+function writeTpls(list: ReminderTemplate[]): void {
+  try { window.localStorage.setItem(TPL_KEY, JSON.stringify(list.slice(0, 12))); } catch {}
+  try { window.dispatchEvent(new Event(TPL_EVENT)); } catch {}
+}
+
+// Prefill del formulario (viene de la captura rápida o de una plantilla).
+type FormPrefill = {
+  title?: string;
+  icon?: string | null;
+  color?: string | null;
+  priority?: number;
+  frequency?: string;
+  alerts?: { date: string; time: string }[];
+  timeOfDay?: string;
+  weekdays?: number[];
+  dayOfMonth?: number;
+};
+
+type DrawerState = { mode: "new"; prefill?: FormPrefill; seq: number } | { mode: "edit"; row: ReminderRow } | null;
+
+// Nombre corto para las píldoras de «Para»: primer nombre + inicial del segundo.
+function shortName(name: string): string {
+  const words = name.split(/\s+[-–—]\s+/)[0].trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return name;
+  return words.length === 1 ? words[0] : `${words[0]} ${words[1][0]}.`;
+}
+
 export function RemindersClient({
   rows,
   team,
@@ -147,11 +203,43 @@ export function RemindersClient({
   const { confirm, dialog } = useConfirmDialog();
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
-  // Panel deslizante: "new" para crear, un ReminderRow para editar, null cerrado.
-  const [drawer, setDrawer] = React.useState<"new" | ReminderRow | null>(null);
+  // Panel deslizante: crear (con prefill opcional) o editar; null cerrado.
+  const [drawer, setDrawer] = React.useState<DrawerState>(null);
   const [colorFilter, setColorFilter] = React.useState<string | null>(null);
 
   const closeDrawer = React.useCallback(() => setDrawer(null), []);
+  // `seq` fuerza a remontar el formulario en cada apertura (para que el prefill entre limpio).
+  const seqRef = React.useRef(0);
+  const openNew = (prefill?: FormPrefill) => {
+    seqRef.current += 1;
+    setDrawer({ mode: "new", prefill, seq: seqRef.current });
+  };
+
+  // Plantillas guardadas en este dispositivo.
+  const tplRaw = React.useSyncExternalStore(subscribeTpl, readTplRaw, () => "[]");
+  const templates = React.useMemo<ReminderTemplate[]>(() => {
+    try {
+      const j = JSON.parse(tplRaw) as unknown;
+      if (!Array.isArray(j)) return [];
+      return j.filter((t): t is ReminderTemplate => !!t && typeof (t as { id?: unknown }).id === "string" && typeof (t as { title?: unknown }).title === "string");
+    } catch {
+      return [];
+    }
+  }, [tplRaw]);
+  const saveTemplate = (t: ReminderTemplate) => writeTpls([t, ...templates.filter((x) => x.title !== t.title)]);
+  const deleteTemplate = (id: string) => writeTpls(templates.filter((x) => x.id !== id));
+  const applyTemplate = (t: ReminderTemplate) =>
+    openNew({
+      title: t.title,
+      icon: t.icon,
+      color: t.color,
+      priority: t.priority,
+      frequency: t.frequency,
+      timeOfDay: t.timeOfDay,
+      weekdays: t.weekdays,
+      dayOfMonth: t.dayOfMonth,
+      alerts: t.frequency === "UNA_VEZ" ? [{ date: bogotaTomorrowYmd(), time: t.timeOfDay }] : undefined,
+    });
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setError(null);
@@ -165,6 +253,18 @@ export function RemindersClient({
   const onDelete = async (r: ReminderRow) => {
     if (!(await confirm({ title: "Eliminar recordatorio", message: `¿Eliminar «${r.title}»? No volverá a sonar.`, confirmLabel: "Eliminar" }))) return;
     run(() => deleteReminder(r.id));
+  };
+
+  // Crear directo desde la captura rápida (lo interpretado por el parser).
+  const quickCreate = (p: ParsedReminder) => {
+    const input: NewReminderInput = { title: p.title, frequency: p.frequency, forUserIds: [meId] };
+    if (p.frequency === "UNA_VEZ") input.alerts = p.alerts;
+    else {
+      input.timeOfDay = p.timeOfDay;
+      if (p.frequency === "SEMANAL") input.weekdays = p.weekdays;
+      if (p.frequency === "MENSUAL") input.dayOfMonth = p.dayOfMonth;
+    }
+    run(() => createReminder(input));
   };
 
   const active = rows.filter((r) => r.active && !r.doneAtIso);
@@ -215,7 +315,7 @@ export function RemindersClient({
   }
 
   const rowHandlers = (r: ReminderRow) => ({
-    onEdit: () => setDrawer(r),
+    onEdit: () => setDrawer({ mode: "edit", row: r }),
     onToggle: (a: boolean) => run(() => toggleReminder(r.id, a)),
     onDone: () => run(() => completeReminder(r.id)),
     onSnooze: (k: string) => run(() => snoozeReminder(r.id, k)),
@@ -229,32 +329,57 @@ export function RemindersClient({
       {dialog}
 
       {/* Panel deslizante de crear/editar */}
-      <Drawer open={drawer !== null} title={drawer && drawer !== "new" ? "Editar recordatorio" : "Nuevo recordatorio"} onClose={closeDrawer}>
+      <Drawer open={drawer !== null} title={drawer?.mode === "edit" ? "Editar recordatorio" : "Nuevo recordatorio"} onClose={closeDrawer}>
         {drawer !== null ? (
           <ReminderForm
-            key={drawer === "new" ? "new" : drawer.id}
-            initial={drawer === "new" ? undefined : drawer}
+            key={drawer.mode === "edit" ? drawer.row.id : `new-${drawer.seq}`}
+            initial={drawer.mode === "edit" ? drawer.row : undefined}
+            prefill={drawer.mode === "new" ? drawer.prefill : undefined}
             team={team}
             anchorTasks={anchorTasks}
             anchorEvents={anchorEvents}
             meId={meId}
             onClose={closeDrawer}
             onSaved={() => { closeDrawer(); router.refresh(); }}
+            onSaveTemplate={saveTemplate}
           />
         ) : null}
       </Drawer>
 
-      {/* Barra superior: resumen + crear */}
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {active.length > 0 ? <><strong className="font-semibold text-foreground">{active.length}</strong> {active.length === 1 ? "recordatorio activo" : "recordatorios activos"}</> : "Sin recordatorios activos"}
-        </p>
-        <button onClick={() => setDrawer("new")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90">
-          <Plus className="size-4" /> Nuevo recordatorio
-        </button>
-      </div>
+      {/* Captura rápida: escribe con fecha/hora («mañana 7am», «cada lunes 9:00») y crea al
+          instante; «Más opciones» abre el panel completo con lo interpretado ya puesto. */}
+      <QuickCapture
+        nowMs={nowMs}
+        busy={pending}
+        onCreate={quickCreate}
+        onAdvanced={(p) =>
+          openNew(
+            p
+              ? { title: p.title, frequency: p.frequency, alerts: p.alerts, timeOfDay: p.timeOfDay, weekdays: p.weekdays, dayOfMonth: p.dayOfMonth }
+              : undefined,
+          )
+        }
+      />
 
-      {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
+      {/* Plantillas guardadas (chips de un toque) */}
+      {templates.length > 0 ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium text-muted-foreground">Plantillas:</span>
+          {templates.map((t) => (
+            <span key={t.id} className="group inline-flex items-center overflow-hidden rounded-full border border-input bg-card text-xs">
+              <button onClick={() => applyTemplate(t)} title="Usar esta plantilla" className="inline-flex items-center gap-1.5 py-1 pl-2.5 pr-1.5 font-medium text-foreground hover:bg-accent">
+                {t.icon ? <EntityEmoji value={t.icon} fallback="⏰" /> : null} {t.title}
+              </button>
+              <button onClick={() => deleteTemplate(t.id)} title="Quitar plantilla" className="py-1 pl-0.5 pr-2 text-muted-foreground opacity-50 hover:text-destructive group-hover:opacity-100">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      <div className="mb-5" />
 
       {nothing ? (
         <EmptyState
@@ -262,7 +387,7 @@ export function RemindersClient({
           title="No tienes recordatorios activos"
           description="Crea el primero: puede sonar varias veces, para ti o para el equipo, y atarse a una tarea o cita."
           action={
-            <button onClick={() => setDrawer("new")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            <button onClick={() => openNew()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               <Plus className="size-4" /> Crear recordatorio
             </button>
           }
@@ -357,6 +482,73 @@ export function RemindersClient({
   );
 }
 
+// ── Captura rápida ──
+// Escribes en lenguaje natural y el parser (lib/reminder-parse) interpreta fecha/hora/recurrencia;
+// los chips muestran lo entendido (grises = valor por defecto). Enter o «Crear» lo crea al tiro.
+function QuickCapture({
+  nowMs,
+  busy,
+  onCreate,
+  onAdvanced,
+}: {
+  nowMs: number;
+  busy: boolean;
+  onCreate: (p: ParsedReminder) => void;
+  onAdvanced: (p: ParsedReminder | null) => void;
+}) {
+  const [text, setText] = React.useState("");
+  const parsed = React.useMemo(() => (text.trim() ? parseReminderText(text, nowMs) : null), [text, nowMs]);
+  const create = () => {
+    if (!parsed || !parsed.title.trim() || busy) return;
+    onCreate(parsed);
+    setText("");
+  };
+  return (
+    <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex items-center gap-2.5">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><IconRecordatorios /></div>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") create(); }}
+          placeholder="¿Qué hay que recordar? Prueba «Pagar nómina el 30 a las 9» o «Estiramiento cada día 3pm»"
+          className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
+        />
+        <button
+          onClick={() => onAdvanced(parsed)}
+          title="Todas las opciones: para quién, color, prioridad, atar a tarea/cita…"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <SlidersHorizontal className="size-4" /> <span className="hidden sm:inline">Más opciones</span>
+        </button>
+        <button
+          onClick={create}
+          disabled={busy || !text.trim()}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Crear
+        </button>
+      </div>
+      {parsed ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[46px]">
+          {parsed.chips.map((c, i) => (
+            <span
+              key={i}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                c.fallback ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary",
+              )}
+            >
+              {c.kind === "rec" ? "🔁" : c.kind === "date" ? "📅" : "🕐"} {c.label}{c.fallback ? " · por defecto" : ""}
+            </span>
+          ))}
+          <span className="text-[11px] text-muted-foreground">Enter para crear · «Más opciones» para afinar</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ── Panel deslizante (slide-over) ──
 // Siempre montado: cuando está cerrado se traslada fuera de pantalla y desactiva los clics
 // (pointer-events-none en el contenedor cascada a hijos). Sin desmontar → animación fluida.
@@ -410,20 +602,24 @@ function Step({ n, label, children }: { n: number; label: string; children: Reac
 // ── Formulario de crear/editar (dentro del panel, por pasos) ──
 function ReminderForm({
   initial,
+  prefill,
   team,
   anchorTasks,
   anchorEvents,
   meId,
   onClose,
   onSaved,
+  onSaveTemplate,
 }: {
   initial?: ReminderRow;
+  prefill?: FormPrefill;
   team: TeamOption[];
   anchorTasks: AnchorTask[];
   anchorEvents: AnchorEvent[];
   meId: string;
   onClose: () => void;
   onSaved: () => void;
+  onSaveTemplate: (t: ReminderTemplate) => void;
 }) {
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
@@ -436,21 +632,25 @@ function ReminderForm({
     ? initial.alerts.filter((a) => a.offsetMin == null).map((a) => ({ date: bogYmd(new Date(a.fireAtIso).getTime()), time: bogTimeFmt.format(new Date(a.fireAtIso)) }))
     : [];
 
-  const [title, setTitle] = React.useState(initial?.title ?? "");
+  const [title, setTitle] = React.useState(initial?.title ?? prefill?.title ?? "");
   const [notes, setNotes] = React.useState(initial?.notes ?? "");
-  const [icon, setIcon] = React.useState(initial?.icon ?? "");
-  const [color, setColor] = React.useState<string | null>(initial?.color ?? null);
-  const [priority, setPriority] = React.useState(initial?.priority ?? 1);
+  const [icon, setIcon] = React.useState(initial?.icon ?? prefill?.icon ?? "");
+  const [color, setColor] = React.useState<string | null>(initial?.color ?? prefill?.color ?? null);
+  const [priority, setPriority] = React.useState(initial?.priority ?? prefill?.priority ?? 1);
   const [forIds, setForIds] = React.useState<string[]>(initial ? [initial.forUser.id] : [meId]);
-  const [frequency, setFrequency] = React.useState(initAnchor === "none" ? initial?.frequency ?? "UNA_VEZ" : "UNA_VEZ");
+  const [frequency, setFrequency] = React.useState(initAnchor === "none" ? initial?.frequency ?? prefill?.frequency ?? "UNA_VEZ" : "UNA_VEZ");
   const [alerts, setAlerts] = React.useState<{ date: string; time: string }[]>(
-    fixedAlerts.length ? fixedAlerts : [{ date: bogotaTomorrowYmd(), time: "08:00" }],
+    fixedAlerts.length ? fixedAlerts : prefill?.alerts?.length ? prefill.alerts : [{ date: bogotaTomorrowYmd(), time: "08:00" }],
   );
-  const [timeOfDay, setTimeOfDay] = React.useState(initial?.timeOfDay ?? "08:00");
+  const [timeOfDay, setTimeOfDay] = React.useState(initial?.timeOfDay ?? prefill?.timeOfDay ?? "08:00");
   const [weekdays, setWeekdays] = React.useState<number[]>(
-    initial?.weekdays ? initial.weekdays.split(",").map(Number).filter((n) => n >= 0 && n <= 6) : [1],
+    initial?.weekdays
+      ? initial.weekdays.split(",").map(Number).filter((n) => n >= 0 && n <= 6)
+      : prefill?.weekdays?.length
+        ? prefill.weekdays
+        : [1],
   );
-  const [dayOfMonth, setDayOfMonth] = React.useState(initial?.dayOfMonth ?? 1);
+  const [dayOfMonth, setDayOfMonth] = React.useState(initial?.dayOfMonth ?? prefill?.dayOfMonth ?? 1);
   const [endMode, setEndMode] = React.useState<"never" | "date" | "count">(initial?.untilYmd ? "date" : initial?.maxFires ? "count" : "never");
   const [untilYmd, setUntilYmd] = React.useState(initial?.untilYmd ?? bogotaTomorrowYmd());
   const [maxFires, setMaxFires] = React.useState(initial?.maxFires ?? 5);
@@ -458,11 +658,36 @@ function ReminderForm({
   const [anchorId, setAnchorId] = React.useState<string>(initial?.event?.id ?? initial?.task?.id ?? "");
   const [offsets, setOffsets] = React.useState<number[]>(relOffsets.length ? relOffsets : [15]);
   const [iconOpen, setIconOpen] = React.useState(false);
-  const [optOpen, setOptOpen] = React.useState(Boolean(initial && (initial.color || initial.priority !== 1 || initial.forUser.id !== meId)));
+  const [optOpen, setOptOpen] = React.useState(
+    Boolean(initial && (initial.color || initial.priority !== 1 || initial.forUser.id !== meId)) ||
+      Boolean(prefill && (prefill.color || (prefill.priority ?? 1) !== 1)),
+  );
   const iconBtn = React.useRef<HTMLButtonElement>(null);
 
   const anchored = anchorKind !== "none";
   const markList = [...PROJECT_MARKS, ...SECTOR_MARKS];
+  // «Para»: yo primero, luego el resto por nombre; y selección de todo el equipo en un toque.
+  const sortedTeam = React.useMemo(
+    () => [...team].sort((a, b) => (a.id === meId ? -1 : b.id === meId ? 1 : a.name.localeCompare(b.name))),
+    [team, meId],
+  );
+  const allSelected = team.length > 0 && forIds.length === team.length;
+  const [tplSaved, setTplSaved] = React.useState(false);
+  const saveTpl = () => {
+    if (!title.trim() || tplSaved) return;
+    onSaveTemplate({
+      id: crypto.randomUUID(),
+      title: title.trim(),
+      icon: icon || null,
+      color,
+      priority,
+      frequency: anchored ? "UNA_VEZ" : frequency,
+      timeOfDay: !anchored && frequency !== "UNA_VEZ" ? timeOfDay : alerts[0]?.time ?? "08:00",
+      weekdays,
+      dayOfMonth,
+    });
+    setTplSaved(true);
+  };
 
   const submit = () => {
     setError(null);
@@ -634,17 +859,28 @@ function ReminderForm({
               <div className="mt-3 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"><Users className="size-3.5" /> Para</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {team.map((u) => (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {sortedTeam.map((u) => (
                       <button
                         key={u.id}
                         type="button"
                         onClick={() => toggleFor(u.id)}
-                        className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", forIds.includes(u.id) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent")}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2.5 text-xs font-medium transition-colors",
+                          forIds.includes(u.id) ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground hover:bg-accent",
+                        )}
                       >
-                        {u.id === meId ? "Mí" : u.name}
+                        <UserAvatar size="sm" name={u.name} initials={u.initials} color={u.avatarColor} url={u.avatarUrl} />
+                        {u.id === meId ? "Mí" : shortName(u.name)}
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => setForIds(allSelected ? [meId] : team.map((u) => u.id))}
+                      className="rounded-full border border-dashed border-input px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
+                    >
+                      {allSelected ? "Solo yo" : "Todo el equipo"}
+                    </button>
                   </div>
                   {forIds.length > 1 ? <p className="text-[11px] text-muted-foreground">Se creará un recordatorio para cada persona ({forIds.length}).</p> : null}
                 </div>
@@ -675,6 +911,17 @@ function ReminderForm({
 
       {/* Footer del panel */}
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+        <button
+          onClick={saveTpl}
+          disabled={!title.trim() || tplSaved}
+          title="Guardar como plantilla: queda como chip de un toque arriba de la lista (en este dispositivo)"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium transition-colors",
+            tplSaved ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40",
+          )}
+        >
+          <Star className={cn("size-4", tplSaved && "fill-current")} /> <span className="hidden sm:inline">{tplSaved ? "Plantilla guardada" : "Plantilla"}</span>
+        </button>
         {error ? <p className="mr-auto text-xs text-destructive">{error}</p> : <span className="mr-auto" />}
         <button onClick={onClose} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent">Cancelar</button>
         <button onClick={submit} disabled={pending || !title.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
