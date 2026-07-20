@@ -45,3 +45,7 @@ next-env.d.ts
 
 # Storage local de archivos
 /storage
+
+# Claude Code: config local (permisos personales) y worktrees de sesiones — no van al repo.
+.claude/settings.local.json
+.claude/worktrees/
