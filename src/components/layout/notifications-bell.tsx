@@ -185,9 +185,15 @@ function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: No
 
   return (
     <div className="group/row relative border-b border-border last:border-0">
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-between bg-destructive/10 px-4 text-destructive">
-        <Trash2 className="size-4" /><Trash2 className="size-4" />
-      </div>
+      {/* Fondo de "deslizar para borrar": SOLO visible mientras se arrastra la fila (dx≠0). Si
+          se dejara siempre montado, su tinte rojo y los íconos de basura se traslucirían por
+          debajo del contenido (que es semi-transparente para el tinte de "no leído") y pintaban
+          toda la lista de rosa con un icono rojo asomando en cada avatar. */}
+      {dx !== 0 ? (
+        <div className={cn("pointer-events-none absolute inset-0 flex items-center bg-destructive/10 px-4 text-destructive", dx > 0 ? "justify-start" : "justify-end")}>
+          <Trash2 className="size-4" />
+        </div>
+      ) : null}
       <div
         role="button"
         tabIndex={0}
@@ -200,7 +206,11 @@ function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: No
         style={{ transform: `translateX(${dx}px)`, opacity: removing ? 0 : 1, transition: swiping.current ? "none" : "transform .2s ease, opacity .15s ease" }}
         className={cn(
           "relative flex cursor-pointer items-start gap-3 px-4 py-2.5 text-left outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-          tint ? cn("border-l-4", tint.stripe, !n.read && tint.wash) : !n.read && "bg-primary/5",
+          // Mientras se desliza (dx≠0), fondo OPACO para que la fila tape el rojo y se lea el gesto;
+          // se conserva la franja lateral para no provocar un salto de 4px al empezar a arrastrar.
+          tint
+            ? cn("border-l-4", tint.stripe, dx !== 0 ? "bg-popover" : !n.read && tint.wash)
+            : dx !== 0 ? "bg-popover" : !n.read && "bg-primary/5",
         )}
       >
         <NotifAvatar n={n} />
