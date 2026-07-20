@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { IconCalendario } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject, hasFullAccess } from "@/lib/project-access";
@@ -171,12 +170,10 @@ export default async function CalendarioPage() {
   ) : null;
 
   return (
-    <div className="flex h-full flex-col px-4 py-6 sm:px-6">
-      <div className="flex shrink-0 items-center gap-3">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconCalendario className="size-7" /></span>
-        <h1 className="text-3xl font-bold tracking-tight">Calendario del equipo</h1>
-      </div>
-      <div className="mt-4 min-h-0 flex-1">
+    // El título «Calendario del equipo» vive ahora EN LA BARRA superior (identidad por
+    // defecto de nav-meta) — el calendario aprovecha todo el alto de la vista.
+    <div className="flex h-full flex-col px-4 py-4 sm:px-6">
+      <div className="min-h-0 flex-1">
         <CalendarBoard
           items={items}
           onCreate={createMyEvent}

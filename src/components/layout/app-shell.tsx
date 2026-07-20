@@ -196,6 +196,7 @@ export function AppShell({
         <Topbar
           team={team}
           notifications={notifications}
+          canAdmin={canAdmin}
           onToggleSidebar={toggleSidebar}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
         />

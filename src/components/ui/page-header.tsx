@@ -1,10 +1,16 @@
-import * as React from "react";
-import { cn } from "@/lib/utils";
+"use client";
 
-// Encabezado de página consistente en toda la app: título grande + descripción opcional +
-// acciones alineadas a la derecha (botones de "Nuevo …", etc.). Reemplaza los H1 hechos a mano
-// con estilos disparejos por un único patrón. NO envuelve pestañas/filtros/buscadores: esos
-// siguen debajo, en la propia página.
+import * as React from "react";
+import { createPortal } from "react-dom";
+import { cn } from "@/lib/utils";
+import { useTopbarSlot } from "@/components/layout/topbar-slot";
+
+// Identidad de página EN LA BARRA SUPERIOR: este componente ya no pinta un H1 grande dentro
+// de la página — teletransporta título + descripción + ícono al hueco `#topbar-page-slot`
+// de la Topbar (portal tras montar, igual que el detalle de proyecto). El default de la barra
+// (nav-meta) se oculta solo vía CSS cuando este contenido aparece. En la página solo quedan
+// las ACCIONES ("Nuevo …"), alineadas a la derecha. Las ~12 páginas que ya usaban PageHeader
+// migran sin tocarse: misma firma, nuevo destino.
 export function PageHeader({
   title,
   description,
@@ -19,20 +25,29 @@ export function PageHeader({
   actions?: React.ReactNode;
   className?: string;
 }) {
+  const target = useTopbarSlot("topbar-page-slot");
+
   return (
-    <div className={cn("mb-6 flex flex-wrap items-start justify-between gap-3", className)}>
-      <div className="flex min-w-0 items-center gap-3">
-        {icon ? (
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60 [&>svg]:size-7">
-            {icon}
-          </span>
-        ) : null}
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
-          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-        </div>
-      </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
-    </div>
+    <>
+      {target
+        ? createPortal(
+            <div className="flex min-w-0 items-center gap-2.5">
+              {icon ? (
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary [&>svg]:size-5">
+                  {icon}
+                </span>
+              ) : null}
+              <span className="min-w-0">
+                <span className="block truncate text-[14.5px] font-semibold leading-tight">{title}</span>
+                {description ? (
+                  <span className="hidden truncate text-[11.5px] leading-tight text-muted-foreground sm:block">{description}</span>
+                ) : null}
+              </span>
+            </div>,
+            target,
+          )
+        : null}
+      {actions ? <div className={cn("mb-4 flex flex-wrap items-center justify-end gap-2", className)}>{actions}</div> : null}
+    </>
   );
 }

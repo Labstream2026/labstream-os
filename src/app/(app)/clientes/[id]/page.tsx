@@ -5,6 +5,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
+import { ClientTopbarPeople } from "./client-topbar-people";
 import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
 import { ClientIdentity, ClientCover } from "./client-appearance";
@@ -264,6 +265,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
+      {/* Miembros del cliente en la BARRA superior (avatares → panel editable, se recoge al
+          hacer clic fuera). Sustituye ahí al grupo global del equipo mientras estás en la ficha. */}
+      <ClientTopbarPeople clientId={id} members={memberItems} addable={addable} canManage={canManage} />
       <ClientHeader
         name={client.name}
         company={client.company}

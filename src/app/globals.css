@@ -175,6 +175,15 @@ html.density-compact {
   }
 }
 
+/* ── Huecos de la barra superior (identidad de página y personas) ──
+   La barra pinta un contenido POR DEFECTO (marcado con data-slot-default) dentro de cada
+   hueco; cuando una página teletransporta el suyo vía portal (PageHeader, ProjectTopbarTitle,
+   panel de miembros del cliente), el default se oculta solo — sin coordinación por JS. */
+#topbar-page-slot:has(> :not([data-slot-default])) > [data-slot-default],
+#topbar-people-slot:has(> :not([data-slot-default])) > [data-slot-default] {
+  display: none;
+}
+
 /* scrollbars discretos */
 ::-webkit-scrollbar {
   width: 10px;

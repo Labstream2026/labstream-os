@@ -1,12 +1,12 @@
 "use client";
 
-import * as React from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
+import { useTopbarSlot } from "@/components/layout/topbar-slot";
 
 // Título del proyecto EN la barra superior (Opción A): la página lo teletransporta al hueco
 // `#topbar-page-slot` del Topbar (portal tras montar; el hueco existe en todas las páginas y
@@ -35,14 +35,13 @@ export function ProjectTopbarTitle({
   statusClassName: string;
   progress: number;
 }) {
-  const [target, setTarget] = React.useState<HTMLElement | null>(null);
-  React.useEffect(() => {
-    setTarget(document.getElementById("topbar-page-slot"));
-  }, []);
+  const target = useTopbarSlot("topbar-page-slot");
   if (!target) return null;
 
   return createPortal(
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    // data-client-id: contexto para el menú «Compartir» de la barra (invitar al portal de ESTE
+    // cliente desde el proyecto sin salir de la página).
+    <div className="flex min-w-0 flex-1 items-center gap-2" data-client-id={clientId}>
       <Link
         href="/proyectos"
         title="Volver a Proyectos"

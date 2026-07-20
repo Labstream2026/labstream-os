@@ -41,7 +41,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         },
       },
     }),
-    db.user.findMany({ take: 4, orderBy: { createdAt: "asc" }, select: { initials: true, avatarColor: true } }),
+    // Equipo para la barra: ACTIVOS y humanos, con nombre y cargo — alimenta el panel de
+    // miembros de los avatares (clic → lista con info), no solo las 4 bolitas.
+    db.user.findMany({
+      where: { active: true, isSystemBot: false, role: { key: { not: "cliente" } } },
+      take: 12,
+      orderBy: { createdAt: "asc" },
+      select: { initials: true, avatarColor: true, name: true, title: true },
+    }),
     db.notification.findMany({
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
@@ -191,7 +198,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }))
         // Orden alfabético real: insensible a mayúsculas/acentos y con reglas del español.
         .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }))}
-      team={team.map((t) => ({ initials: t.initials, color: t.avatarColor }))}
+      team={team.map((t) => ({ initials: t.initials, color: t.avatarColor, name: t.name, title: t.title }))}
       notifications={notifs.map((n) => ({
         id: n.id,
         type: n.type,
