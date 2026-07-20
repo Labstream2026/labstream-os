@@ -127,9 +127,9 @@ export async function GET(req: Request) {
   // es el de SU proyecto, vía /chat. Sin este guard, un cliente podía crear/abrir un DM con
   // cualquier persona del equipo llamando directo a ?dm=<id>.
   if (session.role === "cliente") return NextResponse.json({ channel: null, canAccess: false, messages: [] });
-  // El admin ve los mensajes borrados (en gris) para seguimiento; los demás no.
-  const adminAll = session.role === "admin";
-  const msgWhere = (channelId: string) => ({ channelId, ...(adminAll ? {} : { deletedAt: null }) });
+  // Los mensajes borrados no se muestran a nadie (tampoco al admin): su contenido queda
+  // registrado en la pestaña de Auditoría (ver deleteMessage en chat/actions.ts).
+  const msgWhere = (channelId: string) => ({ channelId, deletedAt: null });
 
   const url = new URL(req.url);
   const projectId = url.searchParams.get("project");

@@ -92,7 +92,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ chan
   if (!session) return NextResponse.json({ error: "unauth" }, { status: 401 });
   if (!(await userCanAccessChannel(channelId, session))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const isAdmin = session.role === "admin"; // el admin ve los borrados (en gris) para seguimiento
   const url = new URL(req.url);
   const searchQ = (url.searchParams.get("q") ?? "").trim();
   const around = url.searchParams.get("around");
@@ -100,7 +99,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ chan
   const before = parseDate(url.searchParams.get("before"));
   const take = Math.min(Math.max(Number(url.searchParams.get("take")) || (before ? 50 : 100), 1), MAX_TAKE);
 
-  const base = { channelId, ...(isAdmin ? {} : { deletedAt: null }) };
+  // Los borrados no se devuelven a nadie (tampoco al admin): su contenido queda en Auditoría.
+  const base = { channelId, deletedAt: null };
   const inc = buildInclude(session.id);
 
   // BÚSQUEDA en el historial COMPLETO del canal (texto del cuerpo, sin distinguir mayúsculas): antes

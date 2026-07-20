@@ -31,7 +31,9 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
       project: { select: { leadId: true, members: { select: { userId: true } } } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
       messages: {
-        where: isAdmin ? undefined : { deletedAt: null },
+        // Los mensajes borrados YA NO se muestran a nadie (tampoco al admin): su contenido
+        // queda registrado en la pestaña de Auditoría (ver deleteMessage en chat/actions.ts).
+        where: { deletedAt: null },
         // Traemos los 100 MÁS RECIENTES (desc) y los re-invertimos a orden cronológico abajo.
         // Con orderBy:"asc"+take:100 Prisma devolvía los 100 más VIEJOS → en chats largos (p. ej.
         // el DM con Marcebot) los mensajes nuevos nunca llegaban al cliente y "no aparecían".

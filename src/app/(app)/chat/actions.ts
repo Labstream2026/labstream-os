@@ -183,12 +183,23 @@ export async function editMessage(messageId: string, body: string): Promise<void
 }
 
 // Borrar un mensaje propio (o admin del sistema / gestor del canal).
-// Borrado SUAVE: el mensaje desaparece para los usuarios pero el administrador lo
-// sigue viendo (en gris) para seguimiento. No se elimina la fila de la BD.
+// Borrado SUAVE: el mensaje desaparece para TODOS (ya no lo ve nadie, tampoco el admin). La fila
+// no se elimina de la BD y su contenido queda registrado en la pestaña de AUDITORÍA para
+// seguimiento (ver el logActivity de abajo).
 export async function deleteMessage(messageId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
-  const msg = await db.chatMessage.findUnique({ where: { id: messageId }, select: { channelId: true, authorId: true, deletedAt: true } });
+  const msg = await db.chatMessage.findUnique({
+    where: { id: messageId },
+    select: {
+      channelId: true,
+      authorId: true,
+      deletedAt: true,
+      body: true,
+      author: { select: { name: true } },
+      channel: { select: { name: true } },
+    },
+  });
   if (!msg || msg.deletedAt) return;
   const isOwner = msg.authorId === session.id;
   // Borrar mensajes de OTROS exige moderar_chat (o admin / gestor del canal). El autor
@@ -196,6 +207,24 @@ export async function deleteMessage(messageId: string): Promise<void> {
   if (!isOwner && session.role !== "admin" && !hasPermission(session, "moderar_chat") && !(await userCanManageChannel(msg.channelId, session))) return;
   await db.chatMessage.update({ where: { id: messageId }, data: { deletedAt: new Date(), deletedById: session.id } });
   publishMessageDelete(msg.channelId, messageId);
+
+  // Rastro de AUDITORÍA: como el mensaje ya no se ve en el chat (ni el admin), guardamos su
+  // contenido en el registro de actividad para que quede REVISABLE en la pestaña de Auditoría.
+  // `silent: true` → solo registrar, sin notificar ni espejar al chat. NO se pasa projectId a
+  // propósito: así el contenido borrado NO aparece en el feed por-proyecto (audiencia amplia) y
+  // queda solo en la Auditoría central (permiso ver_actividad).
+  const autor = msg.author?.name ?? "alguien";
+  const canal = msg.channel?.name ?? "chat directo";
+  const texto = (msg.body ?? "").trim();
+  const snippet = texto ? (texto.length > 280 ? `${texto.slice(0, 280)}…` : texto) : "(sin texto)";
+  await logActivity({
+    action: "chat.message.delete",
+    summary: `eliminó un mensaje de ${autor} en «${canal}»: «${snippet}»`,
+    entityType: "chatMessage",
+    entityId: messageId,
+    meta: { body: texto, authorId: msg.authorId, authorName: msg.author?.name ?? null, channelId: msg.channelId, channelName: msg.channel?.name ?? null },
+    silent: true,
+  });
 }
 
 // Borrar una conversación entera (todos sus mensajes). Borrado suave: para los
