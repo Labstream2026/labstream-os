@@ -279,7 +279,9 @@ function DesktopChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void;
       onClick={onOpen}
       aria-label="Abrir chat"
       title="Chat (Esc cierra)"
-      className="group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95 md:grid print:hidden"
+      // Mientras el speed-dial del FAB está abierto (.qc-dial-open), se desvanece: sus acciones
+      // suben exactamente a este hueco (mismo arreglo que la burbuja del proyecto en ea32e27).
+      className="group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-[transform,opacity] hover:scale-105 active:scale-95 md:grid print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
     >
       <IconChat className="size-6" />
       {unread > 0 ? (
@@ -299,7 +301,9 @@ function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; 
       type="button"
       onClick={onOpen}
       aria-label="Abrir chat"
-      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg active:scale-95 md:hidden print:hidden"
+      // Se desvanece mientras el speed-dial del FAB está abierto (marcador .qc-dial-open):
+      // sus acciones suben justo a este hueco y la burbuja las tapaba (mismo bug que en escritorio).
+      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg transition-opacity active:scale-95 md:hidden print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
       style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}
     >
       <IconChat className="size-6" />
