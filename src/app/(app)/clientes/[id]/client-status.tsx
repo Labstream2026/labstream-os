@@ -56,11 +56,11 @@ export function ClientStatus({
       {/* Interruptor Activo/Inactivo */}
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium">{isActive ? "Activo" : "Inactivo"}</p>
+          <p className="text-sm font-medium">{isActive ? "Activo" : "En el Archivo"}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {isActive
-              ? "Aparece en el menú, la lista de clientes y el inicio."
-              : "Oculto de las listas. Reactívalo cuando llegue un proyecto nuevo."}
+              ? "Aparece en el menú, la lista de clientes y el inicio. Al terminar sus proyectos, desactívalo para enviarlo al Archivo (no es la papelera)."
+              : "Vive en Clientes → Archivo con sus proyectos, sin estorbar las listas. Restáuralo desde allí o aquí cuando vuelva."}
           </p>
         </div>
         <button

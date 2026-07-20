@@ -32,8 +32,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       orderBy: { name: "asc" },
       include: {
         // Solo los proyectos que el usuario puede ver, para el desplegable del sidebar.
+        // Los TERMINADOS (finishedAt) no aparecen: viven en el Archivo (Clientes → Archivo y
+        // Proyectos → Terminados), restaurables, sin estorbar la navegación diaria.
         projects: {
-          where: accessibleProjectWhere(session),
+          where: { ...accessibleProjectWhere(session), finishedAt: null },
           orderBy: { createdAt: "asc" },
           select: { id: true, name: true, emoji: true },
         },

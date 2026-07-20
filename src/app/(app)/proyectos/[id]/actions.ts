@@ -2736,11 +2736,17 @@ export async function reopenProject(projectId: string): Promise<{ ok: boolean; e
   } catch {
     return { ok: false, error: "No autorizado para reabrir este proyecto." };
   }
-  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, client: { select: { id: true, isActive: true } } } });
   if (!project) return { ok: false, error: "El proyecto no existe." };
   await db.project.update({ where: { id: projectId }, data: { finishedAt: null, finishedById: null } });
+  // Si el cliente estaba en el ARCHIVO (inactivo por trabajo terminado), restaurar uno de sus
+  // proyectos lo REACTIVA: vuelve al menú y a las listas para poder trabajar de inmediato.
+  if (project.client && !project.client.isActive) {
+    await db.client.update({ where: { id: project.client.id }, data: { isActive: true } });
+  }
   await logActivity({ action: "project.reopen", summary: `reabrió el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/proyectos");
+  revalidatePath("/clientes");
   revalidatePath("/", "layout");
   return { ok: true };
 }

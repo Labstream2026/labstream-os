@@ -8,13 +8,14 @@ import { statusMeta } from "@/lib/ui";
 import { UserAvatar } from "@/components/user-avatar";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
-import { Plus, FolderOpen, PowerOff } from "lucide-react";
+import { Plus, FolderOpen, Archive } from "lucide-react";
 import { IconCliente, IconTarjetas, IconLista } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ViewTabs } from "../proyectos/[id]/view-tabs";
 import { ClientCardMenu } from "./client-card-menu";
+import { ClientRestoreButton } from "./client-restore-button";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ type CardProject = {
   emoji: string | null;
   status: string;
   progress: number;
+  finished: boolean; // terminado (finishedAt): en el Archivo se lista con su marca
   lead: { initials: string | null; avatarColor: string | null } | null;
 };
 
@@ -35,9 +37,9 @@ function ProjectRow({ p, accent }: { p: CardProject; accent: string | null }) {
   const closed = CLOSED.includes(p.status);
   return (
     <Link href={`/proyectos/${p.id}`} className="flex items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent/50">
-      <span className="size-2 shrink-0 rounded-full" style={{ background: closed ? "hsl(var(--muted-foreground))" : (accent ?? "hsl(var(--primary))") }} />
+      <span className="size-2 shrink-0 rounded-full" style={{ background: p.finished || closed ? "hsl(var(--muted-foreground))" : (accent ?? "hsl(var(--primary))") }} />
       <span className="min-w-0 flex-1 truncate font-medium">{p.emoji ? <><EntityEmoji value={p.emoji} />{" "}</> : null}{p.name}</span>
-      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{closed ? st.label : `${p.progress}%`}</span>
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{p.finished ? "Terminado" : closed ? st.label : `${p.progress}%`}</span>
       {p.lead ? <UserAvatar initials={p.lead.initials} color={p.lead.avatarColor} size="sm" /> : <span className="size-5 shrink-0" />}
     </Link>
   );
@@ -80,9 +82,13 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
 
   // Para cada cliente, solo los proyectos que el usuario puede ver.
   const cards = clients.map((c) => {
-    const projects: CardProject[] = c.projects
+    const allProjects: CardProject[] = c.projects
       .filter((p) => canAccessProject(p, session))
-      .map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, status: p.status, progress: p.progress, lead: p.lead ? { initials: p.lead.initials, avatarColor: p.lead.avatarColor } : null }));
+      .map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, status: p.status, progress: p.progress, finished: !!p.finishedAt, lead: p.lead ? { initials: p.lead.initials, avatarColor: p.lead.avatarColor } : null }));
+    // En la vista ACTIVA los proyectos TERMINADOS no se listan (viven en el Archivo y en
+    // Proyectos → Terminados); solo se cuentan. En el Archivo sí se listan, con su marca.
+    const projects = showInactive ? allProjects : allProjects.filter((p) => !p.finished);
+    const finished = allProjects.length - allProjects.filter((p) => !p.finished).length;
     const progress = projects.length ? Math.round(projects.reduce((s, p) => s + (p.progress ?? 0), 0) / projects.length) : 0;
     return {
       id: c.id,
@@ -92,12 +98,14 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
       color: c.accentColor,
       quotes: c._count.quotes,
       projects,
+      total: allProjects.length,
+      finished,
       progress,
-      active: projects.filter((p) => !CLOSED.includes(p.status)).length,
+      active: projects.filter((p) => !p.finished && !CLOSED.includes(p.status)).length,
     };
   });
 
-  const totalProjects = cards.reduce((n, c) => n + c.projects.length, 0);
+  const totalProjects = cards.reduce((n, c) => n + c.total, 0);
   const canCreate = hasPermission(session, "crear_clientes");
   // Para el menú de la tarjeta: crear proyecto (permiso propio) y archivar (solo admin).
   const canCreateProject = hasPermission(session, "crear_proyectos");
@@ -129,9 +137,10 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                 <ClientCardMenu clientId={c.id} clientName={c.name} canCreateProject={canCreateProject} canArchive={isAdmin} />
               </div>
 
-              <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
-                <span><strong className="font-medium text-foreground">{c.projects.length}</strong> proyectos</span>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span><strong className="font-medium text-foreground">{c.total}</strong> proyectos</span>
                 <span><strong className="font-medium text-foreground">{c.active}</strong> activos</span>
+                {c.finished > 0 ? <span><strong className="font-medium text-foreground">{c.finished}</strong> terminados</span> : null}
                 <span><strong className="font-medium text-foreground">{c.quotes}</strong> cotizaciones</span>
               </div>
 
@@ -159,6 +168,12 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                 )}
               </div>
 
+              {showInactive ? (
+                /* Archivo: restaurar aquí mismo (vuelve al menú, la lista activa y el inicio). */
+                <div className="mt-3">
+                  <ClientRestoreButton clientId={c.id} />
+                </div>
+              ) : null}
               <Link href={`/clientes/${c.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 Ver ficha del cliente →
               </Link>
@@ -180,6 +195,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
             <th className="px-3 py-2.5 font-medium">Activos</th>
             <th className="px-3 py-2.5 font-medium">Cotizaciones</th>
             <th className="px-3 py-2.5 font-medium">Avance</th>
+            {showInactive ? <th className="px-3 py-2.5" /> : null}
           </tr>
         </thead>
         <tbody>
@@ -197,7 +213,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                     <span className="truncate">{c.name}</span>
                   </Link>
                 </td>
-                <td className="px-3 py-2.5 tabular-nums">{c.projects.length}</td>
+                <td className="px-3 py-2.5 tabular-nums">{c.total}</td>
                 <td className="px-3 py-2.5 tabular-nums">{c.active}</td>
                 <td className="px-3 py-2.5 tabular-nums">{c.quotes}</td>
                 <td className="px-3 py-2.5">
@@ -208,6 +224,11 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
                     <span className="text-xs tabular-nums text-muted-foreground">{c.progress}%</span>
                   </div>
                 </td>
+                {showInactive ? (
+                  <td className="px-3 py-2.5 text-right">
+                    <ClientRestoreButton clientId={c.id} compact />
+                  </td>
+                ) : null}
               </tr>
             );
           })}
@@ -220,10 +241,10 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         icon={<IconCliente />}
-        title={showInactive ? "Clientes inactivos" : "Clientes"}
+        title={showInactive ? "Archivo de clientes" : "Clientes"}
         description={
           showInactive
-            ? `${cards.length} cliente${cards.length === 1 ? "" : "s"} desactivado${cards.length === 1 ? "" : "s"}. Reactívalos abriendo su ficha → Ajustes.`
+            ? `${cards.length} cliente${cards.length === 1 ? "" : "s"} con trabajo terminado. No es la papelera: aquí descansan con sus proyectos, listos para RESTAURAR cuando vuelvan.`
             : `${cards.length} cliente${cards.length === 1 ? "" : "s"} · ${totalProjects} proyecto${totalProjects === 1 ? "" : "s"} en total.`
         }
         actions={
@@ -238,17 +259,17 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
         }
       />
 
-      {/* Toggle activos/inactivos: filtro de vista, vive debajo del encabezado. */}
+      {/* Toggle activos/Archivo: filtro de vista, vive debajo del encabezado. */}
       {showInactive ? (
         <div className="-mt-2 mb-6">
           <Link href="/clientes" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
-            ← Ver activos
+            ← Volver a clientes activos
           </Link>
         </div>
       ) : inactiveCount > 0 ? (
         <div className="-mt-2 mb-6">
           <Link href="/clientes?inactivos=1" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent">
-            <PowerOff className="size-4" /> Ver inactivos ({inactiveCount})
+            <Archive className="size-4" /> Archivo ({inactiveCount})
           </Link>
         </div>
       ) : null}
@@ -257,18 +278,17 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
         <div className="mt-10">
           <EmptyState
             icon={<IconCliente />}
-            title={showInactive ? "No hay clientes inactivos" : "Aún no hay clientes"}
+            title={showInactive ? "El archivo está vacío" : "Aún no hay clientes"}
             description={
               showInactive
-                ? "Todos tus clientes están activos por ahora."
+                ? "Cuando termines los proyectos de un cliente, desactívalo desde su ficha → Ajustes y quedará aquí con sus proyectos, listo para restaurar."
                 : "No tienes clientes visibles todavía. Cuando se creen o se te asignen, aparecerán aquí."
             }
           />
         </div>
-      ) : showInactive ? (
-        <div className="mt-8">{cardsNode}</div>
       ) : (
         <div className="mt-6">
+          {/* El Archivo comparte las dos vistas (Tarjetas/Lista); en ambas hay «Restaurar». */}
           <ViewTabs
             storageKey="clientes-view"
             views={[
