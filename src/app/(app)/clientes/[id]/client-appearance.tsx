@@ -8,39 +8,15 @@ import { EntityEmoji } from "@/components/icons/marks";
 
 type SaveResult = { ok: boolean; error?: string };
 
-// Panel de APARIENCIA del cliente dentro de Ajustes: reúne toda la personalización visual
-// (color, foto, logo + color de fondo del logo, y portada/banner). Usa las MISMAS acciones
-// que el resto (saveClientAppearance / clearClientImage / clearClientCover), que revalidan
-// la página al guardar. Cada guardado reporta su resultado (✓ o el error real): un fallo
-// del almacenamiento del NAS ya no pasa en silencio.
-export function ClientAppearance({
-  name,
-  emoji,
-  color,
-  photoUrl,
-  logoUrl,
-  logoBg,
-  bannerUrl,
-  onSave,
-  onClearImage,
-  onClearCover,
-}: {
-  name: string;
-  emoji: string | null;
-  color: string | null;
-  photoUrl: string | null;
-  logoUrl: string | null;
-  logoBg: string | null;
-  bannerUrl: string | null;
-  onSave: (fd: FormData) => Promise<SaveResult>;
-  onClearImage: (kind: "photo" | "logo") => Promise<SaveResult>;
-  onClearCover: () => Promise<SaveResult>;
-}) {
+// Apariencia del cliente en DOS tarjetas (rejilla fluida de Ajustes): «Identidad» (vista previa
+// + color + foto + logo) y «Portada» (banner ancho). Piezas más pequeñas = la rejilla encaja sin
+// espacio muerto. Ambas usan las mismas acciones de siempre y reportan su resultado (✓ o el
+// error real): un fallo del almacenamiento del NAS no pasa en silencio.
+
+// Guardado con feedback compartido por ambas tarjetas.
+function useAppearanceSave(onSave: (fd: FormData) => Promise<SaveResult>) {
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
-  const photoRef = React.useRef<HTMLInputElement>(null);
-  const logoRef = React.useRef<HTMLInputElement>(null);
-  const bannerRef = React.useRef<HTMLInputElement>(null);
 
   // El «Guardado ✓» se esfuma solo; los errores se quedan hasta el siguiente intento.
   React.useEffect(() => {
@@ -56,9 +32,45 @@ export function ClientAppearance({
     setMsg(null);
     start(async () => { report(await onSave(fd)); });
   };
-  const clearImage = (kind: "photo" | "logo") => { setMsg(null); start(async () => { report(await onClearImage(kind)); }); };
-  const clearCover = () => { setMsg(null); start(async () => { report(await onClearCover()); }); };
-  const onFile = (key: "photo" | "logo" | "banner", f: File | null) => { if (f) save((fd) => fd.set(key, f)); };
+  const run = (fn: () => Promise<SaveResult>) => { setMsg(null); start(async () => { report(await fn()); }); };
+  return { pending, msg, save, run };
+}
+
+function StatusChip({ pending, msg }: { pending: boolean; msg: { ok: boolean; text: string } | null }) {
+  if (pending) return <Loader2 className="size-4 animate-spin opacity-60" />;
+  if (!msg) return null;
+  return (
+    <span className={cn("inline-flex items-center gap-1 text-xs", msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
+      {msg.ok ? <Check className="size-3.5" /> : null}
+      {msg.text}
+    </span>
+  );
+}
+
+// ── Tarjeta 1: IDENTIDAD (vista previa + color + foto + logo) ──
+export function ClientIdentity({
+  name,
+  emoji,
+  color,
+  photoUrl,
+  logoUrl,
+  logoBg,
+  onSave,
+  onClearImage,
+}: {
+  name: string;
+  emoji: string | null;
+  color: string | null;
+  photoUrl: string | null;
+  logoUrl: string | null;
+  logoBg: string | null;
+  onSave: (fd: FormData) => Promise<SaveResult>;
+  onClearImage: (kind: "photo" | "logo") => Promise<SaveResult>;
+}) {
+  const { pending, msg, save, run } = useAppearanceSave(onSave);
+  const photoRef = React.useRef<HTMLInputElement>(null);
+  const logoRef = React.useRef<HTMLInputElement>(null);
+  const onFile = (key: "photo" | "logo", f: File | null) => { if (f) save((fd) => fd.set(key, f)); };
 
   const t = color ? tone(color) : null;
   const toneLabel = color ? TONES.find((tn) => tn.key === color)?.label : null;
@@ -66,15 +78,8 @@ export function ClientAppearance({
   return (
     <div className="space-y-5 rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">Apariencia</h3>
-        {pending ? (
-          <Loader2 className="size-4 animate-spin opacity-60" />
-        ) : msg ? (
-          <span className={cn("inline-flex items-center gap-1 text-xs", msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
-            {msg.ok ? <Check className="size-3.5" /> : null}
-            {msg.text}
-          </span>
-        ) : null}
+        <h3 className="text-sm font-semibold">Identidad</h3>
+        <StatusChip pending={pending} msg={msg} />
       </div>
 
       {/* Vista previa en vivo: así se ve la tarjeta del cliente con el color elegido. */}
@@ -140,7 +145,7 @@ export function ClientAppearance({
                 )}
               </div>
               {photoUrl ? (
-                <button type="button" onClick={() => clearImage("photo")} title="Quitar foto" className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"><X className="size-3" /></button>
+                <button type="button" onClick={() => run(() => onClearImage("photo"))} title="Quitar foto" className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"><X className="size-3" /></button>
               ) : null}
             </div>
             <button type="button" onClick={() => photoRef.current?.click()} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"><ImagePlus className="size-3.5" /> Subir</button>
@@ -161,7 +166,7 @@ export function ClientAppearance({
                 )}
               </div>
               {logoUrl ? (
-                <button type="button" onClick={() => clearImage("logo")} title="Quitar logo" className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"><X className="size-3" /></button>
+                <button type="button" onClick={() => run(() => onClearImage("logo"))} title="Quitar logo" className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-destructive"><X className="size-3" /></button>
               ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
@@ -175,27 +180,45 @@ export function ClientAppearance({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Portada / banner */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground">Portada <span className="font-normal text-muted-foreground/70">· ancha (~1600×500) · máx 8MB</span></p>
+// ── Tarjeta 2: PORTADA (banner ancho) ──
+export function ClientCover({
+  bannerUrl,
+  onSave,
+  onClearCover,
+}: {
+  bannerUrl: string | null;
+  onSave: (fd: FormData) => Promise<SaveResult>;
+  onClearCover: () => Promise<SaveResult>;
+}) {
+  const { pending, msg, save, run } = useAppearanceSave(onSave);
+  const bannerRef = React.useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">Portada <span className="font-normal text-muted-foreground/70">· ancha (~1600×500) · máx 8MB</span></h3>
+        <div className="flex items-center gap-3">
+          <StatusChip pending={pending} msg={msg} />
           {bannerUrl ? (
-            <button type="button" onClick={clearCover} disabled={pending} className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-destructive disabled:opacity-50">
+            <button type="button" onClick={() => run(onClearCover)} disabled={pending} className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-destructive disabled:opacity-50">
               <X className="size-3" /> Quitar portada
             </button>
           ) : null}
         </div>
-        <button type="button" onClick={() => bannerRef.current?.click()} title="Subir portada (imagen ancha)" className="block w-full overflow-hidden rounded-lg border border-border hover:ring-2 hover:ring-primary/40">
-          {bannerUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={bannerUrl} alt="Portada del cliente" className="h-24 w-full object-cover" />
-          ) : (
-            <div className="flex h-24 w-full items-center justify-center bg-muted/40 text-xs text-muted-foreground"><ImagePlus className="mr-1.5 size-4" /> Subir portada</div>
-          )}
-        </button>
-        <input ref={bannerRef} type="file" accept="image/*" hidden onChange={(e) => onFile("banner", e.target.files?.[0] ?? null)} />
       </div>
+      <button type="button" onClick={() => bannerRef.current?.click()} title="Subir portada (imagen ancha)" className="block w-full overflow-hidden rounded-lg border border-border hover:ring-2 hover:ring-primary/40">
+        {bannerUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={bannerUrl} alt="Portada del cliente" className="h-28 w-full object-cover" />
+        ) : (
+          <div className="flex h-28 w-full items-center justify-center bg-muted/40 text-xs text-muted-foreground"><ImagePlus className="mr-1.5 size-4" /> Subir portada</div>
+        )}
+      </button>
+      <input ref={bannerRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) save((fd) => fd.set("banner", f)); }} />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
-import { ClientAppearance } from "./client-appearance";
+import { ClientIdentity, ClientCover } from "./client-appearance";
 import { ClientHeader } from "./client-header";
 import { ClientViewNav } from "./client-view-nav";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
@@ -390,23 +390,27 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: "Ajustes",
               icon: <IconConfiguracion />,
               node: (
-                // Diagramación en dos columnas: la información/personalización del cliente a la
-                // izquierda (columna principal) y el acceso del equipo a la derecha, SIEMPRE
-                // visible sin tener que bajar. En móvil se apilan.
-                <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-                  <div className="space-y-5">
-                    {/* Apariencia primero: toda la personalización visual reunida aquí. */}
+                // REJILLA FLUIDA (Opción A): dos columnas del MISMO peso, sin espacio muerto.
+                // Izquierda: Identidad → Portada → Información. Derecha: Personas del portal →
+                // Acceso del equipo → Estado. Lo que se toca junto vive junto; en móvil se apilan.
+                <div className="grid items-start gap-5 lg:grid-cols-2">
+                  <div className="min-w-0 space-y-5">
                     {canEdit ? (
-                      <ClientAppearance
+                      <ClientIdentity
                         name={client.name}
                         emoji={client.emoji}
                         color={client.accentColor}
                         photoUrl={client.photoUrl}
                         logoUrl={client.logoUrl}
                         logoBg={client.logoBg}
-                        bannerUrl={client.bannerUrl}
                         onSave={saveClientAppearance.bind(null, client.id)}
                         onClearImage={clearClientImage.bind(null, client.id)}
+                      />
+                    ) : null}
+                    {canEdit ? (
+                      <ClientCover
+                        bannerUrl={client.bannerUrl}
+                        onSave={saveClientAppearance.bind(null, client.id)}
                         onClearCover={clearClientCover.bind(null, client.id)}
                       />
                     ) : null}
@@ -422,15 +426,15 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     ) : (
                       <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
                     )}
-                    {canEdit ? (
-                      <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
-                    ) : null}
                   </div>
-                  <div className="space-y-4 lg:sticky lg:top-4">
+                  <div className="min-w-0 space-y-5">
                     {clientUsers.length > 0 || isAdmin ? (
                       <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
                     ) : null}
                     <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                    {canEdit ? (
+                      <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
+                    ) : null}
                   </div>
                 </div>
               ),
