@@ -24,6 +24,9 @@ function dayLabel(key: string): string {
 // Vista "Agenda" (lista tipo Google Calendar): próximos items agrupados por día.
 // Respeta la convención de la app: el día de un item se saca de it.date.slice(0,10)
 // (hora de pared en UTC), nunca de new Date(...).getDate().
+// Emoji por tipo para el cuadrito de cada fila (mismo lenguaje visual que las capas del board).
+const KIND_EMOJI: Record<CalItem["kind"], string> = { event: "📅", task: "📦", shoot: "🎬", milestone: "🚩" };
+
 export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
   items: CalItem[];
   anchor: Date;          // desde este día en adelante
@@ -77,7 +80,7 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
               {dayLabel(key)}
               {key === todayKey ? <span className="ml-1.5 text-primary">· Hoy</span> : null}
             </h3>
-            <div className="space-y-0.5">
+            <div className="space-y-1.5">
               {dayItems.map((it) => {
                 const dot = colorBy === "persona" ? (personColor(it) ?? itemSolid(it)) : itemSolid(it);
                 const timeLabel = it.time ?? (it.allDay || it.kind !== "event" ? "Todo el día" : "");
@@ -86,10 +89,11 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                     key={it.id}
                     type="button"
                     onDoubleClick={() => emitCalendarDetail(it)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted"
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40"
                     title={`${it.title} · doble clic para ver el detalle`}
                   >
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: dot }} />
+                    {/* Cuadrito tintado con el emoji del tipo (aspecto del rediseño aprobado). */}
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg text-sm" style={{ background: `${dot}26` }}>{KIND_EMOJI[it.kind]}</span>
                     <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">{timeLabel}</span>
                     <span className="truncate text-sm font-medium">{it.title}</span>
                     {it.projectName ? (

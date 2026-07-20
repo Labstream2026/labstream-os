@@ -359,10 +359,10 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           En móvil hace scroll HORIZONTAL: con 7 columnas + horas, por debajo de ~680px las
           columnas quedarían ilegibles, así que el ancho mínimo fuerza el scroll lateral y las
           tres rejillas (cabecera, todo-el-día y horas) se desplazan juntas y alineadas. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden border-t border-border/50 bg-card">
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
         <div className="flex min-h-0 flex-1 flex-col" style={{ minWidth: dayCount === 7 ? 680 : undefined }}>
           {/* Cabecera de días */}
-          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
+          <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
             <div />
             {days.map((d) => {
               const isToday = sameDay(d, today);
@@ -378,7 +378,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           </div>
 
           {/* Franja "todo el día" (tareas, rodajes, eventos all-day) */}
-          <div className="grid shrink-0 border-b border-border/50" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
+          <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
             <div className="flex items-center justify-end pr-1.5 text-[9px] text-muted-foreground">todo el día</div>
             {days.map((d) => {
               // Agrupados por tipo y título (compareChips) y COMPACTOS: se ven ~5 y el resto
@@ -454,9 +454,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                       const mm = (Math.round((minutes % 60) / 15) * 15) % 60;
                       emitCalendarCreate(localDateStr(d), `${pad2(hh)}:${pad2(mm)}`);
                     } : undefined}
-                    className={cn("relative border-l border-border/40", wknd && !isToday && "bg-muted/25", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
+                    className={cn("relative border-l border-border/70", wknd && !isToday && "bg-muted/25", isToday && "bg-rose-50/30 dark:bg-rose-500/[0.03]", canCreate && "cursor-pointer")}
                   >
-                    {hours.map((h) => (<div key={h} style={{ height: hourH }} className="border-b border-border/25" />))}
+                    {hours.map((h) => (<div key={h} style={{ height: hourH }} className="border-b border-border/50" />))}
                     {isToday ? <NowLine hourH={hourH} /> : null}
                     {positioned.map((p) => {
                       const t = calTone(p.it.kind);
@@ -479,7 +479,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                           }}
                           onDoubleClick={(e) => { e.stopPropagation(); openDetail(p.it); }}
                           className={cn(
-                            "group absolute flex flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight transition-all hover:brightness-105 hover:shadow-md",
+                            "group absolute flex flex-col overflow-hidden rounded-lg px-1.5 py-0.5 text-left text-[11px] leading-tight shadow-md shadow-black/20 transition-all hover:brightness-105 hover:shadow-lg",
                             selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "",
                             draggable && "cursor-grab active:cursor-grabbing",
                             isDragging && "opacity-40",

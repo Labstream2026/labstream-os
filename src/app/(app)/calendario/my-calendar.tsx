@@ -145,7 +145,7 @@ export function MyCalendar({
           <span className="text-sm font-semibold capitalize">{MONTHS[m]} {y}</span>
           <span className="h-px flex-1 bg-border/50" />
         </div>
-        <div className="grid grid-cols-7 border-t border-border/50">
+        <div className="grid grid-cols-7 border-t border-border/70">
           {cells.map((d, i) => {
             const key = d ? `${y}-${pad(m + 1)}-${pad(d)}` : null;
             // Copia ordenada (compareChips agrupa por tipo → hora → título) y compacta: se ven
@@ -161,7 +161,7 @@ export function MyCalendar({
                 onDragOver={d ? (e) => { if (dragItem.current) { e.preventDefault(); if (key !== overKey) setOverKey(key); } } : undefined}
                 onDrop={d ? (e) => { e.preventDefault(); dropOnDay(y, m, d); } : undefined}
                 className={cn(
-                  "min-h-[100px] border-b border-l border-border/30 p-1 [&:nth-child(7n+1)]:border-l-0",
+                  "min-h-[100px] border-b border-l border-border/60 p-1 [&:nth-child(7n+1)]:border-l-0",
                   !d && "bg-muted/20",
                   holiday && !isToday && "bg-amber-50/70 dark:bg-amber-500/[0.07]",
                   isToday && "bg-rose-50/40 dark:bg-rose-500/[0.05]",
@@ -238,9 +238,9 @@ export function MyCalendar({
           Ancho mínimo + scroll horizontal: cuando el contenedor es angosto (panel de chat abierto,
           pantallas chicas) la rejilla NO se comprime hasta que las abreviaturas y los números se
           solapan — hace scroll lateral, igual que la vista Semana. */}
-      <div className="min-h-0 flex-1 overflow-auto border-t border-border/50 bg-card">
+      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
         <div className="min-w-[34rem]">
-        <div className="sticky top-0 z-[2] grid grid-cols-7 border-b border-border/50 bg-card">
+        <div className="sticky top-0 z-[2] grid grid-cols-7 border-b border-border bg-card">
           {WEEKDAYS.map((w) => (
             <div key={w} className="py-2 text-center text-[11px] font-medium uppercase text-muted-foreground">{w}</div>
           ))}
