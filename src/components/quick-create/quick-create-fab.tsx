@@ -133,8 +133,12 @@ export function QuickCreateFab({
       {/* Botón flotante + speed-dial. Posición ABSOLUTA respecto al bloque central de la
           app (la columna de contenido tiene `relative`), para que quede abajo a la derecha
           de ese bloque y NO se monte sobre el panel de chat de la derecha. En móvil queda
-          por encima de la barra de navegación inferior. Se oculta al imprimir. */}
-      <div className="absolute bottom-20 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6 md:right-6 print:hidden">
+          por encima de la barra de navegación inferior. Se oculta al imprimir.
+          `qc-dial-open` (marcador, sin estilos): las BURBUJAS de chat flotantes —que se apilan
+          justo encima del FAB— lo detectan vía CSS body:has() y se desvanecen mientras el dial
+          está abierto, porque sus acciones suben exactamente al hueco de la burbuja y quedaban
+          tapadas (la burbuja tiene z mayor). Sin estado compartido entre componentes. */}
+      <div className={cn("absolute bottom-20 right-4 z-40 flex flex-col items-end gap-3 md:bottom-6 md:right-6 print:hidden", !single && dialOpen && "qc-dial-open")}>
         {!single && dialOpen ? (
           <div className="flex flex-col items-end gap-2">
             {actions.map(({ key, label, Icon, run: act }) => (

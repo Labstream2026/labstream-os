@@ -281,7 +281,9 @@ function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; 
       type="button"
       onClick={onOpen}
       aria-label="Abrir chat"
-      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg active:scale-95 md:hidden print:hidden"
+      // Se desvanece mientras el speed-dial del FAB está abierto (marcador .qc-dial-open):
+      // sus acciones suben justo a este hueco y la burbuja las tapaba (mismo bug que en escritorio).
+      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg transition-opacity active:scale-95 md:hidden print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
       style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}
     >
       <IconChat className="size-6" />

@@ -61,7 +61,11 @@ export function ProjectChatBubble({ projectId, me, isAdmin }: { projectId: strin
       aria-label="Abrir chat del proyecto"
       title="Chat del proyecto"
       className={cn(
-        "group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95 md:grid",
+        "group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-[transform,opacity] hover:scale-105 active:scale-95 md:grid",
+        // Mientras el speed-dial del FAB está abierto (marcador .qc-dial-open), la burbuja se
+        // desvanece: las acciones del dial suben EXACTAMENTE a este hueco y la burbuja (z-50,
+        // mayor que el dial) las tapaba. body:has() la re-muestra sola al cerrar el dial.
+        "[body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0",
       )}
     >
       <MessageCircle className="size-6" />
