@@ -19,6 +19,7 @@ import {
   Package,
   Plus,
   Receipt,
+  Rocket,
   Search,
   Settings,
   Star,
@@ -213,6 +214,9 @@ export function Sidebar({
     { href: "/mis-entregas", label: "Mis entregas", icon: Package, show: isCliente, active: pathname.startsWith("/mis-entregas") },
     { href: "/", label: "Inicio", icon: Home, show: !isCliente, active: pathname === "/" },
     { href: "/mis-tareas", label: "Mis tareas", icon: ListTodo, show: !isCliente, active: pathname === "/mis-tareas" },
+    // Acceso directo a TODOS los proyectos (el panel de Producción navega por cliente; esta
+    // entrada da la vista global que se había perdido). El cliente del portal también la ve.
+    { href: "/proyectos", label: "Proyectos", icon: Rocket, show: true, active: pathname === "/proyectos" || pathname.startsWith("/proyectos/") },
     { href: "/recordatorios", label: "Recordatorios", icon: AlarmClock, badge: remindersToday || undefined, show: !isCliente, active: pathname === "/recordatorios" },
     // El cliente (portal) no tiene chat: sin entrada en su menú.
     { href: "/chat", label: "Chats", icon: MessageCircle, badge: chatBadge || undefined, show: !isCliente, active: pathname === "/chat" || pathname.startsWith("/chat/") },
