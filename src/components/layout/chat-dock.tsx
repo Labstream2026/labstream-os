@@ -72,12 +72,11 @@ export function ChatDock({
   const pathname = usePathname();
   const projectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
   const onRealProject = !!projectId && projectId !== "nuevo";
-  const clientId = pathname.startsWith("/clientes/") ? pathname.split("/")[2] : null;
-  const onRealClient = !!clientId && clientId !== "nuevo";
+  // Los canales de cliente-empresa se eliminaron: el único contexto que manda es el PROYECTO.
   // En "Chat del día" el chat ya es el contenido principal → a la derecha mostramos
   // las tareas pendientes en vez de repetir el chat.
   const onEstados = pathname === "/estados";
-  const contextKey = `${projectId ?? ""}|${clientId ?? ""}`;
+  const contextKey = projectId ?? "";
 
   const [dmUserId, setDmUserId] = React.useState<string | null>(null);
   // Conversación elegida a mano en el selector (manda sobre el canal del contexto).
@@ -101,8 +100,38 @@ export function ChatDock({
     return () => { cancelled = true; };
   }, [onEstados, pathname]);
 
-  // Al cambiar de proyecto/cliente, se sale del DM/manual y se vuelve al chat del contexto.
+  // Al cambiar de proyecto, se sale del DM/manual y se vuelve al chat del contexto.
   React.useEffect(() => { setDmUserId(null); setManualId(null); setShowMembers(false); }, [contextKey]);
+
+  // La burbuja RECUERDA la última conversación elegida a mano (canal o DM): al abrir el panel
+  // de nuevo reabre donde estabas. Solo al montar, y solo si el contexto del proyecto no manda.
+  const restoredRef = React.useRef(false);
+  React.useEffect(() => {
+    if (restoredRef.current || onRealProject) return;
+    restoredRef.current = true;
+    try {
+      const raw = window.localStorage.getItem("ui:chatLast");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { kind?: string; id?: string };
+      if (saved.kind === "dm" && saved.id) setDmUserId(saved.id);
+      else if (saved.kind === "channel" && saved.id) setManualId(saved.id);
+    } catch { /* ignora */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  React.useEffect(() => {
+    try {
+      if (manualId) window.localStorage.setItem("ui:chatLast", JSON.stringify({ kind: "channel", id: manualId }));
+      else if (dmUserId) window.localStorage.setItem("ui:chatLast", JSON.stringify({ kind: "dm", id: dmUserId }));
+    } catch { /* ignora */ }
+  }, [manualId, dmUserId]);
+  // Si lo recordado ya no existe o perdiste el acceso, vuelve al general y olvídalo.
+  React.useEffect(() => {
+    if (loading || !dock || dock.canAccess) return;
+    if (manualId) {
+      setManualId(null);
+      try { window.localStorage.removeItem("ui:chatLast"); } catch { /* ignora */ }
+    }
+  }, [dock, loading, manualId]);
 
   // Resolver el canal a mostrar: manual (selector) > DM > proyecto > cliente > general.
   // El general también se pide por ?channel= para traer los extras (línea de no-leídos,
@@ -117,11 +146,9 @@ export function ChatDock({
           ? `dm=${dmUserId}`
           : onRealProject
             ? `project=${projectId}`
-            : onRealClient
-              ? `client=${clientId}`
-              : generalId
-                ? `channel=${generalId}`
-                : null;
+            : generalId
+              ? `channel=${generalId}`
+              : null;
       if (!q) { setDock(null); return; }
       setDock(null); // el destino cambió: no pintar el canal anterior mientras llega el nuevo
       setLoading(true);
@@ -143,7 +170,7 @@ export function ChatDock({
     }
     load();
     return () => { cancelled = true; };
-  }, [manualId, dmUserId, projectId, clientId, onRealProject, onRealClient, generalId]);
+  }, [manualId, dmUserId, projectId, onRealProject, generalId]);
 
   // Lista del selector (perezosa): se pide al abrir el desplegable la primera vez.
   const loadConvos = React.useCallback(() => {
@@ -183,7 +210,7 @@ export function ChatDock({
   const isDM = !isManual && !!dmUserId;
   // Sin manual/DM/contexto, el destino es el general: el prop server-render pinta al instante
   // y el fetch por ?channel= lo releva con los extras (línea de no-leídos, @canal/@Rol…).
-  const generalFallback = !isManual && !isDM && !onRealProject && !onRealClient;
+  const generalFallback = !isManual && !isDM && !onRealProject;
   const effectiveChannel =
     dock?.channel ??
     (generalFallback && generalChannel
@@ -335,7 +362,7 @@ export function ChatDock({
           <p className="p-4 text-sm text-muted-foreground">Cargando…</p>
         ) : !effectiveChannel ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-            {onRealProject ? "Este proyecto aún no tiene chat." : onRealClient ? "Este cliente aún no tiene chat." : "Entra a un proyecto o cliente para ver su chat, o elige a un compañero arriba para un mensaje directo."}
+            {onRealProject ? "Este proyecto aún no tiene chat." : "Elige una conversación en el selector de arriba, o a un compañero para un mensaje directo."}
           </div>
         ) : !canAccess ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">

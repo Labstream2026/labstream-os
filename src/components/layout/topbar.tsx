@@ -4,7 +4,7 @@ import * as React from "react";
 import { IconCalendario, IconConfiguracion } from "@/components/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelRight, PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft } from "lucide-react";
+import { PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
@@ -41,17 +41,13 @@ function ShareButton() {
 export function Topbar({
   team,
   notifications,
-  onTogglePanel,
   onToggleSidebar,
   onOpenMobileMenu,
-  showChatToggle = true,
 }: {
   team: TopbarAvatar[];
   notifications: NotificationItem[];
-  onTogglePanel: () => void;
   onToggleSidebar: () => void;
   onOpenMobileMenu: () => void;
-  showChatToggle?: boolean;
 }) {
   const pathname = usePathname();
   const { icon, label } = routeMeta(pathname);
@@ -125,19 +121,7 @@ export function Topbar({
         <ShareButton />
         <NotificationsBell items={notifications} />
         <ThemeToggle />
-        {/* Plegar chat (solo escritorio; en móvil el chat está en la barra inferior).
-            Oculto en páginas de ancho completo donde no hay panel de chat. */}
-        {showChatToggle ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="hidden text-muted-foreground md:inline-flex"
-            aria-label="Panel de chat"
-            onClick={onTogglePanel}
-          >
-            <PanelRight />
-          </Button>
-        ) : null}
+        {/* El botón del panel de chat murió: el chat vive en la burbuja flotante y en /chat. */}
         <details data-autoclose className="relative hidden md:block">
           <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Más opciones">
             <MoreHorizontal className="size-5" />

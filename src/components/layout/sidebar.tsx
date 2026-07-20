@@ -214,7 +214,8 @@ export function Sidebar({
     { href: "/", label: "Inicio", icon: Home, show: !isCliente, active: pathname === "/" },
     { href: "/mis-tareas", label: "Mis tareas", icon: ListTodo, show: !isCliente, active: pathname === "/mis-tareas" },
     { href: "/recordatorios", label: "Recordatorios", icon: AlarmClock, badge: remindersToday || undefined, show: !isCliente, active: pathname === "/recordatorios" },
-    { href: "/chat", label: "Chats", icon: MessageCircle, badge: chatBadge || undefined, show: true, active: pathname === "/chat" || pathname.startsWith("/chat/") },
+    // El cliente (portal) no tiene chat: sin entrada en su menú.
+    { href: "/chat", label: "Chats", icon: MessageCircle, badge: chatBadge || undefined, show: !isCliente, active: pathname === "/chat" || pathname.startsWith("/chat/") },
     { href: "/revisiones", label: "Proyectos a revisar", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
     { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },

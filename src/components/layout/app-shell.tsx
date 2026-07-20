@@ -48,7 +48,6 @@ export function AppShell({
   remindersToday = 0,
   notifications,
   initialSidebarCollapsed = false,
-  initialChatPanelOpen = true,
   reduceMotion = false,
   children,
 }: {
@@ -80,6 +79,8 @@ export function AppShell({
   remindersToday?: number;
   notifications: NotificationItem[];
   initialSidebarCollapsed?: boolean;
+  // Ya no se usa (la barra derecha fija murió: el chat vive en burbujas). Se conserva en la
+  // firma para que el layout del servidor no tenga que cambiar a la vez.
   initialChatPanelOpen?: boolean;
   reduceMotion?: boolean;
   children: React.ReactNode;
@@ -87,26 +88,21 @@ export function AppShell({
   // Escritorio (preferencias recordadas EN BD → sincronizan entre dispositivos; el valor
   // inicial llega del servidor, así que no hay parpadeo al cargar).
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(initialSidebarCollapsed);
-  const [chatOpen, setChatOpen] = React.useState(initialChatPanelOpen);
   // Móvil (cajones, no se recuerdan).
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
 
   const pathname = usePathname();
 
-  // Páginas que aprovechan todo el ancho: en ellas el panel de chat NO roba espacio del
-  // layout — pero ya no desaparece: se abre como OVERLAY flotante por encima (botón del
-  // topbar), así el chat funciona en TODA la app (antes en estas 9 rutas no había ninguna
-  // superficie de chat: ni leer ni escribir).
-  const FULL_WIDTH_ROUTES = ["/", "/estados", "/chat", "/plantillas", "/wiki", "/asistente", "/reportes", "/revisiones", "/calendario"];
-  const fullWidth = FULL_WIDTH_ROUTES.some((r) =>
-    r === "/" ? pathname === "/" : pathname === r || pathname.startsWith(`${r}/`),
-  );
   const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
-  // El cliente (portal del cliente) nunca ve el panel de chat del equipo (es interno).
-  const dockMode: "none" | "aside" | "overlay" = isCliente ? "none" : fullWidth ? "overlay" : "aside";
-  // El overlay y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
-  const [overlayOpen, setOverlayOpen] = React.useState(false);
+  // El chat vive en BURBUJAS (+ la pestaña /chat): la barra derecha fija y el botón del
+  // topbar murieron. El cliente (portal) no tiene chat.
+  const hasChat = !isCliente;
+  // En el DETALLE de proyecto manda la burbuja del PROYECTO (escritorio): la global no se pinta.
+  const projSeg = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
+  const isProjectDetail = !!projSeg && projSeg !== "nuevo";
+  // El panel de la burbuja y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
+  const [chatPanelOpen, setChatPanelOpen] = React.useState(false);
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
   // MODO ENFOQUE (/chat): el panel de «Producción/Clientes» se retira por defecto para que la
   // conversación ocupe todo el ancho. El botón de colapsar de la barra lo trae de vuelta durante la
@@ -140,20 +136,22 @@ export function AppShell({
       return next;
     });
   };
-  const toggleChat = () => {
-    setChatOpen((v) => {
-      const next = !v;
-      void saveUserPreference({ chatPanelOpen: next });
-      return next;
-    });
-  };
-
   // Cerrar cajones móviles y paneles flotantes al navegar entre páginas.
   React.useEffect(() => {
     setMobileMenuOpen(false);
-    setOverlayOpen(false);
+    setChatPanelOpen(false);
     setMobileChatOpen(false);
   }, [pathname]);
+
+  // Esc cierra el panel de la burbuja (y la hoja móvil).
+  React.useEffect(() => {
+    if (!chatPanelOpen && !mobileChatOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setChatPanelOpen(false); setMobileChatOpen(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chatPanelOpen, mobileChatOpen]);
 
   return (
     <ChatLiveProvider>
@@ -198,10 +196,8 @@ export function AppShell({
         <Topbar
           team={team}
           notifications={notifications}
-          onTogglePanel={dockMode === "overlay" ? () => setOverlayOpen((v) => !v) : toggleChat}
           onToggleSidebar={toggleSidebar}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
-          showChatToggle={dockMode !== "none"}
         />
         {/* Las pestañas (escritorio) ahora viven dentro de la barra superior (Topbar). */}
         {/* Padding inferior en móvil para no tapar contenido con la barra inferior
@@ -220,25 +216,24 @@ export function AppShell({
         />
       </div>
 
-      {/* Panel de chat de escritorio (redimensionable; muestra el chat del contexto). */}
-      {dockMode === "aside" ? (
-        <ChatDock variant="desktop" open={chatOpen} me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} />
+      {/* ESCRITORIO: el chat vive en una BURBUJA flotante (misma posición que la burbuja del
+          proyecto, apilada sobre el FAB de crear). Abre un panel deslizante con el chat completo.
+          En el detalle de proyecto no se pinta: ahí manda la burbuja del proyecto. */}
+      {hasChat && !isChatPage && !isProjectDetail && !chatPanelOpen ? (
+        <DesktopChatBubble onOpen={() => setChatPanelOpen(true)} fallbackUnread={chatUnread} />
       ) : null}
-
-      {/* Rutas de ancho completo: el chat se abre como overlay flotante (botón del topbar),
-          sin robar ancho al contenido. */}
-      {dockMode === "overlay" && overlayOpen ? (
+      {hasChat && chatPanelOpen ? (
         <div className="fixed bottom-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
-          <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setOverlayOpen(false)} />
+          <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setChatPanelOpen(false)} />
         </div>
       ) : null}
 
       {/* Móvil: burbuja flotante + hoja deslizante con el chat del contexto — responder sin
           abandonar la página (antes el único camino era bottom-nav → /chat → buscar canal). */}
-      {dockMode !== "none" && !isChatPage && !mobileChatOpen ? (
+      {hasChat && !isChatPage && !mobileChatOpen ? (
         <MobileChatBubble onOpen={() => setMobileChatOpen(true)} fallbackUnread={chatUnread} />
       ) : null}
-      {dockMode !== "none" && mobileChatOpen ? (
+      {hasChat && mobileChatOpen ? (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileChatOpen(false)} />
           <div className="absolute inset-x-0 bottom-0 h-[82dvh] overflow-hidden rounded-t-2xl border-t border-border bg-background animate-in slide-in-from-bottom duration-200">
@@ -273,6 +268,29 @@ export function AppShell({
 
 // Burbuja flotante de chat (solo móvil): abre la hoja deslizante con el chat del contexto.
 // Vive como componente propio para poder consumir el contexto vivo (badge de no-leídos).
+// Burbuja de ESCRITORIO (md+): misma posición y estilo que la burbuja del proyecto
+// (bottom-[5.75rem] right-6, apilada ENCIMA del FAB de crear que vive en bottom-6 right-6).
+function DesktopChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; fallbackUnread?: number }) {
+  const live = useChatLive();
+  const unread = live.total ?? fallbackUnread;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label="Abrir chat"
+      title="Chat (Esc cierra)"
+      className="group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95 md:grid print:hidden"
+    >
+      <IconChat className="size-6" />
+      {unread > 0 ? (
+        <span className="absolute -right-1 -top-1 grid min-w-[22px] place-items-center rounded-full border-2 border-background bg-red-500 px-1 text-[11px] font-extrabold leading-[18px] text-white">
+          {unread > 99 ? "99+" : unread}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; fallbackUnread?: number }) {
   const live = useChatLive();
   const unread = live.total ?? fallbackUnread;
@@ -281,9 +299,7 @@ function MobileChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void; 
       type="button"
       onClick={onOpen}
       aria-label="Abrir chat"
-      // Se desvanece mientras el speed-dial del FAB está abierto (marcador .qc-dial-open):
-      // sus acciones suben justo a este hueco y la burbuja las tapaba (mismo bug que en escritorio).
-      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg transition-opacity active:scale-95 md:hidden print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
+      className="fixed right-4 z-40 flex size-12 items-center justify-center rounded-full border border-border bg-background text-primary shadow-lg active:scale-95 md:hidden print:hidden"
       style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}
     >
       <IconChat className="size-6" />

@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
 export default async function ChatIndexPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  // El cliente (portal) no tiene chat: a sus entregas.
+  if (session.role === "cliente") redirect("/mis-entregas");
   const data = await getChatListData(session);
 
   return (

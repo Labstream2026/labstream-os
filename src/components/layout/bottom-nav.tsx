@@ -37,10 +37,10 @@ export function BottomNav({
   // Íconos del set propio de Labstream (duotono): misma firma que un ícono de UI (className).
   const links: { href: string; label: string; icon: (p: IconProps) => ReactElement; match: (p: string) => boolean }[] = isCliente
     ? [
+        // El cliente (portal) no tiene chat: sin pestaña Chat en su barra.
         { href: "/mis-entregas", label: "Entregas", icon: IconEntregas, match: (p: string) => p.startsWith("/mis-entregas") },
         { href: "/proyectos", label: "Proyectos", icon: IconProyectos, match: (p: string) => p.startsWith("/proyectos") },
         { href: "/calendario", label: "Calendario", icon: IconCalendario, match: (p: string) => p.startsWith("/calendario") },
-        { href: "/chat", label: "Chat", icon: IconChat, match: (p: string) => p.startsWith("/chat") },
       ]
     : [
         { href: "/", label: "Inicio", icon: IconInicio, match: (p: string) => p === "/" },
