@@ -5,6 +5,7 @@ import { Camera, ImagePlus, X, Loader2, Check } from "lucide-react";
 import { TONES, tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
+import { ImageCropper } from "@/components/image-cropper";
 
 type SaveResult = { ok: boolean; error?: string };
 
@@ -70,6 +71,9 @@ export function ClientIdentity({
   const { pending, msg, save, run } = useAppearanceSave(onSave);
   const photoRef = React.useRef<HTMLInputElement>(null);
   const logoRef = React.useRef<HTMLInputElement>(null);
+  // La FOTO pasa por el reencuadre (arrastrar + zoom) antes de subir; el logo va directo
+  // (recortar un logo lo daña: se sube completo, con su transparencia).
+  const [cropPhoto, setCropPhoto] = React.useState<File | null>(null);
   const onFile = (key: "photo" | "logo", f: File | null) => { if (f) save((fd) => fd.set(key, f)); };
 
   const t = color ? tone(color) : null;
@@ -149,7 +153,17 @@ export function ClientIdentity({
               ) : null}
             </div>
             <button type="button" onClick={() => photoRef.current?.click()} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"><ImagePlus className="size-3.5" /> Subir</button>
-            <input ref={photoRef} type="file" accept="image/*" hidden onChange={(e) => onFile("photo", e.target.files?.[0] ?? null)} />
+            <input
+              ref={photoRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                e.currentTarget.value = ""; // permite re-elegir el mismo archivo
+                if (f) setCropPhoto(f);
+              }}
+            />
           </div>
         </div>
 
@@ -180,6 +194,17 @@ export function ClientIdentity({
           </div>
         </div>
       </div>
+
+      {cropPhoto ? (
+        <ImageCropper
+          file={cropPhoto}
+          aspect={1}
+          outWidth={960}
+          title="Reencuadrar foto"
+          onCancel={() => setCropPhoto(null)}
+          onDone={(f) => { setCropPhoto(null); save((fd) => fd.set("photo", f)); }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -196,6 +221,8 @@ export function ClientCover({
 }) {
   const { pending, msg, save, run } = useAppearanceSave(onSave);
   const bannerRef = React.useRef<HTMLInputElement>(null);
+  // La portada también pasa por el reencuadre (proporción ancha fija 1600×500).
+  const [cropBanner, setCropBanner] = React.useState<File | null>(null);
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-sm">
@@ -218,7 +245,28 @@ export function ClientCover({
           <div className="flex h-28 w-full items-center justify-center bg-muted/40 text-xs text-muted-foreground"><ImagePlus className="mr-1.5 size-4" /> Subir portada</div>
         )}
       </button>
-      <input ref={bannerRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) save((fd) => fd.set("banner", f)); }} />
+      <input
+        ref={bannerRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0] ?? null;
+          e.currentTarget.value = ""; // permite re-elegir el mismo archivo
+          if (f) setCropBanner(f);
+        }}
+      />
+
+      {cropBanner ? (
+        <ImageCropper
+          file={cropBanner}
+          aspect={1600 / 500}
+          outWidth={1600}
+          title="Reencuadrar portada"
+          onCancel={() => setCropBanner(null)}
+          onDone={(f) => { setCropBanner(null); save((fd) => fd.set("banner", f)); }}
+        />
+      ) : null}
     </div>
   );
 }

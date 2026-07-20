@@ -15,6 +15,7 @@ import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectDetailsForm } from "./project-details-form";
+import { ProjectCoverCard } from "./project-cover-card";
 import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
@@ -498,6 +499,11 @@ export default async function ProyectoPage({
                 description={project.description}
                 dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
               />
+            ) : null}
+            {/* Portada del proyecto (la edición se quitó de la cabecera con la Opción A;
+                vive aquí, con reencuadre + zoom al subir). */}
+            {canManageProject(project, session) ? (
+              <ProjectCoverCard projectId={project.id} bannerUrl={project.bannerUrl} />
             ) : null}
             {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
             {session?.role === "admin" ? (
