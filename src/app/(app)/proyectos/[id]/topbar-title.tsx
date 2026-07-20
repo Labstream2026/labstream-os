@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EntityEmoji } from "@/components/icons/marks";
+import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { useTopbarSlot } from "@/components/layout/topbar-slot";
 
@@ -50,7 +51,8 @@ export function ProjectTopbarTitle({
       >
         <ChevronLeft className="size-4" />
       </Link>
-      <span className="grid size-6 shrink-0 place-items-center rounded-md text-sm" style={{ background: `${color ?? "#6366f1"}22` }}>
+      {/* project.color es un TOKEN de tono (no un hex): tone() lo resuelve a hex + alfa. */}
+      <span className="grid size-6 shrink-0 place-items-center rounded-md text-sm" style={{ background: `${color ? tone(color).hex : "#6366f1"}22` }}>
         <EntityEmoji value={emoji} fallback="🎬" />
       </span>
       <span className="min-w-0 truncate text-sm font-semibold">{name}</span>

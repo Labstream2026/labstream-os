@@ -1,28 +1,30 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { accessibleProjectWhere } from "@/lib/project-access";
+import { accessibleProjectWhere, canWriteProject } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { Plus, SearchX, Archive } from "lucide-react";
 import { IconProyectos, IconTablero, IconTableroH, IconLista } from "@/components/icons";
-import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
 import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
+import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { ViewTabs } from "./[id]/view-tabs";
-import { ProjectColorPicker } from "./project-color-picker";
-import { ProjectsBoard, type BoardClient } from "./projects-board";
 import { ProjectFilters } from "./project-filters";
+import { PipelineView, MasterTable, PortfolioView, type ViewProject, type StatusCol } from "./projects-views";
 
 export const dynamic = "force-dynamic";
 
 // Búsqueda sin acentos ni mayúsculas.
 const norm = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
+// Estados que ya no corren contra el reloj (el semáforo de entrega no aplica).
+const DONE_STATUSES = new Set(["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"]);
+
 export default async function ProyectosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string; vista?: string }>;
+  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string; vista?: string; vencidos?: string }>;
 }) {
   const sp = await searchParams;
   const session = await getSession();
@@ -44,8 +46,8 @@ export default async function ProyectosPage({
         orderBy: { createdAt: "asc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },
-          members: { select: { userId: true, role: true } },
-          deliverables: { select: { name: true, dueDate: true } },
+          members: { select: { userId: true, role: true, user: { select: { initials: true, avatarColor: true } } } },
+          deliverables: { select: { dueDate: true } },
         },
       },
     },
@@ -62,13 +64,18 @@ export default async function ProyectosPage({
   );
   const statusOptions = statusesPresent.map((s) => ({ value: s, label: statusMeta(s).label }));
 
+  const now = Date.now();
+  const isOverdue = (p: { dueDate: Date | null; status: string }) =>
+    !!p.dueDate && p.dueDate.getTime() < now && !DONE_STATUSES.has(p.status);
+
   // ── Filtros activos (viven en la URL; el enlace es compartible) ──
   const qRaw = (sp.q ?? "").trim();
   const qn = norm(qRaw);
   const estadoSel = new Set((sp.estado ?? "").split(",").filter(Boolean));
   const clienteSel = new Set((sp.cliente ?? "").split(",").filter(Boolean));
-  const grupo = sp.grupo === "estado" ? "estado" : "cliente";
-  const hasFilters = qRaw !== "" || estadoSel.size > 0 || clienteSel.size > 0;
+  const grupo = sp.grupo === "estado" ? ("estado" as const) : ("cliente" as const);
+  const soloVencidos = sp.vencidos === "1";
+  const hasFilters = qRaw !== "" || estadoSel.size > 0 || clienteSel.size > 0 || soloVencidos;
 
   // Aplica los filtros en memoria (el acceso ya lo acotó la consulta).
   const clients = withProjects
@@ -76,141 +83,81 @@ export default async function ProyectosPage({
     .map((c) => ({
       ...c,
       projects: c.projects.filter(
-        (p) => (estadoSel.size === 0 || estadoSel.has(p.status)) && (!qn || norm(p.name).includes(qn) || norm(c.name).includes(qn)),
+        (p) =>
+          (estadoSel.size === 0 || estadoSel.has(p.status)) &&
+          (!soloVencidos || isOverdue(p)) &&
+          (!qn || norm(p.name).includes(qn) || norm(c.name).includes(qn)),
       ),
     }))
     .filter((c) => c.projects.length > 0);
 
   const total = clients.reduce((n, c) => n + c.projects.length, 0);
+  const grandTotal = withProjects.reduce((n, c) => n + c.projects.length, 0);
 
-  // Vista Tablero (cards por cliente; vertical y horizontal son pestañas aparte — ProjectsBoard)
-  const boardClients: BoardClient[] = clients.map((c) => ({
-    id: c.id,
-    name: c.name,
-    emoji: c.emoji,
-    color: c.accentColor,
-    projects: c.projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      emoji: p.emoji,
-      status: p.status,
-      progress: p.progress,
-      dueDate: p.dueDate ? p.dueDate.toISOString() : null,
-      lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
-    })),
-  }));
-  const boardV = <ProjectsBoard clients={boardClients} orientation="vertical" />;
-  const boardH = <ProjectsBoard clients={boardClients} orientation="horizontal" />;
-
-  const progressCell = (progress: number) => (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} /></div>
-      <span className="text-xs text-muted-foreground">{progress}%</span>
-    </div>
+  // ── Payload de las vistas: fechas formateadas y semáforo calculados EN el servidor
+  // (una sola verdad de "hoy"; el cliente solo pinta). ──
+  const rows: ViewProject[] = clients.flatMap((c) =>
+    c.projects.map((p) => {
+      const teamMembers = p.members.filter((m) => m.userId !== p.leadId);
+      const team = [
+        ...(p.lead ? [{ initials: p.lead.initials, color: p.lead.avatarColor }] : []),
+        ...teamMembers.map((m) => ({ initials: m.user.initials, color: m.user.avatarColor })),
+      ];
+      const dueMs = p.dueDate ? p.dueDate.getTime() : null;
+      const days = dueMs != null ? Math.ceil((dueMs - now) / 86400000) : null;
+      const dueTone: "bad" | "warn" | null =
+        DONE_STATUSES.has(p.status) || days == null ? null : days < 0 ? "bad" : days <= 7 ? "warn" : null;
+      const next = p.deliverables
+        .filter((d) => d.dueDate && d.dueDate.getTime() >= now)
+        .sort((a, b) => a.dueDate!.getTime() - b.dueDate!.getTime())[0]?.dueDate ?? null;
+      return {
+        id: p.id,
+        name: p.name,
+        emoji: p.emoji,
+        color: p.color,
+        // Franja/banda: color del proyecto → color del cliente → índigo por defecto.
+        bandHex: p.color ? tone(p.color).hex : c.accentColor ? tone(c.accentColor).hex : "#6366f1",
+        status: p.status,
+        progress: p.progress,
+        dueLabel: formatShortDate(p.dueDate),
+        dueTone,
+        dueMs,
+        clientId: c.id,
+        clientName: c.name,
+        clientEmoji: c.emoji,
+        team: team.slice(0, 4),
+        teamCount: team.length,
+        deliverables: p.deliverables.length,
+        nextDueLabel: formatShortDate(next),
+        canMove: canWriteProject(p, session),
+      };
+    }),
   );
 
-  // Vista Lista agrupada por CLIENTE (una tabla por cliente).
-  const listByClient = (
-    <div className="space-y-8">
-      {clients.map((c) => (
-        <section key={c.id}>
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-2xl">{c.emoji}</span>
-            <h2 className="text-xl font-bold tracking-tight">{c.name}</h2>
-            <span className="text-xs text-muted-foreground">· {c.projects.length}</span>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Color</th>
-                  <th className="px-3 py-2 font-medium">Proyecto</th>
-                  <th className="px-3 py-2 font-medium">Estado</th>
-                  <th className="px-3 py-2 font-medium">Progreso</th>
-                  <th className="px-3 py-2 font-medium">Entrega</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.projects.map((p) => {
-                  const st = statusMeta(p.status);
-                  return (
-                    <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                      <td className="px-3 py-2"><ProjectColorPicker projectId={p.id} color={p.color} /></td>
-                      <td className="px-3 py-2">
-                        <Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link>
-                      </td>
-                      <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
-                      <td className="px-3 py-2">{progressCell(p.progress)}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
-    </div>
-  );
+  // Columnas del Pipeline = estados presentes; la lista COMPLETA (efectiva, con overrides)
+  // alimenta los selectores de estado y el orden.
+  const toCol = (key: string): StatusCol => { const m = statusMeta(key); return { key, label: m.label, className: m.className }; };
+  const cols = statusesPresent.map(toCol);
+  const allStatuses = PROJECT_STATUS_DEFAULTS.map((s) => toCol(s.key));
 
-  // Vista Lista agrupada por ESTADO (una tabla por estado, con el cliente en cada fila).
-  const flat = clients.flatMap((c) => c.projects.map((p) => ({ p, clientName: c.name, clientEmoji: c.emoji })));
-  const listByStatus = (
-    <div className="space-y-8">
-      {statusesPresent
-        .map((s) => ({ s, rows: flat.filter((x) => x.p.status === s) }))
-        .filter(({ rows }) => rows.length > 0)
-        .map(({ s, rows }) => {
-          const st = statusMeta(s);
-          return (
-            <section key={s}>
-              <div className="mb-2 flex items-center gap-2">
-                <Badge className={cn("text-[11px]", st.className)}>{st.label}</Badge>
-                <span className="text-xs text-muted-foreground">· {rows.length}</span>
-              </div>
-              <div className="overflow-x-auto rounded-xl border border-border">
-                <table className="w-full min-w-[560px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Color</th>
-                      <th className="px-3 py-2 font-medium">Proyecto</th>
-                      <th className="px-3 py-2 font-medium">Cliente</th>
-                      <th className="px-3 py-2 font-medium">Progreso</th>
-                      <th className="px-3 py-2 font-medium">Entrega</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map(({ p, clientName, clientEmoji }) => (
-                      <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                        <td className="px-3 py-2"><ProjectColorPicker projectId={p.id} color={p.color} /></td>
-                        <td className="px-3 py-2">
-                          <Link href={`/proyectos/${p.id}`} className="font-medium hover:underline">{p.emoji} {p.name}</Link>
-                        </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">{clientEmoji} {clientName}</td>
-                        <td className="px-3 py-2">{progressCell(p.progress)}</td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          );
-        })}
-    </div>
-  );
-
-  const list = grupo === "estado" ? listByStatus : listByClient;
+  // ── Chips de resumen (del TOTAL accesible, no del filtrado): clic = filtro aplicado ──
+  const allRows = withProjects.flatMap((c) => c.projects);
+  const chipBase = terminados ? "/proyectos?vista=terminados" : "/proyectos";
+  const chipJoin = terminados ? "&" : "?";
+  const statusChips = statusesPresent
+    .map((s) => ({ ...toCol(s), n: allRows.filter((p) => p.status === s).length }))
+    .filter((c) => c.n > 0);
+  const overdueCount = allRows.filter(isOverdue).length;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconProyectos className="size-7" /></span>
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconProyectos className="size-6" /></span>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Proyectos</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {hasFilters ? `${total} de ${withProjects.reduce((n, c) => n + c.projects.length, 0)} proyectos` : `${total} proyectos en ${clients.length} clientes`}
+            <h1 className="text-2xl font-bold tracking-tight">Proyectos</h1>
+            <p className="text-sm text-muted-foreground">
+              {hasFilters ? `${total} de ${grandTotal} proyectos` : `${total} proyectos en ${clients.length} clientes`}
             </p>
           </div>
         </div>
@@ -220,7 +167,7 @@ export default async function ProyectosPage({
       </div>
 
       {/* Vista ACTIVOS / TERMINADOS (archivo de proyectos completados, aparte de la papelera). */}
-      <div className="mt-5 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2">
         <Link href="/proyectos" className={cn("rounded-full px-3 py-1 text-sm font-medium transition-colors", !terminados ? "bg-foreground text-background" : "border border-border text-muted-foreground hover:bg-muted")}>
           Activos
         </Link>
@@ -247,7 +194,37 @@ export default async function ProyectosPage({
           </div>
         )
       ) : (
-        <div className="mt-6 space-y-4">
+        <div className="mt-5 space-y-4">
+          {/* Chips de resumen: el pulso del estudio de un vistazo; clic = filtrar. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {statusChips.map((c) => (
+              <Link
+                key={c.key}
+                href={`${chipBase}${chipJoin}estado=${c.key}`}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-opacity hover:opacity-80",
+                  c.className,
+                  estadoSel.size > 0 && !estadoSel.has(c.key) && "opacity-50",
+                )}
+              >
+                {c.n} {c.label.toLowerCase()}
+              </Link>
+            ))}
+            {overdueCount > 0 && !terminados ? (
+              <Link
+                href={`${chipBase}${chipJoin}vencidos=1`}
+                className={cn("rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-semibold text-red-700 transition-opacity hover:opacity-80 dark:bg-red-500/15 dark:text-red-300", hasFilters && !soloVencidos && "opacity-50")}
+              >
+                ● {overdueCount} vencido{overdueCount === 1 ? "" : "s"}
+              </Link>
+            ) : null}
+            {hasFilters ? (
+              <Link href={chipBase} className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted">
+                × Limpiar
+              </Link>
+            ) : null}
+          </div>
+
           <ProjectFilters statusOptions={statusOptions} clientOptions={clientOptions} />
           {total === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border px-6 py-16 text-center">
@@ -257,11 +234,11 @@ export default async function ProyectosPage({
             </div>
           ) : (
             <ViewTabs
-              storageKey="proyectos-view"
+              storageKey="proyectos-view-v2"
               views={[
-                { key: "tablero-v", label: "Tablero vertical", icon: <IconTablero />, node: boardV },
-                { key: "tablero-h", label: "Tablero horizontal", icon: <IconTableroH />, node: boardH },
-                { key: "lista", label: "Lista", icon: <IconLista />, node: list },
+                { key: "pipeline", label: "Pipeline", icon: <IconTablero />, node: <PipelineView cols={cols} allStatuses={allStatuses} projects={rows} /> },
+                { key: "tabla", label: "Tabla", icon: <IconLista />, node: <MasterTable projects={rows} allStatuses={allStatuses} grupo={grupo} /> },
+                { key: "portafolio", label: "Portafolio", icon: <IconTableroH />, node: <PortfolioView projects={rows} allStatuses={allStatuses} /> },
               ]}
             />
           )}
