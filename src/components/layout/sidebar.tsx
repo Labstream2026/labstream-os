@@ -11,12 +11,14 @@ import {
   CalendarDays,
   ChevronRight,
   FileCheck2,
+  FolderCheck,
   Home,
+  Inbox,
   Library,
   ListTodo,
   LogOut,
   MessageCircle,
-  Package,
+  MessageSquarePlus,
   Plus,
   Receipt,
   Rocket,
@@ -214,7 +216,12 @@ export function Sidebar({
 
   // ── Navegación del rail (misma lógica de permisos/portal del sidebar anterior) ──
   const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; show: boolean; active: boolean }[] = [
-    { href: "/mis-entregas", label: "Mis entregas", icon: Package, show: isCliente, active: pathname.startsWith("/mis-entregas") },
+    // Portal del cliente: sus 4 superficies, con los MISMOS iconos que el sub-nav del portal
+    // (client-portal-nav.tsx) para que se sienta un solo espacio.
+    { href: "/inicio", label: "Inicio", icon: Home, show: isCliente, active: pathname === "/inicio" },
+    { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, show: isCliente, active: pathname.startsWith("/mis-entregas") },
+    { href: "/entregas-finales", label: "Entregas finales", icon: FolderCheck, show: isCliente, active: pathname.startsWith("/entregas-finales") },
+    { href: "/solicitudes", label: "Solicitudes", icon: MessageSquarePlus, show: isCliente, active: pathname.startsWith("/solicitudes") },
     { href: "/", label: "Inicio", icon: Home, show: !isCliente, active: pathname === "/" },
     { href: "/mis-tareas", label: "Mis tareas", icon: ListTodo, show: !isCliente, active: pathname === "/mis-tareas" },
     // Acceso directo a TODOS los proyectos (el panel de Producción navega por cliente; esta
@@ -531,7 +538,7 @@ export function Sidebar({
     return (
       <aside className="flex h-full w-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         {dialog}
-        <Link href={isCliente ? "/mis-entregas" : "/"} onClick={onNavigate} className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-sidebar-accent/40">
+        <Link href={isCliente ? "/inicio" : "/"} onClick={onNavigate} className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-sidebar-accent/40">
           <span className="min-w-0 flex-1">
             <Logo className="h-6" />
             <span className="mt-1 block truncate text-xs text-sidebar-muted">Productora · equipo</span>
@@ -620,7 +627,7 @@ export function Sidebar({
 
       {/* RAIL: navegación principal con badges, SIEMPRE visible */}
       <div className="relative z-20 flex w-[58px] shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3">
-        <Link href={isCliente ? "/mis-entregas" : "/"} onClick={onNavigate} title="Labstream OS" className="mb-2 transition-transform hover:scale-105">
+        <Link href={isCliente ? "/inicio" : "/"} onClick={onNavigate} title="Labstream OS" className="mb-2 transition-transform hover:scale-105">
           <LogoMark className="h-8 w-8 text-sm" />
         </Link>
         {NAV.filter((n) => n.show).map((n) => (
@@ -719,7 +726,7 @@ export function Sidebar({
         <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width }} inert={collapsed || undefined}>
           {/* Cabecera del panel: el LOGO real de Labstream (subible en Ajustes → Marca) + buscar. */}
           <div className="flex items-center gap-2 px-3 pb-1 pt-3.5">
-            <Link href={isCliente ? "/mis-entregas" : "/"} onClick={onNavigate} title="Ir a Inicio" className="min-w-0 flex-1">
+            <Link href={isCliente ? "/inicio" : "/"} onClick={onNavigate} title="Ir a Inicio" className="min-w-0 flex-1">
               <Logo className="h-[22px]" />
               <span className="mt-0.5 block truncate text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted">
                 {isCliente ? "Mis proyectos" : "Producción"}

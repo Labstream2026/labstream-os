@@ -3,7 +3,7 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { IconInicio, IconEntregas, IconTareas, IconCliente, IconProyectos, IconCalendario, IconMas, type IconProps } from "@/components/icons";
+import { IconInicio, IconTareas, IconCliente, IconProyectos, IconCalendario, IconChat, IconMas, type IconProps } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 // Barra de navegación inferior — solo móvil. Alcanzable con el pulgar.
@@ -28,14 +28,16 @@ export function BottomNav({
 }) {
   const pathname = usePathname();
 
-  // El portal del cliente navega entre SUS proyectos, el calendario y sus entregas.
-  // Íconos del set propio de Labstream (duotono): misma firma que un ícono de UI (className).
+  // El portal del cliente arranca en SU Inicio (/inicio) y navega proyectos, calendario y
+  // solicitudes; «Mis entregas» y «Entregas finales» quedan a un toque desde «Más» y desde
+  // las pestañas del propio portal. Íconos del set propio de Labstream (duotono).
   const links: { href: string; label: string; icon: (p: IconProps) => ReactElement; match: (p: string) => boolean }[] = isCliente
     ? [
         // El cliente (portal) no tiene chat: sin pestaña Chat en su barra.
-        { href: "/mis-entregas", label: "Entregas", icon: IconEntregas, match: (p: string) => p.startsWith("/mis-entregas") },
+        { href: "/inicio", label: "Inicio", icon: IconInicio, match: (p: string) => p.startsWith("/inicio") },
         { href: "/proyectos", label: "Proyectos", icon: IconProyectos, match: (p: string) => p.startsWith("/proyectos") },
         { href: "/calendario", label: "Calendario", icon: IconCalendario, match: (p: string) => p.startsWith("/calendario") },
+        { href: "/solicitudes", label: "Solicitudes", icon: IconChat, match: (p: string) => p.startsWith("/solicitudes") },
       ]
     : [
         { href: "/", label: "Inicio", icon: IconInicio, match: (p: string) => p === "/" },
