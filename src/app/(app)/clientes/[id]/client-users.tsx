@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
-import { Mail, Send, X, Copy, Check, Loader2, UserPlus } from "lucide-react";
+import { Mail, Send, X, Copy, Check, Loader2, UserPlus, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { inviteClientUser, resendClientInvite, removeClientMember } from "@/app/(app)/clientes/actions";
 
@@ -116,6 +117,15 @@ export function ClientUsers({
                     </button>
                   </div>
                 </div>
+                {/* «Ver como cliente»: abre la vista previa del portal EXACTO de esta persona. */}
+                <Link
+                  href={`/clientes/${clientId}/portal?usuario=${u.id}`}
+                  title={`Ver el portal como ${u.name}`}
+                  aria-label={`Ver el portal como ${u.name}`}
+                  className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                >
+                  <Eye className="size-4" />
+                </Link>
                 {canInvite && u.pending ? (
                   <button type="button" disabled={pending} onClick={() => resend(u.id)} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50">
                     <Send className="size-3" /> Reenviar

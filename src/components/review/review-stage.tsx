@@ -842,7 +842,16 @@ export function ReviewStage({
           {!immersive ? (
             <>
           {version?.notes ? (
-            <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
+            version.number > 1 ? (
+              // «Qué cambió en esta versión»: de v2 en adelante la nota es un DESTACADO — el
+              // cliente sabe al instante qué se ajustó sin comparar los videos cuadro a cuadro.
+              <div className="mt-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
+                <span className="font-semibold text-primary">Qué cambió en la v{version.number}:</span>{" "}
+                <span className="text-foreground/90">{version.notes}</span>
+              </div>
+            ) : (
+              <p className="mt-2 rounded-md bg-card px-3 py-2 text-sm text-muted-foreground"><span className="font-medium text-foreground">Notas v{version.number}:</span> {version.notes}</p>
+            )
           ) : null}
 
           {/* Herramientas */}

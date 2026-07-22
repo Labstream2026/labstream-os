@@ -34,6 +34,10 @@ import { signUploadToken } from "@/lib/upload-token";
 import { UploadShare } from "./upload-share";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { ClientTeamPanel } from "./client-team-panel";
+import { ClientJourney } from "./client-journey";
+import { NextForClientCard } from "./next-for-client";
+import { ClientRequestsPanel } from "./client-requests-panel";
+import { formatBogota } from "@/lib/bogota-time";
 import { IconTablero, IconLista } from "@/components/icons";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
@@ -147,6 +151,17 @@ export default async function ProyectoPage({
   // saltan ese candado → se les añade `alive` explícito.
   const alive = !project.archivedAt && !project.finishedAt;
   const canUploadFiles = canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "subir_archivos"));
+
+  // Solicitudes del CLIENTE (portal): el equipo las gestiona desde el Resumen. Solo se cargan ahí.
+  const clientRequests =
+    tab === "resumen" && !isCliente
+      ? await db.clientRequest.findMany({
+          where: { projectId: id },
+          orderBy: { createdAt: "desc" },
+          take: 25,
+          select: { id: true, type: true, title: true, details: true, status: true, responseNote: true, createdById: true, createdAt: true },
+        })
+      : [];
 
   // Posibles RESPONSABLES de una tarea: SIEMPRE del equipo (nunca usuarios del portal cliente).
   // Para el portal cliente, además solo su equipo del proyecto (no la lista completa de la empresa).
@@ -482,6 +497,20 @@ export default async function ProyectoPage({
       <div className="mt-0">
         {tab === "resumen" ? (
           <div className="space-y-5">
+            {/* Portal del cliente: el HÉROE es el viaje del proyecto (fases + «¿Qué sigue?») —
+                en su lenguaje, no en el del equipo. */}
+            {isCliente ? (
+              <ClientJourney
+                project={{
+                  status: project.status,
+                  finishedAt: project.finishedAt,
+                  nextForClient: project.nextForClient,
+                  dueDate: project.dueDate,
+                  deliverables: project.deliverables.map((d) => ({ status: d.status })),
+                  lead: project.lead ? { name: project.lead.name } : null,
+                }}
+              />
+            ) : null}
             {canManageProject(project, session) ? (
               <ProjectSettings
                 projectId={project.id}
@@ -519,6 +548,27 @@ export default async function ProyectoPage({
                 name={project.name}
                 description={project.description}
                 dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
+              />
+            ) : null}
+            {/* «¿Qué sigue?» del portal del cliente: lo edita quien gestiona; el cliente lo ve
+                en su viaje. Vacío = texto automático según la fase. */}
+            {!isCliente && canManageProject(project, session) ? (
+              <NextForClientCard projectId={project.id} note={project.nextForClient} />
+            ) : null}
+            {/* Solicitudes que el cliente envió desde su portal (tomar / resolver con nota). */}
+            {!isCliente && clientRequests.length > 0 ? (
+              <ClientRequestsPanel
+                canWrite={canWriteProject(project, session)}
+                requests={clientRequests.map((r) => ({
+                  id: r.id,
+                  type: r.type,
+                  title: r.title,
+                  details: r.details,
+                  status: r.status,
+                  responseNote: r.responseNote,
+                  creatorName: team.find((t) => t.id === r.createdById)?.name ?? "Cliente",
+                  createdAtLabel: formatBogota(r.createdAt, { day: "numeric", month: "short" }),
+                }))}
               />
             ) : null}
             {/* Portada del proyecto (la edición se quitó de la cabecera con la Opción A;

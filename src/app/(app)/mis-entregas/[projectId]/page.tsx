@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
 import { CoverThumb } from "./cover-thumb";
 import { ReopenRequestButton } from "./reopen-request";
+import { SurveyCard } from "./survey";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,15 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
   if (!project) notFound();
   if (!canAccessProject(project, session)) redirect("/mis-entregas");
 
+  // Encuesta al TERMINAR: si el cliente aún no calificó este proyecto terminado, se le ofrece.
+  const mySurvey =
+    session.role === "cliente" && project.finishedAt
+      ? await db.projectSurvey.findUnique({
+          where: { projectId_userId: { projectId: project.id, userId: session.id } },
+          select: { score: true },
+        })
+      : null;
+
   const total = project.deliverables.length;
   const approved = project.deliverables.filter((d) => d.status === "APROBADO" || d.status === "ENTREGADO").length;
 
@@ -107,6 +117,17 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
           </div>
           {session.role === "cliente" ? <ReopenRequestButton projectId={project.id} /> : null}
         </div>
+      ) : null}
+
+      {/* Encuesta de satisfacción (solo cliente, proyecto terminado): 1–5 + comentario. */}
+      {project.finishedAt && session.role === "cliente" ? (
+        mySurvey ? (
+          <p id="encuesta" className="-mt-3 mb-6 text-xs text-muted-foreground">
+            Gracias por tu calificación: {"⭐".repeat(mySurvey.score)} ({mySurvey.score}/5)
+          </p>
+        ) : (
+          <SurveyCard projectId={project.id} />
+        )
       ) : null}
 
       {blocks.length === 0 ? (

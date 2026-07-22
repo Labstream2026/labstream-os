@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ClientPortalNav } from "@/components/client-portal-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export default async function MisEntregasPage() {
           Aquí están tus campañas. Abre una para revisar cada pieza, comentar y aprobar o pedir cambios.
         </p>
       </header>
+
+      {session.role === "cliente" ? <ClientPortalNav active="entregas" /> : null}
 
       {campaigns.length === 0 ? (
         <EmptyState

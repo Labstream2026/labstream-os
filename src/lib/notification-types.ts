@@ -14,6 +14,7 @@ export type NotificationCategory =
   | "Entregables y revisiones"
   | "Chat"
   | "Agenda"
+  | "Portal del cliente"
   | "Administración"
   | "Recordatorios"
   | "Marcebot";
@@ -35,6 +36,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "Entregables y revisiones",
   "Chat",
   "Agenda",
+  "Portal del cliente",
   "Administración",
   "Recordatorios",
   "Marcebot",
@@ -72,6 +74,11 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   // ── Agenda ──
   { key: "calendar_event", label: "Citas de calendario", description: "Invitaciones, cambios y cancelaciones de citas/eventos.", category: "Agenda" },
   { key: "client_project_date", label: "Cambio de fecha del proyecto (para el cliente)", description: "Avisa al cliente cuando cambia la fecha de entrega de su proyecto.", category: "Agenda" },
+
+  // ── Portal del cliente ──
+  { key: "client_request", label: "Solicitud del cliente", description: "Cuando un cliente envía una solicitud (cambio, material, pregunta o reunión) desde su portal.", category: "Portal del cliente", priority: 1 },
+  { key: "client_request_update", label: "Respuesta a tu solicitud (cliente)", description: "Para el cliente: cuando el equipo toma o resuelve una solicitud suya.", category: "Portal del cliente" },
+  { key: "client_survey", label: "Calificación del cliente", description: "Cuando un cliente califica un proyecto terminado (encuesta 1–5).", category: "Portal del cliente", priority: 1 },
 
   // ── Administración ──
   { key: "admin_role", label: "Cambios de rol y permisos", description: "Cuando cambian tu rol o tus permisos.", category: "Administración", essential: true, priority: 2 },

@@ -89,6 +89,9 @@ model User {
   // Token secreto del feed de suscripción de calendario (webcal/ics de solo lectura para
   // Google/Apple/Outlook). null = feed sin generar; rotarlo revoca el enlace anterior.
   calendarFeedToken String? @unique
+  // Última vez que se le envió el resumen semanal del portal del cliente (correo del viernes).
+  // Solo aplica a usuarios con rol cliente; null = nunca se le ha enviado.
+  clientDigestAt DateTime?
   // ── Silencio de notificaciones ──
   // "No molestar" hasta este instante (UTC): mientras esté vigente, se silencian PUSH y CORREO;
   // la campana in-app sigue acumulando (no se pierde nada). null = sin pausa.
@@ -555,6 +558,9 @@ model Project {
   // Visible para todo el equipo del proyecto; NO incluye valores ni equipos. Editable.
   briefScope        String?
   briefDeliverables String?
+  // «¿Qué sigue?» del portal del cliente: frase corta que el equipo edita para contarle al
+  // cliente en qué va el proyecto y qué esperar. Null = texto automático derivado de la fase.
+  nextForClient     String?
 
   tasks          Task[]
   recurringTasks RecurringTask[]
@@ -570,6 +576,8 @@ model Project {
   activity     ActivityLog[]
   equipmentPlans EquipmentPlan[]
   notes        Note[]
+  clientRequests ClientRequest[]
+  surveys        ProjectSurvey[]
 
   // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
   // cae en ESTE proyecto SIN cuenta. Como el enlace de revisión: revocable + caducidad opcional.
@@ -2122,4 +2130,45 @@ model ReminderAlert {
 
   @@index([active, sentAt, fireAt])
   @@index([reminderId])
+}
+
+// ── Portal del cliente: solicitudes al equipo ──
+// El cliente pide cosas SIN chat: cada solicitud es estructurada (tipo + título + detalle),
+// nace con una tarea espejo para el equipo y tiene estado visible para el cliente
+// (RECIBIDA → EN_CURSO → RESUELTA). El equipo la gestiona desde el Resumen del proyecto.
+model ClientRequest {
+  id           String    @id @default(cuid())
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  // Autor (usuario del portal) y quien resolvió: ids sueltos a propósito (sin relación en User,
+  // para no engordar ese modelo); los nombres se resuelven al pintar.
+  createdById  String
+  type         String    // CAMBIO | MATERIAL | PREGUNTA | REUNION
+  title        String
+  details      String?
+  status       String    @default("RECIBIDA") // RECIBIDA | EN_CURSO | RESUELTA
+  // Respuesta del equipo al resolver (el cliente la ve en su lista de solicitudes).
+  responseNote String?
+  resolvedAt   DateTime?
+  resolvedById String?
+  // Tarea espejo creada para el equipo (seguimiento en el tablero del proyecto).
+  taskId       String?
+  createdAt    DateTime  @default(now())
+
+  @@index([projectId, status])
+  @@index([createdById, createdAt])
+}
+
+// Encuesta de satisfacción del cliente al TERMINAR un proyecto: una calificación (1–5)
+// + comentario opcional por persona del portal. Termómetro de clientes sin esfuerzo.
+model ProjectSurvey {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  userId    String
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
 }
