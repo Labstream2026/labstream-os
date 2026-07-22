@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { quickAddTask } from "@/app/(app)/proyectos/[id]/actions";
 import { useRouter } from "next/navigation";
-import { Search, FileText, Loader2 } from "lucide-react";
+import { Search, FileText, Loader2, Plus } from "lucide-react";
 import {
   IconInicio, IconTareas, IconChat, IconProyectos, IconCalendario, IconCotizacion, IconWiki,
   IconArchivo, IconConfiguracion, IconBiblioteca, IconCliente, IconRevisiones, IconFacturacion, IconNotas,
@@ -10,7 +11,7 @@ import {
 import type { SidebarClient } from "@/components/layout/sidebar";
 import { globalSearch } from "./search-action";
 
-type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string; finished?: boolean };
+type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string; finished?: boolean; run?: () => Promise<void> };
 
 // Ícono por tipo de contenido devuelto por la búsqueda del servidor (set propio de Labstream).
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -82,11 +83,40 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
   }, [q, open]);
 
   // Navegación (páginas/clientes/proyectos/wiki, instantáneo) + contenido del servidor.
-  const allItems = React.useMemo(() => [...items, ...serverHits], [items, serverHits]);
+  // Tareas 2.0: con 3+ letras escritas, SIEMPRE se ofrece crear la tarea con ese texto — el
+  // parser del quick-add entiende fechas, @persona, #etiquetas, !prioridad y estimación.
+  const [createErr, setCreateErr] = React.useState<string | null>(null);
+  const allItems = React.useMemo(() => {
+    const base = [...items, ...serverHits];
+    const term = q.trim();
+    if (term.length >= 3) {
+      base.push({
+        id: "quick-task",
+        label: `＋ Crear tarea: «${term}»`,
+        sub: "fechas, @persona, #tag, 2h…",
+        href: "/mis-tareas",
+        icon: Plus,
+        group: "Crear",
+      });
+    }
+    return base;
+  }, [items, serverHits, q]);
 
   React.useEffect(() => { if (active >= allItems.length) setActive(0); }, [allItems.length, active]);
 
-  const go = (i: Item) => { onClose(); router.push(i.href); };
+  const go = (i: Item) => {
+    if (i.id === "quick-task") {
+      const term = q.trim();
+      setCreateErr(null);
+      void quickAddTask(term).then((r) => {
+        if (r.ok) { onClose(); router.push("/mis-tareas"); router.refresh(); }
+        else setCreateErr(r.error ?? "No se pudo crear la tarea.");
+      });
+      return;
+    }
+    onClose();
+    router.push(i.href);
+  };
 
   if (!open) return null;
 
@@ -121,6 +151,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
           {searching ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" /> : null}
           <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Esc</kbd>
         </div>
+        {createErr ? <p className="border-b border-border px-3.5 py-1.5 text-xs font-medium text-destructive">{createErr}</p> : null}
         <div className="max-h-80 overflow-y-auto p-1.5">
           {allItems.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">{searching ? "Buscando…" : `Sin resultados para «${q}».`}</p>

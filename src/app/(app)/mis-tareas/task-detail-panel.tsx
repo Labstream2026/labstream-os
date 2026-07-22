@@ -7,6 +7,9 @@ import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
 import { ChecklistCheckbox } from "@/components/actions/checklist-checkbox";
+import { DependenciesEditor } from "@/app/(app)/proyectos/[id]/dependencies-editor";
+import { ChecklistTemplatesMenu } from "@/app/(app)/proyectos/[id]/checklist-templates";
+import { TimerRowButton } from "./next-up";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { EntityEmoji } from "@/components/icons/marks";
 import { TaskReminders } from "./task-reminders";
@@ -217,11 +220,21 @@ function TaskDetailPanel({
             <p className="mt-0.5 text-[10px] text-muted-foreground">Se guarda al salir del campo.</p>
           </form>
 
+          {/* Tareas 2.0 (paridad con el panel del proyecto): dependencias + cronómetro. */}
+          {task.projectId ? <DependenciesEditor taskId={task.id} /> : null}
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <TimerRowButton taskId={task.id} />
+            <span>Cronómetro: empieza aquí y, al parar, los minutos quedan anotados solos.</span>
+          </div>
+
           {/* Checklist */}
           <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Checklist {task.checklist.length > 0 ? `(${task.checklist.filter((c) => c.done).length}/${task.checklist.length})` : ""}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                Checklist {task.checklist.length > 0 ? `(${task.checklist.filter((c) => c.done).length}/${task.checklist.length})` : ""}
+              </p>
+              <ChecklistTemplatesMenu taskId={task.id} hasItems={task.checklist.length > 0} />
+            </div>
             <div className="space-y-1">
               {task.checklist.map((c) => (
                 <ChecklistCheckbox key={c.id} checked={c.done} label={c.label} action={toggleChecklistItem.bind(null, c.id, projectId)} />

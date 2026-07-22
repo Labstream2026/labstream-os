@@ -296,6 +296,12 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   </span>
                 );
               })()}
+              {t._count.comments || t._count.fileAssets ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground" title={`${t._count.comments} comentario(s) · ${t._count.fileAssets} archivo(s)`}>
+                  {t._count.comments ? <>💬 {t._count.comments}</> : null}
+                  {t._count.fileAssets ? <>📎 {t._count.fileAssets}</> : null}
+                </span>
+              ) : null}
               {staleDaysOf(t) >= 7 ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400" title={`Sin actividad hace ${staleDaysOf(t)} días`}>
                   🐢 {staleDaysOf(t)} d quieta
