@@ -2029,6 +2029,31 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // si solo quiere ver y el master pesado tarda en cargar.
   const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
   const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
+  // ── Fotograma LIMPIO en pausa ──
+  // Safari (y otros) dejan los controles nativos FIJOS al pausar, con un velo oscuro sobre
+  // todo el cuadro — justo cuando el revisor pausa para MIRAR el fotograma. Tras una pausa
+  // breve se esconde el atributo `controls` (el velo se va con él) y cualquier movimiento
+  // del mouse o toque sobre el video los devuelve al instante. No toca captura ni timecode.
+  const [nativeControls, setNativeControls] = React.useState(true);
+  const controlsTimer = React.useRef<number | null>(null);
+  const armControlsHide = React.useCallback(() => {
+    if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
+    controlsTimer.current = window.setTimeout(() => {
+      controlsTimer.current = null;
+      if (videoRef.current?.paused) setNativeControls(false);
+    }, 1500);
+  }, []);
+  const wakeControls = React.useCallback(() => {
+    if (drawOpen) return; // dibujando: el lienzo manda, sin controles debajo
+    setNativeControls(true);
+    if (videoRef.current?.paused) armControlsHide();
+  }, [drawOpen, armControlsHide]);
+  React.useEffect(
+    () => () => {
+      if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
+    },
+    [],
+  );
   // Reintentos del video proxiado antes de rendirse al iframe: un error transitorio de arranque del
   // stream no debe bajar al visor de Google (donde no se captura el fotograma ni el segundo).
   const proxyRetries = React.useRef(0);
@@ -2263,11 +2288,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   if (version.kind === "video" || usingProxy) {
     return (
       <div className={immersive ? "h-full w-full" : undefined}>
-        <div className={immersive ? "relative h-full w-full" : "relative mx-auto w-fit max-w-full"}>
+        <div
+          className={immersive ? "relative h-full w-full" : "relative mx-auto w-fit max-w-full"}
+          // Cualquier movimiento/toque sobre el video devuelve los controles escondidos en pausa.
+          onPointerMove={immersive ? undefined : wakeControls}
+          onPointerDown={immersive ? undefined : wakeControls}
+        >
           <video
             ref={videoRef}
             src={usingProxy ? version.proxySrc! : version.src}
-            controls={!immersive}
+            controls={!immersive && nativeControls}
             playsInline
             // SIN crossOrigin: con "anonymous", un MP4 externo sin cabeceras CORS no reproduce NADA.
             // Sin el atributo siempre reproduce; si la fuente es de otro origen, la captura del
@@ -2296,7 +2326,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onLoadedMetadata={(e) => { restorePos(); e.currentTarget.playbackRate = rateRef.current; }}
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
             onTimeUpdate={() => savePos()}
-            onPause={() => savePos(true)}
+            onPause={() => { savePos(true); armControlsHide(); }}
+            onPlay={() => { if (controlsTimer.current) window.clearTimeout(controlsTimer.current); setNativeControls(true); }}
             // iOS: sin menú de long-press ("Guardar vídeo") sobre el material.
             style={{ WebkitTouchCallout: "none" }}
             className={immersive ? "block h-full w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"}
