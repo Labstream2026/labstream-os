@@ -229,7 +229,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             status={deliverable.status}
             allowDrawings
             orientation={deliverableOrientation(deliverable.type)}
-            immersiveEligible={deliverable.type === "REEL_CELULAR"}
+            immersiveEligible={deliverableOrientation(deliverable.type) === "vertical"}
             deliverableName={deliverable.name}
             projectName={deliverable.project.name}
             projectEmoji={deliverable.project.emoji}

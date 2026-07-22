@@ -1,7 +1,9 @@
+import { stat as fsStat } from "node:fs/promises";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
+import { absPath } from "@/lib/storage";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
 import { getCachedReview, ensureReviewCached, serveCachedReview, isCachingInFlight } from "@/lib/review-cache";
 
@@ -26,6 +28,7 @@ export async function GET(
     where: { id: versionId },
     select: {
       fileUrl: true,
+      proxyRel: true,
       deliverable: {
         select: {
           reviewRevokedAt: true,
@@ -48,6 +51,21 @@ export async function GET(
   if (!isTeam && (d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()))) {
     return new Response("Enlace no disponible", { status: 403 });
   }
+  // PROXY LIGERO cocinado: si esta versión ya tiene copia de revisión local, se sirve ESA
+  // (con Range) — arranque instantáneo, captura garantizada y el NAS emite el peso del
+  // proxy, no el del master. El master original sigue en Drive para descarga/entrega.
+  if (version.proxyRel) {
+    try {
+      const abs = absPath(version.proxyRel);
+      const st = await fsStat(abs);
+      if (st.isFile() && st.size > 0) {
+        return serveCachedReview({ path: abs, size: st.size, mime: "video/mp4" }, req.headers.get("range"));
+      }
+    } catch {
+      /* proxy anotado pero sin archivo → sigue el flujo normal de Drive */
+    }
+  }
+
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
   const media = await resolveDriveMediaFile(version.fileUrl);
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });

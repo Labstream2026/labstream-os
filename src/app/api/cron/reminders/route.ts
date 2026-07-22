@@ -23,7 +23,7 @@ async function run(req: NextRequest) {
     const clientDigest = await sweepClientDigest().catch((e) => ({ sent: 0, error: e instanceof Error ? e.message : "error" }));
     // Proxies de revisión: recupera los que la cola en-memoria perdió en un reinicio y
     // re-cocina los de la receta vieja (verticales borrosos). De a 2 por pasada.
-    const reviewProxies = await sweepReviewProxies().catch((e) => ({ queued: 0, error: e instanceof Error ? e.message : "error" }));
+    const reviewProxies = await sweepReviewProxies().catch((e) => ({ queued: 0, deleted: 0, error: e instanceof Error ? e.message : "error" }));
     // Retención de auditoría: el registro de actividad guarda 365 días; lo más viejo se
     // purga aprovechando este cron (indexado por createdAt: barato).
     const cutoff = new Date(Date.now() - 365 * 24 * 3600 * 1000);

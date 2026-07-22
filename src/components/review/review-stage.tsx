@@ -758,8 +758,11 @@ export function ReviewStage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetSent, pending, sendError]);
+  // Horizontal en pantallas ANCHAS (xl+): player a la izquierda + rail fijo a la derecha
+  // (comentar arriba, momentos debajo) — escribes viendo el fotograma, sin scroll. En
+  // pantallas angostas conserva el apilado clásico. Vertical no cambia.
   return (
-    <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5"}>
+    <div className={vertical ? "flex flex-col gap-6 lg:flex-row lg:items-start" : "space-y-5 xl:flex xl:items-start xl:gap-6 xl:space-y-0"}>
       {confirmDialog}
       {promptDialog}
       {/* Ventana «Solicitar cambios» con PLAZO de la corrección (solo pre-aprobación interna).
@@ -811,7 +814,7 @@ export function ReviewStage({
       ) : null}
       {/* ── Material + decisión ── vertical: columna IZQUIERDA (angosta, fija al hacer scroll);
           horizontal: arriba a todo el ancho. */}
-      <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : undefined}>
+      <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : "xl:sticky xl:top-4 xl:min-w-0 xl:flex-1"}>
         {versions.length > 1 ? (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Versión:</span>
@@ -1351,9 +1354,10 @@ export function ReviewStage({
           );
         }
         // Horizontal: cuadro para comentar debajo del player (ancho completo) → lista con capturas
-        // a la derecha de cada comentario → notas debajo.
+        // a la derecha de cada comentario → notas debajo. En xl+ este bloque se vuelve el RAIL
+        // derecho fijo (el contenedor de arriba pasa a flex): comentar queda SIEMPRE a la vista.
         return (
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5 xl:w-[400px] xl:shrink-0">
             {commentInputNode}
             <div>
               {momentsHeaderNode}

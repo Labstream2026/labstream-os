@@ -48,6 +48,8 @@ export function InternalReview({
       canDecide={canDecide}
       askFixDeadline
       resumeKey={`int:${deliverableId}`}
+      // El EQUIPO también revisa reels desde el celular: mismo modo inmersivo del portal.
+      immersiveEligible={orientation === "vertical"}
       onComment={(fd) => addInternalReviewComment(deliverableId, fd)}
       onDecision={(result, note, _name, versionNumber, fixDueIso) =>
         internalDecision(deliverableId, projectId, versionNumber, result, note || undefined, fixDueIso ?? null)

@@ -53,12 +53,20 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
 
   const proxySrc = `/api/review-media/${v.id}?t=${signReviewMediaToken(v.id)}`;
 
+  // PROXY LOCAL cocinado para un master de DRIVE: review-media detecta proxyRel y sirve la
+  // copia ligera local con Range → la pieza se comporta como un <video> del mismo origen
+  // (captura garantizada, arranque instantáneo, y el NAS emite el peso del proxy, no el del
+  // master). «Abrir original» sigue llevando al Drive.
+  if (v.proxyRel && (s.type === "DRIVE_FILE" || s.type === "DRIVE_FOLDER")) {
+    return { number: v.number, notes: v.notes, kind: "video", src: proxySrc, openUrl: s.url, fileName: null, timecodeCapable: true, proxyPending: false };
+  }
+
   // 2) Carpeta de Drive: resuelve el video/imagen que contiene para reproducir y capturar
   // (en vez de incrustar la carpeta sin player).
   if (s.type === "DRIVE_FOLDER") {
     const media = await resolveDriveMediaFile(v.fileUrl);
     if (media?.isVideo) {
-      return { number: v.number, notes: v.notes, kind: "drive_file", src: `https://drive.google.com/file/d/${media.id}/preview`, proxySrc, openUrl: v.fileUrl, fileName: media.name || null, timecodeCapable: true };
+      return { number: v.number, notes: v.notes, kind: "drive_file", src: `https://drive.google.com/file/d/${media.id}/preview`, proxySrc, openUrl: v.fileUrl, fileName: media.name || null, timecodeCapable: true, proxyPending: true };
     }
     if (media) {
       // Imagen dentro de la carpeta → servida por el proxy (mismo origen → captura).
@@ -82,5 +90,7 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
     openUrl: s.url,
     fileName: null,
     timecodeCapable: s.timecodeCapable || kind === "drive_file",
+    // Master de Drive sin copia ligera todavía: la sala avisa «en cocina».
+    proxyPending: kind === "drive_file",
   };
 }
