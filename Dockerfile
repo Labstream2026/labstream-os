@@ -27,6 +27,9 @@ RUN npx prisma generate && npm run build
 
 # ── runner ──
 FROM base AS runner
+# ffmpeg: genera en segundo plano la copia de revisión 1080p (proxy) de los masters
+# subidos. Si faltara, la app funciona igual (se reproduce el original, sin proxy).
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000

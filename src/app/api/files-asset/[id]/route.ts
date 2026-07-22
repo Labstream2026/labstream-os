@@ -67,9 +67,29 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const wantInline = !url.searchParams.get("download");
 
+  // Copia de revisión (proxy 1080p): con ?proxy=1 se sirve la copia ligera de la versión
+  // que usa este archivo, si ya existe. Mismo token y permisos (es contenido DERIVADO del
+  // mismo archivo). Si aún no hay proxy —o su archivo faltara en disco—, se cae al
+  // original y el reproductor ni se entera.
+  let servePath = file.path;
+  let serveMime = file.mime;
+  if (url.searchParams.get("proxy")) {
+    const v = await db.deliverableVersion.findFirst({
+      where: { fileAssetId: id, proxyRel: { not: null } },
+      select: { proxyRel: true },
+    });
+    if (v?.proxyRel) {
+      try {
+        await fs.stat(absPath(v.proxyRel));
+        servePath = v.proxyRel;
+        serveMime = "video/mp4"; // el proxy SIEMPRE es MP4, sea cual sea el original
+      } catch { /* proxy anotado pero sin archivo → original */ }
+    }
+  }
+
   // Tipo de contenido: se PREFIERE el mime guardado si es de video (mimeFor mapea webm/ogg a
   // AUDIO, lo que rompería un webm de VIDEO); si no, la tabla por extensión.
-  const contentType = file.mime && file.mime.startsWith("video/") ? file.mime : mimeFor(file.name, file.mime);
+  const contentType = serveMime && serveMime.startsWith("video/") ? serveMime : mimeFor(file.name, serveMime);
   const isVideo = contentType.startsWith("video/") || VIDEO_EXT.test(file.name);
 
   // Previsualización inline: derivado WebP si existe. NUNCA para video (serviría una imagen en
@@ -91,7 +111,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
 
   let abs: string;
-  try { abs = absPath(file.path); } catch { return new NextResponse("Ruta inválida", { status: 400 }); }
+  try { abs = absPath(servePath); } catch { return new NextResponse("Ruta inválida", { status: 400 }); }
   let size: number;
   try { size = (await fs.stat(abs)).size; } catch { return new NextResponse("Archivo no disponible", { status: 404 }); }
 

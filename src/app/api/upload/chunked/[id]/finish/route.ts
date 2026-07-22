@@ -8,6 +8,7 @@ import { STORAGE_DIR, absPath, sanitizeName } from "@/lib/storage";
 import { partPath, readChunkMeta, removeChunkUpload, withChunkLock } from "@/lib/chunked-store";
 import { CRC32_INIT, crc32Update, crc32Hex } from "@/lib/crc32";
 import { notify } from "@/lib/notify";
+import { isProxyableVideo, queueReviewProxy } from "@/lib/review-proxy";
 import { addDeliverableVersion } from "@/app/(app)/proyectos/[id]/actions";
 
 export const runtime = "nodejs";
@@ -99,6 +100,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
       await db.deliverableVersion.update({ where: { id: v.id }, data: { fileAssetId: asset.id } });
       await removeChunkUpload(id);
+
+      // Copia de revisión 1080p en SEGUNDO PLANO (encola y devuelve al instante; no
+      // bloquea esta respuesta). Best-effort: sin ffmpeg o si falla, no hay proxy y la
+      // sala de revisión reproduce el original, como hasta ahora.
+      if (isProxyableVideo(meta.fileName, meta.mime)) queueReviewProxy(v.id, rel);
 
       // Si la subida tomó su tiempo (master largo en segundo plano), aviso de «subida completa».
       const tookMs = Date.now() - new Date(meta.createdAt).getTime();

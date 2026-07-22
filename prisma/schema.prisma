@@ -1817,6 +1817,11 @@ model DeliverableVersion {
   fileUrl       String? // enlace externo (Drive, etc.)
   fileAsset     FileAsset?  @relation("VersionFile", fields: [fileAssetId], references: [id], onDelete: SetNull)
   fileAssetId   String? // archivo subido al storage (para el portal del cliente)
+  // Copia de revisión 1080p H.264 (proxy) generada por el servidor junto al original
+  // (ruta relativa en el storage, hermana «<ruta>.proxy.mp4»). La sala de revisión la
+  // reproduce cuando existe; el original queda para descarga/entrega final. Null = sin
+  // proxy (no es video, ffmpeg ausente o transcodificación aún en curso).
+  proxyRel      String?
   // Duración del video en segundos (capturada en el cliente al subir; null si no aplica).
   durationSec   Int?
   deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)

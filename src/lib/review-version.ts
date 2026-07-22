@@ -18,6 +18,8 @@ type VersionRow = {
   number: number;
   notes: string | null;
   fileUrl: string | null;
+  // Copia de revisión 1080p generada por el servidor (null si no hay o aún se cocina).
+  proxyRel: string | null;
   fileAsset: { id: string; name: string } | null;
 };
 
@@ -30,8 +32,15 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
   if (v.fileAsset) {
     const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}`;
     const name = v.fileAsset.name;
-    const kind = IMG.test(name) ? "image" : VID.test(name) ? "video" : "other";
-    return { number: v.number, notes: v.notes, kind, src: url, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
+    // Con proxy de revisión el archivo ES un video aunque su contenedor no se reproduzca
+    // en el navegador (MKV, AVI…): el proxy MP4 sí, y eso lo vuelve reproducible.
+    const isVideo = VID.test(name) || !!v.proxyRel;
+    const kind = IMG.test(name) ? "image" : isVideo ? "video" : "other";
+    // El player carga la copia de revisión 1080p si existe (mismo origen y mismo token →
+    // las capturas de timecode/fotograma siguen funcionando); openUrl conserva el
+    // ORIGINAL a calidad completa para abrir/descargar/entregar.
+    const src = kind === "video" && v.proxyRel ? `${url}&proxy=1` : url;
+    return { number: v.number, notes: v.notes, kind, src, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
   }
 
   const s = detectSource(v.fileUrl);
