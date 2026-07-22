@@ -779,8 +779,10 @@ export default async function ProyectoPage({
       </div>
       </div>
 
-      {/* Chat del proyecto = BURBUJA flotante (ya no una pestaña) con badge de no-leídos. */}
-      {session && session.role !== "cliente" ? (
+      {/* Chat del proyecto = BURBUJA flotante (ya no una pestaña) con badge de no-leídos.
+          En la PAPELERA no se monta: el canal está congelado (enviar sería un no-op) y la
+          conversación se consulta desde /chat. En TERMINADOS sí vive (retomar es legítimo). */}
+      {session && session.role !== "cliente" && !project.archivedAt ? (
         <ProjectChatBubble
           projectId={id}
           me={{ id: session.id, name: session.name, initials: session.initials, color: session.color }}

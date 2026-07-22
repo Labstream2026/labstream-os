@@ -28,7 +28,7 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
   const channel = await db.chatChannel.findUnique({
     where: { id },
     include: {
-      project: { select: { leadId: true, members: { select: { userId: true } } } },
+      project: { select: { leadId: true, archivedAt: true, finishedAt: true, members: { select: { userId: true } } } },
       members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true } } } },
       messages: {
         // Los mensajes borrados YA NO se muestran a nadie (tampoco al admin): su contenido
@@ -104,6 +104,12 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
     });
     mentionExtras = [{ name: "canal", hint: "todos los miembros" }, ...roles.map((r) => ({ name: r.name, hint: "equipo del rol" }))];
   }
+
+  // Ciclo de vida: canal de un proyecto en la PAPELERA = CONGELADO (leer sí, publicar no; el
+  // candado real vive en sendMessage/sendMessageWithAttachments — esto es el letrero honesto).
+  // Un proyecto TERMINADO no congela, pero sí se anuncia para que nadie escriba despistado.
+  const frozen = !!channel.project?.archivedAt;
+  const finishedProject = !frozen && !!channel.project?.finishedAt;
 
   // Pestañas de audiencia: en un canal de PROYECTO con dos audiencias (interno del equipo + con el
   // cliente), el EQUIPO ve pestañas para saltar entre ambos. El invitado no las ve (solo alcanza el
@@ -208,10 +214,22 @@ export default async function ChannelPage({ params, searchParams }: { params: Pr
         </div>
       </div>
 
+      {frozen ? (
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-muted/40 px-4 py-2 text-[13px] text-muted-foreground sm:px-6">
+          <span aria-hidden>🧊</span>
+          <span><b className="font-semibold text-foreground">Canal congelado</b> — el proyecto está en la papelera. Se puede leer, no escribir; restaura el proyecto para retomar la conversación.</span>
+        </div>
+      ) : finishedProject ? (
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-[13px] text-emerald-700 sm:px-6 dark:text-emerald-300">
+          <span aria-hidden>🏁</span>
+          <span><b className="font-semibold">Proyecto terminado</b> — puedes seguir escribiendo si hace falta retomar algo.</span>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1">
         <ChannelChat
           key={id}
           channelId={id}
+          readOnly={frozen}
           isAdmin={isAdmin}
           highlightId={highlightId ?? null}
           mentionExtras={mentionExtras}
