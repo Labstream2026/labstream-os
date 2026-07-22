@@ -1092,10 +1092,29 @@ export async function deleteTask(taskId: string, _projectId: string) {
 export async function toggleChecklistItem(itemId: string, _projectId: string, done: boolean) {
   const item = await db.checklistItem.findUnique({
     where: { id: itemId },
-    select: { label: true, task: { select: taskAccessSelect } },
+    select: { label: true, taskId: true, task: { select: taskAccessSelect } },
   });
   const projectId = await ensureAccessVia(item?.task ?? null);
   await db.checklistItem.update({ where: { id: itemId }, data: { done } });
+  // Estado que REACCIONA (Fase 2): al marcar el ÚLTIMO pendiente, sugerencia amable al
+  // responsable — nunca auto-completa (el candado de dependencias y el criterio son suyos).
+  if (done) {
+    const remaining = await db.checklistItem.count({ where: { taskId: item!.taskId, done: false } });
+    if (remaining === 0) {
+      const t = await db.task.findUnique({ where: { id: item!.taskId }, select: { title: true, assigneeId: true, completedAt: true, projectId: true } });
+      const session = await getSession();
+      if (t && !t.completedAt && t.assigneeId && t.assigneeId !== session?.id) {
+        await notify(t.assigneeId, {
+          type: "task",
+          event: "task_checklist_done",
+          title: `Checklist completo: «${t.title}»`,
+          body: "Todos los pasos están hechos — ¿la marcamos como terminada?",
+          link: t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas",
+          actorId: session?.id,
+        }).catch(() => null);
+      }
+    }
+  }
   await logActivity({
     action: "checklist.toggle",
     summary: `${done ? "completó" : "reabrió"} «${item!.label}» en «${item!.task.title}»`,
@@ -3405,4 +3424,71 @@ export async function removeTaskDependency(taskId: string, blockerId: string): P
   if (task?.projectId) refresh(task.projectId);
   revalidatePath("/mis-tareas");
   return { ok: true };
+}
+
+// ── Plantillas de CHECKLIST (Tareas 2.0, Fase 2) ──
+// Compartidas por el equipo: «Rodaje estándar» se guarda una vez y se aplica en un clic.
+
+export async function listChecklistTemplates(): Promise<{ id: string; name: string; count: number }[]> {
+  const session = await getSession();
+  if (!session || session.role === "cliente") return [];
+  const rows = await db.checklistTemplate.findMany({ orderBy: { name: "asc" }, take: 50, select: { id: true, name: true, labels: true } });
+  return rows.map((r) => ({ id: r.id, name: r.name, count: r.labels.length }));
+}
+
+// Guarda el checklist ACTUAL de una tarea como plantilla reutilizable.
+export async function saveChecklistTemplate(taskId: string, name: string): Promise<{ ok: boolean; error?: string }> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { ...taskAccessSelect, checklist: { orderBy: { position: "asc" }, select: { label: true } } } });
+  try {
+    await ensureAccessVia(task);
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  const clean = name.trim().slice(0, 60);
+  if (!clean) return { ok: false, error: "Ponle nombre a la plantilla." };
+  const labels = (task?.checklist ?? []).map((c) => c.label).filter(Boolean);
+  if (!labels.length) return { ok: false, error: "El checklist está vacío: no hay nada que guardar." };
+  await db.checklistTemplate.create({ data: { name: clean, labels } });
+  await logActivity({ action: "checklist.template", summary: `guardó la plantilla de checklist «${clean}» (${labels.length} pasos)` });
+  return { ok: true };
+}
+
+// Aplica una plantilla al checklist de la tarea (AÑADE al final; no borra lo existente).
+export async function applyChecklistTemplate(taskId: string, templateId: string): Promise<{ ok: boolean; error?: string; added?: number }> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  let projectId: string | null = null;
+  try {
+    projectId = await ensureAccessVia(task);
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  const tpl = await db.checklistTemplate.findUnique({ where: { id: templateId }, select: { name: true, labels: true } });
+  if (!tpl) return { ok: false, error: "La plantilla no existe." };
+  const last = await db.checklistItem.findFirst({ where: { taskId }, orderBy: { position: "desc" }, select: { position: true } });
+  let pos = (last?.position ?? 0) + 1;
+  await db.checklistItem.createMany({ data: tpl.labels.map((label) => ({ taskId, label, position: pos++ })) });
+  await logActivity({ action: "checklist.template_apply", summary: `aplicó la plantilla «${tpl.name}» en «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
+  if (projectId) refresh(projectId);
+  revalidatePath("/mis-tareas");
+  return { ok: true, added: tpl.labels.length };
+}
+
+// Carga estimada ABIERTA por persona (para avisar al asignar: «Diana ya va en 51h»).
+// Misma cuenta que la vista Carga del equipo; solo usuarios activos no-cliente.
+export async function getTeamWeeklyLoad(): Promise<{ id: string; hours: number; cap: number }[]> {
+  const session = await getSession();
+  if (!session || session.role === "cliente") return [];
+  const [users, sums] = await Promise.all([
+    db.user.findMany({
+      where: { active: true, isSystemBot: false, role: { isNot: { key: "cliente" } } },
+      select: { id: true, weeklyCapacityHours: true },
+    }),
+    db.task.groupBy({
+      by: ["assigneeId"],
+      where: { completedAt: null, assigneeId: { not: null }, estimatedMinutes: { not: null }, OR: [{ projectId: null }, { project: { archivedAt: null, finishedAt: null } }] },
+      _sum: { estimatedMinutes: true },
+    }),
+  ]);
+  const byId = new Map(sums.map((r) => [r.assigneeId!, r._sum.estimatedMinutes ?? 0]));
+  return users.map((u) => ({ id: u.id, hours: Math.round(((byId.get(u.id) ?? 0) / 60) * 10) / 10, cap: u.weeklyCapacityHours || 40 }));
 }

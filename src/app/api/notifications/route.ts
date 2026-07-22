@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
+import { sweepStaleTasks } from "@/lib/stale-tasks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export async function GET() {
   void sweepReminders().catch(() => {});
   // Barrido de SLA de entregables (pre-aprobaciones/correcciones vencidas), mismo patrón.
   void sweepDeliverableSla().catch(() => {});
+  void sweepStaleTasks().catch(() => {});
 
   const [rows, unread, me] = await Promise.all([
     db.notification.findMany({

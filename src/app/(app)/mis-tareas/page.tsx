@@ -77,7 +77,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
         // Tareas 2.0: bloqueadoras (candado 🔒) y a cuántas desbloquea (alimenta «Ahora sigue»).
         blockedBy: { select: { blocker: { select: { id: true, title: true, completedAt: true } } } },
-        _count: { select: { blocks: true } },
+        _count: { select: { blocks: true, comments: true, fileAssets: true } },
+        timeEntries: { select: { minutes: true } },
       },
     }),
     // Completadas recientes: terminadas mías, las más recientes primero.
@@ -151,6 +152,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     if (myDayPos.has(t.id)) score += 10;
     return score;
   };
+  // Estancada VISIBLE: días sin tocarse (updatedAt); a partir de 7, punto ámbar en la fila.
+  const staleDaysOf = (t: (typeof tasks)[number]): number => Math.floor((startToday.getTime() - t.updatedAt.getTime()) / 86_400_000);
   const heroCandidates = tasks.filter((t) => t.assigneeId === user.id && openBlockersOfRow(t).length === 0);
   const heroPick = heroCandidates.length ? heroCandidates.reduce((a, b) => (scoreOf(b) > scoreOf(a) ? b : a)) : null;
   const heroTask: HeroTask | null = heroPick
@@ -282,6 +285,22 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   {urgencyLabel(u.state, u.days)}
                 </span>
               )}
+              {(() => {
+                const spent = t.timeEntries.reduce((n, e) => n + e.minutes, 0);
+                if (!t.estimatedMinutes && !spent) return null;
+                const h = (m: number) => `${Math.round((m / 60) * 10) / 10}h`;
+                const over = !!t.estimatedMinutes && spent > t.estimatedMinutes;
+                return (
+                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums", over ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground")} title="Horas estimadas vs registradas">
+                    ⏱ {t.estimatedMinutes ? `${h(t.estimatedMinutes)} est` : ""}{t.estimatedMinutes && spent ? " · " : ""}{spent ? `${h(spent)} reg` : ""}
+                  </span>
+                );
+              })()}
+              {staleDaysOf(t) >= 7 ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400" title={`Sin actividad hace ${staleDaysOf(t)} días`}>
+                  🐢 {staleDaysOf(t)} d quieta
+                </span>
+              ) : null}
               {/* Tareas 2.0: candado de dependencias (el server también lo exige al completar). */}
               {openBlockersOfRow(t).length ? (
                 <span

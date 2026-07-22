@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { revalidatePath } from "next/cache";
+import { getTaskLabels } from "@/lib/workflow-labels";
 
 export type RunningTimerInfo = { taskId: string; taskTitle: string; projectId: string | null; startedAtIso: string };
 
@@ -22,7 +23,7 @@ function bogotaTodayNoonUTC(): Date {
 async function timerTask(taskId: string, userId: string, isAdmin: boolean) {
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { id: true, title: true, projectId: true, assigneeId: true, ownerId: true, completedAt: true },
+    select: { id: true, title: true, projectId: true, assigneeId: true, ownerId: true, completedAt: true, status: true },
   });
   if (!task) return null;
   if (task.assigneeId !== userId && task.ownerId !== userId && !isAdmin) return null;
@@ -52,6 +53,15 @@ export async function startTaskTimer(taskId: string): Promise<{ ok: boolean; err
   if (task.completedAt) return { ok: false, error: "Ya está completada." };
   const prev = await settleRunning(session.id); // un solo reloj: el anterior queda anotado
   await db.runningTimer.create({ data: { userId: session.id, taskId } });
+  // Estado que REACCIONA (Fase 2): si la tarea seguía en el PRIMER estado del catálogo (recién
+  // creada), empezar a trabajarla la avanza al siguiente estado abierto — sin ceremonia.
+  try {
+    const { statuses } = await getTaskLabels();
+    const next = statuses.find((x, i) => i > 0 && !x.isDone);
+    if (statuses[0] && next && task.status === statuses[0].key) {
+      await db.task.update({ where: { id: taskId }, data: { status: next.key as never } });
+    }
+  } catch { /* cosmético: el reloj ya arrancó */ }
   revalidatePath("/mis-tareas");
   if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
   return { ok: true, switchedFrom: prev?.taskTitle };

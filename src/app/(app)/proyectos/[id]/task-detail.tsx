@@ -33,6 +33,8 @@ import {
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { TaskExtras } from "./task-extras";
 import { DependenciesEditor } from "./dependencies-editor";
+import { ChecklistTemplatesMenu } from "./checklist-templates";
+import { getTeamWeeklyLoad } from "./actions";
 import { TimerRowButton } from "@/app/(app)/mis-tareas/next-up";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -75,6 +77,15 @@ export function TaskDetail({
   const [pending, start] = React.useTransition();
   const [actionErr, setActionErr] = React.useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
+  // Carga estimada por persona (aviso al asignar): se trae UNA vez al montar el panel.
+  const [teamLoad, setTeamLoad] = React.useState<Map<string, { hours: number; cap: number }>>(new Map());
+  React.useEffect(() => {
+    let cancelled = false;
+    getTeamWeeklyLoad()
+      .then((rows) => { if (!cancelled) setTeamLoad(new Map(rows.map((r) => [r.id, { hours: r.hours, cap: r.cap }]))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   // Ejecuta una server action sin tumbar el panel (startTransition no atrapa rechazos).
   const runSafe = (fn: () => Promise<unknown>) =>
     start(async () => {
@@ -170,10 +181,23 @@ export function TaskDetail({
                 className="w-full cursor-pointer rounded-md border border-border bg-card px-2 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">Sin asignar</option>
-                {team.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
+                {team.map((u) => {
+                  const l = teamLoad.get(u.id);
+                  return (
+                    <option key={u.id} value={u.id}>
+                      {u.name}{l ? ` · ${l.hours}h${l.hours >= l.cap ? " ⚠" : ""}` : ""}
+                    </option>
+                  );
+                })}
               </select>
+              {(() => {
+                const l = task.assigneeId ? teamLoad.get(task.assigneeId) : null;
+                return l && l.hours >= l.cap ? (
+                  <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                    ⚠ Va en {l.hours}h de {l.cap}h esta semana — mira la Carga del equipo antes de sumarle más.
+                  </p>
+                ) : null;
+              })()}
             </Field>
             <Field label="🚦 Fecha de inicio">
               <DateInput name="startDate" value={toDateInputValue(task.startDate ?? null)} action={setTaskDates.bind(null, task.id, projectId)} className="w-full" />
@@ -219,7 +243,10 @@ export function TaskDetail({
 
           {/* Checklist */}
           <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">Checklist {task.checklist.length > 0 ? `(${done}/${task.checklist.length})` : ""}</p>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Checklist {task.checklist.length > 0 ? `(${done}/${task.checklist.length})` : ""}</p>
+              <ChecklistTemplatesMenu taskId={task.id} hasItems={task.checklist.length > 0} />
+            </div>
             <div className="space-y-1">
               {task.checklist.map((c) => (
                 <ChecklistCheckbox key={c.id} checked={c.done} label={c.label} action={toggleChecklistItem.bind(null, c.id, projectId)} />

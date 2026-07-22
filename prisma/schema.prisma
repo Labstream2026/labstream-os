@@ -164,6 +164,8 @@ model User {
   remindersCreated   Reminder[]         @relation("ReminderCreator")
   whatsappMessages   WhatsappMessage[]
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
+  // Capacidad semanal (vista Carga): contra cuántas horas se compara su trabajo estimado.
+  weeklyCapacityHours Int             @default(40)
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
   runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
@@ -1478,6 +1480,9 @@ model Task {
   // (o la corrección llegó después del plazo). La tarea puede cerrarse igual, pero queda
   // la marca — alimenta el % de cumplimiento y el chip «Incumplida».
   breachedAt    DateTime?
+  // Estancada YA AVISADA (detector de Tareas 2.0 Fase 2): se limpia sola cuando la tarea
+  // vuelve a moverse (updatedAt > staleNotifiedAt) para poder re-avisar tras otra racha quieta.
+  staleNotifiedAt DateTime?
   position      Int             @default(0)
   // projectId opcional: las tareas personales/sueltas (ej. "limpiar escritorio") no
   // pertenecen a un proyecto. Las de proyecto sí lo tienen.
@@ -2209,4 +2214,14 @@ model RunningTimer {
   startedAt DateTime @default(now())
 
   @@index([taskId])
+}
+
+// Plantilla de CHECKLIST (Tareas 2.0 Fase 2): una lista con nombre («Rodaje estándar») que se
+// aplica a cualquier tarea en un clic y se guarda desde el checklist de una tarea existente.
+// Compartida por todo el equipo (crear/aplicar exige poder editar la tarea en cuestión).
+model ChecklistTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  labels    String[]
+  createdAt DateTime @default(now())
 }
