@@ -29,7 +29,7 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   servidor de Google/Apple/Outlook SIN cookie; se autentica por el token secreto de la URL.
 // - /api/resolve-plugin: API del plugin de DaVinci Resolve (correcciones en el timeline). Se
 //   autentica por el token firmado del enlace de revisión (mismo que /review), no por cookie.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/cotizacion", "/p", "/invitacion", "/subir", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no
