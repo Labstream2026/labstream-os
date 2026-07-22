@@ -3,6 +3,7 @@ import { signFileToken } from "@/lib/storage";
 import { signReviewMediaToken } from "@/lib/review-token";
 import { detectSource } from "@/lib/media-source";
 import { resolveDriveMediaFile } from "@/lib/drive";
+import { isProxyableVideo } from "@/lib/review-proxy";
 
 // Construye las versiones que consume el escenario de revisión (player + comentarios),
 // tanto en el portal del cliente como en la bandeja interna. Centraliza la lógica de
@@ -36,11 +37,15 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
     // en el navegador (MKV, AVI…): el proxy MP4 sí, y eso lo vuelve reproducible.
     const isVideo = VID.test(name) || !!v.proxyRel;
     const kind = IMG.test(name) ? "image" : isVideo ? "video" : "other";
-    // El player carga la copia de revisión 1080p si existe (mismo origen y mismo token →
+    // El player carga la copia de revisión si existe (mismo origen y mismo token →
     // las capturas de timecode/fotograma siguen funcionando); openUrl conserva el
     // ORIGINAL a calidad completa para abrir/descargar/entregar.
     const src = kind === "video" && v.proxyRel ? `${url}&proxy=1` : url;
-    return { number: v.number, notes: v.notes, kind, src, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
+    // Proxy EN COCINA: el archivo es transcodificable pero aún no tiene copia — un master
+    // ProRes/HEVC/MKV puede NO reproducirse (ni capturarse) en el navegador hasta que esté.
+    // La sala lo usa para avisarlo en vez de mostrar un player mudo.
+    const proxyPending = !v.proxyRel && !IMG.test(name) && isProxyableVideo(name);
+    return { number: v.number, notes: v.notes, kind, src, openUrl: url, fileName: name, timecodeCapable: kind === "video", proxyPending };
   }
 
   const s = detectSource(v.fileUrl);

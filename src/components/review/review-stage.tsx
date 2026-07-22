@@ -24,6 +24,9 @@ export type StageVersion = {
   kind: "video" | "image" | "youtube" | "vimeo" | "drive_file" | "drive_folder" | "other" | "none";
   src: string | null; // embed/src primario (iframe o <video>)
   proxySrc?: string | null; // video del MISMO origen (Drive proxiado) — permite capturar el frame
+  // Copia de revisión EN COCINA: el original es transcodificable pero aún no tiene proxy —
+  // puede que el navegador no lo reproduzca (ProRes/HEVC/MKV) hasta que esté listo.
+  proxyPending?: boolean;
   openUrl: string | null;
   fileName: string | null;
   timecodeCapable: boolean;
@@ -2035,6 +2038,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // breve se esconde el atributo `controls` (el velo se va con él) y cualquier movimiento
   // del mouse o toque sobre el video los devuelve al instante. No toca captura ni timecode.
   const [nativeControls, setNativeControls] = React.useState(true);
+  // El ORIGINAL local no decodifica (ProRes/HEVC/MKV sin proxy todavía): en vez de un player
+  // negro y mudo, una tarjeta que explica qué pasa y qué hacer.
+  const [localFailed, setLocalFailed] = React.useState(false);
+  React.useEffect(() => {
+    setLocalFailed(false);
+  }, [version]);
   const controlsTimer = React.useRef<number | null>(null);
   const armControlsHide = React.useCallback(() => {
     if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
@@ -2306,7 +2315,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             // del stream) antes de caer al visor de Google —donde no se puede capturar el fotograma ni
             // el segundo—. Solo tras un fallo real y repetido baja al iframe.
             onError={() => {
-              if (!usingProxy) return;
+              if (!usingProxy) {
+                setLocalFailed(true);
+                return;
+              }
               const v = videoRef.current;
               if (v && proxyRetries.current < 2) {
                 proxyRetries.current += 1;
@@ -2335,8 +2347,32 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           {immersive ? null : driveToggle}
           {liveCaption}
           {overlay}
+          {/* Master local que el navegador NO decodifica (ProRes/HEVC/MKV sin proxy aún):
+              tarjeta explicativa encima del player mudo. */}
+          {localFailed && !usingProxy ? (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-card/95 p-6 text-center text-sm">
+              <span className="text-2xl">🎞️</span>
+              <p className="font-semibold">Este master no se puede reproducir directo en el navegador.</p>
+              <p className="max-w-md text-muted-foreground">
+                {version.proxyPending
+                  ? "La copia de revisión se está cocinando en el servidor — dale unos minutos y recarga la página. La captura de fotograma funcionará sobre esa copia."
+                  : "Ábrelo con «Abrir original», o sube un export H.264 como nueva versión para revisarlo aquí."}
+              </p>
+            </div>
+          ) : null}
         </div>
-        {immersive ? null : speedBar}
+        {immersive ? null : (
+          <>
+            {speedBar}
+            {/* Aviso de proxy EN COCINA (aunque el original sí reproduzca): explica por qué
+                puede verse pesado/lento y que la copia ligera viene en camino. */}
+            {version.proxyPending && !localFailed ? (
+              <p className="mx-auto mt-1.5 w-fit max-w-full rounded-md bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                ⏳ Copia de revisión en cocina — por ahora se reproduce el original a peso completo.
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
     );
   }
