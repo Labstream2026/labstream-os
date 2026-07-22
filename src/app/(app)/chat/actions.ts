@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { userCanAccessChannel, userCanManageChannel, canAccessChannel } from "@/lib/chat-access";
+import { userCanAccessChannel, userCanManageChannel, canAccessChannel, channelFrozen } from "@/lib/chat-access";
 import { logActivity } from "@/lib/activity";
 import { createTask } from "@/app/(app)/proyectos/[id]/actions";
 import { CHAT_SECTIONS, sectionMeta } from "@/lib/chat-section";
@@ -640,6 +640,8 @@ export async function sendMessage(
   const session = await getSession();
   if (!(await userCanAccessChannel(channelId, session))) return null;
   if (!hasPermission(session, "comentar")) return null;
+  // Canal de un proyecto en la PAPELERA: congelado (leer sí, publicar no).
+  if (await channelFrozen(channelId)) return null;
 
   // El hilo debe ser de ESTE canal: parentId viene del cliente (no es de fiar) y un padre de
   // otro canal colgaría la respuesta allí y avisaría a participantes ajenos con este texto.
@@ -839,6 +841,8 @@ export async function sendMessageWithAttachments(formData: FormData): Promise<Ch
   const session = await getSession();
   if (!(await userCanAccessChannel(channelId, session))) return null;
   if (!hasPermission(session, "comentar")) return null;
+  // Igual que sendMessage: canal de proyecto en la papelera = congelado.
+  if (await channelFrozen(channelId)) return null;
 
   // Igual que sendMessage: el hilo debe pertenecer a ESTE canal (parentId viene del cliente).
   const safeParentId = await validParentId(channelId, parentId);

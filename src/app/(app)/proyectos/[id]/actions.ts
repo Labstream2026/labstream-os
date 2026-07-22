@@ -2704,16 +2704,109 @@ export async function removeProjectMember(projectId: string, userId: string) {
 // Archivar = sacarlo de las listas pero conservar TODO (tareas, archivos, entregables, chat);
 // restaurable desde la papelera. No hay borrado físico. Exige eliminar_proyectos + gestionar el
 // proyecto (admin/líder/owner). Idempotente.
-export async function archiveProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
+//
+// PRE-VUELO: getArchivePreflight cuenta lo que sigue "vivo" (tareas abiertas, enlaces públicos,
+// recurrentes, avisos) para que el modal lo muestre ANTES de confirmar. Los filtros de proyecto
+// dormido (Fase 1) ya silencian todo eso mientras esté en la papelera — restaurar lo despierta —;
+// las opciones de archiveProject son las acciones ADICIONALES e irreversibles-a-mano:
+// revocar los enlaces públicos (rota el nonce / marca reviewRevokedAt) y avisar al equipo.
+export type ArchivePreflight = {
+  openTasks: number;   // tareas sin completar (se silencian solas al archivar)
+  publicLinks: number; // enlace de subida vivo + enlaces de revisión activos de cara al cliente
+  recurring: number;   // reglas recurrentes activas (dejan de parir tareas mientras duerma)
+  reminders: number;   // avisos de recordatorio pendientes atados a tareas/citas del proyecto
+  team: number;        // personas del equipo a las que se puede avisar (sin clientes, sin ti)
+};
+
+// Estados en los que un entregable está DE CARA AL CLIENTE (espejo de review/[token]/actions.ts):
+// solo esos cuentan como "enlace de revisión activo" — el portal no sirve los demás.
+const CLIENT_FACING_STATES = ["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"];
+
+export async function getArchivePreflight(projectId: string): Promise<ArchivePreflight | null> {
+  let session: SessionUser;
   try {
-    await ensureProjectManage(projectId, "eliminar_proyectos");
+    session = await ensureProjectManage(projectId, "eliminar_proyectos");
+  } catch {
+    return null;
+  }
+  const [project, openTasks, reviewLinks, recurring, reminders] = await Promise.all([
+    db.project.findUnique({
+      where: { id: projectId },
+      select: {
+        uploadNonce: true, uploadRevokedAt: true, leadId: true,
+        members: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } },
+      },
+    }),
+    db.task.count({ where: { projectId, completedAt: null } }),
+    db.deliverable.count({ where: { projectId, archivedAt: null, reviewRevokedAt: null, status: { in: CLIENT_FACING_STATES as never } } }),
+    db.recurringTask.count({ where: { projectId, active: true } }),
+    db.reminderAlert.count({
+      where: { active: true, sentAt: null, reminder: { doneAt: null, OR: [{ task: { projectId } }, { event: { projectId } }] } },
+    }),
+  ]);
+  if (!project) return null;
+  const uploadLive = !!project.uploadNonce && !project.uploadRevokedAt;
+  // Equipo avisable: responsable + miembros que NO son usuarios del portal cliente, sin el actor.
+  const teamIds = new Set<string>();
+  if (project.leadId) teamIds.add(project.leadId);
+  for (const m of project.members) if (m.user?.role?.key !== "cliente") teamIds.add(m.userId);
+  teamIds.delete(session.id);
+  return {
+    openTasks,
+    publicLinks: reviewLinks + (uploadLive ? 1 : 0),
+    recurring,
+    reminders,
+    team: teamIds.size,
+  };
+}
+
+export async function archiveProject(
+  projectId: string,
+  opts?: { revokeLinks?: boolean; notifyTeam?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
+  let session: SessionUser;
+  try {
+    session = await ensureProjectManage(projectId, "eliminar_proyectos");
   } catch {
     return { ok: false, error: "No autorizado para borrar este proyecto." };
   }
-  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, archivedAt: true } });
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: {
+      name: true, archivedAt: true, leadId: true, uploadNonce: true, uploadRevokedAt: true,
+      members: { select: { userId: true, user: { select: { role: { select: { key: true } } } } } },
+    },
+  });
   if (!project) return { ok: false, error: "El proyecto no existe." };
   if (project.archivedAt) return { ok: true }; // ya archivado
   await db.project.update({ where: { id: projectId }, data: { archivedAt: new Date() } });
+  // Revocar ENLACES PÚBLICOS (opcional, elegido en el pre-vuelo): el de subida rota el nonce
+  // (una URL filtrada muere para siempre) y los de revisión quedan revocados por entregable.
+  // Nota: la Fase 1 ya bloquea ambos portales mientras el proyecto esté en la papelera; esto
+  // los mata también para DESPUÉS de una eventual restauración (hay que recrearlos a mano).
+  if (opts?.revokeLinks) {
+    if (project.uploadNonce && !project.uploadRevokedAt) {
+      await db.project.update({ where: { id: projectId }, data: { uploadRevokedAt: new Date(), uploadNonce: crypto.randomUUID() } }).catch(() => null);
+    }
+    await db.deliverable.updateMany({ where: { projectId, reviewRevokedAt: null }, data: { reviewRevokedAt: new Date() } }).catch(() => null);
+  }
+  // Avisar al EQUIPO (opcional): responsable + miembros no-cliente, sin el actor.
+  if (opts?.notifyTeam) {
+    const teamIds = new Set<string>();
+    if (project.leadId) teamIds.add(project.leadId);
+    for (const m of project.members) if (m.user?.role?.key !== "cliente") teamIds.add(m.userId);
+    teamIds.delete(session.id);
+    if (teamIds.size) {
+      await notifyMany([...teamIds], {
+        type: "project",
+        event: "project_archived",
+        title: `«${project.name}» pasó a la papelera`,
+        body: "El proyecto quedó en solo lectura; se puede restaurar desde la Papelera.",
+        link: `/proyectos/${projectId}`,
+        actorId: session.id,
+      }).catch(() => null);
+    }
+  }
   await logActivity({ action: "project.archive", summary: `envió a la papelera el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/proyectos");
   revalidatePath("/papelera");
@@ -2730,11 +2823,18 @@ export async function finishProject(projectId: string): Promise<{ ok: boolean; e
   } catch {
     return { ok: false, error: "No autorizado para terminar este proyecto." };
   }
-  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, finishedAt: true, archivedAt: true } });
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, finishedAt: true, archivedAt: true, status: true } });
   if (!project) return { ok: false, error: "El proyecto no existe." };
   if (project.archivedAt) return { ok: false, error: "El proyecto está en la papelera; restáuralo primero." };
   if (project.finishedAt) return { ok: true }; // ya terminado
-  await db.project.update({ where: { id: projectId }, data: { finishedAt: new Date(), finishedById: session.id } });
+  // Estados sincronizados: TERMINAR deja también el status en un estado de cierre. Si ya está
+  // en Entregado/Cerrado/Cancelado se respeta; si no, salta a ENTREGADO — un solo gesto y el
+  // Pipeline, la tabla y los reportes cuentan la misma historia.
+  const endStates = ["ENTREGADO", "CERRADO", "CANCELADO"];
+  await db.project.update({
+    where: { id: projectId },
+    data: { finishedAt: new Date(), finishedById: session.id, ...(endStates.includes(project.status) ? {} : { status: "ENTREGADO" }) },
+  });
   await logActivity({ action: "project.finish", summary: `marcó como TERMINADO el proyecto «${project.name}»`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/proyectos");
   revalidatePath("/", "layout");

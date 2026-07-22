@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ProjectColorPicker } from "./project-color-picker";
 import { setProjectStatus } from "./status-actions";
+import { finishProject } from "./[id]/actions";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, X } from "lucide-react";
 
 // ── Las TRES vistas de /proyectos (rediseño aprobado por artifact) ──
 // Pipeline: kanban por estado (reemplaza los tableros vertical/horizontal).
@@ -40,9 +43,13 @@ export type StatusCol = { key: string; label: string; className: string };
 
 // Cambio de estado compartido (Pipeline y Tabla): optimista + revierte si el servidor dice no.
 function useProjectMove() {
+  const router = useRouter();
   const [pending, start] = React.useTransition();
   const [moves, setMoves] = React.useState<Record<string, string>>({});
   const [err, setErr] = React.useState<string | null>(null);
+  // Ciclo de vida: al soltar en Entregado/Cerrado se OFRECE (no se impone) marcar Terminado —
+  // banner descartable; Terminar lo saca de las listas activas (router.refresh lo refleja).
+  const [suggest, setSuggest] = React.useState<{ id: string; name: string } | null>(null);
   const eff = React.useCallback((p: ViewProject) => moves[p.id] ?? p.status, [moves]);
   const move = React.useCallback((p: ViewProject, status: string) => {
     if (!p.canMove || status === (moves[p.id] ?? p.status)) return;
@@ -53,10 +60,34 @@ function useProjectMove() {
       if (!r.ok) {
         setMoves((m) => { const n = { ...m }; delete n[p.id]; return n; });
         setErr(r.error ?? "No se pudo mover el proyecto.");
+      } else if (["ENTREGADO", "CERRADO"].includes(status)) {
+        setSuggest({ id: p.id, name: p.name });
       }
     });
   }, [moves]);
-  return { eff, move, err, pending };
+  const finishNow = React.useCallback((id: string) => {
+    setSuggest(null);
+    start(async () => {
+      const r = await finishProject(id);
+      if (!r.ok) setErr(r.error ?? "No se pudo terminar el proyecto.");
+      else router.refresh();
+    });
+  }, [router]);
+  const dismissSuggest = React.useCallback(() => setSuggest(null), []);
+  return { eff, move, err, pending, suggest, finishNow, dismissSuggest };
+}
+
+// Banner de sugerencia «¿también Terminado?» (compartido por Pipeline y Tabla).
+function FinishSuggest({ suggest, onFinish, onDismiss }: { suggest: { id: string; name: string } | null; onFinish: (id: string) => void; onDismiss: () => void }) {
+  if (!suggest) return null;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm animate-in fade-in slide-in-from-top-1">
+      <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+      <span className="min-w-0 flex-1">«{suggest.name}» quedó cerrado. ¿Lo marcamos también como <b>Terminado</b> (archivo, reversible)?</span>
+      <button onClick={() => onFinish(suggest.id)} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90">Terminar</button>
+      <button onClick={onDismiss} aria-label="Ahora no" className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3.5" /></button>
+    </div>
+  );
 }
 
 function dueText(p: ViewProject, effStatus?: string) {
@@ -113,12 +144,13 @@ function StatusPill({ value, meta, allStatuses, canMove, onChange }: {
 
 // ── PIPELINE (kanban por estado) ──
 export function PipelineView({ cols, allStatuses, projects }: { cols: StatusCol[]; allStatuses: StatusCol[]; projects: ViewProject[] }) {
-  const { eff, move, err, pending } = useProjectMove();
+  const { eff, move, err, pending, suggest, finishNow, dismissSuggest } = useProjectMove();
   const byId = React.useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const anyMovable = projects.some((p) => p.canMove);
 
   return (
     <div>
+      <FinishSuggest suggest={suggest} onFinish={finishNow} onDismiss={dismissSuggest} />
       {err ? <p className="mb-2 text-xs text-destructive">{err}</p> : null}
       <div className="flex items-start gap-3 overflow-x-auto pb-2">
         {cols.map((col) => {
@@ -189,7 +221,7 @@ export function PipelineView({ cols, allStatuses, projects }: { cols: StatusCol[
 type SortKey = "name" | "status" | "progress" | "due" | "deliverables";
 
 export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewProject[]; allStatuses: StatusCol[]; grupo: "cliente" | "estado" }) {
-  const { eff, move, err } = useProjectMove();
+  const { eff, move, err, suggest, finishNow, dismissSuggest } = useProjectMove();
   const metaMap = React.useMemo(() => new Map(allStatuses.map((s, i) => [s.key, { ...s, idx: i }])), [allStatuses]);
   const [closed, setClosed] = React.useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
@@ -243,6 +275,7 @@ export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewPr
 
   return (
     <div>
+      <FinishSuggest suggest={suggest} onFinish={finishNow} onDismiss={dismissSuggest} />
       {err ? <p className="mb-2 text-xs text-destructive">{err}</p> : null}
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full min-w-[760px] text-sm">

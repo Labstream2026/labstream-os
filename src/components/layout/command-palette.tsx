@@ -10,7 +10,7 @@ import {
 import type { SidebarClient } from "@/components/layout/sidebar";
 import { globalSearch } from "./search-action";
 
-type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string };
+type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string; finished?: boolean };
 
 // Ícono por tipo de contenido devuelto por la búsqueda del servidor (set propio de Labstream).
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -45,7 +45,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
 
   const items = React.useMemo(() => {
     const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: IconCliente, group: "Clientes" }));
-    const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: IconProyectos, group: "Proyectos" })));
+    const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: IconProyectos, group: "Proyectos", finished: p.finished })));
     const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: FileText, group: "Wiki" }));
     // Normaliza quitando acentos (NFD + strip diacríticos): "diseno" encuentra "Diseño",
     // "cotizacion" encuentra "Cotización". Antes una tilde de más/menos no encontraba nada.
@@ -71,7 +71,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
     const timer = setTimeout(async () => {
       try {
         const hits = await globalSearch(term);
-        if (!cancelled) setServerHits(hits.map((h) => ({ id: h.id, label: h.label, sub: h.sub, href: h.href, icon: KIND_ICON[h.kind] ?? FileText, group: h.group })));
+        if (!cancelled) setServerHits(hits.map((h) => ({ id: h.id, label: h.label, sub: h.sub, href: h.href, icon: KIND_ICON[h.kind] ?? FileText, group: h.group, finished: h.finished })));
       } catch {
         if (!cancelled) setServerHits([]);
       } finally {
@@ -141,6 +141,9 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
                     >
                       <Icon className="size-4 shrink-0 text-muted-foreground" />
                       <span className="flex-1 truncate">{it.label}</span>
+                      {/* Ciclo de vida: lo que vive en un proyecto TERMINADO se marca — sigue
+                          encontrable (archivo consultable) pero nadie lo confunde con activo. */}
+                      {it.finished ? <span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Terminado</span> : null}
                       {it.sub ? <span className="shrink-0 text-xs text-muted-foreground">{it.sub}</span> : null}
                     </button>
                   );

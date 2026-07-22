@@ -5,7 +5,7 @@ import { EntityEmoji } from "@/components/icons/marks";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, Users, Plus, X, ChevronRight, Building2, Search, BellOff, Pin, MessagesSquare, AtSign, Zap } from "lucide-react";
+import { Hash, Lock, Users, Plus, X, ChevronRight, Building2, Search, BellOff, Pin, MessagesSquare, AtSign, Zap, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { createChannel, toggleChannelPin, searchMessages, type MessageSearchHit } from "./actions";
@@ -433,21 +433,44 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
             forceOpen={searching || clientGroups.some((g) => g.channels.some((c) => c.id === activeId))}
             defaultOpen
           >
-            {clientGroups.map((g) => (
-              <Collapsible
-                key={g.clientId}
-                storeId={`client:${g.clientId}`}
-                title={g.clientName}
-                leading={<span className="text-base leading-none"><EntityEmoji value={g.emoji} fallback="🏢" /></span>}
-                count={g.channels.length}
-                unread={sum(g.channels)}
-                forceOpen={searching || g.channels.some((c) => c.id === activeId)}
-              >
-                {g.channels.map((c) => (
-                  <Row key={c.id} row={c} {...rowProps} indent />
-                ))}
-              </Collapsible>
-            ))}
+            {clientGroups.map((g) => {
+              // Ciclo de vida: los canales de proyectos TERMINADOS se pliegan en su propia
+              // subsección gris — el rail respira y el archivo sigue a un clic. Si alguien
+              // escribe en uno, su no-leído cuenta en el badge de la subsección.
+              const activos = g.channels.filter((c) => !c.finished);
+              const terminados = g.channels.filter((c) => c.finished);
+              return (
+                <Collapsible
+                  key={g.clientId}
+                  storeId={`client:${g.clientId}`}
+                  title={g.clientName}
+                  leading={<span className="text-base leading-none"><EntityEmoji value={g.emoji} fallback="🏢" /></span>}
+                  count={g.channels.length}
+                  unread={sum(g.channels)}
+                  forceOpen={searching || g.channels.some((c) => c.id === activeId)}
+                >
+                  {activos.map((c) => (
+                    <Row key={c.id} row={c} {...rowProps} indent />
+                  ))}
+                  {terminados.length > 0 ? (
+                    <Collapsible
+                      storeId={`client:${g.clientId}:terminados`}
+                      title="Terminados"
+                      leading={<CheckCircle2 className="size-4 text-muted-foreground" />}
+                      count={terminados.length}
+                      unread={sum(terminados)}
+                      forceOpen={searching || terminados.some((c) => c.id === activeId)}
+                    >
+                      {terminados.map((c) => (
+                        <div key={c.id} className="opacity-60 transition-opacity hover:opacity-100">
+                          <Row row={c} {...rowProps} indent />
+                        </div>
+                      ))}
+                    </Collapsible>
+                  ) : null}
+                </Collapsible>
+              );
+            })}
           </Collapsible>
         ) : null}
 

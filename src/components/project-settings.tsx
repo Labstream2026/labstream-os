@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { Globe, Lock, X, ChevronDown, Users, CheckCircle2, RotateCcw, Trash2, Search, MoreHorizontal } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ArchivePreflightDialog } from "@/components/archive-preflight";
 import { cn } from "@/lib/utils";
 import {
   setProjectVisibility,
   addProjectMember,
   removeProjectMember,
-  archiveProject,
   finishProject,
   reopenProject,
 } from "@/app/(app)/proyectos/[id]/actions";
@@ -45,18 +45,10 @@ export function ProjectSettings({
   const router = useRouter();
   const { confirm, dialog } = useConfirmDialog();
 
-  const onArchive = async () => {
-    const ok = await confirm({
-      title: "Borrar proyecto",
-      message: "El proyecto irá a la Papelera (sale de las listas). No se borra nada de inmediato: podrás restaurarlo desde la Papelera antes de eliminarlo definitivamente.",
-      confirmLabel: "Mover a la papelera",
-      danger: true,
-    });
-    if (!ok) return;
-    const r = await archiveProject(projectId);
-    if (r.ok) router.push("/proyectos");
-    else await confirm({ title: "No se pudo", message: r.error ?? "Error al borrar.", confirmLabel: "Entendido" });
-  };
+  // Archivar abre el modal PRE-VUELO (archive-preflight.tsx): muestra qué queda vivo (tareas,
+  // enlaces públicos, recurrentes) y las opciones de revocar enlaces / avisar al equipo.
+  const [archiveOpen, setArchiveOpen] = React.useState(false);
+  const onArchive = () => setArchiveOpen(true);
 
   // TERMINAR: archivo de proyectos completados (aparte de la papelera). REABRIR: vuelve a activos.
   const onFinish = async () => {
@@ -258,6 +250,7 @@ export function ProjectSettings({
         ) : null}
       </div>
       {dialog}
+      <ArchivePreflightDialog projectId={projectId} open={archiveOpen} onClose={() => setArchiveOpen(false)} />
     </div>
   );
 }

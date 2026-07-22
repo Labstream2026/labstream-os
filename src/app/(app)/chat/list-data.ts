@@ -26,6 +26,7 @@ export type ChatListRow = {
   muted: boolean; // silenciado por MÍ: badge en gris y fuera de los agregados de sección
   pinned: boolean; // fijado por MÍ (se saca de su sección y va en «Fijados»)
   kind: "interno" | "cliente" | "cuenta" | "equipo" | null; // chip del tipo de canal
+  finished: boolean; // canal de un proyecto TERMINADO: se pliega en la sección «Terminados» del grupo
   last: string | null; // último mensaje («Autor: texto») como subtítulo
   lastAt: string | null; // ISO del último mensaje (orden por actividad)
   when: string | null; // hora relativa corta («2h», «ayer») calculada AQUÍ en el servidor: en el
@@ -129,14 +130,19 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
       ];
   const [myChannels, publicChannels, team] = await Promise.all([
     db.chatChannel.findMany({
-      where: { OR: [{ members: { some: { userId: session.id } } }, ...channelAccess] },
+      // Canales de proyectos en la PAPELERA fuera del rail (el proyecto está "borrado"; su chat
+      // congelado no estorba). Los de TERMINADOS sí vienen: se pliegan en su propia sección.
+      where: {
+        OR: [{ members: { some: { userId: session.id } } }, ...channelAccess],
+        AND: [{ OR: [{ project: { is: null } }, { project: { archivedAt: null } }] }],
+      },
       orderBy: { createdAt: "desc" },
       include: {
         members: { include: { user: { select: { id: true, name: true, initials: true, avatarColor: true, isSystemBot: true, presence: true, dndUntil: true } } } },
         _count: { select: { messages: true } },
         // Para agrupar por cliente: canal de cliente (clientId directo) o de proyecto (→ su cliente).
         client: { select: { id: true, name: true, emoji: true } },
-        project: { select: { client: { select: { id: true, name: true, emoji: true } } } },
+        project: { select: { finishedAt: true, client: { select: { id: true, name: true, emoji: true } } } },
       },
     }),
     db.chatChannel.findMany({
@@ -196,6 +202,7 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
         color: other?.avatarColor ?? null,
         isPublic: c.isPublic,
         isDM: true,
+        finished: false,
         otherPresence: other?.presence ?? null,
         otherDnd: isDndActive(other?.dndUntil ?? null),
         unread: unread.get(c.id) ?? 0,
@@ -235,6 +242,7 @@ export const getChatListData = cache(async (session: SessionUser): Promise<ChatL
       color: null,
       isPublic: c.isPublic,
       isDM: false,
+      finished: !!c.project?.finishedAt,
       unread: unread.get(c.id) ?? 0,
       mentions: mentionsOf(c.id),
       muted: mutedOf(c.id, c.members.find((m) => m.userId === session.id)?.muted ?? false),
@@ -302,11 +310,12 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
 
   const channels = await db.chatChannel.findMany({
     // UN solo chat por proyecto: el invitado ve el canal de cada proyecto donde es miembro.
-    where: { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
+    // La papelera tampoco aparece en el portal del cliente (el proyecto está "borrado" para él).
+    where: { type: "PROJECT", project: { members: { some: { userId: session.id } }, archivedAt: null } },
     orderBy: { createdAt: "desc" },
     include: {
       members: { select: { userId: true, muted: true } },
-      project: { select: { client: { select: { id: true, name: true, emoji: true } } } },
+      project: { select: { finishedAt: true, client: { select: { id: true, name: true, emoji: true } } } },
     },
   });
   const ids = channels.map((c) => c.id);
@@ -330,6 +339,7 @@ async function getClienteChatList(session: SessionUser): Promise<ChatListData> {
       color: null,
       isPublic: c.isPublic,
       isDM: false,
+      finished: !!c.project?.finishedAt,
       unread: unread.get(c.id) ?? 0,
       mentions: 0, // el portal del cliente no usa priorización por menciones
       muted: c.members.find((m) => m.userId === session.id)?.muted ?? false,

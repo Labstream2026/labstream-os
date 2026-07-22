@@ -37,7 +37,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         projects: {
           where: { ...accessibleProjectWhere(session), finishedAt: null },
           orderBy: { createdAt: "asc" },
-          select: { id: true, name: true, emoji: true },
+          // finishedAt: el sidebar pliega los TERMINADOS en su propio grupo por cliente.
+          select: { id: true, name: true, emoji: true, finishedAt: true },
         },
       },
     }),
@@ -194,7 +195,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           logoUrl: c.logoUrl,
           logoBg: c.logoBg,
           projectCount: c.projects.length,
-          projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji })),
+          projects: c.projects.map((p) => ({ id: p.id, name: p.name, emoji: p.emoji, finished: !!p.finishedAt })),
         }))
         // Orden alfabético real: insensible a mayúsculas/acentos y con reglas del español.
         .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }))}

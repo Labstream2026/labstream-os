@@ -20,6 +20,7 @@ export type SearchHit = {
   href: string;
   group: string; // encabezado en el palette
   kind: string; // para elegir el ícono en el cliente
+  finished?: boolean; // el recurso vive en un proyecto TERMINADO: chip «Terminado» en el palette
 };
 
 const MODE = "insensitive" as const;
@@ -65,13 +66,13 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
           { OR: [{ projectId: null }, { project: { archivedAt: null } }] },
         ],
       },
-      select: { id: true, title: true, projectId: true, project: { select: { name: true } } },
+      select: { id: true, title: true, projectId: true, project: { select: { name: true, finishedAt: true } } },
       take: TAKE,
     }),
     // Entregables: solo de proyectos que puedo ver (no archivados).
     db.deliverable.findMany({
       where: { name: like, archivedAt: null, project: projWhere },
-      select: { id: true, name: true, projectId: true, project: { select: { name: true } } },
+      select: { id: true, name: true, projectId: true, project: { select: { name: true, finishedAt: true } } },
       take: TAKE,
     }),
     canQuote
@@ -98,7 +99,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
     canFiles
       ? db.fileAsset.findMany({
           where: { name: like, project: projWhere },
-          select: { id: true, name: true, projectId: true },
+          select: { id: true, name: true, projectId: true, project: { select: { finishedAt: true } } },
           take: TAKE,
         })
       : Promise.resolve([]),
@@ -113,23 +114,23 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
     db.chatChannel.findMany({
       // Sin canales de proyectos en la PAPELERA (el proyecto está "borrado"; su chat no aparece).
       where: { name: like, OR: channelAccess, AND: [{ OR: [{ project: { is: null } }, { project: { archivedAt: null } }] }] },
-      select: { id: true, name: true, type: true, client: { select: { name: true } }, project: { select: { name: true, client: { select: { name: true } } } } },
+      select: { id: true, name: true, type: true, client: { select: { name: true } }, project: { select: { name: true, finishedAt: true, client: { select: { name: true } } } } },
       take: TAKE,
     }),
   ]);
 
   const hits: SearchHit[] = [];
-  for (const t of tasks) hits.push({ id: `t-${t.id}`, label: t.title, sub: t.project?.name ?? "Tarea personal", href: t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas", group: "Tareas", kind: "task" });
-  for (const d of delivs) hits.push({ id: `d-${d.id}`, label: d.name, sub: d.project?.name ?? "Entregable", href: `/proyectos/${d.projectId}?tab=entregables`, group: "Entregables", kind: "deliverable" });
+  for (const t of tasks) hits.push({ id: `t-${t.id}`, label: t.title, sub: t.project?.name ?? "Tarea personal", href: t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas", group: "Tareas", kind: "task", finished: !!t.project?.finishedAt });
+  for (const d of delivs) hits.push({ id: `d-${d.id}`, label: d.name, sub: d.project?.name ?? "Entregable", href: `/proyectos/${d.projectId}?tab=entregables`, group: "Entregables", kind: "deliverable", finished: !!d.project?.finishedAt });
   for (const c of quotes) hits.push({ id: `q-${c.id}`, label: c.title || c.code, sub: `${c.code} · ${c.client?.name ?? ""}`.trim(), href: `/cotizaciones/${c.id}`, group: "Cotizaciones", kind: "quote" });
   for (const i of invoices) hits.push({ id: `i-${i.id}`, label: i.code, sub: i.client?.name ?? "Factura", href: `/facturacion/${i.id}`, group: "Facturas", kind: "invoice" });
   for (const p of proposals) hits.push({ id: `pp-${p.id}`, label: p.title || p.code, sub: p.code, href: `/cotizaciones/propuestas/${p.id}`, group: "Propuestas", kind: "proposal" });
-  for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file" });
+  for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file", finished: !!f.project?.finishedAt });
   for (const n of notes) hits.push({ id: `n-${n.id}`, label: n.title, sub: "Nota", href: "/notas", group: "Notas", kind: "note" });
   for (const c of channels) {
     const client = c.client?.name ?? c.project?.client?.name ?? null;
     const sub = c.type === "PROJECT" ? c.project?.name ?? client ?? "Proyecto" : c.type === "CLIENT" ? client ?? "Cliente" : "Canal";
-    hits.push({ id: `ch-${c.id}`, label: c.name, sub, href: `/chat/${c.id}`, group: "Chats", kind: "chat" });
+    hits.push({ id: `ch-${c.id}`, label: c.name, sub, href: `/chat/${c.id}`, group: "Chats", kind: "chat", finished: c.type === "PROJECT" && !!c.project?.finishedAt });
   }
 
   return hits;

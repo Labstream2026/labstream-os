@@ -77,3 +77,14 @@ export async function userCanManageChannel(
   if (channel.project?.leadId === session.id) return true;
   return channel.members.some((m) => m.role === "ADMIN");
 }
+
+// ¿Canal CONGELADO? El canal de un proyecto en la PAPELERA queda en solo lectura: se puede
+// abrir y leer (el acceso no cambia), pero no publicar. Los TERMINADOS no se congelan: retomar
+// la conversación de un proyecto terminado es legítimo (y lo sube en el rail por actividad).
+export async function channelFrozen(channelId: string): Promise<boolean> {
+  const c = await db.chatChannel.findUnique({
+    where: { id: channelId },
+    select: { project: { select: { archivedAt: true } } },
+  });
+  return !!c?.project?.archivedAt;
+}

@@ -66,7 +66,7 @@ export type SidebarUser = {
   dnd?: boolean; // "No molestar" vigente (prioriza el punto en rojo)
 };
 
-export type SidebarProject = { id: string; name: string; emoji: string | null };
+export type SidebarProject = { id: string; name: string; emoji: string | null; finished?: boolean };
 
 export type SidebarClient = {
   id: string;
@@ -395,7 +395,20 @@ export function Sidebar({
             className="ml-[30px] flex flex-col gap-0.5 border-l-2 pb-1 pl-2.5 pt-0.5 animate-in fade-in slide-in-from-top-1 duration-150"
             style={{ borderColor: `${hex}66` }}
           >
-            {c.projects.map((p) => projectRow(p, c, hex))}
+            {/* Ciclo de vida: los TERMINADOS no estorban entre los activos — se pliegan al
+                final en «✔ Terminados (N)» (sin estado persistente: un details basta). */}
+            {c.projects.filter((p) => !p.finished).map((p) => projectRow(p, c, hex))}
+            {c.projects.some((p) => p.finished) ? (
+              <details className="group/fin">
+                <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg py-1 pl-2 pr-1 text-[11.5px] font-medium text-sidebar-muted transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground">
+                  <ChevronRight className="size-3 transition-transform group-open/fin:rotate-90" />
+                  ✔ Terminados ({c.projects.filter((p) => p.finished).length})
+                </summary>
+                <div className="flex flex-col gap-0.5 opacity-70">
+                  {c.projects.filter((p) => p.finished).map((p) => projectRow(p, c, hex))}
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : null}
       </div>
