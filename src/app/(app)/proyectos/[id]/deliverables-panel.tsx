@@ -26,6 +26,7 @@ import { VideoUploadField } from "./video-upload-field";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { DeliverableRenditions } from "./deliverable-renditions";
 import { TypeAndCoverFields } from "./deliverable-create-fields";
+import { ChunkedUploadForm } from "./chunked-upload-form";
 import { DeliverableTabs } from "./deliverable-tabs";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -221,8 +222,11 @@ export function DeliverablesPanel({
           <span className="hidden font-normal text-muted-foreground sm:inline">· crea la v1 y pasa a pre-aprobación interna</span>
           <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/subir:rotate-180" />
         </summary>
-      <form
+      {/* Envoltorio por TROZOS: ≤50 MB sigue el envío clásico tal cual; un archivo grande
+          viaja por trozos y la misma action lo recibe como referencia (sin tope de 100 MB). */}
+      <ChunkedUploadForm
         action={createDeliverable.bind(null, projectId)}
+        projectId={projectId}
         className="space-y-3 border-t border-border p-4"
       >
         <div className="flex flex-wrap items-end gap-2">
@@ -274,7 +278,7 @@ export function DeliverablesPanel({
           </details>
         ) : null}
         <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
-      </form>
+      </ChunkedUploadForm>
       </details>
 
       {(() => {
@@ -403,7 +407,8 @@ export function DeliverablesPanel({
                           {!isPhoto ? (
                             <div className="mt-4 space-y-2 rounded-lg bg-muted/40 p-3">
                               <p className="text-xs font-semibold">¿Correcciones listas? Sube la versión corregida y pasará a pre-aprobación.</p>
-                              <form action={addDeliverableVersion.bind(null, d.id, projectId)} className="flex flex-wrap items-center gap-2">
+                              {/* Envoltorio por TROZOS: la corrección grande también va sin tope de 100 MB. */}
+                              <ChunkedUploadForm action={addDeliverableVersion.bind(null, d.id, projectId)} projectId={projectId} className="flex flex-wrap items-center gap-2">
                                 <input name="notes" placeholder="¿Qué cambió en esta versión?" className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
                                 <label className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground" title="Nuevo plazo de pre-aprobación para esta versión (opcional; si lo dejas vacío se conserva el actual)">
                                   Pre-aprobar antes de
@@ -420,7 +425,7 @@ export function DeliverablesPanel({
                                   </label>
                                 ) : null}
                                 <button className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">+ Subir versión</button>
-                              </form>
+                              </ChunkedUploadForm>
                               <p className="text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>
                             </div>
                           ) : null}

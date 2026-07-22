@@ -13,6 +13,7 @@ import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
+import { claimChunkUpload } from "@/lib/chunked-claim";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
 import { syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
@@ -1346,6 +1347,19 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   // Responsable de la revisión: solo se acepta si es miembro/responsable del proyecto.
   const reviewerId = await validateProjectMember(projectId, String(formData.get("reviewerId") ?? "").trim() || null);
 
+  // Archivo GRANDE ya subido por TROZOS: el formulario manda la referencia (chunkUploadId),
+  // no los bytes — la action no materializa nada en RAM. Se reclama ANTES de crear nada:
+  // si la subida llegó mal, no queda un entregable a medias y se puede reintentar completo.
+  const chunkUploadId = String(formData.get("chunkUploadId") ?? "").trim();
+  let chunkAssetId: string | null = null;
+  if (chunkUploadId) {
+    try {
+      chunkAssetId = await claimChunkUpload({ uploadId: chunkUploadId, crc32: String(formData.get("chunkCrc32") ?? "") || null, projectId, userId: session.id });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "No se pudo verificar el archivo subido." };
+    }
+  }
+
   // Consecutivo POR PROYECTO (#1, #2…): identifica la pieza para siempre (también en la pestaña
   // «Aprobados»). A prueba de CARRERA: se toma un advisory-lock por proyecto DENTRO de la transacción
   // y se crea el entregable SIN soltarlo, así el max()+create quedan serializados (antes ambos iban
@@ -1372,13 +1386,14 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     });
   }
 
-  // Primera versión opcional en el mismo formulario (link externo o archivo subido).
+  // Primera versión opcional en el mismo formulario (link externo, archivo subido en la
+  // action o archivo grande ya reclamado de la subida por trozos).
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const file = formData.get("file");
   const hasFile = file instanceof File && file.size > 0 && file.size <= MAX_UPLOAD && !BLOCKED_EXT.test(file.name);
-  if (fileUrl || hasFile) {
-    let fileAssetId: string | null = null;
-    if (hasFile) {
+  if (fileUrl || hasFile || chunkAssetId) {
+    let fileAssetId: string | null = chunkAssetId;
+    if (!fileAssetId && hasFile) {
       const f = file as File;
       const buf = Buffer.from(await f.arrayBuffer());
       const asset = await db.fileAsset.create({ data: { projectId, name: f.name, kind: "LOCAL", path: "", mime: mimeFor(f.name, f.type), size: buf.length, uploadedById: session.id } });
@@ -1817,9 +1832,18 @@ export async function addDeliverableVersion(
 
   // Archivo subido (opcional): se guarda como FileAsset del proyecto y se vincula
   // a la versión, para que el portal del cliente pueda mostrarlo/reproducirlo.
+  // Si el archivo era GRANDE, el formulario ya lo subió por trozos y manda solo la
+  // referencia (chunkUploadId): se reclama verificado, sin pasar los bytes por la action.
   const file = formData.get("file");
+  const chunkUploadId = String(formData.get("chunkUploadId") ?? "").trim();
   let fileAssetId: string | null = null;
-  if (file instanceof File && file.size > 0 && file.size <= MAX_UPLOAD && !BLOCKED_EXT.test(file.name)) {
+  if (chunkUploadId) {
+    try {
+      fileAssetId = await claimChunkUpload({ uploadId: chunkUploadId, crc32: String(formData.get("chunkCrc32") ?? "") || null, projectId: deliverable.projectId, userId: session!.id });
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "No se pudo verificar el archivo subido." };
+    }
+  } else if (file instanceof File && file.size > 0 && file.size <= MAX_UPLOAD && !BLOCKED_EXT.test(file.name)) {
     const buf = Buffer.from(await file.arrayBuffer());
     const asset = await db.fileAsset.create({
       data: {
