@@ -32,6 +32,8 @@ import {
 } from "./actions";
 import { type Task, type TeamMember, toDateInputValue } from "./task-shared";
 import { TaskExtras } from "./task-extras";
+import { DependenciesEditor } from "./dependencies-editor";
+import { TimerRowButton } from "@/app/(app)/mis-tareas/next-up";
 import { type LabelRow, labelOptions } from "@/lib/colors";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatMinutes, minutesToHours, parseHoursToMinutes, todayKey } from "@/lib/timeline";
@@ -204,6 +206,13 @@ export function TaskDetail({
                 />
               </form>
             </Field>
+          </div>
+
+          {/* Tareas 2.0: dependencias («bloqueada por») + cronómetro ▶ que anota horas solo. */}
+          <DependenciesEditor taskId={task.id} />
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <TimerRowButton taskId={task.id} />
+            <span>Cronómetro: empieza aquí y, al parar, los minutos quedan anotados en el parte de horas.</span>
           </div>
 
           <TimeTracking taskId={task.id} projectId={projectId} estimatedMinutes={task.estimatedMinutes ?? null} />

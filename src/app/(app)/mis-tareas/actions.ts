@@ -9,27 +9,35 @@ import { logActivity } from "@/lib/activity";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { completionTransition } from "@/lib/task-completion";
 import { bogotaNoon } from "@/lib/today";
+import { openBlockersOf, handleTaskCompleted } from "@/lib/task-unlock";
 
 // Marcar una tarea como terminada (desde el dock o Mis tareas). Solo el responsable
 // o el dueño pueden. Usa el estado configurado como "Terminada" (isDone) y deja la
 // marca de cuándo se completó (completedAt) + registro en actividad.
-export async function completeMyTask(taskId: string) {
+export async function completeMyTask(taskId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!session) noAutorizado();
   const task = await db.task.findUnique({ where: { id: taskId }, select: { title: true, assigneeId: true, ownerId: true, projectId: true, completedAt: true } });
-  if (!task) return;
+  if (!task) return { ok: false, error: "La tarea no existe." };
   if (task.assigneeId !== session.id && task.ownerId !== session.id) noAutorizado();
   const { statuses } = await getTaskLabels();
   const done = statuses.find((s) => s.isDone) ?? statuses[statuses.length - 1];
-  if (!done) return;
+  if (!done) return { ok: false, error: "No hay estado de terminada configurado." };
+  // CANDADO de dependencias (Tareas 2.0): bloqueada = no se completa, ni desde Mis tareas.
+  const blockers = await openBlockersOf(taskId);
+  if (blockers.length) {
+    return { ok: false, error: `Bloqueada por «${blockers[0].title}»${blockers.length > 1 ? ` y ${blockers.length - 1} más` : ""}.` };
+  }
   const { completedAt, justCompleted } = await completionTransition(done.key, task.completedAt);
   await db.task.update({ where: { id: taskId }, data: { status: done.key as never, completedAt } });
   if (justCompleted) {
+    await handleTaskCompleted(taskId, session.id); // desbloquea dependientes + «te toca»
     await logActivity({ action: "task.complete", summary: `completó la tarea «${task.title}»`, projectId: task.projectId, entityType: "task", entityId: taskId });
   }
   revalidatePath("/mis-tareas");
   revalidatePath("/");
   if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
+  return { ok: true };
 }
 
 // "Mi día": añade/quita una tarea del listado de enfoque PERSONAL del usuario. Solo tareas

@@ -25,6 +25,10 @@ import { TaskFilters } from "./task-filters";
 import { clearMyDay } from "./actions";
 import { getUserPreference, parseSavedViews } from "@/lib/user-preference";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
+import { QuickAdd } from "./quick-add";
+import { NextUpHero, TimerRowButton, type HeroTask, type HeroTimer } from "./next-up";
+import { SwipeTaskRow } from "./swipe-row";
+import { Lock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +75,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         project: { select: { id: true, name: true, emoji: true, client: { select: { id: true, name: true } } } },
         assignedBy: { select: { name: true, initials: true, avatarColor: true } },
         checklist: { orderBy: { position: "asc" }, select: { id: true, label: true, done: true } },
+        // Tareas 2.0: bloqueadoras (candado 🔒) y a cuántas desbloquea (alimenta «Ahora sigue»).
+        blockedBy: { select: { blocker: { select: { id: true, title: true, completedAt: true } } } },
+        _count: { select: { blocks: true } },
       },
     }),
     // Completadas recientes: terminadas mías, las más recientes primero.
@@ -92,6 +99,11 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     // "Mi día": tareas que el usuario marcó para enfocarse hoy (solo ids + orden).
     db.myDayItem.findMany({ where: { userId: user.id }, select: { taskId: true, position: true } }),
   ]);
+  // Cronómetro corriendo (si hay): el héroe lo muestra con reloj vivo.
+  const running = await db.runningTimer.findUnique({
+    where: { userId: user.id },
+    select: { taskId: true, startedAt: true, task: { select: { title: true } } },
+  });
 
   // Orden/pertenencia de "Mi día" por id de tarea (para el ⭐ y la pestaña enfocada).
   const myDayPos = new Map(myDayRows.map((m) => [m.taskId, m.position]));
@@ -124,6 +136,38 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     { key: "despues", label: "Más adelante", cls: "text-muted-foreground" },
     { key: "sin", label: "Sin fecha", cls: "text-muted-foreground" },
   ];
+
+  // «Ahora sigue» (Tareas 2.0): puntaje simple y explicable — urgencia de la fecha, prioridad,
+  // rodaje hoy, a cuántas desbloquea y si está en Mi día. Solo tareas MÍAS y SIN candado.
+  const openBlockersOfRow = (t: (typeof tasks)[number]) => t.blockedBy.filter((b) => !b.blocker.completedAt);
+  const prioRank = new Map(priorities.map((x, i) => [x.key, priorities.length - i]));
+  const todayYmdBog = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(startToday);
+  const scoreOf = (t: (typeof tasks)[number]): number => {
+    const b = bucketOf(t.dueDate);
+    let score = b === "vencidas" ? 100 : b === "hoy" ? 80 : b === "semana" ? 40 : b === "despues" ? 10 : 5;
+    score += (prioRank.get(t.priority) ?? 0) * 8;
+    score += Math.min(3, t._count.blocks) * 15; // desbloquear a otros pesa
+    if (t.shootDate && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(t.shootDate) === todayYmdBog) score += 30;
+    if (myDayPos.has(t.id)) score += 10;
+    return score;
+  };
+  const heroCandidates = tasks.filter((t) => t.assigneeId === user.id && openBlockersOfRow(t).length === 0);
+  const heroPick = heroCandidates.length ? heroCandidates.reduce((a, b) => (scoreOf(b) > scoreOf(a) ? b : a)) : null;
+  const heroTask: HeroTask | null = heroPick
+    ? {
+        id: heroPick.id,
+        title: heroPick.title,
+        projectName: heroPick.project?.name ?? null,
+        detail: [
+          heroPick.dueDate ? `${bucketOf(heroPick.dueDate) === "vencidas" ? "venció" : "vence"} ${formatShortDate(heroPick.dueDate)}${heroPick.dueTime ? ` ${heroPick.dueTime}` : ""}` : "sin fecha",
+          heroPick.estimatedMinutes ? `⏱ ${Math.round((heroPick.estimatedMinutes / 60) * 10) / 10}h estimadas` : null,
+          heroPick._count.blocks ? `desbloquea ${heroPick._count.blocks}` : null,
+        ].filter(Boolean).join(" · "),
+      }
+    : null;
+  const heroTimer: HeroTimer | null = running
+    ? { taskId: running.taskId, taskTitle: running.task.title, startedAtIso: running.startedAt.toISOString() }
+    : null;
 
   // Resumen rápido por urgencia (tiles arriba): de un vistazo, qué aprieta.
   const counts: Record<string, number> = { vencidas: 0, hoy: 0, semana: 0, despues: 0, sin: 0 };
@@ -238,9 +282,23 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                   {urgencyLabel(u.state, u.days)}
                 </span>
               )}
+              {/* Tareas 2.0: candado de dependencias (el server también lo exige al completar). */}
+              {openBlockersOfRow(t).length ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                  title={`Bloqueada por: ${openBlockersOfRow(t).map((b) => b.blocker.title).join(" · ")}`}
+                >
+                  <Lock className="size-3" /> Bloqueada
+                </span>
+              ) : t._count.blocks ? (
+                <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300" title="Al completarla se desbloquean otras tareas">
+                  desbloquea {t._count.blocks}
+                </span>
+              ) : null}
               </div>
-              {/* Renglón 3 (móvil): estado + detalle. */}
+              {/* Renglón 3 (móvil): estado + cronómetro + detalle. */}
               <div className="flex items-center gap-2">
+              <TimerRowButton taskId={t.id} />
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
               <TaskDetailButton
                 task={{
@@ -265,9 +323,14 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
             </div>
     );
   };
+  // Fila con gestos táctiles (deslizar → completa · ← pospone); en escritorio no interfiere.
+  const swipeRow = (t: (typeof tasks)[number]) => (
+    <SwipeTaskRow key={t.id} taskId={t.id}>{taskRow(t)}</SwipeTaskRow>
+  );
 
   const list = (
     <div className="space-y-5">
+      <QuickAdd />
       <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} clientOptions={clientOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
       {tasks.length === 0 ? (
         <EmptyState icon={<IconTareas />} title="Vas al día" description="No tienes tareas abiertas." />
@@ -279,7 +342,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
             <h3 className={cn("mb-2 text-xs font-semibold uppercase tracking-wide", g.cls)}>
               {g.label} <span className="text-muted-foreground">· {g.items.length}</span>
             </h3>
-            <div className="space-y-2">{g.items.map(taskRow)}</div>
+            <div className="space-y-2">{g.items.map(swipeRow)}</div>
           </div>
         ))
       )}
@@ -338,8 +401,21 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   const miDayTasks = tasks
     .filter((t) => myDayPos.has(t.id))
     .sort((a, b) => (myDayPos.get(a.id) ?? 0) - (myDayPos.get(b.id) ?? 0));
+  // Mi día PRE-CARGADO (Tareas 2.0): sugerencias de hoy — vencidas, para hoy o con rodaje hoy
+  // que aún no están en el plan. Un toque en la ⭐ las adopta; nada se añade solo.
+  const suggested = tasks
+    .filter((t) => !myDayPos.has(t.id) && t.assigneeId === user.id)
+    .filter((t) => {
+      const b = bucketOf(t.dueDate);
+      const shootToday = t.shootDate && new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(t.shootDate) === todayYmdBog;
+      return b === "vencidas" || b === "hoy" || shootToday;
+    })
+    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .slice(0, 6);
+
   const miDia = (
     <div className="space-y-4">
+      <QuickAdd placeholder="Añadir a hoy… «Llamar a LATINOLOGIA 3pm 30m» y Enter" />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {miDayTasks.length === 0
@@ -359,8 +435,16 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
           Marca tareas con la <IconMiDia className="inline size-4 align-[-3px]" /> desde la pestaña <span className="font-medium text-foreground">Lista</span> para planear en qué te enfocas hoy.
         </div>
       ) : (
-        <div className="space-y-2">{miDayTasks.map(taskRow)}</div>
+        <div className="space-y-2">{miDayTasks.map(swipeRow)}</div>
       )}
+      {suggested.length ? (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Sugeridas para hoy · {suggested.length} <span className="font-normal normal-case">(vencen hoy o tienen rodaje — la ⭐ las adopta)</span>
+          </h3>
+          <div className="space-y-2 opacity-90">{suggested.map(swipeRow)}</div>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -398,6 +482,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
               <SummaryTile count={counts.semana} label="Esta semana" color="#2a78d6" />
               <SummaryTile count={counts.despues + counts.sin} label="Más adelante" color="#888780" />
             </div>
+            <NextUpHero task={heroTask} timer={heroTimer} />
           </div>
         }
         views={[

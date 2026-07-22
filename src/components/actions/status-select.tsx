@@ -17,7 +17,7 @@ export function StatusSelect({
 }: {
   value: string;
   options: { value: string; label: string }[];
-  action: (value: string) => Promise<void>;
+  action: (value: string) => Promise<unknown>;
   className?: string;
 }) {
   const [pending, start] = useTransition();

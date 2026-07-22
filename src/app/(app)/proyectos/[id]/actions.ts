@@ -16,6 +16,10 @@ import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { claimChunkUpload } from "@/lib/chunked-claim";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
+import { parseTaskText } from "@/lib/task-parse";
+import { getTaskLabels } from "@/lib/workflow-labels";
+import { ymdPlus } from "@/lib/reminder-schedule";
+import { openBlockersOf, handleTaskCompleted, wouldCreateCycle } from "@/lib/task-unlock";
 import { syncTaskAnchoredAlerts } from "@/lib/reminder-alerts";
 import { rateLimit } from "@/lib/rate-limit";
 import { deliverableStatusMeta, statusMeta, DELIVERABLE_TYPE } from "@/lib/ui";
@@ -350,12 +354,24 @@ export async function setTaskDueTime(taskId: string, _projectId: string, formDat
   refresh(projectId);
 }
 
-export async function setTaskStatus(taskId: string, _projectId: string, status: string) {
+export async function setTaskStatus(taskId: string, _projectId: string, status: string): Promise<{ ok: boolean; error?: string }> {
   const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
   const projectId = await ensureAccessVia(task);
   const prev = await db.task.findUnique({ where: { id: taskId }, select: { completedAt: true } });
   const { completedAt, justCompleted } = await completionTransition(status, prev?.completedAt ?? null);
+  // CANDADO de dependencias: una tarea bloqueada no se completa (la UI puede burlarse; esto no).
+  if (justCompleted) {
+    const blockers = await openBlockersOf(taskId);
+    if (blockers.length) {
+      return { ok: false, error: `Bloqueada por «${blockers[0].title}»${blockers.length > 1 ? ` y ${blockers.length - 1} más` : ""}. Complétala(s) primero.` };
+    }
+  }
   await db.task.update({ where: { id: taskId }, data: { status, completedAt } });
+  // Desbloqueo en cascada: avisa «te toca» a quien esperaba esta tarea.
+  if (justCompleted) {
+    const session = await getSession();
+    await handleTaskCompleted(taskId, session?.id ?? null);
+  }
   await recalcProjectProgress(projectId);
   await logActivity({
     action: justCompleted ? "task.complete" : "task.status",
@@ -367,6 +383,7 @@ export async function setTaskStatus(taskId: string, _projectId: string, status: 
     entityId: taskId,
   });
   refresh(projectId);
+  return { ok: true };
 }
 
 // Mover una tarea a otra fase/columna del tablero.
@@ -3182,4 +3199,210 @@ export async function clientDecideDeliverable(deliverableId: string, decision: "
     });
   }
   refresh(deliverable.projectId);
+}
+
+// ─────────────────────────────────────────────
+// Tareas 2.0 · Fase 1 — quick-add en lenguaje natural, posponer, dependencias
+// ─────────────────────────────────────────────
+
+const normTxt = (x: string) => x.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+// Crea una tarea desde UN renglón («Grabar dron mañana 9am @Zahid #rodaje 2h»). Sin proyecto =
+// tarea personal (misma semántica de createMyTask); con proyecto exige crear_tareas ahí. El
+// @persona se resuelve por prefijo contra el equipo activo (nunca usuarios del portal cliente);
+// la !prioridad contra el catálogo. Sin fecha en el texto → hoy (toda tarea lleva fechas).
+export async function quickAddTask(
+  rawText: string,
+  projectId?: string | null,
+): Promise<{ ok: boolean; error?: string; taskId?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado." };
+  const text = rawText.trim().slice(0, 300);
+  if (!text) return { ok: false, error: "Escribe la tarea." };
+  const parsed = parseTaskText(text, Date.now());
+  if (!parsed.title) return { ok: false, error: "Falta el título (los tokens solos no bastan)." };
+
+  let pid: string | null = null;
+  if (projectId) {
+    try {
+      await ensureProjectAccess(projectId, "crear_tareas");
+    } catch {
+      return { ok: false, error: "No puedes crear tareas en este proyecto." };
+    }
+    pid = projectId;
+  }
+
+  // Responsable: @query por prefijo de nombre (o primera palabra del nombre). El portal
+  // cliente solo se asigna a sí mismo, como en createMyTask.
+  let assigneeId = session.id;
+  if (parsed.assigneeQuery && session.role !== "cliente") {
+    const q = normTxt(parsed.assigneeQuery);
+    const users = await db.user.findMany({
+      where: { active: true, isSystemBot: false, role: { isNot: { key: "cliente" } } },
+      select: { id: true, name: true },
+    });
+    const hit =
+      users.find((u) => normTxt(u.name).startsWith(q)) ??
+      users.find((u) => normTxt(u.name).split(/\s+/).some((w) => w.startsWith(q)));
+    if (!hit) return { ok: false, error: `No encuentro a «@${parsed.assigneeQuery}» en el equipo.` };
+    assigneeId = hit.id;
+  }
+
+  // Prioridad contra el catálogo (por etiqueta o clave); «urgente» cae a la más alta.
+  let priority = "MEDIA";
+  if (parsed.priorityQuery) {
+    const { priorities } = await getTaskLabels();
+    const q = normTxt(parsed.priorityQuery);
+    const hit =
+      priorities.find((x) => normTxt(x.label).startsWith(q) || x.key.toLowerCase().startsWith(q)) ??
+      (q === "urgente" ? priorities.find((x) => x.key === "ALTA") : undefined);
+    if (hit) priority = hit.key;
+  }
+
+  const dueDate = parsed.dueYmd ? new Date(`${parsed.dueYmd}T12:00:00.000Z`) : bogotaNoon();
+  const position = pid ? await db.task.count({ where: { projectId: pid } }) : 0;
+  const task = await db.task.create({
+    data: {
+      title: parsed.title,
+      priority: priority as never,
+      startDate: bogotaNoon(),
+      dueDate,
+      dueTime: parsed.dueTime,
+      estimatedMinutes: parsed.estimatedMinutes,
+      assigneeId,
+      ownerId: session.id,
+      assignedById: assigneeId !== session.id ? session.id : null,
+      projectId: pid,
+      position,
+      ...(parsed.tags.length ? { tags: { create: parsed.tags.map((label) => ({ label })) } } : {}),
+    },
+  });
+  if (assigneeId !== session.id) {
+    await notifyAndEmail(assigneeId, {
+      type: "task",
+      event: "task_assigned",
+      title: `Nueva tarea: ${parsed.title}`,
+      body: pid ? "Te la asignaron desde el proyecto." : "Te la asignaron desde Mis tareas.",
+      link: pid ? `/proyectos/${pid}?tab=tareas` : "/mis-tareas",
+      actorId: session.id,
+    }).catch(() => null);
+  }
+  await logActivity({ action: "task.create", summary: `creó la tarea «${parsed.title}»`, projectId: pid, entityType: "task", entityId: task.id });
+  revalidatePath("/mis-tareas");
+  if (pid) refresh(pid);
+  return { ok: true, taskId: task.id };
+}
+
+// Pospone una tarea con un gesto: esta tarde (hoy 3pm/6pm), mañana o el próximo lunes
+// (conserva la hora salvo «tarde»). Solo responsable/dueño/admin — es un gesto personal.
+export async function postponeTask(
+  taskId: string,
+  when: "tarde" | "manana" | "lunes",
+): Promise<{ ok: boolean; error?: string; label?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "No autorizado." };
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: { title: true, assigneeId: true, ownerId: true, projectId: true, dueTime: true, completedAt: true },
+  });
+  if (!task) return { ok: false, error: "La tarea no existe." };
+  if (task.completedAt) return { ok: false, error: "Ya está completada." };
+  if (task.assigneeId !== session.id && task.ownerId !== session.id && session.role !== "admin") {
+    return { ok: false, error: "Solo el responsable puede posponerla." };
+  }
+  const todayYmd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+  const hourNow = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", hour12: false }).format(new Date()));
+  let ymd = todayYmd;
+  let dueTime = task.dueTime;
+  let label = "";
+  if (when === "tarde") {
+    dueTime = hourNow < 15 ? "15:00" : "18:00";
+    label = `hoy ${dueTime}`;
+  } else if (when === "manana") {
+    ymd = ymdPlus(todayYmd, 1);
+    label = "mañana";
+  } else {
+    const wd = new Date(`${todayYmd}T12:00:00.000Z`).getUTCDay(); // 0=domingo
+    ymd = ymdPlus(todayYmd, ((1 - wd + 7) % 7) || 7);
+    label = "el lunes";
+  }
+  await db.task.update({ where: { id: taskId }, data: { dueDate: new Date(`${ymd}T12:00:00.000Z`), dueTime } });
+  await logActivity({ action: "task.postpone", summary: `pospuso «${task.title}» para ${label}`, projectId: task.projectId, entityType: "task", entityId: taskId });
+  revalidatePath("/mis-tareas");
+  if (task.projectId) refresh(task.projectId);
+  return { ok: true, label };
+}
+
+// ── Dependencias («bloqueada por») ──
+
+// Candidatas a bloqueadora: tareas ABIERTAS del MISMO proyecto (una dependencia entre
+// proyectos distintos complica el candado sin aportar; se corta aquí).
+export async function getDependencyOptions(taskId: string): Promise<{ id: string; title: string }[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { ...taskAccessSelect, projectId: true } });
+  try {
+    await ensureAccessVia(task, null);
+  } catch {
+    return [];
+  }
+  if (!task?.projectId) return [];
+  const existing = await db.taskDependency.findMany({ where: { taskId }, select: { blockerId: true } });
+  const skip = new Set([taskId, ...existing.map((d) => d.blockerId)]);
+  const rows = await db.task.findMany({
+    where: { projectId: task.projectId, completedAt: null },
+    orderBy: { position: "asc" },
+    select: { id: true, title: true },
+    take: 100,
+  });
+  return rows.filter((r) => !skip.has(r.id));
+}
+
+// Bloqueadoras ACTUALES de una tarea (el editor del panel las pinta y quita).
+export async function getTaskDependencies(taskId: string): Promise<{ id: string; title: string; done: boolean }[]> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: taskAccessSelect });
+  try {
+    await ensureAccessVia(task, null);
+  } catch {
+    return [];
+  }
+  const deps = await db.taskDependency.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "asc" },
+    select: { blocker: { select: { id: true, title: true, completedAt: true } } },
+  });
+  return deps.map((d) => ({ id: d.blocker.id, title: d.blocker.title, done: !!d.blocker.completedAt }));
+}
+
+export async function addTaskDependency(taskId: string, blockerId: string): Promise<{ ok: boolean; error?: string }> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { ...taskAccessSelect, projectId: true } });
+  try {
+    await ensureAccessVia(task);
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  const blocker = await db.task.findUnique({ where: { id: blockerId }, select: { title: true, projectId: true } });
+  if (!blocker) return { ok: false, error: "La tarea bloqueadora no existe." };
+  if (!task?.projectId || blocker.projectId !== task.projectId) return { ok: false, error: "Deben ser del mismo proyecto." };
+  if (await wouldCreateCycle(taskId, blockerId)) return { ok: false, error: "Eso crearía un círculo (A espera a B y B a A)." };
+  await db.taskDependency.upsert({
+    where: { taskId_blockerId: { taskId, blockerId } },
+    create: { taskId, blockerId },
+    update: {},
+  });
+  await logActivity({ action: "task.dependency", summary: `marcó «${task.title}» como bloqueada por «${blocker.title}»`, projectId: task.projectId, entityType: "task", entityId: taskId });
+  refresh(task.projectId);
+  revalidatePath("/mis-tareas");
+  return { ok: true };
+}
+
+export async function removeTaskDependency(taskId: string, blockerId: string): Promise<{ ok: boolean; error?: string }> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { ...taskAccessSelect, projectId: true } });
+  try {
+    await ensureAccessVia(task);
+  } catch {
+    return { ok: false, error: "No autorizado." };
+  }
+  await db.taskDependency.deleteMany({ where: { taskId, blockerId } });
+  if (task?.projectId) refresh(task.projectId);
+  revalidatePath("/mis-tareas");
+  return { ok: true };
 }

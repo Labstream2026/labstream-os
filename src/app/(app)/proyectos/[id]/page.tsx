@@ -622,6 +622,7 @@ export default async function ProyectoPage({
                   Espacio de tareas por fases de producción. Cambia entre tablero y lista.
                 </p>
                 <TasksSpace
+                projectId={project.id}
                   pendingCount={pendingTasks.length}
                   completedCount={completedTasks.length}
                   pending={

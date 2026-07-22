@@ -165,6 +165,7 @@ model User {
   whatsappMessages   WhatsappMessage[]
   taskComments       TaskComment[]      @relation("TaskCommentAuthor")
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
+  runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
@@ -1504,6 +1505,10 @@ model Task {
   reminders     Reminder[]
   // Si esta tarea es el "espejo" de un plan de equipo (preparar equipos para una grabación).
   equipmentPlan EquipmentPlan?  @relation("EquipPlanTask")
+  // Dependencias (Tareas 2.0 Fase 1): blockedBy = las que la BLOQUEAN; blocks = a las que bloquea.
+  blockedBy     TaskDependency[] @relation("DepTask")
+  blocks        TaskDependency[] @relation("DepBlocker")
+  runningTimers RunningTimer[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -2176,4 +2181,32 @@ model ProjectSurvey {
   createdAt DateTime @default(now())
 
   @@unique([projectId, userId])
+}
+
+// ── Tareas 2.0 (Fase 1) ──
+// Dependencia entre tareas: `task` está BLOQUEADA POR `blocker`. Completar la bloqueadora
+// desbloquea (si no quedan otras abiertas) y avisa al responsable («te toca»). El candado real
+// es server-side: setTaskStatus rechaza terminar una tarea con bloqueadoras abiertas.
+model TaskDependency {
+  id        String   @id @default(cuid())
+  task      Task     @relation("DepTask", fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  blocker   Task     @relation("DepBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockerId String
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, blockerId])
+  @@index([blockerId])
+}
+
+// Cronómetro corriendo: UNO por usuario (userId es la PK). Al parar se convierte en un
+// TimeEntry con los minutos transcurridos y desaparece — nunca hay dos relojes a la vez.
+model RunningTimer {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  startedAt DateTime @default(now())
+
+  @@index([taskId])
 }
