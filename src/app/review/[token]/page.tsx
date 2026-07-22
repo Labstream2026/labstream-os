@@ -70,7 +70,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
     include: {
-      project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
+      project: { select: { name: true, emoji: true, archivedAt: true, client: { select: { name: true } } } },
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
       // El portal del cliente SOLO carga los comentarios del cliente (fromClient) y las
       // RESPUESTAS del equipo dirigidas a él (visibleToClient, las de «Responder al cliente»).
@@ -88,6 +88,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     },
   });
   if (!deliverable) return <PublicLinkInvalid />;
+  // Proyecto en la PAPELERA: su material deja de estar accesible por enlace público. (Los
+  // TERMINADOS sí siguen: el cliente conserva su centro de descargas del material aprobado.)
+  if (deliverable.project.archivedAt) return <PublicLinkInvalid />;
 
   // Enlace revocado o caducado: estado inválido (no se muestra el material).
   const expired = deliverable.reviewExpiresAt ? deliverable.reviewExpiresAt.getTime() < Date.now() : false;

@@ -56,6 +56,10 @@ const accessSelect = {
   isPrivate: true,
   leadId: true,
   members: { select: { userId: true, role: true } },
+  // Ciclo de vida: con estos campos presentes, canWriteProject bloquea la escritura de proyectos
+  // DORMIDOS (papelera/terminados) en TODAS las acciones que cargan el proyecto con este select.
+  archivedAt: true,
+  finishedAt: true,
 } as const;
 
 // Verifica permiso de ESCRITURA en un proyecto (mutaciones). Lanza si no. Devuelve la sesión.
@@ -64,6 +68,9 @@ async function ensureProjectAccess(projectId: string, perm?: string): Promise<Se
   const session = await getSession();
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
   if (!project) noAutorizado();
+  // Proyecto DORMIDO (papelera o terminado): ninguna escritura pasa — ni la excepción del
+  // cliente de abajo—. Restaurar/Reabrir van por ensureProjectManage, no entran aquí.
+  if (project.archivedAt || project.finishedAt) noAutorizado();
   if (!canWriteProject(project, session)) {
     // Excepción para el PORTAL DEL CLIENTE: un cliente (miembro GUEST de su proyecto) es de solo
     // lectura para casi todo, PERO puede ejecutar acciones para las que tiene permiso explícito
@@ -85,12 +92,16 @@ type WithProject = {
   projectId: string | null;
   ownerId?: string | null;
   assigneeId?: string | null;
-  project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[] } | null;
+  // archivedAt/finishedAt opcionales: los loaders que usan accessSelect ya los traen y activan
+  // el candado de proyecto dormido; los que no, se comportan como antes.
+  project: { isPrivate: boolean; leadId: string | null; members: { userId: string; role: string }[]; archivedAt?: Date | null; finishedAt?: Date | null } | null;
 } | null;
 async function ensureAccessVia(resource: WithProject, perm: string | null = "editar_tareas"): Promise<string | null> {
   const session = await getSession();
   if (!resource || !session) noAutorizado();
   if (resource.project) {
+    // Proyecto DORMIDO: nada de escribir sus tareas/recursos (tampoco vía excepción del cliente).
+    if (resource.project.archivedAt || resource.project.finishedAt) noAutorizado();
     if (!canWriteProject(resource.project, session)) {
       // Cliente (portal): puede operar tareas de SU proyecto para las que tiene permiso explícito
       // (crear/editar tareas), aunque como GUEST sea de solo lectura para el resto (entregables,
@@ -593,12 +604,13 @@ export async function getTaskMoveTargets(taskId: string): Promise<TaskMoveTarget
     where: { id: taskId },
     select: {
       projectId: true, ownerId: true, assigneeId: true,
-      project: { select: { isPrivate: true, leadId: true, clientId: true, members: { select: { userId: true, role: true } } } },
+      project: { select: { isPrivate: true, leadId: true, clientId: true, members: { select: { userId: true, role: true } }, archivedAt: true, finishedAt: true } },
     },
   });
   await ensureAccessVia(task, null);
   const candidates = await db.project.findMany({
-    where: accessibleProjectWhere(session),
+    // Destinos: solo proyectos VIVOS (a un terminado no se le mueven tareas; se reabre primero).
+    where: { ...accessibleProjectWhere(session), finishedAt: null },
     select: {
       id: true, name: true, clientId: true, isPrivate: true, leadId: true,
       members: { select: { userId: true, role: true } },
@@ -626,7 +638,7 @@ export async function moveTaskToProject(taskId: string, targetProjectId: string)
     where: { id: taskId },
     select: {
       title: true, stage: true, projectId: true, ownerId: true, assigneeId: true,
-      project: { select: { isPrivate: true, leadId: true, name: true, members: { select: { userId: true, role: true } } } },
+      project: { select: { isPrivate: true, leadId: true, name: true, members: { select: { userId: true, role: true } }, archivedAt: true, finishedAt: true } },
       equipmentPlan: { select: { id: true } },
     },
   });
@@ -648,8 +660,8 @@ export async function moveTaskToProject(taskId: string, targetProjectId: string)
   } catch {
     return { ok: false, error: "No puedes crear tareas en el proyecto destino." };
   }
-  const target = await db.project.findUnique({ where: { id: targetProjectId }, select: { name: true, stages: true, archivedAt: true } });
-  if (!target || target.archivedAt) return { ok: false, error: "El proyecto destino no existe o está archivado." };
+  const target = await db.project.findUnique({ where: { id: targetProjectId }, select: { name: true, stages: true, archivedAt: true, finishedAt: true } });
+  if (!target || target.archivedAt || target.finishedAt) return { ok: false, error: "El proyecto destino no existe o ya no está activo." };
 
   const stage = task.stage && target.stages.includes(task.stage) ? task.stage : null;
   const last = await db.task.findFirst({ where: { projectId: targetProjectId }, orderBy: { position: "desc" }, select: { position: true } });

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { inAliveProjectWhere } from "@/lib/project-access";
 import { notify } from "@/lib/notify";
 import { nextFire } from "@/lib/reminder-schedule";
 import { recomputeReminderNext, recurrenceAllows } from "@/lib/reminder-alerts";
@@ -25,7 +26,21 @@ export async function sweepReminders(opts: { force?: boolean; now?: Date } = {})
   lastSweepAt = Date.now();
 
   const due = await db.reminderAlert.findMany({
-    where: { active: true, sentAt: null, fireAt: { lte: now }, reminder: { active: true, doneAt: null } },
+    where: {
+      active: true,
+      sentAt: null,
+      fireAt: { lte: now },
+      reminder: {
+        active: true,
+        doneAt: null,
+        // Aviso atado a una tarea/cita de un proyecto DORMIDO (papelera/terminado): no suena.
+        // Los recordatorios personales (sin ancla) y los de proyectos vivos siguen igual.
+        AND: [
+          { OR: [{ taskId: null }, { task: inAliveProjectWhere }] },
+          { OR: [{ eventId: null }, { event: inAliveProjectWhere }] },
+        ],
+      },
+    },
     take: 100,
     orderBy: { fireAt: "asc" },
     include: {
@@ -107,7 +122,16 @@ export async function getUpcomingReminders(
       active: true,
       sentAt: null,
       fireAt: { gte: now, lt: until },
-      reminder: { forUserId: userId, active: true, doneAt: null },
+      reminder: {
+        forUserId: userId,
+        active: true,
+        doneAt: null,
+        // Mismo filtro del barrido: lo dormido tampoco aparece en "próximos" (campana/digest).
+        AND: [
+          { OR: [{ taskId: null }, { task: inAliveProjectWhere }] },
+          { OR: [{ eventId: null }, { event: inAliveProjectWhere }] },
+        ],
+      },
     },
     orderBy: { fireAt: "asc" },
     take: 8,

@@ -18,7 +18,22 @@ type ProjectShape = {
   // Solo se pasa donde se carga (p. ej. el detalle del proyecto); el resto de sitios lo omiten. El
   // índice permite pasar el `client` con otras formas (name/emoji/…) sin romper el tipo.
   client?: { members?: { userId: string; role?: string | null }[]; [k: string]: unknown } | null;
+  // Opcionales: CICLO DE VIDA. Donde el select los incluya, canWriteProject bloquea la escritura
+  // de proyectos dormidos (papelera o terminados). Donde no (undefined), se asume vivo — así los
+  // llamadores existentes no cambian de comportamiento sin quererlo.
+  archivedAt?: Date | null;
+  finishedAt?: Date | null;
 };
+
+// ── Ciclo de vida: proyecto VIVO vs DORMIDO ──
+// DORMIDO = en la papelera (archivedAt) o TERMINADO (finishedAt). El trabajo del día a día lo
+// ignora por completo: Mis tareas, calendarios, feed .ics, barredores (SLA, recurrentes,
+// recordatorios) y escrituras. Se consulta (lectura) pero no suena ni se edita: primero se
+// restaura/reabre (eso va por canManageProject, que NO mira estos campos a propósito).
+export const aliveProjectWhere = { archivedAt: null, finishedAt: null };
+// Para recursos cuyo proyecto es OPCIONAL (tareas sueltas, avisos, eventos): sin proyecto o vivo.
+// (Sin `as const`: los OR de Prisma no aceptan arrays readonly.)
+export const inAliveProjectWhere = { OR: [{ projectId: null }, { project: aliveProjectWhere }] };
 
 // ¿Puede el usuario VER/colaborar en este proyecto?
 // Público → todo el equipo con permiso ver_proyectos. Privado → admin, responsable o miembro.
@@ -39,6 +54,10 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
 // Igual que acceder, pero los invitados (rol GUEST) son de solo lectura.
 export function canWriteProject(project: ProjectShape, session: SessionUser | null): boolean {
   if (!canAccessProject(project, session)) return false;
+  // Proyecto DORMIDO (papelera o terminado): SOLO LECTURA para todos, admin incluido — se
+  // restaura/reabre primero. Va ANTES del bypass de admin a propósito: el candado protege de
+  // ediciones por accidente, no de falta de permisos.
+  if (project.archivedAt || project.finishedAt) return false;
   if (session!.role === "admin") return true;
   // Rol DEMO (usuario de prueba): SOLO LECTURA global — ve todo pero nunca escribe, como un GUEST.
   // Es el candado server-side del usuario demo; sus permisos de catálogo son solo ver_*.

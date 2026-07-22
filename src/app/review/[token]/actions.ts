@@ -67,8 +67,11 @@ const CLIENT_STATES = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "E
 async function resolveDeliverable(token: string) {
   const deliverableId = verifyReviewToken(token);
   if (!deliverableId) throw new Error("Enlace inválido");
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, status: true, reviewRevokedAt: true, reviewExpiresAt: true } });
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, status: true, reviewRevokedAt: true, reviewExpiresAt: true, project: { select: { archivedAt: true } } } });
   if (!d || d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
+  // Proyecto en la papelera: el enlace muere también para las ACCIONES (comentar/aprobar), no
+  // solo para la página. Espejo del gate de review/[token]/page.tsx.
+  if (d.project.archivedAt) throw new Error("El enlace de revisión ya no está disponible");
   if (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()) throw new Error("El enlace de revisión ha caducado");
   if (!CLIENT_STATES.has(d.status)) throw new Error("El material está en revisión interna del equipo. Vuelve cuando te avisen.");
   return d;

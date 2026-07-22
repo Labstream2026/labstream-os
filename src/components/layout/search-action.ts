@@ -56,7 +56,15 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   const [tasks, delivs, quotes, invoices, proposals, files, notes, channels] = await Promise.all([
     // Tareas: en un proyecto que puedo ver, o asignadas a/por mí (tareas personales sin proyecto).
     db.task.findMany({
-      where: { title: like, OR: [{ project: projWhere }, { assigneeId: session.id }, { assignedById: session.id }] },
+      where: {
+        title: like,
+        AND: [
+          { OR: [{ project: projWhere }, { assigneeId: session.id }, { assignedById: session.id }] },
+          // La rama "asignadas a mí" salta projWhere → sin esto, colaba tareas de proyectos en
+          // la PAPELERA. (Las de terminados sí salen: el archivo es consultable por búsqueda.)
+          { OR: [{ projectId: null }, { project: { archivedAt: null } }] },
+        ],
+      },
       select: { id: true, title: true, projectId: true, project: { select: { name: true } } },
       take: TAKE,
     }),
@@ -103,7 +111,8 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       : Promise.resolve([]),
     // Canales de chat por NOMBRE (proyectos, clientes, grupos); el acceso se acota arriba.
     db.chatChannel.findMany({
-      where: { name: like, OR: channelAccess },
+      // Sin canales de proyectos en la PAPELERA (el proyecto está "borrado"; su chat no aparece).
+      where: { name: like, OR: channelAccess, AND: [{ OR: [{ project: { is: null } }, { project: { archivedAt: null } }] }] },
       select: { id: true, name: true, type: true, client: { select: { name: true } }, project: { select: { name: true, client: { select: { name: true } } } } },
       take: TAKE,
     }),

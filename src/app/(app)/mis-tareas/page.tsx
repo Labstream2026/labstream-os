@@ -4,6 +4,7 @@ import { CalendarDays, Check } from "lucide-react";
 import { IconTareas, IconMiDia, IconLista, IconCompletadas } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
+import { inAliveProjectWhere } from "@/lib/project-access";
 import { getCurrentUser } from "@/lib/current-user";
 import { UserAvatar } from "@/components/user-avatar";
 import { PriorityPill } from "@/components/priority-pill";
@@ -61,6 +62,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       where: {
         status: { in: openKeys },
         OR: [{ assigneeId: user.id }, { ownerId: user.id }],
+        // Proyecto DORMIDO (papelera/terminado): sus tareas abiertas dejan de contar como
+        // pendientes — no son trabajo real. Las personales (sin proyecto) siguen.
+        AND: [inAliveProjectWhere],
       },
       orderBy: [{ dueDate: "asc" }, { status: "asc" }],
       include: {
@@ -74,6 +78,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       where: {
         status: { in: doneKeys },
         OR: [{ assigneeId: user.id }, { ownerId: user.id }],
+        // Solo la papelera se oculta; lo TERMINADO sigue siendo historial legítimo de trabajo hecho.
+        AND: [{ OR: [{ projectId: null }, { project: { archivedAt: null } }] }],
       },
       orderBy: [{ completedAt: "desc" }, { updatedAt: "desc" }],
       take: 60,

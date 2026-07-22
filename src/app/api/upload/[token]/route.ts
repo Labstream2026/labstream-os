@@ -55,9 +55,10 @@ export async function POST(req: NextRequest, routeCtx: unknown) {
 
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { id: true, name: true, uploadDir: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true },
+    select: { id: true, name: true, uploadDir: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true, finishedAt: true },
   });
-  if (!project || project.archivedAt) return NextResponse.json({ ok: false, error: "El enlace ya no está disponible." }, { status: 404 });
+  // Papelera O terminado: el endpoint tampoco acepta material de un proyecto que ya no está activo.
+  if (!project || project.archivedAt || project.finishedAt) return NextResponse.json({ ok: false, error: "El enlace ya no está disponible." }, { status: 404 });
   // El nonce del token debe coincidir con el vigente del proyecto: si se revocó (rota el nonce), una
   // URL filtrada antes deja de validar aunque su firma siga vigente.
   if (!project.uploadNonce || project.uploadNonce !== nonce || project.uploadRevokedAt) {

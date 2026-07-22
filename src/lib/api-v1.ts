@@ -96,7 +96,7 @@ export const TASK_SELECT = {
   projectId: true,
   assignee: { select: { id: true, name: true } },
   owner: { select: { id: true, name: true } },
-  project: { select: { id: true, code: true, name: true, isPrivate: true, leadId: true, archivedAt: true, members: { select: { userId: true, role: true } } } },
+  project: { select: { id: true, code: true, name: true, isPrivate: true, leadId: true, archivedAt: true, finishedAt: true, members: { select: { userId: true, role: true } } } },
   _count: { select: { checklist: true, comments: true } },
 } as const;
 
@@ -150,7 +150,7 @@ type TaskAccessShape = {
   ownerId: string | null;
   assigneeId: string | null;
   isPrivate: boolean;
-  project: { isPrivate: boolean; leadId: string | null; archivedAt: Date | null; members: { userId: string; role: string }[] } | null;
+  project: { isPrivate: boolean; leadId: string | null; archivedAt: Date | null; finishedAt: Date | null; members: { userId: string; role: string }[] } | null;
 };
 
 // ¿Puede LEER la tarea? Espejo de ensureAccessVia(perm null) + el filtro de privacidad de la app:
@@ -171,7 +171,8 @@ export function canReadTask(task: TaskAccessShape, session: SessionUser): boolea
 export function canWriteTask(task: TaskAccessShape, session: SessionUser, perm: string | null = "editar_tareas"): boolean {
   const mine = task.ownerId === session.id || task.assigneeId === session.id;
   if (task.project) {
-    if (task.project.archivedAt) return false;
+    // Proyecto DORMIDO (papelera o terminado): solo lectura también por la API.
+    if (task.project.archivedAt || task.project.finishedAt) return false;
     if (!canWriteProject(task.project, session)) {
       const clienteOk = session.role === "cliente" && perm != null && task.project.members.some((m) => m.userId === session.id) && hasPermission(session, perm);
       if (!clienteOk) return false;
@@ -327,7 +328,7 @@ export const DELIVERABLE_ACCESS_SELECT = {
   archivedAt: true,
   project: {
     select: {
-      id: true, name: true, isPrivate: true, leadId: true, archivedAt: true,
+      id: true, name: true, isPrivate: true, leadId: true, archivedAt: true, finishedAt: true,
       members: { select: { userId: true, role: true } },
       client: { select: { members: { select: { userId: true, role: true } } } },
     },
@@ -342,7 +343,7 @@ export type DeliverableAccess = {
   ownerId: string | null;
   archivedAt: Date | null;
   project: {
-    id: string; name: string; isPrivate: boolean; leadId: string | null; archivedAt: Date | null;
+    id: string; name: string; isPrivate: boolean; leadId: string | null; archivedAt: Date | null; finishedAt: Date | null;
     members: { userId: string; role: string }[];
     client: { members: { userId: string; role: string | null }[] } | null;
   };
@@ -395,12 +396,12 @@ export async function loadProposalAccess(proposalId: string, session: SessionUse
 // ── Plan de equipos: carga + gate de escritura (canWriteProject vía su proyecto) ──
 export type EquipmentPlanRow = {
   id: string; projectId: string; title: string | null; taskId: string | null;
-  project: { isPrivate: boolean; leadId: string | null; archivedAt: Date | null; members: { userId: string; role: string }[]; client: { members: { userId: string; role: string | null }[] } | null };
+  project: { isPrivate: boolean; leadId: string | null; archivedAt: Date | null; finishedAt: Date | null; members: { userId: string; role: string }[]; client: { members: { userId: string; role: string | null }[] } | null };
 };
 export async function loadEquipmentPlan(planId: string): Promise<EquipmentPlanRow | null> {
   return db.equipmentPlan.findUnique({
     where: { id: planId },
-    select: { id: true, projectId: true, title: true, taskId: true, project: { select: { isPrivate: true, leadId: true, archivedAt: true, members: { select: { userId: true, role: true } }, client: { select: { members: { select: { userId: true, role: true } } } } } } },
+    select: { id: true, projectId: true, title: true, taskId: true, project: { select: { isPrivate: true, leadId: true, archivedAt: true, finishedAt: true, members: { select: { userId: true, role: true } }, client: { select: { members: { select: { userId: true, role: true } } } } } } },
   });
 }
 

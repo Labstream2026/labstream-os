@@ -23,9 +23,10 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
 
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { name: true, emoji: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true, client: { select: { name: true } } },
+    select: { name: true, emoji: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true, finishedAt: true, client: { select: { name: true } } },
   });
-  if (!project || project.archivedAt) return <PublicLinkInvalid />;
+  // Papelera O terminado: un proyecto que ya no está activo no recibe más material del cliente.
+  if (!project || project.archivedAt || project.finishedAt) return <PublicLinkInvalid />;
 
   const expired = project.uploadExpiresAt ? project.uploadExpiresAt.getTime() < Date.now() : false;
   // El nonce del token debe coincidir con el vigente del proyecto (revocar lo rota → URL filtrada muere).

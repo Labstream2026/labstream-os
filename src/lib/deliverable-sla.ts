@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { aliveProjectWhere } from "@/lib/project-access";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { notify } from "@/lib/notify";
 import { formatBogota } from "@/lib/bogota-time";
@@ -52,7 +53,8 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
     where: {
       completedAt: null,
       title: { startsWith: AUTO_TASK_PREFIX.review },
-      deliverable: { internalReviewDueAt: { lte: now } },
+      // Proyecto DORMIDO (papelera/terminado): su SLA no corre — ni cierres ni incumplidas ni avisos.
+      deliverable: { internalReviewDueAt: { lte: now }, project: aliveProjectWhere },
     },
     select: {
       id: true,
@@ -110,7 +112,7 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
       completedAt: null,
       breachedAt: null,
       title: { startsWith: AUTO_TASK_PREFIX.fix },
-      deliverable: { fixDueAt: { lte: now } },
+      deliverable: { fixDueAt: { lte: now }, project: aliveProjectWhere },
     },
     select: {
       id: true,

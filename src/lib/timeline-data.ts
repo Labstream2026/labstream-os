@@ -22,7 +22,8 @@ export async function buildSessionTimeline(
 ): Promise<{ clients: GTClient[]; milestones: GTMilestone[]; undatedCount: number }> {
   const [projects, taskLabels] = await Promise.all([
     db.project.findMany({
-      where: { archivedAt: null, ...(opts?.activeOnly ? { status: { notIn: INACTIVE_STATUSES as never } } : {}) },
+      // finishedAt: los TERMINADOS también salen del calendario general (se consultan en su página).
+      where: { archivedAt: null, finishedAt: null, ...(opts?.activeOnly ? { status: { notIn: INACTIVE_STATUSES as never } } : {}) },
       orderBy: [{ clientId: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,

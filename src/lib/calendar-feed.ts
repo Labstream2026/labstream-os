@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { inAliveProjectWhere } from "@/lib/project-access";
 import { buildIcsCalendar, type IcsEvent } from "@/lib/ics";
 
 // Ventana del feed: mismo horizonte que el sondeo CalDAV (mes anterior → ~1 año adelante).
@@ -30,6 +31,8 @@ export async function buildUserFeed(userId: string): Promise<string> {
       where: {
         start: { gte: from, lte: to },
         OR: [{ createdById: userId }, { attendees: { some: { userId } } }],
+        // Citas de proyectos DORMIDOS (papelera/terminados) fuera del feed de Google/Apple.
+        AND: [inAliveProjectWhere],
       },
       select: { id: true, uid: true, title: true, description: true, location: true, start: true, end: true, allDay: true },
       orderBy: { start: "asc" },
@@ -41,6 +44,8 @@ export async function buildUserFeed(userId: string): Promise<string> {
         AND: [
           { OR: [{ assigneeId: userId }, { ownerId: userId }] },
           { OR: [{ dueDate: { gte: from, lte: to } }, { shootDate: { gte: from, lte: to } }] },
+          // Tareas de proyectos DORMIDOS fuera del feed (dejan de sincronizar al archivar/terminar).
+          inAliveProjectWhere,
         ],
       },
       select: { id: true, title: true, description: true, dueDate: true, dueTime: true, shootDate: true, project: { select: { name: true } } },

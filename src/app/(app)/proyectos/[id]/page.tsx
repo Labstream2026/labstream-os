@@ -14,6 +14,7 @@ import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
+import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { ProjectCoverCard } from "./project-cover-card";
 import { MoveProjectClient } from "./move-project-client";
@@ -141,7 +142,11 @@ export default async function ProyectoPage({
   // Portal del cliente: dentro del proyecto solo ve sus pestañas (sin Equipos), y los entregables
   // se le muestran con una vista de cliente (final + aprobar + comentar). Puede subir archivos.
   const isCliente = session?.role === "cliente";
-  const canUploadFiles = canWriteProject(project, session) || (isCliente && hasPermission(session, "subir_archivos"));
+  // Ciclo de vida: proyecto DORMIDO (papelera o terminado) = SOLO LECTURA. canWriteProject ya
+  // devuelve false (los campos vienen en el include), pero las excepciones del cliente de abajo
+  // saltan ese candado → se les añade `alive` explícito.
+  const alive = !project.archivedAt && !project.finishedAt;
+  const canUploadFiles = canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "subir_archivos"));
 
   // Posibles RESPONSABLES de una tarea: SIEMPRE del equipo (nunca usuarios del portal cliente).
   // Para el portal cliente, además solo su equipo del proyecto (no la lista completa de la empresa).
@@ -419,6 +424,22 @@ export default async function ProyectoPage({
       />
       <h1 className="sr-only">{project.name} · {project.client.name} · {project.code} · {PROJECT_TYPE[project.type]}</h1>
 
+      {/* Banner-LÁPIDA: si el proyecto está dormido (papelera/terminado), decirlo de frente.
+          El candado real es server-side; esto es la señal + la salida a un clic. */}
+      {!alive ? (
+        <ProjectLifecycleBanner
+          projectId={project.id}
+          mode={project.archivedAt ? "papelera" : "terminado"}
+          detail={
+            project.archivedAt
+              ? `En la papelera desde el ${formatShortDate(project.archivedAt)} · todo queda en solo lectura hasta restaurarlo.`
+              : `Terminado el ${formatShortDate(project.finishedAt!)}${project.finishedById ? ` por ${team.find((t) => t.id === project.finishedById)?.name ?? "el equipo"}` : ""} · consultable en solo lectura; reábrelo para editar.`
+          }
+          canRestore={!!project.archivedAt && hasPermission(session, "ver_papelera") && canManageProject(project, session)}
+          canReopen={!project.archivedAt && canManageProject(project, session)}
+        />
+      ) : null}
+
       {/* Layout de 2 columnas: MENÚ LATERAL vertical del proyecto (izq, el que te gusta) + contenido
           (der). En móvil el menú va arriba como fila horizontal con scroll. */}
       <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row">
@@ -591,7 +612,7 @@ export default async function ProyectoPage({
             <div className="h-[74vh] min-h-[26rem]">
               <CalendarBoard
                 items={projectCalItems}
-                onCreate={canWriteProject(project, session) || (isCliente && hasPermission(session, "gestionar_calendario")) ? createMyEvent : undefined}
+                onCreate={canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "gestionar_calendario")) ? createMyEvent : undefined}
                 projectId={id}
                 team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
               />

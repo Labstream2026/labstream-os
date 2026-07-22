@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { inAliveProjectWhere } from "@/lib/project-access";
 import { notifyAndEmail } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
 
@@ -59,7 +60,9 @@ export type RecurringRunSummary = { ok: true; checked: number; created: number }
 export async function runRecurringTasks(now: Date = new Date()): Promise<RecurringRunSummary> {
   const today = bogotaToday(now);
   const rules = await db.recurringTask.findMany({
-    where: { active: true, startDate: { lte: today.noon } },
+    // Se saltan las plantillas de proyectos DORMIDOS (papelera/terminados): un proyecto que ya
+    // no está activo no debe seguir pariendo tareas. Las sueltas (sin proyecto) siguen igual.
+    where: { active: true, startDate: { lte: today.noon }, ...inAliveProjectWhere },
     select: {
       id: true, title: true, description: true, priority: true, isPrivate: true, dueOffsetDays: true,
       projectId: true, assigneeId: true, createdById: true,

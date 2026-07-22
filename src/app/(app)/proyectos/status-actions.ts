@@ -18,7 +18,8 @@ export async function setProjectStatus(projectId: string, status: string): Promi
   try {
     const project = await db.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, status: true, leadId: true, isPrivate: true, members: { select: { userId: true, role: true } } },
+      // archivedAt/finishedAt: canWriteProject bloquea mover de estado un proyecto dormido.
+      select: { id: true, name: true, status: true, leadId: true, isPrivate: true, members: { select: { userId: true, role: true } }, archivedAt: true, finishedAt: true },
     });
     if (!project) return { ok: false, error: "El proyecto no existe." };
     if (!canWriteProject(project, session)) return { ok: false, error: "No autorizado" };
