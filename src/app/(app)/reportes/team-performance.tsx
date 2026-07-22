@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { emojiToText } from "@/components/icons/marks";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/auth";
 import type { SessionUser } from "@/lib/session";
@@ -197,7 +198,7 @@ export async function TeamPerformance({ session }: { session: SessionUser | null
               {hoursByProject.map((p, i) => (
                 <BarRow
                   key={i}
-                  label={`${p.emoji ?? "📁"} ${p.name}`}
+                  label={`${emojiToText(p.emoji, "📁") || "📁"} ${p.name}`}
                   value={formatMinutes(p.minutes)}
                   pct={(p.minutes / maxHours) * 100}
                   color={POS}

@@ -2945,19 +2945,55 @@ export async function requestReopenProject(projectId: string): Promise<{ ok: boo
 }
 
 // Restaura un proyecto archivado (vuelve a las listas). Lo hace quien puede ver la papelera.
-export async function restoreProject(projectId: string): Promise<void> {
+export async function restoreProject(projectId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!hasPermission(session, "ver_papelera")) noAutorizado();
   // Además del permiso de papelera, exige poder GESTIONAR ese proyecto concreto: no restaurar
   // proyectos ajenos/privados solo por tener ver_papelera.
   await ensureProjectManage(projectId);
-  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true } });
-  if (!project) return;
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { name: true, client: { select: { name: true, archivedAt: true } } } });
+  if (!project) return { ok: false, error: "El proyecto no existe." };
+  // Coherencia con el ARRASTRE de archiveClient: si el cliente sigue en la papelera, restaurar
+  // solo el proyecto lo dejaría huérfano (sin cliente visible en sidebar ni listas). Primero
+  // se restaura el cliente — eso revive de una los proyectos que arrastró.
+  if (project.client?.archivedAt) {
+    return { ok: false, error: `El cliente «${project.client.name}» está en la papelera; restáuralo primero (eso revive también sus proyectos).` };
+  }
   await db.project.update({ where: { id: projectId }, data: { archivedAt: null } });
   await logActivity({ action: "project.restore", summary: `restauró el proyecto «${project.name}» de la papelera`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/proyectos");
   revalidatePath("/papelera");
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// PRE-VUELO de purga: lo que el diálogo de «Borrar definitivamente» muestra CON NÚMEROS antes
+// de exigir escribir el nombre. Muere en cascada: tareas, archivos, entregables, canal de chat.
+// Se conservan (desvinculados, SetNull): cotizaciones y facturas — registros financieros.
+export type ProjectPurgePreflight = {
+  tasks: number;
+  files: number;
+  deliverables: number;
+  quotes: number;   // se conservan desvinculadas
+  invoices: number; // se conservan desvinculadas
+};
+
+export async function getProjectPurgePreflight(projectId: string): Promise<ProjectPurgePreflight | null> {
+  const session = await getSession();
+  if (!hasPermission(session, "ver_papelera")) return null;
+  try {
+    await ensureProjectManage(projectId, "eliminar_proyectos");
+  } catch {
+    return null;
+  }
+  const [tasks, files, deliverables, quotes, invoices] = await Promise.all([
+    db.task.count({ where: { projectId } }),
+    db.fileAsset.count({ where: { projectId } }),
+    db.deliverable.count({ where: { projectId } }),
+    db.quote.count({ where: { projectId } }),
+    db.invoice.count({ where: { projectId } }),
+  ]);
+  return { tasks, files, deliverables, quotes, invoices };
 }
 
 // Borra DEFINITIVAMENTE un proyecto desde la papelera (irreversible). Solo sobre proyectos ya

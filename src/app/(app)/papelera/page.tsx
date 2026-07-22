@@ -40,7 +40,8 @@ export default async function PapeleraPage() {
     db.client.findMany({
       where: { archivedAt: { not: null } },
       orderBy: { archivedAt: "desc" },
-      select: { id: true, name: true, emoji: true, archivedAt: true },
+      // _count.projects: el cliente arrastra sus proyectos a la papelera — la fila lo dice.
+      select: { id: true, name: true, emoji: true, archivedAt: true, _count: { select: { projects: true } } },
     }),
   ]);
 
@@ -104,7 +105,7 @@ export default async function PapeleraPage() {
                 <span className="shrink-0 text-lg">{c.emoji ?? "🏢"}</span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{c.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{trashedLine("", c.archivedAt, formatShortDate(c.archivedAt))}</p>
+                  <p className="truncate text-xs text-muted-foreground">{trashedLine(c._count.projects ? `${c._count.projects} proyecto${c._count.projects === 1 ? "" : "s"} dentro · ` : "", c.archivedAt, formatShortDate(c.archivedAt))}</p>
                 </div>
                 {daysInTrash(c.archivedAt) >= 90 ? (
                   <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400" title="Lleva más de 90 días en la papelera: restáuralo o bórralo definitivamente.">

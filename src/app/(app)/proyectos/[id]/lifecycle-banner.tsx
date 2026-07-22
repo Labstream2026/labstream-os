@@ -65,7 +65,7 @@ export function ProjectLifecycleBanner({
       </div>
       {trash && canRestore ? (
         <button
-          onClick={() => run(async () => { await restoreProject(projectId); router.refresh(); })}
+          onClick={() => run(async () => { const r = await restoreProject(projectId); if (r.ok) router.refresh(); else setError(r.error ?? "No se pudo restaurar."); })}
           disabled={pending}
           className="inline-flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
         >

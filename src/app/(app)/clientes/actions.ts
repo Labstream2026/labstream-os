@@ -188,30 +188,73 @@ export async function deleteClient(clientId: string): Promise<{ ok: boolean; err
   return { ok: true };
 }
 
+// PRE-VUELO de archivar cliente: lo que el diálogo muestra antes de confirmar. Los proyectos
+// NO archivados (activos y terminados) se irán a la papelera CON el cliente; cotizaciones y
+// facturas no se tocan (viajan ocultas con él); los usuarios de su portal pierden acceso
+// mientras esté archivado (la visibilidad ya filtra clientes archivados).
+export type ClientArchivePreflight = {
+  activeProjects: number;   // proyectos vivos que se archivarán también
+  finishedProjects: number; // terminados que viajan ocultos (conservan su finishedAt)
+  quotes: number;           // se conservan intactos
+  invoices: number;         // se conservan intactos
+  portalMembers: number;    // usuarios del portal que quedan sin acceso mientras duerma
+};
+
+export async function getClientArchivePreflight(clientId: string): Promise<ClientArchivePreflight | null> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return null;
+  const [activeProjects, finishedProjects, quotes, invoices, portalMembers] = await Promise.all([
+    db.project.count({ where: { clientId, archivedAt: null, finishedAt: null } }),
+    db.project.count({ where: { clientId, archivedAt: null, finishedAt: { not: null } } }),
+    db.quote.count({ where: { clientId } }),
+    db.invoice.count({ where: { clientId } }),
+    db.clientMember.count({ where: { clientId } }),
+  ]);
+  return { activeProjects, finishedProjects, quotes, invoices, portalMembers };
+}
+
 // Archiva un cliente (borrado SUAVE): sale de las listas pero se conserva TODO su contenido
 // —facturas, cotizaciones, proyectos, chat— y se puede RESTAURAR. Es la vía recomendada en
 // lugar de deleteClient (que borra en cascada). Solo administradores.
+//
+// ARRASTRE: sus proyectos no archivados se van a la papelera CON él, marcados con EL MISMO
+// timestamp (archivedAt idéntico). Así todo el aparato de proyecto dormido (solo lectura,
+// chat congelado, barredores callados, enlaces muertos) les aplica de inmediato, y
+// restoreClient puede revivir EXACTAMENTE los que arrastró — sin tocar los que ya estaban
+// en la papelera por decisión propia de antes.
 export async function archiveClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede archivar clientes." };
   const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true, archivedAt: true } });
   if (!client) return { ok: false, error: "El cliente no existe." };
   if (client.archivedAt) return { ok: true }; // ya archivado (idempotente)
-  await db.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } });
-  await logActivity({ action: "client.archive", summary: `archivó el cliente ${client.name}`, clientId, entityType: "client", entityId: clientId });
+  const now = new Date();
+  const dragged = await db.project.updateMany({ where: { clientId, archivedAt: null }, data: { archivedAt: now } });
+  await db.client.update({ where: { id: clientId }, data: { archivedAt: now } });
+  await logActivity({
+    action: "client.archive",
+    summary: `archivó el cliente ${client.name}${dragged.count ? ` (con sus ${dragged.count} proyecto${dragged.count === 1 ? "" : "s"})` : ""}`,
+    clientId, entityType: "client", entityId: clientId,
+  });
   revalidatePath("/clientes");
   revalidatePath("/");
   revalidatePath("/proyectos");
+  revalidatePath("/papelera");
   revalidatePath("/", "layout");
   return { ok: true };
 }
 
 // Restaura un cliente archivado (vuelve a las listas). Solo administradores.
+// SIMETRÍA: revive solo los proyectos que archiveClient ARRASTRÓ (mismo archivedAt exacto);
+// los que ya estaban en la papelera de antes se quedan donde están.
 export async function restoreClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!session || session.role !== "admin") return { ok: false, error: "Solo un administrador puede restaurar clientes." };
-  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { name: true, archivedAt: true } });
   if (!client) return { ok: false, error: "El cliente no existe." };
+  if (client.archivedAt) {
+    await db.project.updateMany({ where: { clientId, archivedAt: client.archivedAt }, data: { archivedAt: null } });
+  }
   await db.client.update({ where: { id: clientId }, data: { archivedAt: null } });
   await logActivity({ action: "client.restore", summary: `restauró el cliente ${client.name}`, clientId, entityType: "client", entityId: clientId });
   revalidatePath("/clientes");
@@ -251,6 +294,37 @@ export async function setClientActive(clientId: string, active: boolean): Promis
 // Borra DEFINITIVAMENTE un cliente desde la papelera (irreversible). Solo sobre clientes ya
 // archivados y para quien puede ver la papelera. Cascada: arrastra proyectos, cotizaciones,
 // FACTURAS, canal y miembros del cliente. Es destructivo — la UI exige confirmación.
+// PRE-VUELO de purga de cliente: TODO lo que muere en cascada al borrarlo para siempre —
+// proyectos (con sus tareas, archivos y entregables), cotizaciones, FACTURAS, canales de chat
+// y accesos del portal. A diferencia del proyecto, aquí los financieros SÍ se borran (la
+// relación es Cascade): el diálogo lo dice con números y exige escribir el nombre.
+export type ClientPurgePreflight = {
+  projects: number;
+  tasks: number;
+  files: number;
+  deliverables: number;
+  quotes: number;   // se BORRAN (cascade)
+  invoices: number; // se BORRAN (cascade)
+  channels: number;
+  portalMembers: number;
+};
+
+export async function getClientPurgePreflight(clientId: string): Promise<ClientPurgePreflight | null> {
+  const session = await getSession();
+  if (!session || session.role !== "admin" || !hasPermission(session, "ver_papelera")) return null;
+  const [projects, tasks, files, deliverables, quotes, invoices, channels, portalMembers] = await Promise.all([
+    db.project.count({ where: { clientId } }),
+    db.task.count({ where: { project: { clientId } } }),
+    db.fileAsset.count({ where: { project: { clientId } } }),
+    db.deliverable.count({ where: { project: { clientId } } }),
+    db.quote.count({ where: { clientId } }),
+    db.invoice.count({ where: { clientId } }),
+    db.chatChannel.count({ where: { OR: [{ clientId }, { project: { clientId } }] } }),
+    db.clientMember.count({ where: { clientId } }),
+  ]);
+  return { projects, tasks, files, deliverables, quotes, invoices, channels, portalMembers };
+}
+
 export async function purgeClient(clientId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await getSession();
   if (!hasPermission(session, "ver_papelera")) return { ok: false, error: "No autorizado" };

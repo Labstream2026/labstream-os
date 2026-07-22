@@ -3,8 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, FolderPlus, Archive } from "lucide-react";
-import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { archiveClient } from "./actions";
+import { ClientArchiveDialog } from "./client-archive-dialog";
 
 // Menú de acciones rápidas en la tarjeta de cliente (lista de Clientes): crear un proyecto
 // nuevo ya asociado a este cliente, y archivarlo (borrado suave → Papelera). Archivar es solo
@@ -21,9 +20,8 @@ export function ClientCardMenu({
   canArchive: boolean;
 }) {
   const router = useRouter();
-  const { confirm, dialog } = useConfirmDialog();
   const [open, setOpen] = React.useState(false);
-  const [pending, start] = React.useTransition();
+  const [archiveOpen, setArchiveOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -42,20 +40,11 @@ export function ClientCardMenu({
     router.push(`/proyectos/nuevo?clientId=${clientId}`);
   }
 
+  // Archivar abre el PRE-VUELO (client-archive-dialog.tsx): cuenta los proyectos que arrastra,
+  // deja claro que cotizaciones/facturas viajan intactas, y confirma desde ahí.
   function archive() {
     setOpen(false);
-    start(async () => {
-      const ok = await confirm({
-        title: "Archivar cliente",
-        message: `¿Mover «${clientName}» a la papelera? Sale de las listas pero se conserva todo (proyectos, cotizaciones, facturas) y se puede restaurar.`,
-        confirmLabel: "Archivar",
-        danger: true,
-      });
-      if (!ok) return;
-      const r = await archiveClient(clientId);
-      if (r.ok) router.refresh();
-      else await confirm({ title: "No se pudo", message: r.error ?? "Error al archivar.", confirmLabel: "Entendido" });
-    });
+    setArchiveOpen(true);
   }
 
   return (
@@ -63,7 +52,6 @@ export function ClientCardMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={pending}
         aria-label="Acciones del cliente"
         className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
       >
@@ -83,7 +71,7 @@ export function ClientCardMenu({
           ) : null}
         </div>
       ) : null}
-      {dialog}
+      <ClientArchiveDialog clientId={clientId} clientName={clientName} open={archiveOpen} onClose={() => setArchiveOpen(false)} />
     </div>
   );
 }

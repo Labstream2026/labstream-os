@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { emojiToText } from "@/components/icons/marks";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -189,7 +190,7 @@ export function PipelineView({ cols, allStatuses, projects }: { cols: StatusCol[
                       style={{ borderLeft: `3px solid ${p.bandHex}` }}
                     >
                       <Link href={`/proyectos/${p.id}`} className="block min-w-0">
-                        <p className="truncate text-sm font-medium hover:underline">{p.emoji ? `${p.emoji} ` : ""}{p.name}</p>
+                        <p className="truncate text-sm font-medium hover:underline">{emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}</p>
                         <p className="truncate text-[11px] text-muted-foreground">{p.clientEmoji ? `${p.clientEmoji} ` : ""}{p.clientName}</p>
                       </Link>
                       <div className="mt-2 flex items-center gap-1.5">
@@ -309,7 +310,7 @@ export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewPr
                         <div className="flex items-center gap-2">
                           <ProjectColorPicker projectId={p.id} color={p.color} />
                           <Link href={`/proyectos/${p.id}`} className="min-w-0 truncate font-medium hover:underline">
-                            {p.emoji ? `${p.emoji} ` : ""}{p.name}
+                            {emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}
                           </Link>
                         </div>
                       </td>
@@ -361,7 +362,7 @@ export function PortfolioView({ projects, allStatuses }: { projects: ViewProject
             <div className="h-2.5" style={{ background: `linear-gradient(90deg, ${p.bandHex}, ${p.bandHex}99)` }} />
             <div className="p-4">
               <div className="flex items-start justify-between gap-2">
-                <p className="min-w-0 truncate text-sm font-semibold group-hover:underline">{p.emoji ? `${p.emoji} ` : ""}{p.name}</p>
+                <p className="min-w-0 truncate text-sm font-semibold group-hover:underline">{emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}</p>
                 <span className={cn("mt-1 size-2.5 shrink-0 rounded-full", health)} title={healthTitle} />
               </div>
               <p className="truncate text-xs text-muted-foreground">{p.clientEmoji ? `${p.clientEmoji} ` : ""}{p.clientName}</p>

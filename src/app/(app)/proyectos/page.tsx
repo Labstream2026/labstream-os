@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { emojiToText } from "@/components/icons/marks";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere, canWriteProject } from "@/lib/project-access";
@@ -57,7 +58,9 @@ export default async function ProyectosPage({
   const anyProjects = withProjects.length > 0;
 
   // ── Opciones de filtro (de TODO lo accesible, ANTES de filtrar) ──
-  const clientOptions = withProjects.map((c) => ({ value: c.id, label: `${c.emoji ? `${c.emoji} ` : ""}${c.name}` }));
+  // emojiToText: el campo emoji puede ser un token "ls:<clave>" (ícono Labstream); en un label
+  // de TEXTO plano se degrada a su emoji de respaldo — nunca mostrar el token crudo.
+  const clientOptions = withProjects.map((c) => ({ value: c.id, label: `${emojiToText(c.emoji) ? `${emojiToText(c.emoji)} ` : ""}${c.name}` }));
   const statusRank = new Map(PROJECT_STATUS_DEFAULTS.map((s, i) => [s.key, i]));
   const statusesPresent = [...new Set(withProjects.flatMap((c) => c.projects.map((p) => p.status)))].sort(
     (a, b) => (statusRank.get(a) ?? 99) - (statusRank.get(b) ?? 99),

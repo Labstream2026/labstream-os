@@ -237,7 +237,7 @@ export function Sidebar({
 
   // Archivar un cliente (solo admin): borrado SUAVE (restaurable desde /clientes).
   async function removeClient(id: string, name: string) {
-    if (!(await confirm({ title: "Archivar cliente", message: `¿Archivar el cliente «${name}»? Saldrá de las listas pero NO se borra nada: sus facturas, cotizaciones y proyectos se conservan y podrás restaurarlo.`, confirmLabel: "Archivar" }))) return;
+    if (!(await confirm({ title: "Archivar cliente", message: `¿Archivar el cliente «${name}»? Sus PROYECTOS se archivan con él (papelera, solo lectura) y sus facturas y cotizaciones se conservan intactas. Restaurarlo revive también sus proyectos.`, confirmLabel: "Archivar" }))) return;
     startDelete(async () => { await archiveClient(id); router.refresh(); });
   }
 
