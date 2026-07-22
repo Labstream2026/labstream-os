@@ -6,12 +6,12 @@ import { Globe, Lock, X, ChevronDown, Users, CheckCircle2, RotateCcw, Trash2, Se
 import { UserAvatar } from "@/components/user-avatar";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ArchivePreflightDialog } from "@/components/archive-preflight";
+import { FinishSummaryDialog } from "@/components/finish-summary";
 import { cn } from "@/lib/utils";
 import {
   setProjectVisibility,
   addProjectMember,
   removeProjectMember,
-  finishProject,
   reopenProject,
 } from "@/app/(app)/proyectos/[id]/actions";
 
@@ -50,18 +50,10 @@ export function ProjectSettings({
   const [archiveOpen, setArchiveOpen] = React.useState(false);
   const onArchive = () => setArchiveOpen(true);
 
-  // TERMINAR: archivo de proyectos completados (aparte de la papelera). REABRIR: vuelve a activos.
-  const onFinish = async () => {
-    const ok = await confirm({
-      title: "Marcar como terminado",
-      message: "El proyecto saldrá de las listas activas y pasará al archivo de «Terminados». No se borra nada y podrás reabrirlo cuando quieras.",
-      confirmLabel: "Marcar como terminado",
-    });
-    if (!ok) return;
-    const r = await finishProject(projectId);
-    if (r.ok) router.push("/proyectos?vista=terminados");
-    else await confirm({ title: "No se pudo", message: r.error ?? "Error al terminar.", confirmLabel: "Entendido" });
-  };
+  // TERMINAR: abre el RESUMEN DE CIERRE (finish-summary.tsx) — el broche del proyecto en
+  // números + aviso de facturas sin cobrar. REABRIR: vuelve a activos.
+  const [finishOpen, setFinishOpen] = React.useState(false);
+  const onFinish = () => setFinishOpen(true);
   const onReopen = async () => {
     const r = await reopenProject(projectId);
     if (r.ok) router.refresh();
@@ -251,6 +243,7 @@ export function ProjectSettings({
       </div>
       {dialog}
       <ArchivePreflightDialog projectId={projectId} open={archiveOpen} onClose={() => setArchiveOpen(false)} />
+      <FinishSummaryDialog projectId={projectId} open={finishOpen} onClose={() => setFinishOpen(false)} />
     </div>
   );
 }

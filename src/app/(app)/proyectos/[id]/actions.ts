@@ -2814,6 +2814,42 @@ export async function archiveProject(
   return { ok: true };
 }
 
+// RESUMEN DE CIERRE: lo que el modal de «Terminar» muestra antes de confirmar — el broche del
+// proyecto en números (tareas, entregables aprobados, horas registradas) y el único aviso que
+// importa de verdad: facturas sin cobrar (terminar NO las toca; se siguen en Facturación).
+export type FinishSummary = {
+  tasksTotal: number;
+  tasksOpen: number; // sin completar: se silencian solas al terminar (no cuentan como pendientes)
+  deliverablesTotal: number;
+  deliverablesApproved: number; // en APROBADO o ENTREGADO
+  minutes: number; // suma de TimeEntry del proyecto (el cliente lo formatea en horas)
+  invoicesPending: number; // ENVIADA o VENCIDA = cobro pendiente
+};
+
+export async function getFinishSummary(projectId: string): Promise<FinishSummary | null> {
+  try {
+    await ensureProjectManage(projectId);
+  } catch {
+    return null;
+  }
+  const [tasksTotal, tasksOpen, deliverablesTotal, deliverablesApproved, time, invoicesPending] = await Promise.all([
+    db.task.count({ where: { projectId } }),
+    db.task.count({ where: { projectId, completedAt: null } }),
+    db.deliverable.count({ where: { projectId, archivedAt: null } }),
+    db.deliverable.count({ where: { projectId, archivedAt: null, status: { in: ["APROBADO", "ENTREGADO"] as never } } }),
+    db.timeEntry.aggregate({ _sum: { minutes: true }, where: { task: { projectId } } }),
+    db.invoice.count({ where: { projectId, status: { in: ["ENVIADA", "VENCIDA"] as never } } }),
+  ]);
+  return {
+    tasksTotal,
+    tasksOpen,
+    deliverablesTotal,
+    deliverablesApproved,
+    minutes: time._sum.minutes ?? 0,
+    invoicesPending,
+  };
+}
+
 // Marca un proyecto como TERMINADO: sale de las listas ACTIVAS y va al archivo de «Terminados»
 // (NO a la papelera). Conserva todo y se puede REABRIR. Lo hace quien gestiona el proyecto.
 export async function finishProject(projectId: string): Promise<{ ok: boolean; error?: string }> {

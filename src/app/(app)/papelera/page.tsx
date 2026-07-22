@@ -13,6 +13,20 @@ export const dynamic = "force-dynamic";
 // Papelera unificada: proyectos y clientes ARCHIVADOS (borrado suave). Nada se borra
 // físicamente; desde aquí se RESTAURAN. Solo visible con el permiso ver_papelera
 // (admin por bypass) → "algunos administradores".
+// Días que lleva algo en la papelera (redondeo hacia abajo; mínimo 0). Vive FUERA del
+// componente: el "ahora" por-request es legítimo en esta página dinámica.
+function daysInTrash(archivedAt: Date | null): number {
+  if (!archivedAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - archivedAt.getTime()) / 86_400_000));
+}
+
+// Sub-línea de una fila de la papelera: fecha + antigüedad («hace N días»).
+function trashedLine(prefix: string, archivedAt: Date | null, dateLabel: string | null): string {
+  const d = daysInTrash(archivedAt);
+  const ago = d === 0 ? "hoy" : d === 1 ? "hace 1 día" : `hace ${d} días`;
+  return `${prefix}Archivado ${dateLabel ?? ""} · ${ago}`;
+}
+
 export default async function PapeleraPage() {
   const session = await getSession();
   if (!hasPermission(session, "ver_papelera")) redirect("/");
@@ -63,9 +77,14 @@ export default async function PapeleraPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{p.name}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {p.client?.name ? `${p.client.name} · ` : ""}Archivado {formatShortDate(p.archivedAt) ?? ""}
+                    {trashedLine(p.client?.name ? `${p.client.name} · ` : "", p.archivedAt, formatShortDate(p.archivedAt))}
                   </p>
                 </div>
+                {daysInTrash(p.archivedAt) >= 90 ? (
+                  <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400" title="Lleva más de 90 días en la papelera: restáuralo o bórralo definitivamente.">
+                    90+ días
+                  </span>
+                ) : null}
                 <PapeleraActions kind="project" id={p.id} name={p.name} />
               </div>
             ))}
@@ -85,8 +104,13 @@ export default async function PapeleraPage() {
                 <span className="shrink-0 text-lg">{c.emoji ?? "🏢"}</span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{c.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">Archivado {formatShortDate(c.archivedAt) ?? ""}</p>
+                  <p className="truncate text-xs text-muted-foreground">{trashedLine("", c.archivedAt, formatShortDate(c.archivedAt))}</p>
                 </div>
+                {daysInTrash(c.archivedAt) >= 90 ? (
+                  <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400" title="Lleva más de 90 días en la papelera: restáuralo o bórralo definitivamente.">
+                    90+ días
+                  </span>
+                ) : null}
                 <PapeleraActions kind="client" id={c.id} name={c.name} />
               </div>
             ))}

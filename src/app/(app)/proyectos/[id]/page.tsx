@@ -151,6 +151,16 @@ export default async function ProyectoPage({
   // saltan ese candado → se les añade `alive` explícito.
   const alive = !project.archivedAt && !project.finishedAt;
   const canUploadFiles = canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "subir_archivos"));
+  // Broche del TERMINADO: el banner muestra el proyecto en números (todo ya viene cargado
+  // arriba — tareas con timeEntries y entregables — así que sumar aquí no cuesta consultas).
+  const finishedStats = project.finishedAt
+    ? {
+        tasks: project.tasks.length,
+        delivApproved: project.deliverables.filter((d) => d.status === "APROBADO" || d.status === "ENTREGADO").length,
+        delivTotal: project.deliverables.length,
+        hours: Math.round(project.tasks.reduce((n, t) => n + t.timeEntries.reduce((m, e) => m + e.minutes, 0), 0) / 6) / 10,
+      }
+    : null;
 
   // Solicitudes del CLIENTE (portal): el equipo las gestiona desde el Resumen. Solo se cargan ahí.
   const clientRequests =
@@ -448,7 +458,7 @@ export default async function ProyectoPage({
           detail={
             project.archivedAt
               ? `En la papelera desde el ${formatShortDate(project.archivedAt)} · todo queda en solo lectura hasta restaurarlo.`
-              : `Terminado el ${formatShortDate(project.finishedAt!)}${project.finishedById ? ` por ${team.find((t) => t.id === project.finishedById)?.name ?? "el equipo"}` : ""} · consultable en solo lectura; reábrelo para editar.`
+              : `Terminado el ${formatShortDate(project.finishedAt!)}${project.finishedById ? ` por ${team.find((t) => t.id === project.finishedById)?.name ?? "el equipo"}` : ""} · ${finishedStats!.tasks} tareas · ${finishedStats!.delivApproved}/${finishedStats!.delivTotal} entregables aprobados · ${finishedStats!.hours} h registradas · solo lectura; reábrelo para editar.`
           }
           canRestore={!!project.archivedAt && hasPermission(session, "ver_papelera") && canManageProject(project, session)}
           canReopen={!project.archivedAt && canManageProject(project, session)}
