@@ -47,6 +47,7 @@ export function InternalReview({
       decision={{ approveLabel: "Pre-aprobado", changesLabel: "Solicitar cambios" }}
       canDecide={canDecide}
       askFixDeadline
+      resumeKey={`int:${deliverableId}`}
       onComment={(fd) => addInternalReviewComment(deliverableId, fd)}
       onDecision={(result, note, _name, versionNumber, fixDueIso) =>
         internalDecision(deliverableId, projectId, versionNumber, result, note || undefined, fixDueIso ?? null)

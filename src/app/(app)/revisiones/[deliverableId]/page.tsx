@@ -2,13 +2,14 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
-import { canAccessProject, canManageProject } from "@/lib/project-access";
+import { getSession, hasPermission } from "@/lib/auth";
+import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { buildStageVersions } from "@/lib/review-version";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { InternalReview } from "./internal-review";
+import { UploadVersionCard } from "./upload-version";
 import type { StageComment } from "@/components/review/review-stage";
 import { EntityEmoji } from "@/components/icons/marks";
 
@@ -41,6 +42,10 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const canManage = canManageProject(deliverable.project, session);
   // Puede pre-aprobar el responsable del proyecto/admin O CUALQUIER co-revisor asignado.
   const canDecide = canManage || deliverable.reviewers.some((r) => r.userId === session.id) || deliverable.reviewerId === session.id;
+  // Puede SUBIR versión aquí mismo (mismo criterio que la server action): quien escribe en el
+  // proyecto y además tiene subir_archivos, o el dueño del entregable (el editor).
+  const canUpload = canWriteProject(deliverable.project, session) && (hasPermission(session, "subir_archivos") || deliverable.ownerId === session.id);
+  const nextNumber = (deliverable.versions[0]?.number ?? 0) + 1;
   const meta = deliverableStatusMeta(deliverable.status);
 
   // El equipo ve TODAS las versiones (incluidas las pendientes de pre-aprobación).
@@ -90,9 +95,13 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>{meta.label}</span>
       </header>
 
+      {/* Subir la siguiente versión SIN volver al proyecto: por trozos, sin límite práctico
+          de tamaño (los masters grandes ya no tumban la app) y con verificación de integridad. */}
+      {canUpload ? <UploadVersionCard deliverableId={deliverable.id} projectId={deliverable.project.id} nextNumber={nextNumber} /> : null}
+
       {versions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-          Este entregable aún no tiene versiones. El equipo debe subir una desde el proyecto.
+          Este entregable aún no tiene versiones. {canUpload ? "Sube la primera aquí arriba." : "El equipo debe subir una desde el proyecto."}
         </div>
       ) : (
         <>

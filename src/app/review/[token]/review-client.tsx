@@ -369,6 +369,7 @@ export function ReviewClient({
         allowDrawings={allowDrawings}
         orientation={orientation}
         immersiveEligible={immersiveEligible}
+        resumeKey={`cli:${token.slice(-24)}`}
         defaultName={name || "Cliente"}
         fixedName
         // El usuario INVITADO usa su propia barra de decisión (doble botón + reabrir), así que aquí

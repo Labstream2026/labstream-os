@@ -109,6 +109,7 @@ export function ReviewStage({
   onEdit,
   onDelete,
   immersiveEligible = false,
+  resumeKey = null,
 }: {
   versions: StageVersion[];
   comments: StageComment[];
@@ -157,6 +158,9 @@ export function ReviewStage({
   // entregables REEL_CELULAR). Activa el player de pantalla completa en el celular;
   // la pre-aprobación interna y el escritorio siguen con la vista normal.
   immersiveEligible?: boolean;
+  // Memoria de posición: clave estable (por sala) para retomar un video LARGO donde ibas.
+  // null = no recordar (comportamiento clásico).
+  resumeKey?: string | null;
 }) {
   const [vIdx, setVIdx] = React.useState(0);
   const version = versions[vIdx] ?? versions[0];
@@ -371,6 +375,106 @@ export function ReviewStage({
   const notes = ofVersion.filter((c) => c.isNote);
 
   const seek = (t: number) => playerRef.current?.seek(t);
+
+  // ── Comparar versiones conservando el instante ──
+  // Cambiar de versión con `pendingSeekRef` cargado salta al MISMO segundo en cuanto el
+  // reproductor nuevo reporta duración (el <video> se re-monta al cambiar de fuente).
+  const pendingSeekRef = React.useRef<number | null>(null);
+  const bodyRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const switchVersion = React.useCallback(
+    (i: number, keepTime: boolean) => {
+      if (i === vIdx || !versions[i]) return;
+      if (keepTime) pendingSeekRef.current = playerRef.current?.getTime() ?? null;
+      setVIdx(i);
+      setTc(null);
+      setDrawing(null);
+      setDrawOpen(false);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vIdx, versions.length],
+  );
+  const toggleCompare = React.useCallback(() => {
+    if (versions.length < 2) return;
+    switchVersion(vIdx === 0 ? 1 : 0, true);
+  }, [versions.length, vIdx, switchVersion]);
+
+  React.useEffect(() => {
+    const t = pendingSeekRef.current;
+    if (t == null) return;
+    pendingSeekRef.current = null;
+    let tries = 0;
+    const iv = setInterval(() => {
+      const d = playerRef.current?.getDuration();
+      if (d && d > 0) {
+        playerRef.current?.seek(Math.min(t, Math.max(0, d - 0.2)), false);
+        clearInterval(iv);
+      } else if (++tries > 40) clearInterval(iv);
+    }, 250);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vIdx]);
+
+  // ── Memoria de posición (videos largos): retoma donde ibas, por versión ──
+  React.useEffect(() => {
+    if (!resumeKey || !version) return;
+    const key = `review:pos:${resumeKey}:v${version.number}`;
+    let restore: ReturnType<typeof setInterval> | null = null;
+    const saved = Number(localStorage.getItem(key));
+    if (Number.isFinite(saved) && saved > 20 && pendingSeekRef.current == null) {
+      let tries = 0;
+      restore = setInterval(() => {
+        const d = playerRef.current?.getDuration();
+        if (d && d > 0) {
+          // Solo tiene sentido en material largo, y nunca saltar al mero final.
+          if (d > 120 && saved < d - 15) playerRef.current?.seek(saved, false);
+          if (restore) clearInterval(restore);
+        } else if (++tries > 40 && restore) clearInterval(restore);
+      }, 300);
+    }
+    const save = setInterval(() => {
+      const t = playerRef.current?.getTime();
+      if (t && t > 20) localStorage.setItem(key, String(Math.floor(t)));
+    }, 5000);
+    return () => {
+      if (restore) clearInterval(restore);
+      clearInterval(save);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeKey, version?.number]);
+
+  // ── Atajos de editor (escritorio) ──
+  // Espacio/K reproducir-pausar · J/L ±10 s · ←/→ ±5 s · ,/. cuadro a cuadro · C comentar
+  // aquí (enfoca el cuadro: su onFocus ya congela el segundo, la CAPTURA no cambia) ·
+  // V comparar con la otra versión. Nunca roba teclas mientras se escribe en un campo.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      const p = playerRef.current;
+      if (!p) return;
+      const now = () => p.getTime() ?? 0;
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      switch (k) {
+        case " ":
+        case "k":
+          e.preventDefault();
+          if (p.isPaused()) p.play();
+          else p.pause();
+          break;
+        case "j": p.seek(Math.max(0, now() - 10), false); break;
+        case "l": p.seek(now() + 10, false); break;
+        case "ArrowLeft": e.preventDefault(); p.seek(Math.max(0, now() - 5), false); break;
+        case "ArrowRight": e.preventDefault(); p.seek(now() + 5, false); break;
+        case ",": p.pause(); p.seek(Math.max(0, now() - 1 / 30), false); break;
+        case ".": p.pause(); p.seek(now() + 1 / 30, false); break;
+        case "c": e.preventDefault(); bodyRef.current?.focus(); break;
+        case "v": if (versions.length > 1) { e.preventDefault(); toggleCompare(); } break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [versions.length, toggleCompare]);
   // Fija el segundo actual del video Y lo pausa, para anclar el comentario al momento
   // exacto (si no, el video sigue corriendo mientras escribes y el segundo se mueve).
   const grabTime = () => {
@@ -709,11 +813,20 @@ export function ReviewStage({
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Versión:</span>
             {versions.map((v, i) => (
-              <button key={v.number} onClick={() => { setVIdx(i); setTc(null); setDrawing(null); setDrawOpen(false); }}
+              <button key={v.number} onClick={() => switchVersion(i, false)}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium ${i === vIdx ? "bg-primary text-primary-foreground" : "border border-border hover:bg-accent"}`}>
                 v{v.number}
               </button>
             ))}
+            {/* Comparar A/B: salta a la OTRA versión conservando el mismo segundo (tecla V). */}
+            <button
+              type="button"
+              onClick={toggleCompare}
+              title={`Cambiar a v${versions[vIdx === 0 ? 1 : 0]?.number} en el MISMO segundo (tecla V)`}
+              className="ml-1 rounded-md border border-primary/40 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              ⇄ Comparar con v{versions[vIdx === 0 ? 1 : 0]?.number}
+            </button>
           </div>
         ) : null}
 
@@ -841,6 +954,16 @@ export function ReviewStage({
 
           {!immersive ? (
             <>
+          {/* Línea de tiempo de correcciones: cada momento comentado es una marca (ámbar =
+              pendiente, verde = hecha); clic = saltar. Vive FUERA del reproductor — no toca
+              la captura de fotograma ni el timecode. */}
+          {caps.time ? (
+            <TimelineStrip
+              playerRef={playerRef}
+              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved }))}
+              onJump={(t) => playerRef.current?.seek(t, false)}
+            />
+          ) : null}
           {version?.notes ? (
             version.number > 1 ? (
               // «Qué cambió en esta versión»: de v2 en adelante la nota es un DESTACADO — el
@@ -935,19 +1058,68 @@ export function ReviewStage({
           lista de momentos con su captura ALINEADA a la derecha de cada comentario; notas debajo.
           Solo cambia la DISPOSICIÓN: handlers, timecode en vivo y envío son EXACTAMENTE los mismos. */}
       {(() => {
+        // ── Exportar correcciones (para la sala de edición) ──
+        // Copia la lista con timecodes (pega directo como marcadores en Resolve/Premiere) o
+        // descarga un CSV. Solo LEE los comentarios — no toca capturas ni estados.
+        const exportLines = allMoments.map(
+          (c) => `${c.timecode != null ? fmtTime(c.timecode) : "--:--"} — ${c.body}${c.priority === "SUGERENCIA" ? " [sugerencia]" : ""}${c.resolved ? " ✓" : ""}`,
+        );
+        const copyList = async () => {
+          try {
+            await navigator.clipboard.writeText(exportLines.join("\n"));
+          } catch {
+            /* portapapeles bloqueado: sin drama */
+          }
+        };
+        const downloadCsv = () => {
+          const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+          const rows = [
+            "version,timecode,segundos,comentario,prioridad,estado,autor,fecha",
+            ...allMoments.map((c) =>
+              [
+                c.versionNumber ?? "",
+                c.timecode != null ? fmtTime(c.timecode) : "",
+                c.timecode ?? "",
+                esc(c.body),
+                c.priority ?? "OBLIGATORIA",
+                c.resolved ? "hecha" : "pendiente",
+                esc(c.authorName),
+                c.createdAt.slice(0, 10),
+              ].join(","),
+            ),
+          ];
+          const blob = new Blob(["﻿" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "correcciones.csv";
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        };
         const momentsHeaderNode = (
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">
               {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
               <span className="font-normal text-muted-foreground">
                 ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
               </span>
             </h2>
-            {onResolve && resolvedCount > 0 ? (
-              <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-                {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
-              </button>
-            ) : null}
+            <span className="flex items-center gap-1.5">
+              {allMoments.length > 0 ? (
+                <>
+                  <button type="button" onClick={copyList} title="Copiar la lista con timecodes (para el editor)" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                    ⧉ Copiar
+                  </button>
+                  <button type="button" onClick={downloadCsv} title="Descargar CSV de correcciones" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                    CSV
+                  </button>
+                </>
+              ) : null}
+              {onResolve && resolvedCount > 0 ? (
+                <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                  {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
+                </button>
+              ) : null}
+            </span>
           </div>
         );
         const momentsListNode = (
@@ -986,6 +1158,18 @@ export function ReviewStage({
                         {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
                         {c.timecode != null ? (
                           <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
+                        ) : null}
+                        {/* Del comentario al RESULTADO: si la corrección es de una versión vieja,
+                            salta al mismo segundo en la última versión para validar el ajuste. */}
+                        {c.timecode != null && c.versionNumber != null && versions[0] && c.versionNumber < versions[0].number ? (
+                          <button
+                            type="button"
+                            onClick={() => { pendingSeekRef.current = c.timecode; switchVersion(0, false); pendingSeekRef.current = c.timecode; }}
+                            title={`Ver este momento en la v${versions[0].number} (cómo quedó)`}
+                            className="rounded border border-emerald-500/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                          >
+                            Ver en v{versions[0].number} →
+                          </button>
                         ) : null}
                         {/* Estado y prioridad: los ven AMBOS lados. Antes «resuelto» solo existía en
                             el checklist del editor y el cliente no sabía si ya se había atendido. */}
@@ -1107,7 +1291,7 @@ export function ReviewStage({
             {!fixedName ? (
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
             ) : null}
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
+            <textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} onFocus={onCommentFocus} rows={3} placeholder={captureHint ? `Escribe sobre el video… al comentar se guarda ${captureHint}` : "Escribe tu comentario…"} className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
             <div className="flex items-center justify-between gap-2">
               {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
                   enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
@@ -2388,4 +2572,72 @@ function wrapText(g: CanvasRenderingContext2D, text: string, maxW: number): stri
   }
   if (line) lines.push(line);
   return lines.slice(0, 3); // máx 3 líneas
+}
+
+// ── Línea de tiempo de correcciones (B) ──
+// Barra propia DEBAJO del reproductor: posición actual + una marca por cada momento comentado
+// (ámbar = pendiente, verde = hecha). Clic en la pista o en una marca = saltar. Sondea el
+// PlayerApi cada 500 ms (mismo patrón que LiveTimecode): NO toca el <video> ni sus controles,
+// así la captura de fotograma y el timecode quedan intactos.
+function TimelineStrip({
+  playerRef,
+  markers,
+  onJump,
+}: {
+  playerRef: React.RefObject<PlayerApi | null>;
+  markers: { id: string; t: number; resolved: boolean }[];
+  onJump: (t: number) => void;
+}) {
+  const [dur, setDur] = React.useState(0);
+  const [pos, setPos] = React.useState(0);
+  React.useEffect(() => {
+    const iv = setInterval(() => {
+      setDur(playerRef.current?.getDuration() ?? 0);
+      setPos(playerRef.current?.getTime() ?? 0);
+    }, 500);
+    return () => clearInterval(iv);
+  }, [playerRef]);
+  if (!dur || dur <= 0) return null;
+  const pct = (t: number) => `${Math.max(0, Math.min(100, (t / dur) * 100))}%`;
+  return (
+    <div className="mt-2 select-none">
+      <div
+        className="relative h-2 cursor-pointer rounded-full bg-muted"
+        role="slider"
+        aria-label="Línea de tiempo con correcciones"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(dur)}
+        aria-valuenow={Math.round(pos)}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onJump(Math.max(0, Math.min(dur, ((e.clientX - r.left) / r.width) * dur)));
+        }}
+      >
+        <div className="absolute inset-y-0 left-0 rounded-full bg-primary/35" style={{ width: pct(pos) }} />
+        {markers.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            title={`${fmtTime(m.t)} · ${m.resolved ? "hecha ✓" : "pendiente"}`}
+            aria-label={`Corrección en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onJump(m.t);
+            }}
+            className={`absolute -top-1 h-4 w-1 -translate-x-1/2 rounded-sm ${m.resolved ? "bg-emerald-500" : "bg-amber-400"} hover:scale-125`}
+            style={{ left: pct(m.t) }}
+          />
+        ))}
+        <div className="pointer-events-none absolute -top-0.5 size-3 -translate-x-1/2 rounded-full bg-primary shadow" style={{ left: pct(pos) }} />
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+        <span className="font-mono">{fmtTime(pos)} / {fmtTime(dur)}</span>
+        {markers.length ? (
+          <span>
+            <span className="text-amber-500">▮</span> pendiente · <span className="text-emerald-500">▮</span> hecha — clic para saltar
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
 }
