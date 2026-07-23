@@ -31,7 +31,10 @@ export async function buildStageVersions(rows: VersionRow[]): Promise<StageVersi
 async function buildOne(v: VersionRow): Promise<StageVersion> {
   // 1) Archivo subido al NAS.
   if (v.fileAsset) {
-    const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}`;
+    // Ventana de 12 h para el token del PLAYER: como el exp va cuantizado, el src queda
+    // idéntico entre renders durante horas → el <video> no se recarga (ni se reinicia) cuando
+    // una acción del servidor refresca la página a mitad de una sesión de revisión larga.
+    const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id, 12 * 3600)}`;
     const name = v.fileAsset.name;
     // Con proxy de revisión el archivo ES un video aunque su contenedor no se reproduzca
     // en el navegador (MKV, AVI…): el proxy MP4 sí, y eso lo vuelve reproducible.

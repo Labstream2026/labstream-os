@@ -54,7 +54,12 @@ export async function writeRelBuffer(rel: string, buf: Buffer) {
 
 // Token HMAC para que el Document Server (sin cookie) pueda leer/guardar un adjunto.
 export function signFileToken(attachmentId: string, ttlSeconds = 3600) {
-  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  // exp CUANTIZADO a la ventana de ttl (+2 ventanas → vive entre ttl y 2·ttl): así el token es
+  // DETERMINISTA dentro de cada ventana — el mismo string en todos los renders. Antes cada
+  // render generaba un exp fresco y el `?t=` del <video> de revisión cambiaba con cualquier
+  // acción del servidor (marcar una corrección, comentar…): el navegador veía un src nuevo,
+  // RECARGABA el video y lo devolvía al segundo 0. La verificación no cambia (exp > ahora).
+  const exp = (Math.floor(Date.now() / 1000 / ttlSeconds) + 2) * ttlSeconds;
   const data = `${attachmentId}.${exp}`;
   const sig = crypto.createHmac("sha256", secret()).update(data).digest("base64url");
   return `${exp}.${sig}`;

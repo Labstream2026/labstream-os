@@ -18,7 +18,9 @@ export function verifyReviewToken(token: string): string | null {
 export function signReviewMediaToken(versionId: string): string {
   // TTL corto: la página se re-renderiza (force-dynamic) y re-firma el token en cada carga,
   // así que no hace falta vida larga; acota la ventana si el enlace se filtra.
-  return signScopedToken("rmedia", versionId, 1);
+  // CUANTIZADO: mismo token durante toda la ventana → el src del <video> no cambia entre
+  // renders y el reproductor no se reinicia al marcar/comentar (ver signScopedToken).
+  return signScopedToken("rmedia", versionId, 1, { quantized: true });
 }
 
 export function verifyReviewMediaToken(token: string): string | null {
