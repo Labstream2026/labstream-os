@@ -10,6 +10,7 @@ import { logActivity } from "@/lib/activity";
 import { saveOptimizedImage } from "@/lib/image";
 import { safeExternalUrl } from "@/lib/url";
 import { TONE_MAP } from "@/lib/colors";
+import { HERO_PRESET_KEYS } from "@/lib/client-hero-presets";
 import { sendEmail, emailButton, isEmailEnabled } from "@/lib/email";
 import { signClientInviteToken } from "@/lib/client-invite-token";
 
@@ -91,6 +92,7 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
     emoji?: string;
     accentColor?: string | null;
     bannerUrl?: string;
+    bannerPosY?: number | null;
     description?: string | null;
     logoBg?: string | null;
     photoUrl?: string;
@@ -105,6 +107,22 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
     data.logoBg = /^#[0-9a-fA-F]{6}$/.test(v) ? v : null;
   }
 
+  // Portada de la GALERÍA (mejora 4): se guarda como `preset:<key>` en la misma columna.
+  // Solo keys del catálogo; cambiar de portada resetea el encuadre.
+  if (formData.has("bannerPreset")) {
+    const key = String(formData.get("bannerPreset") ?? "").trim();
+    if (!HERO_PRESET_KEYS.includes(key)) return { ok: false, error: "Portada de galería desconocida" };
+    data.bannerUrl = `preset:${key}`;
+    data.bannerPosY = null;
+  }
+
+  // Encuadre vertical elegido arrastrando la portada (mejora 1): 0-100 (% de object-position).
+  if (formData.has("bannerPosY")) {
+    const n = Math.round(Number(formData.get("bannerPosY")));
+    if (!Number.isFinite(n)) return { ok: false, error: "Encuadre inválido" };
+    data.bannerPosY = Math.max(0, Math.min(100, n));
+  }
+
   const file = formData.get("banner");
   if (file instanceof File && file.size > 0) {
     if (!file.type.startsWith("image/")) return { ok: false, error: "El archivo debe ser una imagen" };
@@ -114,6 +132,8 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
     // y se convierte a WebP → portada ligera y sin guardar el original.
     await saveOptimizedImage("banners", clientId, buf, file.type, { crop: { width: 1600, height: 500 }, quality: 78 });
     data.bannerUrl = `/api/banner/${clientId}?v=${Date.now()}`;
+    // Imagen nueva → encuadre de vuelta al centro (el anterior era de otra foto).
+    data.bannerPosY = null;
   }
 
   // Foto del cliente: recorte cuadrado (va en un círculo).
@@ -144,10 +164,10 @@ export async function saveClientAppearance(clientId: string, formData: FormData)
   return { ok: true };
 }
 
-// Quita la portada del cliente.
+// Quita la portada del cliente (imagen o preset) y su encuadre → queda el degradado del color.
 export async function clearClientCover(clientId: string): Promise<ClientUpdateResult> {
   if (!(await canEditClient(clientId))) return { ok: false, error: "No autorizado" };
-  await db.client.update({ where: { id: clientId }, data: { bannerUrl: null } });
+  await db.client.update({ where: { id: clientId }, data: { bannerUrl: null, bannerPosY: null } });
   revalidatePath(`/clientes/${clientId}`);
   revalidatePath("/", "layout");
   return { ok: true };

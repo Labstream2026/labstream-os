@@ -430,7 +430,8 @@ model Client {
   description String? // "Productora audiovisual · 2 proyectos"
   emoji       String? // 🎬 🌐 ☀️ 🟠
   accentColor String? // color del cliente: tiñe su cabecera y sus proyectos (como las tareas)
-  bannerUrl   String? // portada/banner tipo Notion (imagen subida, servida por /api/banner)
+  bannerUrl   String? // portada/banner tipo Notion: imagen subida (/api/banner) o `preset:<key>` de la galería
+  bannerPosY  Int? // encuadre vertical de la portada (0-100 = object-position Y); null = centrada
   photoUrl    String? // foto del cliente (subida), servida por /api/client-asset/photo/<id>
   logoUrl     String? // logo del cliente (PNG subido), servido por /api/client-asset/logo/<id>
   logoBg      String? // color de fondo del recuadro del logo (hex) para PNG con transparencia

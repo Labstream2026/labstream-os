@@ -6,6 +6,7 @@ import { TONES, tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
 import { ImageCropper } from "@/components/image-cropper";
+import { heroPreset } from "@/lib/client-hero-presets";
 
 type SaveResult = { ok: boolean; error?: string };
 
@@ -238,7 +239,12 @@ export function ClientCover({
         </div>
       </div>
       <button type="button" onClick={() => bannerRef.current?.click()} title="Subir portada (imagen ancha)" className="block w-full overflow-hidden rounded-lg border border-border hover:ring-2 hover:ring-primary/40">
-        {bannerUrl ? (
+        {heroPreset(bannerUrl) ? (
+          // Portada de la GALERÍA (se elige desde la cabecera): fondo CSS, no hay imagen que mostrar.
+          <div className="flex h-28 w-full items-end p-2" style={{ background: heroPreset(bannerUrl)!.bg }}>
+            <span className="rounded bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white">Galería · {heroPreset(bannerUrl)!.label}</span>
+          </div>
+        ) : bannerUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={bannerUrl} alt="Portada del cliente" className="h-28 w-full object-cover" />
         ) : (

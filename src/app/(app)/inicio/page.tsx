@@ -7,6 +7,7 @@ import { formatBogota } from "@/lib/bogota-time";
 import { getClientHomeData } from "@/lib/client-home-data";
 import { ClientHomeView } from "@/components/client-home-view";
 import { ClientPortalNav } from "@/components/client-portal-nav";
+import { ClientHero } from "@/components/client-hero";
 
 export const dynamic = "force-dynamic";
 
@@ -23,21 +24,46 @@ export default async function InicioClientePage() {
     getClientHomeData({ id: session.id, name: session.name }),
     db.clientMember.findFirst({
       where: { userId: session.id },
-      select: { client: { select: { name: true } } },
+      // La portada del portal es la MISMA de la ficha (una sola fuente): el cliente la ve,
+      // no la edita — su marca se siente cuidada sin trabajo doble del equipo.
+      select: {
+        client: {
+          select: {
+            name: true, company: true, emoji: true, accentColor: true,
+            bannerUrl: true, bannerPosY: true, photoUrl: true, logoUrl: true, logoBg: true,
+          },
+        },
+      },
       orderBy: { createdAt: "asc" },
     }),
   ]);
 
   const firstName = session.name.split(" ")[0] || session.name;
   const today = formatBogota(new Date(), { weekday: "long", day: "numeric", month: "long" });
+  const c = membership?.client ?? null;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+      {c ? (
+        <div className="mb-4">
+          <ClientHero
+            name={c.name}
+            emoji={c.emoji}
+            photoUrl={c.photoUrl}
+            logoUrl={c.logoUrl}
+            logoBg={c.logoBg}
+            color={c.accentColor}
+            bannerUrl={c.bannerUrl}
+            bannerPosY={c.bannerPosY}
+            variant="portal"
+          />
+        </div>
+      ) : null}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Hola, {firstName} 👋</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {membership?.client.name ? `${membership.client.name} · ` : ""}
+            {/* Con la portada arriba, el nombre de la empresa ya está en pantalla: aquí solo la fecha. */}
             {today}
           </p>
         </div>

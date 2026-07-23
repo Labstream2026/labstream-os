@@ -9,7 +9,7 @@ import { ClientTopbarPeople } from "./client-topbar-people";
 import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
 import { ClientIdentity, ClientCover } from "./client-appearance";
-import { ClientHeader } from "./client-header";
+import { ClientHero } from "@/components/client-hero";
 import { ClientViewNav } from "./client-view-nav";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
 import { ProjectCard } from "@/components/project-card";
@@ -268,17 +268,27 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       {/* Miembros del cliente en la BARRA superior (avatares → panel editable, se recoge al
           hacer clic fuera). Sustituye ahí al grupo global del equipo mientras estás en la ficha. */}
       <ClientTopbarPeople clientId={id} members={memberItems} addable={addable} canManage={canManage} />
-      <ClientHeader
+      {/* Cabecera-portada tipo Notion (dirección «Cine»): la identidad del cliente al frente.
+          `key` por portada: al cambiarla, la pieza se re-monta y su estado local (encuadre,
+          override optimista) arranca limpio con los datos frescos del servidor. */}
+      <ClientHero
+        key={client.bannerUrl ?? "sin-portada"}
         name={client.name}
         company={client.company}
         description={client.description}
         emoji={client.emoji}
         photoUrl={client.photoUrl}
         logoUrl={client.logoUrl}
+        logoBg={client.logoBg}
         color={client.accentColor}
+        bannerUrl={client.bannerUrl}
+        bannerPosY={client.bannerPosY}
         isActive={client.isActive}
         stats={{ proyectos: projects.length, activos: active, cotizaciones: client._count.quotes }}
         canEdit={canEdit}
+        variant="ficha"
+        onSave={saveClientAppearance.bind(null, client.id)}
+        onClearCover={clearClientCover.bind(null, client.id)}
       />
 
       {!client.isActive ? (
