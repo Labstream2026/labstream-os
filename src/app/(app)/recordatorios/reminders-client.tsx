@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Pause, Play, Trash2, Loader2, Check, Clock, Pencil, X, Users, ArrowUpRight, Bell, Star, SlidersHorizontal } from "lucide-react";
@@ -1010,14 +1011,44 @@ function ReminderForm({
   );
 }
 
-// Menú de posponer reutilizable (fila y destacado).
+// Menú de posponer reutilizable (fila y destacado). El desplegable va en un PORTAL con
+// posición fija: sus dos contenedores (la tarjeta «Ahora sigue» y la fila deslizable)
+// llevan overflow-hidden —por las esquinas redondeadas y el gesto de swipe— así que un
+// menú `absolute` interno quedaba recortado por el borde de la tarjeta.
 function SnoozeMenu({ onPick, variant = "ghost" }: { onPick: (kind: string) => void; variant?: "ghost" | "hero" }) {
   const [open, setOpen] = React.useState(false);
+  const [pos, setPos] = React.useState<{ top: number; right: number; up: boolean }>({ top: 0, right: 0, up: false });
+  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+
+  const toggle = () => {
+    if (open) return setOpen(false);
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    // Si no caben las opciones por debajo del botón, el menú abre hacia arriba
+    // (anclado con translateY(-100%) para no depender de su alto exacto).
+    const up = window.innerHeight - r.bottom < 220;
+    setPos({ top: up ? r.top - 4 : r.bottom + 4, right: window.innerWidth - r.right, up });
+    setOpen(true);
+  };
+
+  // El menú es fijo: si la página se desplaza o cambia de tamaño, se cierra (no flota a la deriva).
+  React.useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         title="Posponer"
         className={cn(
           variant === "hero"
@@ -1027,16 +1058,22 @@ function SnoozeMenu({ onPick, variant = "ghost" }: { onPick: (kind: string) => v
       >
         <Clock className="size-4" /> {variant === "hero" ? "Posponer" : null}
       </button>
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-border bg-popover p-1 text-foreground shadow-lg">
-            {SNOOZE_OPTIONS.map((o) => (
-              <button key={o.k} onClick={() => { setOpen(false); onPick(o.k); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-muted">{o.label}</button>
-            ))}
-          </div>
-        </>
-      ) : null}
+      {open
+        ? createPortal(
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+              <div
+                className="fixed z-50 w-44 rounded-lg border border-border bg-popover p-1 text-foreground shadow-lg"
+                style={{ top: pos.top, right: pos.right, transform: pos.up ? "translateY(-100%)" : undefined }}
+              >
+                {SNOOZE_OPTIONS.map((o) => (
+                  <button key={o.k} onClick={() => { setOpen(false); onPick(o.k); }} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-muted">{o.label}</button>
+                ))}
+              </div>
+            </>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
