@@ -153,8 +153,12 @@ function PriorityChip({ p }: { p?: number | null }) {
   return <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">Importante</span>;
 }
 
-function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: NotificationItem) => void; onDelete: (n: NotificationItem) => void }) {
+// `nuevo` (aspecto de no leído) va aparte de `n.read`: al abrir la campana los avisos se
+// marcan leídos en el servidor —el contador vuelve a cero— pero la fila SIGUE resaltada
+// mientras el panel está abierto, para poder triar de un vistazo lo que acaba de llegar.
+function NotifRow({ n, nuevo, onPick, onDelete }: { n: NotificationItem; nuevo?: boolean; onPick: (n: NotificationItem) => void; onDelete: (n: NotificationItem) => void }) {
   const router = useRouter();
+  const isNew = nuevo ?? !n.read;
   const startX = React.useRef(0);
   const startY = React.useRef(0);
   const swiping = React.useRef(false);
@@ -209,14 +213,14 @@ function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: No
           // Mientras se desliza (dx≠0), fondo OPACO para que la fila tape el rojo y se lea el gesto;
           // se conserva la franja lateral para no provocar un salto de 4px al empezar a arrastrar.
           tint
-            ? cn("border-l-4", tint.stripe, dx !== 0 ? "bg-popover" : !n.read && tint.wash)
-            : dx !== 0 ? "bg-popover" : !n.read && "bg-primary/5",
+            ? cn("border-l-4", tint.stripe, dx !== 0 ? "bg-popover" : isNew && tint.wash)
+            : dx !== 0 ? "bg-popover" : isNew && "bg-primary/5",
         )}
       >
         <NotifAvatar n={n} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className={cn("text-sm leading-snug", n.read ? "font-normal text-foreground/90" : "font-semibold")}>
+            <p className={cn("text-sm leading-snug", isNew ? "font-semibold" : "font-normal text-foreground/90")}>
               <PriorityChip p={n.priority} /> {n.title}
             </p>
             <span suppressHydrationWarning title={timeExact(n.createdAt)} className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
@@ -224,7 +228,7 @@ function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: No
           {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{n.body}</p> : null}
           {who ? <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{who.name}</p> : null}
         </div>
-        {!n.read ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
+        {isNew ? <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" /> : null}
         <button
           type="button"
           aria-label="Borrar notificación"
@@ -240,11 +244,11 @@ function NotifRow({ n, onPick, onDelete }: { n: NotificationItem; onPick: (n: No
 
 // Fila de un GRUPO colapsado (ráfaga): "N avisos" de la misma persona/origen. Clic → abre el
 // último y marca el grupo leído.
-function GroupRow({ items, onOpen, onDeleteGroup }: { items: NotificationItem[]; onOpen: (items: NotificationItem[]) => void; onDeleteGroup: (items: NotificationItem[]) => void }) {
+function GroupRow({ items, nuevos, onOpen, onDeleteGroup }: { items: NotificationItem[]; nuevos?: number; onOpen: (items: NotificationItem[]) => void; onDeleteGroup: (items: NotificationItem[]) => void }) {
   const latest = items[0];
   const who = whoOf(latest);
   const tint = who?.color ? avatarTint(who.color) : null;
-  const unread = items.filter((x) => !x.read).length;
+  const unread = nuevos ?? items.filter((x) => !x.read).length;
   return (
     <div className="group/row relative border-b border-border last:border-0">
       <div
@@ -286,6 +290,11 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   // "No molestar": instante ISO hasta el que está activo, o null. Silencia push/correo; la
   // campana in-app sigue acumulando.
   const [dndUntil, setDndUntil] = React.useState<string | null>(null);
+  // Avisos que YA se marcaron leídos al abrir la campana pero siguen pintados como nuevos
+  // mientras el panel está abierto (así el contador se reinicia sin perder el triaje).
+  const [sticky, setSticky] = React.useState<Set<string>>(() => new Set());
+  const esNuevo = React.useCallback((n: NotificationItem) => !n.read || sticky.has(n.id), [sticky]);
+  const pendientes = React.useMemo(() => list.filter(esNuevo).length, [list, esNuevo]);
 
   const seen = React.useRef<Set<string>>(new Set(items.map((n) => n.id)));
 
@@ -326,13 +335,29 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refreshIfStale); };
   }, [refresh, refreshIfStale]);
 
-  // Abrir el panel NO marca todo como leído (así puedes triar lo nuevo). Solo refresca; el
-  // contador se limpia con «Marcar todas» o al abrir cada aviso.
+  // Abrir el panel = verlas: el contador vuelve a CERO (se marcan leídas en el servidor). Las
+  // filas conservan su resaltado mientras el panel siga abierto —vía `sticky`— para poder triar
+  // lo que acaba de llegar. Se refresca DESPUÉS de marcar, si no el sondeo devolvería el
+  // contador viejo y el globo parpadearía de vuelta.
   function toggle() {
     const next = !open;
     setOpen(next);
-    if (next) void refresh();
+    if (!next) return;
+    const nuevos = list.filter((n) => !n.read).map((n) => n.id);
+    if (nuevos.length === 0 && unread === 0) {
+      void refresh();
+      return;
+    }
+    setSticky((s) => new Set([...s, ...nuevos]));
+    setList((prev) => prev.map((n) => (n.read ? n : { ...n, read: true })));
+    setUnread(0);
+    void markAllNotificationsRead().then(refresh).catch(() => {});
   }
+
+  // Al cerrar el panel, lo triado se asienta: las filas dejan de verse como nuevas.
+  React.useEffect(() => {
+    if (!open) setSticky((s) => (s.size ? new Set() : s));
+  }, [open]);
 
   const onPick = React.useCallback((n: NotificationItem) => {
     setOpen(false);
@@ -343,6 +368,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   }, []);
 
   const markAll = React.useCallback(() => {
+    setSticky(new Set());
     setUnread(0);
     setList((prev) => prev.map((n) => ({ ...n, read: true })));
     void markAllNotificationsRead().then(refresh).catch(() => {});
@@ -376,7 +402,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     groupItems.forEach((x) => void deleteNotification(x.id).catch(() => {}));
   }, []);
 
-  const filtered = React.useMemo(() => (tab === "sinleer" ? list.filter((n) => !n.read) : list), [tab, list]);
+  const filtered = React.useMemo(() => (tab === "sinleer" ? list.filter(esNuevo) : list), [tab, list, esNuevo]);
 
   const buckets = React.useMemo(() => {
     if (tab === "persona") return [];
@@ -443,7 +469,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                     ))}
                   </div>
                 </details>
-                {unread > 0 ? (
+                {pendientes > 0 ? (
                   <button type="button" onClick={markAll} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary hover:bg-accent">
                     <CheckCheck className="size-3.5" /> Marcar todas
                   </button>
@@ -480,8 +506,8 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                   >
                     <Icon className="size-3.5" />
                     {t.label}
-                    {t.key === "sinleer" && unread > 0 ? (
-                      <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">{unread > 9 ? "9+" : unread}</span>
+                    {t.key === "sinleer" && pendientes > 0 ? (
+                      <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">{pendientes > 9 ? "9+" : pendientes}</span>
                     ) : null}
                   </button>
                 );
@@ -507,7 +533,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                         <span className="text-xs font-semibold text-foreground">{g.actor ? g.actor.name : "Sistema"}</span>
                         <span className="text-[10px] text-muted-foreground">· {g.items.length}</span>
                       </div>
-                      {g.items.map((n) => (<NotifRow key={n.id} n={n} onPick={onPick} onDelete={deleteOne} />))}
+                      {g.items.map((n) => (<NotifRow key={n.id} n={n} nuevo={esNuevo(n)} onPick={onPick} onDelete={deleteOne} />))}
                     </div>
                   );
                 })
@@ -517,8 +543,8 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                     <div className="sticky top-0 z-[1] bg-muted/90 px-4 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">{bk.label}</div>
                     {bk.units.map((u) =>
                       u.kind === "group"
-                        ? <GroupRow key={`g:${u.key}`} items={u.items} onOpen={openGroup} onDeleteGroup={deleteGroup} />
-                        : <NotifRow key={u.n.id} n={u.n} onPick={onPick} onDelete={deleteOne} />,
+                        ? <GroupRow key={`g:${u.key}`} items={u.items} nuevos={u.items.filter(esNuevo).length} onOpen={openGroup} onDeleteGroup={deleteGroup} />
+                        : <NotifRow key={u.n.id} n={u.n} nuevo={esNuevo(u.n)} onPick={onPick} onDelete={deleteOne} />,
                     )}
                   </div>
                 ))
