@@ -175,11 +175,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const coverDecisionBy = coverDecided ? deliverable.coverDecisionBy : null;
   const coverDecisionNote = coverDecided && deliverable.coverDecision === "CAMBIOS" ? deliverable.coverDecisionNote : null;
 
+  // En pantallas grandes la sala aprovecha el ancho: videos horizontales (player más grande +
+  // comentarios al lado) y galerías de fotos (más columnas). Los reels 9/16 se quedan en 5xl.
+  const wideRoom = !isReel;
+  const shellW = wideRoom ? " xl:max-w-[1880px]" : "";
+
   return (
     <RoomShell>
       {/* Cabecera «glass»: logo + pieza + estado, flotando sobre el carbón. */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-white/[0.04] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
+        <div className={`mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5${shellW}`}>
           {backHref ? (
             <Link
               href={backHref}
@@ -202,7 +207,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
         </div>
       </header>
 
-      <main className="relative mx-auto max-w-5xl px-6 py-6">
+      <main className={`relative mx-auto max-w-5xl px-6 py-6${shellW}`}>
         {isPhoto ? (
           photos.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">

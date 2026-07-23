@@ -185,11 +185,6 @@ export function ReviewStage({
   // ni aplica el estado optimista; lo escrito se conserva para reintentar.
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [tc, setTc] = React.useState<number | null>(null);
-  // Momento escrito A MANO («⏱ Momento», m:ss) para fuentes que no dejan leer el segundo (el
-  // visor de Google es un iframe de otro dominio). El texto vive AQUÍ y no dentro del campo
-  // para poder limpiarse junto con `tc` (al enviar o al cambiar de versión): si no, el próximo
-  // comentario heredaría en silencio el minuto del anterior.
-  const [tcText, setTcText] = React.useState("");
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
   // Ventana «Solicitar cambios» con plazo (solo pre-aprobación interna, ver askFixDeadline).
@@ -395,7 +390,6 @@ export function ReviewStage({
       if (keepTime) pendingSeekRef.current = playerRef.current?.getTime() ?? null;
       setVIdx(i);
       setTc(null);
-      setTcText("");
       setDrawing(null);
       setDrawOpen(false);
     },
@@ -536,7 +530,7 @@ export function ReviewStage({
       try {
         await onComment(fd);
         setLocalComments((prev) => [...prev, optimistic]);
-        setBody(""); setTc(null); setTcText(""); setDrawing(null); setDrawOpen(false);
+        setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
       } catch (e) {
         setSendError(e instanceof Error ? e.message : "No se pudo enviar el comentario. Inténtalo de nuevo.");
       }
@@ -740,7 +734,7 @@ export function ReviewStage({
   // Mismo reset que el selector de versión de la vista normal. NO cierra la hoja: al cambiar de
   // versión el cliente quiere ver ahí mismo las correcciones de la nueva.
   const pickVersionFromPanel = (i: number) => {
-    setVIdx(i); setTc(null); setTcText(""); setDrawing(null); setDrawOpen(false); setImmReplyId(null);
+    setVIdx(i); setTc(null); setDrawing(null); setDrawOpen(false); setImmReplyId(null);
   };
   // Saltar a una corrección: reutiliza seek() (que reanuda) y cierra la hoja para que el momento
   // se VEA — si no, el salto ocurriría detrás de la hoja.
@@ -1140,9 +1134,7 @@ export function ReviewStage({
               <p className="text-sm text-muted-foreground">
                 {captureHint
                   ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
-                  : version?.kind === "drive_file"
-                    ? "Escribe un comentario y ancla el segundo a mano en el campo «⏱ Momento» (m:ss). Para anotar el fotograma, pega o sube una captura con «✏️ Dibujar / anotar»."
-                    : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
+                  : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
               </p>
             ) : (
               moments.map((c) => {
@@ -1310,13 +1302,7 @@ export function ReviewStage({
               {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
                   enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
                   reproduciendo, el número sigue al video → nunca se guarda un segundo viejo. */}
-              {/* Y si la fuente NO deja leer el segundo (visor de Google): campo «⏱ Momento» para
-                  escribirlo a mano — submitMoment ya lo usa de respaldo (getTime() ?? tc). */}
-              {captureHint
-                ? <LiveTimecode playerRef={playerRef} frame={caps.frame} />
-                : version?.kind === "drive_file"
-                  ? <ManualTimecode value={tcText} onChange={(text, seconds) => { setTcText(text); setTc(seconds); }} />
-                  : <span />}
+              {captureHint ? <LiveTimecode playerRef={playerRef} frame={caps.frame} /> : <span />}
               <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                 {pending ? "Enviando…" : "Comentar"}
               </button>
@@ -1371,7 +1357,7 @@ export function ReviewStage({
         // a la derecha de cada comentario → notas debajo. En xl+ este bloque se vuelve el RAIL
         // derecho fijo (el contenedor de arriba pasa a flex): comentar queda SIEMPRE a la vista.
         return (
-          <div className="min-w-0 space-y-5 xl:w-[400px] xl:shrink-0">
+          <div className="min-w-0 space-y-5 xl:w-[400px] xl:shrink-0 2xl:w-[440px]">
             {commentInputNode}
             <div>
               {momentsHeaderNode}
@@ -2099,85 +2085,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
   }, [version]);
 
-  // ── Vuelta AUTOMÁTICA al modo captura ──
-  // La PRIMERA apertura de un master de Drive suele caer al visor de Google: la copia local aún
-  // se está bajando/cocinando en el NAS y el proxy responde 502 a propósito (para no quemar la
-  // cuota de Drive). Antes eso dejaba la sala SIN segundo y SIN captura hasta que alguien
-  // recargara la página a mano — y el aviso encima culpaba a los permisos de Drive. Ahora una
-  // sonda (?status=1, solo LEE estado: jamás dispara descargas) pregunta cada pocos segundos y,
-  // en cuanto la copia está lista, el player vuelve SOLO al modo captura y lo confirma.
-  //  · "watching": copia en camino → banner «la captura se encenderá sola»
-  //  · "cooking":  hay master cacheado pero este navegador no lo decodifica → se espera el H.264
-  //  · "gone":     el servidor no tiene ni copia ni descarga en curso (privado/cuota) → aviso clásico
-  const [probeState, setProbeState] = React.useState<"off" | "watching" | "cooking" | "gone">("off");
-  // «📸 listo»: confirmación efímera bajo el player justo después de la vuelta automática.
-  const [justArmed, setJustArmed] = React.useState(false);
-  // La copia CRUDA (master cacheado) ya se intentó reproducir y falló (códec no web): no volver
-  // a ella en bucle — de ahí en adelante solo la copia cocinada H.264 puede rearmar la captura.
-  const cacheFlipTried = React.useRef(false);
-  // Tope de vueltas automáticas por versión: si el servidor dice «listo» pero el <video> vuelve
-  // a fallar una y otra vez (disco/red del NAS), a la tercera se deja de rebotar y se muestra el
-  // aviso clásico — sin ping-pong infinito proxy↔iframe.
-  const autoFlips = React.useRef(0);
-  React.useEffect(() => { cacheFlipTried.current = false; autoFlips.current = 0; }, [version]);
-  React.useEffect(() => {
-    if (!justArmed) return;
-    const t = window.setTimeout(() => setJustArmed(false), 6000);
-    return () => window.clearTimeout(t);
-  }, [justArmed]);
-  React.useEffect(() => {
-    if (!driveProxyFailed || !isDriveProxyable) return;
-    const src = version?.proxySrc;
-    if (!src) return;
-    let cancelled = false;
-    let timer: number | null = null;
-    let tries = 0;
-    let idleStreak = 0;
-    const tick = async () => {
-      if (cancelled) return;
-      tries += 1;
-      try {
-        const r = await fetch(`${src}&status=1`, { cache: "no-store" });
-        const j = r.ok ? ((await r.json()) as { state?: string; kind?: string }) : null;
-        if (cancelled) return;
-        if (j?.state === "ready") {
-          if (autoFlips.current >= 3) {
-            setProbeState("gone");
-            return;
-          }
-          if (j.kind === "cache" && cacheFlipTried.current) {
-            // El master crudo ya falló en ESTE navegador (códec): seguir esperando el H.264.
-            setProbeState("cooking");
-          } else {
-            if (j.kind === "cache") cacheFlipTried.current = true;
-            autoFlips.current += 1;
-            proxyRetries.current = 0;
-            setProbeState("off");
-            setJustArmed(true);
-            setDriveProxyFailed(false);
-            setCaptureMode(true);
-            return; // las deps cambian → el cleanup apaga esta sonda
-          }
-        } else if (j?.state === "caching") {
-          idleStreak = 0;
-          setProbeState("watching");
-        } else if (j?.state === "idle") {
-          // Ni copia ni descarga en curso: privado, cuota agotada o enfriamiento tras un fallo.
-          // Tres seguidas para no rendirse por el instante entre el fallo y el re-arranque.
-          idleStreak += 1;
-          if (idleStreak >= 3) { setProbeState("gone"); return; }
-        }
-      } catch { /* sin red un momento: se sigue intentando hasta el tope */ }
-      if (cancelled) return;
-      if (tries >= 70) { setProbeState("gone"); return; } // ~30 min: cubre cocinas largas del NAS
-      timer = window.setTimeout(tick, tries < 10 ? 8000 : 30000);
-    };
-    // Arranca casi de inmediato: si la copia terminó justo durante los reintentos del <video>,
-    // la captura vuelve sin espera perceptible.
-    timer = window.setTimeout(tick, 400);
-    return () => { cancelled = true; if (timer != null) window.clearTimeout(timer); };
-  }, [driveProxyFailed, isDriveProxyable, version]);
-
   // ── Velocidad de reproducción (0.5×–2×) ── se recuerda entre sesiones y se re-aplica al
   // (re)cargar el video o al cambiar de versión.
   const [rate, setRate] = React.useState(1);
@@ -2461,12 +2368,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         {immersive ? null : (
           <>
             {speedBar}
-            {/* Confirmación efímera de la vuelta automática: la copia cargó y la captura quedó viva. */}
-            {justArmed ? (
-              <p className="mx-auto mt-1.5 w-fit max-w-full rounded-md bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                📸 Listo: la copia de revisión cargó — al comentar ya se guardan el segundo y el fotograma.
-              </p>
-            ) : null}
             {/* Aviso de proxy EN COCINA (aunque el original sí reproduzca): explica por qué
                 puede verse pesado/lento y que la copia ligera viene en camino. */}
             {version.proxyPending && !localFailed ? (
@@ -2523,21 +2424,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           <p>⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor de Google.</p>
           {isDriveProxyable ? (
             driveProxyFailed ? (
-              probeState === "gone" ? (
-                // El servidor confirmó que NO hay copia ni descarga en curso: aquí el consejo
-                // de permisos/formato SÍ es el correcto (antes salía también en la primera
-                // apertura, cuando la verdad era «espera un momento»).
-                <p>
-                  ⚠️ No se pudo preparar este video de Drive para capturar. Para que el segundo y el fotograma se capturen solos: compártelo como «Cualquiera con el enlace» y que sea un MP4 (H.264), o —lo más fiable— súbelo al NAS en «+ Versión». Mientras tanto, ancla el segundo a mano en «⏱ Momento» y anota con ✏️ Dibujar.{" "}
-                  <button type="button" onClick={() => { setProbeState("off"); setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode(true); }} className="font-medium text-primary hover:underline">
-                    Reintentar ahora
-                  </button>
-                </p>
-              ) : probeState === "cooking" ? (
-                <p>🎞️ Este master no se reproduce directo en el navegador; el NAS está cocinando una copia ligera H.264. <span className="font-medium text-foreground/80">La captura del segundo y del fotograma se encenderá sola</span> en cuanto esté — mientras tanto puedes anclar el segundo a mano en «⏱ Momento».</p>
-              ) : (
-                <p>⏳ Preparando la copia de revisión en el NAS (pasa solo la primera vez que se abre)… El video se ve mientras tanto con el reproductor de Google y <span className="font-medium text-foreground/80">la captura del segundo y del fotograma se encenderá sola</span> al estar lista. Si no quieres esperar, ancla el segundo a mano en «⏱ Momento».</p>
-              )
+              <p>⚠️ No se pudo cargar este video de Drive para capturar. Para que se capturen el fotograma y el segundo: compártelo como «Cualquiera con el enlace» y que sea un MP4 (H.264), o —lo más fiable— súbelo al NAS en «+ Versión». Mientras tanto puedes verlo aquí y anotar con ✏️ Dibujar.</p>
             ) : (
               <p>
                 ▶︎ ¿El video no carga o Google dice que «se está procesando»?{" "}
@@ -2571,48 +2458,6 @@ function LiveTimecode({ playerRef, frame }: { playerRef: React.MutableRefObject<
         : "⏱ Se guardará el segundo al comentar"}
     </span>
   );
-}
-
-// ── Momento a mano ── para fuentes donde NO se puede leer el segundo (el visor de Google es un
-// iframe de otro dominio, sin API): el revisor escribe m:ss y el comentario queda anclado con el
-// MISMO campo `timecode` de siempre — chip para saltar, orden por momento, tarea con timecode.
-// submitMoment ya lo usaba de respaldo (getTime() ?? tc); esta es la UI que faltaba para fijarlo.
-function ManualTimecode({ value, onChange }: { value: string; onChange: (text: string, seconds: number | null) => void }) {
-  const parsed = parseManualTimecode(value);
-  const invalid = value.trim() !== "" && parsed == null;
-  return (
-    <label
-      className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
-      title="Esta fuente no deja leer el segundo automáticamente: escribe el momento del video al que se refiere tu comentario (minutos:segundos)."
-    >
-      <span className="shrink-0">⏱ Momento</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value, parseManualTimecode(e.target.value))}
-        placeholder="m:ss"
-        inputMode="numeric"
-        className={`w-16 rounded-md border bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-2 focus:ring-ring ${invalid ? "border-destructive text-destructive" : "border-input"}`}
-      />
-      {parsed != null ? (
-        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono tabular-nums text-primary">se guarda en {fmtTime(parsed)}</span>
-      ) : invalid ? (
-        <span className="shrink-0 text-destructive">usa m:ss</span>
-      ) : null}
-    </label>
-  );
-}
-
-// "1:23" → 83 · "0:07" → 7 · "1:02:03" → 3723 · "45" → 45 segundos. null si no se entiende.
-function parseManualTimecode(raw: string): number | null {
-  const s = raw.trim();
-  if (!s) return null;
-  if (/^\d+$/.test(s)) return Math.min(Number(s), 359999);
-  const m = /^(\d+):([0-5]?\d)(?::([0-5]?\d))?$/.exec(s);
-  if (!m) return null;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  const c = m[3] == null ? null : Number(m[3]);
-  return Math.min(c == null ? a * 60 + b : a * 3600 + b * 60 + c, 359999);
 }
 
 // Barra compacta de velocidad de reproducción (0.5×–2×) para el reproductor de la app.

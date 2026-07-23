@@ -48,6 +48,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const canUpload = canReviewProject(deliverable.project, session) && (hasPermission(session, "subir_archivos") || deliverable.ownerId === session.id);
   const nextNumber = (deliverable.versions[0]?.number ?? 0) + 1;
   const meta = deliverableStatusMeta(deliverable.status);
+  const orientation = deliverableOrientation(deliverable.type);
 
   // El equipo ve TODAS las versiones (incluidas las pendientes de pre-aprobación).
   const versions = await buildStageVersions(deliverable.versions);
@@ -76,7 +77,16 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(deliverable.id)}`;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
+    // El ancho de la sala se adapta a la pieza: las horizontales sueltan el corsé de 5xl en
+    // pantallas grandes (el player crece hasta 80vh y los comentarios van al rail derecho);
+    // las verticales solo ganan un poco de aire (comentarios), el video no da más de sí.
+    <div
+      className={
+        orientation === "vertical"
+          ? "mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 xl:max-w-6xl"
+          : "mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 xl:max-w-[1880px] xl:px-8"
+      }
+    >
       <div className="mb-4">
         <Link href="/revisiones" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-3.5" /> Proyectos a revisar
@@ -119,7 +129,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
             status={deliverable.status}
             meName={session.name}
             canDecide={canDecide}
-            orientation={deliverableOrientation(deliverable.type)}
+            orientation={orientation}
           />
 
           {/* Enlace para el cliente (revocar / modo dibujos del portal) */}
