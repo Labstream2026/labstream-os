@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
 import { absPath } from "@/lib/storage";
+import { queueReviewProxyFromCache } from "@/lib/review-proxy";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
 import { getCachedReview, ensureReviewCached, serveCachedReview, isCachingInFlight } from "@/lib/review-cache";
 
@@ -31,6 +32,7 @@ export async function GET(
       proxyRel: true,
       deliverable: {
         select: {
+          status: true,
           reviewRevokedAt: true,
           reviewExpiresAt: true,
           // Acceso del EQUIPO al proyecto (para no bloquearle la pre-aprobación por la caducidad
@@ -73,8 +75,17 @@ export async function GET(
   // CACHÉ DEL NAS: si ya bajamos este video antes, se sirve desde disco (rápido, con Range) y NO
   // se vuelve a tocar Drive → así deja de agotarse la cuota de descargas anónimas de Google (la
   // causa del 502 que dejaba el <video> sin cargar, sin segundo ni captura de fotograma).
+  // ¿La pieza sigue EN revisión? Solo entonces vale la pena cocinar proxy (el ciclo de vida
+  // borra los de piezas aprobadas; no hay que resucitarlos por una re-visita).
+  const enRevision = d.status !== "APROBADO" && d.status !== "ENTREGADO";
+
   const cached = await getCachedReview(versionId);
-  if (cached) return serveCachedReview(cached, req.headers.get("range"));
+  if (cached) {
+    // Primera visita con el master ya cacheado y sin proxy: dispara la cocina en segundo
+    // plano (no espera al cron de 2 h). Deduplicado por la cola (inFlight) de review-proxy.
+    if (!version.proxyRel && enRevision) queueReviewProxyFromCache(versionId, cached.path);
+    return serveCachedReview(cached, req.headers.get("range"));
+  }
   // Sin caché aún: cachea UNA vez (deduplicando visitas simultáneas, con enfriamiento tras fallo).
   // Espera un poco: si el video es liviano se sirve YA desde el NAS con una sola descarga de Drive;
   // si tarda más, la descarga sigue en segundo plano y esta petición cae al proxy en vivo (previo).
@@ -82,7 +93,11 @@ export async function GET(
     ensureReviewCached(versionId, media.id, media.name),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
   ]);
-  if (justCached) return serveCachedReview(justCached, req.headers.get("range"));
+  if (justCached) {
+    // Recién cacheado: la cocina del proxy arranca YA (misma lógica de arriba).
+    if (!version.proxyRel && enRevision) queueReviewProxyFromCache(versionId, justCached.path);
+    return serveCachedReview(justCached, req.headers.get("range"));
+  }
 
   // La copia SIGUE bajándose (un video de ~100 MB tarda más que la espera de arriba): NO proxiamos
   // Drive en vivo. El <video> pide decenas de rangos y cada uno es otro golpe a Drive; con varias

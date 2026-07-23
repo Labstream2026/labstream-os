@@ -7,6 +7,8 @@ import { cronAuthorized } from "@/lib/cron-auth";
 import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { purgeApprovedReviewCache } from "@/lib/review-cache";
+import { sweepReviewProxies } from "@/lib/review-proxy";
+import { sweepClientDigest } from "@/lib/client-digest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +38,13 @@ async function run(req: NextRequest) {
     // Libera espacio del NAS: borra la caché de revisión de los entregables aprobados hace >7 días
     // (el original sigue en Drive). Se engancha aquí para no exigir una tarea nueva en el NAS.
     const reviewCache = await purgeApprovedReviewCache(7).catch((e) => ({ error: e instanceof Error ? e.message : "error" }));
-    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache });
+    // Proxies de revisión: recupera lo que la cola en-memoria perdió en un reinicio, cocina los
+    // masters de Drive ya cacheados y BORRA proxies de piezas aprobadas hace >7 días. Va AQUÍ
+    // (cron garantizado de 2 h) porque /api/cron/reminders es opcional en el NAS.
+    const reviewProxies = await sweepReviewProxies().catch((e) => ({ queued: 0, deleted: 0, error: e instanceof Error ? e.message : "error" }));
+    // Resumen semanal del portal del cliente (viernes; se auto-limita por usuario y por día).
+    const clientDigest = await sweepClientDigest().catch((e) => ({ sent: 0, error: e instanceof Error ? e.message : "error" }));
+    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache, reviewProxies, clientDigest });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }

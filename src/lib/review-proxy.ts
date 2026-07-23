@@ -79,6 +79,44 @@ export function queueReviewProxyFromCache(versionId: string, cachedPath: string)
   });
 }
 
+// Escala POR ORIENTACIÓN, sin agrandar y con lados pares: horizontal → alto máx 1080;
+// vertical → ANCHO máx 1080 (la receta v1 fijaba el alto y dejaba los reels 9:16 en
+// 608 px de ancho — borrosos en el celular, que es justo donde se revisan).
+const VF_ORIENTACION = "scale=if(gte(iw\\,ih)\\,-2\\,2*trunc(min(1080\\,iw)/2)):if(gte(iw\\,ih)\\,2*trunc(min(1080\\,ih)/2)\\,-2)";
+// RED DE SEGURIDAD: si el ffmpeg del NAS rechazara la expresión de arriba (builds viejos),
+// se reintenta UNA vez con la escala clásica — mejor un proxy sencillo que ninguno.
+const VF_CLASICA = "scale=-2:2*trunc(min(1080\\,ih)/2)";
+
+function runFfmpeg(inputAbs: string, outAbs: string, vf: string): Promise<void> {
+  const args = [
+    "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+    "-i", inputAbs,
+    "-vf", vf,
+    // yuv420p: los masters 10-bit (ProRes/HEVC) producirían High10, que el navegador
+    // no reproduce. CRF 23 (v1 usaba 26: se notaba) + preset fast = revisión nítida.
+    "-c:v", "libx264", "-crf", "23", "-preset", "fast", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "128k",
+    // faststart: índice «moov» al principio → el player arranca sin bajar el archivo.
+    "-movflags", "+faststart",
+    outAbs,
+  ];
+  return new Promise<void>((resolve, reject) => {
+    const p = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    // Corte a mano (la opción `timeout` de spawn deja su timer armado si el spawn
+    // falla —ENOENT— y retiene el event loop 4 h). unref: no retiene el proceso.
+    const killer = setTimeout(() => p.kill("SIGKILL"), TIMEOUT_MS);
+    killer.unref();
+    let err = "";
+    p.stderr?.on("data", (d: Buffer) => { if (err.length < 4000) err += d.toString(); });
+    p.on("error", (e) => { clearTimeout(killer); reject(e); }); // ffmpeg ausente (ENOENT) o fallo al lanzar
+    p.on("close", (code, signal) => {
+      clearTimeout(killer);
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg terminó con ${signal ?? code}: ${err.trim().slice(0, 500)}`));
+    });
+  });
+}
+
 async function cook(versionId: string, inputAbs: string, outRel: string): Promise<void> {
   const tmpRel = outRel + ".part";
   try {
@@ -86,36 +124,15 @@ async function cook(versionId: string, inputAbs: string, outRel: string): Promis
     await fs.mkdir(path.dirname(absPath(outRel)), { recursive: true });
     await fs.rm(absPath(tmpRel), { force: true }).catch(() => {});
 
-    const args = [
-      "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-      "-i", inputAbs,
-      // Escala POR ORIENTACIÓN, sin agrandar y con lados pares: horizontal → alto máx 1080;
-      // vertical → ANCHO máx 1080 (la receta v1 fijaba el alto y dejaba los reels 9:16 en
-      // 608 px de ancho — borrosos en el celular, que es justo donde se revisan).
-      "-vf", "scale=if(gte(iw\\,ih)\\,-2\\,2*trunc(min(1080\\,iw)/2)):if(gte(iw\\,ih)\\,2*trunc(min(1080\\,ih)/2)\\,-2)",
-      // yuv420p: los masters 10-bit (ProRes/HEVC) producirían High10, que el navegador
-      // no reproduce. CRF 23 (v1 usaba 26: se notaba) + preset fast = revisión nítida.
-      "-c:v", "libx264", "-crf", "23", "-preset", "fast", "-pix_fmt", "yuv420p",
-      "-c:a", "aac", "-b:a", "128k",
-      // faststart: índice «moov» al principio → el player arranca sin bajar el archivo.
-      "-movflags", "+faststart",
-      absPath(tmpRel),
-    ];
-    await new Promise<void>((resolve, reject) => {
-      const p = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
-      // Corte a mano (la opción `timeout` de spawn deja su timer armado si el spawn
-      // falla —ENOENT— y retiene el event loop 4 h). unref: no retiene el proceso.
-      const killer = setTimeout(() => p.kill("SIGKILL"), TIMEOUT_MS);
-      killer.unref();
-      let err = "";
-      p.stderr?.on("data", (d: Buffer) => { if (err.length < 4000) err += d.toString(); });
-      p.on("error", (e) => { clearTimeout(killer); reject(e); }); // ffmpeg ausente (ENOENT) o fallo al lanzar
-      p.on("close", (code, signal) => {
-        clearTimeout(killer);
-        if (code === 0) resolve();
-        else reject(new Error(`ffmpeg terminó con ${signal ?? code}: ${err.trim().slice(0, 500)}`));
-      });
-    });
+    try {
+      await runFfmpeg(inputAbs, absPath(tmpRel), VF_ORIENTACION);
+    } catch (e1) {
+      // ENOENT (sin ffmpeg) no tiene arreglo con otra receta; el resto sí se reintenta.
+      if ((e1 as NodeJS.ErrnoException)?.code === "ENOENT") throw e1;
+      console.warn(`[review-proxy] receta por orientación falló para ${versionId}, reintento clásico: ${e1 instanceof Error ? e1.message : e1}`);
+      await fs.rm(absPath(tmpRel), { force: true }).catch(() => {});
+      await runFfmpeg(inputAbs, absPath(tmpRel), VF_CLASICA);
+    }
 
     const st = await fs.stat(absPath(tmpRel));
     if (st.size <= 0) throw new Error("el proxy quedó vacío");
