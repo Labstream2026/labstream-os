@@ -3,7 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
+import { canAccessProject, canManageProject, canReviewProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { buildStageVersions } from "@/lib/review-version";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
@@ -44,7 +44,8 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const canDecide = canManage || deliverable.reviewers.some((r) => r.userId === session.id) || deliverable.reviewerId === session.id;
   // Puede SUBIR versión aquí mismo (mismo criterio que la server action): quien escribe en el
   // proyecto y además tiene subir_archivos, o el dueño del entregable (el editor).
-  const canUpload = canWriteProject(deliverable.project, session) && (hasPermission(session, "subir_archivos") || deliverable.ownerId === session.id);
+  // canReviewProject: subir la versión corregida funciona también en proyectos ya entregados
+  const canUpload = canReviewProject(deliverable.project, session) && (hasPermission(session, "subir_archivos") || deliverable.ownerId === session.id);
   const nextNumber = (deliverable.versions[0]?.number ?? 0) + 1;
   const meta = deliverableStatusMeta(deliverable.status);
 

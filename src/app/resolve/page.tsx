@@ -113,6 +113,7 @@ async function HomeView({ session }: { session: SessionUser }) {
           id: true,
           name: true,
           emoji: true,
+          finishedAt: true, // se marca en la lista: entregado ≠ activo (las correcciones siguen abiertas)
           deliverables: {
             where: { archivedAt: null },
             select: { id: true, _count: { select: { reviewComments: { where: CHECKLIST_PENDIENTE } } } },
@@ -145,6 +146,11 @@ async function HomeView({ session }: { session: SessionUser }) {
                     >
                       <span className="min-w-0 truncate text-sm text-zinc-100">
                         <EntityEmoji value={p.emoji} fallback="🎬" /> {p.name}
+                        {p.finishedAt ? (
+                          <span className="ml-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 align-middle text-[10px] font-medium text-emerald-300">
+                            entregado
+                          </span>
+                        ) : null}
                       </span>
                       {videosConPendientes ? (
                         <span className="shrink-0 rounded-full bg-orange-500/15 px-2 py-0.5 text-[11px] font-medium text-orange-300">
@@ -257,7 +263,7 @@ async function DeliverableView({ id, vParam, hideDone, session }: { id: string; 
       status: true,
       fixDueAt: true,
       projectId: true,
-      project: { select: { name: true, emoji: true, client: { select: { name: true } } } },
+      project: { select: { name: true, emoji: true, finishedAt: true, client: { select: { name: true } } } },
       reviewComments: {
         where: ACCIONABLE,
         orderBy: { createdAt: "asc" },
@@ -301,7 +307,11 @@ async function DeliverableView({ id, vParam, hideDone, session }: { id: string; 
   // los comentarios sin versión se muestran siempre. «Todas» junta el histórico.
   const versionsWithComments = [...new Set(roots.map((c) => c.versionNumber).filter((n): n is number => n != null))].sort((a, b) => b - a);
   const defaultV = versionsWithComments[0] ?? null;
-  const selectedV: number | "all" = vParam === "all" ? "all" : vParam ? Number(vParam) : defaultV ?? "all";
+  // Una versión corrupta en la URL (?v=abc) daba NaN → el filtro no lo cumplía NADIE y el panel
+  // decía «Nada pendiente 🎉» con correcciones sin hacer. Ahora un valor inválido cae al defecto.
+  const vParsed = vParam ? Number(vParam) : NaN;
+  const selectedV: number | "all" =
+    vParam === "all" ? "all" : Number.isFinite(vParsed) ? vParsed : defaultV ?? "all";
   const inVersion = (c: { versionNumber: number | null }) =>
     selectedV === "all" || c.versionNumber == null || c.versionNumber === selectedV;
 
@@ -337,6 +347,11 @@ async function DeliverableView({ id, vParam, hideDone, session }: { id: string; 
       title={<>{d.number ? <span className="text-zinc-500">#{d.number} </span> : null}{d.name}</>}
       subtitle={<><EntityEmoji value={d.project.emoji} fallback="🎬" /> {d.project.name} · {d.project.client.name}</>}
     >
+      {d.project.finishedAt ? (
+        <p className="mb-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] leading-snug text-emerald-200">
+          🏁 Proyecto ya entregado — <b>puedes cerrar estas correcciones y subir la versión corregida</b> con normalidad.
+        </p>
+      ) : null}
       <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${meta.className}`}>{meta.label}</span>
         <span className="text-zinc-400">{hechas}/{filtradas.length} hechas</span>

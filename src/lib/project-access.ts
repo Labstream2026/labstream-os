@@ -50,6 +50,19 @@ export function canAccessProject(project: ProjectShape, session: SessionUser | n
   return false;
 }
 
+// Reglas de escritura COMUNES (rol y membresía), sin el candado del ciclo de vida: lo comparten
+// canWriteProject (edición del proyecto) y canReviewProject (trabajo de revisión).
+function canWriteByRole(project: ProjectShape, session: SessionUser | null): boolean {
+  if (!canAccessProject(project, session)) return false;
+  if (session!.role === "admin") return true;
+  // Rol DEMO (usuario de prueba): SOLO LECTURA global — ve todo pero nunca escribe, como un GUEST.
+  // Es el candado server-side del usuario demo; sus permisos de catálogo son solo ver_*.
+  if (session!.role === "demo") return false;
+  const membership = project.members.find((m) => m.userId === session!.id);
+  if (membership?.role === "GUEST") return false; // invitado = solo lectura
+  return true;
+}
+
 // ¿Puede ESCRIBIR (crear/editar/borrar tareas, archivos, entregables, fases)?
 // Igual que acceder, pero los invitados (rol GUEST) son de solo lectura.
 export function canWriteProject(project: ProjectShape, session: SessionUser | null): boolean {
@@ -58,13 +71,22 @@ export function canWriteProject(project: ProjectShape, session: SessionUser | nu
   // restaura/reabre primero. Va ANTES del bypass de admin a propósito: el candado protege de
   // ediciones por accidente, no de falta de permisos.
   if (project.archivedAt || project.finishedAt) return false;
-  if (session!.role === "admin") return true;
-  // Rol DEMO (usuario de prueba): SOLO LECTURA global — ve todo pero nunca escribe, como un GUEST.
-  // Es el candado server-side del usuario demo; sus permisos de catálogo son solo ver_*.
-  if (session!.role === "demo") return false;
-  const membership = project.members.find((m) => m.userId === session!.id);
-  if (membership?.role === "GUEST") return false; // invitado = solo lectura
-  return true;
+  return canWriteByRole(project, session);
+}
+
+// ¿Puede hacer TRABAJO DE REVISIÓN (cerrar correcciones, responder al cliente, subir la
+// versión corregida)? Igual que escribir, PERO permitido en proyectos TERMINADOS.
+//
+// El porqué: terminar un proyecto significa «ya se entregó», no «se prohíbe rematarlo». El
+// cliente puede mandar correcciones justo después de la entrega (y el flujo de la app empuja a
+// terminar al pasar a Entregado/Cerrado), así que bloquear el cierre de esas correcciones
+// dejaba al equipo en un callejón sin salida: el panel de Resolve las listaba y al marcarlas
+// respondía «sin permiso». Cerrar una corrección abierta NO es editar el proyecto.
+// La PAPELERA sí sigue bloqueada: ahí el proyecto está borrado, no entregado.
+export function canReviewProject(project: ProjectShape, session: SessionUser | null): boolean {
+  if (!canAccessProject(project, session)) return false;
+  if (project.archivedAt) return false;
+  return canWriteByRole(project, session);
 }
 
 // ¿Puede GESTIONAR el proyecto (visibilidad, miembros, ajustes)?

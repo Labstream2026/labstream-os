@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
-import { accessibleProjectWhere, canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
+import { accessibleProjectWhere, canAccessProject, canManageProject, canWriteProject, canReviewProject } from "@/lib/project-access";
 import { isDeliverableType, isProjectRole } from "@/lib/enum-guards";
 import { safeExternalUrl } from "@/lib/url";
 import { bogotaNoon } from "@/lib/today";
@@ -1843,7 +1843,9 @@ export async function addDeliverableVersion(
   const session = await getSession();
   // Escritura (no solo lectura): un invitado GUEST no puede subir versiones. Subir una versión
   // es subir un archivo → exige subir_archivos (salvo el dueño del entregable).
-  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
+  // canReviewProject: subir la versión CORREGIDA también funciona en proyectos terminados
+  // (rematar la entrega no es reabrir el proyecto); la papelera sigue bloqueada.
+  if (!deliverable || !canReviewProject(deliverable.project, session)) noAutorizado();
   if (!hasPermission(session, "subir_archivos") && deliverable.ownerId !== session!.id) noAutorizado();
   const notes = String(formData.get("notes") ?? "").trim() || null;
   // Nuevo límite de pre-aprobación para ESTA versión (opcional): si el formulario lo trae,
@@ -2201,6 +2203,10 @@ export async function setReviewDrawings(deliverableId: string, _projectId: strin
 // Marcar/desmarcar un cambio del checklist como REALIZADO. Al marcarlo hecho, avisa
 // (in-app) a todo el equipo del proyecto para que el responsable sepa que ese cambio
 // puntual ya está resuelto. Desmarcar no notifica.
+// TRABAJO DE REVISIÓN (canReviewProject, no canWriteProject): marcar hecha/reabrir,
+// clasificar, responder y subir la versión corregida FUNCIONAN en proyectos TERMINADOS — el
+// cliente manda correcciones justo tras la entrega y el equipo debe poder cerrarlas sin
+// reabrir el proyecto. La papelera sigue bloqueada.
 export async function resolveReviewComment(commentId: string, _projectId: string, resolved: boolean) {
   const c = await db.reviewComment.findUnique({
     where: { id: commentId },
@@ -2211,7 +2217,7 @@ export async function resolveReviewComment(commentId: string, _projectId: string
     },
   });
   const session = await getSession();
-  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
+  if (!c || !canReviewProject(c.deliverable.project, session)) noAutorizado();
   // Trazabilidad: quién la marcó como hecha y cuándo (se ve en ambos lados, equipo y cliente).
   // Al REABRIRLA se limpia, para que no quede un «hecho por» de una corrección pendiente.
   await db.reviewComment.update({
@@ -2290,7 +2296,7 @@ export async function deleteReviewComment(commentId: string, _projectId: string)
 export async function setReviewCommentPriority(commentId: string, _projectId: string, priority: "OBLIGATORIA" | "SUGERENCIA") {
   const c = await reviewCommentForMutation(commentId);
   const session = await getSession();
-  if (!c || !canWriteProject(c.deliverable.project, session)) noAutorizado();
+  if (!c || !canReviewProject(c.deliverable.project, session)) noAutorizado();
   const mine = c.authorUserId === session!.id;
   if (!mine && !canManageProject(c.deliverable.project, session)) noAutorizado();
   if (priority !== "OBLIGATORIA" && priority !== "SUGERENCIA") throw new Error("Prioridad inválida.");
@@ -2313,7 +2319,7 @@ export async function replyToReviewComment(commentId: string, _projectId: string
     },
   });
   const session = await getSession();
-  if (!parent || !canWriteProject(parent.deliverable.project, session)) noAutorizado();
+  if (!parent || !canReviewProject(parent.deliverable.project, session)) noAutorizado();
   const next = body.trim().slice(0, 4000);
   if (!next) throw new Error("La respuesta no puede quedar vacía.");
   // Hilos de UN nivel: responder a una respuesta cuelga de la misma corrección madre.
@@ -2348,7 +2354,7 @@ export async function replyToReviewComment(commentId: string, _projectId: string
 export async function replyToReview(deliverableId: string, _projectId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
+  if (!deliverable || !canReviewProject(deliverable.project, session)) noAutorizado();
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   if (!body) return;
   const me = await db.user.findUnique({ where: { id: session!.id }, select: { name: true } });
@@ -2367,7 +2373,7 @@ export async function replyToReview(deliverableId: string, _projectId: string, f
 export async function addInternalReviewComment(deliverableId: string, formData: FormData) {
   const deliverable = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
   const session = await getSession();
-  if (!deliverable || !canWriteProject(deliverable.project, session)) noAutorizado();
+  if (!deliverable || !canReviewProject(deliverable.project, session)) noAutorizado();
   const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
   const isNote = formData.get("isNote") === "true";
   const tcRaw = String(formData.get("timecode") ?? "").trim();

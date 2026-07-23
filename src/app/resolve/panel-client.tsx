@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { resolveReviewComment } from "@/app/(app)/proyectos/[id]/actions";
+import { esNoAutorizado } from "@/lib/authz-error";
 
 // Componentes cliente del panel /resolve. El «puente» window.labstream lo inyecta el
 // plugin de Workflow Integration de Resolve (preload.js): si existe, los timecodes saltan
@@ -105,7 +106,9 @@ export function JumpButton({ seconds, label }: { seconds: number; label: string 
 export function ResolveToggle({ commentId, projectId, resolved }: { commentId: string; projectId: string; resolved: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [error, setError] = useState(false);
+  // El mensaje DISTINGUE la causa: antes cualquier fallo (red, sesión caída, error del
+  // servidor) se etiquetaba «sin permiso» y era imposible saber qué pasaba de verdad.
+  const [error, setError] = useState<string | null>(null);
   return (
     <button
       type="button"
@@ -113,22 +116,32 @@ export function ResolveToggle({ commentId, projectId, resolved }: { commentId: s
       onClick={() =>
         start(async () => {
           try {
+            setError(null);
             await resolveReviewComment(commentId, projectId, !resolved);
             router.refresh();
-          } catch {
-            setError(true);
-            setTimeout(() => setError(false), 2000);
+          } catch (e) {
+            const err = e as (Error & { digest?: string }) | null;
+            setError(
+              esNoAutorizado(err)
+                ? "sin permiso"
+                : typeof navigator !== "undefined" && navigator.onLine === false
+                  ? "sin conexión"
+                  : "falló, reintenta",
+            );
+            setTimeout(() => setError(null), 3000);
           }
         })
       }
       className={`rounded px-2 py-0.5 text-[10px] font-medium ${
-        resolved
-          ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-          : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30"
+        error
+          ? "bg-rose-500/20 text-rose-300"
+          : resolved
+            ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+            : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30"
       } disabled:opacity-50`}
       title={resolved ? "Volver a dejarla como pendiente" : "Marcar como realizada"}
     >
-      {error ? "sin permiso" : pending ? "…" : resolved ? "Reabrir" : "✓ Hecha"}
+      {error ?? (pending ? "…" : resolved ? "Reabrir" : "✓ Hecha")}
     </button>
   );
 }
@@ -169,11 +182,15 @@ export function MarkersBar({ items, deliverableId }: { items: MarkerItem[]; deli
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // El offset se acota a ±2 h: un valor absurdo (o texto) mandaba TODOS los marcadores al
+  // final del timeline sin avisar. Lo escrito se conserva en pantalla; lo guardado es lo válido.
   function saveOffset(v: string) {
     setEditedOffset(v);
     const n = parseFloat(v.replace(",", "."));
-    window.localStorage.setItem(OFFSET_KEY, String(Number.isFinite(n) ? n : 0));
+    const safe = Number.isFinite(n) ? Math.max(-7200, Math.min(7200, n)) : 0;
+    window.localStorage.setItem(OFFSET_KEY, String(safe));
   }
+  const offsetInvalid = offset.trim() !== "" && !Number.isFinite(parseFloat(offset.replace(",", ".")));
 
   async function sync() {
     if (!bridge) return;
@@ -187,9 +204,26 @@ export function MarkersBar({ items, deliverableId }: { items: MarkerItem[]; deli
       });
       setStatus(
         r.ok
-          ? `Marcadores: ${r.created ?? 0} pintados, ${r.removed ?? 0} retirados${r.failed ? `, ${r.failed} sin sitio` : ""}.`
+          ? `Marcadores: ${r.created ?? 0} pintados, ${r.removed ?? 0} retirados${
+              r.failed ? `. ${r.failed} no cupieron: caen fuera del timeline o su frame ya estaba ocupado (revisa el offset).` : "."
+            }`
           : r.error ?? "No se pudo sincronizar.",
       );
+    } catch {
+      setStatus("No se pudo hablar con Resolve.");
+    }
+    setBusy(false);
+  }
+
+  // «Limpiar» reutiliza la misma ruta: el puente SIEMPRE retira los marcadores lsos:* antes de
+  // pintar, así que sincronizar con lista vacía los quita todos sin tocar los del editor.
+  async function clear() {
+    if (!bridge) return;
+    setBusy(true);
+    setStatus("Retirando marcadores…");
+    try {
+      const r = await bridge.syncMarkers({ items: [], opts: { offsetSeconds: 0, includeResolved: true } });
+      setStatus(r.ok ? `Retirados ${r.removed ?? 0} marcadores de Labstream.` : r.error ?? "No se pudo limpiar.");
     } catch {
       setStatus("No se pudo hablar con Resolve.");
     }
@@ -209,6 +243,15 @@ export function MarkersBar({ items, deliverableId }: { items: MarkerItem[]; deli
             >
               Sincronizar marcadores
             </button>
+            <button
+              type="button"
+              onClick={clear}
+              disabled={busy}
+              title="Quita del timeline los marcadores de Labstream (no toca los tuyos)"
+              className="rounded border border-zinc-700 px-2 py-1 font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              Limpiar
+            </button>
             <label className="flex items-center gap-1 text-zinc-400">
               <input
                 type="checkbox"
@@ -224,7 +267,8 @@ export function MarkersBar({ items, deliverableId }: { items: MarkerItem[]; deli
                 value={offset}
                 onChange={(e) => saveOffset(e.target.value)}
                 inputMode="decimal"
-                className="w-12 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-zinc-200"
+                title={offsetInvalid ? "No es un número: se usará 0" : "Segundos de desfase entre el video exportado y el timeline"}
+                className={`w-12 rounded border bg-zinc-900 px-1 py-0.5 text-zinc-200 ${offsetInvalid ? "border-rose-500" : "border-zinc-700"}`}
               />
             </label>
           </>
