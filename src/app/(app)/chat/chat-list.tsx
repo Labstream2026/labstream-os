@@ -75,6 +75,24 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   React.useEffect(() => {
     if (activeId) setReadIds((prev) => (prev.has(activeId) ? prev : new Set(prev).add(activeId)));
   }, [activeId]);
+  // ── Acordeón de clientes ── Solo UN cliente desplegado a la vez: abrir otro cierra el
+  // anterior, así el rail no crece sin fin al ir curioseando. Se recuerda cuál quedó
+  // abierto (por dispositivo) y el cliente del chat activo se abre solo.
+  const [openClient, setOpenClient] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const v = window.localStorage.getItem("chat:client-open");
+    if (v) setOpenClient(v);
+  }, []);
+  const pickClient = (id: string) =>
+    setOpenClient((cur) => {
+      const next = cur === id ? null : id;
+      window.localStorage.setItem("chat:client-open", next ?? "");
+      return next;
+    });
+  const activeClientId = data.clientGroups.find((g) => g.channels.some((c) => c.id === activeId))?.clientId ?? null;
+  React.useEffect(() => {
+    if (activeClientId) setOpenClient(activeClientId);
+  }, [activeClientId]);
   // ── Rail VIVO ── El stream global (/api/chat/stream) trae los conteos reales (con debounce)
   // y un aviso ligero por mensaje para refrescar el preview y el orden sin recargar.
   const live = useChatLive();
@@ -447,7 +465,9 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
                   leading={<span className="text-base leading-none"><EntityEmoji value={g.emoji} fallback="🏢" /></span>}
                   count={g.channels.length}
                   unread={sum(g.channels)}
-                  forceOpen={searching || g.channels.some((c) => c.id === activeId)}
+                  open={openClient === g.clientId}
+                  onToggle={() => pickClient(g.clientId)}
+                  forceOpen={searching}
                 >
                   {activos.map((c) => (
                     <Row key={c.id} row={c} {...rowProps} indent />
@@ -635,6 +655,8 @@ function Row({
 // Sección colapsable del rail: chevron + título + contador + badge de no-leídos. La
 // preferencia abierto/cerrado se guarda por sección (localStorage). `forceOpen` mantiene
 // abierta la sección que contiene el chat activo aunque esté guardada como cerrada.
+// Pasando `open`+`onToggle` la sección queda CONTROLADA desde fuera (así los clientes se
+// comportan como acordeón: abrir uno cierra el otro) y no toca localStorage por su cuenta.
 function Collapsible({
   storeId,
   title,
@@ -643,6 +665,8 @@ function Collapsible({
   unread = 0,
   defaultOpen = false,
   forceOpen = false,
+  open: openProp,
+  onToggle,
   children,
 }: {
   storeId: string;
@@ -652,21 +676,30 @@ function Collapsible({
   unread?: number;
   defaultOpen?: boolean;
   forceOpen?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = React.useState(defaultOpen);
+  const controlled = openProp !== undefined;
+  const [own, setOwn] = React.useState(defaultOpen);
   React.useEffect(() => {
+    if (controlled) return;
     const v = window.localStorage.getItem(`chat:collapse:${storeId}`);
-    if (v === "1") setOpen(true);
-    else if (v === "0") setOpen(false);
-  }, [storeId]);
-  const toggle = () =>
-    setOpen((o) => {
+    if (v === "1") setOwn(true);
+    else if (v === "0") setOwn(false);
+  }, [storeId, controlled]);
+  const toggle = () => {
+    if (controlled) {
+      onToggle?.();
+      return;
+    }
+    setOwn((o) => {
       const n = !o;
       window.localStorage.setItem(`chat:collapse:${storeId}`, n ? "1" : "0");
       return n;
     });
-  const shown = open || forceOpen;
+  };
+  const shown = (controlled ? openProp! : own) || forceOpen;
   return (
     <section className="mb-1.5">
       <button
