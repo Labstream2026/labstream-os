@@ -22,7 +22,8 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> },
 ) {
   const { versionId } = await params;
-  const t = new URL(req.url).searchParams.get("t") || "";
+  const sp = new URL(req.url).searchParams;
+  const t = sp.get("t") || "";
   if (verifyReviewMediaToken(t) !== versionId) return new Response("No autorizado", { status: 401 });
 
   const version = await db.deliverableVersion.findUnique({
@@ -53,6 +54,29 @@ export async function GET(
   if (!isTeam && (d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()))) {
     return new Response("Enlace no disponible", { status: 403 });
   }
+  // ── SONDA DE ESTADO (?status=1) ── ¿ya hay copia local para capturar? El reproductor la
+  // consulta tras caer al visor de Google (primera apertura: la copia aún se estaba bajando)
+  // para VOLVER SOLO al modo captura en cuanto esté lista, sin que nadie recargue la página.
+  // Solo LEE disco/memoria: jamás dispara descargas de Drive ni cocinas de proxy.
+  //  · ready + kind "proxy" → copia cocinada H.264 (reproduce seguro en cualquier navegador)
+  //  · ready + kind "cache" → master crudo cacheado (reproduce si su códec es web)
+  //  · caching              → la copia se está bajando en este momento
+  //  · idle                 → ni copia ni descarga en curso (privado, cuota o enfriamiento)
+  if (sp.get("status") === "1") {
+    const reply = (state: "ready" | "caching" | "idle", kind?: "proxy" | "cache") =>
+      Response.json({ state, kind: kind ?? null }, { headers: { "cache-control": "no-store" } });
+    if (version.proxyRel) {
+      try {
+        const st = await fsStat(absPath(version.proxyRel));
+        if (st.isFile() && st.size > 0) return reply("ready", "proxy");
+      } catch {
+        /* proxy anotado pero sin archivo aún → mira la caché */
+      }
+    }
+    if (await getCachedReview(versionId)) return reply("ready", "cache");
+    return reply(isCachingInFlight(versionId) ? "caching" : "idle");
+  }
+
   // PROXY LIGERO cocinado: si esta versión ya tiene copia de revisión local, se sirve ESA
   // (con Range) — arranque instantáneo, captura garantizada y el NAS emite el peso del
   // proxy, no el del master. El master original sigue en Drive para descarga/entrega.
