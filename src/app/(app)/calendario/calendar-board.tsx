@@ -120,6 +120,14 @@ export function CalendarBoard({
   const [personFilter, setPersonFilter] = React.useState<string>("");
   const [modal, setModal] = React.useState<EventModalState | null>(null);
   const [detail, setDetail] = React.useState<CalItem | null>(null);
+  // Escape cierra el detalle inline (el EventModal maneja su propio Escape; si ambos
+  // estuvieran abiertos, cada uno cierra el suyo).
+  React.useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDetail(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detail]);
   // Vista principal: calendario o cronograma (solo si hay timelineNode). Preferencia
   // persistida con la misma clave que usaba el conmutador anterior.
   const [mainView, setMainView] = React.useState<"cal" | "crono">("cal");

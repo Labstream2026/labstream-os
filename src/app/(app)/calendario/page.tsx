@@ -176,7 +176,9 @@ export default async function CalendarioPage() {
       <div className="min-h-0 flex-1">
         <CalendarBoard
           items={items}
-          onCreate={createMyEvent}
+          // Sin permiso de gestionar, el botón «Crear» ni aparece (antes salía y el
+          // server action lo rechazaba con «No autorizado» — botón muerto).
+          onCreate={hasPermission(session, "gestionar_calendario") ? createMyEvent : undefined}
           detailMode="inline"
           shell
           team={team.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}

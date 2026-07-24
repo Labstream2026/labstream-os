@@ -399,6 +399,8 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                   {chips.map((p) => {
                     return (
                       <button key={p.it.id} onClick={() => highlight(p.it)} onDoubleClick={() => openDetail(p.it)}
+                        // Teclado: Enter abre el detalle (el clic solo resalta; sin esto no había vía accesible).
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); openDetail(p.it); } }}
                         className={cn("flex w-full items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105", selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "")}
                         style={{ background: blockColor(p.it, itemSolid(p.it)) }}
                         title={`${p.it.title}${projTip(p.it)} · doble clic para ver el detalle`}>
@@ -478,6 +480,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                             highlight(p.it);
                           }}
                           onDoubleClick={(e) => { e.stopPropagation(); openDetail(p.it); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); openDetail(p.it); } }}
                           className={cn(
                             "group absolute flex flex-col overflow-hidden rounded-lg px-1.5 py-0.5 text-left text-[11px] leading-tight shadow-md shadow-black/20 transition-all hover:brightness-105 hover:shadow-lg",
                             selectedId === p.it.id ? "ring-2 ring-foreground/70 ring-offset-1" : "",

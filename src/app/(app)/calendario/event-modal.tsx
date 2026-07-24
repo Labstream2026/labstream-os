@@ -31,19 +31,30 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
     () => new Set(isEdit ? state.attendeeIds.filter((id) => team.some((m) => m.id === id)) : []),
   );
   const [pending, start] = React.useTransition();
+  // Fecha CONTROLADA: el usuario puede cambiarla desde el modal (antes el submit la
+  // sobrescribía con la del clic y editar la fecha no tenía ningún efecto).
+  const [date, setDate] = React.useState(state.date);
 
-  const dayLabel = new Date(`${state.date}T00:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+  // Escape cierra (mismo idioma que confirm-dialog).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const dayLabel = new Date(`${date || state.date}T00:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={isEdit ? "Editar cita" : "Nueva cita"} className="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-sm font-semibold">{isEdit ? "Editar cita" : "Nueva cita"}</h3>
         <p className="mt-0.5 text-xs capitalize text-muted-foreground">{dayLabel}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            fd.set("date", state.date);
+            // La fecha va en el input controlado (name="date"); si quedara vacío, cae al día del clic.
+            if (!fd.get("date")) fd.set("date", state.date);
             if (state.mode === "create" && state.projectId) fd.set("projectId", state.projectId);
             attendees.forEach((id) => fd.append("attendees", id));
             start(async () => {
@@ -59,7 +70,7 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
             defaultValue={isEdit ? state.title : ""}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
-          <input type="date" name="date" defaultValue={state.date} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="Fecha" />
+          <input type="date" name="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" title="Fecha" />
           <div className="flex items-center gap-2">
             <input name="time" type="time" defaultValue={isEdit ? state.time : (state.mode === "create" ? state.time ?? "" : "")} className="rounded-md border border-input bg-background px-3 py-2 text-sm" title="Hora de inicio" />
             <span className="text-muted-foreground">→</span>

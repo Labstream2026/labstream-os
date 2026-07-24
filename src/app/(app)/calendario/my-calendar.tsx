@@ -114,7 +114,10 @@ export function MyCalendar({
     setOverKey(null);
     if (!it?.eventId || !it.canEdit) return;
     const orig = new Date(it.start ?? it.date);
-    const ns = new Date(y, m, dayNum, orig.getHours(), orig.getMinutes(), 0, 0);
+    // Convención del calendario: "hora de pared en UTC" (como week-view). Con getHours()/new
+    // Date(y,m,d,…) locales, esto solo era correcto en navegadores en UTC-5; en cualquier otro
+    // huso la cita saltaba de hora al soltarla.
+    const ns = new Date(Date.UTC(y, m, dayNum, orig.getUTCHours(), orig.getUTCMinutes(), 0, 0));
     const dur = it.end ? new Date(it.end).getTime() - orig.getTime() : 0;
     const ne = dur ? new Date(ns.getTime() + dur) : null;
     startMove(() => { void moveMyEvent(it.eventId!, ns.toISOString(), ne ? ne.toISOString() : null); });
@@ -194,6 +197,7 @@ export function MyCalendar({
                             onDragEnd={() => { dragItem.current = null; setOverKey(null); }}
                             onClick={(e) => { e.stopPropagation(); }}
                             onDoubleClick={(e) => { e.stopPropagation(); emitCalendarDetail(ev); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); emitCalendarDetail(ev); } }}
                             title={`${ev.title}${ev.projectName ? ` · ${emojiToText(ev.projectEmoji, "🗂️")} ${ev.projectName}` : ""}${draggable ? " · arrastra a otro día para mover" : ""} · doble clic para ver el detalle`}
                             className={cn(
                               "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white transition-all hover:brightness-105",

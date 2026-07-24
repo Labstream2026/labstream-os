@@ -88,9 +88,11 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                   <button
                     key={it.id}
                     type="button"
-                    onDoubleClick={() => emitCalendarDetail(it)}
+                    // En la lista no hay «resaltar»: el clic simple abre el detalle directamente
+                    // (antes solo respondía al doble clic y el clic normal no hacía nada).
+                    onClick={() => emitCalendarDetail(it)}
                     className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40"
-                    title={`${it.title} · doble clic para ver el detalle`}
+                    title={`${it.title} · clic para ver el detalle`}
                   >
                     {/* Cuadrito tintado con el emoji del tipo (aspecto del rediseño aprobado). */}
                     <span className="grid size-7 shrink-0 place-items-center rounded-lg text-sm" style={{ background: `${dot}26` }}>{KIND_EMOJI[it.kind]}</span>
