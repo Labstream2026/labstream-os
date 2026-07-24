@@ -20,7 +20,7 @@ import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText, ChevronDown } from "lucide-react";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
-import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { ProjectCalendar } from "./project-calendar";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
@@ -528,6 +528,8 @@ export default async function ProyectoPage({
                   finishedAt: project.finishedAt,
                   nextForClient: project.nextForClient,
                   dueDate: project.dueDate,
+                  prevDueDate: project.prevDueDate,
+                  dueDateChangedAt: project.dueDateChangedAt,
                   deliverables: project.deliverables.map((d) => ({ status: d.status })),
                   lead: project.lead ? { name: project.lead.name } : null,
                 }}
@@ -544,6 +546,8 @@ export default async function ProyectoPage({
               lastActivityAt={project.activity[0]?.createdAt ?? null}
               progress={project.progress}
             />
+            {/* X2 · Carga del equipo EN ESTE proyecto: abiertas, horas estimadas y atrasadas. */}
+            {!isCliente ? <TeamLoad tasks={project.tasks} team={team} /> : null}
             {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
             <Resumen project={project} priorities={taskLabels.priorities} />
             {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
@@ -686,7 +690,7 @@ export default async function ProyectoPage({
               proyecto, tareas (entrega y rodaje) e hitos (inicio, entrega y entregables).
             </p>
             <div className="h-[74vh] min-h-[26rem]">
-              <CalendarBoard
+              <ProjectCalendar
                 items={projectCalItems}
                 onCreate={canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "gestionar_calendario")) ? createMyEvent : undefined}
                 projectId={id}
@@ -848,6 +852,42 @@ function Resumen({
           <span className="text-sm text-muted-foreground">Sin asignar</span>
         )}
       </Field>
+    </div>
+  );
+}
+
+// X2 · Carga por miembro DE ESTE proyecto (tareas abiertas + horas estimadas + atrasadas).
+// La Carga global vive en Mis tareas; esta es la lupa local para repartir en contexto.
+function TeamLoad({
+  tasks,
+  team,
+}: {
+  tasks: { assigneeId: string | null; completedAt: Date | null; dueDate: Date | null; estimatedMinutes: number | null }[];
+  team: { id: string; name: string; initials: string | null; avatarColor: string | null }[];
+}) {
+  const now = Date.now();
+  const rows = team
+    .map((m) => {
+      const open = tasks.filter((t) => t.assigneeId === m.id && !t.completedAt);
+      if (!open.length) return null;
+      const late = open.filter((t) => t.dueDate && t.dueDate.getTime() < now - 43_200_000).length;
+      const estH = Math.round(open.reduce((n, t) => n + (t.estimatedMinutes ?? 0), 0) / 60);
+      return { m, open: open.length, late, estH };
+    })
+    .filter(Boolean) as { m: (typeof team)[number]; open: number; late: number; estH: number }[];
+  if (rows.length < 2) return null; // con 0-1 personas no hay reparto que mirar
+  rows.sort((a, b) => b.open - a.open);
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Carga aquí</span>
+      {rows.map((r) => (
+        <span key={r.m.id} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs" title={`${r.m.name}: ${r.open} abiertas${r.estH ? ` · ~${r.estH} h` : ""}${r.late ? ` · ${r.late} atrasadas` : ""}`}>
+          <UserAvatar initials={r.m.initials} name={r.m.name} color={r.m.avatarColor} size="sm" />
+          <b>{r.open}</b>
+          {r.estH ? <span className="text-muted-foreground">~{r.estH}h</span> : null}
+          {r.late ? <span className="font-bold text-red-600 dark:text-red-400">⚠{r.late}</span> : null}
+        </span>
+      ))}
     </div>
   );
 }

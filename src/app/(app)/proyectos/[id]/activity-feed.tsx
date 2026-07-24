@@ -37,8 +37,19 @@ function useNow(): number | null {
   return now;
 }
 
+// X1 · Filtros por tipo de actividad (prefijo de la acción / autoría del cliente).
+const FEED_CATS = [
+  { key: "tareas", label: "Tareas", test: (a: ActivityItem) => a.action.startsWith("task") || a.action.startsWith("checklist") },
+  { key: "entregables", label: "Entregables", test: (a: ActivityItem) => a.action.startsWith("deliverable") || a.action.startsWith("cover") },
+  { key: "archivos", label: "Archivos", test: (a: ActivityItem) => a.action.startsWith("file") || a.action.startsWith("folder") || a.action.startsWith("guion") },
+  { key: "cliente", label: "Cliente", test: (a: ActivityItem) => (a.actorName ?? "").includes("(cliente)") || a.action.startsWith("client") },
+] as const;
+
 export function ActivityFeed({ items }: { items: ActivityItem[] }) {
   const now = useNow();
+  const [cat, setCat] = React.useState<string | null>(null);
+  const active = FEED_CATS.find((c) => c.key === cat) ?? null;
+  const shown = active ? items.filter(active.test) : items;
   if (items.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
@@ -52,8 +63,32 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
       <p className="mb-3 text-sm text-muted-foreground">
         Historial de cambios del proyecto. Cada acción queda registrada con su autor, fecha y hora.
       </p>
+      {/* X1 · Chips de filtro (solo categorías con actividad) */}
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setCat(null)}
+          className={cat === null ? "rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground" : "rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"}
+        >
+          Todo · {items.length}
+        </button>
+        {FEED_CATS.map((c) => {
+          const n = items.filter(c.test).length;
+          if (!n) return null;
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setCat(cat === c.key ? null : c.key)}
+              className={cat === c.key ? "rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground" : "rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"}
+            >
+              {c.label} · {n}
+            </button>
+          );
+        })}
+      </div>
       <ol className="relative space-y-0">
-        {items.map((a) => {
+        {shown.map((a) => {
           const abs = formatBogota(a.createdAt);
           const rel = now == null ? null : relativeFrom(a.createdAt, now);
           return (

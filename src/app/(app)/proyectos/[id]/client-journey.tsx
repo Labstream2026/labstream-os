@@ -14,6 +14,9 @@ export function ClientJourney({
     finishedAt: Date | null;
     nextForClient: string | null;
     dueDate: Date | null;
+    // CL1 · Fecha viva: si la entrega se movió hace poco, se muestra el aviso A → B.
+    prevDueDate: Date | null;
+    dueDateChangedAt: Date | null;
     deliverables: { status: string }[];
     lead: { name: string } | null;
   };
@@ -25,6 +28,12 @@ export function ClientJourney({
   const phases = clientPhases(input);
   const pill = clientPhasePill(input);
   const nextText = project.nextForClient?.trim() || autoNextForClient(input);
+  // Aviso de fecha movida: solo 14 días tras el cambio y con ambas fechas para comparar.
+  const fechaMovida =
+    project.prevDueDate &&
+    project.dueDate &&
+    project.dueDateChangedAt &&
+    Date.now() - project.dueDateChangedAt.getTime() < 14 * 86_400_000;
 
   return (
     <div className="space-y-3">
@@ -68,6 +77,13 @@ export function ClientJourney({
           ))}
         </div>
       </div>
+
+      {fechaMovida ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
+          📅 La fecha de entrega se movió: <s>{formatBogotaDate(project.prevDueDate!, { day: "numeric", month: "short" })}</s>{" "}
+          → <b>{formatBogotaDate(project.dueDate!, { day: "numeric", month: "long" })}</b>
+        </p>
+      ) : null}
 
       {/* «¿Qué sigue?»: la frase humana que traduce el estado */}
       <div className="flex flex-wrap items-baseline gap-2.5 rounded-xl border border-primary/25 bg-primary/[0.06] px-4 py-3">

@@ -806,6 +806,17 @@ export async function getTaskTimeEntries(taskId: string): Promise<TimeEntryItem[
 
 // Fechas del proyecto (inicio/entrega) — alimentan el cronograma global. Editable desde
 // el arrastre de la barra del proyecto en /timeline.
+// CL1 · Si la ENTREGA cambia de día (y había una), guarda la anterior + cuándo: el portal del
+// cliente muestra «se movió del A → B» unos días. Devuelve los campos a mezclar en el update.
+async function dueDateChangeFields(projectId: string, next: Date | null | undefined): Promise<{ prevDueDate?: Date; dueDateChangedAt?: Date }> {
+  if (next === undefined) return {};
+  const old = await db.project.findUnique({ where: { id: projectId }, select: { dueDate: true } });
+  if (old?.dueDate && next && dayKey(old.dueDate) !== dayKey(next)) {
+    return { prevDueDate: old.dueDate, dueDateChangedAt: new Date() };
+  }
+  return {};
+}
+
 export async function setProjectDates(projectId: string, formData: FormData) {
   await ensureProjectAccess(projectId, "gestionar_cronograma");
   const data: { startDate?: Date | null; dueDate?: Date | null } = {};
@@ -814,6 +825,7 @@ export async function setProjectDates(projectId: string, formData: FormData) {
   if (sRaw !== null) data.startDate = String(sRaw).trim() ? noonUTC(String(sRaw).trim()) : null;
   if (dRaw !== null) data.dueDate = String(dRaw).trim() ? noonUTC(String(dRaw).trim()) : null;
   if (Object.keys(data).length === 0) return;
+  Object.assign(data, await dueDateChangeFields(projectId, data.dueDate));
   await db.project.update({ where: { id: projectId }, data });
   await logActivity({ action: "project.dates", summary: `ajustó las fechas del proyecto`, projectId, entityType: "project", entityId: projectId });
   revalidatePath("/timeline");
@@ -945,9 +957,11 @@ export async function updateProject(projectId: string, formData: FormData) {
   // Estado ANTERIOR: si cambia, se registra una actividad ESPECÍFICA además del genérico
   // (alimenta Actividad con nombre y los estados automáticos en el chat del proyecto).
   const prev = status ? await db.project.findUnique({ where: { id: projectId }, select: { status: true } }) : null;
+  const nextDue = dRaw ? noonUTC(dRaw) : null;
   await db.project.update({
     where: { id: projectId },
     data: {
+      ...(await dueDateChangeFields(projectId, nextDue)),
       name,
       emoji,
       description,
@@ -955,7 +969,7 @@ export async function updateProject(projectId: string, formData: FormData) {
       leadId,
       ...(status ? { status: status as never } : {}),
       startDate: sRaw ? noonUTC(sRaw) : null,
-      dueDate: dRaw ? noonUTC(dRaw) : null,
+      dueDate: nextDue,
     },
   });
   // UNA sola actividad por guardado (dos duplicarían la notificación a todo el equipo): si el
@@ -1039,13 +1053,17 @@ export async function updateProjectDetails(projectId: string, formData: FormData
 
   // Solo se actualiza lo que el formulario realmente envía (campos que el usuario tocó). Así,
   // editar el nombre no reescribe la fecha de entrega (que por zona horaria podría correrse un día).
-  const data: { name: string; description?: string | null; dueDate?: Date | null } = { name };
+  const data: { name: string; description?: string | null; dueDate?: Date | null; prevDueDate?: Date; dueDateChangedAt?: Date } = { name };
   if (formData.has("description")) data.description = String(formData.get("description") ?? "").trim() || null;
   let nextKey: string | null = prev?.dueDate ? dayKey(prev.dueDate) : null;
   if (formData.has("dueDate")) {
     const dRaw = String(formData.get("dueDate") ?? "").trim();
     data.dueDate = dRaw ? noonUTC(dRaw) : null;
     nextKey = data.dueDate ? dayKey(data.dueDate) : null;
+    if (prev?.dueDate && data.dueDate && dayKey(prev.dueDate) !== nextKey) {
+      data.prevDueDate = prev.dueDate;
+      data.dueDateChangedAt = new Date();
+    }
   }
   await db.project.update({ where: { id: projectId }, data });
 

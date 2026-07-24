@@ -24,11 +24,12 @@ export type ClientDeliverable = {
   comments: { id: string; authorName: string; body: string; fromClient: boolean; createdAt: string }[];
 };
 
-const STATUS: Record<string, { label: string; className: string }> = {
-  ENVIADO_CLIENTE: { label: "Para tu revisión", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" },
-  CORRECCIONES: { label: "Cambios solicitados", className: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300" },
-  APROBADO: { label: "Aprobado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
-  ENTREGADO: { label: "Entregado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
+// CL2 · Cada estado en el lenguaje del cliente + su explicación (tooltip): qué significa y qué sigue.
+const STATUS: Record<string, { label: string; className: string; hint?: string }> = {
+  ENVIADO_CLIENTE: { label: "Para tu revisión", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300", hint: "El equipo terminó esta pieza y espera tu opinión: ábrela, comenta y decide." },
+  CORRECCIONES: { label: "Cambios solicitados", className: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300", hint: "Pediste ajustes y el equipo los está aplicando. Te avisamos cuando llegue la nueva versión." },
+  APROBADO: { label: "Aprobado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300", hint: "Lo aprobaste: esta queda como versión final." },
+  ENTREGADO: { label: "Entregado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300", hint: "Pieza entregada: descárgala cuando quieras desde Entregas finales." },
 };
 
 function fmtDate(iso: string) {
@@ -97,7 +98,7 @@ function DeliverableCard({ d, canApprove }: { d: ClientDeliverable; canApprove: 
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{d.name}</h3>
-          <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", st.className)}>{st.label}</span>
+          <span title={st.hint} className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", st.hint && "cursor-help", st.className)}>{st.label}</span>
           {/* E2 (espejo) · Quién tiene la pelota, en el lenguaje del cliente. */}
           {decided ? null : d.status === "ENVIADO_CLIENTE" ? (
             <span className="rounded-full bg-[#F47A20]/15 px-2 py-0.5 text-[11px] font-bold text-[#F47A20]">🏀 Te toca a ti</span>
