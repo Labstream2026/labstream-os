@@ -24,6 +24,9 @@ import {
   Check,
   CheckSquare,
   MessageCircle,
+  Search,
+  LayoutGrid,
+  List as ListIcon,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -52,6 +55,17 @@ function CopyPathButton({ path }: { path: string }) {
 }
 type FolderItem = { id: string; name: string; icon: string | null; color: string | null; files: FileAsset[] };
 
+// A2 · Origen de un archivo (para filtrar): de dónde llegó al proyecto.
+type Origin = "cliente" | "chat" | "tarea" | "enlace" | "nas";
+function matchesOrigin(f: FileAsset, o: Origin): boolean {
+  if (o === "cliente") return !!f.viaClientLink;
+  if (o === "chat") return !!f.chat;
+  if (o === "tarea") return !!f.task;
+  if (o === "enlace") return f.kind === "LINK" || f.kind === "DRIVE";
+  return f.kind === "NAS";
+}
+const IMG_EXT = /\.(jpe?g|png|webp|gif|avif)$/i;
+
 export function FilesPanel({
   projectId,
   folders,
@@ -67,6 +81,32 @@ export function FilesPanel({
   );
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
   const flip = (t: "upload" | "link" | "nas" | "folder") => setTool((cur) => (cur === t ? null : t));
+
+  // A1 · Vista lista/cuadrícula (recordada por dispositivo) + A2 · buscador y filtro por origen.
+  const [view, setView] = React.useState<"lista" | "cuadricula">("lista");
+  React.useEffect(() => {
+    const v = localStorage.getItem("files-view");
+    if (v === "cuadricula" || v === "lista") setView(v);
+  }, []);
+  const changeView = (v: "lista" | "cuadricula") => { setView(v); localStorage.setItem("files-view", v); };
+  const [q, setQ] = React.useState("");
+  const [origin, setOrigin] = React.useState<Origin | null>(null);
+  const norm = (x: string) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const match = (f: FileAsset) => (!q.trim() || norm(f.name).includes(norm(q))) && (!origin || matchesOrigin(f, origin));
+  const filtering = q.trim().length > 0 || origin !== null;
+  const shownFolders = folders
+    .map((f) => ({ ...f, files: f.files.filter(match) }))
+    .filter((f) => !filtering || f.files.length > 0);
+  const shownLoose = looseFiles.filter(match);
+  const allFiles = [...folders.flatMap((f) => f.files), ...looseFiles];
+  const gridFiles = [...shownFolders.flatMap((f) => f.files), ...shownLoose];
+  const originChips: { key: Origin; label: string }[] = [
+    { key: "cliente", label: "Del cliente" },
+    { key: "chat", label: "Del chat" },
+    { key: "tarea", label: "De tareas" },
+    { key: "enlace", label: "Enlaces" },
+    { key: "nas", label: "Rutas NAS" },
+  ];
 
   const empty = folders.length === 0 && looseFiles.length === 0;
 
@@ -113,17 +153,77 @@ export function FilesPanel({
         </form>
       ) : null}
 
+      {/* A2 · Buscador + filtro por origen + A1 · toggle lista/cuadrícula */}
+      {!empty ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-44 flex-1 sm:max-w-64">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar archivo…"
+              className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          {originChips.map((c) => {
+            const n = allFiles.filter((f) => matchesOrigin(f, c.key)).length;
+            if (!n) return null;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => setOrigin(origin === c.key ? null : c.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  origin === c.key ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {c.label} · {n}
+              </button>
+            );
+          })}
+          <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border text-xs">
+            {([["lista", ListIcon], ["cuadricula", LayoutGrid]] as const).map(([v, Icon]) => (
+              <button
+                key={v}
+                type="button"
+                title={v === "lista" ? "Lista" : "Cuadrícula (miniaturas)"}
+                onClick={() => changeView(v)}
+                className={cn("px-2.5 py-1.5", view === v ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted")}
+              >
+                <Icon className="size-4" />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* A1 · Cuadrícula con miniaturas (imágenes reales; el resto, icono grande) */}
+      {!empty && view === "cuadricula" ? (
+        gridFiles.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">Nada coincide con ese filtro.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6">
+            {gridFiles.map((file) => (
+              <GridCard key={file.id} file={file} />
+            ))}
+          </div>
+        )
+      ) : null}
+
       {/* Lista tipo Finder: carpetas (expandibles) + archivos, en una sola lista limpia */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className={cn("overflow-hidden rounded-xl border border-border bg-card", !empty && view === "cuadricula" && "hidden")}>
         {empty ? (
           <p className="px-4 py-12 text-center text-sm text-muted-foreground">
             Aún no hay archivos. Sube uno, añade un enlace o crea una carpeta.
           </p>
+        ) : filtering && shownFolders.length === 0 && shownLoose.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nada coincide con ese filtro.</p>
         ) : (
           <ul className="divide-y divide-border">
-            {folders.map((folder) => {
+            {shownFolders.map((folder) => {
               const t = tone(folder.color);
-              const isOpen = !!open[folder.id];
+              const isOpen = !!open[folder.id] || filtering;
               return (
                 <li key={folder.id}>
                   <div className="group/row flex items-center gap-1 px-2 py-1.5 hover:bg-muted/40">
@@ -159,7 +259,7 @@ export function FilesPanel({
                 </li>
               );
             })}
-            {looseFiles.map((file) => (
+            {shownLoose.map((file) => (
               <li key={file.id}>
                 <FileRow file={file} projectId={projectId} />
               </li>
@@ -299,6 +399,41 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
           </ConfirmSubmit>
         </form>
       </div>
+    </div>
+  );
+}
+
+// A1 · Tarjeta de la cuadrícula: miniatura real para imágenes locales (la vista previa WebP
+// que ya sirve /api/files-asset), icono grande para el resto. Clic = ver/abrir.
+function GridCard({ file }: { file: FileAsset }) {
+  const { Icon, color } = fileIcon(file.name, file.kind);
+  const isImg = file.kind === "LOCAL" && IMG_EXT.test(file.name);
+  const href = file.kind === "LOCAL" ? `/api/files-asset/${file.id}` : file.url || null;
+  const body = (
+    <>
+      {isImg ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`/api/files-asset/${file.id}`} alt={file.name} loading="lazy" className="aspect-square w-full bg-muted/40 object-cover" />
+      ) : (
+        <div className="grid aspect-square w-full place-items-center bg-muted/40">
+          <Icon className={cn("size-8", color)} />
+        </div>
+      )}
+      <p className="truncate px-2 py-1.5 text-[11px] font-medium" title={file.name}>{file.name}</p>
+    </>
+  );
+  const cls = "block overflow-hidden rounded-lg border border-border bg-card transition-colors hover:border-primary/40";
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={cls} title={file.kind === "LOCAL" ? "Ver" : "Abrir enlace"}>
+        {body}
+      </a>
+    );
+  }
+  return (
+    <div className={cls} title={file.path ?? file.name}>
+      {body}
+      {file.path ? <div className="px-2 pb-1.5"><CopyPathButton path={file.path} /></div> : null}
     </div>
   );
 }
