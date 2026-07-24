@@ -95,6 +95,8 @@ type Deliverable = {
   reviewVisits: number;
   reviewRevoked: boolean;
   reviewAllowDrawings: boolean;
+  // Última actividad del entregable (para el chip «la pelota la tiene… · N días»).
+  updatedAtIso: string;
   cover: { src: string; full: string } | null; // portada del reel (imagen que acompaña al video)
   versions: Version[];
   photos: Photo[];
@@ -118,6 +120,20 @@ type Deliverable = {
 const STATUS_OPTIONS = Object.entries(DELIVERABLE_STATUS).map(([value, m]) => ({ value, label: m.label }));
 // Formatos editables después de publicar: SOLO vertical y horizontal (mismas opciones que al crear).
 const TYPE_OPTIONS = DELIVERABLE_TYPE_OPTIONS.map(([value, label]) => ({ value, label }));
+
+// E2 · «La pelota la tiene…»: de quién depende que esto avance, calculado del estado, con los
+// días quietos (desde la última actividad del entregable). En aprobados no aplica.
+function BallChip({ status, updatedAtIso }: { status: string; updatedAtIso: string }) {
+  if (status === "APROBADO" || status === "ENTREGADO") return null;
+  const days = Math.max(0, Math.floor((Date.now() - new Date(updatedAtIso).getTime()) / 86_400_000));
+  const wait = days >= 2 ? ` · ${days} días` : "";
+  if (status === "ENVIADO_CLIENTE") {
+    return <span className={cn("rounded-full bg-[#F47A20]/15 px-2 py-0.5 text-[10.5px] font-semibold text-[#F47A20]", days >= 5 && "ring-1 ring-[#F47A20]/50")}>🏀 La tiene el cliente{wait}</span>;
+  }
+  const doing =
+    status === "CORRECCIONES" ? "corrigiendo" : status === "REVISION_INTERNA" ? "pre-aprobación" : status === "EN_EDICION" ? "en edición" : "en producción";
+  return <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10.5px] font-semibold text-primary">🏀 Equipo · {doing}{wait}</span>;
+}
 
 const PICK_META: Record<string, { label: string; cls: string }> = {
   ME_GUSTA: { label: "♥ Le gusta", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
@@ -195,6 +211,7 @@ export function DeliverablesPanel({
   emailEnabled = false,
   covers = [],
   coversRevoked = false,
+  stateFilter = null,
 }: {
   projectId: string;
   canManage?: boolean;
@@ -207,13 +224,25 @@ export function DeliverablesPanel({
   // Banco de PORTADAS del proyecto (pestaña «Portadas»): filas crudas de ProjectCover.
   covers?: { id: string; name: string; fileAssetId: string; deliverableId: string | null; decision: string | null; decisionBy: string | null; decisionNote: string | null }[];
   coversRevoked?: boolean;
+  // E1 · Filtro del embudo (?estado=<grupo>): acota las listas a ese grupo de estados.
+  stateFilter?: string | null;
 }) {
   // Lo VIVO se trabaja en «En curso»; lo que el cliente ya aprobó pasa al archivo
   // «Aprobados» (ordenado por consecutivo descendente) para no estorbar la ventana.
   const APPROVED = new Set(["APROBADO", "ENTREGADO"]);
-  const activeList = deliverables.filter((d) => !APPROVED.has(d.status));
+  // E1 · Embudo del pipeline: etapas agrupadas; clic en una = filtrar por ?estado=.
+  const FUNNEL = [
+    { key: "produccion", label: "Producción", states: ["PENDIENTE", "EN_PRODUCCION"], bar: "bg-primary/70" },
+    { key: "edicion", label: "Edición", states: ["EN_EDICION"], bar: "bg-primary/70" },
+    { key: "revision", label: "Rev. interna", states: ["REVISION_INTERNA"], bar: "bg-amber-500" },
+    { key: "cliente", label: "Donde el cliente", states: ["ENVIADO_CLIENTE", "CORRECCIONES"], bar: "bg-[#F47A20]" },
+    { key: "aprobados", label: "Aprobados", states: ["APROBADO", "ENTREGADO"], bar: "bg-emerald-500" },
+  ] as const;
+  const funnelGroup = FUNNEL.find((f) => f.key === stateFilter) ?? null;
+  const inFilter = (d: Deliverable) => !funnelGroup || (funnelGroup.states as readonly string[]).includes(d.status);
+  const activeList = deliverables.filter((d) => !APPROVED.has(d.status) && inFilter(d));
   const approvedList = deliverables
-    .filter((d) => APPROVED.has(d.status))
+    .filter((d) => APPROVED.has(d.status) && inFilter(d))
     .sort((a, b) => (b.number ?? 0) - (a.number ?? 0));
   return (
     <div className="space-y-5">
@@ -320,7 +349,10 @@ export function DeliverablesPanel({
                     {d.number ? <span className="mr-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground" title="Consecutivo del entregable en este proyecto">#{d.number}</span> : null}
                     {d.name}
                   </h3>
-                  <p className="text-xs text-muted-foreground">{DELIVERABLE_TYPE[d.type] ?? d.type}</p>
+                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    {DELIVERABLE_TYPE[d.type] ?? d.type}
+                    <BallChip status={d.status} updatedAtIso={d.updatedAtIso} />
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -656,7 +688,42 @@ export function DeliverablesPanel({
           hasLocal: d.photos.some((p) => p.src.startsWith("/api/files-asset")),
         }));
 
+      // E1 · Embudo: conteo por etapa sobre TODOS los entregables (sin filtro), con la etapa
+      // activa resaltada. Los enlaces navegan por ?estado= (server-side, sin estado cliente).
+      const funnelCounts = FUNNEL.map((f) => ({ ...f, count: deliverables.filter((d) => (f.states as readonly string[]).includes(d.status)).length }));
+      const funnelMax = Math.max(1, ...funnelCounts.map((f) => f.count));
+      const funnelNode =
+        deliverables.length > 0 ? (
+          <div className="mb-4 flex items-end gap-2 rounded-xl border border-border bg-card px-4 pb-2 pt-3">
+            {funnelCounts.map((f) => (
+              <Link
+                key={f.key}
+                href={stateFilter === f.key ? "?tab=entregables" : `?tab=entregables&estado=${f.key}`}
+                title={stateFilter === f.key ? "Quitar filtro" : `Ver solo ${f.label.toLowerCase()}`}
+                className={cn("group flex-1 text-center", f.count === 0 && "opacity-40")}
+              >
+                <div className="mx-auto flex h-12 w-full max-w-16 items-end justify-center">
+                  <div
+                    className={cn("w-full rounded-t-md transition-all", f.bar, stateFilter === f.key ? "opacity-100 ring-2 ring-ring" : "opacity-75 group-hover:opacity-100")}
+                    style={{ height: `${8 + Math.round((f.count / funnelMax) * 40)}px` }}
+                  />
+                </div>
+                <p className={cn("mt-1 truncate text-[10.5px]", stateFilter === f.key ? "font-bold text-foreground" : "text-muted-foreground")}>
+                  {f.label} · {f.count}
+                </p>
+              </Link>
+            ))}
+          </div>
+        ) : null;
+
       return (
+        <>
+        {funnelNode}
+        {funnelGroup ? (
+          <p className="mb-3 text-xs text-muted-foreground">
+            Filtrando por <b className="text-foreground">{funnelGroup.label.toLowerCase()}</b> · <Link href="?tab=entregables" className="text-primary hover:underline">quitar filtro</Link>
+          </p>
+        ) : null}
         <DeliverablesSpace
           activeCount={activeList.length}
           approvedCount={approvedList.length}
@@ -689,6 +756,7 @@ export function DeliverablesPanel({
           }
           photos={<PhotosPanel projectId={projectId} canUpload={canManage} sets={photoSets} />}
         />
+        </>
       );
       })()}
     </div>

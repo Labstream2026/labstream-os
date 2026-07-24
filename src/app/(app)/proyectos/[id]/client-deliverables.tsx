@@ -98,6 +98,12 @@ function DeliverableCard({ d, canApprove }: { d: ClientDeliverable; canApprove: 
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{d.name}</h3>
           <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", st.className)}>{st.label}</span>
+          {/* E2 (espejo) · Quién tiene la pelota, en el lenguaje del cliente. */}
+          {decided ? null : d.status === "ENVIADO_CLIENTE" ? (
+            <span className="rounded-full bg-[#F47A20]/15 px-2 py-0.5 text-[11px] font-bold text-[#F47A20]">🏀 Te toca a ti</span>
+          ) : (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">🏀 Estamos nosotros</span>
+          )}
         </div>
 
         {/* Acción única: abrir la sala de revisión unificada. */}

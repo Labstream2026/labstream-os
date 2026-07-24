@@ -67,10 +67,10 @@ export default async function ProyectoPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; estado?: string }>;
 }) {
   const { id } = await params;
-  const { tab = "resumen" } = await searchParams;
+  const { tab = "resumen", estado } = await searchParams;
 
   const session = await getSession();
   const [project, team, taskLabels, projectEvents] = await Promise.all([
@@ -345,6 +345,7 @@ export default async function ProyectoPage({
         reviewVisits: d.reviewVisits,
         reviewRevoked: !!d.reviewRevokedAt,
         reviewAllowDrawings: d.reviewAllowDrawings,
+        updatedAtIso: d.updatedAt.toISOString(),
         cover: d.coverFileAssetId
           ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }), full: photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null }) }
           : null,
@@ -403,6 +404,7 @@ export default async function ProyectoPage({
         decisionNote: c.decisionNote,
       }))}
       coversRevoked={!!project.coversRevokedAt}
+      stateFilter={estado ?? null}
     />
   );
 
