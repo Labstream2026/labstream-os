@@ -135,6 +135,7 @@ model User {
   approvedQuotes   Quote[]              @relation("QuoteApprover")
   createdInvoices  Invoice[]            @relation("InvoiceCreator")
   createdProposals Proposal[]           @relation("ProposalCreator")
+  proposalAssets   ProposalAsset[]      @relation("ProposalAssetCreator")
   deliverableDecisions DeliverableDecision[] @relation("DecisionAuthor")
   reviewComments   ReviewComment[]      @relation("ReviewCommentAuthor")
   // Correcciones que esta persona marcó como hechas (trazabilidad del checklist).
@@ -924,6 +925,26 @@ model Proposal {
   updatedAt   DateTime       @updatedAt
 
   @@index([clientId])
+  @@index([createdAt])
+}
+
+// Biblioteca COMPARTIDA de medios de propuestas: los videos de fondo, los logos de clientes
+// y las imágenes que se reutilizan entre propuestas. Vive aparte de `storage/proposal/<id>/`
+// (que es de UNA propuesta) justamente para poder reusarla: se sube una vez, se etiqueta por
+// categoría (streaming, fotografía, evento…) y desde ahí la elige cualquier propuesta.
+model ProposalAsset {
+  id          String   @id @default(cuid())
+  kind        String // "VIDEO" | "LOGO" | "IMAGE"
+  category    String // clave del catálogo en lib/proposals/assets.ts (streaming, fotografia…)
+  name        String // nombre visible, editable
+  rel         String // ruta relativa dentro del NAS (proposal-lib/…)
+  mime        String
+  size        Int
+  createdBy   User?    @relation("ProposalAssetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([kind, category])
   @@index([createdAt])
 }
 
