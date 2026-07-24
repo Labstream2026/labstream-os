@@ -17,7 +17,7 @@ import { ProjectSettings } from "@/components/project-settings";
 import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
-import { Lock, FileText } from "lucide-react";
+import { Lock, FileText, ChevronDown } from "lucide-react";
 import { TasksBoard } from "./tasks-board";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
@@ -28,6 +28,7 @@ import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
 import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
+import { ProjectHealth } from "./project-health";
 import { signReviewToken } from "@/lib/review-token";
 import { signUploadToken } from "@/lib/upload-token";
 import { UploadShare } from "./upload-share";
@@ -533,6 +534,80 @@ export default async function ProyectoPage({
                 }}
               />
             ) : null}
+            {/* R1+R2 · Salud del proyecto CALCULADA + línea de vida. El cliente ve solo la
+                línea (las señales internas son cocina del equipo). */}
+            <ProjectHealth
+              clientView={isCliente}
+              tasks={project.tasks.map((t) => ({ dueDate: t.dueDate, completedAt: t.completedAt, assigneeName: t.assignee?.name ?? null }))}
+              deliverables={project.deliverables.map((d) => ({ name: d.name, status: d.status, dueDate: d.dueDate, updatedAt: d.updatedAt }))}
+              startDate={project.startDate}
+              dueDate={project.dueDate}
+              lastActivityAt={project.activity[0]?.createdAt ?? null}
+              progress={project.progress}
+            />
+            {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
+            <Resumen project={project} priorities={taskLabels.priorities} />
+            {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
+                (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
+            {isCliente ? (
+              <ClientTeamPanel
+                projectId={project.id}
+                members={project.members.flatMap((m) => {
+                  const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
+                  return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
+                })}
+              />
+            ) : null}
+            {/* R3 · Solicitudes del cliente ARRIBA (son trabajo entrante, no archivo). */}
+            {!isCliente && clientRequests.length > 0 ? (
+              <ClientRequestsPanel
+                canWrite={canWriteProject(project, session)}
+                requests={clientRequests.map((r) => ({
+                  id: r.id,
+                  type: r.type,
+                  title: r.title,
+                  details: r.details,
+                  status: r.status,
+                  responseNote: r.responseNote,
+                  creatorName: team.find((t) => t.id === r.createdById)?.name ?? "Cliente",
+                  createdAtLabel: formatBogota(r.createdAt, { day: "numeric", month: "short" }),
+                }))}
+              />
+            ) : null}
+            {/* «¿Qué sigue?» del portal del cliente: lo edita quien gestiona; el cliente lo ve
+                en su viaje. Vacío = texto automático según la fase. */}
+            {!isCliente && canManageProject(project, session) ? (
+              <NextForClientCard projectId={project.id} note={project.nextForClient} />
+            ) : null}
+            {/* R3 · Propuesta (alcance y entregables): con el proyecto EN MARCHA (ya hay tareas)
+                se pliega sola — es referencia, no trabajo del día. Al crear el proyecto (sin
+                tareas aún) abre expandida, que es cuando se consulta. */}
+            <details open={project.tasks.length === 0} className="group/prop overflow-hidden rounded-xl border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                Propuesta del proyecto
+                <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
+                <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/prop:rotate-180" />
+              </summary>
+              <div className="border-t border-border p-4">
+                <BriefPanel
+                  projectId={id}
+                  scope={project.briefScope}
+                  deliverables={project.briefDeliverables}
+                  canWrite={canWriteProject(project, session)}
+                />
+              </div>
+            </details>
+            {/* Detalle del proyecto, debajo del resumen. */}
+            {hasPermission(session, "editar_proyectos") ? (
+              <ProjectDetailsForm
+                projectId={project.id}
+                name={project.name}
+                description={project.description}
+                dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
+              />
+            ) : null}
+            {/* R3 · Ajustes del proyecto al FINAL: configuración, no trabajo del día. */}
             {canManageProject(project, session) ? (
               <ProjectSettings
                 projectId={project.id}
@@ -550,49 +625,6 @@ export default async function ProyectoPage({
                 isFinished={!!project.finishedAt}
               />
             ) : null}
-            {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
-            <Resumen project={project} priorities={taskLabels.priorities} />
-            {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
-                (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
-            {isCliente ? (
-              <ClientTeamPanel
-                projectId={project.id}
-                members={project.members.flatMap((m) => {
-                  const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
-                  return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
-                })}
-              />
-            ) : null}
-            {/* Detalle del proyecto, debajo del resumen. */}
-            {hasPermission(session, "editar_proyectos") ? (
-              <ProjectDetailsForm
-                projectId={project.id}
-                name={project.name}
-                description={project.description}
-                dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
-              />
-            ) : null}
-            {/* «¿Qué sigue?» del portal del cliente: lo edita quien gestiona; el cliente lo ve
-                en su viaje. Vacío = texto automático según la fase. */}
-            {!isCliente && canManageProject(project, session) ? (
-              <NextForClientCard projectId={project.id} note={project.nextForClient} />
-            ) : null}
-            {/* Solicitudes que el cliente envió desde su portal (tomar / resolver con nota). */}
-            {!isCliente && clientRequests.length > 0 ? (
-              <ClientRequestsPanel
-                canWrite={canWriteProject(project, session)}
-                requests={clientRequests.map((r) => ({
-                  id: r.id,
-                  type: r.type,
-                  title: r.title,
-                  details: r.details,
-                  status: r.status,
-                  responseNote: r.responseNote,
-                  creatorName: team.find((t) => t.id === r.createdById)?.name ?? "Cliente",
-                  createdAtLabel: formatBogota(r.createdAt, { day: "numeric", month: "short" }),
-                }))}
-              />
-            ) : null}
             {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
             {session?.role === "admin" ? (
               <MoveProjectClient
@@ -601,24 +633,6 @@ export default async function ProyectoPage({
                 clients={await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })}
               />
             ) : null}
-            {/* Propuesta (alcance y entregables): expandida por defecto y renderizada; la edición
-                se despliega a demanda desde el propio BriefPanel. Los Entregables ya no van en el
-                Resumen (viven en su propia pestaña). */}
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="flex items-center gap-2 px-4 py-3 text-sm font-semibold">
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                Propuesta del proyecto
-                <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
-              </div>
-              <div className="border-t border-border p-4">
-                <BriefPanel
-                  projectId={id}
-                  scope={project.briefScope}
-                  deliverables={project.briefDeliverables}
-                  canWrite={canWriteProject(project, session)}
-                />
-              </div>
-            </div>
           </div>
         ) : null}
         {tab === "tareas" ? (
