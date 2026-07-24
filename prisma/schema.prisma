@@ -446,6 +446,7 @@ model Client {
   members     ClientMember[]
   files       ClientFile[]
   clientNotes Note[] // notas (modelo Note) etiquetadas a este cliente — distinto del campo `notes` libre
+  libraryAssets LibraryAsset[] @relation("LibraryClient") // recursos de la Biblioteca ligados a este cliente
   // Activo/inactivo: un cliente sin proyectos a la vista se DESACTIVA para no estorbar en
   // las listas, y se REACTIVA cuando llega un proyecto nuevo. Distinto de archivar: el
   // inactivo NO va a la papelera, solo se oculta de las listas activas (con filtro para verlo).
@@ -580,6 +581,7 @@ model Project {
   dueDateChangedAt DateTime?
   folders      ProjectFolder[]
   files        FileAsset[]
+  libraryAssets LibraryAsset[] @relation("LibraryProject") // recursos de la Biblioteca ligados a este proyecto
   channels     ChatChannel[] // interno (solo equipo) + con el cliente (cuando hay invitado)
   events       CalendarEvent[]
   tables       DataTable[]
@@ -1845,9 +1847,20 @@ model LibraryAsset {
   category     String? // "Música", "Logos", "Stock", "Plantillas"…
   uploadedBy   User?    @relation("LibraryUploader", fields: [uploadedById], references: [id])
   uploadedById String?
+  // Fijado: aparece arriba de la Biblioteca (los recursos de cabecera del estudio).
+  pinned       Boolean  @default(false)
+  // Vínculo opcional a un proyecto o cliente: el recurso deja de ser texto suelto
+  // («Bruto Danney») y aparece con su chip; SetNull para no perder el recurso si
+  // el proyecto/cliente se borra.
+  project      Project? @relation("LibraryProject", fields: [projectId], references: [id], onDelete: SetNull)
+  projectId    String?
+  client       Client?  @relation("LibraryClient", fields: [clientId], references: [id], onDelete: SetNull)
+  clientId     String?
   createdAt    DateTime @default(now())
 
   @@index([category])
+  @@index([projectId])
+  @@index([clientId])
 }
 
 model ReviewComment {
