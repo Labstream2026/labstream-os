@@ -24,11 +24,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   if ((body.status === 2 || body.status === 6) && body.url) {
     if (!(await isAllowedDocsUrl(body.url))) return NextResponse.json({ error: 1 });
-    const file = await db.fileAsset.findUnique({ where: { id }, select: { path: true } });
+    const file = await db.fileAsset.findUnique({ where: { id }, select: { path: true, kind: true } });
     if (file?.path) {
       try {
         const buf = await fetchSavedDoc(body.url);
-        await fs.writeFile(absPath(file.path), buf);
+        if (file.kind === "OPS") {
+          // Archivo vivo de Operaciones_LAB: se guarda de vuelta EN LA MISMA ruta de la share.
+          const { opsAbs } = await import("@/lib/nas-ops");
+          await fs.writeFile(await opsAbs(file.path), buf);
+        } else {
+          await fs.writeFile(absPath(file.path), buf);
+        }
         await db.fileAsset.update({ where: { id }, data: { size: buf.length, version: { increment: 1 } } });
       } catch (e) {
         console.error("[onlyoffice] guardar archivo falló:", e instanceof Error ? e.message : e);

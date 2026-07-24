@@ -579,6 +579,10 @@ model Project {
   // (el portal del cliente muestra «se movió del A → B» unos días).
   prevDueDate      DateTime?
   dueDateChangedAt DateTime?
+  // Carpeta del proyecto dentro de Operaciones_LAB (ruta relativa al bind mount NAS_OPS_DIR).
+  // Con carpeta vinculada, las subidas de Archivos van ahí por defecto (kind OPS) y la pestaña
+  // muestra la carpeta EN VIVO (se lee el disco, no un índice).
+  opsFolder    String?
   folders      ProjectFolder[]
   files        FileAsset[]
   libraryAssets LibraryAsset[] @relation("LibraryProject") // recursos de la Biblioteca ligados a este proyecto
@@ -1993,6 +1997,7 @@ enum FileKind {
   DRIVE
   LINK
   NAS // ruta SMB del NAS para copiar/pegar en el explorador (\\servidor\carpeta)
+  OPS // archivo VIVO en Operaciones_LAB (bind mount NAS_OPS_DIR); path = ruta relativa ahí
 }
 
 // Archivo/referencia a NIVEL DE CLIENTE (ligero): enlaces (Drive/web) y rutas de red SMB

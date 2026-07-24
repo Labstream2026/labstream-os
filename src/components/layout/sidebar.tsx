@@ -12,6 +12,7 @@ import {
   ChevronRight,
   FileCheck2,
   FolderCheck,
+  HardDrive,
   Home,
   Inbox,
   Library,
@@ -173,6 +174,7 @@ export function Sidebar({
   canClients = true,
   canPapelera = false,
   canCreateTasks = false,
+  opsEnabled = false,
   isCliente = false,
   collapsed = false,
   drawer = false,
@@ -197,6 +199,8 @@ export function Sidebar({
   canPapelera?: boolean;
   // Muestra el acceso rápido «+ Tarea» del cajón móvil (los modales viven en QuickCreateFab).
   canCreateTasks?: boolean;
+  // Hay carpeta Operaciones_LAB montada (NAS_OPS_DIR): muestra la sección «Operaciones».
+  opsEnabled?: boolean;
   isCliente?: boolean;
   collapsed?: boolean;
   drawer?: boolean;
@@ -233,6 +237,8 @@ export function Sidebar({
     { href: "/revisiones", label: "Proyectos a revisar", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
     { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
+    // Explorador del disco Operaciones_LAB (bind mount del NAS). Solo equipo; nunca clientes.
+    { href: "/operaciones", label: "Operaciones", icon: HardDrive, show: !isCliente && opsEnabled, active: pathname.startsWith("/operaciones") },
   ];
 
   // Archivar un cliente (solo admin): borrado SUAVE (restaurable desde /clientes).

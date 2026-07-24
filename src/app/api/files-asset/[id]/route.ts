@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, path: true, mime: true, projectId: true, project: { select: accessSelect } },
+    select: { name: true, path: true, mime: true, kind: true, projectId: true, project: { select: accessSelect } },
   });
   if (!file || !file.path) return new NextResponse("No encontrado", { status: 404 });
 
@@ -66,6 +66,39 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
 
   const wantInline = !url.searchParams.get("download");
+
+  // Archivo VIVO de Operaciones_LAB (kind OPS): file.path es relativo al bind mount del NAS,
+  // no al storage interno. Se sirve desde allá (con Range) y, para imágenes en línea, con la
+  // miniatura cacheada (mismo trato que la preview WebP de los locales).
+  if (file.kind === "OPS") {
+    const { opsAbs, opsThumb } = await import("@/lib/nas-ops");
+    let opsFile: string;
+    try {
+      opsFile = await opsAbs(file.path);
+    } catch {
+      return new NextResponse("Ruta inválida", { status: 400 });
+    }
+    const opsType = mimeFor(file.name, file.mime);
+    const opsIsVideo = opsType.startsWith("video/") || VIDEO_EXT.test(file.name);
+    if (wantInline && !opsIsVideo) {
+      try {
+        const webp = await opsThumb(file.path, 1600);
+        if (webp) {
+          return new NextResponse(new Uint8Array(webp), {
+            headers: {
+              "Content-Type": "image/webp",
+              "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+              "X-Content-Type-Options": "nosniff",
+              "Cache-Control": "private, no-store",
+            },
+          });
+        }
+      } catch {
+        /* sin miniatura → sigue con el original */
+      }
+    }
+    return serveDisk(req, opsFile, file.name, opsType, opsIsVideo, wantInline);
+  }
 
   // Copia de revisión (proxy 1080p): con ?proxy=1 se sirve la copia ligera de la versión
   // que usa este archivo, si ya existe. Mismo token y permisos (es contenido DERIVADO del
@@ -112,6 +145,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   let abs: string;
   try { abs = absPath(servePath); } catch { return new NextResponse("Ruta inválida", { status: 400 }); }
+  return serveDisk(req, abs, file.name, contentType, isVideo, wantInline);
+}
+
+// Sirve un archivo del disco con soporte Range. Compartido entre el storage interno y los
+// archivos vivos de Operaciones_LAB (kind OPS): mismo trato de inline-safe y streaming.
+async function serveDisk(req: NextRequest, abs: string, name: string, contentType: string, isVideo: boolean, wantInline: boolean) {
   let size: number;
   try { size = (await fs.stat(abs)).size; } catch { return new NextResponse("Archivo no disponible", { status: 404 }); }
 
@@ -122,7 +161,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const disposition = inline ? "inline" : "attachment";
   const baseHeaders: Record<string, string> = {
     "Content-Type": outType,
-    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(name)}`,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
+import { opsEnabled, listOps, statOps } from "@/lib/nas-ops";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
@@ -151,6 +152,36 @@ export default async function ProyectoPage({
   // saltan ese candado → se les añade `alive` explícito.
   const alive = !project.archivedAt && !project.finishedAt;
   const canUploadFiles = canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "subir_archivos"));
+
+  // ── Carpeta viva de Operaciones_LAB (bind mount del NAS) ──
+  // El cliente jamás la ve (rutas internas). Se lee el disco EN VIVO: la sección muestra lo
+  // que llegó por Finder/SMB y no está registrado; los FileAsset OPS cuya ruta ya no exista
+  // se marcan «¿movido?». Todo con try/catch: si el mount se cae, la pestaña sigue viva.
+  const opsAvailable = opsEnabled() && !isCliente;
+  const allProjectFiles = [...project.files, ...project.folders.flatMap((f) => f.files)];
+  let opsInfo: { folder: string; ok: boolean; live: { name: string; rel: string; size: number | null; mtimeMs: number; ext: string }[]; dirs: { name: string; rel: string }[]; ooReady: boolean } | null = null;
+  const opsMissing = new Set<string>();
+  if (opsAvailable && project.opsFolder) {
+    let ok = false;
+    let live: { name: string; rel: string; size: number | null; mtimeMs: number; ext: string }[] = [];
+    let dirs: { name: string; rel: string }[] = [];
+    try {
+      const l = await listOps(project.opsFolder);
+      ok = true;
+      const registered = new Set(allProjectFiles.filter((f) => f.kind === "OPS" && f.path).map((f) => f.path as string));
+      live = l.files.filter((f) => !registered.has(f.rel)).map((f) => ({ name: f.name, rel: f.rel, size: f.size, mtimeMs: f.mtimeMs, ext: f.ext }));
+      dirs = l.dirs.map((d) => ({ name: d.name, rel: d.rel }));
+    } catch {
+      ok = false;
+    }
+    opsInfo = { folder: project.opsFolder, ok, live, dirs, ooReady: await onlyofficeReady() };
+  }
+  if (opsAvailable) {
+    for (const f of allProjectFiles) {
+      if (f.kind !== "OPS" || !f.path) continue;
+      if (!(await statOps(f.path))) opsMissing.add(f.id);
+    }
+  }
   // Broche del TERMINADO: el banner muestra el proyecto en números (todo ya viene cargado
   // arriba — tareas con timeEntries y entregables — así que sumar aquí no cuesta consultas).
   const finishedStats = project.finishedAt
@@ -763,9 +794,11 @@ export default async function ProyectoPage({
                   icon: f.icon,
                   color: f.color,
                   // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null })),
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) })),
                 }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) }))}
+                ops={opsInfo}
+                canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
               />
             </section>
           </div>

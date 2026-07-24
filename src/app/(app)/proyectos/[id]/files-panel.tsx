@@ -31,10 +31,21 @@ import {
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { addFile, addNasRoute, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
+import { OpsFolderPicker } from "./ops-folder-picker";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmojiSelect } from "@/components/emoji-select";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null; missing?: boolean };
+
+// Carpeta viva de Operaciones_LAB vinculada al proyecto (solo equipo; el cliente no la ve).
+type OpsLiveFile = { name: string; rel: string; size: number | null; mtimeMs: number; ext: string };
+type OpsInfo = {
+  folder: string; // ruta relativa dentro de Operaciones_LAB
+  ok: boolean; // la carpeta existe/responde en el disco
+  live: OpsLiveFile[]; // archivos EN el disco que no están registrados en el proyecto
+  dirs: { name: string; rel: string }[];
+  ooReady: boolean;
+};
 
 // Botón "Copiar ruta" para rutas de red SMB: el navegador no abre \\servidor\carpeta,
 // así que la copiamos al portapapeles para pegarla en el explorador de archivos.
@@ -62,7 +73,7 @@ function matchesOrigin(f: FileAsset, o: Origin): boolean {
   if (o === "chat") return !!f.chat;
   if (o === "tarea") return !!f.task;
   if (o === "enlace") return f.kind === "LINK" || f.kind === "DRIVE";
-  return f.kind === "NAS";
+  return f.kind === "NAS" || f.kind === "OPS";
 }
 const IMG_EXT = /\.(jpe?g|png|webp|gif|avif)$/i;
 
@@ -70,12 +81,19 @@ export function FilesPanel({
   projectId,
   folders,
   looseFiles,
+  ops = null,
+  canLinkOps = false,
 }: {
   projectId: string;
   folders: FolderItem[];
   looseFiles: FileAsset[];
+  // Carpeta viva de Operaciones_LAB (null = sin vincular o usuario sin acceso a rutas NAS).
+  ops?: OpsInfo | null;
+  // Puede vincular/cambiar la carpeta (equipo con escritura y NAS_OPS_DIR montado).
+  canLinkOps?: boolean;
 }) {
   const [tool, setTool] = React.useState<null | "upload" | "link" | "nas" | "folder">(null);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(folders.filter((f) => f.files.length).map((f) => [f.id, true])),
   );
@@ -118,6 +136,9 @@ export function FilesPanel({
         <ToolBtn active={tool === "link"} onClick={() => flip("link")} icon={Link2}>Añadir enlace</ToolBtn>
         <ToolBtn active={tool === "nas"} onClick={() => flip("nas")} icon={HardDrive}>Ruta de red (SMB)</ToolBtn>
         <ToolBtn active={tool === "folder"} onClick={() => flip("folder")} icon={FolderPlus}>Nueva carpeta</ToolBtn>
+        {canLinkOps && !ops ? (
+          <ToolBtn active={pickerOpen} onClick={() => setPickerOpen(true)} icon={HardDrive}>Vincular carpeta del NAS</ToolBtn>
+        ) : null}
       </div>
 
       {/* Formulario activo */}
@@ -126,6 +147,14 @@ export function FilesPanel({
           <input type="file" name="files" multiple required className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
           <FolderSelect folders={folders} />
           <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Subir</button>
+          {ops ? (
+            // Con carpeta vinculada, el destino predeterminado es Operaciones_LAB; el checkbox
+            // fuerza el almacenamiento interno de la app para casos puntuales.
+            <label className="flex w-full items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" name="internal" className="accent-[#F47A20]" />
+              Guardar en el almacenamiento interno (no en Operaciones_LAB/{ops.folder})
+            </label>
+          ) : null}
         </form>
       ) : null}
       {tool === "link" ? (
@@ -198,6 +227,68 @@ export function FilesPanel({
         </div>
       ) : null}
 
+      {/* Carpeta VIVA de Operaciones_LAB: lo que hay EN el disco del NAS ahora mismo (lo
+          registrado en el proyecto sale en la lista de abajo; aquí, lo agregado por Finder/SMB). */}
+      {ops ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
+            <HardDrive className="size-4 text-[#F47A20]" />
+            <span className="text-sm font-medium">Operaciones_LAB/{ops.folder}</span>
+            <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">en vivo</span>
+            <span className="ml-auto flex items-center gap-2">
+              <a href={`/operaciones?path=${encodeURIComponent(ops.folder)}`} className="text-xs text-primary hover:underline">Abrir en Operaciones</a>
+              {canLinkOps ? (
+                <button type="button" onClick={() => setPickerOpen(true)} className="text-xs text-muted-foreground hover:text-foreground">Cambiar</button>
+              ) : null}
+            </span>
+          </div>
+          {!ops.ok ? (
+            <p className="px-3 py-3 text-sm text-amber-600 dark:text-amber-400">
+              La carpeta no responde: ¿la movieron o renombraron desde el NAS? Vincula la nueva ubicación con «Cambiar».
+            </p>
+          ) : (
+            <>
+              {ops.dirs.length ? (
+                <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                  {ops.dirs.map((d) => (
+                    <a key={d.rel} href={`/operaciones?path=${encodeURIComponent(d.rel)}`} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
+                      <Folder className="size-3.5 text-[#F47A20]" /> {d.name}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+              {ops.live.length === 0 ? (
+                <p className="px-3 py-2.5 text-xs text-muted-foreground">Nada suelto en la carpeta: todo lo que hay está registrado abajo. Lo que el equipo suelte por el Finder aparecerá aquí.</p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {ops.live.map((f) => {
+                    const { Icon, color } = fileIcon(f.name, "OPS");
+                    return (
+                      <li key={f.rel} className="group/live flex items-center gap-2.5 py-2 pl-3 pr-2 hover:bg-muted/40">
+                        {IMG_EXT.test(f.name) ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`} alt="" loading="lazy" className="size-8 shrink-0 rounded object-cover ring-1 ring-border" />
+                        ) : (
+                          <Icon className={cn("size-4 shrink-0", color)} />
+                        )}
+                        <a href={`/api/ops/file?path=${encodeURIComponent(f.rel)}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm hover:underline">{f.name}</a>
+                        <span className="hidden shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 sm:inline-flex" title="Está en el disco pero llegó por fuera de la app (Finder/SMB)">desde el NAS</span>
+                        <div className="flex items-center gap-2.5 opacity-100 md:opacity-0 md:group-hover/live:opacity-100">
+                          {ops.ooReady && /\.(docx?|odt|rtf|txt|xlsx?|ods|csv|pptx?|odp|pdf)$/i.test(f.name) ? (
+                            <a href={`/docs/ops?path=${encodeURIComponent(f.rel)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline" title="Editar en OnlyOffice"><Pencil className="size-3.5" /></a>
+                          ) : null}
+                          <a href={`/api/ops/file?path=${encodeURIComponent(f.rel)}&download=1`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Descargar"><Download className="size-3.5" /></a>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      ) : null}
+
       {/* A1 · Cuadrícula con miniaturas (imágenes reales; el resto, icono grande) */}
       {!empty && view === "cuadricula" ? (
         gridFiles.length === 0 ? (
@@ -267,6 +358,8 @@ export function FilesPanel({
           </ul>
         )}
       </div>
+
+      {pickerOpen ? <OpsFolderPicker projectId={projectId} current={ops?.folder ?? null} onClose={() => setPickerOpen(false)} /> : null}
     </div>
   );
 }
@@ -371,16 +464,31 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
           <span className="max-w-[8rem] truncate">{file.task.title}</span>
         </a>
       ) : null}
+      {/* Chip «NAS»: archivo VIVO de Operaciones_LAB (kind OPS); el título muestra la ruta. */}
+      {file.kind === "OPS" ? (
+        <span
+          title={file.path ? `Operaciones_LAB/${file.path}` : "Vive en Operaciones_LAB"}
+          className="hidden shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 sm:inline-flex"
+        >
+          <HardDrive className="size-3" /> NAS
+        </span>
+      ) : null}
+      {/* El archivo registrado ya no está en el disco (¿movido/renombrado desde el NAS?). */}
+      {file.missing ? (
+        <span className="hidden shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 sm:inline-flex" title="No se encontró en Operaciones_LAB: lo movieron o renombraron desde el NAS. Búscalo en el explorador de Operaciones.">
+          ¿movido?
+        </span>
+      ) : null}
       {file.kind === "NAS" && file.path ? (
         <span className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block sm:max-w-[16rem]">{file.path}</span>
       ) : null}
       <div className="flex items-center gap-2.5 opacity-100 md:opacity-0 md:group-hover/file:opacity-100">
         {file.kind === "NAS" && file.path ? (
           <CopyPathButton path={file.path} />
-        ) : file.kind === "LOCAL" ? (
+        ) : file.kind === "LOCAL" || file.kind === "OPS" ? (
           <>
             <a href={`/api/files-asset/${file.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Ver"><Eye className="size-3.5" /></a>
-            {file.editable ? (
+            {file.editable && !file.missing ? (
               <a href={`/docs/file/${file.id}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline" title="Editar"><Pencil className="size-3.5" /></a>
             ) : null}
             <a href={`/api/files-asset/${file.id}?download=1`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Descargar"><Download className="size-3.5" /></a>
@@ -390,7 +498,7 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
         ) : null}
         <form action={deleteFile.bind(null, file.id, projectId)}>
           <ConfirmSubmit
-            message={`¿Eliminar «${file.name}»?`}
+            message={file.kind === "OPS" ? `¿Quitar «${file.name}» del proyecto? El archivo NO se borra: sigue en Operaciones_LAB (y aparecerá en la sección «en vivo»).` : `¿Eliminar «${file.name}»?`}
             confirmLabel="Eliminar"
             className="text-muted-foreground hover:text-destructive"
             title="Eliminar"
@@ -407,8 +515,8 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
 // que ya sirve /api/files-asset), icono grande para el resto. Clic = ver/abrir.
 function GridCard({ file }: { file: FileAsset }) {
   const { Icon, color } = fileIcon(file.name, file.kind);
-  const isImg = file.kind === "LOCAL" && IMG_EXT.test(file.name);
-  const href = file.kind === "LOCAL" ? `/api/files-asset/${file.id}` : file.url || null;
+  const isImg = (file.kind === "LOCAL" || (file.kind === "OPS" && !file.missing)) && IMG_EXT.test(file.name);
+  const href = file.kind === "LOCAL" || file.kind === "OPS" ? `/api/files-asset/${file.id}` : file.url || null;
   const body = (
     <>
       {isImg ? (

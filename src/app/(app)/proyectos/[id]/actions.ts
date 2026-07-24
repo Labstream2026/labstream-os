@@ -13,6 +13,7 @@ import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { emptyDocx } from "@/lib/docx";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
+import { writeOps, opsReady } from "@/lib/nas-ops";
 import { claimChunkUpload } from "@/lib/chunked-claim";
 import { logActivity } from "@/lib/activity";
 import { notify, notifyAndEmail, notifyMany, notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
@@ -2476,8 +2477,34 @@ export async function uploadProjectFiles(projectId: string, formData: FormData) 
   const files = formData
     .getAll("files")
     .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name));
+  // Destino predeterminado: con carpeta de Operaciones_LAB vinculada, el archivo se escribe
+  // DIRECTO en la share del NAS (kind OPS, visible por SMB con su nombre real) y se registra
+  // como FileAsset para chips/permisos/auditoría. El checkbox «internal» fuerza el storage
+  // interno; el cliente del portal siempre sube a interno (no maneja rutas del NAS).
+  let opsDir: string | null = null;
+  if (!formData.get("internal") && session.role !== "cliente") {
+    const proj = await db.project.findUnique({ where: { id: projectId }, select: { opsFolder: true } });
+    if (proj?.opsFolder && (await opsReady())) opsDir = proj.opsFolder;
+  }
   for (const file of files) {
     const buf = Buffer.from(await file.arrayBuffer());
+    if (opsDir !== null) {
+      const rel = await writeOps(opsDir, file.name, buf);
+      const asset = await db.fileAsset.create({
+        data: {
+          projectId,
+          name: rel.split("/").pop() || file.name,
+          kind: "OPS",
+          path: rel,
+          mime: mimeFor(file.name, file.type),
+          size: buf.length,
+          folderId,
+          uploadedById: session.id,
+        },
+      });
+      await logActivity({ action: "file.upload", summary: `subió «${file.name}» a Operaciones_LAB/${opsDir}`, projectId, entityType: "file", entityId: asset.id });
+      continue;
+    }
     const asset = await db.fileAsset.create({
       data: {
         projectId,
