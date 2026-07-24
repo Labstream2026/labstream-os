@@ -143,6 +143,8 @@ model User {
   // Entregables que esta persona marcó como PUBLICADOS (trazabilidad del sello de publicación).
   publishedDeliverables Deliverable[]   @relation("DeliverablePublisher")
   libraryAssets    LibraryAsset[]       @relation("LibraryUploader")
+  storageDisks     StorageDisk[]        @relation("DiskCreator")
+  materialLocations MaterialLocation[]  @relation("MaterialCreator")
   createdPolls     Poll[]               @relation("PollCreator")
   pollVotes        PollVote[]
   notifications    Notification[]       @relation("NotificationRecipient")
@@ -586,6 +588,7 @@ model Project {
   folders      ProjectFolder[]
   files        FileAsset[]
   libraryAssets LibraryAsset[] @relation("LibraryProject") // recursos de la Biblioteca ligados a este proyecto
+  materialLocations MaterialLocation[] // mapa del material: en qué discos vive el bruto/edición/exportes/respaldo
   channels     ChatChannel[] // interno (solo equipo) + con el cliente (cuando hay invitado)
   events       CalendarEvent[]
   tables       DataTable[]
@@ -1865,6 +1868,60 @@ model LibraryAsset {
   @@index([category])
   @@index([projectId])
   @@index([clientId])
+}
+
+// ── Discos y mapa del material ─────────────────────────────────────────────
+// La Biblioteca responde «¿en qué disco está el material de X y sus copias?».
+
+// Disco físico o de nube del estudio: NAS, HDD externo, SSD, LTO o nube.
+model StorageDisk {
+  id          String    @id @default(cuid())
+  name        String // "LAB-01 · LaCie 4 TB"
+  kind        String    @default("HDD") // NAS | HDD | SSD | LTO | NUBE
+  color       String? // color de la etiqueta (hex) para los chips del mapa
+  capacityGB  Int? // capacidad total en GB; null = desconocida
+  usedGB      Int? // ocupación anotada a mano (GB); si isNas, se lee EN VIVO del mount
+  location    String? // dónde está físicamente ("Estudio · cajón 2")
+  // Fuera del estudio: cuenta como la copia «off-site» de la regla 3-2-1.
+  // La nube (kind NUBE) siempre cuenta como off-site aunque este flag esté apagado.
+  offsite     Boolean   @default(false)
+  // Es el NAS con Operaciones_LAB montado: su ocupación se lee del disco (statfs),
+  // sin anotar nada a mano. A lo sumo uno debería tenerlo encendido.
+  isNas       Boolean   @default(false)
+  status      String    @default("ACTIVO") // ACTIVO | RETIRADO (retirado no aparece al registrar)
+  notes       String?
+  lastCheckAt DateTime? // última verificación física (conectarlo y ver que abre)
+  // Último aviso de «toca verificar este disco» (barrido semestral): evita repetir la campana.
+  checkNotifiedAt DateTime?
+  createdBy   User?     @relation("DiskCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  locations   MaterialLocation[]
+
+  @@index([status])
+}
+
+// Una entrada del mapa: el material de un PROYECTO, en un ROL, vive en un DISCO.
+// Cascade en ambos lados: sin proyecto o sin disco la entrada no significa nada.
+model MaterialLocation {
+  id          String      @id @default(cuid())
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  disk        StorageDisk @relation(fields: [diskId], references: [id], onDelete: Cascade)
+  diskId      String
+  role        String // BRUTO | EDICION | EXPORTES | RESPALDO
+  path        String? // ruta dentro del disco ("/MiParamo/BRUTO_2026")
+  notes       String?
+  verifiedAt  DateTime? // última vez que alguien confirmó que el material está ahí
+  createdBy   User?       @relation("MaterialCreator", fields: [createdById], references: [id])
+  createdById String?
+  createdAt   DateTime    @default(now())
+
+  // Un disco no repite el mismo rol en el mismo proyecto (dos respaldos = dos discos).
+  @@unique([projectId, diskId, role])
+  @@index([projectId])
+  @@index([diskId])
 }
 
 model ReviewComment {

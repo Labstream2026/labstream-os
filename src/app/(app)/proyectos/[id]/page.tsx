@@ -38,6 +38,7 @@ import { NextForClientCard } from "./next-for-client";
 import { ClientRequestsPanel } from "./client-requests-panel";
 import { formatBogota } from "@/lib/bogota-time";
 import { FilesPanel } from "./files-panel";
+import { MaterialCard } from "./material-card";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
 import { ProjectChatBubble } from "./project-chat-bubble";
@@ -772,6 +773,12 @@ export default async function ProyectoPage({
                 onlyoffice={await onlyofficeReady()}
               />
             </section>
+
+            {/* ¿Dónde está el material? — discos y respaldos del proyecto (solo equipo:
+                los discos internos no se exponen al cliente, como las rutas NAS). */}
+            {!isCliente ? (
+              <MaterialCard projectId={id} canManage={hasPermission(session, "gestionar_biblioteca")} />
+            ) : null}
 
             {/* Resto de archivos del proyecto (carpetas, subidas, enlaces, rutas de red). */}
             <section>
