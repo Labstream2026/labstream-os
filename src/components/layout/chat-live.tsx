@@ -125,6 +125,24 @@ export function ChatLiveProvider({ enabled = true, children }: { enabled?: boole
     return () => clearTimeout(t);
   }, [summary, pathname]);
 
+  // Globo de no-leídos en el ICONO de la app instalada, con el mismo conteo del título:
+  // PWA (Badging API → globo del Dock/barra de tareas) y app de escritorio Tauri (evento
+  // `ls-badge` → el shell pinta el número en el Dock / punto rojo en Windows). Best-effort:
+  // en un navegador normal ninguna de las dos existe y no pasa nada.
+  React.useEffect(() => {
+    if (!summary) return;
+    const n = summary.total;
+    try {
+      const nav = navigator as Navigator & { setAppBadge?: (n: number) => void; clearAppBadge?: () => void };
+      if (n > 0) nav.setAppBadge?.(n);
+      else nav.clearAppBadge?.();
+    } catch { /* sin permiso o sin soporte: da igual */ }
+    try {
+      type TauriGlobal = { event?: { emit?: (name: string, payload: unknown) => void } };
+      (window as Window & { __TAURI__?: TauriGlobal }).__TAURI__?.event?.emit?.("ls-badge", { count: n });
+    } catch { /* fuera de la app de escritorio */ }
+  }, [summary]);
+
   // subscribe es ESTABLE (no depende del resumen): los suscriptores no se re-suscriben
   // con cada recount, solo cuando de verdad cambian sus deps.
   const subscribe = React.useCallback((fn: (m: ChatLiveMessage) => void) => {
