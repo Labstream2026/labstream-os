@@ -279,3 +279,19 @@ export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | nul
   await writeRelBuffer(cacheRel, webp);
   return webp;
 }
+
+// Ocupación del volumen que respalda Operaciones_LAB (statfs del mount): la Biblioteca
+// pinta el disco marcado «Es el NAS» EN VIVO, sin anotar TB a mano. null si el mount
+// no está (dev sin variable, o deploy sin bind mount) — el que llama cae al valor manual.
+export async function opsDiskUsage(): Promise<{ usedGB: number; totalGB: number } | null> {
+  if (!(await opsReady())) return null;
+  try {
+    const s = await fs.statfs(OPS_DIR);
+    const total = Number(s.blocks) * Number(s.bsize);
+    const free = Number(s.bavail) * Number(s.bsize); // lo disponible de verdad (no-root)
+    if (!Number.isFinite(total) || total <= 0) return null;
+    return { usedGB: Math.round((total - free) / 1e9), totalGB: Math.round(total / 1e9) };
+  } catch {
+    return null;
+  }
+}

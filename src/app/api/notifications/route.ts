@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { sweepStaleTasks } from "@/lib/stale-tasks";
+import { sweepDiskChecks } from "@/lib/disk-checks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export async function GET() {
   // Barrido de SLA de entregables (pre-aprobaciones/correcciones vencidas), mismo patrón.
   void sweepDeliverableSla().catch(() => {});
   void sweepStaleTasks().catch(() => {});
+  // Discos de la Biblioteca sin verificar hace 6+ meses (throttle interno de 12 h).
+  void sweepDiskChecks().catch(() => {});
 
   const [rows, unread, me] = await Promise.all([
     db.notification.findMany({

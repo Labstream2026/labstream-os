@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
 import { daysSince, materialHealth } from "@/lib/material-health";
+import { opsDiskUsage } from "@/lib/nas-ops";
 import { IconBiblioteca } from "@/components/icons";
 import { PageHeader } from "@/components/ui/page-header";
 import { Recursos, type LibRow } from "./recursos";
@@ -111,28 +112,36 @@ async function RecursosTab({ canManage, userId }: { canManage: boolean; userId: 
 }
 
 async function DiscosTab({ canManage, now }: { canManage: boolean; now: Date }) {
-  const disks = await db.storageDisk.findMany({
-    orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-    include: { locations: { select: { projectId: true } } },
-  });
+  const [disks, nasUsage] = await Promise.all([
+    db.storageDisk.findMany({
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      include: { locations: { select: { projectId: true } } },
+    }),
+    // Ocupación EN VIVO de Operaciones_LAB (statfs): pinta el disco «Es el NAS» sola.
+    // null si el mount no está (dev o deploy sin bind): se usa el valor anotado a mano.
+    opsDiskUsage(),
+  ]);
 
-  const rows: DiskRow[] = disks.map((d) => ({
-    id: d.id,
-    name: d.name,
-    kind: d.kind,
-    color: d.color,
-    capacityGB: d.capacityGB,
-    usedGB: d.usedGB,
-    liveNas: false, // la lectura en vivo del NAS llega con el extra 4
-    location: d.location,
-    offsite: d.offsite,
-    isNas: d.isNas,
-    status: d.status,
-    notes: d.notes,
-    lastCheckDays: daysSince(d.lastCheckAt, now),
-    nProjects: new Set(d.locations.map((l) => l.projectId)).size,
-    nLocations: d.locations.length,
-  }));
+  const rows: DiskRow[] = disks.map((d) => {
+    const live = d.isNas && nasUsage ? nasUsage : null;
+    return {
+      id: d.id,
+      name: d.name,
+      kind: d.kind,
+      color: d.color,
+      capacityGB: live?.totalGB ?? d.capacityGB,
+      usedGB: live?.usedGB ?? d.usedGB,
+      liveNas: Boolean(live),
+      location: d.location,
+      offsite: d.offsite,
+      isNas: d.isNas,
+      status: d.status,
+      notes: d.notes,
+      lastCheckDays: daysSince(d.lastCheckAt, now),
+      nProjects: new Set(d.locations.map((l) => l.projectId)).size,
+      nLocations: d.locations.length,
+    };
+  });
 
   return <Discos disks={rows} canManage={canManage} />;
 }

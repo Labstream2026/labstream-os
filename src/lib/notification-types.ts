@@ -84,6 +84,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
 
   // ── Administración ──
   { key: "admin_role", label: "Cambios de rol y permisos", description: "Cuando cambian tu rol o tus permisos.", category: "Administración", essential: true, priority: 2 },
+  { key: "disk_check", label: "Verificación de discos pendiente", description: "Cuando un disco de la Biblioteca lleva 6+ meses sin verificarse (conectarlo y confirmar que abre).", category: "Administración", priority: 1 },
 
   // ── Recordatorios ──
   { key: "reminder_fire", label: "Recordatorio programado", description: "Cuando llega la hora de un recordatorio tuyo (puntual o recurrente).", category: "Recordatorios" },
