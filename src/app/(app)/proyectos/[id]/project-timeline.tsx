@@ -26,6 +26,7 @@ export function ProjectTimeline({
   priorities,
   canEdit,
   projectStart,
+  projectEnd,
 }: {
   projectId: string;
   tasks: Task[];
@@ -136,7 +137,17 @@ export function ProjectTimeline({
   }
   for (const d of deliverables) {
     const k = dayKey(d.dueDate ?? null);
-    if (k) milestones.push({ id: `deliv-${d.id}`, dayKey: k, label: `Entrega · ${d.name}`, emoji: "📦", colorHex: tone("emerald").hex });
+    // G2 · El hito ABRE su tarjeta en la pestaña Entregables (ancla por id): el Gantt deja
+    // de ser decorativo y cierra el ciclo planear → revisar.
+    if (k)
+      milestones.push({
+        id: `deliv-${d.id}`,
+        dayKey: k,
+        label: `Entrega · ${d.name}`,
+        emoji: "📦",
+        colorHex: tone("emerald").hex,
+        onClick: () => { window.location.href = `/proyectos/${projectId}?tab=entregables#entregable-${d.id}`; },
+      });
   }
 
   const lanes: TLLane[] = [];
@@ -154,6 +165,22 @@ export function ProjectTimeline({
     const bars = tasks.map(toBar).filter(Boolean) as TLBar[];
     if (bars.length) lanes.push({ key: "__tasks", label: "Tareas", bars });
   }
+
+  // G1 · Veredicto tiempo vs avance: la matemática que todos hacen mentalmente, hecha.
+  // Solo con fechas de proyecto y tareas que contar; % avance = tareas cerradas.
+  const verdict = (() => {
+    const s = projectStart ? new Date(projectStart).getTime() : NaN;
+    const e = projectEnd ? new Date(projectEnd).getTime() : NaN;
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s || allTasks.length === 0) return null;
+    const pctTime = Math.min(100, Math.max(0, Math.round(((Date.now() - s) / (e - s)) * 100)));
+    const doneCount = allTasks.filter((t) => t.completedAt || doneKeys.has(t.status)).length;
+    const pctDone = Math.round((doneCount / allTasks.length) * 100);
+    const gap = pctDone - pctTime;
+    const label = gap >= 10 ? "adelantado" : gap >= -10 ? "a tiempo" : gap >= -25 ? "ligeramente atrasado" : "atrasado";
+    const cls =
+      gap >= -10 ? "text-emerald-700 dark:text-emerald-300" : gap >= -25 ? "text-amber-700 dark:text-amber-300" : "text-red-700 dark:text-red-300";
+    return { pctTime, pctDone, label, cls };
+  })();
 
   // Resumen de horas del proyecto: estimadas vs registradas (suma de todas las tareas).
   const totalEst = tasks.reduce((n, t) => n + (t.estimatedMinutes ?? 0), 0);
@@ -189,6 +216,14 @@ export function ProjectTimeline({
         </div>
         </div>
       </div>
+
+      {verdict ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">¿Vamos a tiempo?</span>
+          <span className="text-muted-foreground">{verdict.pctTime}% del tiempo transcurrido · {verdict.pctDone}% de tareas completadas →</span>
+          <strong className={verdict.cls}>{verdict.label}</strong>
+        </div>
+      ) : null}
 
       {totalEst > 0 || totalLogged > 0 ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">

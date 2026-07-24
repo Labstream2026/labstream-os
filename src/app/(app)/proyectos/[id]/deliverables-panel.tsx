@@ -311,7 +311,7 @@ export function DeliverablesPanel({
             ? `v${latest.number}`
             : "sin versiones";
         return (
-          <div key={d.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div key={d.id} id={`entregable-${d.id}`} className="scroll-mt-24 rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 {d.owner ? <UserAvatar initials={d.owner.initials} color={d.owner.avatarColor} size="md" /> : null}
