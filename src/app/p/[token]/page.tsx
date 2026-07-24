@@ -77,7 +77,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   );
   const status = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
   const accepted = status === "ACEPTADA";
+  const rejected = status === "RECHAZADA";
   const expired = status === "VENCIDA";
+  // Decidida = el cliente ya respondió (sí o no): no se le vuelve a pedir que decida.
+  const decided = accepted || rejected;
 
   // Tema "cine": el deck editorial de Labstream a pantalla completa (verde-noche y crema
   // alternándose, videos de fondo, índice lateral). El pie —aceptar / vencida— va como última
@@ -93,6 +96,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
           accepted ? (
             <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
               ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
+            </div>
+          ) : rejected ? (
+            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(237,239,234,0.78)" }}>
+              Registramos tu respuesta. Gracias por contarnos el motivo.
             </div>
           ) : expired ? (
             <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
@@ -129,6 +136,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
               <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
                 ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
               </div>
+            ) : rejected ? (
+              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(244,246,250,0.75)" }}>
+                Registramos tu respuesta. Gracias por contarnos el motivo.
+              </div>
             ) : expired ? (
               <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
                 Esta propuesta venció. Escríbenos para actualizarla.
@@ -161,6 +172,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
         <div className="mx-auto mb-4 max-w-3xl rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 print:hidden">
           ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
         </div>
+      ) : rejected ? (
+        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-neutral-100 px-4 py-3 text-sm font-medium text-neutral-600 print:hidden">
+          Registramos tu respuesta. Gracias por contarnos el motivo.
+        </div>
       ) : expired ? (
         <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
           Esta propuesta venció. Escríbenos para actualizarla.
@@ -171,7 +186,7 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
         <ProposalRenderer blocks={blocks} brand={brand} />
       </div>
 
-      {!accepted && !expired ? (
+      {!decided && !expired ? (
         <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">
           <AcceptProposal token={token} accent={brand.accent} />
         </div>

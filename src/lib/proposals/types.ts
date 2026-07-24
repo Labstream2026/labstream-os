@@ -56,7 +56,7 @@ export type Brand = {
 // Paleta por defecto del tema "cine" — la de la propuesta de Mi Páramo.
 export const CINE_PALETTE = { ink: "#0E1512", cream: "#F4F1EA", gold: "#E6D2A6" } as const;
 
-export type ProposalStatus = "BORRADOR" | "ENVIADA" | "ACEPTADA" | "VENCIDA";
+export type ProposalStatus = "BORRADOR" | "ENVIADA" | "ACEPTADA" | "RECHAZADA" | "VENCIDA";
 
 export type Answers = Record<string, string>;
 
@@ -95,6 +95,7 @@ export const STATUS_META: Record<ProposalStatus, { label: string; tone: string }
   BORRADOR: { label: "Borrador", tone: "slate" },
   ENVIADA: { label: "Enviada", tone: "blue" },
   ACEPTADA: { label: "Aceptada", tone: "emerald" },
+  RECHAZADA: { label: "No aprobada", tone: "rose" },
   VENCIDA: { label: "Vencida", tone: "rose" },
 };
 
@@ -111,9 +112,12 @@ export function logoItems(raw: unknown): { name: string; logo: string }[] {
   });
 }
 
-// Estado efectivo: si la fecha de validez ya pasó, se considera VENCIDA.
+// Estado efectivo: si la fecha de validez ya pasó, se considera VENCIDA. Aceptada y NO aprobada
+// son DECISIONES ya tomadas: que después venza el calendario no las borra (una propuesta que el
+// cliente rechazó no debe aparecer como «vencida»: se perdió, y con motivo).
 export function effectiveStatus(p: { status: ProposalStatus; expiresAt?: Date | string | null }): ProposalStatus {
   if (p.status === "ACEPTADA") return "ACEPTADA";
+  if (p.status === "RECHAZADA") return "RECHAZADA";
   if (p.expiresAt) {
     const exp = typeof p.expiresAt === "string" ? new Date(p.expiresAt) : p.expiresAt;
     if (exp.getTime() < Date.now()) return "VENCIDA";

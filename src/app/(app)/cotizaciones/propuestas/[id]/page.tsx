@@ -15,7 +15,9 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
   if (!hasPermission(session, "crear_cotizaciones")) redirect("/cotizaciones");
 
   const [p, clients] = await Promise.all([
-    db.proposal.findUnique({ where: { id } }),
+    // `quote` incluida: si la propuesta ya se convirtió, el editor enlaza a la cotización
+    // en vez de ofrecer crearla otra vez.
+    db.proposal.findUnique({ where: { id }, include: { quote: { select: { id: true, code: true } } } }),
     db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true, emoji: true } }),
   ]);
   if (!p) notFound();
@@ -38,6 +40,8 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
       initialClientId={p.clientId ?? ""}
       initialHasPassword={p.accessPasswordHash != null}
       acceptance={p.acceptedAt ? { name: p.acceptedByName, email: p.acceptedByEmail, at: new Date(p.acceptedAt).toISOString() } : null}
+      rejection={p.rejectedAt ? { name: p.rejectedByName, email: p.rejectedByEmail, at: new Date(p.rejectedAt).toISOString(), reason: p.rejectReason } : null}
+      initialQuote={p.quote ? { id: p.quote.id, code: p.quote.code } : null}
       clients={clients.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
       publicUrl={publicUrl}
     />

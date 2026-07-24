@@ -36,6 +36,8 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
       items: { orderBy: { position: "asc" } },
       // Factura generada desde esta cotización (la más reciente) para la pestaña "Facturado".
       invoices: { orderBy: { createdAt: "desc" }, take: 1, include: { items: { orderBy: { position: "asc" } } } },
+      // Propuesta de la que nació, para poder leer el camino al revés.
+      fromProposals: { select: { id: true, code: true, title: true }, take: 1 },
     },
   });
   if (!quote) notFound();
@@ -108,6 +110,17 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
         </form>
       ) : quote.notes ? (
         <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground shadow-sm">{quote.notes}</p>
+      ) : null}
+
+      {/* De dónde salió: cierra el círculo propuesta → cotización → factura. */}
+      {quote.fromProposals[0] ? (
+        <Link
+          href={`/cotizaciones/propuestas/${quote.fromProposals[0].id}`}
+          className="flex w-fit items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm hover:bg-accent"
+        >
+          Nace de la propuesta <span className="font-mono font-medium text-foreground">{quote.fromProposals[0].code}</span>
+          <span className="hidden sm:inline">· {quote.fromProposals[0].title}</span>
+        </Link>
       ) : null}
 
       <div>

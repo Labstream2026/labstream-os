@@ -120,6 +120,59 @@ export async function acceptProposal(token: string, name: string, email: string)
   return { ok: true, emailed };
 }
 
+// Acción PÚBLICA: el cliente dice que NO, con motivo.
+//
+// Hasta ahora el portal solo permitía aceptar: una propuesta perdida se quedaba «Enviada» para
+// siempre y nadie sabía por qué. El MOTIVO es lo valioso — precio, tiempos, se fue con otro—,
+// así que es obligatorio, pero se pide en una frase, no en un formulario.
+//
+// Simétrica a acceptProposal: mismo rate-limit, misma validación y el mismo cambio ATÓMICO
+// (updateMany con guarda) para que dos clics no avisen dos veces. Una propuesta ya ACEPTADA no
+// se puede rechazar por aquí: ese cambio de opinión lo maneja el equipo.
+export async function rejectProposal(
+  token: string,
+  name: string,
+  email: string,
+  reason: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!rateLimit(`reject-proposal:${await rlKey(token)}`, 20, 60_000)) {
+    return { ok: false, error: "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo." };
+  }
+  const nm = (typeof name === "string" ? name : "").trim().slice(0, 120);
+  const em = (typeof email === "string" ? email : "").trim().slice(0, 160);
+  const why = (typeof reason === "string" ? reason : "").trim().slice(0, 500);
+  if (nm.length < 2) return { ok: false, error: "Escribe tu nombre." };
+  if (!EMAIL_RE.test(em)) return { ok: false, error: "Escribe un correo válido." };
+  if (why.length < 3) return { ok: false, error: "Cuéntanos brevemente el motivo: nos ayuda a mejorar la próxima." };
+
+  const id = verifyProposalToken(token);
+  if (!id) return { ok: false, error: "Enlace inválido o vencido." };
+  const p = await db.proposal.findUnique({
+    where: { id },
+    select: { status: true, title: true, code: true, createdById: true },
+  });
+  if (!p) return { ok: false, error: "Propuesta no disponible." };
+  if (p.status === "ACEPTADA") return { ok: false, error: "Esta propuesta ya fue aceptada. Escríbenos y lo revisamos contigo." };
+  if (p.status === "RECHAZADA") return { ok: true }; // idempotente: ya estaba, sin re-avisar
+
+  const res = await db.proposal.updateMany({
+    where: { id, status: { notIn: ["ACEPTADA", "RECHAZADA"] } },
+    data: { status: "RECHAZADA", rejectedAt: new Date(), rejectedByName: nm, rejectedByEmail: em, rejectReason: why },
+  });
+  revalidatePath(`/p/${token}`);
+  if (res.count === 0) return { ok: true }; // ganó otra petición concurrente
+
+  const nombrePieza = p.title || p.code;
+  await notifyAndEmail(p.createdById, {
+    type: "proposal",
+    title: `Propuesta no aprobada: ${nombrePieza}`,
+    body: `${nm} (${em}) no aprobó la propuesta «${nombrePieza}». Motivo: ${why}`,
+    link: `/cotizaciones/propuestas/${id}`,
+  }).catch(() => {});
+
+  return { ok: true };
+}
+
 // Acción PÚBLICA (sin sesión): el cliente escribe la contraseña de la reja para desbloquear la
 // propuesta. Si acierta, se deja una cookie httpOnly firmada (30 días) para no volver a pedirla.
 // Rate-limit estricto para frenar el adivinado por fuerza bruta. Devuelve {ok,error} (no lanza) para

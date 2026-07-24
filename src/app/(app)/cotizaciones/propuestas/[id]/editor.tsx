@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronUp, ChevronDown, Copy, Trash2, Pencil, Plus, Eye, EyeOff,
-  Link2, Printer, Settings2, Check, Loader2, Cloud,
+  Link2, Printer, Settings2, Check, Loader2, Cloud, Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
@@ -14,13 +14,13 @@ import { ProposalPresentation } from "../proposal-presentation";
 import { ProposalCine } from "../proposal-cine";
 import { BlockEditPanel } from "./block-edit";
 import { BLOCK_LABELS, STATUS_META, CINE_PALETTE, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
-import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword } from "../actions";
+import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword, createQuoteFromProposal } from "../actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
 export function ProposalEditor({
-  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, acceptance = null, clients = [], publicUrl,
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, acceptance = null, rejection = null, initialQuote = null, clients = [], publicUrl,
 }: {
   id: string;
   code: string;
@@ -32,6 +32,9 @@ export function ProposalEditor({
   initialClientId?: string;
   initialHasPassword?: boolean;
   acceptance?: { name: string | null; email: string | null; at: string } | null;
+  rejection?: { name: string | null; email: string | null; at: string; reason: string | null } | null;
+  /** Cotización ya nacida de esta propuesta (si el equipo ya la convirtió). */
+  initialQuote?: { id: string; code: string } | null;
   clients?: { id: string; name: string; emoji: string | null }[];
   publicUrl: string;
 }) {
@@ -48,6 +51,10 @@ export function ProposalEditor({
   const [hasPassword, setHasPassword] = React.useState(initialHasPassword);
   const [pwInput, setPwInput] = React.useState("");
   const [pwBusy, setPwBusy] = React.useState(false);
+  // Puente a facturación: la cotización nacida de esta propuesta.
+  const [quoteRef, setQuoteRef] = React.useState(initialQuote);
+  const [converting, setConverting] = React.useState(false);
+  const [convertError, setConvertError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
   const dirtyRef = React.useRef(false);
@@ -104,6 +111,22 @@ export function ProposalEditor({
       setTimeout(() => setCopied(false), 1800);
     });
   }
+  // Convierte la propuesta aceptada en cotización (el desglose viaja solo) y deja el enlace
+  // a la vista. Idempotente en el servidor: un doble clic devuelve la misma cotización.
+  async function convertToQuote() {
+    setConverting(true);
+    setConvertError(null);
+    try {
+      const r = await createQuoteFromProposal(id);
+      if (r.ok && r.quote) { setQuoteRef(r.quote); router.refresh(); }
+      else setConvertError(r.error ?? "No se pudo crear la cotización.");
+    } catch {
+      setConvertError("No se pudo crear la cotización. Inténtalo de nuevo.");
+    } finally {
+      setConverting(false);
+    }
+  }
+
   async function savePassword(remove: boolean) {
     setPwBusy(true);
     try {
@@ -161,6 +184,39 @@ export function ProposalEditor({
           {acceptance.email ? <span className="text-emerald-700/80 dark:text-emerald-300/70">· {acceptance.email}</span> : null}
           {/* timeZone fija Bogotá: mismo texto en SSR y cliente (sin desajuste de hidratación) y hora local correcta. */}
           <span className="text-emerald-700/80 dark:text-emerald-300/70">· {new Date(acceptance.at).toLocaleString("es-CO", { dateStyle: "long", timeStyle: "short", timeZone: "America/Bogota" })}</span>
+          {/* El puente comercial: de aquí sale la cotización con el desglose ya escrito. */}
+          <span className="ml-auto flex items-center gap-2">
+            {quoteRef ? (
+              <Link
+                href={`/cotizaciones/${quoteRef.id}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-background px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+              >
+                <Receipt className="size-3.5" /> Ver cotización {quoteRef.code}
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={convertToQuote}
+                disabled={converting}
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {converting ? <Loader2 className="size-3.5 animate-spin" /> : <Receipt className="size-3.5" />}
+                Crear cotización
+              </button>
+            )}
+          </span>
+          {convertError ? <p className="w-full text-xs text-destructive">{convertError}</p> : null}
+        </div>
+      ) : null}
+
+      {rejection ? (
+        <div className="mb-4 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-medium">No aprobada por {rejection.name || "el cliente"}</span>
+            {rejection.email ? <span className="text-muted-foreground">· {rejection.email}</span> : null}
+            <span className="text-muted-foreground">· {new Date(rejection.at).toLocaleString("es-CO", { dateStyle: "long", timeStyle: "short", timeZone: "America/Bogota" })}</span>
+          </div>
+          {rejection.reason ? <p className="mt-1 text-muted-foreground">«{rejection.reason}»</p> : null}
         </div>
       ) : null}
 

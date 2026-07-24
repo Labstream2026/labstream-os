@@ -739,6 +739,9 @@ model Quote {
   clientDecidedAt DateTime?
   items        QuoteItem[]
   invoices     Invoice[]
+  // Propuesta(s) que dieron origen a esta cotización (para leer el camino al revés:
+  // «esta factura nació de la propuesta PROP-0007»).
+  fromProposals Proposal[]  @relation("QuoteFromProposal")
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 }
@@ -875,6 +878,7 @@ enum ProposalStatus {
   BORRADOR
   ENVIADA
   ACEPTADA
+  RECHAZADA // el cliente dijo que no (con motivo): perder sin saber por qué es perder dos veces
   VENCIDA
 }
 
@@ -897,6 +901,18 @@ model Proposal {
   acceptedByName  String?
   acceptedByEmail String?
   acceptedByIp    String?
+  // Rechazo del cliente, simétrico a la aceptación. El MOTIVO es lo valioso: sin él solo se
+  // sabe que se perdió, no por qué (precio, tiempos, se fue con otro…).
+  rejectedAt      DateTime?
+  rejectedByName  String?
+  rejectedByEmail String?
+  rejectReason    String?
+  // Cotización nacida de esta propuesta. Es el puente comercial: el cliente decide sobre la
+  // PROPUESTA; el dinero entra al circuito cuando el equipo la convierte (permiso
+  // crear_cotizaciones). De ahí en adelante manda el camino que ya existía: cotización
+  // aprobada → factura.
+  quote       Quote?         @relation("QuoteFromProposal", fields: [quoteId], references: [id], onDelete: SetNull)
+  quoteId     String?
   answers     Json? // respuestas del asistente (regeneración / referencia)
   brand       Json // snapshot de marca (empresa, acento, contacto)
   blocks      Json // lista ordenada de bloques del documento

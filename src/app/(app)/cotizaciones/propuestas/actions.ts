@@ -15,6 +15,8 @@ import { getCatalogForWizard } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 import { isProposalStatus } from "@/lib/enum-guards";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
+import { logActivity } from "@/lib/activity";
+import { createOrGetQuoteForProposal } from "@/lib/quote-from-proposal";
 import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
 
 async function requirePerm(key: string) {
@@ -219,6 +221,44 @@ export async function setProposalStatus(id: string, status: string) {
   }
   await db.proposal.update({ where: { id }, data: { status } });
   refresh(id);
+}
+
+// ── Convertir una propuesta aceptada en cotización ──
+//
+// Es el eslabón que faltaba: hasta ahora una propuesta aceptada era un callejón sin salida y
+// alguien reteclaba el desglose completo a mano. Aquí el desglose viaja solo y de la cotización
+// a la factura sigue el camino que ya existía.
+//
+// Quién puede: `aprobar_cotizaciones`. Convertir es el acto INTERNO que mete el dinero en el
+// circuito comercial — el cliente decide sobre la propuesta, el equipo decide cuándo se cotiza.
+// La cotización nace en BORRADOR: alguien la revisa y la aprueba antes de facturar.
+export async function createQuoteFromProposal(id: string): Promise<{ ok: boolean; error?: string; quote?: { id: string; code: string }; alreadyExisted?: boolean }> {
+  const session = await requirePerm("aprobar_cotizaciones");
+  await ensureProposalAccess(id);
+  const p = await db.proposal.findUnique({
+    where: { id },
+    select: { id: true, code: true, title: true, clientId: true, expiresAt: true, quoteId: true, blocks: true, status: true },
+  });
+  if (!p) return { ok: false, error: "Propuesta inexistente." };
+  if (p.status !== "ACEPTADA") {
+    return { ok: false, error: "Solo se convierten las propuestas aceptadas por el cliente." };
+  }
+
+  const res = await createOrGetQuoteForProposal(p, session.id);
+  if (!res.ok) return res;
+
+  if (!res.alreadyExisted) {
+    await logActivity({
+      action: "quote.create",
+      summary: `convirtió la propuesta ${p.code} en la cotización ${res.quote.code}`,
+      clientId: p.clientId,
+      entityType: "quote",
+      entityId: res.quote.id,
+    }).catch(() => {});
+  }
+  refresh(id);
+  revalidatePath("/cotizaciones");
+  return { ok: true, quote: res.quote, alreadyExisted: res.alreadyExisted };
 }
 
 export async function addProposalBlock(id: string, type: string) {
