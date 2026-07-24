@@ -68,6 +68,18 @@ export function ClientHero({
   const [colorOpen, setColorOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
+  // Escape cierra el menú abierto (el clic fuera ya lo hacía con la capa transparente).
+  React.useEffect(() => {
+    if (!galOpen && !colorOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setGalOpen(false);
+      setColorOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [galOpen, colorOpen]);
+
   // ── Reencuadre arrastrando (solo imagen subida + permiso de edición) ──
   const [posY, setPosY] = React.useState<number>(bannerPosY ?? 50);
   const [dragging, setDragging] = React.useState(false);
@@ -153,7 +165,10 @@ export function ClientHero({
     : "Tu espacio en Labstream";
 
   return (
-    <div>
+    // `relative` AQUÍ (y no solo en la portada) porque los menús flotantes cuelgan de este
+    // contenedor: la portada recorta (overflow-hidden, para redondear sus esquinas) y dentro
+    // de ella la galería quedaba cortada por abajo.
+    <div className="relative">
       <div
         className={cn(
           "group relative w-full overflow-hidden rounded-xl border border-border",
@@ -248,50 +263,8 @@ export function ClientHero({
               ) : null}
             </div>
 
-            {/* Galería de portadas (mejora 4): degradado del color, presets CSS y subir imagen */}
-            {galOpen ? (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setGalOpen(false)} />
-                <div className="absolute right-2.5 top-11 z-30 w-72 rounded-xl border border-border bg-popover p-2.5 shadow-xl">
-                  <p className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Galería de portadas</p>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button type="button" onClick={clearCover} className="overflow-hidden rounded-lg border border-border text-left hover:ring-2 hover:ring-primary/50">
-                      <span className="block h-9" style={{ background: `linear-gradient(120deg, ${t.hex}, ${t.hex}99)` }} />
-                      <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">Degradado del color</span>
-                    </button>
-                    {HERO_PRESETS.map((p) => (
-                      <button key={p.key} type="button" onClick={() => pickPreset(p.key)} className="overflow-hidden rounded-lg border border-border text-left hover:ring-2 hover:ring-primary/50">
-                        <span className="block h-9" style={{ background: p.bg }} />
-                        <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">{p.label}</span>
-                      </button>
-                    ))}
-                    <button type="button" onClick={() => { setGalOpen(false); fileRef.current?.click(); }} className="overflow-hidden rounded-lg border border-dashed border-border text-left hover:ring-2 hover:ring-primary/50">
-                      <span className="flex h-9 items-center justify-center bg-muted/50 text-muted-foreground"><ImagePlus className="size-4" /></span>
-                      <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">Subir imagen…</span>
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : null}
-
-            {/* Color del cliente (tiñe el degradado, el punto y sus proyectos) */}
-            {colorOpen ? (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setColorOpen(false)} />
-                <div className="absolute right-2.5 top-11 z-30 grid grid-cols-7 gap-1.5 rounded-xl border border-border bg-popover p-2 shadow-xl">
-                  {TONES.map((to) => (
-                    <button
-                      key={to.key}
-                      type="button"
-                      onClick={() => pickColor(to.key)}
-                      title={to.label}
-                      className={cn("size-6 rounded-full ring-offset-2 ring-offset-popover transition hover:scale-110", color === to.key && "ring-2 ring-foreground")}
-                      style={{ background: to.hex }}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : null}
+            {/* Los menús flotantes NO van aquí: los recortaría el overflow-hidden de la portada.
+                Viven fuera del recuadro, al final del componente. */}
 
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { onFile(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
           </>
@@ -342,6 +315,56 @@ export function ClientHero({
           ) : null}
         </div>
       </div>
+
+      {/* ── Menús flotantes ── FUERA del recuadro recortado (si vivieran dentro, la portada
+          los cortaría por abajo). Cuelgan del contenedor `relative` de arriba, así que sus
+          coordenadas siguen siendo las mismas: bajo los botones, alineados a la derecha. */}
+      {canEdit && onSave && galOpen ? (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setGalOpen(false)} />
+          <div className="absolute right-2.5 top-11 z-40 w-72 rounded-xl border border-border bg-popover p-2.5 shadow-xl">
+            <p className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Galería de portadas</p>
+            {/* Alto acotado: en una pantalla baja (o el portátil con el navegador a media
+                altura) la lista se desplaza en vez de salirse por debajo. */}
+            <div className="grid max-h-[60vh] grid-cols-3 gap-1.5 overflow-y-auto">
+              <button type="button" onClick={clearCover} className="overflow-hidden rounded-lg border border-border text-left hover:ring-2 hover:ring-primary/50">
+                <span className="block h-9" style={{ background: `linear-gradient(120deg, ${t.hex}, ${t.hex}99)` }} />
+                <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">Degradado del color</span>
+              </button>
+              {HERO_PRESETS.map((p) => (
+                <button key={p.key} type="button" onClick={() => pickPreset(p.key)} className="overflow-hidden rounded-lg border border-border text-left hover:ring-2 hover:ring-primary/50">
+                  <span className="block h-9" style={{ background: p.bg }} />
+                  <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">{p.label}</span>
+                </button>
+              ))}
+              <button type="button" onClick={() => { setGalOpen(false); fileRef.current?.click(); }} className="overflow-hidden rounded-lg border border-dashed border-border text-left hover:ring-2 hover:ring-primary/50">
+                <span className="flex h-9 items-center justify-center bg-muted/50 text-muted-foreground"><ImagePlus className="size-4" /></span>
+                <span className="block truncate px-1.5 py-1 text-[10px] font-semibold text-muted-foreground">Subir imagen…</span>
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* Color del cliente (tiñe el degradado, el punto y sus proyectos) */}
+      {canEdit && onSave && colorOpen ? (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setColorOpen(false)} />
+          <div className="absolute right-2.5 top-11 z-40 grid grid-cols-7 gap-1.5 rounded-xl border border-border bg-popover p-2 shadow-xl">
+            {TONES.map((to) => (
+              <button
+                key={to.key}
+                type="button"
+                onClick={() => pickColor(to.key)}
+                title={to.label}
+                className={cn("size-6 rounded-full ring-offset-2 ring-offset-popover transition hover:scale-110", color === to.key && "ring-2 ring-foreground")}
+                style={{ background: to.hex }}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
+
       {err ? <p className="mt-1.5 text-xs text-destructive">{err}</p> : null}
     </div>
   );
