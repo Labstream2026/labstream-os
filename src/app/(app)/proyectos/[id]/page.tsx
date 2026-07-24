@@ -106,9 +106,12 @@ export default async function ProyectoPage({
             photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
-        // Excluye de Archivos los FileAsset que son fotos de entregables (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
+        // Excluye de Archivos los FileAsset que son fotos de entregables o portadas del banco
+        // (no son archivos sueltos del proyecto).
+        files: { where: { folderId: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
+        // Banco de portadas (pestaña «Portadas» de entregables).
+        covers: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -393,6 +396,16 @@ export default async function ProyectoPage({
         })),
       }))}
       emailEnabled={emailEnabled}
+      covers={project.covers.map((c) => ({
+        id: c.id,
+        name: c.name,
+        fileAssetId: c.fileAssetId,
+        deliverableId: c.deliverableId,
+        decision: c.decision,
+        decisionBy: c.decisionBy,
+        decisionNote: c.decisionNote,
+      }))}
+      coversRevoked={!!project.coversRevokedAt}
     />
   );
 

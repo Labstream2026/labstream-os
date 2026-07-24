@@ -12,6 +12,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } from "@/lib/deliverable-tasks";
 import { defaultFixDeadline } from "@/lib/business-time";
 import { formatBogota } from "@/lib/bogota-time";
+import { deliverableOrientation } from "@/lib/ui";
 
 function baseUrl() {
   return (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "");
@@ -341,6 +342,28 @@ export async function setReviewDecision(token: string, decision: string, name?: 
     },
   });
   await closeDeliverableAutoTasks(deliverableId, approved ? ["deliver", "review", "fix"] : ["deliver", "review"]);
+  // ── Aviso de PORTADA HUÉRFANA ── El cliente aprobó un video VERTICAL (reel/short) que no
+  // tiene portada vinculada del banco. Se avisa UNA vez (event-driven, aquí) y SOLO si el
+  // proyecto usa el banco (tiene ≥1 portada): no todos los videos llevan portada, y un
+  // proyecto sin banco no debe recibir ruido.
+  if (approved && deliverableOrientation(current.type) === "vertical") {
+    const [bankCount, linkedCount] = await Promise.all([
+      db.projectCover.count({ where: { projectId } }),
+      db.projectCover.count({ where: { deliverableId } }),
+    ]);
+    if (bankCount > 0 && linkedCount === 0) {
+      const lead = flowInfo?.project.leadId;
+      if (lead) {
+        await notifyManyAndEmail([lead], {
+          type: "review",
+          event: "cover_orphan",
+          title: `«${delName}» se aprobó sin portada`,
+          body: "El video quedó aprobado y no tiene portada vinculada del banco. Vincúlala en la pestaña Portadas para que el cliente la descargue junto al video (si este video no lleva portada, ignora este aviso).",
+          link: `/proyectos/${projectId}?tab=entregables`,
+        });
+      }
+    }
+  }
   if (!approved && flowInfo) {
     // Plazo de la corrección: 24 horas HÁBILES por defecto (sáb/dom no cuentan). El cliente
     // no fija plazos — el productor puede ajustar la fecha de la tarea después.

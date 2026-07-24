@@ -44,6 +44,24 @@ export async function resolveDriveMediaFile(rawUrl: string | null | undefined): 
   }
 }
 
+// Lista TODAS las imágenes de una carpeta pública de Drive (importar un set de fotos completo).
+// Mismo camino sin credenciales que resolveDriveMediaFile, pero sin caché: quien importa espera
+// ver el contenido REAL de la carpeta en ese momento.
+export async function listDriveFolderImages(rawUrl: string): Promise<{ id: string; name: string }[]> {
+  const s = detectSource(rawUrl);
+  if (!s || s.type !== "DRIVE_FOLDER" || !s.id) return [];
+  try {
+    const res = await fetch(`https://drive.google.com/embeddedfolderview?id=${s.id}#list`, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    return parseFolderEntries(await res.text()).filter((e) => IMAGE_EXT.test(e.name));
+  } catch {
+    return [];
+  }
+}
+
 // Extrae {id, name} de cada entrada del HTML de embeddedfolderview. Cada item trae un
 // enlace `/file/d/{id}` y un título `flip-entry-title`. Se emparejan por orden.
 function parseFolderEntries(html: string): { id: string; name: string }[] {

@@ -569,6 +569,10 @@ model Project {
   tasks          Task[]
   recurringTasks RecurringTask[]
   deliverables Deliverable[]
+  // Banco de portadas del proyecto (pestaña «Portadas»). El enlace público del banco se firma
+  // por proyecto; coversRevokedAt lo corta sin borrar nada (mismo patrón que la revisión).
+  covers          ProjectCover[]
+  coversRevokedAt DateTime?
   folders      ProjectFolder[]
   files        FileAsset[]
   channels     ChatChannel[] // interno (solo equipo) + con el cliente (cuando hay invitado)
@@ -1663,6 +1667,8 @@ model Deliverable {
   // (servido por /api/files-asset, con miniatura WebP). SetNull si el archivo se borra.
   coverFileAsset   FileAsset? @relation("DeliverableCover", fields: [coverFileAssetId], references: [id], onDelete: SetNull)
   coverFileAssetId String?
+  // Portadas del BANCO vinculadas a este video (varias = opciones A/B para el cliente).
+  linkedCovers     ProjectCover[] @relation("DeliverableCovers")
   versions  DeliverableVersion[]
   // Fotos del entregable cuando type = FOTOGRAFIA (galería de selección del cliente).
   photos    DeliverablePhoto[]
@@ -1750,6 +1756,39 @@ enum PhotoPick {
   PENDIENTE
   ME_GUSTA
   NO_ME_GUSTA
+}
+
+// ── Banco de PORTADAS del proyecto (pestaña «Portadas» de entregables) ──
+// Las portadas viven APARTE de los videos: se suben antes o después, se entregan al cliente por
+// su propio enlace público (/portadas/[token]) y se VINCULAN a un entregable en cualquier
+// momento (deliverableId, SetNull). Varias portadas vinculadas al mismo video = opciones A/B:
+// el cliente elige la ganadora (APROBADA) y las hermanas quedan DESCARTADA. La ganadora se
+// copia a Deliverable.coverFileAssetId para alimentar el flujo existente (sala del reel,
+// Entregas finales).
+model ProjectCover {
+  id            String       @id @default(cuid())
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String
+  // Imagen en el NAS (WebP + miniatura, servida por /api/files-asset). Cascade: si el archivo
+  // se borra, la ficha de la portada muere con él (no hay portada sin imagen).
+  fileAsset     FileAsset    @relation("ProjectCoverFile", fields: [fileAssetId], references: [id], onDelete: Cascade)
+  fileAssetId   String
+  name          String // nombre visible (el del archivo subido)
+  position      Int          @default(0)
+  // Vínculo al video (opcional, reversible). SetNull: borrar el video NO borra la portada —
+  // vuelve al banco como «Sin vincular».
+  deliverable   Deliverable? @relation("DeliverableCovers", fields: [deliverableId], references: [id], onDelete: SetNull)
+  deliverableId String?
+  // Decisión del CLIENTE sobre esta portada (desde su enlace): APROBADA | CAMBIOS | DESCARTADA
+  // (perdedora de un grupo A/B). NULL = pendiente.
+  decision      String?
+  decisionBy    String?
+  decisionAt    DateTime?
+  decisionNote  String?
+  createdAt     DateTime     @default(now())
+
+  @@index([projectId])
+  @@index([deliverableId])
 }
 
 // ─────────────────────────────────────────────
@@ -1962,6 +2001,8 @@ model FileAsset {
   deliverablePhotos   DeliverablePhoto[]   @relation("PhotoFile")
   // Entregables (REEL) que usan este archivo como imagen de portada.
   deliverableCovers   Deliverable[]        @relation("DeliverableCover")
+  // Portadas del BANCO del proyecto (pestaña Portadas) cuya imagen es este archivo.
+  projectCovers       ProjectCover[]       @relation("ProjectCoverFile")
   // Adjuntos del chat archivados como este archivo (chip «chat» que enlaza al mensaje).
   chatAttachments     MessageAttachment[]  @relation("ChatArchivedFile")
   createdAt    DateTime       @default(now())

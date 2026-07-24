@@ -61,6 +61,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "review_changes", label: "Cambios solicitados en un entregable", description: "Cuando se piden cambios internos y hay que rehacer el material.", category: "Entregables y revisiones", priority: 1 },
   { key: "review_checklist", label: "Punto del checklist resuelto", description: "Cuando alguien marca como hecho un cambio del checklist de revisión.", category: "Entregables y revisiones" },
   { key: "review_client", label: "El cliente revisó", description: "Cuando el cliente aprueba o pide cambios desde el portal de revisión.", category: "Entregables y revisiones", priority: 1 },
+  { key: "cover_orphan", label: "Video aprobado sin portada", description: "Cuando el cliente aprueba un video vertical y no tiene portada vinculada del banco (solo si el proyecto usa portadas).", category: "Entregables y revisiones" },
   { key: "client_deliverable_ready", label: "Entregable listo (para el cliente)", description: "Avisa al cliente cuando el equipo termina un entregable y queda listo para su revisión.", category: "Entregables y revisiones" },
   { key: "review_sla", label: "Plazo de revisión/corrección vencido", description: "Cuando vence el plazo de pre-aprobación sin revisar, o una corrección llega tarde (incumplimiento).", category: "Entregables y revisiones", priority: 2 },
   { key: "deliverable_due", label: "Entregable próximo a vencer", description: "Cuando se acerca la fecha de un entregable.", category: "Entregables y revisiones", priority: 1 },

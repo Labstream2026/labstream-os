@@ -11,6 +11,9 @@ export type FinalItem = {
   projectId: string;
   projectName: string;
   cover: string | null;
+  // Descarga de la PORTADA aprobada del video (banco de portadas): el botón «Portada» junto a
+  // «Descargar» — el cliente se lleva video + portada del mismo lugar.
+  coverDownload: string | null;
   versionNumber: number | null;
   approvedLabel: string;
   download: { href: string; external: boolean } | null;
@@ -141,6 +144,16 @@ export function FinalsGallery({ items }: { items: FinalItem[] }) {
                 ) : (
                   <span className="flex-1 text-center text-[11px] text-muted-foreground">Pídele el archivo al equipo</span>
                 )}
+                {i.coverDownload ? (
+                  <a
+                    href={i.coverDownload}
+                    download=""
+                    title="Descargar la portada aprobada de este video"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Download className="size-3" /> Portada
+                  </a>
+                ) : null}
                 {i.renditions.length > 0 ? (
                   <details className="relative">
                     <summary

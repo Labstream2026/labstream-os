@@ -26,3 +26,14 @@ export function signReviewMediaToken(versionId: string): string {
 export function verifyReviewMediaToken(token: string): string | null {
   return verifyScopedToken("rmedia", token);
 }
+
+// Token público del BANCO DE PORTADAS del proyecto (pestaña «Portadas» de entregables): el
+// cliente ve, aprueba/pide cambios y descarga portadas sin cuenta. Vida larga como el de
+// revisión; la revocación real es Project.coversRevokedAt (se corta desde la pestaña).
+export function signCoversToken(projectId: string): string {
+  return signScopedToken("covers", projectId, 3650);
+}
+
+export function verifyCoversToken(token: string): string | null {
+  return verifyScopedToken("covers", token);
+}

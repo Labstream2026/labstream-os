@@ -14,7 +14,10 @@ import {
 } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { toDateInputValue } from "./task-shared";
-import { signReviewToken } from "@/lib/review-token";
+import { signReviewToken, signCoversToken } from "@/lib/review-token";
+import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { CoversPanel, type CoverItem } from "./covers-panel";
+import { PhotosPanel, type PhotoSet } from "./photos-panel";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
@@ -190,6 +193,8 @@ export function DeliverablesPanel({
   members = [],
   workTasks = [],
   emailEnabled = false,
+  covers = [],
+  coversRevoked = false,
 }: {
   projectId: string;
   canManage?: boolean;
@@ -199,6 +204,9 @@ export function DeliverablesPanel({
   // elegibles en el desplegable del formulario (se completan solas al mandar la versión).
   workTasks?: { id: string; title: string; assignee: string | null }[];
   emailEnabled?: boolean;
+  // Banco de PORTADAS del proyecto (pestaña «Portadas»): filas crudas de ProjectCover.
+  covers?: { id: string; name: string; fileAssetId: string; deliverableId: string | null; decision: string | null; decisionBy: string | null; decisionNote: string | null }[];
+  coversRevoked?: boolean;
 }) {
   // Lo VIVO se trabaja en «En curso»; lo que el cliente ya aprobó pasa al archivo
   // «Aprobados» (ordenado por consecutivo descendente) para no estorbar la ventana.
@@ -610,10 +618,50 @@ export function DeliverablesPanel({
           </div>
         );
       };
+      // ── Pestaña «Portadas»: banco del proyecto con tokens firmados aquí (server) ──
+      const byId = new Map(deliverables.map((d) => [d.id, d]));
+      const coverItems: CoverItem[] = covers.map((c) => {
+        const d = c.deliverableId ? byId.get(c.deliverableId) : null;
+        return {
+          id: c.id,
+          name: c.name,
+          src: photoViewSrc({ fileAssetId: c.fileAssetId, url: null }),
+          full: photoDownloadSrc({ fileAssetId: c.fileAssetId, url: null }),
+          deliverable: d ? { id: d.id, number: d.number, name: d.name } : null,
+          decision: c.decision,
+          decisionBy: c.decisionBy,
+          decisionNote: c.decisionNote,
+        };
+      });
+      // Solo VIDEOS son vinculables (un set de fotos no lleva portada del banco).
+      const coverTargets = deliverables
+        .filter((d) => d.type !== "FOTOGRAFIA")
+        .map((d) => ({ id: d.id, number: d.number, name: d.name, type: d.type, status: d.status }));
+
+      // ── Pestaña «Fotos»: sets = entregables FOTOGRAFIA ──
+      const photoSets: PhotoSet[] = deliverables
+        .filter((d) => d.type === "FOTOGRAFIA")
+        .map((d) => ({
+          id: d.id,
+          number: d.number,
+          name: d.name,
+          status: d.status,
+          statusLabel: deliverableStatusMeta(d.status).label,
+          reviewUrl: `${REVIEW_BASE}/review/${signReviewToken(d.id)}`,
+          thumbs: d.photos.slice(0, 6).map((p) => p.src),
+          total: d.photos.length,
+          liked: d.photos.filter((p) => p.pick === "ME_GUSTA").length,
+          disliked: d.photos.filter((p) => p.pick === "NO_ME_GUSTA").length,
+          hasDrive: d.photos.some((p) => !p.src.startsWith("/api/files-asset")),
+          hasLocal: d.photos.some((p) => p.src.startsWith("/api/files-asset")),
+        }));
+
       return (
         <DeliverablesSpace
           activeCount={activeList.length}
           approvedCount={approvedList.length}
+          coversCount={covers.length}
+          photosCount={photoSets.length}
           active={
             <div className="space-y-5">
               {activeList.length === 0 ? <p className="text-sm text-muted-foreground">No hay entregables en curso. Crea uno arriba.</p> : activeList.map(renderCard)}
@@ -628,6 +676,18 @@ export function DeliverablesPanel({
               )}
             </div>
           }
+          covers={
+            <CoversPanel
+              projectId={projectId}
+              canManage={canManage}
+              canUpload={canManage}
+              covers={coverItems}
+              targets={coverTargets}
+              clientUrl={`${REVIEW_BASE}/portadas/${signCoversToken(projectId)}`}
+              revoked={coversRevoked}
+            />
+          }
+          photos={<PhotosPanel projectId={projectId} canUpload={canManage} sets={photoSets} />}
         />
       );
       })()}
