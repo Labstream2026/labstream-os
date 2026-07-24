@@ -18,16 +18,14 @@ import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText, ChevronDown } from "lucide-react";
-import { TasksBoard } from "./tasks-board";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
-import { TasksList } from "./tasks-list";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
 import { ProjectTimeline } from "./project-timeline";
-import { ViewTabs } from "./view-tabs";
 import { DeliverablesPanel } from "./deliverables-panel";
+import { TasksViews } from "./tasks-views";
 import { ProjectHealth } from "./project-health";
 import { signReviewToken } from "@/lib/review-token";
 import { signUploadToken } from "@/lib/upload-token";
@@ -38,7 +36,6 @@ import { ClientJourney } from "./client-journey";
 import { NextForClientCard } from "./next-for-client";
 import { ClientRequestsPanel } from "./client-requests-panel";
 import { formatBogota } from "@/lib/bogota-time";
-import { IconTablero, IconLista } from "@/components/icons";
 import { FilesPanel } from "./files-panel";
 import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
@@ -647,22 +644,17 @@ export default async function ProyectoPage({
                   pendingCount={pendingTasks.length}
                   completedCount={completedTasks.length}
                   pending={
-                    <ViewTabs
-                      storageKey="tareas-view"
-                      views={[
-                        {
-                          key: "tablero",
-                          label: "Tablero",
-                          icon: <IconTablero />,
-                          node: <TasksBoard projectId={id} team={teamForTasks} stages={project.stages} stageColors={(project.stageColors as Record<string, string> | null) ?? {}} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
-                        },
-                        {
-                          key: "lista",
-                          label: "Lista",
-                          icon: <IconLista />,
-                          node: <TasksList projectId={id} team={teamForTasks} stages={project.stages} tasks={pendingTasks} statuses={taskLabels.statuses} priorities={taskLabels.priorities} isAdmin={session?.role === "admin" || session?.role === "productor"} />,
-                        },
-                      ]}
+                    // T1+T2 · Filtro por persona (chips de avatares) + vista «Por persona»
+                    // (carriles), envolviendo el tablero/lista de siempre.
+                    <TasksViews
+                      projectId={id}
+                      team={teamForTasks}
+                      stages={project.stages}
+                      stageColors={(project.stageColors as Record<string, string> | null) ?? {}}
+                      tasks={pendingTasks}
+                      statuses={taskLabels.statuses}
+                      priorities={taskLabels.priorities}
+                      isAdmin={session?.role === "admin" || session?.role === "productor"}
                     />
                   }
                   completed={
