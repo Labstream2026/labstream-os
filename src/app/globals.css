@@ -217,3 +217,27 @@ html.density-compact {
     box-shadow: none !important;
   }
 }
+
+/* ── Barra de la app instalada (PWA de escritorio) ── */
+/* Ver components/layout/standalone-nav.tsx. Solo existe cuando la app corre INSTALADA
+   (display-mode: standalone) y en pantalla ancha (el móvil ya tiene su barra inferior).
+   --pwa-nav-h reserva el hueco: el body baja esa altura y los contenedores de altura
+   completa (shell de la app, editor de documentos, propuesta cine) la restan con calc().
+   En el navegador normal vale 0px y todo queda exactamente como siempre. */
+:root {
+  --pwa-nav-h: 0px;
+}
+.pwa-nav {
+  display: none;
+}
+@media (display-mode: standalone) and (min-width: 768px) {
+  :root {
+    --pwa-nav-h: 2.5rem;
+  }
+  .pwa-nav {
+    display: flex;
+  }
+  body {
+    padding-top: var(--pwa-nav-h);
+  }
+}

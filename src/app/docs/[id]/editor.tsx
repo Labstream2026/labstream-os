@@ -36,7 +36,7 @@ export function OnlyOfficeEditor({
   }, [docsUrl, config]);
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-[calc(100dvh-var(--pwa-nav-h,0px))] flex-col bg-background">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <Link href={backHref} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-4" /> Volver

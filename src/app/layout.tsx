@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/pwa-register";
+import { StandaloneNav } from "@/components/layout/standalone-nav";
 import { getOrgSettings, brandCss } from "@/lib/org-settings";
 import { setProjectStatusOverrides } from "@/lib/project-status";
 import { getSession } from "@/lib/auth";
@@ -74,6 +75,9 @@ export default async function RootLayout({
       <body className="min-h-full">
         {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
+          {/* Barra atrás/adelante de la app INSTALADA (solo display-mode: standalone en
+              escritorio): sin ella, las páginas sin menú propio no tienen salida. */}
+          <StandaloneNav />
           {children}
         </ThemeProvider>
         <PwaRegister />

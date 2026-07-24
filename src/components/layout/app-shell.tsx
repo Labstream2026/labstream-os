@@ -157,7 +157,8 @@ export function AppShell({
 
   return (
     <ChatLiveProvider>
-    <div className={`flex h-[100dvh] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
+    {/* La altura resta --pwa-nav-h (barra de la app instalada; 0 en navegador normal). */}
+    <div className={`flex h-[calc(100dvh-var(--pwa-nav-h,0px))] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
         <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={isChatPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
@@ -228,7 +229,7 @@ export function AppShell({
         <DesktopChatBubble onOpen={() => setChatPanelOpen(true)} fallbackUnread={chatUnread} />
       ) : null}
       {hasChat && chatPanelOpen ? (
-        <div className="fixed bottom-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
+        <div className="fixed bottom-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top)+var(--pwa-nav-h,0px))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
           <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setChatPanelOpen(false)} />
         </div>
       ) : null}

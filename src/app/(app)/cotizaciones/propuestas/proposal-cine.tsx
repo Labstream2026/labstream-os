@@ -101,7 +101,7 @@ export function ProposalCine({ blocks, brand, variant = "full", footer }: Props)
       ref={scroller}
       className={
         full
-          ? "relative h-[100dvh] snap-y snap-mandatory overflow-y-auto overflow-x-hidden"
+          ? "relative h-[calc(100dvh-var(--pwa-nav-h,0px))] snap-y snap-mandatory overflow-y-auto overflow-x-hidden"
           : "relative h-[70vh] min-h-[26rem] snap-y snap-mandatory overflow-y-auto overflow-x-hidden rounded-xl border border-border"
       }
       style={{ background: pal.ink, scrollbarWidth: "none" }}
@@ -145,7 +145,7 @@ export function ProposalCine({ blocks, brand, variant = "full", footer }: Props)
         <section
           key={i}
           ref={(el) => { slideRefs.current[i] = el; }}
-          className={`relative flex snap-start flex-col justify-center overflow-hidden px-6 py-16 sm:px-14 ${full ? "min-h-[100dvh]" : "min-h-[70vh]"}`}
+          className={`relative flex snap-start flex-col justify-center overflow-hidden px-6 py-16 sm:px-14 ${full ? "min-h-[calc(100dvh-var(--pwa-nav-h,0px))]" : "min-h-[70vh]"}`}
           style={{
             background: tones[i] === "light" ? pal.cream : pal.ink,
             color: tones[i] === "light" ? pal.ink : "#EDEFEA",
