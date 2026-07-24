@@ -231,15 +231,16 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
   );
 }
 
-export function Recursos({ rows, canManage, userId, projects, clients, baseCategories }: {
+export function Recursos({ rows, canManage, userId, projects, clients, baseCategories, initialQ = "" }: {
   rows: LibRow[];
   canManage: boolean;
   userId: string;
   projects: LibOption[];
   clients: LibOption[];
   baseCategories: string[];
+  initialQ?: string; // llega del deep-link de ⌘K (/biblioteca?q=…)
 }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ);
   const [kind, setKind] = useState("ALL");
   const [cat, setCat] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);

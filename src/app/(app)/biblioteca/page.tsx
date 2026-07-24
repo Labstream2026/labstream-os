@@ -26,14 +26,14 @@ const TABS = [
 // Severidad para ordenar el mapa: lo que está en riesgo, arriba.
 const HEALTH_ORDER: Record<string, number> = { SIN_RESPALDO: 0, SIN_REGISTRO: 1, PARCIAL: 2, OK: 3 };
 
-export default async function BibliotecaPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+export default async function BibliotecaPage({ searchParams }: { searchParams: Promise<{ tab?: string; q?: string }> }) {
   // Acceso a la Biblioteca por permiso (el backfill se lo da al equipo; los clientes no).
   const session = await getSession();
   if (!hasPermission(session, "ver_biblioteca")) redirect("/");
   // Gestionar (añadir/editar/fijar) requiere permiso aparte; ver es suficiente para mirar.
   const canManage = hasPermission(session, "gestionar_biblioteca");
 
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, q } = await searchParams;
   const tab = TABS.some((t) => t.key === rawTab) ? (rawTab as (typeof TABS)[number]["key"]) : "recursos";
   const now = new Date();
 
@@ -61,14 +61,14 @@ export default async function BibliotecaPage({ searchParams }: { searchParams: P
         ))}
       </div>
 
-      {tab === "recursos" ? <RecursosTab canManage={canManage} userId={session!.id} /> : null}
+      {tab === "recursos" ? <RecursosTab canManage={canManage} userId={session!.id} initialQ={q ?? ""} /> : null}
       {tab === "discos" ? <DiscosTab canManage={canManage} now={now} /> : null}
       {tab === "mapa" ? <MapaTab canManage={canManage} now={now} /> : null}
     </div>
   );
 }
 
-async function RecursosTab({ canManage, userId }: { canManage: boolean; userId: string }) {
+async function RecursosTab({ canManage, userId, initialQ }: { canManage: boolean; userId: string; initialQ: string }) {
   const [assets, projects, clients] = await Promise.all([
     db.libraryAsset.findMany({
       orderBy: [{ pinned: "desc" }, { category: "asc" }, { createdAt: "desc" }],
@@ -107,6 +107,7 @@ async function RecursosTab({ canManage, userId }: { canManage: boolean; userId: 
       projects={projects}
       clients={clients}
       baseCategories={CATEGORIES}
+      initialQ={initialQ}
     />
   );
 }

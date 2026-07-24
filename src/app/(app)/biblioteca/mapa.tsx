@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Map as MapIcon, Plus, X } from "lucide-react";
+import { Check, Download, Map as MapIcon, Plus, X } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MATERIAL_ROLES, ROLE_LABEL, type MaterialHealth } from "@/lib/material-health";
 import { addMaterialLocation, removeMaterialLocation, verifyMaterialLocation } from "./disk-actions";
@@ -152,6 +152,13 @@ export function Mapa({ projects, disks, canManage }: {
         >
           ⚠ En riesgo · {enRiesgo}
         </button>
+        <a
+          href="/api/material-map/export"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          title="Descarga el mapa completo (proyecto × disco × ruta × verificación)"
+        >
+          <Download className="size-3.5" /> CSV
+        </a>
       </div>
 
       {filtered.length === 0 ? (

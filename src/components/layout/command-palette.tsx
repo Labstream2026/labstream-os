@@ -16,6 +16,7 @@ type Item = { id: string; label: string; sub?: string; href: string; icon: React
 // Ícono por tipo de contenido devuelto por la búsqueda del servidor (set propio de Labstream).
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   task: IconTareas, deliverable: IconRevisiones, quote: IconCotizacion, invoice: IconFacturacion, proposal: IconCotizacion, file: IconArchivo, note: IconNotas, chat: IconChat,
+  library: IconBiblioteca, disk: IconBiblioteca,
 };
 
 // Páginas de la Wiki indexadas para el buscador (se cargan en el layout).

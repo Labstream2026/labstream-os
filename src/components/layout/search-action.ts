@@ -40,6 +40,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   const canFin = hasPermission(session, "ver_finanzas");
   const canFiles = hasPermission(session, "ver_archivos");
   const canNotes = hasPermission(session, "ver_notas");
+  const canBiblio = hasPermission(session, "ver_biblioteca");
   // Canales de chat visibles: mismo criterio de acceso que la lista de chats (miembro, o canal de
   // proyecto/cliente que puedo ver). El cliente solo alcanza los de SUS proyectos.
   const channelAccess: Prisma.ChatChannelWhereInput[] =
@@ -54,7 +55,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
             { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
           ];
 
-  const [tasks, delivs, quotes, invoices, proposals, files, notes, channels] = await Promise.all([
+  const [tasks, delivs, quotes, invoices, proposals, files, notes, channels, libAssets, disks] = await Promise.all([
     // Tareas: en un proyecto que puedo ver, o asignadas a/por mí (tareas personales sin proyecto).
     db.task.findMany({
       where: {
@@ -117,6 +118,22 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       select: { id: true, name: true, type: true, client: { select: { name: true } }, project: { select: { name: true, finishedAt: true, client: { select: { name: true } } } } },
       take: TAKE,
     }),
+    // Biblioteca: recursos por nombre/categoría/URL-ruta (encuentra «\\NAS\proyectos\danney»).
+    canBiblio
+      ? db.libraryAsset.findMany({
+          where: { OR: [{ name: like }, { category: like }, { url: like }] },
+          select: { id: true, name: true, category: true, kind: true, project: { select: { name: true } } },
+          take: TAKE,
+        })
+      : Promise.resolve([]),
+    // Discos del estudio por nombre o ubicación («cajón 2» encuentra el LaCie).
+    canBiblio
+      ? db.storageDisk.findMany({
+          where: { OR: [{ name: like }, { location: like }] },
+          select: { id: true, name: true, kind: true, location: true },
+          take: TAKE,
+        })
+      : Promise.resolve([]),
   ]);
 
   const hits: SearchHit[] = [];
@@ -127,6 +144,8 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   for (const p of proposals) hits.push({ id: `pp-${p.id}`, label: p.title || p.code, sub: p.code, href: `/cotizaciones/propuestas/${p.id}`, group: "Propuestas", kind: "proposal" });
   for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file", finished: !!f.project?.finishedAt });
   for (const n of notes) hits.push({ id: `n-${n.id}`, label: n.title, sub: "Nota", href: "/notas", group: "Notas", kind: "note" });
+  for (const a of libAssets) hits.push({ id: `lib-${a.id}`, label: a.name, sub: [a.category, a.kind === "NAS" ? "Ruta del NAS" : null, a.project?.name].filter(Boolean).join(" · ") || "Biblioteca", href: `/biblioteca?q=${encodeURIComponent(a.name)}`, group: "Biblioteca", kind: "library" });
+  for (const d of disks) hits.push({ id: `dk-${d.id}`, label: d.name, sub: d.location ? `Disco · ${d.location}` : "Disco", href: "/biblioteca?tab=discos", group: "Biblioteca", kind: "disk" });
   for (const c of channels) {
     const client = c.client?.name ?? c.project?.client?.name ?? null;
     const sub = c.type === "PROJECT" ? c.project?.name ?? client ?? "Proyecto" : c.type === "CLIENT" ? client ?? "Cliente" : "Canal";
