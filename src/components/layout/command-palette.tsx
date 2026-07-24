@@ -147,7 +147,12 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
               else if (e.key === "Escape") { onClose(); }
             }}
             placeholder="Buscar tareas, entregables, facturas, proyectos…"
-            className="w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+            // El aro azul de accesibilidad global (globals.css :focus-visible) va SIN @layer,
+            // así que gana a cualquier utilidad focus-visible:outline-none. El estilo inline sí
+            // lo vence (mismo truco que notes-app.tsx). Se anula SOLO aquí: el input se
+            // autoenfoca dentro de un modal que ya atrapa el foco, el aro sobra y ensucia.
+            style={{ outline: "none" }}
+            className="w-full bg-transparent py-3 text-[15px] outline-none placeholder:text-muted-foreground"
           />
           {searching ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" /> : null}
           <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Esc</kbd>
