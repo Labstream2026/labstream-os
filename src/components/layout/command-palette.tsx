@@ -13,6 +13,40 @@ import { globalSearch } from "./search-action";
 
 type Item = { id: string; label: string; sub?: string; href: string; icon: React.ComponentType<{ className?: string }>; group: string; finished?: boolean; run?: () => Promise<void> };
 
+// Normaliza sin acentos (NFD + quita diacríticos), en minúsculas. Igual que el filtro,
+// pero a nivel de módulo para reusarlo en el resaltado. Los combinantes van escapados
+// (̀-ͯ) a propósito: escribir el rango literal ensucia el archivo con bytes raros.
+const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+// Ubica el término (ya normalizado) dentro del texto ORIGINAL, ignorando acentos y
+// mayúsculas, y devuelve el rango [inicio, fin) en índices del original para poder
+// resaltar sin perder tildes ni la capitalización real. Devuelve null si no hay match.
+function matchRange(label: string, term: string): [number, number] | null {
+  if (!term) return null;
+  let norm = "";
+  const map: number[] = []; // map[i] = índice en `label` que produjo norm[i]
+  for (let i = 0; i < label.length; i++) {
+    const n = stripAccents(label[i]);
+    for (let k = 0; k < n.length; k++) { norm += n[k]; map.push(i); }
+  }
+  const idx = norm.indexOf(term);
+  if (idx === -1) return null;
+  return [map[idx], map[idx + term.length - 1] + 1];
+}
+
+// Resalta la coincidencia en negrita/azul; el resto del texto queda igual.
+function Highlighted({ text, term }: { text: string; term: string }) {
+  const r = matchRange(text, term);
+  if (!r) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, r[0])}
+      <mark className="bg-transparent font-semibold text-primary">{text.slice(r[0], r[1])}</mark>
+      {text.slice(r[1])}
+    </>
+  );
+}
+
 // Ícono por tipo de contenido devuelto por la búsqueda del servidor (set propio de Labstream).
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   task: IconTareas, deliverable: IconRevisiones, quote: IconCotizacion, invoice: IconFacturacion, proposal: IconCotizacion, file: IconArchivo, note: IconNotas, chat: IconChat,
@@ -129,6 +163,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
     g.items.push(it);
   }
   let flatIndex = -1;
+  const hlTerm = stripAccents(q.trim()); // término normalizado para resaltar coincidencias
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 pt-[12vh]" onClick={onClose}>
@@ -177,7 +212,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
                       className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm ${idx === active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
                     >
                       <Icon className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="flex-1 truncate">{it.label}</span>
+                      <span className="flex-1 truncate">{it.id === "quick-task" ? it.label : <Highlighted text={it.label} term={hlTerm} />}</span>
                       {/* Ciclo de vida: lo que vive en un proyecto TERMINADO se marca — sigue
                           encontrable (archivo consultable) pero nadie lo confunde con activo. */}
                       {it.finished ? <span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Terminado</span> : null}
@@ -189,7 +224,19 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
             ))
           )}
         </div>
+        {/* Pie con atajos: enseña la navegación por teclado sin ensuciar (solo con resultados). */}
+        {allItems.length > 0 ? (
+          <div className="flex items-center gap-4 border-t border-border px-3.5 py-2 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1"><Kbd>↑</Kbd><Kbd>↓</Kbd> navegar</span>
+            <span className="flex items-center gap-1"><Kbd>↵</Kbd> abrir</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
+}
+
+// Tecla estilizada, reutilizada en el pie de atajos.
+function Kbd({ children }: { children: React.ReactNode }) {
+  return <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{children}</kbd>;
 }
