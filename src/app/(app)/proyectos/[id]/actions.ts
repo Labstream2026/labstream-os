@@ -33,6 +33,8 @@ import { closeDeliverableAutoTasks, createDeliverableAutoTask, createReviewTasks
 import { defaultFixDeadline } from "@/lib/business-time";
 import { formatBogota } from "@/lib/bogota-time";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
+import { materialHealth, type MaterialHealth } from "@/lib/material-health";
+import { getAppConfigBool, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import type { SessionUser } from "@/lib/session";
 
@@ -2934,6 +2936,11 @@ export type FinishSummary = {
   deliverablesApproved: number; // en APROBADO o ENTREGADO
   minutes: number; // suma de TimeEntry del proyecto (el cliente lo formatea en horas)
   invoicesPending: number; // ENVIADA o VENCIDA = cobro pendiente
+  // Checklist de respaldo (Biblioteca): salud 3-2-1 del material + lo necesario para
+  // registrar un respaldo AHÍ MISMO sin salir del modal.
+  material: MaterialHealth;
+  backupLockOn: boolean; // el candado de Ajustes: sin respaldo no se puede terminar
+  disks: { id: string; name: string }[]; // discos ACTIVOS para el registro rápido
 };
 
 export async function getFinishSummary(projectId: string): Promise<FinishSummary | null> {
@@ -2942,13 +2949,16 @@ export async function getFinishSummary(projectId: string): Promise<FinishSummary
   } catch {
     return null;
   }
-  const [tasksTotal, tasksOpen, deliverablesTotal, deliverablesApproved, time, invoicesPending] = await Promise.all([
+  const [tasksTotal, tasksOpen, deliverablesTotal, deliverablesApproved, time, invoicesPending, locations, backupLockOn, disks] = await Promise.all([
     db.task.count({ where: { projectId } }),
     db.task.count({ where: { projectId, completedAt: null } }),
     db.deliverable.count({ where: { projectId, archivedAt: null } }),
     db.deliverable.count({ where: { projectId, archivedAt: null, status: { in: ["APROBADO", "ENTREGADO"] as never } } }),
     db.timeEntry.aggregate({ _sum: { minutes: true }, where: { task: { projectId } } }),
     db.invoice.count({ where: { projectId, status: { in: ["ENVIADA", "VENCIDA"] as never } } }),
+    db.materialLocation.findMany({ where: { projectId }, include: { disk: { select: { kind: true, offsite: true } } } }),
+    getAppConfigBool(REQUIRE_BACKUP_TO_FINISH, false),
+    db.storageDisk.findMany({ where: { status: "ACTIVO" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   return {
     tasksTotal,
@@ -2957,6 +2967,9 @@ export async function getFinishSummary(projectId: string): Promise<FinishSummary
     deliverablesApproved,
     minutes: time._sum.minutes ?? 0,
     invoicesPending,
+    material: materialHealth(locations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))),
+    backupLockOn,
+    disks,
   };
 }
 
@@ -2973,6 +2986,22 @@ export async function finishProject(projectId: string): Promise<{ ok: boolean; e
   if (!project) return { ok: false, error: "El proyecto no existe." };
   if (project.archivedAt) return { ok: false, error: "El proyecto está en la papelera; restáuralo primero." };
   if (project.finishedAt) return { ok: true }; // ya terminado
+  // Candado de respaldo (Ajustes → Biblioteca): con el candado puesto, un proyecto sin
+  // respaldo registrado en el mapa del material NO se puede terminar. Se valida en el
+  // SERVIDOR (el modal solo avisa): apagar el candado vuelve a permitirlo.
+  if (await getAppConfigBool(REQUIRE_BACKUP_TO_FINISH, false)) {
+    const locations = await db.materialLocation.findMany({
+      where: { projectId },
+      include: { disk: { select: { kind: true, offsite: true } } },
+    });
+    const health = materialHealth(locations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite })));
+    if (health.level === "SIN_REGISTRO" || health.level === "SIN_RESPALDO") {
+      return {
+        ok: false,
+        error: "El candado de respaldo está activo: registra el material en al menos dos discos (bruto + respaldo) antes de terminar. Se hace en Archivos → «¿Dónde está el material?».",
+      };
+    }
+  }
   // Estados sincronizados: TERMINAR deja también el status en un estado de cierre. Si ya está
   // en Entregado/Cerrado/Cancelado se respeta; si no, salta a ENTREGADO — un solo gesto y el
   // Pipeline, la tabla y los reportes cuentan la misma historia.

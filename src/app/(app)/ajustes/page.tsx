@@ -38,7 +38,9 @@ import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 import { getUserPreference } from "@/lib/user-preference";
 import { getAllUserNotifPrefs } from "@/lib/user-notif-prefs";
 import { Mail } from "lucide-react";
-import { IconConfiguracion, IconUsuarios, IconEtiquetas, IconRoles, IconNotificaciones, IconAuditoria, IconMarcebot, IconIntegraciones, IconApi, IconMarca, IconFlujo, IconPersonalizacion, IconCalendario } from "@/components/icons";
+import { IconConfiguracion, IconUsuarios, IconEtiquetas, IconRoles, IconNotificaciones, IconAuditoria, IconMarcebot, IconIntegraciones, IconApi, IconMarca, IconFlujo, IconPersonalizacion, IconCalendario, IconBiblioteca } from "@/components/icons";
+import { BibliotecaSettings } from "./biblioteca-settings";
+import { getAppConfigBool, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
 import { AjustesShell, type AjustesSection } from "./ajustes-shell";
 
 export const dynamic = "force-dynamic";
@@ -410,6 +412,9 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
     </div>
   );
 
+  const backupLockOn = await getAppConfigBool(REQUIRE_BACKUP_TO_FINISH, false);
+  const bibliotecaNode = <BibliotecaSettings initialLock={backupLockOn} />;
+
   const sections: AjustesSection[] = [
     ...cuentaSections,
     { key: "usuarios", label: "Usuarios", group: "equipo", icon: <IconUsuarios />, admin: true, node: usuariosNode },
@@ -422,6 +427,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
     { key: "marcebot", label: "Marcebot", group: "sistema", icon: <IconMarcebot />, admin: true, node: marcebotNode },
     { key: "notificaciones-sistema", label: "Notificaciones del sistema", group: "sistema", icon: <IconNotificaciones />, admin: true, node: notifSistemaNode },
     ...(canAudit ? [{ key: "auditoria", label: "Auditoría", group: "sistema" as const, icon: <IconAuditoria />, admin: true, node: auditNode }] : []),
+    { key: "biblioteca", label: "Biblioteca", group: "sistema", icon: <IconBiblioteca />, admin: true, node: bibliotecaNode },
     { key: "mantenimiento", label: "Mantenimiento", group: "sistema", icon: <IconConfiguracion />, admin: true, node: mantenimientoNode },
   ];
 

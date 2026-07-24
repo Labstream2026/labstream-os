@@ -1870,6 +1870,14 @@ model LibraryAsset {
   @@index([clientId])
 }
 
+// Ajustes GLOBALES de la app (clave → valor JSON): toggles como el candado de
+// respaldo al terminar. Pocas filas, leídas en caliente; nada de datos de usuario.
+model AppConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
 // ── Discos y mapa del material ─────────────────────────────────────────────
 // La Biblioteca responde «¿en qué disco está el material de X y sus copias?».
 

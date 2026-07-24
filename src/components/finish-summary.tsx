@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ClipboardList, Clock3, Loader2, Package, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, HardDrive, Loader2, Package, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { finishProject, getFinishSummary, type FinishSummary } from "@/app/(app)/proyectos/[id]/actions";
+import { addMaterialLocation } from "@/app/(app)/biblioteca/disk-actions";
 
 // Modal RESUMEN DE CIERRE (Fase 3 del ciclo de vida): al «Terminar», en vez de un confirm seco,
 // el broche del proyecto en números — tareas, entregables aprobados, horas registradas — y el
@@ -24,6 +25,10 @@ export function FinishSummaryDialog({
   const [data, setData] = React.useState<FinishSummary | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
+  // Registro rápido de respaldo dentro del modal (checklist de la Biblioteca).
+  const [backupDisk, setBackupDisk] = React.useState("");
+  const [refresh, setRefresh] = React.useState(0);
+  const [saving, startSaving] = React.useTransition();
 
   React.useEffect(() => {
     if (!open) return;
@@ -32,7 +37,7 @@ export function FinishSummaryDialog({
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); });
     return () => { cancelled = true; };
-  }, [open, projectId]);
+  }, [open, projectId, refresh]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -104,6 +109,62 @@ export function FinishSummaryDialog({
                 <span><b>{data.invoicesPending} factura{data.invoicesPending === 1 ? "" : "s"} sin cobrar</b> (enviada{data.invoicesPending === 1 ? "" : "s"} o vencida{data.invoicesPending === 1 ? "" : "s"}). Terminar no las toca — síguelas en Facturación.</span>
               </div>
             ) : null}
+
+            {/* Checklist de respaldo (Biblioteca): ¿el material queda a salvo antes de cerrar? */}
+            {data.material.level === "OK" ? (
+              <p className="mt-3 flex items-center gap-2 text-[13px] text-emerald-600 dark:text-emerald-400">
+                <HardDrive className="size-4 shrink-0" /> Material respaldado — 3-2-1 ✓
+              </p>
+            ) : data.material.level === "PARCIAL" ? (
+              <p className="mt-3 flex items-center gap-2 text-[13px] text-muted-foreground">
+                <HardDrive className="size-4 shrink-0" /> Material con {data.material.copies} copias registradas (sin 3-2-1 completo).
+              </p>
+            ) : (
+              <div className={cn("mt-3 rounded-xl border px-3 py-2.5 text-[13px]", data.backupLockOn ? "border-red-500/40 bg-red-500/10" : "border-amber-500/40 bg-amber-500/10")}>
+                <p className="flex items-start gap-2.5">
+                  <HardDrive className={cn("mt-0.5 size-4 shrink-0", data.backupLockOn ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")} />
+                  <span>
+                    <b>{data.material.level === "SIN_REGISTRO" ? "Nadie ha registrado dónde vive el material" : "El material no tiene respaldo registrado"}.</b>{" "}
+                    {data.backupLockOn ? "El candado de respaldo está activo: sin respaldo no se puede terminar." : "Si ese disco muere, se pierde el proyecto."}
+                  </span>
+                </p>
+                {data.disks.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                    <select
+                      value={backupDisk}
+                      onChange={(e) => setBackupDisk(e.target.value)}
+                      className="rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">Disco del respaldo…</option>
+                      {data.disks.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!backupDisk || saving}
+                      onClick={() => {
+                        const fd = new FormData();
+                        fd.set("projectId", projectId);
+                        fd.set("diskId", backupDisk);
+                        fd.set("role", data.material.level === "SIN_REGISTRO" ? "BRUTO" : "RESPALDO");
+                        startSaving(async () => {
+                          await addMaterialLocation(fd);
+                          setBackupDisk("");
+                          setRefresh((r) => r + 1);
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                    >
+                      {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                      {data.material.level === "SIN_REGISTRO" ? "Registrar bruto aquí" : "Registrar respaldo aquí"}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-1.5 pl-6 text-xs text-muted-foreground">Primero registra un disco en Biblioteca → Discos.</p>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -113,7 +174,11 @@ export function FinishSummaryDialog({
           <button onClick={onClose} disabled={pending} className="rounded-lg border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60">
             Cancelar
           </button>
-          <button onClick={confirm} disabled={pending || data === null} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60">
+          <button
+            onClick={confirm}
+            disabled={pending || data === null || (data !== null && data.backupLockOn && (data.material.level === "SIN_REGISTRO" || data.material.level === "SIN_RESPALDO"))}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
             {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} Marcar como terminado
           </button>
         </div>
