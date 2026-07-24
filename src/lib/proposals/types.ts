@@ -20,11 +20,19 @@ export type BlockType =
   | "pricing"
   | "budget"
   | "video"
+  | "checks"
   | "cta";
 
 export type Block = { type: BlockType; [key: string]: unknown };
 
-export type ProposalTheme = "documento" | "presentacion";
+// Fondo y tono de una diapositiva en el tema "cine". Vive DENTRO del bloque (JSON), así que
+// cada propuesta decide diapositiva por diapositiva sin tocar la base de datos:
+//   tone: "dark" | "light"   → alterna el fondo verde-noche y el crema
+//   bgVideo: URL del video de fondo (biblioteca /api/proposal-asset/… o externa)
+//   bg: imagen de fondo (ya existía en `hero`; en cine vale para cualquier bloque)
+export type BlockTone = "dark" | "light";
+
+export type ProposalTheme = "documento" | "presentacion" | "cine";
 
 export type Brand = {
   company: string;
@@ -35,10 +43,18 @@ export type Brand = {
   logo?: string;
   // Estilo de presentación al cliente. "documento" (por defecto) = el layout clásico en columna.
   // "presentacion" = experiencia inmersiva a pantalla completa (secciones oscuras, tipografía
-  // grande, aparición al desplazar), como una presentación de diapositivas. Se guarda dentro del
-  // snapshot de marca (JSON), así que NO requiere migración de base de datos.
+  // grande, aparición al desplazar), como una presentación de diapositivas. "cine" = el deck
+  // editorial de Labstream (serif de despliegue, verde-noche y crema alternándose, videos de
+  // fondo, índice lateral). Se guarda dentro del snapshot de marca (JSON), así que NO requiere
+  // migración de base de datos.
   theme?: ProposalTheme;
+  // Paleta del tema "cine". Si no viene, se usa la de Labstream (verde-noche/crema/dorado).
+  // Editable por propuesta: un cliente con identidad propia puede llevar la suya.
+  cine?: { ink?: string; cream?: string; gold?: string };
 };
+
+// Paleta por defecto del tema "cine" — la de la propuesta de Mi Páramo.
+export const CINE_PALETTE = { ink: "#0E1512", cream: "#F4F1EA", gold: "#E6D2A6" } as const;
 
 export type ProposalStatus = "BORRADOR" | "ENVIADA" | "ACEPTADA" | "VENCIDA";
 
@@ -71,6 +87,7 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   pricing: "Inversión",
   budget: "Desglose",
   video: "Video",
+  checks: "Lista de ✓",
   cta: "Cierre",
 };
 
@@ -80,6 +97,19 @@ export const STATUS_META: Record<ProposalStatus, { label: string; tone: string }
   ACEPTADA: { label: "Aceptada", tone: "emerald" },
   VENCIDA: { label: "Vencida", tone: "rose" },
 };
+
+// Marcas del bloque «logos». Nacieron como un array de TEXTOS y ahora son {name, logo} para
+// poder mostrar la imagen del logo. Los tres renderers pasan por aquí, así que una propuesta
+// guardada con el formato viejo sigue viéndose igual — y ninguno intenta pintar un objeto
+// como texto (que reventaba el render entero).
+export function logoItems(raw: unknown): { name: string; logo: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((it) => {
+    if (typeof it === "string") return { name: it, logo: "" };
+    const o = (it ?? {}) as Record<string, unknown>;
+    return { name: typeof o.name === "string" ? o.name : "", logo: typeof o.logo === "string" ? o.logo : "" };
+  });
+}
 
 // Estado efectivo: si la fecha de validez ya pasó, se considera VENCIDA.
 export function effectiveStatus(p: { status: ProposalStatus; expiresAt?: Date | string | null }): ProposalStatus {
@@ -160,6 +190,13 @@ export function newBlock(type: BlockType, brandEmail = BRAND_DEFAULT.email): Blo
       };
     case "video":
       return { type, url: "", caption: "Descripción del video" };
+    case "checks":
+      return {
+        type,
+        kicker: "Alcance del servicio",
+        title: "Todo lo que incluye esta propuesta.",
+        items: ["Primer punto incluido.", "Segundo punto incluido."],
+      };
     case "cta":
       return { type, title: "Trabajemos juntos", sub: "Escríbenos y conversemos.", btn: "Contactar", email: brandEmail };
   }

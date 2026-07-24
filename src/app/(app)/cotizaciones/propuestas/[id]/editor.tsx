@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
 import { ProposalRenderer } from "../proposal-renderer";
 import { ProposalPresentation } from "../proposal-presentation";
+import { ProposalCine } from "../proposal-cine";
 import { BlockEditPanel } from "./block-edit";
-import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
+import { BLOCK_LABELS, STATUS_META, CINE_PALETTE, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
 import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword } from "../actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -186,9 +187,41 @@ export function ProposalEditor({
             >
               <option value="documento">Documento — clásico, columna clara</option>
               <option value="presentacion">Presentación — inmersiva, pantalla completa oscura</option>
+              <option value="cine">Cine — deck editorial con videos de fondo</option>
             </select>
             <span className="mt-1 block text-[11px] text-muted-foreground">Cambia cómo la ve el cliente. Usa «Vista previa» para verlo.</span>
           </label>
+
+          {/* Paleta del tema Cine: los tres colores que mandan en el deck. */}
+          {brand.theme === "cine" ? (
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Paleta del deck</p>
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  ["ink", "Fondo oscuro"],
+                  ["cream", "Fondo claro"],
+                  ["gold", "Acento"],
+                ] as const).map(([k, label]) => (
+                  <label key={k} className="block text-sm">
+                    <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{label}</span>
+                    <input
+                      type="color"
+                      value={brand.cine?.[k] ?? CINE_PALETTE[k]}
+                      onChange={(e) => setBrand({ ...brand, cine: { ...(brand.cine ?? {}), [k]: e.target.value } })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-1"
+                    />
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setBrand({ ...brand, cine: undefined })}
+                className="mt-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Volver a la paleta de Labstream
+              </button>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Empresa (marca)</span>
@@ -252,7 +285,9 @@ export function ProposalEditor({
 
       {/* Documento */}
       {preview ? (
-        brand.theme === "presentacion" ? (
+        brand.theme === "cine" ? (
+          <ProposalCine blocks={blocks} brand={brand} variant="preview" />
+        ) : brand.theme === "presentacion" ? (
           <div className="overflow-hidden rounded-xl border border-border">
             <ProposalPresentation blocks={blocks} brand={brand} variant="preview" />
           </div>

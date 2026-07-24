@@ -7,6 +7,7 @@ import { PAISES, MESES } from "@/lib/proposals/calendar";
 import { formatMoney } from "@/lib/ui";
 import { internalCost, clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { uploadProposalImage } from "../actions";
+import { AssetField } from "./asset-picker";
 
 const inputCls = "w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 
@@ -240,18 +241,113 @@ function PlanEditor({ block, patch }: { block: Block; patch: (k: string, v: unkn
   );
 }
 
+// Lista de marcas del bloque «Logos»: nombre + imagen de la biblioteca. Acepta el formato
+// viejo (un array de textos) y lo normaliza al editar, sin tocar la base de datos.
+function LogoList({ items, onChange }: { items: unknown[]; onChange: (items: Record<string, unknown>[]) => void }) {
+  const norm: Record<string, unknown>[] = items.map((it) =>
+    typeof it === "string" ? { name: it, logo: "" } : ({ ...(it as Record<string, unknown>) }),
+  );
+  const set = (i: number, key: string, v: unknown) => onChange(norm.map((it, idx) => (idx === i ? { ...it, [key]: v } : it)));
+  return (
+    <div className="space-y-2">
+      {norm.map((it, i) => (
+        <div key={i} className="rounded-lg border border-border bg-muted/20 p-2.5">
+          <Field label="Nombre de la marca" value={String(it.name ?? "")} onChange={(v) => set(i, "name", v)} />
+          <div className="mt-2">
+            <AssetField label="Logo" kind="LOGO" value={String(it.logo ?? "")} onChange={(v) => set(i, "logo", v)} hint="Sin logo se muestra el nombre en versalitas." />
+          </div>
+          <button onClick={() => onChange(norm.filter((_, idx) => idx !== i))} className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive">
+            <Trash2 className="size-3.5" /> Quitar
+          </button>
+        </div>
+      ))}
+      <button onClick={() => onChange([...norm, { name: "Nueva marca", logo: "" }])} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent">
+        <Plus className="size-3.5" /> Añadir marca
+      </button>
+    </div>
+  );
+}
+
+// Fondo y tono de la diapositiva — lo usa el tema «Cine». Va plegado para no estorbar a quien
+// solo viene a cambiar un texto, y se abre solo si el bloque ya tiene fondo o tono propios.
+function CineStyle({ block, patch }: { block: Block; patch: (k: string, v: unknown) => void }) {
+  const tone = String(block.tone || "");
+  const hasStyle = !!block.bgVideo || !!block.bg || !!tone || !!block.kicker;
+  return (
+    <details open={hasStyle} className="rounded-lg border border-border bg-muted/20 p-2.5">
+      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">🎬 Fondo y estilo de la diapositiva</summary>
+      <div className="mt-2.5 space-y-3">
+        <Field label="Etiqueta superior (kicker)" value={String(block.kicker || "")} onChange={(v) => patch("kicker", v)} />
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">Tono</span>
+          <select value={tone} onChange={(e) => patch("tone", e.target.value)} className={inputCls}>
+            <option value="">Alternar solo</option>
+            <option value="dark">Oscuro</option>
+            <option value="light">Claro</option>
+          </select>
+        </label>
+        <AssetField
+          label="Video de fondo"
+          kind="VIDEO"
+          value={String(block.bgVideo || "")}
+          onChange={(v) => patch("bgVideo", v)}
+          hint="Se reproduce en silencio y en bucle. La imagen de abajo hace de portada mientras carga."
+        />
+        <AssetField label="Imagen de fondo" kind="IMAGE" value={String(block.bg || "")} onChange={(v) => patch("bg", v)} />
+      </div>
+    </details>
+  );
+}
+
 // Panel de edición según el tipo de bloque. Muta una copia y llama onChange.
 export function BlockEditPanel({ block, onChange, proposalId }: { block: Block; onChange: (b: Block) => void; proposalId: string }) {
   const patch = (k: string, v: unknown) => onChange({ ...block, [k]: v });
   const items = (Array.isArray(block.items) ? block.items : []) as Record<string, unknown>[];
 
+  return (
+    <div className="space-y-3">
+      <CineStyle block={block} patch={patch} />
+      <BlockFields block={block} patch={patch} items={items} proposalId={proposalId} />
+    </div>
+  );
+}
+
+function BlockFields({
+  block,
+  patch,
+  items,
+  proposalId,
+}: {
+  block: Block;
+  patch: (k: string, v: unknown) => void;
+  items: Record<string, unknown>[];
+  proposalId: string;
+}) {
   switch (block.type) {
     case "hero":
       return (
         <div className="space-y-3">
           <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
           <Field label="Subtítulo" value={String(block.subtitle || "")} onChange={(v) => patch("subtitle", v)} area />
-          <ImageField label="Imagen de fondo (opcional)" proposalId={proposalId} value={String(block.bg || "")} onChange={(v) => patch("bg", v)} />
+          <Field label="Párrafo de entrada" value={String(block.intro || "")} onChange={(v) => patch("intro", v)} area />
+          <div>
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Datos de la portada (fecha, locación, para quién…)</span>
+            <ObjList
+              items={(Array.isArray(block.meta) ? block.meta : []) as Record<string, unknown>[]}
+              onChange={(it) => patch("meta", it)}
+              addLabel="Añadir dato"
+              blank={{ k: "Etiqueta", v: "Valor" }}
+              fields={[{ key: "k", label: "Etiqueta" }, { key: "v", label: "Valor" }]}
+            />
+          </div>
+          <ImageField label="Imagen de fondo (o usa la biblioteca arriba)" proposalId={proposalId} value={String(block.bg || "")} onChange={(v) => patch("bg", v)} />
+        </div>
+      );
+    case "checks":
+      return (
+        <div className="space-y-3">
+          <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
+          <StrList items={(Array.isArray(block.items) ? block.items : []) as string[]} onChange={(it) => patch("items", it)} addLabel="Añadir punto" />
         </div>
       );
     case "text":
@@ -371,7 +467,13 @@ export function BlockEditPanel({ block, onChange, proposalId }: { block: Block; 
       return (
         <div className="space-y-3">
           <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
-          <StrList items={(Array.isArray(block.items) ? block.items : []) as string[]} onChange={(it) => patch("items", it)} addLabel="Añadir marca" />
+          <Field label="Subtítulo" value={String(block.sub || "")} onChange={(v) => patch("sub", v)} area />
+          {/* Cada marca es nombre + logo de la biblioteca. Las propuestas viejas guardaban solo
+              texto: se convierten al vuelo, sin migrar nada. */}
+          <LogoList
+            items={(Array.isArray(block.items) ? block.items : []) as unknown[]}
+            onChange={(it) => patch("items", it)}
+          />
         </div>
       );
     case "styles":

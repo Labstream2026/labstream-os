@@ -391,6 +391,141 @@ export const TEMPLATES: TemplateDef[] = [
       };
     },
   },
+
+  // ── Documental de causa ── el deck de Mi Páramo hecho plantilla. Nace en tema «cine»: es
+  // la única que estrena el deck editorial (verde-noche y crema, videos de fondo, índice
+  // lateral). Los fondos se eligen luego desde la biblioteca, en el editor.
+  {
+    key: "documental_causa",
+    icon: "⛰️",
+    name: "Documental de causa",
+    desc: "Cobertura y pieza documental para fundaciones, territorios y causas. Deck a pantalla completa.",
+    build: (a) => {
+      const cliente = plain(a.cliente, "la organización");
+      const publico = plain(a.publico, "sus aliados y comunidades");
+      const objetivo = plain(a.objetivo, "contar la causa con emoción y verdad");
+      const duracion = plain(a.duracion, "2 minutos");
+      return {
+        brand: { ...BRAND_DEFAULT, theme: "cine" },
+        blocks: [
+          {
+            type: "hero",
+            kicker: `${BRAND_DEFAULT.company} · Propuesta de cobertura audiovisual`,
+            title: plain(a.proyecto, "Nombre del proyecto"),
+            subtitle: "una historia que merece contarse",
+            intro: `Cobertura audiovisual y pieza documental de la jornada, para ${cliente}.`,
+            bg: "",
+            bgVideo: "",
+            tone: "dark",
+            meta: [
+              { k: "Jornada de campo", v: plain(a.fecha, "por definir") },
+              { k: "Locación", v: plain(a.locacion, "por definir") },
+              { k: "Para", v: cliente },
+            ],
+          },
+          {
+            type: "logos",
+            kicker: "Con quiénes hemos trabajado",
+            title: "Historias que dejan huella, para quienes construyen país.",
+            sub: `Somos una casa productora que traduce causas, marcas y territorios en piezas audiovisuales con alma.`,
+            tone: "dark",
+            items: [{ name: "Marca aliada", logo: "" }],
+          },
+          {
+            type: "cards",
+            kicker: "El punto de partida",
+            title: "Lo que entendimos de su iniciativa.",
+            sub: "Antes de proponer, escuchamos. Esto guiará cada decisión creativa.",
+            tone: "light",
+            items: [
+              { icon: "01", t: "Una jornada, una historia", d: "El día de trabajo en campo como punto de partida del relato." },
+              { icon: "02", t: "La voz de los aliados", d: `Testimonios de ${publico} como fragmentos que construyen la historia, no como entrevistas.` },
+              { icon: "03", t: "Ritmo y emoción", d: `Una pieza ágil y fresca, con narrativa emocional de aproximadamente ${duracion}.` },
+              { icon: "04", t: "Territorio protagonista", d: "Paisaje, trabajo en campo y equipo humano con mirada cinematográfica." },
+            ],
+          },
+          {
+            type: "text",
+            kicker: "Concepto creativo",
+            title: "La gran idea.",
+            tone: "dark",
+            body: `No filmamos un evento: filmamos ${S(objetivo, objetivo)}. Construimos la pieza como un pequeño poema documental —territorio, manos que trabajan y voces que creen— montado con un ritmo que emociona sin sobreexplicar.`,
+          },
+          {
+            type: "checks",
+            kicker: "Alcance del servicio",
+            title: "Todo lo que incluye esta propuesta.",
+            tone: "light",
+            items: [
+              "Cobertura audiovisual completa de la jornada en campo, de principio a fin.",
+              "Captura del paisaje, las actividades, el equipo de trabajo y los momentos más representativos.",
+              "Grabación de entrevistas a los voceros definidos por la organización.",
+              "Entrega del material en crudo, organizado y listo para su archivo.",
+              `Edición y entrega de un video final de aproximadamente ${duracion}.`,
+              "Tres a cuatro rondas de ajustes sobre la versión editada.",
+            ],
+          },
+          {
+            type: "cards",
+            kicker: "Lo que reciben",
+            title: "Entregables.",
+            tone: "dark",
+            items: [
+              { icon: "🎬", t: `Video final · ~${duracion}`, d: "Master en alta resolución, horizontal 16:9, con color, música licenciada y diseño sonoro." },
+              { icon: "🗂", t: "Material en crudo", d: "Todas las tomas y entrevistas del día, organizadas y entregadas por disco o transferencia." },
+              { icon: "🔁", t: "Hasta 4 rondas de ajustes", d: "Acompañamiento en la revisión hasta lograr la versión que los represente." },
+              { icon: "📱", t: "Versión vertical · opcional", d: "Adaptación 9:16 pensada para Reels, TikTok e Instagram." },
+            ],
+          },
+          {
+            type: "timeline",
+            kicker: "Logística y tiempos",
+            title: "Del rodaje a la entrega.",
+            tone: "light",
+            steps: [
+              { phase: "Salida y llegada", dur: "6:00 a.m.", desc: "Equipo, cámaras y transporte listos para desplazarse al punto de encuentro." },
+              { phase: "En campo", dur: "Día", desc: "Cobertura de las actividades, testimonios de los voceros y planos de apoyo." },
+              { phase: "Primer corte", dur: "+5 días", desc: "Entrega de la primera versión editada tras el rodaje." },
+              { phase: "Entrega final", dur: "Cierre", desc: "Master final más el material en crudo organizado." },
+            ],
+          },
+          {
+            type: "stats",
+            kicker: "En cifras",
+            title: "La jornada, en números.",
+            tone: "light",
+            items: [
+              { n: "1", p: "Día de rodaje", f: "" },
+              { n: `${duracion}`, p: "Video final", f: "" },
+              { n: "4", p: "Rondas de ajuste", f: "" },
+            ],
+          },
+          { ...budgetBlock("video_institucional"), kicker: "Inversión", title: "Cotización.", tone: "light" },
+          {
+            type: "cards",
+            kicker: "Por qué nosotros",
+            title: "Contamos causas, no solo eventos.",
+            tone: "dark",
+            items: [
+              { icon: "❦", t: "Narrativa emocional", d: "Sabemos convertir una jornada en una historia que se siente y se recuerda." },
+              { icon: "⚡", t: "Agilidad en campo", d: "Equipo compacto y resolutivo, cómodo en territorio y en condiciones exigentes." },
+              { icon: "◈", t: "Calidad cinematográfica", d: "Cuidado de imagen, color y sonido a la altura de una marca premium." },
+              { icon: "♥", t: "Compromiso con la causa", d: "Nos mueve el impacto y quienes lo hacen posible." },
+            ],
+          },
+          {
+            type: "cta",
+            kicker: "Estamos listos",
+            title: "¿Contamos juntos esta historia?",
+            sub: `Nos encantaría acompañar a ${cliente} en esta jornada. Quedamos atentos a sus comentarios.`,
+            btn: "Hablemos",
+            email: BRAND_DEFAULT.email,
+            tone: "dark",
+          },
+        ],
+      };
+    },
+  },
 ];
 
 export const TEMPLATE_MAP: Record<string, TemplateDef> = Object.fromEntries(TEMPLATES.map((t) => [t.key, t]));

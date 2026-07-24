@@ -10,7 +10,7 @@
 // por defecto es visible y la animación solo se AÑADE donde el navegador la entiende.
 
 import * as React from "react";
-import type { Block, Brand } from "@/lib/proposals/types";
+import { logoItems, type Block, type Brand } from "@/lib/proposals/types";
 import { formatMoney } from "@/lib/ui";
 import { clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { mesCal } from "@/lib/proposals/calendar";
@@ -336,8 +336,15 @@ function PresContent({ block, brand, n }: { block: Block; brand: Brand; n: numbe
           <Eyebrow n={n} accent={accent} />
           <Title>{str(block.title)}</Title>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            {arr<string>(block.items).map((name, i) => (
-              <span key={i} className="px-4 py-2 text-sm font-medium" style={{ ...cardStyle, color: TXT_BODY }}>{name}</span>
+            {logoItems(block.items).map((it, i) => (
+              <span key={i} className="flex items-center px-4 py-2 text-sm font-medium" style={{ ...cardStyle, color: TXT_BODY }}>
+                {it.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={it.logo} alt={it.name} className="max-h-7 max-w-[7rem] object-contain" />
+                ) : (
+                  it.name
+                )}
+              </span>
             ))}
           </div>
         </div>

@@ -3,7 +3,7 @@
 // vista pública del cliente (servidor). El color de acento viene de brand.accent.
 
 import * as React from "react";
-import type { Block, Brand } from "@/lib/proposals/types";
+import { logoItems, type Block, type Brand } from "@/lib/proposals/types";
 import { formatMoney } from "@/lib/ui";
 import { clientTotals, type BudgetSection } from "@/lib/proposals/budget";
 import { mesCal } from "@/lib/proposals/calendar";
@@ -326,8 +326,15 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
         <section className="space-y-4 text-center">
           {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
           <div className="flex flex-wrap items-center justify-center gap-3">
-            {arr<string>(block.items).map((name, i) => (
-              <span key={i} className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">{name}</span>
+            {logoItems(block.items).map((it, i) => (
+              <span key={i} className="flex items-center rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">
+                {it.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={it.logo} alt={it.name} className="max-h-7 max-w-[7rem] object-contain" />
+                ) : (
+                  it.name
+                )}
+              </span>
             ))}
           </div>
         </section>

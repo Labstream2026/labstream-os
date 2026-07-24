@@ -4,9 +4,10 @@ import { verifyProposalToken, verifyProposalUnlock } from "@/lib/proposals/token
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { ProposalGate } from "./gate";
 import { Logo } from "@/components/brand/logo";
-import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
+import { effectiveStatus, BRAND_DEFAULT, CINE_PALETTE, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
 import { ProposalPresentation } from "@/app/(app)/cotizaciones/propuestas/proposal-presentation";
+import { ProposalCine } from "@/app/(app)/cotizaciones/propuestas/proposal-cine";
 import { sanitizeBlockBodies } from "@/lib/proposals/html-sanitize";
 import { PrintButton } from "@/components/print-button";
 import { AcceptProposal } from "./accept";
@@ -18,15 +19,26 @@ export const runtime = "nodejs";
 // portal público (sin sesión) las cargue tras gatear esa ruta. Las URLs externas no se tocan. Solo
 // hay imágenes en el fondo del hero (bg) y en los slides del carrusel (items[].img).
 function withImgToken(blocks: Block[], token: string): Block[] {
+  // Cubre las dos familias de medios internos: los de UNA propuesta (/api/proposal-img/) y los
+  // de la BIBLIOTECA compartida (/api/proposal-asset/ — videos de fondo y logos reutilizables).
   const tok = (u: unknown) =>
-    typeof u === "string" && u.startsWith("/api/proposal-img/")
+    typeof u === "string" && (u.startsWith("/api/proposal-img/") || u.startsWith("/api/proposal-asset/"))
       ? `${u}${u.includes("?") ? "&" : "?"}t=${encodeURIComponent(token)}`
       : u;
   return blocks.map((b) => {
     const rec = { ...(b as unknown as Record<string, unknown>) };
-    if (rec.type === "hero") rec.bg = tok(rec.bg);
-    else if (rec.type === "carousel" && Array.isArray(rec.items)) {
+    // El fondo (imagen y video) vale para CUALQUIER bloque en el tema cine, no solo el hero.
+    rec.bg = tok(rec.bg);
+    rec.bgVideo = tok(rec.bgVideo);
+    if (rec.type === "carousel" && Array.isArray(rec.items)) {
       rec.items = (rec.items as Record<string, unknown>[]).map((it) => ({ ...it, img: tok(it.img) }));
+    } else if (rec.type === "logos" && Array.isArray(rec.items)) {
+      // Los logos aceptan texto suelto (formato viejo) u objeto {name, logo}.
+      rec.items = (rec.items as unknown[]).map((it) =>
+        it && typeof it === "object" ? { ...(it as Record<string, unknown>), logo: tok((it as Record<string, unknown>).logo) } : it,
+      );
+    } else if ((rec.type === "video" || rec.type === "fullvideo") && typeof rec.url === "string") {
+      rec.url = tok(rec.url);
     }
     return rec as unknown as Block;
   });
@@ -66,6 +78,33 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   const status = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
   const accepted = status === "ACEPTADA";
   const expired = status === "VENCIDA";
+
+  // Tema "cine": el deck editorial de Labstream a pantalla completa (verde-noche y crema
+  // alternándose, videos de fondo, índice lateral). El pie —aceptar / vencida— va como última
+  // diapositiva para que el cliente no tenga que salirse del deck para decidir.
+  if (brand.theme === "cine") {
+    const pal = { ...CINE_PALETTE, ...(brand.cine ?? {}) };
+    return (
+      <ProposalCine
+        blocks={blocks}
+        brand={brand}
+        variant="full"
+        footer={
+          accepted ? (
+            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
+              ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
+            </div>
+          ) : expired ? (
+            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
+              Esta propuesta venció. Escríbenos para actualizarla.
+            </div>
+          ) : (
+            <AcceptProposal token={token} accent={pal.gold} dark />
+          )
+        }
+      />
+    );
+  }
 
   // Tema "presentacion": experiencia inmersiva oscura a pantalla completa (misma propuesta, otro
   // envoltorio). El documento clásico sigue igual para las propuestas en tema "documento".
