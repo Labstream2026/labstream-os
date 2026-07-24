@@ -15,6 +15,7 @@ import { renderQuotePdf } from "@/lib/pdf/quote-pdf";
 import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail, notifyManyAndEmail } from "@/lib/notify";
 import { createCalendarEventCore } from "@/lib/calendar-create";
+import { materialHealth, ROLE_LABEL } from "@/lib/material-health";
 import { generateImage, normalizeAspect } from "@/lib/higgsfield";
 import { mcpGenerateImage, mcpStartVideo, HiggsfieldNotConnected } from "@/lib/higgsfield-mcp";
 import { isHiggsfieldConnected } from "@/lib/higgsfield-oauth";
@@ -212,6 +213,15 @@ export const AGENT_TOOLS: ToolDef[] = [
       name: "get_project",
       description: "Detalle de un proyecto: estado, progreso, responsable, miembros, y resumen de tareas (abiertas, vencidas, hechas) y próximas entregas.",
       parameters: { type: "object", properties: { project: { type: "string", description: "Id o nombre del proyecto." } }, required: ["project"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_material_map",
+      description:
+        "Responde «¿dónde está el material de X?»: en qué DISCOS vive el bruto/edición/exportes/respaldo de un proyecto (con rutas y última verificación) y su salud de respaldo 3-2-1. Sin 'project', devuelve el panorama del estudio: los discos registrados y los proyectos SIN respaldo.",
+      parameters: { type: "object", properties: { project: { type: "string", description: "Id o nombre del proyecto (opcional)." } } },
     },
   },
   {
@@ -834,6 +844,61 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
         tareas: { total: visible.length, abiertas: open.length, vencidas: overdue.length, terminadas: visible.length - open.length },
         proximas_tareas: open.filter((t) => t.dueDate).sort((a, b) => (a.dueDate!.getTime() - b.dueDate!.getTime())).slice(0, 8).map((t) => ({ titulo: t.title, vence: ymd(t.dueDate!), responsable: t.assignee?.name ?? null, vencida: !!(t.dueDate && t.dueDate < now) })),
         entregables: full.deliverables.slice(0, 8).map((d) => ({ nombre: d.name, estado: d.status, entrega: d.dueDate ? ymd(d.dueDate) : null })),
+      });
+    }
+
+    case "get_material_map": {
+      if (!hasPermission(session, "ver_biblioteca")) return "No tienes permiso para ver la biblioteca.";
+      const ref = str(args.project);
+      if (ref) {
+        // «¿Dónde está el material de X?» — la fila del mapa de ESE proyecto.
+        const p = await resolveProject(session, ref);
+        if (!p) return "No encontré ese proyecto o no tienes acceso a él.";
+        const locs = await db.materialLocation.findMany({
+          where: { projectId: p.id },
+          orderBy: { createdAt: "asc" },
+          include: { disk: { select: { name: true, kind: true, offsite: true, location: true } } },
+        });
+        const health = materialHealth(locs.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite })));
+        return JSON.stringify({
+          proyecto: p.name,
+          salud_respaldo: health.label,
+          ubicaciones: locs.map((l) => ({
+            rol: ROLE_LABEL[l.role] ?? l.role,
+            disco: l.disk.name,
+            tipo_disco: l.disk.kind,
+            donde_esta_el_disco: l.disk.location ?? null,
+            ruta: l.path ?? null,
+            verificado: l.verifiedAt ? ymd(l.verifiedAt) : "sin verificar",
+          })),
+          ...(locs.length === 0 ? { nota: "Nadie ha registrado dónde vive el material de este proyecto. Se registra en el proyecto → Archivos → «¿Dónde está el material?»." } : {}),
+        });
+      }
+      // Panorama del estudio: discos + proyectos en riesgo.
+      const [disks, projects] = await Promise.all([
+        db.storageDisk.findMany({
+          where: { status: "ACTIVO" },
+          orderBy: { name: "asc" },
+          include: { locations: { select: { projectId: true } } },
+        }),
+        db.project.findMany({
+          where: { AND: [accessibleProjectWhere(session), { archivedAt: null }] },
+          select: { name: true, materialLocations: { include: { disk: { select: { kind: true, offsite: true } } } } },
+        }),
+      ]);
+      const enRiesgo = projects
+        .map((p) => ({ nombre: p.name, salud: materialHealth(p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))) }))
+        .filter((p) => p.salud.level === "SIN_RESPALDO" || p.salud.level === "SIN_REGISTRO")
+        .map((p) => ({ proyecto: p.nombre, salud: p.salud.label }));
+      return JSON.stringify({
+        discos: disks.map((d) => ({
+          nombre: d.name,
+          tipo: d.kind,
+          donde_esta: d.location ?? null,
+          proyectos: new Set(d.locations.map((l) => l.projectId)).size,
+          ultima_verificacion: d.lastCheckAt ? ymd(d.lastCheckAt) : "nunca",
+        })),
+        proyectos_en_riesgo: enRiesgo,
       });
     }
 
