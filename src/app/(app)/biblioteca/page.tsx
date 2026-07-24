@@ -26,14 +26,14 @@ const TABS = [
 // Severidad para ordenar el mapa: lo que está en riesgo, arriba.
 const HEALTH_ORDER: Record<string, number> = { SIN_RESPALDO: 0, SIN_REGISTRO: 1, PARCIAL: 2, OK: 3 };
 
-export default async function BibliotecaPage({ searchParams }: { searchParams: Promise<{ tab?: string; q?: string }> }) {
+export default async function BibliotecaPage({ searchParams }: { searchParams: Promise<{ tab?: string; q?: string; disco?: string }> }) {
   // Acceso a la Biblioteca por permiso (el backfill se lo da al equipo; los clientes no).
   const session = await getSession();
   if (!hasPermission(session, "ver_biblioteca")) redirect("/");
   // Gestionar (añadir/editar/fijar) requiere permiso aparte; ver es suficiente para mirar.
   const canManage = hasPermission(session, "gestionar_biblioteca");
 
-  const { tab: rawTab, q } = await searchParams;
+  const { tab: rawTab, q, disco } = await searchParams;
   const tab = TABS.some((t) => t.key === rawTab) ? (rawTab as (typeof TABS)[number]["key"]) : "recursos";
   const now = new Date();
 
@@ -62,7 +62,7 @@ export default async function BibliotecaPage({ searchParams }: { searchParams: P
       </div>
 
       {tab === "recursos" ? <RecursosTab canManage={canManage} userId={session!.id} initialQ={q ?? ""} /> : null}
-      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} /> : null}
+      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} highlightId={disco ?? null} /> : null}
       {tab === "mapa" ? <MapaTab canManage={canManage} now={now} /> : null}
     </div>
   );
@@ -112,7 +112,7 @@ async function RecursosTab({ canManage, userId, initialQ }: { canManage: boolean
   );
 }
 
-async function DiscosTab({ canManage, now }: { canManage: boolean; now: Date }) {
+async function DiscosTab({ canManage, now, highlightId = null }: { canManage: boolean; now: Date; highlightId?: string | null }) {
   const [disks, nasUsage] = await Promise.all([
     db.storageDisk.findMany({
       orderBy: [{ status: "asc" }, { createdAt: "asc" }],
@@ -144,7 +144,7 @@ async function DiscosTab({ canManage, now }: { canManage: boolean; now: Date }) 
     };
   });
 
-  return <Discos disks={rows} canManage={canManage} />;
+  return <Discos disks={rows} canManage={canManage} highlightId={highlightId} />;
 }
 
 async function MapaTab({ canManage, now }: { canManage: boolean; now: Date }) {

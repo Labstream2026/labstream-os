@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, HardDrive, MapPin, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, HardDrive, MapPin, Pencil, Plus, QrCode, RotateCcw, Trash2, X } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DISK_KINDS, DISK_KIND_LABEL } from "@/lib/material-health";
@@ -83,12 +83,12 @@ function DiskForm({ disk, onDone }: { disk?: DiskRow; onDone: () => void }) {
   );
 }
 
-function DiskCard({ d, canManage, onEdit }: { d: DiskRow; canManage: boolean; onEdit: () => void }) {
+function DiskCard({ d, canManage, onEdit, highlighted }: { d: DiskRow; canManage: boolean; onEdit: () => void; highlighted: boolean }) {
   const pct = d.capacityGB && d.usedGB != null ? Math.min(100, Math.round((d.usedGB / d.capacityGB) * 100)) : null;
   const check = checkTone(d.lastCheckDays);
   const retired = d.status === "RETIRADO";
   return (
-    <div className={`flex flex-col gap-2.5 rounded-xl border border-border bg-card p-4 shadow-sm ${retired ? "opacity-60" : ""}`}>
+    <div className={`flex flex-col gap-2.5 rounded-xl border bg-card p-4 shadow-sm ${retired ? "opacity-60" : ""} ${highlighted ? "border-primary ring-2 ring-primary/30" : "border-border"}`}>
       <div className="flex items-center gap-2">
         <span className="size-3 shrink-0 rounded" style={{ background: d.color ?? "#94a3b8" }} />
         <span className="min-w-0 flex-1 truncate font-medium">{d.name}</span>
@@ -134,6 +134,15 @@ function DiskCard({ d, canManage, onEdit }: { d: DiskRow; canManage: boolean; on
             </button>
           </form>
           <span className="flex-1" />
+          <a
+            href={`/biblioteca/discos/${d.id}/etiqueta`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Etiqueta QR imprimible (pégala al disco)"
+          >
+            <QrCode className="size-4" />
+          </a>
           <button type="button" onClick={onEdit} className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar">
             <Pencil className="size-4" />
           </button>
@@ -159,7 +168,7 @@ function DiskCard({ d, canManage, onEdit }: { d: DiskRow; canManage: boolean; on
   );
 }
 
-export function Discos({ disks, canManage }: { disks: DiskRow[]; canManage: boolean }) {
+export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRow[]; canManage: boolean; highlightId?: string | null }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -200,7 +209,7 @@ export function Discos({ disks, canManage }: { disks: DiskRow[]; canManage: bool
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {disks.map((d) => (
-            <DiskCard key={d.id} d={d} canManage={canManage} onEdit={() => { setEditingId(d.id); setAdding(false); }} />
+            <DiskCard key={d.id} d={d} canManage={canManage} highlighted={d.id === highlightId} onEdit={() => { setEditingId(d.id); setAdding(false); }} />
           ))}
         </div>
       )}
