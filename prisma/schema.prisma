@@ -1852,10 +1852,40 @@ model ProjectCover {
   decisionBy    String?
   decisionAt    DateTime?
   decisionNote  String?
+  // Quién la subió (rastro del banco) y cuándo se tocó por última vez.
+  uploadedById  String?
   createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt @default(now())
+  // Anotaciones: el cliente (y el equipo) marcan SOBRE la imagen qué cambiar.
+  notes         CoverNote[]
 
   @@index([projectId])
   @@index([deliverableId])
+}
+
+// Anotación sobre una PORTADA: nota escrita y/o dibujo encima de la imagen (círculos, flechas,
+// texto) para que el diseñador vea exactamente qué cambiar. Es el equivalente de ReviewComment
+// para el banco de portadas, pero SIN timecode ni versión: una portada es una imagen fija.
+// El dibujo se guarda aplanado (la portada con los trazos quemados, data URL JPEG) igual que
+// las correcciones de video — así se ve en la campana, en el correo y en el panel sin
+// reconstruir nada.
+model CoverNote {
+  id          String       @id @default(cuid())
+  cover       ProjectCover @relation(fields: [coverId], references: [id], onDelete: Cascade)
+  coverId     String
+  // Autor: nombre libre (el cliente no tiene cuenta) + userId cuando lo escribe el equipo.
+  authorName  String
+  authorId    String?
+  fromClient  Boolean      @default(true)
+  body        String?
+  drawing     String? // data URL de la imagen anotada (JPEG comprimido)
+  // El equipo marca la anotación como atendida (mismo gesto que «resolver» una corrección).
+  resolved    Boolean      @default(false)
+  resolvedAt  DateTime?
+  resolvedById String?
+  createdAt   DateTime     @default(now())
+
+  @@index([coverId, createdAt])
 }
 
 // ─────────────────────────────────────────────

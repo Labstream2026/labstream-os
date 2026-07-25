@@ -36,6 +36,126 @@ function teamIds(p: { leadId: string | null; members: { userId: string }[] }): s
   return [p.leadId, ...p.members.map((m) => m.userId)].filter((id): id is string => Boolean(id));
 }
 
+// Mejora 9 · un solo estado de portada: cuando el cliente decide en el BANCO y esa portada
+// está vinculada a un video, se escribe también la decisión de la portada DEL VIDEO. Sin esto,
+// la sala del reel seguía diciendo «pendiente de tu revisión» sobre una portada ya aprobada.
+async function syncDeliverableCoverDecision(
+  deliverableId: string | null,
+  fileAssetId: string,
+  decision: "APROBADA" | "CAMBIOS",
+  who: string,
+  note: string | null,
+) {
+  if (!deliverableId) return;
+  await db.deliverable
+    .update({
+      where: { id: deliverableId },
+      data: {
+        ...(decision === "APROBADA" ? { coverFileAssetId: fileAssetId } : {}),
+        coverDecisionFor: fileAssetId,
+        coverDecision: decision,
+        coverDecisionBy: who,
+        coverDecisionAt: new Date(),
+        coverDecisionNote: note,
+      },
+    })
+    .catch(() => {});
+}
+
+// Anotación del cliente sobre UNA portada: nota escrita y/o dibujo encima de la imagen. No
+// cambia la decisión — es feedback para el diseñador, y puede haber varias por portada.
+// El dibujo llega como data URL; se valida el prefijo (misma allowlist que las correcciones
+// de video) y se acota el tamaño para no engordar la fila.
+const DATA_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const MAX_DRAWING = 700_000;
+
+export async function addCoverNote(
+  token: string,
+  coverId: string,
+  input: { body?: string; drawing?: string | null; name?: string },
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!rateLimit(`covers-note:${await rlKey(token)}`, 30, 60_000)) {
+    return { ok: false, message: "Demasiadas notas seguidas. Espera un momento." };
+  }
+  let project: Awaited<ReturnType<typeof resolveProject>>;
+  try {
+    project = await resolveProject(token);
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Enlace no disponible." };
+  }
+  const cover = await db.projectCover.findUnique({
+    where: { id: coverId },
+    select: { projectId: true, name: true, deliverable: { select: { name: true } } },
+  });
+  if (!cover || cover.projectId !== project.id) return { ok: false, message: "Esta portada ya no existe. Recarga la página." };
+
+  const who = (input.name ?? "").trim().slice(0, 80) || "Cliente";
+  const body = (input.body ?? "").trim().slice(0, 1000) || null;
+  const raw = input.drawing ?? null;
+  const drawing = raw && DATA_URL.test(raw) && raw.length <= MAX_DRAWING ? raw : null;
+  if (!body && !drawing) return { ok: false, message: "Escribe una nota o dibuja algo sobre la portada." };
+
+  await db.coverNote.create({ data: { coverId, authorName: who, fromClient: true, body, drawing } });
+  // La portada queda marcada como «con cambios pedidos» para que el equipo la vea en su bandeja.
+  await db.projectCover.update({ where: { id: coverId }, data: { decision: "CAMBIOS", decisionBy: who, decisionAt: new Date(), decisionNote: body } });
+
+  await logActivity({
+    action: "cover.client_note",
+    summary: `anotó la portada «${cover.name}»${drawing ? " (con dibujo)" : ""}`,
+    projectId: project.id,
+    entityType: "project",
+    entityId: project.id,
+    actorName: `${who} (cliente)`,
+  });
+  const recipients = teamIds(project);
+  if (recipients.length) {
+    await notifyManyAndEmail(recipients, {
+      type: "review",
+      event: "review_client",
+      title: `${drawing ? "✏️ Anotación" : "Nota"} en portada: ${cover.name}`,
+      body: `${who}${cover.deliverable ? ` en «${cover.deliverable.name}»` : ""}: ${body ?? "marcó los cambios sobre la imagen."}`,
+      link: `/proyectos/${project.id}?tab=entregables`,
+    });
+  }
+  revalidatePath(`/portadas/${token}`);
+  return { ok: true };
+}
+
+// Mejora 3 · deshacer la decisión: aprobar o descartar deja de ser una puerta sin retorno
+// mientras el enlace siga vivo. Si la portada era la oficial del video, se suelta también.
+export async function undoCoverDecision(token: string, coverId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!rateLimit(`covers-undo:${await rlKey(token)}`, 30, 60_000)) {
+    return { ok: false, message: "Demasiadas acciones seguidas. Espera un momento." };
+  }
+  let project: Awaited<ReturnType<typeof resolveProject>>;
+  try {
+    project = await resolveProject(token);
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Enlace no disponible." };
+  }
+  const cover = await db.projectCover.findUnique({
+    where: { id: coverId },
+    select: { projectId: true, fileAssetId: true, deliverableId: true },
+  });
+  if (!cover || cover.projectId !== project.id) return { ok: false, message: "Esta portada ya no existe. Recarga la página." };
+
+  await db.projectCover.update({
+    where: { id: coverId },
+    data: { decision: null, decisionBy: null, decisionAt: null, decisionNote: null },
+  });
+  // Si era la portada oficial del video, el video vuelve a quedarse sin portada decidida.
+  if (cover.deliverableId) {
+    await db.deliverable
+      .updateMany({
+        where: { id: cover.deliverableId, coverFileAssetId: cover.fileAssetId },
+        data: { coverFileAssetId: null, coverDecision: null, coverDecisionFor: null, coverDecisionBy: null, coverDecisionAt: null, coverDecisionNote: null },
+      })
+      .catch(() => {});
+  }
+  revalidatePath(`/portadas/${token}`);
+  return { ok: true };
+}
+
 // Decide sobre UNA portada: APROBADA o CAMBIOS (con nota). Si la portada está vinculada a un
 // video y queda APROBADA, se convierte en su portada oficial (coverFileAssetId) — alimenta la
 // sala del reel y Entregas finales sin más pasos.
@@ -69,9 +189,7 @@ export async function decideBankCover(
     where: { id: coverId },
     data: { decision: value, decisionBy: who, decisionAt: new Date(), decisionNote: noteClean },
   });
-  if (value === "APROBADA" && cover.deliverableId) {
-    await db.deliverable.update({ where: { id: cover.deliverableId }, data: { coverFileAssetId: cover.fileAssetId } }).catch(() => {});
-  }
+  await syncDeliverableCoverDecision(cover.deliverableId, cover.fileAssetId, value, who, noteClean);
 
   await logActivity({
     action: value === "APROBADA" ? "cover.client_approved" : "cover.client_changes",
@@ -132,7 +250,7 @@ export async function chooseCoverWinner(
     where: { deliverableId: cover.deliverableId, id: { not: coverId } },
     data: { decision: "DESCARTADA", decisionBy: who, decisionAt: now, decisionNote: null },
   });
-  await db.deliverable.update({ where: { id: cover.deliverableId }, data: { coverFileAssetId: cover.fileAssetId } }).catch(() => {});
+  await syncDeliverableCoverDecision(cover.deliverableId, cover.fileAssetId, "APROBADA", who, null);
 
   await logActivity({
     action: "cover.client_winner",

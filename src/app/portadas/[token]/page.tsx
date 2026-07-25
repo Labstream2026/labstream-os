@@ -2,6 +2,7 @@ import type * as React from "react";
 import { db } from "@/lib/db";
 import { verifyCoversToken } from "@/lib/review-token";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { formatBogotaDate } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 import { EntityEmoji } from "@/components/icons/marks";
 import { CoversGallery, type PublicCover, type CoverGroup } from "./covers-gallery";
@@ -73,7 +74,10 @@ export default async function CoversPage({ params }: { params: Promise<{ token: 
       client: { select: { name: true } },
       covers: {
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        include: { deliverable: { select: { id: true, number: true, name: true } } },
+        include: {
+          deliverable: { select: { id: true, number: true, name: true } },
+          notes: { orderBy: { createdAt: "desc" }, select: { id: true, authorName: true, body: true, drawing: true, resolved: true, createdAt: true } },
+        },
       },
     },
   });
@@ -88,6 +92,14 @@ export default async function CoversPage({ params }: { params: Promise<{ token: 
     decision: c.decision,
     decisionBy: c.decisionBy,
     decisionNote: c.decisionNote,
+    notes: c.notes.map((n) => ({
+      id: n.id,
+      authorName: n.authorName,
+      body: n.body,
+      drawing: n.drawing,
+      resolved: n.resolved,
+      when: formatBogotaDate(n.createdAt, { day: "numeric", month: "short" }),
+    })),
   });
 
   // Agrupa por video vinculado (los grupos con 2+ portadas son A/B: se elige la ganadora);
