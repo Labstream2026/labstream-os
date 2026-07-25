@@ -33,7 +33,7 @@ export const GET = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   const projectId = url.searchParams.get("projectId")?.trim();
-  const where: Record<string, unknown>[] = [];
+  const where: Record<string, unknown>[] = [{ archivedAt: null }]; // sin las de la papelera
   if (ctx.session.role !== "admin") where.push({ createdById: ctx.session.id });
   if (q) where.push({ OR: [{ title: { contains: q, mode: "insensitive" as const } }, { content: { contains: q, mode: "insensitive" as const } }] });
   if (projectId) where.push({ projectId });

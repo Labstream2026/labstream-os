@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock } from "lucide-react";
-import { IconNotas } from "@/components/icons";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft } from "lucide-react";
+import { IconNotas, IconPapelera } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
-import { saveNote, deleteNote, togglePinNote } from "./actions";
+import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
 
 export type NoteItem = {
   id: string;
@@ -52,6 +52,21 @@ function fmtReminder(iso: string | null): string {
   try { return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)); } catch { return ""; }
 }
 
+// Nota en la PAPELERA: solo lo justo para listarla, restaurarla o eliminarla de verdad.
+// `archivedAgo` («hoy», «hace 3 días») lo calcula el servidor: aquí no se lee el reloj
+// durante el render (regla de pureza de React).
+export type TrashedNote = {
+  id: string;
+  title: string;
+  snippet: string;
+  category: string | null;
+  clientId: string | null;
+  color: string | null;
+  archivedAt: string | null; // ISO
+  archivedAgo: string;
+  updatedAt: string; // ISO
+};
+
 export type NoteProject = { id: string; name: string; emoji: string | null };
 export type NoteClient = { id: string; name: string; emoji: string | null; accentColor: string | null };
 
@@ -81,13 +96,17 @@ const emptyDraft: Draft = { id: null, title: "", content: "", category: "", proj
 // se abre el editor a pantalla completa con botón «atrás». Autoguardado con debounce.
 // La lista se AGRUPA por cliente o por categoría (tags) para encontrar fácil; el cliente y la
 // categoría son tags grandes y editables en el editor. Selección neutra (sin recuadro naranja).
-export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; projects: NoteProject[]; clients: NoteClient[] }) {
+export function NotesApp({ initial, trashed, projects, clients }: { initial: NoteItem[]; trashed: TrashedNote[]; projects: NoteProject[]; clients: NoteClient[] }) {
   const projectsById = React.useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const projOf = (id: string | null) => (id ? projectsById.get(id) ?? null : null);
   const clientsById = React.useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const clientOf = (id: string | null) => (id ? clientsById.get(id) ?? null : null);
 
   const [notes, setNotes] = React.useState<NoteItem[]>(initial);
+  // Papelera: notas borradas que TODAVÍA se pueden recuperar. `trashOpen` cambia la lista
+  // por la papelera sin salir de la pantalla.
+  const [trash, setTrash] = React.useState<TrashedNote[]>(trashed);
+  const [trashOpen, setTrashOpen] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(initial[0]?.id ?? null);
   const [draft, setDraft] = React.useState<Draft>(initial[0] ? draftOf(initial[0]) : emptyDraft);
   const [isNew, setIsNew] = React.useState(false);
@@ -215,9 +234,17 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
     });
   }
 
+  // Borrar = mandar a la papelera (recuperable). La nota salta de la lista a `trash` en el acto.
   function removeNote(id: string) {
+    const gone = notes.find((n) => n.id === id);
     start(async () => {
       await deleteNote(id);
+      if (gone) {
+        setTrash((prev) => [
+          { id: gone.id, title: gone.title, snippet: gone.content.trim().replace(/\s+/g, " ").slice(0, 120), category: gone.category, clientId: gone.clientId, color: gone.color, archivedAt: null, archivedAgo: "hoy", updatedAt: gone.updatedAt },
+          ...prev.filter((t) => t.id !== id),
+        ]);
+      }
       setNotes((prev) => {
         const rest = prev.filter((n) => n.id !== id);
         if (selectedId === id) {
@@ -228,6 +255,30 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
       });
       setMobileEditorOpen(false);
     });
+  }
+
+  // Restaurar desde la papelera: vuelve a la lista y se abre para que se vea que volvió.
+  function undelete(t: TrashedNote) {
+    setTrash((prev) => prev.filter((x) => x.id !== t.id));
+    start(async () => {
+      const r = await restoreNote(t.id);
+      if (!r.ok) { setTrash((prev) => [t, ...prev]); return; }
+      // La lista se recompone del servidor al refrescar; mientras tanto la mostramos con
+      // lo que sabemos (título, cliente, color) para no dejar un hueco.
+      setNotes((prev) => prev.some((n) => n.id === t.id) ? prev : [{ id: t.id, title: t.title, content: t.snippet, category: t.category, source: "app", pinned: false, projectId: null, clientId: t.clientId, color: t.color, remindAt: null, visibility: "private", mine: true, ownerName: null, createdAt: t.updatedAt, updatedAt: t.updatedAt }, ...prev]);
+      setTrashOpen(false);
+    });
+  }
+
+  function purge(t: TrashedNote) {
+    setTrash((prev) => prev.filter((x) => x.id !== t.id));
+    start(async () => { await purgeNote(t.id); });
+  }
+
+  function emptyTrash() {
+    const backup = trash;
+    setTrash([]);
+    start(async () => { const r = await emptyNoteTrash(); if (!r.ok) setTrash(backup); });
   }
 
   function togglePin(n: NoteItem) {
@@ -246,11 +297,58 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
       {/* ── Lista (izquierda) ── llena todo en móvil; columna fija en escritorio */}
       <aside className={cn("flex min-h-0 w-full flex-col border-r border-border lg:flex lg:w-80 lg:shrink-0", mobileEditorOpen ? "hidden lg:flex" : "flex")}>
         <div className="flex items-center justify-between gap-2 px-4 py-3">
-          <span className="flex items-center gap-2 text-base font-semibold"><IconNotas className="size-5" /> Notas</span>
-          <button type="button" onClick={newNote} title="Nueva nota" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Plus className="size-5" />
-          </button>
+          {trashOpen ? (
+            <button type="button" onClick={() => setTrashOpen(false)} className="-ml-1 flex items-center gap-1.5 rounded-md px-1 py-0.5 text-base font-semibold hover:bg-accent">
+              <ArrowLeft className="size-4 text-muted-foreground" /> Papelera
+            </button>
+          ) : (
+            <span className="flex items-center gap-2 text-base font-semibold"><IconNotas className="size-5" /> Notas</span>
+          )}
+          {trashOpen ? (
+            trash.length ? (
+              <button
+                type="button"
+                onClick={async () => { if (await confirm({ message: `¿Eliminar definitivamente ${trash.length === 1 ? "la nota de la papelera" : `las ${trash.length} notas de la papelera`}? Esto no se puede deshacer.`, danger: true })) emptyTrash(); }}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              >
+                Vaciar
+              </button>
+            ) : null
+          ) : (
+            <button type="button" onClick={newNote} title="Nueva nota" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Plus className="size-5" />
+            </button>
+          )}
         </div>
+
+        {/* ── Papelera ── notas borradas que todavía se pueden recuperar */}
+        {trashOpen ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+            {trash.length === 0 ? (
+              <p className="px-3 py-8 text-center text-sm text-muted-foreground">La papelera está vacía.</p>
+            ) : (
+              trash.map((t) => (
+                <div key={t.id} className="group mb-0.5 rounded-lg px-3 py-2.5 hover:bg-accent">
+                  <p className="truncate text-sm font-semibold text-muted-foreground">{t.title}</p>
+                  <p className="truncate text-xs text-muted-foreground/80">{t.archivedAgo}{t.snippet ? ` · ${t.snippet}` : ""}</p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <button type="button" onClick={() => undelete(t)} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] font-medium hover:bg-accent">
+                      <RotateCcw className="size-3" /> Restaurar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => { if (await confirm({ message: `¿Eliminar definitivamente «${t.title}»? Esto no se puede deshacer.`, danger: true })) purge(t); }}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="size-3" /> Eliminar
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+        <>
         <div className="relative px-3 pb-2">
           <Search className="pointer-events-none absolute left-5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar" className="w-full rounded-md border border-input bg-muted/40 py-2 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
@@ -338,6 +436,19 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
             ))
           )}
         </div>
+        </>
+        )}
+
+        {/* Pie: acceso a la papelera (solo si hay algo que recuperar o ya estamos en ella) */}
+        {!trashOpen && trash.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setTrashOpen(true)}
+            className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <IconPapelera className="size-3.5" /> Papelera <span className="text-muted-foreground/70">({trash.length})</span>
+          </button>
+        ) : null}
       </aside>
 
       {/* ── Editor (derecha) ── pantalla completa en móvil cuando hay nota abierta */}
@@ -356,8 +467,8 @@ export function NotesApp({ initial, projects, clients }: { initial: NoteItem[]; 
               {draft.id && !readOnly ? (
                 <button
                   type="button"
-                  title="Eliminar nota"
-                  onClick={async () => { const id = draft.id as string; if (await confirm({ message: `¿Eliminar la nota «${draft.title || "sin título"}»?`, danger: true })) removeNote(id); }}
+                  title="Mandar a la papelera"
+                  onClick={async () => { const id = draft.id as string; if (await confirm({ message: `¿Mandar «${draft.title || "sin título"}» a la papelera? Podrás restaurarla desde ahí.` })) removeNote(id); }}
                   className="flex size-8 items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Trash2 className="size-4" />

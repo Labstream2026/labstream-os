@@ -7,7 +7,8 @@ import { notify } from "@/lib/notify";
 // programado un job frecuente en el NAS.
 export async function dispatchDueNoteReminders(now: Date = new Date()): Promise<{ due: number; sent: number }> {
   const due = await db.note.findMany({
-    where: { remindAt: { lte: now }, reminderSentAt: null },
+    // Las notas en la papelera no avisan (borrarla apaga su recordatorio).
+    where: { remindAt: { lte: now }, reminderSentAt: null, archivedAt: null },
     select: { id: true, title: true, content: true, createdById: true },
     take: 500,
   });

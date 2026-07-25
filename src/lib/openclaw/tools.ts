@@ -1144,7 +1144,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
 
     case "list_notes": {
       if (!hasPermission(session, "ver_notas")) return "No tienes permiso para ver notas.";
-      const where: Record<string, unknown>[] = [];
+      const where: Record<string, unknown>[] = [{ archivedAt: null }]; // sin las de la papelera
       // Cada quien ve sus notas; los admins ven todas.
       if (session.role !== "admin") where.push({ createdById: session.id });
       const q = str(args.query);
@@ -1167,8 +1167,8 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (!hasPermission(session, "editar_notas")) return "No tienes permiso para editar notas.";
       const id = str(args.id);
       if (!id) return "Falta el id de la nota a editar (usa list_notes para ubicarla).";
-      const existing = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, content: true, category: true } });
-      if (!existing) return "No encontré esa nota.";
+      const existing = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, content: true, category: true, archivedAt: true } });
+      if (!existing || existing.archivedAt) return "No encontré esa nota.";
       if (existing.createdById !== session.id && session.role !== "admin") return "No puedes editar una nota de otra persona.";
       const title = args.title !== undefined ? (str(args.title) || existing.title) : existing.title;
       const content = args.content !== undefined ? str(args.content) : existing.content;

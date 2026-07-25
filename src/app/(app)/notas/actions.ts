@@ -54,9 +54,12 @@ export async function saveNote(input: { id?: string; title?: string; content?: s
   }
 
   if (input.id) {
-    const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true } });
+    const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true, archivedAt: true } });
     if (!existing) return { ok: false, error: "La nota no existe" };
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
+    // Si la nota se mandó a la papelera mientras el editor tenía un guardado pendiente, ese
+    // guardado NO la resucita: se descarta en silencio.
+    if (existing.archivedAt) return { ok: false, error: "La nota está en la papelera" };
     const n = await db.note.update({ where: { id: input.id }, data: { title, content, category, ...(projectId !== undefined ? { projectId } : {}), ...(clientId !== undefined ? { clientId } : {}), ...(color !== undefined ? { color } : {}), ...(remindAt !== undefined ? { remindAt, reminderSentAt: null } : {}), ...(visibility !== undefined ? { visibility } : {}) }, select: { id: true, title: true, createdAt: true, updatedAt: true } });
     revalidatePath("/notas");
     return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
@@ -84,14 +87,55 @@ export async function togglePinNote(id: string): Promise<{ ok: boolean; pinned?:
   return { ok: true, pinned };
 }
 
+// Borrar = mandar a la PAPELERA (borrado suave, como proyectos y clientes). La nota sigue
+// existiendo con `archivedAt`; se restaura desde la papelera de /notas o se elimina de
+// verdad con `purgeNote`. Antes esto era un `delete` físico y no había vuelta atrás.
 export async function deleteNote(id: string): Promise<{ ok: boolean }> {
   const session = await getSession();
   if (!session) return { ok: false };
-  const note = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true } });
+  const note = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, archivedAt: true } });
   if (!note) return { ok: true };
   if (note.createdById !== session.id && session.role !== "admin") return { ok: false };
-  await db.note.delete({ where: { id } });
-  await logActivity({ action: "note.delete", summary: `borró la nota «${note.title}»`, entityType: "note", entityId: id }).catch(() => null);
+  if (note.archivedAt) return { ok: true }; // ya estaba en la papelera
+  await db.note.update({ where: { id }, data: { archivedAt: new Date(), archivedById: session.id, pinned: false } });
+  await logActivity({ action: "note.delete", summary: `mandó a la papelera la nota «${note.title}»`, entityType: "note", entityId: id }).catch(() => null);
   revalidatePath("/notas");
   return { ok: true };
+}
+
+// Saca una nota de la papelera y la devuelve a la lista.
+export async function restoreNote(id: string): Promise<{ ok: boolean }> {
+  const session = await getSession();
+  if (!session) return { ok: false };
+  const note = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true } });
+  if (!note) return { ok: false };
+  if (note.createdById !== session.id && session.role !== "admin") return { ok: false };
+  await db.note.update({ where: { id }, data: { archivedAt: null, archivedById: null } });
+  await logActivity({ action: "note.restore", summary: `restauró la nota «${note.title}»`, entityType: "note", entityId: id }).catch(() => null);
+  revalidatePath("/notas");
+  return { ok: true };
+}
+
+// Eliminación DEFINITIVA (segundo paso explícito): solo desde la papelera.
+export async function purgeNote(id: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session) return { ok: false };
+  const note = await db.note.findUnique({ where: { id }, select: { createdById: true, title: true, archivedAt: true } });
+  if (!note) return { ok: true };
+  if (note.createdById !== session.id && session.role !== "admin") return { ok: false };
+  if (!note.archivedAt) return { ok: false, error: "Manda la nota a la papelera antes de eliminarla." };
+  await db.note.delete({ where: { id } });
+  await logActivity({ action: "note.purge", summary: `eliminó definitivamente la nota «${note.title}»`, entityType: "note", entityId: id }).catch(() => null);
+  revalidatePath("/notas");
+  return { ok: true };
+}
+
+// Vacía la papelera propia (los admin solo vacían la suya: la de cada quien es suya).
+export async function emptyNoteTrash(): Promise<{ ok: boolean; removed: number }> {
+  const session = await getSession();
+  if (!session) return { ok: false, removed: 0 };
+  const r = await db.note.deleteMany({ where: { createdById: session.id, archivedAt: { not: null } } });
+  if (r.count) await logActivity({ action: "note.purge", summary: `vació la papelera de notas (${r.count})`, entityType: "note" }).catch(() => null);
+  revalidatePath("/notas");
+  return { ok: true, removed: r.count };
 }

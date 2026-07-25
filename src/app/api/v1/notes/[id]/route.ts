@@ -14,8 +14,8 @@ type RouteCtx = { params: Promise<{ id: string }> };
 // devuelve la NextResponse de error; si todo bien, devuelve la nota. (El llamador comprueba con
 // instanceof NextResponse.)
 async function loadOwned(id: string, ctx: ApiKeyContext) {
-  const note = await db.note.findUnique({ where: { id }, select: { ...NOTE_SELECT, createdById: true } });
-  if (!note) return apiJson({ ok: false, error: "Nota no encontrada." }, 404);
+  const note = await db.note.findUnique({ where: { id }, select: { ...NOTE_SELECT, createdById: true, archivedAt: true } });
+  if (!note || note.archivedAt) return apiJson({ ok: false, error: "Nota no encontrada." }, 404); // las de la papelera no existen para la API
   if (note.createdById !== ctx.session.id && ctx.session.role !== "admin") {
     return apiJson({ ok: false, error: "No puedes acceder a una nota de otra persona." }, 403);
   }
@@ -66,7 +66,8 @@ export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, r
   const { id } = await (routeCtx as RouteCtx).params;
   const r = await loadOwned(id, ctx);
   if (r instanceof NextResponse) return r;
-  await db.note.delete({ where: { id } });
-  await logActivity({ action: "note.delete", summary: `borró la nota «${r.title}» (vía API)`, entityType: "note", entityId: id }).catch(() => null);
+  // Borrado SUAVE, igual que en la app: la nota va a la papelera de /notas y se puede restaurar.
+  await db.note.update({ where: { id }, data: { archivedAt: new Date(), archivedById: ctx.session.id, pinned: false } });
+  await logActivity({ action: "note.delete", summary: `mandó a la papelera la nota «${r.title}» (vía API)`, entityType: "note", entityId: id }).catch(() => null);
   return apiJson({ ok: true });
 });

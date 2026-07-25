@@ -675,6 +675,10 @@ model Note {
   // repetir). El cron /api/cron/note-reminders dispara los vencidos.
   remindAt       DateTime?
   reminderSentAt DateTime?
+  // Papelera: borrar una nota NO la elimina, la manda aquí (igual que proyectos y clientes).
+  // `archivedAt` null = nota activa. Desde la papelera se restaura o se borra definitivamente.
+  archivedAt   DateTime?
+  archivedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -683,6 +687,7 @@ model Note {
   @@index([clientId])
   @@index([visibility])
   @@index([remindAt])
+  @@index([archivedAt])
 }
 
 // Conversación de WhatsApp con el agente (sesión SEPARADA del chat interno). Guarda cada turno

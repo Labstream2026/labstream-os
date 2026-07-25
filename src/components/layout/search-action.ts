@@ -106,7 +106,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       : Promise.resolve([]),
     canNotes
       ? db.note.findMany({
-          where: { title: like, createdById: session.id },
+          where: { title: like, createdById: session.id, archivedAt: null },
           select: { id: true, title: true },
           take: TAKE,
         })
