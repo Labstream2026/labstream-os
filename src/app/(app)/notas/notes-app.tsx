@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks } from "lucide-react";
 import { IconNotas, IconPapelera } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
+import { toggleNoteTask, countNoteTasks } from "@/lib/note-tasks";
 import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
 
 export type NoteItem = {
@@ -243,6 +244,17 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
     fn();
   }
 
+  // Clic en la vista renderizada: si cayó en una casilla de tarea, se alterna en el texto.
+  function onViewClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (readOnly) return;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-md-task]");
+    if (!btn) return;
+    const line = Number(btn.dataset.mdTask);
+    if (!Number.isInteger(line)) return;
+    const next = toggleNoteTask(draft.content, line);
+    if (next !== draft.content) onChange({ content: next });
+  }
+
   // ── Resolver un conflicto ──
   // «Conservar lo mío»: se guarda el borrador pisando la otra versión (force).
   // «Traer lo de allá»: se descarta el borrador y se carga lo que hay en el servidor.
@@ -333,6 +345,7 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
 
   const editing = isNew || selectedId !== null;
   const draftClient = clientOf(draft.clientId || null);
+  const draftTasks = React.useMemo(() => countNoteTasks(draft.content), [draft.content]);
 
   // Las notas compartidas por otros se muestran siempre en modo vista.
   React.useEffect(() => { if (readOnly) setBodyMode("view"); }, [readOnly, selectedId]);
@@ -472,6 +485,7 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                   const selected = selectedId === n.id && !isNew;
                   // En la vista por cliente mostramos la categoría como subtag (y viceversa).
                   const sub = groupBy === "cliente" ? (n.category ?? "").trim() : (clientOf(n.clientId)?.name ?? "");
+                  const tasks = countNoteTasks(n.content);
                   return (
                     <div key={n.id} className={cn("group relative mb-0.5 rounded-lg transition-colors", selected ? "bg-muted" : "hover:bg-accent")}>
                       {selected ? <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" /> : noteHex(n.color) ? <span className="absolute inset-y-1 left-0 w-1 rounded-full" style={{ background: noteHex(n.color)! }} /> : null}
@@ -483,9 +497,15 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                           {!n.mine ? <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground" title={`Compartida por ${n.ownerName ?? "otro"}`}><Eye className="size-2.5" /> {n.ownerName ?? "Compartida"}</span> : null}
                         </p>
                         <p className="truncate text-xs text-muted-foreground"><span className="text-foreground/70">{fmtDate(n.updatedAt)}</span> · {snippet(n.content, n.title)}</p>
-                        {(sub || n.remindAt) ? (
+                        {(sub || n.remindAt || tasks.total > 0) ? (
                           <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
                             {sub ? <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{sub}</span> : null}
+                            {/* Cuántas casillas van hechas: se ve sin abrir la nota. */}
+                            {tasks.total > 0 ? (
+                              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium", tasks.done === tasks.total ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}>
+                                <ListChecks className="size-2.5" /> {tasks.done}/{tasks.total}
+                              </span>
+                            ) : null}
                             {n.remindAt ? <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"><Bell className="size-2.5" /> {fmtReminder(n.remindAt)}</span> : null}
                           </span>
                         ) : null}
@@ -647,6 +667,14 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                   <div className="flex items-center gap-1 border-b border-border pb-1.5">
                     <button type="button" onClick={() => setBodyMode("edit")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "edit" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Pencil className="size-3.5" /> Editar</button>
                     <button type="button" onClick={() => setBodyMode("view")} className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors", bodyMode === "view" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent")}><Eye className="size-3.5" /> Vista</button>
+                    {/* Progreso de las casillas + atajo a la vista, donde se pueden marcar. */}
+                    {draftTasks.total > 0 ? (
+                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <ListChecks className="size-3.5" />
+                        {draftTasks.done} de {draftTasks.total} {draftTasks.done === draftTasks.total ? "· todo listo" : "hechas"}
+                        {bodyMode === "edit" ? <button type="button" onClick={() => setBodyMode("view")} className="rounded px-1 underline underline-offset-2 hover:text-foreground">marcar</button> : null}
+                      </span>
+                    ) : null}
                   </div>
                   {bodyMode === "edit" ? (
                     <textarea
@@ -660,9 +688,13 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                       className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
                     />
                   ) : (
+                    // Vista: las casillas «- [ ]» son BOTONES de verdad. El clic sube por el
+                    // contenedor (delegación), se lee el nº de línea de `data-md-task` y se
+                    // alterna [ ]↔[x] en el texto — con su autoguardado, como cualquier edición.
                     <div
+                      onClick={onViewClick}
                       className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed"
-                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
+                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
                     />
                   )}
                 </>
