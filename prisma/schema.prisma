@@ -612,6 +612,20 @@ model Project {
   uploadExpiresAt DateTime?
   uploadVisits    Int       @default(0)
 
+  // Paquete de ENTREGA del proyecto (sala pública /entrega/[token]): todo el material final
+  // descargable — videos, formatos, fotos y portadas — en un solo enlace por proyecto. Mismo
+  // patrón que el de subida: el nonce viaja dentro del token firmado y revocar lo ROTA. La
+  // caducidad vive en BD (extenderla NO reemite el enlace). A diferencia de /review y /portadas,
+  // la sala SOBREVIVE al archivo del proyecto: el cliente descarga aunque el proyecto ya no
+  // esté activo (solo la purga definitiva la mata).
+  deliveryNonce      String?
+  deliveryRevokedAt  DateTime?
+  deliveryExpiresAt  DateTime? // null = sin límite
+  deliveryVisits     Int       @default(0)
+  deliveryEmailTo    String?   // últimos correos a los que se envió (destino del recordatorio de vencimiento)
+  deliveryReminderAt DateTime? // claim del aviso «expira pronto» (evita recordatorios duplicados)
+  deliveryEvents     DeliveryEvent[]
+
   // Borrado SUAVE (papelera): archivar saca el proyecto de las listas pero conserva todo
   // (tareas, archivos, entregables, chat) y se puede RESTAURAR. No hay borrado físico.
   archivedAt  DateTime?
@@ -1732,6 +1746,9 @@ model Deliverable {
   // Caducidad opcional del enlace del cliente. NULL = sin caducidad (no expira).
   reviewExpiresAt     DateTime?
   reviewAllowDrawings Boolean   @default(false) // habilita el modo dibujos/anotación
+  // Fuera del paquete de entrega del proyecto (/entrega): por defecto TODO lo aprobado/entregado
+  // entra al paquete; este flag excluye la excepción (p. ej. un documento interno).
+  deliveryExcluded Boolean @default(false)
   // Contenido de publicación que acompaña a la pieza: el texto/caption listo para pegar y los
   // hashtags. Lo edita el equipo y el cliente lo ve (y copia) en su sala de revisión.
   copy      String?
@@ -2390,4 +2407,18 @@ model ChecklistTemplate {
   name      String
   labels    String[]
   createdAt DateTime @default(now())
+}
+
+// Actividad del paquete de entrega (/entrega/[token]): visitas a la sala y descargas por pieza.
+// Responde «¿el cliente ya bajó su material?» antes de que el enlace expire. Se registra desde
+// la ruta pública (sin sesión): no guarda datos personales, solo el hecho y la etiqueta.
+model DeliveryEvent {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  kind      String   // VISIT | DOWNLOAD
+  label     String?  // qué se descargó («Reel #4 · IG 1080×1920»)
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
 }
