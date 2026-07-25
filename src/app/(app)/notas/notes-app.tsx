@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle } from "lucide-react";
 import { IconNotas, IconPapelera } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -87,9 +87,25 @@ function snippet(content: string, title: string): string {
   return (rest || "Sin texto adicional").replace(/\s+/g, " ");
 }
 
-type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string; visibility: string };
-const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt), visibility: n.visibility });
-const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "", visibility: "private" };
+// `baseUpdatedAt` = la versión de la nota sobre la que se está escribiendo. Viaja en cada
+// guardado para detectar que alguien la editó en otro dispositivo (control de concurrencia).
+type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string; visibility: string; baseUpdatedAt: string | null };
+const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt), visibility: n.visibility, baseUpdatedAt: n.updatedAt });
+const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "", visibility: "private", baseUpdatedAt: null };
+
+// Lo que se manda al servidor en cada guardado (server action o sendBeacon: el mismo cuerpo).
+const savePayload = (d: Draft) => ({
+  id: d.id ?? undefined,
+  title: d.title,
+  content: d.content,
+  category: d.category,
+  projectId: d.projectId || null,
+  clientId: d.clientId || null,
+  color: d.color || null,
+  remindAt: d.remindAt || null,
+  visibility: d.visibility,
+  baseUpdatedAt: d.baseUpdatedAt,
+});
 
 // Vista de Notas estilo iCloud, a PANTALLA COMPLETA (llena la ventana, sin caja exterior).
 // Dos paneles en escritorio (lista + editor); en móvil la lista ocupa todo y al tocar una nota
@@ -122,6 +138,12 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, start] = React.useTransition();
   const { confirm, dialog } = useConfirmDialog();
+  // Versión del servidor cuando alguien editó la misma nota en otro lado (aviso de conflicto).
+  const [conflict, setConflict] = React.useState<{ title: string; content: string; updatedAt: string } | null>(null);
+  // ¿Hay tecleo sin guardar? Lo usa el envío de emergencia al cerrar/ocultar la pestaña.
+  const dirty = React.useRef(false);
+  const latest = React.useRef<Draft>(emptyDraft);
+  const readOnlyRef = React.useRef(false);
 
   // Categorías presentes (para autocompletar y los chips de filtro).
   const categories = React.useMemo(
@@ -170,28 +192,32 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
   const readOnly = !isNew && !!currentNote && !currentNote.mine;
 
   const persist = React.useCallback(
-    (d: Draft) => {
+    (d: Draft, force = false) => {
       if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
       const remindIso = d.remindAt ? (() => { const dt = new Date(d.remindAt); return Number.isNaN(dt.getTime()) ? null : dt.toISOString(); })() : null;
       start(async () => {
-        const r = await saveNote({ id: d.id ?? undefined, title: d.title, content: d.content, category: d.category, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: d.remindAt || null, visibility: d.visibility });
-        if (r.ok && r.id) {
+        const r = await saveNote(savePayload(d), force ? { force: true } : undefined);
+        if (r.ok) {
           const realId = r.id;
-          const finalTitle = r.title ?? d.title;
-          setDraft((cur) => (cur.id === d.id ? { ...cur, id: realId } : cur));
+          const finalTitle = r.title;
+          const updatedAt = r.updatedAt;
+          dirty.current = false;
+          setConflict(null);
+          setDraft((cur) => (cur.id === d.id ? { ...cur, id: realId, baseUpdatedAt: updatedAt } : cur));
           if (selectedId === d.id || selectedId === null) setSelectedId(realId);
           setIsNew(false);
-          const updatedAt = r.updatedAt ?? new Date().toISOString();
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             return exists
               ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, updatedAt } : n))
-              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt ?? updatedAt, updatedAt }, ...prev];
+              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt, updatedAt }, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
         } else {
+          // La nota cambió en otro dispositivo: no se pisa nada, se pregunta.
+          if (r.conflict && r.server) setConflict(r.server);
           setStatus("idle");
         }
       });
@@ -201,6 +227,7 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
 
   function onChange(patch: Partial<Omit<Draft, "id">>) {
     if (readOnly) return; // las notas compartidas por otros no se editan aquí
+    dirty.current = true;
     setDraft((cur) => {
       const next = { ...cur, ...patch };
       if (timer.current) clearTimeout(timer.current);
@@ -212,7 +239,25 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
   function flushThen(fn: () => void) {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     if (!readOnly && (draft.content.trim() || draft.title.trim())) persist(draft);
+    setConflict(null);
     fn();
+  }
+
+  // ── Resolver un conflicto ──
+  // «Conservar lo mío»: se guarda el borrador pisando la otra versión (force).
+  // «Traer lo de allá»: se descarta el borrador y se carga lo que hay en el servidor.
+  function keepMine() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    persist(draft, true);
+  }
+  function takeTheirs() {
+    if (!conflict) return;
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const server = conflict;
+    dirty.current = false;
+    setConflict(null);
+    setDraft((cur) => ({ ...cur, title: server.title, content: server.content, baseUpdatedAt: server.updatedAt }));
+    setNotes((prev) => prev.map((n) => (n.id === draft.id ? { ...n, title: server.title, content: server.content, updatedAt: server.updatedAt } : n)));
   }
 
   function selectNote(n: NoteItem) {
@@ -291,6 +336,36 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
 
   // Las notas compartidas por otros se muestran siempre en modo vista.
   React.useEffect(() => { if (readOnly) setBodyMode("view"); }, [readOnly, selectedId]);
+
+  // ── Nada de texto perdido al salir ──
+  // El autoguardado espera 700 ms tras la última tecla. Si en ese momento se cierra la
+  // pestaña, se cambia de app o se navega a otra sección, ese tramo se perdía. Aquí se manda
+  // el último borrador por `sendBeacon`, que el navegador entrega aunque la página ya se esté
+  // yendo (un server action normal no llegaría: la página muere antes de la respuesta).
+  React.useEffect(() => { latest.current = draft; readOnlyRef.current = readOnly; });
+
+  const flushOnExit = React.useCallback(() => {
+    if (!dirty.current || readOnlyRef.current) return;
+    const d = latest.current;
+    if (!d.content.trim() && !d.title.trim()) return;
+    try {
+      const body = new Blob([JSON.stringify(savePayload(d))], { type: "application/json" });
+      if (navigator.sendBeacon("/api/notas/autosave", body)) dirty.current = false;
+    } catch {
+      // Si el navegador lo rechaza, el autoguardado normal lo intentará al volver.
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const onHidden = () => { if (document.visibilityState === "hidden") flushOnExit(); };
+    window.addEventListener("pagehide", flushOnExit);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flushOnExit);
+      document.removeEventListener("visibilitychange", onHidden);
+      flushOnExit(); // al salir de /notas navegando dentro de la app
+    };
+  }, [flushOnExit]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
@@ -475,6 +550,23 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                 </button>
               ) : null}
             </div>
+            {/* Conflicto: la misma nota se editó en otro dispositivo. No se pisa nada sin preguntar. */}
+            {conflict ? (
+              <div className="mx-auto w-full max-w-3xl px-5 sm:px-8">
+                <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <AlertTriangle className="size-4 shrink-0 text-amber-600" /> Esta nota cambió en otro lugar
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Se guardó otra versión el {fmtDate(conflict.updatedAt)} — para no perder nada, elige cuál se queda.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <button type="button" onClick={keepMine} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90">Conservar lo mío</button>
+                    <button type="button" onClick={takeTheirs} className="rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium hover:bg-accent">Traer lo de allá</button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-5 pb-6 pt-2 sm:px-8">
               <input
                 value={draft.title}
