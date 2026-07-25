@@ -16,6 +16,8 @@ import { instantiateTemplate } from "@/lib/provisioning";
 import { notifyAndEmail, notifyManyAndEmail } from "@/lib/notify";
 import { createCalendarEventCore } from "@/lib/calendar-create";
 import { materialHealth, ROLE_LABEL } from "@/lib/material-health";
+import { signDeliveryToken } from "@/lib/delivery-token";
+import { deliveryDaysLeft } from "@/lib/delivery-groups";
 import { generateImage, normalizeAspect } from "@/lib/higgsfield";
 import { mcpGenerateImage, mcpStartVideo, HiggsfieldNotConnected } from "@/lib/higgsfield-mcp";
 import { isHiggsfieldConnected } from "@/lib/higgsfield-oauth";
@@ -222,6 +224,19 @@ export const AGENT_TOOLS: ToolDef[] = [
       description:
         "Responde «¿dónde está el material de X?»: en qué DISCOS vive el bruto/edición/exportes/respaldo de un proyecto (con rutas y última verificación) y su salud de respaldo 3-2-1. Sin 'project', devuelve el panorama del estudio: los discos registrados y los proyectos SIN respaldo.",
       parameters: { type: "object", properties: { project: { type: "string", description: "Id o nombre del proyecto (opcional)." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_delivery_link",
+      description:
+        "Responde «pásame el link de entrega de X» o «¿el cliente ya descargó su material?»: el enlace VIGENTE de la sala pública de descargas del proyecto (paquete de entrega), cuántos archivos incluye, hasta cuándo está disponible y su actividad (visitas y descargas). Solo lectura: si no hay enlace activo, indica cómo generarlo.",
+      parameters: {
+        type: "object",
+        properties: { project: { type: "string", description: "Id o nombre del proyecto." } },
+        required: ["project"],
+      },
     },
   },
   {
@@ -899,6 +914,42 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
           ultima_verificacion: d.lastCheckAt ? ymd(d.lastCheckAt) : "nunca",
         })),
         proyectos_en_riesgo: enRiesgo,
+      });
+    }
+
+    case "get_delivery_link": {
+      // «Pásame el link de entrega de X» — el enlace vigente + su pulso (¿ya descargaron?).
+      if (!hasPermission(session, "ver_proyectos")) return "No tienes permiso para ver proyectos.";
+      const p = await resolveProject(session, str(args.project));
+      if (!p) return "No encontré ese proyecto o no tienes acceso a él.";
+      const full = await db.project.findUnique({
+        where: { id: p.id },
+        select: { deliveryNonce: true, deliveryRevokedAt: true, deliveryExpiresAt: true, deliveryVisits: true },
+      });
+      const [piezas, portadas, descargas] = await Promise.all([
+        db.deliverable.count({ where: { projectId: p.id, deliveryExcluded: false, status: { in: ["APROBADO", "ENTREGADO"] } } }),
+        db.projectCover.count({ where: { projectId: p.id, decision: "APROBADA" } }),
+        db.deliveryEvent.count({ where: { projectId: p.id, kind: "DOWNLOAD" } }),
+      ]);
+      const daysLeft = deliveryDaysLeft(full?.deliveryExpiresAt ?? null);
+      const vencido = daysLeft !== null && daysLeft <= 0;
+      const active = Boolean(full?.deliveryNonce) && !full?.deliveryRevokedAt && !vencido;
+      if (!active) {
+        return JSON.stringify({
+          proyecto: p.name,
+          estado: !full?.deliveryNonce ? "sin_enlace" : full.deliveryRevokedAt ? "revocado" : "vencido",
+          archivos_listos: piezas + portadas,
+          nota: "El enlace se genera o se extiende en el proyecto → Entregables → pestaña «📦 Entrega».",
+        });
+      }
+      const base = (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "");
+      return JSON.stringify({
+        proyecto: p.name,
+        enlace: `${base}/entrega/${signDeliveryToken(p.id, full!.deliveryNonce!)}`,
+        archivos: piezas + portadas,
+        disponible_hasta: full?.deliveryExpiresAt ? ymd(full.deliveryExpiresAt) : "sin límite",
+        ...(daysLeft !== null ? { dias_restantes: daysLeft } : {}),
+        actividad: { visitas: full?.deliveryVisits ?? 0, descargas },
       });
     }
 

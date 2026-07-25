@@ -11,6 +11,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { Logo } from "@/components/brand/logo";
 import { EntityEmoji } from "@/components/icons/marks";
 import { ReactivateButton } from "./reactivate-button";
+import { DownloadAll } from "./download-all";
 
 // ── Sala PÚBLICA de entrega del proyecto ──
 // El cliente descarga TODO su material final (reels, videos, fotos, portadas) desde un solo
@@ -262,6 +263,16 @@ export default async function EntregaPage({ params }: { params: Promise<{ token:
     items: items.filter((i) => i.group === g),
   })).filter((g) => g.items.length > 0);
 
+  // «Descargar todo»: cada enlace pasa por /go (mismo registro de actividad que los botones).
+  const allEntries = [
+    ...items.flatMap((i) => [
+      ...(i.download ? [{ label: `${i.number ? `#${i.number} ` : ""}${i.name} · versión final`, href: goHref(token, "master", i.id) }] : []),
+      ...i.renditions.map((r) => ({ label: `${i.number ? `#${i.number} ` : ""}${i.name} · ${r.label}`, href: goHref(token, "rend", r.id) })),
+      ...(i.photos ? [{ label: `Set de fotos · ${i.name}`, href: goHref(token, "fotos", i.id) }] : []),
+    ]),
+    ...pack.covers.map((c) => ({ label: `Portada · ${c.name}`, href: goHref(token, "cover", c.id) })),
+  ];
+
   return (
     <Shell>
       {/* Branding del cliente: banda de portada del proyecto (si existe) con degradado al fondo. */}
@@ -306,6 +317,7 @@ export default async function EntregaPage({ params }: { params: Promise<{ token:
               ⏳ Hasta el {formatBogotaDate(project.deliveryExpiresAt!, { day: "numeric", month: "short" })} · {countdown}
             </span>
           ) : null}
+          <DownloadAll entries={allEntries} />
         </div>
         {accentHex ? <div aria-hidden className="h-0.5 w-full" style={{ background: `linear-gradient(90deg, ${accentHex}, transparent 70%)` }} /> : null}
       </header>
