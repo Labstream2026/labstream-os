@@ -110,7 +110,10 @@ export default async function ProyectoPage({
         // (no son archivos sueltos del proyecto).
         files: { where: { folderId: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
         // Banco de portadas (pestaña «Portadas» de entregables).
-        covers: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
+        covers: {
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          include: { notes: { orderBy: { createdAt: "desc" }, select: { id: true, authorName: true, body: true, drawing: true, resolved: true, createdAt: true } } },
+        },
         tables: {
           orderBy: { createdAt: "asc" },
           include: {
@@ -434,6 +437,7 @@ export default async function ProyectoPage({
         decision: c.decision,
         decisionBy: c.decisionBy,
         decisionNote: c.decisionNote,
+        notes: c.notes,
       }))}
       coversRevoked={!!project.coversRevokedAt}
       stateFilter={estado ?? null}

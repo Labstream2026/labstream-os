@@ -223,7 +223,17 @@ export function DeliverablesPanel({
   workTasks?: { id: string; title: string; assignee: string | null }[];
   emailEnabled?: boolean;
   // Banco de PORTADAS del proyecto (pestaña «Portadas»): filas crudas de ProjectCover.
-  covers?: { id: string; name: string; fileAssetId: string; deliverableId: string | null; decision: string | null; decisionBy: string | null; decisionNote: string | null }[];
+  covers?: {
+    id: string;
+    name: string;
+    fileAssetId: string;
+    deliverableId: string | null;
+    decision: string | null;
+    decisionBy: string | null;
+    decisionNote: string | null;
+    // Anotaciones del cliente sobre la imagen (nota + dibujo aplanado).
+    notes?: { id: string; authorName: string; body: string | null; drawing: string | null; resolved: boolean; createdAt: Date }[];
+  }[];
   coversRevoked?: boolean;
   // E1 · Filtro del embudo (?estado=<grupo>): acota las listas a ese grupo de estados.
   stateFilter?: string | null;
@@ -664,6 +674,14 @@ export function DeliverablesPanel({
           decision: c.decision,
           decisionBy: c.decisionBy,
           decisionNote: c.decisionNote,
+          notes: (c.notes ?? []).map((n) => ({
+            id: n.id,
+            authorName: n.authorName,
+            body: n.body,
+            drawing: n.drawing,
+            resolved: n.resolved,
+            when: formatBogota(n.createdAt),
+          })),
         };
       });
       // Solo VIDEOS son vinculables (un set de fotos no lleva portada del banco).

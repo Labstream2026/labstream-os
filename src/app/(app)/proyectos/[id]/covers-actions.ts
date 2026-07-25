@@ -43,23 +43,26 @@ function refresh(projectId: string) {
   revalidatePath(`/proyectos/${projectId}`);
 }
 
+export type CoverUploadResult = { ok: boolean; added?: number; skipped?: number; error?: string };
+
 // Sube VARIAS portadas al banco del proyecto (imágenes → WebP + miniatura en el NAS).
-export async function uploadProjectCovers(projectId: string, formData: FormData) {
+// Devuelve el recuento: antes descartaba en SILENCIO lo que no pasaba el filtro (archivo
+// enorme, no-imagen, extensión bloqueada) y el equipo no se enteraba.
+export async function uploadProjectCovers(projectId: string, formData: FormData): Promise<CoverUploadResult> {
   const session = await ensureWrite(projectId, "subir_archivos");
 
   const last = await db.projectCover.findFirst({ where: { projectId }, orderBy: { position: "desc" }, select: { position: true } });
   let pos = (last?.position ?? -1) + 1;
   let added = 0;
 
-  const files = formData
-    .getAll("covers")
-    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name) && isOptimizableImage(f.name, f.type));
+  const all = formData.getAll("covers").filter((f): f is File => f instanceof File && f.size > 0);
+  const files = all.filter((f) => f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name) && isOptimizableImage(f.name, f.type));
   for (const f of files) {
     const buf = Buffer.from(await f.arrayBuffer());
     const asset = await db.fileAsset.create({ data: { projectId, name: f.name, kind: "LOCAL", path: "", mime: mimeFor(f.name, f.type), size: buf.length, uploadedById: session.id } });
     const rel = await saveBufferWithPreview(`project/${projectId}/portadas-banco`, `${asset.id}-${f.name}`, buf, f.type);
     await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
-    await db.projectCover.create({ data: { projectId, fileAssetId: asset.id, name: f.name, position: pos++ } });
+    await db.projectCover.create({ data: { projectId, fileAssetId: asset.id, name: f.name, position: pos++, uploadedById: session.id } });
     added++;
   }
 
@@ -67,6 +70,107 @@ export async function uploadProjectCovers(projectId: string, formData: FormData)
     await logActivity({ action: "cover.upload", summary: `subió ${added} portada(s) al banco del proyecto`, projectId, entityType: "project", entityId: projectId });
   }
   refresh(projectId);
+  const skipped = all.length - files.length;
+  if (added === 0 && skipped > 0) return { ok: false, error: `No se subió nada: ${skipped} archivo(s) no son imágenes válidas o superan 100 MB.` };
+  return { ok: true, added, skipped };
+}
+
+// Renombra una portada (antes el nombre era el del archivo y no se podía tocar).
+export async function renameProjectCover(coverId: string, projectId: string, name: string): Promise<{ ok: boolean; error?: string }> {
+  await ensureWrite(projectId);
+  const clean = name.trim().slice(0, 120);
+  if (!clean) return { ok: false, error: "El nombre no puede quedar vacío." };
+  const cover = await db.projectCover.findUnique({ where: { id: coverId }, select: { projectId: true } });
+  if (!cover || cover.projectId !== projectId) return { ok: false, error: "Esa portada no es de este proyecto." };
+  await db.projectCover.update({ where: { id: coverId }, data: { name: clean } });
+  refresh(projectId);
+  return { ok: true };
+}
+
+// Reordena: intercambia la posición con la portada vecina. El orden del banco ES el orden en
+// que las ve el cliente, así que poner la opción A primero deja de ser cosa del azar.
+export async function moveProjectCover(coverId: string, projectId: string, dir: -1 | 1): Promise<{ ok: boolean; error?: string }> {
+  await ensureWrite(projectId);
+  const covers = await db.projectCover.findMany({
+    where: { projectId },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  const i = covers.findIndex((c) => c.id === coverId);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= covers.length) return { ok: false, error: "No se puede mover más." };
+  // Reescribe TODAS las posiciones tras el intercambio: así se normaliza el orden aunque
+  // vengan posiciones repetidas de subidas antiguas.
+  const order = [...covers];
+  [order[i], order[j]] = [order[j], order[i]];
+  await db.$transaction(order.map((c, k) => db.projectCover.update({ where: { id: c.id }, data: { position: k } })));
+  refresh(projectId);
+  return { ok: true };
+}
+
+// El equipo marca una anotación del cliente como atendida (mismo gesto que resolver una
+// corrección de video).
+export async function resolveCoverNote(noteId: string, projectId: string, resolved: boolean): Promise<{ ok: boolean; error?: string }> {
+  const session = await ensureWrite(projectId);
+  const note = await db.coverNote.findUnique({ where: { id: noteId }, select: { cover: { select: { projectId: true } } } });
+  if (!note || note.cover.projectId !== projectId) return { ok: false, error: "Esa nota no es de este proyecto." };
+  await db.coverNote.update({
+    where: { id: noteId },
+    data: { resolved, resolvedAt: resolved ? new Date() : null, resolvedById: resolved ? session.id : null },
+  });
+  refresh(projectId);
+  return { ok: true };
+}
+
+// Importa una carpeta de Google Drive al BANCO: descarga cada imagen y la guarda en el NAS
+// (una portada es siempre un archivo local, con su miniatura WebP). Idempotente por nombre.
+export async function importDriveCovers(projectId: string, formData: FormData): Promise<CoverUploadResult> {
+  const session = await ensureWrite(projectId, "subir_archivos");
+  const url = String(formData.get("folderUrl") ?? "").trim();
+  if (!url) return { ok: false, error: "Pega el enlace de la carpeta de Drive." };
+
+  const images = await listDriveFolderImages(url);
+  if (images.length === 0) return { ok: false, error: "No encontré imágenes ahí. ¿La carpeta es pública («cualquiera con el enlace»)?" };
+
+  const existing = new Set((await db.projectCover.findMany({ where: { projectId }, select: { name: true } })).map((c) => c.name));
+  const last = await db.projectCover.findFirst({ where: { projectId }, orderBy: { position: "desc" }, select: { position: true } });
+  let pos = (last?.position ?? -1) + 1;
+  let added = 0;
+  let skipped = 0;
+
+  for (const img of images.slice(0, MAX_FOLDER_IMPORT)) {
+    if (existing.has(img.name)) {
+      skipped++;
+      continue;
+    }
+    try {
+      const res = await fetch(`https://drive.google.com/uc?export=download&id=${img.id}`, { cache: "no-store" });
+      if (!res.ok) {
+        skipped++;
+        continue;
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0 || buf.length > MAX_UPLOAD) {
+        skipped++;
+        continue;
+      }
+      const asset = await db.fileAsset.create({
+        data: { projectId, name: img.name, kind: "LOCAL", path: "", mime: mimeFor(img.name, null), size: buf.length, uploadedById: session.id },
+      });
+      const rel = await saveBufferWithPreview(`project/${projectId}/portadas-banco`, `${asset.id}-${img.name}`, buf);
+      await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+      await db.projectCover.create({ data: { projectId, fileAssetId: asset.id, name: img.name, position: pos++, uploadedById: session.id } });
+      added++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  if (added > 0) {
+    await logActivity({ action: "cover.import", summary: `importó ${added} portada(s) desde Drive`, projectId, entityType: "project", entityId: projectId });
+  }
+  refresh(projectId);
+  return added > 0 ? { ok: true, added, skipped } : { ok: false, error: "No se pudo importar ninguna imagen (¿permisos de la carpeta?)." };
 }
 
 // Vincula (o desvincula con null) una portada del banco a un entregable del MISMO proyecto.
