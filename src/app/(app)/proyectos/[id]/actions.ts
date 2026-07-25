@@ -35,6 +35,7 @@ import { formatBogota } from "@/lib/bogota-time";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { materialHealth, type MaterialHealth } from "@/lib/material-health";
 import { getAppConfigBool, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
+import { signDeliveryToken } from "@/lib/delivery-token";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import type { SessionUser } from "@/lib/session";
 
@@ -2941,6 +2942,10 @@ export type FinishSummary = {
   material: MaterialHealth;
   backupLockOn: boolean; // el candado de Ajustes: sin respaldo no se puede terminar
   disks: { id: string; name: string }[]; // discos ACTIVOS para el registro rápido
+  // Paquete de entrega: cerrar el proyecto y entregar el material en un solo gesto. Si ya hay
+  // enlace activo se muestra (para copiar); si no, el modal ofrece generarlo de 60 días.
+  deliveryActive: boolean;
+  deliveryUrl: string | null;
 };
 
 export async function getFinishSummary(projectId: string): Promise<FinishSummary | null> {
@@ -2949,7 +2954,7 @@ export async function getFinishSummary(projectId: string): Promise<FinishSummary
   } catch {
     return null;
   }
-  const [tasksTotal, tasksOpen, deliverablesTotal, deliverablesApproved, time, invoicesPending, locations, backupLockOn, disks] = await Promise.all([
+  const [tasksTotal, tasksOpen, deliverablesTotal, deliverablesApproved, time, invoicesPending, locations, backupLockOn, disks, deliveryFields] = await Promise.all([
     db.task.count({ where: { projectId } }),
     db.task.count({ where: { projectId, completedAt: null } }),
     db.deliverable.count({ where: { projectId, archivedAt: null } }),
@@ -2959,7 +2964,13 @@ export async function getFinishSummary(projectId: string): Promise<FinishSummary
     db.materialLocation.findMany({ where: { projectId }, include: { disk: { select: { kind: true, offsite: true } } } }),
     getAppConfigBool(REQUIRE_BACKUP_TO_FINISH, false),
     db.storageDisk.findMany({ where: { status: "ACTIVO" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    db.project.findUnique({ where: { id: projectId }, select: { deliveryNonce: true, deliveryRevokedAt: true, deliveryExpiresAt: true } }),
   ]);
+  const deliveryActive = Boolean(
+    deliveryFields?.deliveryNonce &&
+      !deliveryFields.deliveryRevokedAt &&
+      !(deliveryFields.deliveryExpiresAt && deliveryFields.deliveryExpiresAt.getTime() < Date.now()),
+  );
   return {
     tasksTotal,
     tasksOpen,
@@ -2970,6 +2981,11 @@ export async function getFinishSummary(projectId: string): Promise<FinishSummary
     material: materialHealth(locations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))),
     backupLockOn,
     disks,
+    deliveryActive,
+    deliveryUrl:
+      deliveryActive && deliveryFields?.deliveryNonce
+        ? `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/entrega/${signDeliveryToken(projectId, deliveryFields.deliveryNonce)}`
+        : null,
   };
 }
 

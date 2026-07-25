@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ClipboardList, Clock3, HardDrive, Loader2, Package, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, Copy, HardDrive, Loader2, Package, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { finishProject, getFinishSummary, type FinishSummary } from "@/app/(app)/proyectos/[id]/actions";
 import { addMaterialLocation } from "@/app/(app)/biblioteca/disk-actions";
+import { createProjectDeliveryLink } from "@/app/(app)/proyectos/[id]/delivery-actions";
 
 // Modal RESUMEN DE CIERRE (Fase 3 del ciclo de vida): al «Terminar», en vez de un confirm seco,
 // el broche del proyecto en números — tareas, entregables aprobados, horas registradas — y el
@@ -29,6 +30,10 @@ export function FinishSummaryDialog({
   const [backupDisk, setBackupDisk] = React.useState("");
   const [refresh, setRefresh] = React.useState(0);
   const [saving, startSaving] = React.useTransition();
+  // Entrega desde el cierre: generar el enlace de descarga sin salir del modal.
+  const [deliveryUrl, setDeliveryUrl] = React.useState<string | null>(null);
+  const [genPending, startGen] = React.useTransition();
+  const [copiedUrl, setCopiedUrl] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -163,6 +168,60 @@ export function FinishSummaryDialog({
                 ) : (
                   <p className="mt-1.5 pl-6 text-xs text-muted-foreground">Primero registra un disco en Biblioteca → Discos.</p>
                 )}
+              </div>
+            )}
+
+            {/* 📦 Entregar al cerrar: el enlace de descarga del cliente en el mismo gesto. */}
+            {data.deliveryActive || deliveryUrl ? (
+              <div className="mt-3 rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-[13px]">
+                <p className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <Package className="size-4 shrink-0" /> Enlace de entrega activo — el cliente descarga su material aunque el proyecto quede terminado.
+                </p>
+                {(deliveryUrl ?? data.deliveryUrl) ? (
+                  <div className="mt-2 flex items-center gap-2 pl-6">
+                    <input
+                      readOnly
+                      value={deliveryUrl ?? data.deliveryUrl ?? ""}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 font-mono text-[10.5px] text-muted-foreground outline-none"
+                      aria-label="Enlace de entrega"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const u = deliveryUrl ?? data.deliveryUrl;
+                        if (!u) return;
+                        await navigator.clipboard.writeText(u).catch(() => {});
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 1500);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-semibold hover:bg-muted"
+                    >
+                      {copiedUrl ? <CheckCircle2 className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+                      {copiedUrl ? "Copiado" : "Copiar"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-[13px]">
+                <Package className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1">¿Entregar el material al cerrar? Genera el enlace de descarga para el cliente.</span>
+                <button
+                  type="button"
+                  disabled={genPending}
+                  onClick={() =>
+                    startGen(async () => {
+                      const r = await createProjectDeliveryLink(projectId, { days: 60 });
+                      if (r.ok && r.url) setDeliveryUrl(r.url);
+                      setRefresh((n) => n + 1);
+                    })
+                  }
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                >
+                  {genPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Generar entrega de 60 días
+                </button>
               </div>
             )}
           </>

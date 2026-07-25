@@ -10,6 +10,7 @@ import { notifyMany } from "@/lib/notify";
 import { rateLimit } from "@/lib/rate-limit";
 import { Logo } from "@/components/brand/logo";
 import { EntityEmoji } from "@/components/icons/marks";
+import { ReactivateButton } from "./reactivate-button";
 
 // ── Sala PÚBLICA de entrega del proyecto ──
 // El cliente descarga TODO su material final (reels, videos, fotos, portadas) desde un solo
@@ -203,13 +204,25 @@ export default async function EntregaPage({ params }: { params: Promise<{ token:
   if (badNonce || project.deliveryRevokedAt)
     return <Unavailable msg="El equipo reemplazó o revocó este enlace. Pide el enlace vigente a tu productor." />;
   // deliveryDaysLeft (lib pura) hace la aritmética de fechas: 0 = vencido, null = sin límite.
+  // Vencido NO es un error: página amable con «Solicitar reactivación» (campana al equipo) —
+  // el material sigue intacto y este mismo enlace revive cuando extiendan la vigencia.
   const daysLeft = deliveryDaysLeft(project.deliveryExpiresAt);
   if (daysLeft !== null && daysLeft <= 0)
     return (
-      <Unavailable
-        title="Esta entrega expiró"
-        msg={`El material estuvo disponible hasta el ${formatBogotaDate(project.deliveryExpiresAt!, { day: "numeric", month: "long", year: "numeric" })}. Escríbele a tu productor para reactivarla.`}
-      />
+      <Shell>
+        <div className="flex min-h-screen items-center justify-center px-6 text-center">
+          <div className="max-w-md rounded-2xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur-xl">
+            <Logo className="mx-auto h-6" />
+            <h1 className="mt-4 text-xl font-bold">Esta entrega expiró</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              El material de «{project.name}» estuvo disponible hasta el{" "}
+              {formatBogotaDate(project.deliveryExpiresAt!, { day: "numeric", month: "long", year: "numeric" })}. Tu
+              material sigue guardado: pide la reactivación y el equipo recibe el aviso al instante.
+            </p>
+            <ReactivateButton token={token} />
+          </div>
+        </div>
+      </Shell>
     );
 
   // Visita: contador + evento de actividad (nunca debe romper la sala).
