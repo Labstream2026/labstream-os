@@ -2,7 +2,7 @@ import type * as React from "react";
 import { Camera, Download, ImageIcon, Play } from "lucide-react";
 import { db } from "@/lib/db";
 import { parseDeliveryToken } from "@/lib/delivery-token";
-import { getDeliveryPackage, type DeliveryItem } from "@/lib/delivery-data";
+import { deliveryTeamIds, getDeliveryPackage, type DeliveryItem } from "@/lib/delivery-data";
 import { DELIVERY_GROUP_LABEL, DELIVERY_GROUP_ORDER, deliveryCountdownLabel, deliveryDaysLeft } from "@/lib/delivery-groups";
 import { formatBogotaDate } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
@@ -222,11 +222,7 @@ export default async function EntregaPage({ params }: { params: Promise<{ token:
   // 6 h por proyecto para que una sesión de descargas no dispare una ráfaga de avisos.
   if (rateLimit(`delivery-visit:${project.id}`, 1, 6 * 3_600_000)) {
     void (async () => {
-      const team = await db.project.findUnique({
-        where: { id: project.id },
-        select: { leadId: true, members: { select: { userId: true } } },
-      });
-      const ids = [team?.leadId, ...(team?.members.map((m) => m.userId) ?? [])].filter((v): v is string => Boolean(v));
+      const ids = await deliveryTeamIds(project.id);
       if (ids.length) {
         await notifyMany(ids, {
           type: "delivery",

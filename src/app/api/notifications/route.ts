@@ -5,6 +5,7 @@ import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { sweepStaleTasks } from "@/lib/stale-tasks";
 import { sweepDiskChecks } from "@/lib/disk-checks";
+import { sweepDeliveryReminders } from "@/lib/delivery-reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function GET() {
   void sweepStaleTasks().catch(() => {});
   // Discos de la Biblioteca sin verificar hace 6+ meses (throttle interno de 12 h).
   void sweepDiskChecks().catch(() => {});
+  void sweepDeliveryReminders().catch(() => {});
 
   const [rows, unread, me] = await Promise.all([
     db.notification.findMany({

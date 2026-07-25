@@ -47,6 +47,23 @@ export type DeliveryPackage = {
   lastDeliveredAt: Date | null;
 };
 
+// Equipo a avisar de la actividad de la entrega: responsable + miembros SIN los usuarios de
+// rol cliente — el invitado es quien descarga; avisarle «el cliente abrió su entrega» es ruido.
+export async function deliveryTeamIds(projectId: string): Promise<string[]> {
+  const p = await db.project.findUnique({
+    where: { id: projectId },
+    select: { leadId: true, members: { select: { userId: true } } },
+  });
+  if (!p) return [];
+  const ids = Array.from(new Set([p.leadId, ...p.members.map((m) => m.userId)].filter((v): v is string => Boolean(v))));
+  if (ids.length === 0) return [];
+  const users = await db.user.findMany({
+    where: { id: { in: ids }, active: true, role: { key: { not: "cliente" } } },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}
+
 export async function getDeliveryPackage(projectId: string): Promise<DeliveryPackage> {
   const [deliverables, approvedCovers] = await Promise.all([
     db.deliverable.findMany({

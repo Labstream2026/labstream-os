@@ -4,6 +4,7 @@ import { getDeliveryPackage } from "@/lib/delivery-data";
 import { signDeliveryToken } from "@/lib/delivery-token";
 import { deliveryCountdownLabel, deliveryDaysLeft } from "@/lib/delivery-groups";
 import { formatBogota, formatBogotaDate } from "@/lib/bogota-time";
+import { isEmailEnabled } from "@/lib/email";
 import { cn } from "@/lib/utils";
 import { DeliveryControls, ExcludeToggle } from "./delivery-controls";
 
@@ -16,7 +17,17 @@ const BASE = (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace
 export async function DeliverySection({ projectId, canManage }: { projectId: string; canManage: boolean }) {
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { deliveryNonce: true, deliveryRevokedAt: true, deliveryExpiresAt: true, deliveryVisits: true },
+    select: {
+      name: true,
+      deliveryNonce: true,
+      deliveryRevokedAt: true,
+      deliveryExpiresAt: true,
+      deliveryVisits: true,
+      deliveryEmailTo: true,
+      client: {
+        select: { members: { select: { role: true, user: { select: { email: true, active: true } } } } },
+      },
+    },
   });
   if (!project) return null;
 
@@ -46,6 +57,15 @@ export async function DeliverySection({ projectId, canManage }: { projectId: str
 
   const included = pack.items.filter((i) => !i.excluded);
 
+  // Prellenado del correo: lo último a lo que se envió; si no, los contactos del cliente
+  // (responsables primero). El equipo siempre puede editarlo antes de enviar.
+  const emailEnabled = await isEmailEnabled();
+  const memberEmails = (project.client?.members ?? [])
+    .filter((m) => m.user.active && m.user.email)
+    .sort((a, b) => (a.role === "RESPONSABLE" ? -1 : 0) - (b.role === "RESPONSABLE" ? -1 : 0))
+    .map((m) => m.user.email as string);
+  const suggestedEmails = project.deliveryEmailTo ?? Array.from(new Set(memberEmails)).join(", ");
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-card p-4">
@@ -66,7 +86,16 @@ export async function DeliverySection({ projectId, canManage }: { projectId: str
           cliente lo descargue sin cuenta. Sigue vivo aunque el proyecto se termine o archive; los invitados con
           cuenta lo ven siempre en «Entregas finales».
         </p>
-        <DeliveryControls projectId={projectId} canManage={canManage} active={active} url={url} expiresLabel={expiresLabel} />
+        <DeliveryControls
+          projectId={projectId}
+          projectName={project.name}
+          canManage={canManage}
+          active={active}
+          url={url}
+          expiresLabel={expiresLabel}
+          emailEnabled={emailEnabled}
+          suggestedEmails={suggestedEmails}
+        />
         {events.length > 0 ? (
           <details className="mt-3 border-t border-border pt-2.5">
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">

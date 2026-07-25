@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { userCanManageProject } from "@/lib/project-access";
 import { signDeliveryToken } from "@/lib/delivery-token";
+import { emailButton, isEmailEnabled, sendEmail } from "@/lib/email";
+import { formatBogotaDate } from "@/lib/bogota-time";
 
 export type DeliveryActionResult = { ok: boolean; error?: string; url?: string };
 
@@ -72,6 +74,57 @@ export async function revokeProjectDeliveryLink(projectId: string): Promise<Deli
     where: { id: projectId },
     data: { deliveryRevokedAt: new Date(), deliveryNonce: crypto.randomUUID() },
   });
+  revalidatePath(`/proyectos/${projectId}`);
+  return { ok: true };
+}
+
+// Envía la entrega por correo al cliente (extra 1). Acepta varios destinatarios separados por
+// coma; guarda los destinatarios en deliveryEmailTo para que el recordatorio de vencimiento
+// sepa a quién avisar. Si el enlace no existe o está revocado, lo activa antes de enviar
+// (mismo comportamiento que el correo del enlace de subida).
+export async function emailProjectDeliveryLink(projectId: string, formData: FormData): Promise<DeliveryActionResult> {
+  if (!(await isEmailEnabled())) return { ok: false, error: "El correo no está configurado; copia el enlace y compártelo tú." };
+  const session = await ensureManage(projectId);
+  if (!session) return { ok: false, error: "Sin permiso." };
+  const rawTo = String(formData.get("to") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim().slice(0, 500);
+  const tos = rawTo.split(/[,;\s]+/).filter(Boolean);
+  const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  if (tos.length === 0 || tos.some((t) => !isEmail(t))) return { ok: false, error: "Revisa los correos: hay alguno inválido." };
+
+  const p = await db.project.findUnique({
+    where: { id: projectId },
+    select: { name: true, deliveryNonce: true, deliveryRevokedAt: true, deliveryExpiresAt: true },
+  });
+  if (!p) return { ok: false, error: "Proyecto no encontrado." };
+  let nonce = p.deliveryNonce;
+  if (!nonce || p.deliveryRevokedAt) {
+    nonce = crypto.randomUUID();
+    await db.project.update({ where: { id: projectId }, data: { deliveryNonce: nonce, deliveryRevokedAt: null } });
+  }
+  const url = `${baseUrl()}/entrega/${signDeliveryToken(projectId, nonce)}`;
+  const vigencia = p.deliveryExpiresAt
+    ? `El enlace está disponible hasta el ${formatBogotaDate(p.deliveryExpiresAt, { day: "numeric", month: "long", year: "numeric" })}.`
+    : "";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `
+    <p>Hola,</p>
+    <p>${esc(session.name)} te comparte el material final de <b>${esc(p.name)}</b>, listo para descargar. No necesitas crear cuenta.</p>
+    ${note ? `<p>${esc(note)}</p>` : ""}
+    <p>${emailButton("Descargar mi material", url)}</p>
+    ${vigencia ? `<p style="color:#666;font-size:13px">${vigencia}</p>` : ""}
+    <p style="color:#666;font-size:12px">O copia este enlace: ${url}</p>
+    <p style="color:#666;font-size:12px">Labstream Studio</p>`;
+  const r = await sendEmail({
+    to: tos.join(", "),
+    from: session.email ? `${session.name} <${session.email}>` : undefined,
+    replyTo: session.email ?? undefined,
+    subject: `Tu material está listo: ${p.name}`,
+    html,
+    text: `${session.name} te comparte el material final de ${p.name}: ${url}${vigencia ? ` — ${vigencia}` : ""}`,
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  await db.project.update({ where: { id: projectId }, data: { deliveryEmailTo: tos.join(", ") } });
   revalidatePath(`/proyectos/${projectId}`);
   return { ok: true };
 }

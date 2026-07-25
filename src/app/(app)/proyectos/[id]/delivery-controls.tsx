@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, ShieldOff } from "lucide-react";
+import { Check, Copy, Mail, MessageCircle, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   createProjectDeliveryLink,
+  emailProjectDeliveryLink,
   revokeProjectDeliveryLink,
   setDeliveryExpiry,
   toggleDeliveryExcluded,
@@ -29,16 +30,22 @@ const chipCls = (on: boolean) =>
 
 export function DeliveryControls({
   projectId,
+  projectName,
   canManage,
   active,
   url,
   expiresLabel,
+  emailEnabled = false,
+  suggestedEmails = "",
 }: {
   projectId: string;
+  projectName: string;
   canManage: boolean;
   active: boolean;
   url: string | null;
-  expiresLabel: string | null; // «Hasta el 24 ago · quedan 30 días» | null = sin límite
+  expiresLabel: string | null; // «hasta el 24 ago (quedan 30 días)» | null = sin límite
+  emailEnabled?: boolean;
+  suggestedEmails?: string; // correos de los contactos del cliente, para prellenar
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -47,6 +54,14 @@ export function DeliveryControls({
   const [error, setError] = React.useState<string | null>(null);
   const [dateOpen, setDateOpen] = React.useState(false);
   const [date, setDate] = React.useState("");
+  const [mailOpen, setMailOpen] = React.useState(false);
+  const [mailTo, setMailTo] = React.useState(suggestedEmails);
+  const [mailNote, setMailNote] = React.useState("");
+  const [mailSent, setMailSent] = React.useState(false);
+
+  const waText = url
+    ? `Tu material de «${projectName}» está listo para descargar 🎬 ${url}${expiresLabel ? ` (disponible ${expiresLabel})` : ""}`
+    : "";
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     startTransition(async () => {
@@ -103,6 +118,29 @@ export function DeliveryControls({
           {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
           {copied ? "Copiado" : "Copiar"}
         </button>
+        {canManage && emailEnabled ? (
+          <button
+            type="button"
+            onClick={() => setMailOpen((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent",
+              mailOpen ? "border-primary/50 text-primary" : "border-border",
+            )}
+          >
+            <Mail className="size-3.5" /> Enviar por correo
+          </button>
+        ) : null}
+        {url ? (
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(waText)}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Compartir por WhatsApp"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+          >
+            <MessageCircle className="size-3.5" /> WhatsApp
+          </a>
+        ) : null}
         {canManage ? (
           <button
             type="button"
@@ -118,6 +156,55 @@ export function DeliveryControls({
           </button>
         ) : null}
       </div>
+
+      {mailOpen ? (
+        <form
+          className="space-y-2 rounded-lg border border-border bg-muted/30 p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData();
+            fd.set("to", mailTo);
+            fd.set("note", mailNote);
+            startTransition(async () => {
+              setError(null);
+              setMailSent(false);
+              const r = await emailProjectDeliveryLink(projectId, fd);
+              if (!r.ok) setError(r.error ?? "No se pudo enviar.");
+              else {
+                setMailSent(true);
+                setMailNote("");
+              }
+              router.refresh();
+            });
+          }}
+        >
+          <input
+            value={mailTo}
+            onChange={(e) => setMailTo(e.target.value)}
+            placeholder="correo@cliente.com (varios separados por coma)"
+            className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Correos del cliente"
+          />
+          <textarea
+            value={mailNote}
+            onChange={(e) => setMailNote(e.target.value)}
+            placeholder="Nota opcional para el cliente…"
+            rows={2}
+            className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Nota opcional"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={pending || !mailTo.trim()}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {pending ? "Enviando…" : "Enviar la entrega"}
+            </button>
+            {mailSent ? <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">✓ Enviada — quedará el recordatorio antes de vencer</span> : null}
+          </div>
+        </form>
+      ) : null}
 
       {canManage ? (
         <div className="flex flex-wrap items-center gap-2">
