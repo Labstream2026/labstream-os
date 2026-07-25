@@ -23,6 +23,7 @@ import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, setInternalReviewDue, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
 import { DeliverablesSpace } from "./deliverables-space";
+import { DeliverySection } from "./delivery-section";
 import { formatBogota } from "@/lib/bogota-time";
 import { ReviewersPicker } from "./reviewers-picker";
 import { VideoUploadField } from "./video-upload-field";
@@ -755,6 +756,7 @@ export function DeliverablesPanel({
             />
           }
           photos={<PhotosPanel projectId={projectId} canUpload={canManage} sets={photoSets} />}
+          delivery={<DeliverySection projectId={projectId} canManage={canManage} />}
         />
         </>
       );

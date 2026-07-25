@@ -17,6 +17,7 @@ export function DeliverablesSpace({
   approved,
   covers,
   photos,
+  delivery,
 }: {
   activeCount: number;
   approvedCount: number;
@@ -26,10 +27,13 @@ export function DeliverablesSpace({
   approved: React.ReactNode;
   covers?: React.ReactNode;
   photos?: React.ReactNode;
+  // Pestaña «Entrega»: el paquete descargable que ve el cliente (sin contador — su conteo
+  // vive dentro del panel, que es autónomo).
+  delivery?: React.ReactNode;
 }) {
-  const [tab, setTab] = React.useState<"encurso" | "aprobados" | "portadas" | "fotos">("encurso");
+  const [tab, setTab] = React.useState<"encurso" | "aprobados" | "portadas" | "fotos" | "entrega">("encurso");
 
-  const pill = (key: typeof tab, label: string, count: number) => (
+  const pill = (key: typeof tab, label: string, count?: number) => (
     <button
       key={key}
       type="button"
@@ -39,7 +43,7 @@ export function DeliverablesSpace({
         tab === key ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
-      {label} · {count}
+      {count === undefined ? label : `${label} · ${count}`}
     </button>
   );
 
@@ -50,8 +54,9 @@ export function DeliverablesSpace({
         {pill("aprobados", "Aprobados", approvedCount)}
         {covers ? pill("portadas", "🖼️ Portadas", coversCount ?? 0) : null}
         {photos ? pill("fotos", "📷 Fotos", photosCount ?? 0) : null}
+        {delivery ? pill("entrega", "📦 Entrega") : null}
       </div>
-      {tab === "encurso" ? active : tab === "aprobados" ? approved : tab === "portadas" ? covers : photos}
+      {tab === "encurso" ? active : tab === "aprobados" ? approved : tab === "portadas" ? covers : tab === "fotos" ? photos : delivery}
     </div>
   );
 }

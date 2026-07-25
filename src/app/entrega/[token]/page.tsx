@@ -6,6 +6,8 @@ import { getDeliveryPackage, type DeliveryItem } from "@/lib/delivery-data";
 import { DELIVERY_GROUP_LABEL, DELIVERY_GROUP_ORDER, deliveryCountdownLabel, deliveryDaysLeft } from "@/lib/delivery-groups";
 import { formatBogotaDate } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
+import { notifyMany } from "@/lib/notify";
+import { rateLimit } from "@/lib/rate-limit";
 import { Logo } from "@/components/brand/logo";
 import { EntityEmoji } from "@/components/icons/marks";
 
@@ -215,6 +217,29 @@ export default async function EntregaPage({ params }: { params: Promise<{ token:
     db.project.update({ where: { id: project.id }, data: { deliveryVisits: { increment: 1 } } }),
     db.deliveryEvent.create({ data: { projectId: project.id, kind: "VISIT", label: null } }),
   ]).catch(() => {});
+
+  // Campana al equipo (responsable + miembros): «el cliente ya está descargando». Con tope de
+  // 6 h por proyecto para que una sesión de descargas no dispare una ráfaga de avisos.
+  if (rateLimit(`delivery-visit:${project.id}`, 1, 6 * 3_600_000)) {
+    void (async () => {
+      const team = await db.project.findUnique({
+        where: { id: project.id },
+        select: { leadId: true, members: { select: { userId: true } } },
+      });
+      const ids = [team?.leadId, ...(team?.members.map((m) => m.userId) ?? [])].filter((v): v is string => Boolean(v));
+      if (ids.length) {
+        await notifyMany(ids, {
+          type: "delivery",
+          event: "delivery_visit",
+          title: `El cliente abrió su entrega: ${project.name}`,
+          body: "Entró a la sala de descargas del proyecto. La actividad queda en la pestaña Entrega.",
+          link: `/proyectos/${project.id}?tab=entregables`,
+          groupKey: `delivery-visit:${project.id}`,
+          projectId: project.id,
+        });
+      }
+    })().catch(() => {});
+  }
 
   const pack = await getDeliveryPackage(project.id);
   const items = pack.items.filter((i) => !i.excluded);
