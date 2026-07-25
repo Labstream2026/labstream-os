@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Mail, MessageCircle, ShieldOff } from "lucide-react";
+import { Check, Copy, Mail, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WhatsappSend } from "./whatsapp-send";
 import {
   createProjectDeliveryLink,
   emailProjectDeliveryLink,
@@ -37,6 +38,8 @@ export function DeliveryControls({
   expiresLabel,
   emailEnabled = false,
   suggestedEmails = "",
+  whatsappEnabled = false,
+  clientPhone = "",
 }: {
   projectId: string;
   projectName: string;
@@ -46,6 +49,8 @@ export function DeliveryControls({
   expiresLabel: string | null; // «hasta el 24 ago (quedan 30 días)» | null = sin límite
   emailEnabled?: boolean;
   suggestedEmails?: string; // correos de los contactos del cliente, para prellenar
+  whatsappEnabled?: boolean;
+  clientPhone?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -131,15 +136,13 @@ export function DeliveryControls({
           </button>
         ) : null}
         {url ? (
-          <a
-            href={`https://wa.me/?text=${encodeURIComponent(waText)}`}
-            target="_blank"
-            rel="noreferrer"
-            title="Compartir por WhatsApp"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
-          >
-            <MessageCircle className="size-3.5" /> WhatsApp
-          </a>
+          <WhatsappSend
+            projectId={projectId}
+            kind="entrega"
+            enabled={whatsappEnabled}
+            suggestedPhone={clientPhone}
+            fallbackText={waText}
+          />
         ) : null}
         {canManage ? (
           <button

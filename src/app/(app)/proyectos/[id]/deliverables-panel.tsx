@@ -212,6 +212,9 @@ export function DeliverablesPanel({
   emailEnabled = false,
   covers = [],
   coversRevoked = false,
+  projectName = "",
+  whatsappEnabled = false,
+  clientPhone = "",
   stateFilter = null,
 }: {
   projectId: string;
@@ -235,6 +238,10 @@ export function DeliverablesPanel({
     notes?: { id: string; authorName: string; body: string | null; drawing: string | null; resolved: boolean; createdAt: Date }[];
   }[];
   coversRevoked?: boolean;
+  // Envío por WhatsApp del enlace de portadas (canal de Evolution API del estudio).
+  projectName?: string;
+  whatsappEnabled?: boolean;
+  clientPhone?: string;
   // E1 · Filtro del embudo (?estado=<grupo>): acota las listas a ese grupo de estados.
   stateFilter?: string | null;
 }) {
@@ -771,6 +778,9 @@ export function DeliverablesPanel({
               targets={coverTargets}
               clientUrl={`${REVIEW_BASE}/portadas/${signCoversToken(projectId)}`}
               revoked={coversRevoked}
+              projectName={projectName}
+              whatsappEnabled={whatsappEnabled}
+              clientPhone={clientPhone}
             />
           }
           photos={<PhotosPanel projectId={projectId} canUpload={canManage} sets={photoSets} />}

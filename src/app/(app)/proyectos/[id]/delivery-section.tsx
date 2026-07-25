@@ -5,6 +5,7 @@ import { signDeliveryToken } from "@/lib/delivery-token";
 import { deliveryCountdownLabel, deliveryDaysLeft } from "@/lib/delivery-groups";
 import { formatBogota, formatBogotaDate } from "@/lib/bogota-time";
 import { isEmailEnabled } from "@/lib/email";
+import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 import { cn } from "@/lib/utils";
 import { DeliveryControls, ExcludeToggle } from "./delivery-controls";
 
@@ -25,7 +26,7 @@ export async function DeliverySection({ projectId, canManage }: { projectId: str
       deliveryVisits: true,
       deliveryEmailTo: true,
       client: {
-        select: { members: { select: { role: true, user: { select: { email: true, active: true } } } } },
+        select: { phone: true, members: { select: { role: true, user: { select: { email: true, active: true } } } } },
       },
     },
   });
@@ -95,6 +96,8 @@ export async function DeliverySection({ projectId, canManage }: { projectId: str
           expiresLabel={expiresLabel}
           emailEnabled={emailEnabled}
           suggestedEmails={suggestedEmails}
+          whatsappEnabled={isWhatsappEnabled()}
+          clientPhone={project.client?.phone ?? ""}
         />
         {events.length > 0 ? (
           <details className="mt-3 border-t border-border pt-2.5">

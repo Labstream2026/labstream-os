@@ -7,6 +7,7 @@ import { ImagePlus, Link2, Link2Off, Trash2, Copy, Check, Ban, X, ChevronLeft, C
 import { cn } from "@/lib/utils";
 import { SubmitButton } from "@/components/submit-button";
 import { CoverThumb, CoverViewer, type ViewerCover } from "@/components/covers/cover-viewer";
+import { WhatsappSend } from "./whatsapp-send";
 import {
   uploadProjectCovers,
   linkProjectCover,
@@ -76,6 +77,9 @@ export function CoversPanel({
   targets,
   clientUrl,
   revoked,
+  projectName = "",
+  whatsappEnabled = false,
+  clientPhone = "",
 }: {
   projectId: string;
   canManage: boolean;
@@ -84,6 +88,9 @@ export function CoversPanel({
   targets: CoverTarget[];
   clientUrl: string;
   revoked: boolean;
+  projectName?: string;
+  whatsappEnabled?: boolean;
+  clientPhone?: string;
 }) {
   const router = useRouter();
   const [copied, setCopied] = React.useState(false);
@@ -177,6 +184,15 @@ export function CoversPanel({
           <button type="button" onClick={copy} disabled={revoked} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50">
             {copied ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />} {copied ? "Copiado" : "Copiar enlace"}
           </button>
+          {canManage && !revoked ? (
+            <WhatsappSend
+              projectId={projectId}
+              kind="portadas"
+              enabled={whatsappEnabled}
+              suggestedPhone={clientPhone}
+              fallbackText={`Hola 👋 Te comparto las portadas de «${projectName}» para que las revises: ${clientUrl}`}
+            />
+          ) : null}
           {canManage ? (
             <form action={setCoversRevoked.bind(null, projectId, !revoked)}>
               <SubmitButton pendingText="…" className={cn("inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium", revoked ? "border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10" : "border-border text-muted-foreground hover:bg-accent")}>

@@ -45,6 +45,7 @@ import { ProjectChatBubble } from "./project-chat-bubble";
 import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
 import { loadInventory, conflictsForPlans } from "@/lib/equipos";
+import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 
 export const dynamic = "force-dynamic";
 
@@ -440,6 +441,9 @@ export default async function ProyectoPage({
         notes: c.notes,
       }))}
       coversRevoked={!!project.coversRevokedAt}
+      projectName={project.name}
+      whatsappEnabled={isWhatsappEnabled()}
+      clientPhone={project.client?.phone ?? ""}
       stateFilter={estado ?? null}
     />
   );
