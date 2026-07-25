@@ -146,17 +146,18 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
   const when = allDay
     ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
     : new Date(start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
-  for (const userId of added) {
-    if (userId === session.id) continue;
-    await notifyAndEmail(userId, {
+  // En paralelo: con varios invitados, el bucle secuencial alargaba el guardado linealmente
+  // (cada notifyAndEmail puede incluir un correo SMTP). Best-effort: un envío caído no tumba.
+  await Promise.all(added.filter((userId) => userId !== session.id).map((userId) =>
+    notifyAndEmail(userId, {
       type: "event",
       event: "calendar_event",
       title: `Te agregaron a una cita: ${title}`,
       body: `${session.name} te invitó · ${when}`,
       link: "/calendario",
       actorId: session.id,
-    });
-  }
+    }).catch(() => null),
+  ));
 
   // Avisar a quienes SIGUEN en la cita si cambió algo relevante (fecha/hora/lugar/título).
   const changed =
@@ -167,29 +168,28 @@ export async function updateMyEvent(eventId: string, formData: FormData): Promis
     event.allDay !== allDay;
   if (changed) {
     const staying = [...desired].filter((id) => before.has(id) && id !== session.id);
-    for (const userId of staying) {
-      await notifyAndEmail(userId, {
+    await Promise.all(staying.map((userId) =>
+      notifyAndEmail(userId, {
         type: "event",
         event: "calendar_event",
         title: `Se actualizó la cita: ${title}`,
         body: `${session.name} hizo cambios · ${when}${location ? ` · ${location}` : ""}`,
         link: "/calendario",
         actorId: session.id,
-      });
-    }
+      }).catch(() => null),
+    ));
   }
   // Avisar a los retirados que ya no están en la cita.
-  for (const userId of removed) {
-    if (userId === session.id) continue;
-    await notifyAndEmail(userId, {
+  await Promise.all(removed.filter((userId) => userId !== session.id).map((userId) =>
+    notifyAndEmail(userId, {
       type: "event",
       event: "calendar_event",
       title: `Te quitaron de la cita: ${event.title}`,
       body: `${session.name} actualizó los asistentes.`,
       link: "/calendario",
       actorId: session.id,
-    });
-  }
+    }).catch(() => null),
+  ));
   await logActivity({ action: "event.update", summary: `editó la cita «${title}»`, entityType: "event", entityId: eventId, silent: true });
   revalidatePath("/calendario");
 }
@@ -218,10 +218,9 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   const when = event.allDay
     ? new Date(start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
     : new Date(start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
-  for (const a of event.attendees) {
-    if (a.userId === session.id) continue;
-    await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id });
-  }
+  await Promise.all(event.attendees.filter((a) => a.userId !== session.id).map((a) =>
+    notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id }).catch(() => null),
+  ));
   await logActivity({ action: "event.move", summary: `reprogramó la cita «${event.title}»`, entityType: "event", entityId: eventId, silent: true });
   revalidatePath("/calendario");
 }
@@ -257,14 +256,14 @@ export async function moveMyTask(taskId: string, startIso: string): Promise<void
   // Avisar a los citados (asignado + dueño), menos a quien la movió.
   const when = new Date(`${date}T${time}:00.000Z`).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
   const recipients = [...new Set([task.assigneeId, task.ownerId].filter((x): x is string => !!x && x !== session!.id))];
-  for (const uid of recipients) {
-    await notifyAndEmail(uid, {
+  await Promise.all(recipients.map((uid) =>
+    notifyAndEmail(uid, {
       type: "task", event: "task_moved",
       title: `Se reprogramó: ${task.title}`,
       body: `${session!.name} la movió · ${when}${task.project ? ` en «${task.project.name}»` : ""}`,
       link: "/calendario", actorId: session!.id,
-    }).catch(() => null);
-  }
+    }).catch(() => null),
+  ));
   if (task.projectId) revalidatePath(`/proyectos/${task.projectId}`);
   revalidatePath("/calendario");
 }
@@ -285,10 +284,9 @@ export async function deleteMyEvent(eventId: string): Promise<void> {
   const when = event.allDay
     ? new Date(event.start).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })
     : new Date(event.start).toLocaleString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
-  for (const a of event.attendees) {
-    if (a.userId === session.id) continue;
-    await notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: session.id });
-  }
+  await Promise.all(event.attendees.filter((a) => a.userId !== session.id).map((a) =>
+    notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se canceló la cita: ${event.title}`, body: `${session.name} canceló la cita que estaba para ${when}.`, link: "/calendario", actorId: session.id }).catch(() => null),
+  ));
   await sendEventCancellations(eventId).catch(() => 0);
   // Apaga los avisos "X antes" de los recordatorios atados (el FK se pone en null al borrar).
   await disableEventAnchoredAlerts(eventId).catch(() => {});

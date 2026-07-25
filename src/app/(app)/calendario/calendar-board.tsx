@@ -246,7 +246,13 @@ export function CalendarBoard({
     return best;
   }, [shownItems, wallNowMs]);
   // Contadores del MES visible por tipo (se pintan en las tarjetas-interruptor de capa).
-  const monthKey = `${anchor.getFullYear()}-${pad(anchor.getMonth() + 1)}`;
+  // En modo embebido las vistas navegan por su cuenta (no controladas) y el `anchor` del
+  // board se quedaba en HOY: las tarjetas y el sufijo «· JUL» mostraban siempre el mes
+  // actual aunque navegaras a otro. `viewMonth` recibe el mes real vía onNavigate; el
+  // `anchor` NO se toca porque alimenta la franja «Próximo» (relativa a AHORA).
+  const [viewMonth, setViewMonth] = React.useState<Date>(() => new Date());
+  const countMonth = shell ? anchor : viewMonth;
+  const monthKey = `${countMonth.getFullYear()}-${pad(countMonth.getMonth() + 1)}`;
   const kindCounts = React.useMemo(() => {
     const c: Record<string, number> = {};
     for (const it of items) if (it.date.slice(0, 7) === monthKey) c[it.kind] = (c[it.kind] ?? 0) + 1;
@@ -473,7 +479,7 @@ export function CalendarBoard({
     ? [...new Set([nextUp.assignee?.name, ...(nextUp.attendees ?? []).map((a) => a.name)].filter(Boolean) as string[])]
     : [];
   const maxKindCount = Math.max(1, ...KIND_LAYERS.map((L) => kindCounts[L.key] ?? 0));
-  const monthShort = MONTH_FMT.format(anchor).replace(".", "").toUpperCase();
+  const monthShort = MONTH_FMT.format(countMonth).replace(".", "").toUpperCase();
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -567,9 +573,9 @@ export function CalendarBoard({
       ) : view === "agenda" ? (
         <div className="min-h-0 flex-1 overflow-y-auto"><AgendaView items={shownItems} anchor={anchor} days={30} colorBy={colorBy} /></div>
       ) : view === "mes" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} /></div>
+        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} onNavigate={setViewMonth} /></div>
       ) : (
-        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} /></div>
+        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} onNavigate={setViewMonth} /></div>
       )}
       {overlays}
     </div>

@@ -20,9 +20,12 @@ export default async function CalendarioPage() {
   if (!hasPermission(session, "ver_calendario")) redirect("/");
   // El cronograma (vista interna) es cross-proyecto: solo si puede ver proyectos.
   const canTimeline = hasPermission(session, "ver_proyectos");
-  // Ventana acotada: desde el inicio del mes anterior en adelante.
+  // Ventana acotada por AMBOS lados: mes anterior → +18 meses. Sin la cota superior la
+  // consulta traía TODO el futuro del equipo y crecía sin límite con cada cosa agendada.
+  // 18 meses cubre de sobra la vista Mes (6 meses continuos) y la navegación de Agenda.
   const now = new Date();
   const windowStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const windowEnd = new Date(now.getFullYear(), now.getMonth() + 18, 1);
   const meId = session?.id ?? "";
   // El portal del cliente solo ve en el calendario lo de SUS proyectos (nunca los eventos del
   // equipo sin proyecto, que son visibles para todo el equipo).
@@ -37,7 +40,7 @@ export default async function CalendarioPage() {
       // tienen como invitado; así los eventos personales de otros ni siquiera llegan al
       // servidor. Las citas de la app se cargan todas y se filtran por acceso más abajo.
       where: {
-        start: { gte: windowStart },
+        start: { gte: windowStart, lt: windowEnd },
         OR: [
           { source: "app" },
           { createdById: meId },
@@ -54,7 +57,7 @@ export default async function CalendarioPage() {
     // TODAS las tareas del equipo con fecha de entrega o de rodaje (no solo las mías).
     db.task.findMany({
       where: {
-        OR: [{ dueDate: { gte: windowStart } }, { shootDate: { gte: windowStart } }],
+        OR: [{ dueDate: { gte: windowStart, lt: windowEnd } }, { shootDate: { gte: windowStart, lt: windowEnd } }],
       },
       select: {
         id: true, title: true, description: true, dueDate: true, dueTime: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,

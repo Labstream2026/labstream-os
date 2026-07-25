@@ -144,7 +144,9 @@ function isMovable(it: CalItem): boolean {
 }
 type Live = { dayIndex: number; topMin: number; endMin: number; moved: boolean };
 
-export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo", anchor: anchorProp, onAnchorChange, days: dayCountProp = 7 }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy; anchor?: Date; onAnchorChange?: (d: Date) => void; days?: number }) {
+// onNavigate: en modo NO controlado (embebido) informa hacia afuera la fecha a la que navegó
+// esta vista (tarjetas-contador del board), sin tomar control de la ancla.
+export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo", anchor: anchorProp, onAnchorChange, onNavigate, days: dayCountProp = 7 }: { items: CalItem[]; onSelect?: (it: CalItem | null) => void; canCreate?: boolean; colorBy?: ColorBy; anchor?: Date; onAnchorChange?: (d: Date) => void; onNavigate?: (d: Date) => void; days?: number }) {
   // Color efectivo de un bloque: por persona (responsable) o por tipo (fallback).
   const blockColor = (it: CalItem, solid: string) => (colorBy === "persona" ? personColor(it) ?? solid : solid);
   // Nº de columnas: 7 (Semana) o 1 (Día). El calendario "shell" controla la fecha ancla; los
@@ -153,7 +155,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
   const [internalAnchor, setInternalAnchor] = React.useState(() => new Date());
   const anchor = anchorProp ?? internalAnchor;
   const controlled = Boolean(onAnchorChange);
-  const commitAnchor = (d: Date) => { if (onAnchorChange) onAnchorChange(d); else setInternalAnchor(d); };
+  const commitAnchor = (d: Date) => { if (onAnchorChange) onAnchorChange(d); else { setInternalAnchor(d); onNavigate?.(d); } };
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const gridRef = React.useRef<HTMLDivElement>(null);
@@ -359,7 +361,14 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           En móvil hace scroll HORIZONTAL: con 7 columnas + horas, por debajo de ~680px las
           columnas quedarían ilegibles, así que el ancho mínimo fuerza el scroll lateral y las
           tres rejillas (cabecera, todo-el-día y horas) se desplazan juntas y alineadas. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
+        {/* Estado vacío (como el de Agenda): la rejilla sola no dice si «no hay nada» o «no
+            cargó». Overlay sin capturar clics: crear tocando una franja sigue funcionando. */}
+        {!parsed.some((p) => days.some((d) => evOnDay(p.start, d))) ? (
+          <p className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-max max-w-[90%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 text-center text-xs text-muted-foreground shadow-sm">
+            {dayCount === 1 ? "Nada agendado este día" : "Nada agendado esta semana"}{canCreate ? " · toca una franja para crear una cita" : ""}
+          </p>
+        ) : null}
         <div className="flex min-h-0 flex-1 flex-col" style={{ minWidth: dayCount === 7 ? 680 : undefined }}>
           {/* Cabecera de días */}
           <div className="grid shrink-0 border-b border-border" style={{ gridTemplateColumns: `44px repeat(${dayCount}, minmax(0,1fr))` }}>
@@ -498,7 +507,9 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
                           {draggable && canResize ? (
                             <span
                               onPointerDown={(e) => startResize(e, p, dayIndex)}
-                              className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100"
+                              // En táctil no hay hover: el asa queda siempre visible y más alta
+                              // (antes era opacity-0 + 8px → imposible de descubrir/tocar en móvil).
+                              className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize rounded-b-md opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:h-3.5 pointer-coarse:opacity-70"
                               style={{ background: "rgba(255,255,255,0.35)", touchAction: "none" }}
                             />
                           ) : null}

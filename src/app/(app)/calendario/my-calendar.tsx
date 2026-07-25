@@ -66,6 +66,7 @@ export function MyCalendar({
   colorBy = "tipo",
   anchor,
   onAnchorChange,
+  onNavigate,
 }: {
   items: CalItem[];
   canCreate?: boolean;
@@ -74,6 +75,9 @@ export function MyCalendar({
   // Si se pasa `onAnchorChange`, la barra propia de esta vista se oculta (la controla el shell).
   anchor?: Date;
   onAnchorChange?: (d: Date) => void;
+  // Modo NO controlado (embebido): informa hacia afuera el mes al que navegó esta vista
+  // (para que las tarjetas-contador del board sigan al mes visible), SIN tomar control.
+  onNavigate?: (d: Date) => void;
 }) {
   const now = new Date();
   const controlled = Boolean(onAnchorChange);
@@ -104,8 +108,14 @@ export function MyCalendar({
   // La vista mes muestra una ventana CONTINUA de varios meses (no se corta en el mes actual);
   // se desplaza mes a mes con ←/→ y "Hoy" vuelve al mes en curso.
   const MONTH_COUNT = 6;
-  const prev = () => (month === 0 ? (setMonth(11), setYear((y) => y - 1)) : setMonth((m) => m - 1));
-  const next = () => (month === 11 ? (setMonth(0), setYear((y) => y + 1)) : setMonth((m) => m + 1));
+  const prev = () => {
+    const ny = month === 0 ? year - 1 : year, nm = month === 0 ? 11 : month - 1;
+    setYear(ny); setMonth(nm); onNavigate?.(new Date(ny, nm, 1));
+  };
+  const next = () => {
+    const ny = month === 11 ? year + 1 : year, nm = month === 11 ? 0 : month + 1;
+    setYear(ny); setMonth(nm); onNavigate?.(new Date(ny, nm, 1));
+  };
 
   // Soltar una cita en otro día (de cualquier mes visible): conserva la hora, cambia la fecha.
   const dropOnDay = (y: number, m: number, dayNum: number) => {
@@ -232,7 +242,7 @@ export function MyCalendar({
         <h3 className="text-sm font-semibold capitalize">{rangeLabel}</h3>
         <div className="flex items-center gap-1">
           <button type="button" onClick={prev} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
-          <button type="button" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
+          <button type="button" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); onNavigate?.(new Date()); }} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>
           <button type="button" onClick={next} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">→</button>
         </div>
       </div>
@@ -242,7 +252,14 @@ export function MyCalendar({
           Ancho mínimo + scroll horizontal: cuando el contenedor es angosto (panel de chat abierto,
           pantallas chicas) la rejilla NO se comprime hasta que las abreviaturas y los números se
           solapan — hace scroll lateral, igual que la vista Semana. */}
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
+      <div className="relative min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
+        {/* Estado vacío (como el de Agenda/Semana): solo cuando NO hay nada en toda la ventana —
+            mes a mes, la propia rejilla vacía ya lo comunica. Sin capturar clics. */}
+        {items.length === 0 ? (
+          <p className="pointer-events-none absolute left-1/2 top-24 z-[3] w-max max-w-[90%] -translate-x-1/2 rounded-full border border-border bg-card/95 px-4 py-1.5 text-center text-xs text-muted-foreground shadow-sm">
+            Nada agendado por ahora{canCreate ? " · toca un día para crear una cita" : ""}
+          </p>
+        ) : null}
         <div className="min-w-[34rem]">
         <div className="sticky top-0 z-[2] grid grid-cols-7 border-b border-border bg-card">
           {WEEKDAYS.map((w) => (

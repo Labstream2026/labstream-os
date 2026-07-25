@@ -35,6 +35,28 @@ function esc(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
+// Plegado RFC 5545 §3.1: las líneas de más de 75 OCTETOS se parten con CRLF + espacio
+// (descripciones/títulos largos). Google/Apple toleran líneas largas, pero clientes
+// estrictos (Outlook viejo, validadores) las rechazan. Se cuenta en bytes UTF-8 con
+// TextEncoder (este módulo también corre en el navegador — nada de Buffer) y se corta
+// por caracteres completos para no partir un multibyte.
+const utf8 = new TextEncoder();
+function foldLine(line: string): string {
+  if (utf8.encode(line).length <= 75) return line;
+  const parts: string[] = [];
+  let cur = "";
+  let curBytes = 0;
+  let limit = 75; // la primera línea admite 75; las continuaciones 74 (el espacio inicial cuenta)
+  for (const ch of line) {
+    const b = utf8.encode(ch).length;
+    if (curBytes + b > limit) { parts.push(cur); cur = ""; curBytes = 0; limit = 74; }
+    cur += ch;
+    curBytes += b;
+  }
+  if (cur) parts.push(cur);
+  return parts.join("\r\n ");
+}
+
 // status: estado de respuesta del asistente (RSVP) → PARTSTAT del .ics.
 //   NEEDS-ACTION (sin responder) · ACCEPTED · DECLINED · TENTATIVE.
 export type IcsAttendee = { email: string; name?: string; status?: string };
@@ -126,8 +148,8 @@ export function buildIcs(e: IcsEvent): string {
     ...veventLines(e),
     "END:VCALENDAR",
   ];
-  // iCal exige CRLF.
-  return lines.join("\r\n");
+  // iCal exige CRLF; cada línea plegada a 75 octetos.
+  return lines.map(foldLine).join("\r\n");
 }
 
 // Calendario de SUSCRIPCIÓN (feed webcal/ics): un solo VCALENDAR con MUCHOS VEVENT, para que
@@ -150,5 +172,5 @@ export function buildIcsCalendar(events: IcsEvent[], opts?: { calName?: string; 
     ...events.flatMap((e) => veventLines({ ...e, method: "PUBLISH" })),
     "END:VCALENDAR",
   ];
-  return lines.join("\r\n");
+  return lines.map(foldLine).join("\r\n");
 }
