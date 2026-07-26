@@ -11,6 +11,13 @@ const TASK_RE = /^(\s*[-*+]\s+)\[( |x|X)\](\s+)(.*)$/;
 
 export type NoteTaskLine = { line: number; text: string; done: boolean };
 
+// Clave con la que una TAREA recuerda de qué línea nació. Es el texto, no el número de
+// línea: así el vínculo sobrevive a que la nota se reordene o se le añadan renglones
+// arriba. La usan por igual el servidor (al crear/reencontrar) y el render de la nota.
+export function noteTaskKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 300);
+}
+
 // Todas las líneas de tarea de la nota, en orden.
 export function noteTaskLines(content: string): NoteTaskLine[] {
   const out: NoteTaskLine[] = [];
@@ -46,9 +53,8 @@ export function toggleNoteTask(content: string, line: number, force?: boolean): 
 // Marca la casilla cuyo TEXTO coincide (para reflejar en la nota que su tarea se completó,
 // aunque entretanto se hayan movido líneas). Compara sin may/min ni espacios de sobra.
 export function toggleNoteTaskByText(content: string, text: string, done: boolean): string {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-  const target = norm(text);
+  const target = noteTaskKey(text);
   if (!target) return content;
-  const hit = noteTaskLines(content).find((r) => norm(r.text) === target);
+  const hit = noteTaskLines(content).find((r) => noteTaskKey(r.text) === target);
   return hit ? toggleNoteTask(content, hit.line, done) : content;
 }

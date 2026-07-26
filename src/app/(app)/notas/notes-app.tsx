@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks } from "lucide-react";
-import { IconNotas, IconPapelera } from "@/components/icons";
+import { IconNotas, IconPapelera, IconTareas } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
-import { toggleNoteTask, countNoteTasks } from "@/lib/note-tasks";
+import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
 import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
+import { createTaskFromNoteLine, createTaskFromNote, setNoteTaskDone } from "./task-actions";
 
 export type NoteItem = {
   id: string;
@@ -68,6 +69,12 @@ export type TrashedNote = {
   updatedAt: string; // ISO
 };
 
+// Tarea nacida de una línea de la nota. La clave del mapa es el TEXTO normalizado de la
+// línea (`noteTaskKey`), no su número: así el vínculo aguanta que la nota se reordene.
+export type NoteTaskLink = { id: string; label: string; href: string; done: boolean };
+// Referencia estable para las notas sin tareas (no crear un objeto nuevo en cada render).
+const EMPTY_LINKS: Record<string, NoteTaskLink> = {};
+
 export type NoteProject = { id: string; name: string; emoji: string | null };
 export type NoteClient = { id: string; name: string; emoji: string | null; accentColor: string | null };
 
@@ -113,7 +120,7 @@ const savePayload = (d: Draft) => ({
 // se abre el editor a pantalla completa con botón «atrás». Autoguardado con debounce.
 // La lista se AGRUPA por cliente o por categoría (tags) para encontrar fácil; el cliente y la
 // categoría son tags grandes y editables en el editor. Selección neutra (sin recuadro naranja).
-export function NotesApp({ initial, trashed, projects, clients }: { initial: NoteItem[]; trashed: TrashedNote[]; projects: NoteProject[]; clients: NoteClient[] }) {
+export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCreateTasks }: { initial: NoteItem[]; trashed: TrashedNote[]; taskLinks: Record<string, Record<string, NoteTaskLink>>; projects: NoteProject[]; clients: NoteClient[]; canCreateTasks: boolean }) {
   const projectsById = React.useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const projOf = (id: string | null) => (id ? projectsById.get(id) ?? null : null);
   const clientsById = React.useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
@@ -141,6 +148,10 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
   const { confirm, dialog } = useConfirmDialog();
   // Versión del servidor cuando alguien editó la misma nota en otro lado (aviso de conflicto).
   const [conflict, setConflict] = React.useState<{ title: string; content: string; updatedAt: string } | null>(null);
+  // Vínculos nota→tarea por nota (clave: texto normalizado de la línea) y el último mensaje
+  // de esa maquinaria («Tarea creada: …» o el motivo por el que no se pudo).
+  const [links, setLinksAll] = React.useState<Record<string, Record<string, NoteTaskLink>>>(taskLinks);
+  const [taskNote, setTaskNote] = React.useState<string | null>(null);
   // ¿Hay tecleo sin guardar? Lo usa el envío de emergencia al cerrar/ocultar la pestaña.
   const dirty = React.useRef(false);
   const latest = React.useRef<Draft>(emptyDraft);
@@ -244,15 +255,69 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
     fn();
   }
 
-  // Clic en la vista renderizada: si cayó en una casilla de tarea, se alterna en el texto.
+  // Clic en la vista renderizada. Dos botones viven ahí dentro (HTML del render):
+  //  · la casilla → marca/desmarca la línea (y completa/reabre su tarea, si tiene);
+  //  · «＋ tarea» → crea la tarea con el texto de esa línea.
   function onViewClick(e: React.MouseEvent<HTMLDivElement>) {
     if (readOnly) return;
-    const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-md-task]");
+    const target = e.target as HTMLElement;
+
+    const add = target.closest<HTMLElement>("[data-md-task-add]");
+    if (add) {
+      e.preventDefault();
+      const line = Number(add.dataset.mdTaskAdd);
+      if (Number.isInteger(line)) makeTaskFromLine(line);
+      return;
+    }
+
+    const btn = target.closest<HTMLElement>("[data-md-task]");
     if (!btn) return;
     const line = Number(btn.dataset.mdTask);
     if (!Number.isInteger(line)) return;
+    const rows = noteTaskLines(draft.content);
+    const row = rows.find((r) => r.line === line);
     const next = toggleNoteTask(draft.content, line);
-    if (next !== draft.content) onChange({ content: next });
+    if (next === draft.content) return;
+    onChange({ content: next });
+    // Si esa línea tiene tarea, el estado viaja también al tablero.
+    const link = row ? myLinks[noteTaskKey(row.text)] : undefined;
+    if (link && row) {
+      const done = !row.done;
+      setLinks((prev) => ({ ...prev, [noteTaskKey(row.text)]: { ...link, done } }));
+      start(async () => {
+        const r = await setNoteTaskDone(link.id, done);
+        if (!r.ok) { setLinks((prev) => ({ ...prev, [noteTaskKey(row.text)]: link })); setTaskNote(r.error ?? "No se pudo actualizar la tarea"); }
+      });
+    }
+  }
+
+  // Una línea → una tarea, con el mismo motor de captura rápida de Mis tareas.
+  function makeTaskFromLine(line: number) {
+    const noteId = draft.id;
+    if (!noteId) return; // una nota sin guardar todavía no tiene de dónde colgar la tarea
+    const row = noteTaskLines(draft.content).find((r) => r.line === line);
+    if (!row) return;
+    setTaskNote(null);
+    start(async () => {
+      const r = await createTaskFromNoteLine(noteId, line);
+      if (r.ok && r.task) {
+        setLinks((prev) => ({ ...prev, [r.task!.key]: { id: r.task!.id, label: r.task!.title, href: r.task!.href, done: r.task!.done } }));
+        setTaskNote(`Tarea creada: ${r.task.title}`);
+      } else {
+        setTaskNote(r.error ?? "No se pudo crear la tarea");
+      }
+    });
+  }
+
+  // La nota entera → una tarea, con sus casillas como checklist.
+  function makeTaskFromNote() {
+    const noteId = draft.id;
+    if (!noteId) return;
+    setTaskNote(null);
+    start(async () => {
+      const r = await createTaskFromNote(noteId);
+      setTaskNote(r.ok ? (r.items ? `Tarea creada con ${r.items} ${r.items === 1 ? "ítem" : "ítems"} de checklist` : "Tarea creada") : (r.error ?? "No se pudo crear la tarea"));
+    });
   }
 
   // ── Resolver un conflicto ──
@@ -346,6 +411,13 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
   const editing = isNew || selectedId !== null;
   const draftClient = clientOf(draft.clientId || null);
   const draftTasks = React.useMemo(() => countNoteTasks(draft.content), [draft.content]);
+  // Tareas ya creadas desde ESTA nota (por texto de línea) y cómo actualizarlas.
+  const myLinks: Record<string, NoteTaskLink> = (draft.id ? links[draft.id] : undefined) ?? EMPTY_LINKS;
+  function setLinks(fn: (prev: Record<string, NoteTaskLink>) => Record<string, NoteTaskLink>) {
+    const id = draft.id;
+    if (!id) return;
+    setLinksAll((all) => ({ ...all, [id]: fn(all[id] ?? {}) }));
+  }
 
   // Las notas compartidas por otros se muestran siempre en modo vista.
   React.useEffect(() => { if (readOnly) setBodyMode("view"); }, [readOnly, selectedId]);
@@ -675,7 +747,25 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                         {bodyMode === "edit" ? <button type="button" onClick={() => setBodyMode("view")} className="rounded px-1 underline underline-offset-2 hover:text-foreground">marcar</button> : null}
                       </span>
                     ) : null}
+                    {/* La nota entera → una tarea (con sus casillas como checklist). */}
+                    {canCreateTasks && draft.id ? (
+                      <button
+                        type="button"
+                        onClick={makeTaskFromNote}
+                        title="Crea una tarea con el título de la nota; sus casillas quedan como checklist"
+                        className={cn("inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", draftTasks.total > 0 ? "" : "ml-auto")}
+                      >
+                        <IconTareas className="size-3.5" /> Convertir en tarea
+                      </button>
+                    ) : null}
                   </div>
+                  {/* Resultado de la última acción de tareas (creada, o por qué no se pudo). */}
+                  {taskNote ? (
+                    <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <ListChecks className="size-3 shrink-0" /> {taskNote}
+                      <button type="button" onClick={() => setTaskNote(null)} aria-label="Ocultar aviso" className="rounded px-1 hover:bg-accent">×</button>
+                    </p>
+                  ) : null}
                   {bodyMode === "edit" ? (
                     <textarea
                       ref={bodyRef}
@@ -694,7 +784,7 @@ export function NotesApp({ initial, trashed, projects, clients }: { initial: Not
                     <div
                       onClick={onViewClick}
                       className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed"
-                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
+                      dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true, taskActions: canCreateTasks && !!draft.id, taskLinks: myLinks }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
                     />
                   )}
                 </>

@@ -679,6 +679,8 @@ model Note {
   // `archivedAt` null = nota activa. Desde la papelera se restaura o se borra definitivamente.
   archivedAt   DateTime?
   archivedById String?
+  // Tareas nacidas de esta nota (de una línea con casilla o de la nota entera).
+  tasks       Task[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1568,6 +1570,13 @@ model Task {
   projectId     String?
   deliverable   Deliverable?    @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
   deliverableId String?
+  // Origen: la tarea nació de una NOTA — de una línea con casilla («- [ ] llamar al DF») o
+  // de la nota entera. `noteLine` guarda el TEXTO normalizado de esa línea, no su número:
+  // así se reencuentra aunque la nota se reordene, y al completar la tarea se marca su
+  // casilla. Si la nota se borra definitivamente, la tarea sobrevive sin vínculo (SetNull).
+  note          Note?           @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  noteId        String?
+  noteLine      String?
   assignee      User?           @relation("TaskAssignee", fields: [assigneeId], references: [id])
   assigneeId    String?
   // Quién creó la tarea (dueño) y quién la asignó por última vez (para "quién me la asignó").

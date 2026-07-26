@@ -3,7 +3,8 @@ import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
-import { NotesApp, type NoteItem, type NoteProject, type NoteClient, type TrashedNote } from "./notes-app";
+import { syncNoteChecks } from "@/lib/note-task-sync";
+import { NotesApp, type NoteItem, type NoteProject, type NoteClient, type TrashedNote, type NoteTaskLink } from "./notes-app";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,11 @@ export default async function NotasPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [notes, trashed, projects, clients] = await Promise.all([
+  // Antes de leer: las casillas cuya tarea se completó (o se reabrió) en el tablero se ponen
+  // al día. Así la nota nunca miente sobre el trabajo que ya está hecho.
+  await syncNoteChecks(session.id).catch(() => null);
+
+  const [notes, trashed, linkedTasks, projects, clients] = await Promise.all([
     db.note.findMany({
       // Mis notas + las compartidas conmigo: visibilidad "team" (todo el equipo) o "project"
       // (miembros de un proyecto accesible). Las ajenas se verán en SOLO LECTURA.
@@ -43,6 +48,13 @@ export default async function NotasPage() {
       orderBy: { archivedAt: "desc" },
       take: 200,
       select: { id: true, title: true, content: true, category: true, clientId: true, color: true, archivedAt: true, updatedAt: true },
+    }),
+    // Tareas nacidas de mis notas: pintan el chip «tarea» en su línea y permiten completarla
+    // desde la casilla. Las que perdieron el vínculo (nota purgada) no salen: noteId es null.
+    db.task.findMany({
+      where: { note: { createdById: session.id, archivedAt: null } },
+      select: { id: true, title: true, noteId: true, noteLine: true, projectId: true, completedAt: true },
+      take: 500,
     }),
     // Proyectos accesibles para poder VINCULAR una nota a un proyecto.
     db.project.findMany({
@@ -91,6 +103,18 @@ export default async function NotasPage() {
     updatedAt: n.updatedAt.toISOString(),
   }));
 
+  // Vínculos nota↔tarea, agrupados por nota y por línea (clave = texto normalizado).
+  const links: Record<string, Record<string, NoteTaskLink>> = {};
+  for (const t of linkedTasks) {
+    if (!t.noteId || !t.noteLine) continue;
+    (links[t.noteId] ??= {})[t.noteLine] = {
+      id: t.id,
+      label: t.title,
+      done: !!t.completedAt,
+      href: t.projectId ? `/proyectos/${t.projectId}?tab=tareas&tarea=${t.id}` : `/mis-tareas?tarea=${t.id}`,
+    };
+  }
+
   // Sin contenedor con ancho máximo ni padding: la vista de Notas llena toda la ventana.
-  return <NotesApp initial={items} trashed={trashList} projects={projectList} clients={clientList} />;
+  return <NotesApp initial={items} trashed={trashList} taskLinks={links} projects={projectList} clients={clientList} canCreateTasks={session.role !== "cliente" && session.role !== "demo"} />;
 }
