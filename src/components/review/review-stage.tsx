@@ -2121,7 +2121,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const lastSaveRef = React.useRef(0);
   // Reinicia la marca de "ya restaurado" cuando cambia el video O cuando se vuelve del visor de
   // Google: así, si el <video> se re-monta, retoma la posición guardada en vez de arrancar en 0.
-  React.useEffect(() => { posRestored.current = false; }, [posKey, esVideo]);
+  // También cuando cambia el SRC COMPLETO (con token): si el token firmado rota entre renders
+  // (vencía la ventana), el navegador recarga el mismo video → loadedmetadata vuelve a sonar y
+  // AHÍ se re-restaura la posición. Sin esta dep la marca seguía en true y el video volvía al 0.
+  React.useEffect(() => { posRestored.current = false; }, [posKey, esVideo, version?.src]);
   const savePos = React.useCallback((force = false) => {
     const v = videoRef.current;
     if (!v || !posKey) return;
