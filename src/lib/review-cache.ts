@@ -10,12 +10,18 @@ import { fetchDriveDownload, guessDriveMime } from "@/lib/drive";
 
 // Caché local (NAS) del video de revisión de Drive.
 //
-// Por qué existe: el proxy /api/review-media descargaba el archivo de Drive en CADA visita y
-// CADA salto de la barra de tiempo. Google limita las descargas ANÓNIMAS por archivo/día y
-// acababa respondiendo "Quota exceeded" (502) en los videos que el equipo más revisa; entonces
-// el <video> no cargaba → el segundo se quedaba en 0 y la captura del fotograma salía en negro.
+// Por qué existe: /api/review-media descargaba el archivo de Drive en CADA visita y CADA salto
+// de la barra de tiempo. Google limita las descargas ANÓNIMAS por archivo/día y acababa
+// respondiendo "Quota exceeded" (502) en los videos que el equipo más revisa; entonces el
+// <video> no cargaba → el segundo se quedaba en 0 y la captura del fotograma salía en negro.
 // Con esta caché, Drive se toca UNA sola vez por versión: la primera apertura baja el archivo al
 // NAS y de ahí en adelante todo se sirve desde disco (rápido, con Range) sin volver a gastar cupo.
+//
+// MIENTRAS la copia se baja, los rangos que YA están en el .part se sirven desde ahí
+// (servePartialReview): la descarga va MUY por delante de la reproducción, así que desde los
+// primeros segundos casi todo sale del disco y Drive solo atiende el arranque y algún salto
+// hacia adelante. Antes esta espera devolvía 502 y la sala caía al visor de Google — donde no
+// se puede capturar ni el segundo ni el fotograma, que es justo lo que no puede fallar.
 
 const CACHE_DIR = path.join(STORAGE_DIR, "review-cache");
 const MAX_TOTAL_BYTES = 40 * 1024 * 1024 * 1024; // 40 GB: tope del caché (LRU por último acceso). Hay
@@ -30,20 +36,27 @@ const inFlight = new Map<string, Promise<CachedReview | null>>();
 const lastFail = new Map<string, number>();
 const FAIL_COOLDOWN_MS = 10 * 60_000;
 
+// Descargas EN CURSO con su tamaño total (el `content-length` que declaró Drive al empezar).
+// Saberlo es lo que permite servir un 206 correcto desde el .part a medio bajar: sin el total no
+// se puede construir un `content-range` válido y el <video> no sabría cuánto dura la pieza.
+type Progress = { total: number; mime: string; done: boolean };
+const progress = new Map<string, Progress>();
+
 const binPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.bin`);
 const metaPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.json`);
 const partPath = (versionId: string) => path.join(CACHE_DIR, `${versionId}.part`);
 
 export type CachedReview = { path: string; size: number; mime: string };
 
-// ¿Se está bajando AHORA la copia de esta versión? La ruta lo consulta para NO proxiar Drive en
-// vivo mientras tanto: el <video> pide decenas de rangos y cada uno seria otro golpe a Drive, que
-// agota la cuota diaria del archivo ANTES de que la copia termine — y entonces Google lo bloquea y
-// ya no se puede cachear nunca (circulo vicioso). Preferimos que esa primera visita caiga al visor
-// de Google (se ve, sin captura) y que la copia termine tranquila: la siguiente visita ya sale del
-// NAS, con captura y para siempre.
+// ¿Se está bajando AHORA la copia de esta versión? Lo usa la ruta para explicar el estado.
 export function isCachingInFlight(versionId: string): boolean {
   return inFlight.has(versionId);
+}
+
+// Arranca la copia al NAS SIN esperarla (la petición en curso se sirve mientras tanto desde el
+// .part o desde Drive en vivo). Deduplicada y con enfriamiento, igual que ensureReviewCached.
+export function startReviewCache(versionId: string, driveId: string, name: string): void {
+  void ensureReviewCached(versionId, driveId, name).catch(() => {});
 }
 
 // Devuelve la caché SOLO si está completa (existe el .bin no vacío y su meta .json). null si no.
@@ -67,16 +80,26 @@ export async function getCachedReview(versionId: string): Promise<CachedReview |
 // Asegura la caché de una versión: si ya está, la devuelve; si no, la baja de Drive UNA vez
 // (deduplicando peticiones concurrentes y respetando el enfriamiento tras fallo). Devuelve la
 // CachedReview lista para servir, o null si no se pudo (bloqueada por cuota, privada, muy grande…).
-// NO lanza. La ruta la espera un poco y, si llega a tiempo, sirve de esta MISMA descarga (una sola
-// vez se toca Drive por archivo, en vez de proxiar en vivo en cada visita).
-export async function ensureReviewCached(versionId: string, driveId: string, name: string): Promise<CachedReview | null> {
-  const hit = await getCachedReview(versionId);
-  if (hit) return hit;
+// NO lanza.
+//
+// OJO: la función NO es `async` a propósito. El apuntarse en `inFlight` tiene que ocurrir en el
+// MISMO tic que la comprobación; con un `await` antes (mirar si ya había copia), dos visitas
+// simultáneas pasaban las dos el control y disparaban DOS descargas del mismo archivo — justo lo
+// que agota el cupo diario de Drive. Toda la parte asíncrona vive dentro de la promesa.
+export function ensureReviewCached(versionId: string, driveId: string, name: string): Promise<CachedReview | null> {
   const running = inFlight.get(versionId);
   if (running) return running; // otra petición ya la está bajando: comparte su resultado
   const failedAt = lastFail.get(versionId);
-  if (failedAt && Date.now() - failedAt < FAIL_COOLDOWN_MS) return null; // en enfriamiento
-  const p = downloadToCache(versionId, driveId, name).finally(() => inFlight.delete(versionId));
+  if (failedAt && Date.now() - failedAt < FAIL_COOLDOWN_MS) return Promise.resolve(null); // en enfriamiento
+  const p = (async () => {
+    const hit = await getCachedReview(versionId);
+    return hit ?? (await downloadToCache(versionId, driveId, name));
+  })().finally(() => {
+    inFlight.delete(versionId);
+    // Terminada (bien o mal): el .part ya no existe con ese nombre —se renombró a .bin o se
+    // borró—, así que deja de anunciarse como servible por trozos.
+    progress.delete(versionId);
+  });
   inFlight.set(versionId, p);
   return p;
 }
@@ -92,7 +115,17 @@ async function downloadToCache(versionId: string, driveId: string, name: string)
       return null;
     }
     const len = Number(res.headers.get("content-length") || "0");
-    if (len && len > MAX_FILE_BYTES) return null; // demasiado grande: se proxia en vivo (no es fallo de cuota)
+    if (len && len > MAX_FILE_BYTES) {
+      // Demasiado grande: se sirve en vivo (no es fallo de cuota). Se corta el cuerpo para no
+      // dejar abierta una conexión a Drive que nadie va a leer.
+      await res.body.cancel().catch(() => {});
+      return null;
+    }
+
+    const mime = ctype && !ctype.includes("octet-stream") ? ctype.split(";")[0].trim() : guessDriveMime(name);
+    // Publica el tamaño total en cuanto Drive lo declara: a partir de aquí la ruta puede servir
+    // desde el .part los rangos que ya hayan llegado, sin volver a tocar Drive.
+    if (len > 0) progress.set(versionId, { total: len, mime, done: false });
 
     const part = partPath(versionId);
     await pipeline(Readable.fromWeb(res.body as unknown as NodeWebReadableStream), createWriteStream(part));
@@ -102,7 +135,6 @@ async function downloadToCache(versionId: string, driveId: string, name: string)
       lastFail.set(versionId, Date.now());
       return null;
     }
-    const mime = ctype && !ctype.includes("octet-stream") ? ctype.split(";")[0].trim() : guessDriveMime(name);
     // El .bin primero y la meta .json al final: getCachedReview exige AMBOS, así que una descarga
     // a medias (sin meta) nunca se sirve como completa.
     await fs.rename(part, binPath(versionId));
@@ -180,6 +212,65 @@ export async function purgeApprovedReviewCache(days = 7): Promise<{ purged: numb
     }
   }
   return { purged };
+}
+
+// Sirve un rango DESDE LA DESCARGA EN CURSO (.part), si esos bytes ya están en el NAS. Devuelve
+// null —y el llamador va a Drive en vivo— cuando no hay descarga en curso, no se sabe el total,
+// el rango pedido aún no ha llegado, o es un rango SUFIJO ("bytes=-N": el índice `moov` de un MP4
+// sin faststart vive al FINAL, que es lo último en bajar).
+//
+// Es lo que evita el círculo vicioso viejo: la primera visita ya no golpea a Drive en cada salto
+// de la barra mientras la copia se baja, así que el video se ve —con su segundo y su captura—
+// desde el primer momento y sin quemar el cupo diario del archivo.
+export async function servePartialReview(versionId: string, rangeHeader: string | null): Promise<Response | null> {
+  const p = progress.get(versionId);
+  if (!p || p.done || p.total <= 0 || !rangeHeader) return null;
+
+  const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!m || (!m[1] && m[2])) return null; // sin Range entendible, o rango sufijo → a Drive
+
+  // Se abre el archivo ANTES de medirlo: así el renombrado a .bin al terminar la descarga no
+  // deja a esta respuesta con un stream roto (en POSIX el descriptor sigue apuntando al mismo
+  // archivo aunque cambie de nombre).
+  let fh: Awaited<ReturnType<typeof fs.open>>;
+  try {
+    fh = await fs.open(partPath(versionId), "r");
+  } catch {
+    return null;
+  }
+  try {
+    const have = (await fh.stat()).size;
+    const size = p.total;
+    const start = m[1] ? parseInt(m[1], 10) : 0;
+    if (!Number.isFinite(start) || start < 0 || start >= have || start >= size) {
+      await fh.close();
+      return null; // ese trozo todavía no ha bajado
+    }
+    const wanted = m[2] ? parseInt(m[2], 10) : size - 1;
+    const end = Math.min(Number.isFinite(wanted) ? wanted : size - 1, have - 1, size - 1);
+    if (end < start) {
+      await fh.close();
+      return null;
+    }
+    // createReadStream de un FileHandle cierra el descriptor al terminar (o al cancelarse).
+    const stream = Readable.toWeb(fh.createReadStream({ start, end })) as unknown as ReadableStream;
+    return new Response(stream, {
+      status: 206,
+      headers: {
+        "content-type": p.mime || "video/mp4",
+        "accept-ranges": "bytes",
+        // no-store: es una respuesta PARCIAL de un archivo a medio bajar; que no quede en ninguna
+        // caché intermedia como si fuera la pieza entera.
+        "cache-control": "private, no-store",
+        "content-range": `bytes ${start}-${end}/${size}`,
+        "content-length": String(end - start + 1),
+        "x-review-cache": "partial",
+      },
+    });
+  } catch {
+    await fh.close().catch(() => {});
+    return null;
+  }
 }
 
 // Construye la respuesta sirviendo el archivo cacheado desde el NAS, con soporte de Range (206)

@@ -21,12 +21,11 @@ import { formatTimecode } from "@/lib/ui";
 export type StageVersion = {
   number: number;
   notes: string | null;
-  kind: "video" | "image" | "youtube" | "vimeo" | "drive_file" | "drive_folder" | "other" | "none";
+  kind: "video" | "image" | "youtube" | "vimeo" | "drive_folder" | "other" | "none";
   src: string | null; // embed/src primario (iframe o <video>)
-  proxySrc?: string | null; // video del MISMO origen (Drive proxiado) — permite capturar el frame
-  // Copia de revisión EN COCINA: el original es transcodificable pero aún no tiene proxy —
-  // puede que el navegador no lo reproduzca (ProRes/HEVC/MKV) hasta que esté listo.
-  proxyPending?: boolean;
+  // Visor de Google para una pieza de Drive. Es una SALIDA MANUAL: ahí se ve pero no se puede
+  // capturar ni el segundo ni el fotograma, así que solo se entra pulsando el botón — nunca solo.
+  googleViewUrl?: string | null;
   openUrl: string | null;
   fileName: string | null;
   timecodeCapable: boolean;
@@ -185,11 +184,6 @@ export function ReviewStage({
   // ni aplica el estado optimista; lo escrito se conserva para reintentar.
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [tc, setTc] = React.useState<number | null>(null);
-  // Momento escrito A MANO («⏱ Momento», m:ss) para fuentes que no dejan leer el segundo (el
-  // visor de Google es un iframe de otro dominio). El texto vive AQUÍ y no dentro del campo
-  // para poder limpiarse junto con `tc` (al enviar o al cambiar de versión): si no, el próximo
-  // comentario heredaría en silencio el minuto del anterior.
-  const [tcText, setTcText] = React.useState("");
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { prompt: promptInput, dialog: promptDialog } = usePromptDialog();
   // Ventana «Solicitar cambios» con plazo (solo pre-aprobación interna, ver askFixDeadline).
@@ -395,7 +389,6 @@ export function ReviewStage({
       if (keepTime) pendingSeekRef.current = playerRef.current?.getTime() ?? null;
       setVIdx(i);
       setTc(null);
-      setTcText("");
       setDrawing(null);
       setDrawOpen(false);
     },
@@ -536,7 +529,7 @@ export function ReviewStage({
       try {
         await onComment(fd);
         setLocalComments((prev) => [...prev, optimistic]);
-        setBody(""); setTc(null); setTcText(""); setDrawing(null); setDrawOpen(false);
+        setBody(""); setTc(null); setDrawing(null); setDrawOpen(false);
       } catch (e) {
         setSendError(e instanceof Error ? e.message : "No se pudo enviar el comentario. Inténtalo de nuevo.");
       }
@@ -740,7 +733,7 @@ export function ReviewStage({
   // Mismo reset que el selector de versión de la vista normal. NO cierra la hoja: al cambiar de
   // versión el cliente quiere ver ahí mismo las correcciones de la nueva.
   const pickVersionFromPanel = (i: number) => {
-    setVIdx(i); setTc(null); setTcText(""); setDrawing(null); setDrawOpen(false); setImmReplyId(null);
+    setVIdx(i); setTc(null); setDrawing(null); setDrawOpen(false); setImmReplyId(null);
   };
   // Saltar a una corrección: reutiliza seek() (que reanuda) y cierra la hoja para que el momento
   // se VEA — si no, el salto ocurriría detrás de la hoja.
@@ -1004,9 +997,9 @@ export function ReviewStage({
             ) : null}
             {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
           </div>
-          {version?.kind === "drive_file" ? (
+          {version?.googleViewUrl ? (
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              ℹ️ Se reproduce el video original de Drive (evita el error «se está procesando» del visor de Google, permite comentar con captura del fotograma y usar la barra de velocidad). En masters pesados puede tardar en cargar. Si no se reproduce, usa «▶︎ Ver con Google» (su velocidad va en el engranaje ⚙). Lo más ágil: sube un archivo liviano de revisión en «+ Versión».
+              ℹ️ El video de Drive se reproduce aquí mismo, así que al comentar se guardan el segundo y la captura del fotograma. La primera vez la copia se trae de Drive y puede tardar unos segundos; después sale del NAS al instante. «▶︎ Ver con Google» está solo por si quieres mirarlo en su visor (ahí no hay captura).
             </p>
           ) : null}
           {version?.kind === "youtube" || version?.kind === "vimeo" ? (
@@ -1140,9 +1133,7 @@ export function ReviewStage({
               <p className="text-sm text-muted-foreground">
                 {captureHint
                   ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
-                  : version?.kind === "drive_file"
-                    ? "Escribe un comentario y ancla el segundo a mano en el campo «⏱ Momento» (m:ss). Para anotar el fotograma, pega o sube una captura con «✏️ Dibujar / anotar»."
-                    : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
+                  : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
               </p>
             ) : (
               moments.map((c) => {
@@ -1310,13 +1301,7 @@ export function ReviewStage({
               {/* El segundo se muestra EN VIVO (LiveTimecode): es EXACTAMENTE el que se guarda al
                   enviar (getTime() del instante). Al enfocar el cuadro el video se pausa; si sigues
                   reproduciendo, el número sigue al video → nunca se guarda un segundo viejo. */}
-              {/* Y si la fuente NO deja leer el segundo (visor de Google): campo «⏱ Momento» para
-                  escribirlo a mano — submitMoment ya lo usa de respaldo (getTime() ?? tc). */}
-              {captureHint
-                ? <LiveTimecode playerRef={playerRef} frame={caps.frame} />
-                : version?.kind === "drive_file"
-                  ? <ManualTimecode value={tcText} onChange={(text, seconds) => { setTcText(text); setTc(seconds); }} />
-                  : <span />}
+              {captureHint ? <LiveTimecode playerRef={playerRef} frame={caps.frame} /> : <span />}
               <button onClick={submitMoment} disabled={pending || (!body.trim() && !drawing)} className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                 {pending ? "Enviando…" : "Comentar"}
               </button>
@@ -2043,21 +2028,21 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Duración y estado de pausa espejados desde los eventos (getDuration/getPaused son asíncronos).
   const vimeoDur = React.useRef<number | null>(null);
   const vimeoPaused = React.useRef(true);
-  // Para Drive ofrecemos DOS modos: «modo captura» (video proxiado del mismo origen, que
-  // SÍ permite capturar el fotograma) y ver con el reproductor de Google (iframe, rápido,
-  // ideal solo para ver masters pesados). Por DEFECTO arranca en modo captura, porque la
-  // captura del frame al comentar es la función central; el revisor puede pasar a Google
-  // si solo quiere ver y el master pesado tarda en cargar.
-  const isDriveProxyable = version?.kind === "drive_file" && !!version.proxySrc;
-  const [driveProxyFailed, setDriveProxyFailed] = React.useState(false);
+  // Salida MANUAL al visor de Google (solo para piezas de Drive). El material se reproduce
+  // siempre por nuestro origen —así se pueden leer el segundo y el fotograma, que es lo que se
+  // guarda en cada corrección—; a Google solo se va pulsando el botón, nunca por su cuenta.
+  // Antes el salto era automático ante cualquier tropiezo del stream: el video se veía, sí, pero
+  // la captura y el segundo desaparecían sin avisar.
+  const googleUrl = version?.googleViewUrl || null;
+  const [verConGoogle, setVerConGoogle] = React.useState(false);
   // ── Fotograma LIMPIO en pausa ──
   // Safari (y otros) dejan los controles nativos FIJOS al pausar, con un velo oscuro sobre
   // todo el cuadro — justo cuando el revisor pausa para MIRAR el fotograma. Tras una pausa
   // breve se esconde el atributo `controls` (el velo se va con él) y cualquier movimiento
   // del mouse o toque sobre el video los devuelve al instante. No toca captura ni timecode.
   const [nativeControls, setNativeControls] = React.useState(true);
-  // El ORIGINAL local no decodifica (ProRes/HEVC/MKV sin proxy todavía): en vez de un player
-  // negro y mudo, una tarjeta que explica qué pasa y qué hacer.
+  // El navegador no sabe decodificar este material (ProRes, MKV, HEVC 10-bit…): en vez de un
+  // player negro y mudo, una tarjeta que explica qué pasa y qué hacer.
   const [localFailed, setLocalFailed] = React.useState(false);
   React.useEffect(() => {
     setLocalFailed(false);
@@ -2081,102 +2066,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     },
     [],
   );
-  // Reintentos del video proxiado antes de rendirse al iframe: un error transitorio de arranque del
-  // stream no debe bajar al visor de Google (donde no se captura el fotograma ni el segundo).
+  // Reintentos del stream antes de dar la pieza por no reproducible: un tropiezo transitorio del
+  // arranque (la copia del NAS empezando, la red del cliente) no puede costar la captura.
   const proxyRetries = React.useRef(0);
   // Timer del reintento: se cancela al cambiar de versión/modo para no restaurar un src viejo.
   const retryTimer = React.useRef<number | null>(null);
-  // Drive arranca reproduciendo el VIDEO ORIGINAL (proxy del mismo origen): así se evita el
-  // error «este video se está procesando» del visor de Google (que aparece cuando Google aún
-  // no ha transcodificado el master), y de paso permite capturar el fotograma y la barra de
-  // velocidad de la app. Si el original no se puede reproducir (formato no compatible, privado
-  // o pesado), `onError` cae automáticamente al visor de Google. «▶︎ Ver con Google» alterna.
-  const [captureMode, setCaptureMode] = React.useState(isDriveProxyable);
   React.useEffect(() => {
-    setDriveProxyFailed(false);
+    setVerConGoogle(false);
     proxyRetries.current = 0;
     if (retryTimer.current != null) { window.clearTimeout(retryTimer.current); retryTimer.current = null; }
-    setCaptureMode(version?.kind === "drive_file" && !!version.proxySrc);
   }, [version]);
-
-  // ── Vuelta AUTOMÁTICA al modo captura ──
-  // La PRIMERA apertura de un master de Drive suele caer al visor de Google: la copia local aún
-  // se está bajando/cocinando en el NAS y el proxy responde 502 a propósito (para no quemar la
-  // cuota de Drive). Antes eso dejaba la sala SIN segundo y SIN captura hasta que alguien
-  // recargara la página a mano — y el aviso encima culpaba a los permisos de Drive. Ahora una
-  // sonda (?status=1, solo LEE estado: jamás dispara descargas) pregunta cada pocos segundos y,
-  // en cuanto la copia está lista, el player vuelve SOLO al modo captura y lo confirma.
-  //  · "watching": copia en camino → banner «la captura se encenderá sola»
-  //  · "cooking":  hay master cacheado pero este navegador no lo decodifica → se espera el H.264
-  //  · "gone":     el servidor no tiene ni copia ni descarga en curso (privado/cuota) → aviso clásico
-  const [probeState, setProbeState] = React.useState<"off" | "watching" | "cooking" | "gone">("off");
-  // «📸 listo»: confirmación efímera bajo el player justo después de la vuelta automática.
-  const [justArmed, setJustArmed] = React.useState(false);
-  // La copia CRUDA (master cacheado) ya se intentó reproducir y falló (códec no web): no volver
-  // a ella en bucle — de ahí en adelante solo la copia cocinada H.264 puede rearmar la captura.
-  const cacheFlipTried = React.useRef(false);
-  // Tope de vueltas automáticas por versión: si el servidor dice «listo» pero el <video> vuelve
-  // a fallar una y otra vez (disco/red del NAS), a la tercera se deja de rebotar y se muestra el
-  // aviso clásico — sin ping-pong infinito proxy↔iframe.
-  const autoFlips = React.useRef(0);
-  React.useEffect(() => { cacheFlipTried.current = false; autoFlips.current = 0; }, [version]);
-  React.useEffect(() => {
-    if (!justArmed) return;
-    const t = window.setTimeout(() => setJustArmed(false), 6000);
-    return () => window.clearTimeout(t);
-  }, [justArmed]);
-  React.useEffect(() => {
-    if (!driveProxyFailed || !isDriveProxyable) return;
-    const src = version?.proxySrc;
-    if (!src) return;
-    let cancelled = false;
-    let timer: number | null = null;
-    let tries = 0;
-    let idleStreak = 0;
-    const tick = async () => {
-      if (cancelled) return;
-      tries += 1;
-      try {
-        const r = await fetch(`${src}&status=1`, { cache: "no-store" });
-        const j = r.ok ? ((await r.json()) as { state?: string; kind?: string }) : null;
-        if (cancelled) return;
-        if (j?.state === "ready") {
-          if (autoFlips.current >= 3) {
-            setProbeState("gone");
-            return;
-          }
-          if (j.kind === "cache" && cacheFlipTried.current) {
-            // El master crudo ya falló en ESTE navegador (códec): seguir esperando el H.264.
-            setProbeState("cooking");
-          } else {
-            if (j.kind === "cache") cacheFlipTried.current = true;
-            autoFlips.current += 1;
-            proxyRetries.current = 0;
-            setProbeState("off");
-            setJustArmed(true);
-            setDriveProxyFailed(false);
-            setCaptureMode(true);
-            return; // las deps cambian → el cleanup apaga esta sonda
-          }
-        } else if (j?.state === "caching") {
-          idleStreak = 0;
-          setProbeState("watching");
-        } else if (j?.state === "idle") {
-          // Ni copia ni descarga en curso: privado, cuota agotada o enfriamiento tras un fallo.
-          // Tres seguidas para no rendirse por el instante entre el fallo y el re-arranque.
-          idleStreak += 1;
-          if (idleStreak >= 3) { setProbeState("gone"); return; }
-        }
-      } catch { /* sin red un momento: se sigue intentando hasta el tope */ }
-      if (cancelled) return;
-      if (tries >= 70) { setProbeState("gone"); return; } // ~30 min: cubre cocinas largas del NAS
-      timer = window.setTimeout(tick, tries < 10 ? 8000 : 30000);
-    };
-    // Arranca casi de inmediato: si la copia terminó justo durante los reintentos del <video>,
-    // la captura vuelve sin espera perceptible.
-    timer = window.setTimeout(tick, 400);
-    return () => { cancelled = true; if (timer != null) window.clearTimeout(timer); };
-  }, [driveProxyFailed, isDriveProxyable, version]);
 
   // ── Velocidad de reproducción (0.5×–2×) ── se recuerda entre sesiones y se re-aplica al
   // (re)cargar el video o al cambiar de versión.
@@ -2197,14 +2096,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     apiRef.current?.setRate(r);
   };
 
-  const usingProxy = isDriveProxyable && captureMode && !driveProxyFailed;
+  // ¿Se está reproduciendo con nuestro <video> (lo normal) o en el visor de Google (salida manual)?
+  const enGoogle = verConGoogle && !!googleUrl;
+  const esVideo = version?.kind === "video" && !enGoogle;
   // Elemento del mismo origen del que SÍ se puede leer el fotograma.
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
-    version?.kind === "video" || usingProxy ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
-  const canCapture = version?.kind === "video" || version?.kind === "image" || usingProxy;
-  // El segundo (timecode) se puede leer en un <video> del mismo origen (subido/proxy), en YouTube
-  // (IFrame API) y en Vimeo (Player API); NO en el iframe de Drive. Se reporta al padre.
-  const canTimecode = version?.kind === "video" || usingProxy || version?.kind === "youtube" || version?.kind === "vimeo";
+    esVideo ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
+  const canCapture = esVideo || version?.kind === "image";
+  // El segundo (timecode) se puede leer en un <video> del mismo origen, en YouTube (IFrame API) y
+  // en Vimeo (Player API); NO en el iframe de Drive. Se reporta al padre.
+  const canTimecode = esVideo || version?.kind === "youtube" || version?.kind === "vimeo";
   React.useEffect(() => {
     onCapabilities?.({ frame: canCapture, time: canTimecode });
   }, [canCapture, canTimecode, onCapabilities]);
@@ -2215,16 +2116,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // proxy soporta Range, así que bufferea solo desde ahí). Solo aplica al <video> del mismo
   // origen (proxy/archivo subido); el iframe de Google/YouTube es de otro dominio y no se
   // puede controlar, así que ese modo sí reinicia.
-  const posKey = version ? `ui:vpos:${(version.proxySrc || version.src || "").split("?")[0]}` : null;
+  const posKey = version ? `ui:vpos:${(version.src || "").split("?")[0]}` : null;
   const posRestored = React.useRef(false);
   const lastSaveRef = React.useRef(0);
-  // Reinicia la marca de "ya restaurado" cuando cambia el video O cuando (re)entramos en modo
-  // captura: así, si el <video> del mismo origen se re-monta, retoma la posición guardada en vez
-  // de arrancar en 0 (el iframe de Google sí reinicia, pero el proxy no debe).
-  // También cuando cambia el SRC COMPLETO (con token): si el token firmado rota entre renders
-  // (vencía la ventana), el navegador recarga el mismo video → loadedmetadata vuelve a sonar y
-  // AHÍ se re-restaura la posición. Antes la marca seguía en true y el video volvía al 0.
-  React.useEffect(() => { posRestored.current = false; }, [posKey, usingProxy, version?.src, version?.proxySrc]);
+  // Reinicia la marca de "ya restaurado" cuando cambia el video O cuando se vuelve del visor de
+  // Google: así, si el <video> se re-monta, retoma la posición guardada en vez de arrancar en 0.
+  React.useEffect(() => { posRestored.current = false; }, [posKey, esVideo]);
   const savePos = React.useCallback((force = false) => {
     const v = videoRef.current;
     if (!v || !posKey) return;
@@ -2253,7 +2150,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   React.useEffect(() => {
     if (!version) { apiRef.current = null; return; }
     const cap = (caption?: string) => composite(captureEl(), [], { w: 0, h: 0 }, caption);
-    if (version.kind === "video" || usingProxy) {
+    if (esVideo) {
       apiRef.current = {
         getTime: () => videoRef.current?.currentTime ?? null,
         seek: (t, autoplay = true) => { if (videoRef.current) { videoRef.current.currentTime = t; if (autoplay) videoRef.current.play().catch(() => {}); } },
@@ -2295,7 +2192,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       apiRef.current = { getTime: () => null, seek: () => {}, pause: () => {}, play: () => {}, getDuration: () => null, isPaused: () => true, capture: () => null, setRate: () => {} };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, apiRef, usingProxy]);
+  }, [version, apiRef, esVideo]);
 
   // Carga la IFrame API de YouTube (para leer el segundo).
   React.useEffect(() => {
@@ -2379,22 +2276,22 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       <span className="text-sm font-medium text-white drop-shadow">{caption.trim()}</span>
     </div>
   ) : null;
-  // Conmutador Drive: ver con Google (rápido) ↔ modo captura (video proxiado). Al alternar
-  // se limpia el fallo previo, para poder reintentar el modo captura.
-  const driveToggle = isDriveProxyable && !drawOpen ? (
+  // Conmutador Drive: nuestro reproductor (con captura) ↔ el visor de Google (solo mirar).
+  // Volver a «modo captura» limpia el fallo previo para poder reintentar el stream.
+  const driveToggle = googleUrl && !drawOpen ? (
     <button
       type="button"
-      onClick={() => { setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode((m) => !m); }}
-      title={captureMode ? "Volver al reproductor de Google (más rápido)" : "Cargar el video para poder capturar el fotograma"}
+      onClick={() => { setLocalFailed(false); proxyRetries.current = 0; setVerConGoogle((m) => !m); }}
+      title={enGoogle ? "Volver al reproductor de la app (guarda el segundo y captura el fotograma)" : "Ver en el reproductor de Google (no permite capturar)"}
       className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white shadow hover:bg-black/85"
     >
-      {captureMode ? "▶︎ Ver con Google" : "📸 Modo captura"}
+      {enGoogle ? "📸 Modo captura" : "▶︎ Ver con Google"}
     </button>
   ) : null;
   // Barra de velocidad de la app (aplica al <video> del mismo origen y a YouTube).
   const speedBar = <SpeedBar rate={rate} onRate={applyRate} />;
 
-  if (version.kind === "video" || usingProxy) {
+  if (esVideo) {
     return (
       <div className={immersive ? "h-full w-full" : undefined}>
         <div
@@ -2405,20 +2302,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         >
           <video
             ref={videoRef}
-            src={usingProxy ? version.proxySrc! : version.src}
+            src={version.src}
             controls={!immersive && nativeControls}
             playsInline
             // SIN crossOrigin: con "anonymous", un MP4 externo sin cabeceras CORS no reproduce NADA.
             // Sin el atributo siempre reproduce; si la fuente es de otro origen, la captura del
             // fotograma simplemente devuelve null (composite lo maneja) en vez de romper el video.
-            // Si el video proxiado de Drive falla, REINTENTA una vez (errores transitorios / arranque
-            // del stream) antes de caer al visor de Google —donde no se puede capturar el fotograma ni
-            // el segundo—. Solo tras un fallo real y repetido baja al iframe.
+            // Ante un error se REINTENTA dos veces (el arranque del stream, la copia del NAS aún
+            // llegando, una red inestable) y solo después se explica lo que pasa. NUNCA se salta
+            // solo al visor de Google: allí se pierden el segundo y la captura sin avisar.
             onError={() => {
-              if (!usingProxy) {
-                setLocalFailed(true);
-                return;
-              }
               const v = videoRef.current;
               if (v && proxyRetries.current < 2) {
                 proxyRetries.current += 1;
@@ -2426,14 +2319,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
                 v.removeAttribute("src"); v.load();
                 retryTimer.current = window.setTimeout(() => {
                   retryTimer.current = null;
-                  // Solo restaura si seguimos en la MISMA versión/modo (el src esperado no cambió).
-                  if (videoRef.current && version?.proxySrc && s.includes(version.proxySrc)) {
+                  // Solo restaura si seguimos en la MISMA versión (el src esperado no cambió).
+                  if (videoRef.current && version?.src && s.includes(version.src)) {
                     videoRef.current.src = s; videoRef.current.load();
                   }
-                }, 600);
+                }, 800);
                 return;
               }
-              setDriveProxyFailed(true); setCaptureMode(false);
+              setLocalFailed(true);
             }}
             onLoadedMetadata={(e) => { restorePos(); e.currentTarget.playbackRate = rateRef.current; }}
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
@@ -2447,38 +2340,40 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           {immersive ? null : driveToggle}
           {liveCaption}
           {overlay}
-          {/* Master local que el navegador NO decodifica (ProRes/HEVC/MKV sin proxy aún):
-              tarjeta explicativa encima del player mudo. */}
-          {localFailed && !usingProxy ? (
+          {/* El navegador no decodifica este contenedor (ProRes, MKV, HEVC 10-bit) o el stream
+              no llegó tras los reintentos: tarjeta explicativa con las salidas reales, en vez de
+              un player negro y mudo. */}
+          {localFailed ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-card/95 p-6 text-center text-sm">
               <span className="text-2xl">🎞️</span>
-              <p className="font-semibold">Este master no se puede reproducir directo en el navegador.</p>
+              <p className="font-semibold">Este material no se reproduce directo en el navegador.</p>
               <p className="max-w-md text-muted-foreground">
-                {version.proxyPending
-                  ? "La copia de revisión se está cocinando en el servidor — dale unos minutos y recarga la página. La captura de fotograma funcionará sobre esa copia."
-                  : "Ábrelo con «Abrir original», o sube un export H.264 como nueva versión para revisarlo aquí."}
+                Suele ser el formato del master (ProRes, MKV, HEVC de 10 bits). Vuelve a intentarlo,
+                o sube un export H.264 como nueva versión para poder comentar con el segundo y la captura.
               </p>
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setLocalFailed(false); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}
+                  className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                >
+                  ↻ Reintentar
+                </button>
+                {googleUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setVerConGoogle(true)}
+                    title="Solo para verlo: en el visor de Google no se puede guardar el segundo ni capturar el fotograma"
+                    className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                  >
+                    ▶︎ Verlo con Google (sin captura)
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
-        {immersive ? null : (
-          <>
-            {speedBar}
-            {/* Confirmación efímera de la vuelta automática: la copia cargó y la captura quedó viva. */}
-            {justArmed ? (
-              <p className="mx-auto mt-1.5 w-fit max-w-full rounded-md bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                📸 Listo: la copia de revisión cargó — al comentar ya se guardan el segundo y el fotograma.
-              </p>
-            ) : null}
-            {/* Aviso de proxy EN COCINA (aunque el original sí reproduzca): explica por qué
-                puede verse pesado/lento y que la copia ligera viene en camino. */}
-            {version.proxyPending && !localFailed ? (
-              <p className="mx-auto mt-1.5 w-fit max-w-full rounded-md bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                ⏳ Copia de revisión en cocina — por ahora se reproduce el original a peso completo.
-              </p>
-            ) : null}
-          </>
-        )}
+        {immersive ? null : speedBar}
       </div>
     );
   }
@@ -2494,16 +2389,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       </div>
     );
   }
-  // YouTube / Vimeo / Drive (iframe). Para Drive, el conmutador permite pasar a modo captura.
-  // El iframe no tiene aspecto propio: para verticales (9:16) usamos un marco alto y centrado;
-  // para horizontales, 16:9 a todo el ancho. Así el reel no se ve encajado en una caja ancha.
+  // YouTube / Vimeo / carpeta de Drive, y la salida manual al visor de Google. El iframe no tiene
+  // aspecto propio: para verticales (9:16) usamos un marco alto y centrado; para horizontales,
+  // 16:9 a todo el ancho. Así el reel no se ve encajado en una caja ancha.
   const isYouTube = version.kind === "youtube";
   return (
     <div className={immersive ? "h-full w-full" : undefined}>
       <div className={immersive ? "relative h-full w-full" : vertical ? "relative mx-auto w-fit max-w-full" : "relative"}>
         <iframe
           ref={ytRef}
-          src={version.src}
+          src={enGoogle ? googleUrl! : version.src}
           className={immersive
             ? "block h-full w-full border-0 bg-black"
             : vertical
@@ -2519,39 +2414,18 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       {immersive ? null : isYouTube || version.kind === "vimeo" ? (
         // YouTube y Vimeo exponen API de velocidad → barra de la app.
         speedBar
-      ) : (
-        // Drive se reproduce en su propio iframe: la velocidad (1.5×, 2×) va en el
-        // engranaje ⚙ de ESE reproductor. Ofrecemos volver a reproducir el original.
+      ) : enGoogle ? (
+        // Salida manual: aquí Google manda. Se avisa de lo que se pierde y cómo volver.
         <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
           <p>⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor de Google.</p>
-          {isDriveProxyable ? (
-            driveProxyFailed ? (
-              probeState === "gone" ? (
-                // El servidor confirmó que NO hay copia ni descarga en curso: aquí el consejo
-                // de permisos/formato SÍ es el correcto (antes salía también en la primera
-                // apertura, cuando la verdad era «espera un momento»).
-                <p>
-                  ⚠️ No se pudo preparar este video de Drive para capturar. Para que el segundo y el fotograma se capturen solos: compártelo como «Cualquiera con el enlace» y que sea un MP4 (H.264), o —lo más fiable— súbelo al NAS en «+ Versión». Mientras tanto, ancla el segundo a mano en «⏱ Momento» y anota con ✏️ Dibujar.{" "}
-                  <button type="button" onClick={() => { setProbeState("off"); setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode(true); }} className="font-medium text-primary hover:underline">
-                    Reintentar ahora
-                  </button>
-                </p>
-              ) : probeState === "cooking" ? (
-                <p>🎞️ Este master no se reproduce directo en el navegador; el NAS está cocinando una copia ligera H.264. <span className="font-medium text-foreground/80">La captura del segundo y del fotograma se encenderá sola</span> en cuanto esté — mientras tanto puedes anclar el segundo a mano en «⏱ Momento».</p>
-              ) : (
-                <p>⏳ Preparando la copia de revisión en el NAS (pasa solo la primera vez que se abre)… El video se ve mientras tanto con el reproductor de Google y <span className="font-medium text-foreground/80">la captura del segundo y del fotograma se encenderá sola</span> al estar lista. Si no quieres esperar, ancla el segundo a mano en «⏱ Momento».</p>
-              )
-            ) : (
-              <p>
-                ▶︎ ¿El video no carga o Google dice que «se está procesando»?{" "}
-                <button type="button" onClick={() => { setDriveProxyFailed(false); proxyRetries.current = 0; setCaptureMode(true); }} className="font-medium text-primary hover:underline">
-                  Reproducir el video original
-                </button>.
-              </p>
-            )
-          ) : null}
+          <p>
+            ⚠️ En el visor de Google <strong>no se guarda el segundo ni se captura el fotograma</strong>.{" "}
+            <button type="button" onClick={() => { setLocalFailed(false); proxyRetries.current = 0; setVerConGoogle(false); }} className="font-medium text-primary hover:underline">
+              Volver al modo captura
+            </button>.
+          </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2574,48 +2448,6 @@ function LiveTimecode({ playerRef, frame }: { playerRef: React.MutableRefObject<
         : "⏱ Se guardará el segundo al comentar"}
     </span>
   );
-}
-
-// ── Momento a mano ── para fuentes donde NO se puede leer el segundo (el visor de Google es un
-// iframe de otro dominio, sin API): el revisor escribe m:ss y el comentario queda anclado con el
-// MISMO campo `timecode` de siempre — chip para saltar, orden por momento, tarea con timecode.
-// submitMoment ya lo usaba de respaldo (getTime() ?? tc); esta es la UI que faltaba para fijarlo.
-function ManualTimecode({ value, onChange }: { value: string; onChange: (text: string, seconds: number | null) => void }) {
-  const parsed = parseManualTimecode(value);
-  const invalid = value.trim() !== "" && parsed == null;
-  return (
-    <label
-      className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
-      title="Esta fuente no deja leer el segundo automáticamente: escribe el momento del video al que se refiere tu comentario (minutos:segundos)."
-    >
-      <span className="shrink-0">⏱ Momento</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value, parseManualTimecode(e.target.value))}
-        placeholder="m:ss"
-        inputMode="numeric"
-        className={`w-16 rounded-md border bg-background px-2 py-1 font-mono text-xs outline-none focus:ring-2 focus:ring-ring ${invalid ? "border-destructive text-destructive" : "border-input"}`}
-      />
-      {parsed != null ? (
-        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono tabular-nums text-primary">se guarda en {fmtTime(parsed)}</span>
-      ) : invalid ? (
-        <span className="shrink-0 text-destructive">usa m:ss</span>
-      ) : null}
-    </label>
-  );
-}
-
-// "1:23" → 83 · "0:07" → 7 · "1:02:03" → 3723 · "45" → 45 segundos. null si no se entiende.
-function parseManualTimecode(raw: string): number | null {
-  const s = raw.trim();
-  if (!s) return null;
-  if (/^\d+$/.test(s)) return Math.min(Number(s), 359999);
-  const m = /^(\d+):([0-5]?\d)(?::([0-5]?\d))?$/.exec(s);
-  if (!m) return null;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  const c = m[3] == null ? null : Number(m[3]);
-  return Math.min(c == null ? a * 60 + b : a * 3600 + b * 60 + c, 359999);
 }
 
 // Barra compacta de velocidad de reproducción (0.5×–2×) para el reproductor de la app.

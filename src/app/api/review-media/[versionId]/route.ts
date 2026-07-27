@@ -1,39 +1,38 @@
-import { stat as fsStat } from "node:fs/promises";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
-import { absPath } from "@/lib/storage";
-import { queueReviewProxyFromCache } from "@/lib/review-proxy";
 import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
-import { getCachedReview, ensureReviewCached, serveCachedReview, isCachingInFlight } from "@/lib/review-cache";
+import { getCachedReview, startReviewCache, serveCachedReview, servePartialReview } from "@/lib/review-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Proxy de un video de Google Drive servido por el MISMO origen. Sirve para que el
-// reproductor de revisión pueda LEER el fotograma (captura) — algo imposible con el
-// iframe de Drive (otro origen, CORS). Autorización = token firmado por versión (no
-// sesión), igual capability que /api/files-asset, para que funcione en el portal del
-// cliente. Soporta Range (seek). Si Drive responde HTML (privado/permiso), devuelve
-// 502 y el <video> del cliente cae al iframe de Drive.
+// ── El video de Drive, servido por NUESTRO origen ──
+// Toda pieza de Drive se reproduce por aquí, nunca por el iframe de Google. Es lo que permite
+// que el reproductor LEA el segundo y el FOTOGRAMA (un iframe de otro origen no deja ninguna de
+// las dos cosas), que es justo lo que se guarda en cada corrección.
+//
+// Tres caminos, en orden, y ninguno se rinde al iframe:
+//   1) Copia completa en el NAS → se sirve de disco con Range (instantáneo, sin tocar Drive).
+//   2) Copia a medio bajar → se sirven de disco los trozos que ya llegaron (servePartialReview).
+//   3) Lo que falte → Drive en vivo con Range, mientras la copia termina en segundo plano.
+// Autorización = token firmado por versión (no sesión), misma capability que /api/files-asset,
+// para que funcione también en el portal del cliente.
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ versionId: string }> },
 ) {
   const { versionId } = await params;
-  const sp = new URL(req.url).searchParams;
-  const t = sp.get("t") || "";
+  const t = new URL(req.url).searchParams.get("t") || "";
   if (verifyReviewMediaToken(t) !== versionId) return new Response("No autorizado", { status: 401 });
 
   const version = await db.deliverableVersion.findUnique({
     where: { id: versionId },
     select: {
       fileUrl: true,
-      proxyRel: true,
       deliverable: {
         select: {
-          status: true,
           reviewRevokedAt: true,
           reviewExpiresAt: true,
           // Acceso del EQUIPO al proyecto (para no bloquearle la pre-aprobación por la caducidad
@@ -54,101 +53,33 @@ export async function GET(
   if (!isTeam && (d.reviewRevokedAt || (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()))) {
     return new Response("Enlace no disponible", { status: 403 });
   }
-  // ── SONDA DE ESTADO (?status=1) ── ¿ya hay copia local para capturar? El reproductor la
-  // consulta tras caer al visor de Google (primera apertura: la copia aún se estaba bajando)
-  // para VOLVER SOLO al modo captura en cuanto esté lista, sin que nadie recargue la página.
-  // Solo LEE disco/memoria: jamás dispara descargas de Drive ni cocinas de proxy.
-  //  · ready + kind "proxy" → copia cocinada H.264 (reproduce seguro en cualquier navegador)
-  //  · ready + kind "cache" → master crudo cacheado (reproduce si su códec es web)
-  //  · caching              → la copia se está bajando en este momento
-  //  · idle                 → ni copia ni descarga en curso (privado, cuota o enfriamiento)
-  if (sp.get("status") === "1") {
-    const reply = (state: "ready" | "caching" | "idle", kind?: "proxy" | "cache") =>
-      Response.json({ state, kind: kind ?? null }, { headers: { "cache-control": "no-store" } });
-    if (version.proxyRel) {
-      try {
-        const st = await fsStat(absPath(version.proxyRel));
-        if (st.isFile() && st.size > 0) return reply("ready", "proxy");
-      } catch {
-        /* proxy anotado pero sin archivo aún → mira la caché */
-      }
-    }
-    if (await getCachedReview(versionId)) return reply("ready", "cache");
-    return reply(isCachingInFlight(versionId) ? "caching" : "idle");
-  }
 
-  // PROXY LIGERO cocinado: si esta versión ya tiene copia de revisión local, se sirve ESA
-  // (con Range) — arranque instantáneo, captura garantizada y el NAS emite el peso del
-  // proxy, no el del master. El master original sigue en Drive para descarga/entrega.
-  if (version.proxyRel) {
-    try {
-      const abs = absPath(version.proxyRel);
-      const st = await fsStat(abs);
-      if (st.isFile() && st.size > 0) {
-        return serveCachedReview({ path: abs, size: st.size, mime: "video/mp4" }, req.headers.get("range"));
-      }
-    } catch {
-      /* proxy anotado pero sin archivo → sigue el flujo normal de Drive */
-    }
-  }
+  const range = req.headers.get("range");
+
+  // 1) Copia completa en el NAS.
+  const cached = await getCachedReview(versionId);
+  if (cached) return serveCachedReview(cached, range);
 
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
   const media = await resolveDriveMediaFile(version.fileUrl);
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });
 
-  // CACHÉ DEL NAS: si ya bajamos este video antes, se sirve desde disco (rápido, con Range) y NO
-  // se vuelve a tocar Drive → así deja de agotarse la cuota de descargas anónimas de Google (la
-  // causa del 502 que dejaba el <video> sin cargar, sin segundo ni captura de fotograma).
-  // ¿La pieza sigue EN revisión? Solo entonces vale la pena cocinar proxy (el ciclo de vida
-  // borra los de piezas aprobadas; no hay que resucitarlos por una re-visita).
-  const enRevision = d.status !== "APROBADO" && d.status !== "ENTREGADO";
+  // 2) Copia a medio bajar: los trozos que ya están en disco se sirven de ahí. Además, arranca la
+  // copia si aún no había empezado — sin esperarla, para que el video se vea YA.
+  startReviewCache(versionId, media.id, media.name);
+  const partial = await servePartialReview(versionId, range);
+  if (partial) return partial;
 
-  const cached = await getCachedReview(versionId);
-  if (cached) {
-    // Primera visita con el master ya cacheado y sin proxy: dispara la cocina en segundo
-    // plano (no espera al cron de 2 h). Deduplicado por la cola (inFlight) de review-proxy.
-    if (!version.proxyRel && enRevision) queueReviewProxyFromCache(versionId, cached.path);
-    return serveCachedReview(cached, req.headers.get("range"));
-  }
-  // Sin caché aún: cachea UNA vez (deduplicando visitas simultáneas, con enfriamiento tras fallo).
-  // Espera un poco: si el video es liviano se sirve YA desde el NAS con una sola descarga de Drive;
-  // si tarda más, la descarga sigue en segundo plano y esta petición cae al proxy en vivo (previo).
-  const justCached = await Promise.race([
-    ensureReviewCached(versionId, media.id, media.name),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
-  ]);
-  if (justCached) {
-    // Recién cacheado: la cocina del proxy arranca YA (misma lógica de arriba).
-    if (!version.proxyRel && enRevision) queueReviewProxyFromCache(versionId, justCached.path);
-    return serveCachedReview(justCached, req.headers.get("range"));
-  }
-
-  // La copia SIGUE bajándose (un video de ~100 MB tarda más que la espera de arriba): NO proxiamos
-  // Drive en vivo. El <video> pide decenas de rangos y cada uno es otro golpe a Drive; con varias
-  // personas abriendo la misma versión recién subida, eso AGOTA la cuota diaria del archivo antes de
-  // que la copia termine, Google lo bloquea y ya no se cachea nunca (le pasó a «Macara led» v3).
-  // Devolvemos 502: el reproductor cae al visor de Google (se ve, sin captura) y la copia termina
-  // tranquila con UNA sola descarga → la siguiente visita ya sale del NAS, con captura y para siempre.
-  if (isCachingInFlight(versionId)) {
-    return new Response("Preparando la copia de revisión en el NAS", { status: 502 });
-  }
-
-  // Aquí solo se llega cuando NO vamos a cachear (archivo enorme, o en enfriamiento tras un fallo):
-  // descarga directa, resolviendo el interstitial de análisis de virus para archivos grandes
-  // (masters de varias horas) y preservando Range para el seek.
-  const range = req.headers.get("range") || undefined;
-
+  // 3) Drive en vivo, preservando Range para el seek y resolviendo el interstitial de análisis de
+  // virus de los archivos grandes. Un fallo transitorio de conexión NO puede dejar la sala sin
+  // video (ahí se pierden el segundo y la captura), así que se reintenta una vez.
   let upstream: Response;
   try {
-    upstream = await fetchDriveDownload(media.id, range);
+    upstream = await fetchDriveDownload(media.id, range || undefined);
   } catch {
-    // Un fallo transitorio de conexión (masters pesados / red inestable) NO debe tirar al cliente
-    // al iframe cross-origin de Google —donde no se puede capturar ni el fotograma ni el segundo—.
-    // Reintenta UNA vez antes de rendirse. Solo cubre el establecimiento de la conexión (no rompe
-    // el streaming: el cuerpo ya resuelto se transmite tal cual más abajo).
     try {
       await new Promise((r) => setTimeout(r, 400));
-      upstream = await fetchDriveDownload(media.id, range);
+      upstream = await fetchDriveDownload(media.id, range || undefined);
     } catch {
       return new Response("No se pudo contactar con Drive", { status: 502 });
     }
@@ -157,7 +88,10 @@ export async function GET(
 
   const ctype = upstream.headers.get("content-type") || "";
   // Drive devuelve HTML cuando el archivo no es público o pide confirmación → no reproducible.
-  if (ctype.includes("text/html")) return new Response("El archivo de Drive no es público", { status: 502 });
+  if (ctype.includes("text/html")) {
+    await upstream.body?.cancel().catch(() => {});
+    return new Response("El archivo de Drive no es público", { status: 502 });
+  }
 
   const headers = new Headers();
   // Nombre para adivinar el tipo: el resuelto de la carpeta, o el de content-disposition.
@@ -172,7 +106,10 @@ export async function GET(
     if (v) headers.set(h, v);
   }
   headers.set("accept-ranges", "bytes");
-  headers.set("cache-control", "private, max-age=3600");
+  // Sin caché de navegador: la copia del NAS está a punto de existir y es la buena. Cachear estos
+  // trozos "en vivo" haría que el <video> siguiera pidiéndole a Google lo que ya está en casa.
+  headers.set("cache-control", "private, no-store");
+  headers.set("x-review-cache", "live");
 
   return new Response(upstream.body, { status: upstream.status, headers });
 }

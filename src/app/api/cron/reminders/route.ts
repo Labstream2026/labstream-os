@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { sweepClientDigest } from "@/lib/client-digest";
-import { sweepReviewProxies } from "@/lib/review-proxy";
+import { purgeLegacyReviewProxies } from "@/lib/review-proxy-purge";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { db } from "@/lib/db";
 
@@ -21,9 +21,8 @@ async function run(req: NextRequest) {
     const deliverableSla = await sweepDeliverableSla({ force: true }).catch((e) => ({ error: e instanceof Error ? e.message : "error" }));
     // Resumen semanal del portal del cliente (correo del viernes; se auto-limita por usuario).
     const clientDigest = await sweepClientDigest().catch((e) => ({ sent: 0, error: e instanceof Error ? e.message : "error" }));
-    // Proxies de revisión: recupera los que la cola en-memoria perdió en un reinicio y
-    // re-cocina los de la receta vieja (verticales borrosos). De a 2 por pasada.
-    const reviewProxies = await sweepReviewProxies().catch((e) => ({ queued: 0, deleted: 0, error: e instanceof Error ? e.message : "error" }));
+    // Retirada de los proxies transcodificados de la etapa anterior (libera disco del NAS).
+    const reviewProxies = await purgeLegacyReviewProxies().catch((e) => ({ purged: 0, error: e instanceof Error ? e.message : "error" }));
     // Retención de auditoría: el registro de actividad guarda 365 días; lo más viejo se
     // purga aprovechando este cron (indexado por createdAt: barato).
     const cutoff = new Date(Date.now() - 365 * 24 * 3600 * 1000);
