@@ -147,6 +147,10 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   // Cuerpo: editar (textarea Markdown) o vista (render con checkboxes interactivos).
   const [bodyMode, setBodyMode] = React.useState<"edit" | "view">("edit");
   const bodyRef = React.useRef<HTMLTextAreaElement>(null);
+  // Refs para los atajos de teclado (⌘F enfoca el buscador; ⌘N crea, leyendo siempre la
+  // versión vigente de la función).
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const newNoteRef = React.useRef<() => void>(() => {});
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [, start] = React.useTransition();
   const { confirm, dialog } = useConfirmDialog();
@@ -465,7 +469,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   // pestaña, se cambia de app o se navega a otra sección, ese tramo se perdía. Aquí se manda
   // el último borrador por `sendBeacon`, que el navegador entrega aunque la página ya se esté
   // yendo (un server action normal no llegaría: la página muere antes de la respuesta).
-  React.useEffect(() => { latest.current = draft; readOnlyRef.current = readOnly; });
+  React.useEffect(() => { latest.current = draft; readOnlyRef.current = readOnly; newNoteRef.current = newNote; });
 
   const flushOnExit = React.useCallback(() => {
     if (!dirty.current || readOnlyRef.current) return;
@@ -477,6 +481,20 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
     } catch {
       // Si el navegador lo rechaza, el autoguardado normal lo intentará al volver.
     }
+  }, []);
+
+  // ── Atajos ── ⌘N nueva nota · ⌘F buscar · ⌘E alterna Editar/Vista. No se pisan con los del
+  // navegador que importan (⌘K sigue siendo el buscador global de la app).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "n") { e.preventDefault(); newNoteRef.current(); }
+      else if (k === "f") { e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); }
+      else if (k === "e") { e.preventDefault(); setBodyMode((m) => (m === "edit" ? "view" : "edit")); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   React.useEffect(() => {
@@ -549,7 +567,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
         <>
         <div className="relative px-3 pb-2">
           <Search className="pointer-events-none absolute left-5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar" className="w-full rounded-md border border-input bg-muted/40 py-2 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar (⌘F)" className="w-full rounded-md border border-input bg-muted/40 py-2 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
         </div>
 
         {/* Agrupar por (tags): cliente o categoría. */}

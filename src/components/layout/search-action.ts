@@ -25,6 +25,18 @@ export type SearchHit = {
 
 const MODE = "insensitive" as const;
 
+// Trozo del texto alrededor de lo buscado («…con la batería del DRON, ojo…»), para reconocer
+// la nota sin abrirla. Si no aparece en el cuerpo, devuelve el principio.
+function excerpt(content: string, q: string): string {
+  const flat = content.trim().replace(/\s+/g, " ");
+  if (!flat) return "";
+  const at = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (at < 0) return flat.slice(0, 70) + (flat.length > 70 ? "…" : "");
+  const from = Math.max(0, at - 25);
+  const slice = flat.slice(from, from + 70);
+  return `${from > 0 ? "…" : ""}${slice}${from + 70 < flat.length ? "…" : ""}`;
+}
+
 export async function globalSearch(query: string): Promise<SearchHit[]> {
   const session = await getSession();
   if (!session) return [];
@@ -105,9 +117,24 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
         })
       : Promise.resolve([]),
     canNotes
-      ? db.note.findMany({
-          where: { title: like, createdById: session.id, archivedAt: null },
-          select: { id: true, title: true },
+      ? // Notas: se busca DENTRO del texto, no solo en el título — que es como uno recuerda
+        // una nota («el del dron»). Incluye las compartidas conmigo (equipo, o proyecto que
+        // puedo ver), con el mismo criterio que la página /notas.
+        db.note.findMany({
+          where: {
+            AND: [
+              { OR: [{ title: like }, { content: like }] },
+              { archivedAt: null },
+              {
+                OR: [
+                  { createdById: session.id },
+                  { visibility: "team", createdById: { not: session.id } },
+                  { visibility: "project", createdById: { not: session.id }, project: projWhere },
+                ],
+              },
+            ],
+          },
+          select: { id: true, title: true, content: true, createdById: true, createdBy: { select: { name: true } }, client: { select: { name: true } } },
           take: TAKE,
         })
       : Promise.resolve([]),
@@ -143,7 +170,18 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   for (const i of invoices) hits.push({ id: `i-${i.id}`, label: i.code, sub: i.client?.name ?? "Factura", href: `/facturacion/${i.id}`, group: "Facturas", kind: "invoice" });
   for (const p of proposals) hits.push({ id: `pp-${p.id}`, label: p.title || p.code, sub: p.code, href: `/cotizaciones/propuestas/${p.id}`, group: "Propuestas", kind: "proposal" });
   for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file", finished: !!f.project?.finishedAt });
-  for (const n of notes) hits.push({ id: `n-${n.id}`, label: n.title, sub: "Nota", href: "/notas", group: "Notas", kind: "note" });
+  // El resultado lleva DIRECTO a la nota y muestra el trozo de texto donde apareció lo buscado.
+  for (const n of notes) {
+    const owner = n.createdById === session.id ? null : n.createdBy?.name ?? null;
+    hits.push({
+      id: `n-${n.id}`,
+      label: n.title,
+      sub: [owner ? `de ${owner}` : null, n.client?.name, excerpt(n.content, q)].filter(Boolean).join(" · ") || "Nota",
+      href: `/notas?nota=${n.id}`,
+      group: "Notas",
+      kind: "note",
+    });
+  }
   for (const a of libAssets) hits.push({ id: `lib-${a.id}`, label: a.name, sub: [a.category, a.kind === "NAS" ? "Ruta del NAS" : null, a.project?.name].filter(Boolean).join(" · ") || "Biblioteca", href: `/biblioteca?q=${encodeURIComponent(a.name)}`, group: "Biblioteca", kind: "library" });
   for (const d of disks) hits.push({ id: `dk-${d.id}`, label: d.name, sub: d.location ? `Disco · ${d.location}` : "Disco", href: "/biblioteca?tab=discos", group: "Biblioteca", kind: "disk" });
   for (const c of channels) {

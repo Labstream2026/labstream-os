@@ -46,6 +46,8 @@ import { BriefPanel } from "./brief-panel";
 import { EquiposPanel } from "./equipos-panel";
 import { loadInventory, conflictsForPlans } from "@/lib/equipos";
 import { isWhatsappEnabled } from "@/lib/whatsapp/send";
+import { NotesTab } from "@/components/notes/notes-tab";
+import { notesFor } from "@/lib/notes-for";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +62,7 @@ const TABS = [
   { key: "cronograma", label: "Cronograma", group: "contenido" },
   { key: "entregables", label: "Entregables", group: "entregables" },
   { key: "archivos", label: "Archivos", group: "entregables" },
+  { key: "notas", label: "Notas", group: "contenido" },
   { key: "equipos", label: "Equipos", group: "operacion" },
   { key: "actividad", label: "Actividad", group: "operacion" },
 ];
@@ -232,6 +235,12 @@ export default async function ProyectoPage({
   }
 
   // ── Datos de la pestaña Equipos (solo si está activa, para no cargarlos siempre) ──
+  // Notas del proyecto: solo se consultan si la pestaña está abierta (una consulta por visita
+  // a una pestaña que casi nadie mira no se paga en todas las demás).
+  const projectNotes = tab === "notas" && session && !isCliente && hasPermission(session, "ver_notas")
+    ? await notesFor(session, { projectId: id })
+    : [];
+
   let equiposData: {
     plans: import("./equipos-panel").EqPlan[];
     inventory: import("@/lib/equipos").InventoryItem[];
@@ -479,7 +488,11 @@ export default async function ProyectoPage({
 
   // Pestañas visibles del proyecto (según permisos/rol) — se pintan en el menú lateral vertical.
   const visibleTabs = TABS.filter(
-    (t) => (t.key !== "actividad" || hasPermission(session, "ver_actividad")) && (t.key !== "equipos" || !isCliente),
+    (t) =>
+      (t.key !== "actividad" || hasPermission(session, "ver_actividad")) &&
+      (t.key !== "equipos" || !isCliente) &&
+      // Las notas son una herramienta interna: el portal del cliente no las ve.
+      (t.key !== "notas" || (!isCliente && hasPermission(session, "ver_notas"))),
   );
 
   return (
@@ -818,6 +831,14 @@ export default async function ProyectoPage({
             </section>
           </div>
         ) : null}
+        {tab === "notas" && !isCliente && hasPermission(session, "ver_notas") ? (
+          <NotesTab
+            notes={projectNotes}
+            projectId={id}
+            canWrite={hasPermission(session, "editar_notas") && session?.role !== "demo"}
+          />
+        ) : null}
+
         {tab === "actividad" && hasPermission(session, "ver_actividad") ? (
           <ActivityFeed
             items={project.activity.map((a) => ({

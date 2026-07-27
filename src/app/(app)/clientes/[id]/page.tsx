@@ -31,7 +31,9 @@ import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
-import { IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion } from "@/components/icons";
+import { IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion, IconNotas } from "@/components/icons";
+import { NotesTab } from "@/components/notes/notes-tab";
+import { notesFor } from "@/lib/notes-for";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +175,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const canEdit = canManage || hasPermission(session, "editar_clientes");
   // Invitar/crear usuarios cliente es sensible → solo admins (administrar_usuarios).
   const isAdmin = hasPermission(session, "administrar_usuarios");
+  // Notas de la cuenta (las que se apuntaron del cliente, no de un proyecto suelto).
+  const clientNotes = session && hasPermission(session, "ver_notas") ? await notesFor(session, { clientId: id }) : [];
 
   // Separamos los miembros del cliente: EQUIPO interno (acceso) vs USUARIOS CLIENTE del portal (rol cliente).
   const clientUsers: ClientUserItem[] = client.members
@@ -338,6 +342,14 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                   icon: <IconArchivo />,
                   node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
                 },
+                // Notas del cliente: lo que se apunta de la cuenta (no de un proyecto suelto).
+                ...(hasPermission(session, "ver_notas") ? [{
+                  key: "notas",
+                  label: "Notas",
+                  badge: clientNotes.length || undefined,
+                  icon: <IconNotas />,
+                  node: <NotesTab notes={clientNotes} clientId={id} canWrite={hasPermission(session, "editar_notas") && session?.role !== "demo"} />,
+                }] : []),
               ],
             },
             {
