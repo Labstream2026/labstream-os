@@ -9,6 +9,7 @@ import { renderMarkdown } from "@/lib/markdown";
 import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
 import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
 import { createTaskFromNoteLine, createTaskFromNote, setNoteTaskDone } from "./task-actions";
+import { setNoteReminder, clearNoteReminder, type NoteReminder } from "./reminder-actions";
 
 export type NoteItem = {
   id: string;
@@ -97,9 +98,11 @@ function snippet(content: string, title: string): string {
 
 // `baseUpdatedAt` = la versión de la nota sobre la que se está escribiendo. Viaja en cada
 // guardado para detectar que alguien la editó en otro dispositivo (control de concurrencia).
-type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; remindAt: string; visibility: string; baseUpdatedAt: string | null };
-const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", remindAt: toLocalInput(n.remindAt), visibility: n.visibility, baseUpdatedAt: n.updatedAt });
-const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", remindAt: "", visibility: "private", baseUpdatedAt: null };
+// El recordatorio YA NO viaja en el borrador: vive en su propio `Reminder` (ver
+// reminder-actions.ts). Así un autoguardado con datos viejos no puede pisarlo.
+type Draft = { id: string | null; title: string; content: string; category: string; projectId: string; clientId: string; color: string; visibility: string; baseUpdatedAt: string | null };
+const draftOf = (n: NoteItem): Draft => ({ id: n.id, title: n.title, content: n.content, category: n.category ?? "", projectId: n.projectId ?? "", clientId: n.clientId ?? "", color: n.color ?? "", visibility: n.visibility, baseUpdatedAt: n.updatedAt });
+const emptyDraft: Draft = { id: null, title: "", content: "", category: "", projectId: "", clientId: "", color: "", visibility: "private", baseUpdatedAt: null };
 
 // Lo que se manda al servidor en cada guardado (server action o sendBeacon: el mismo cuerpo).
 const savePayload = (d: Draft) => ({
@@ -110,7 +113,6 @@ const savePayload = (d: Draft) => ({
   projectId: d.projectId || null,
   clientId: d.clientId || null,
   color: d.color || null,
-  remindAt: d.remindAt || null,
   visibility: d.visibility,
   baseUpdatedAt: d.baseUpdatedAt,
 });
@@ -120,7 +122,7 @@ const savePayload = (d: Draft) => ({
 // se abre el editor a pantalla completa con botón «atrás». Autoguardado con debounce.
 // La lista se AGRUPA por cliente o por categoría (tags) para encontrar fácil; el cliente y la
 // categoría son tags grandes y editables en el editor. Selección neutra (sin recuadro naranja).
-export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCreateTasks }: { initial: NoteItem[]; trashed: TrashedNote[]; taskLinks: Record<string, Record<string, NoteTaskLink>>; projects: NoteProject[]; clients: NoteClient[]; canCreateTasks: boolean }) {
+export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders, projects, clients, canCreateTasks }: { initial: NoteItem[]; initialId: string | null; trashed: TrashedNote[]; taskLinks: Record<string, Record<string, NoteTaskLink>>; noteReminders: Record<string, NoteReminder>; projects: NoteProject[]; clients: NoteClient[]; canCreateTasks: boolean }) {
   const projectsById = React.useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const projOf = (id: string | null) => (id ? projectsById.get(id) ?? null : null);
   const clientsById = React.useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
@@ -131,8 +133,10 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
   // por la papelera sin salir de la pantalla.
   const [trash, setTrash] = React.useState<TrashedNote[]>(trashed);
   const [trashOpen, setTrashOpen] = React.useState(false);
-  const [selectedId, setSelectedId] = React.useState<string | null>(initial[0]?.id ?? null);
-  const [draft, setDraft] = React.useState<Draft>(initial[0] ? draftOf(initial[0]) : emptyDraft);
+  // La nota abierta: la de `?nota=<id>` si vino en el enlace, o la primera de la lista.
+  const opened = (initialId ? initial.find((n) => n.id === initialId) : null) ?? initial[0] ?? null;
+  const [selectedId, setSelectedId] = React.useState<string | null>(opened?.id ?? null);
+  const [draft, setDraft] = React.useState<Draft>(opened ? draftOf(opened) : emptyDraft);
   const [isNew, setIsNew] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [catFilter, setCatFilter] = React.useState<string | null>(null);
@@ -152,6 +156,8 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
   // de esa maquinaria («Tarea creada: …» o el motivo por el que no se pudo).
   const [links, setLinksAll] = React.useState<Record<string, Record<string, NoteTaskLink>>>(taskLinks);
   const [taskNote, setTaskNote] = React.useState<string | null>(null);
+  // Recordatorio vigente de cada nota (el de verdad, no el campo suelto de antes).
+  const [reminders, setReminders] = React.useState<Record<string, NoteReminder>>(noteReminders);
   // ¿Hay tecleo sin guardar? Lo usa el envío de emergencia al cerrar/ocultar la pestaña.
   const dirty = React.useRef(false);
   const latest = React.useRef<Draft>(emptyDraft);
@@ -207,7 +213,6 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
     (d: Draft, force = false) => {
       if (!d.content.trim() && !d.title.trim()) return;
       setStatus("saving");
-      const remindIso = d.remindAt ? (() => { const dt = new Date(d.remindAt); return Number.isNaN(dt.getTime()) ? null : dt.toISOString(); })() : null;
       start(async () => {
         const r = await saveNote(savePayload(d), force ? { force: true } : undefined);
         if (r.ok) {
@@ -222,8 +227,8 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
           setNotes((prev) => {
             const exists = prev.some((n) => n.id === realId);
             return exists
-              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, updatedAt } : n))
-              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: remindIso, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt, updatedAt }, ...prev];
+              ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, visibility: d.visibility, updatedAt } : n))
+              : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: null, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt, updatedAt }, ...prev];
           });
           setStatus("saved");
           setTimeout(() => setStatus("idle"), 1200);
@@ -309,6 +314,34 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
     });
   }
 
+  // ── Recordatorio de la nota ──
+  // Poner/cambiar la fecha crea o actualiza un Reminder atado a la nota. La lista sigue
+  // pintando su chip desde `remindAt`, que el servidor mantiene como espejo.
+  function applyReminder(local: string, frequency: string) {
+    const noteId = draft.id;
+    if (!noteId) return;
+    if (!local) { dropReminder(); return; }
+    const [date, time] = local.split("T");
+    if (!date || !time) return;
+    start(async () => {
+      const r = await setNoteReminder(noteId, { date, time: time.slice(0, 5), frequency });
+      if (r.ok && r.reminder) {
+        setReminders((prev) => ({ ...prev, [noteId]: r.reminder! }));
+        setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, remindAt: r.reminder!.whenIso } : n)));
+      } else {
+        setTaskNote(r.error ?? "No se pudo poner el recordatorio");
+      }
+    });
+  }
+
+  function dropReminder() {
+    const noteId = draft.id;
+    if (!noteId) return;
+    setReminders((prev) => { const next = { ...prev }; delete next[noteId]; return next; });
+    setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, remindAt: null } : n)));
+    start(async () => { await clearNoteReminder(noteId); });
+  }
+
   // La nota entera → una tarea, con sus casillas como checklist.
   function makeTaskFromNote() {
     const noteId = draft.id;
@@ -343,6 +376,8 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
       setIsNew(false);
       setDraft(draftOf(n));
       setMobileEditorOpen(true);
+      // La dirección sigue a la nota abierta: se puede copiar y compartir el enlace.
+      try { window.history.replaceState(null, "", `/notas?nota=${n.id}`); } catch { /* da igual */ }
     });
   }
 
@@ -413,6 +448,9 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
   const draftTasks = React.useMemo(() => countNoteTasks(draft.content), [draft.content]);
   // Tareas ya creadas desde ESTA nota (por texto de línea) y cómo actualizarlas.
   const myLinks: Record<string, NoteTaskLink> = (draft.id ? links[draft.id] : undefined) ?? EMPTY_LINKS;
+  // Recordatorio de la nota abierta y su valor para el <input type="datetime-local">.
+  const myReminder: NoteReminder | null = (draft.id ? reminders[draft.id] : undefined) ?? null;
+  const remInput = toLocalInput(myReminder?.whenIso ?? null);
   function setLinks(fn: (prev: Record<string, NoteTaskLink>) => Record<string, NoteTaskLink>) {
     const id = draft.id;
     if (!id) return;
@@ -702,10 +740,33 @@ export function NotesApp({ initial, trashed, taskLinks, projects, clients, canCr
                   </label>
                 ) : null}
                 {/* Recordatorio */}
-                <label className={cn("inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors", draft.remindAt ? "border-primary/40 text-foreground" : "border-border text-muted-foreground hover:border-primary/40")} title="Recordatorio">
-                  {draft.remindAt ? <Bell className="size-3.5 shrink-0 text-primary" /> : <BellOff className="size-3.5 shrink-0" />}
-                  <input type="datetime-local" value={draft.remindAt} onChange={(e) => onChange({ remindAt: e.target.value })} className="bg-transparent outline-none [color-scheme:light] dark:[color-scheme:dark]" />
-                  {draft.remindAt ? <button type="button" onClick={(e) => { e.preventDefault(); onChange({ remindAt: "" }); }} aria-label="Quitar recordatorio" className="text-muted-foreground hover:text-foreground">×</button> : null}
+                {/* Recordatorio DE VERDAD: crea un Reminder atado a la nota (sale en
+                    /recordatorios, se pospone, se repite y su aviso abre esta nota). */}
+                <label className={cn("inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors", myReminder ? "border-primary/40 text-foreground" : "border-border text-muted-foreground hover:border-primary/40")} title={draft.id ? "Recordatorio de esta nota" : "Guarda la nota para poder ponerle un recordatorio"}>
+                  {myReminder ? <Bell className="size-3.5 shrink-0 text-primary" /> : <BellOff className="size-3.5 shrink-0" />}
+                  <input
+                    type="datetime-local"
+                    value={remInput}
+                    disabled={!draft.id}
+                    onChange={(e) => applyReminder(e.target.value, myReminder?.frequency ?? "UNA_VEZ")}
+                    className="bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-60 [color-scheme:light] dark:[color-scheme:dark]"
+                  />
+                  {myReminder ? (
+                    <>
+                      <select
+                        value={myReminder.frequency}
+                        onChange={(e) => applyReminder(remInput, e.target.value)}
+                        title="Cada cuánto vuelve a avisar"
+                        className="cursor-pointer bg-transparent text-xs text-muted-foreground outline-none"
+                      >
+                        <option value="UNA_VEZ">una vez</option>
+                        <option value="DIARIO">cada día</option>
+                        <option value="SEMANAL">cada semana</option>
+                        <option value="MENSUAL">cada mes</option>
+                      </select>
+                      <button type="button" onClick={(e) => { e.preventDefault(); dropReminder(); }} aria-label="Quitar recordatorio" className="text-muted-foreground hover:text-foreground">×</button>
+                    </>
+                  ) : null}
                 </label>
                 {/* Color de la nota */}
                 <div className="flex items-center gap-1.5">

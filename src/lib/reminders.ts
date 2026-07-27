@@ -69,7 +69,8 @@ export async function sweepReminders(opts: { force?: boolean; now?: Date } = {})
         [r.task ? `Tarea: ${r.task.title}` : null, r.event ? `Cita: ${r.event.title}` : null, r.notes]
           .filter(Boolean)
           .join(" · ") || undefined,
-      link: r.task ? "/mis-tareas" : r.event ? "/calendario" : "/recordatorios",
+      // El aviso lleva a DONDE está la cosa: la tarea, la cita, la nota… o la lista.
+      link: r.task ? "/mis-tareas" : r.event ? "/calendario" : r.noteId ? `/notas?nota=${r.noteId}` : "/recordatorios",
       // Si el recordatorio lo dejó otra persona, la campana muestra su avatar/color.
       actorId: r.createdById,
       // Responsable: aunque sea un recordatorio propio (sin actor), se pinta con el color de

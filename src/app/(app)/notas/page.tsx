@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { syncNoteChecks } from "@/lib/note-task-sync";
+import { describeSchedule } from "@/lib/reminder-schedule";
+import type { NoteReminder } from "./reminder-actions";
 import { NotesApp, type NoteItem, type NoteProject, type NoteClient, type TrashedNote, type NoteTaskLink } from "./notes-app";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,11 @@ function agoLabel(d: Date | null): string {
   return days <= 0 ? "hoy" : days === 1 ? "hace 1 día" : `hace ${days} días`;
 }
 
-export default async function NotasPage() {
+// `?nota=<id>` abre esa nota directamente: lo usan el aviso del recordatorio, ⌘K y cualquier
+// enlace que alguien pegue en el chat. Se resuelve AQUÍ (servidor) para que la nota llegue ya
+// seleccionada, sin parpadeo ni desajuste de hidratación.
+export default async function NotasPage({ searchParams }: { searchParams: Promise<{ nota?: string }> }) {
+  const { nota } = await searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
 
@@ -115,6 +121,24 @@ export default async function NotasPage() {
     };
   }
 
+  // Recordatorio vigente de cada nota (el de verdad: sale en /recordatorios y su aviso abre
+  // la nota). El chip de la lista se sigue pintando desde `remindAt`, que es su espejo.
+  const remRows = await db.reminder.findMany({
+    where: { noteId: { in: items.map((n) => n.id) }, forUserId: session.id, active: true, doneAt: null },
+    orderBy: { nextFireAt: "asc" },
+    select: { id: true, noteId: true, nextFireAt: true, frequency: true, weekdays: true, dayOfMonth: true, timeOfDay: true },
+  });
+  const noteReminders: Record<string, NoteReminder> = {};
+  for (const r of remRows) {
+    if (!r.noteId || noteReminders[r.noteId]) continue; // el más próximo gana
+    noteReminders[r.noteId] = {
+      id: r.id,
+      whenIso: r.nextFireAt.toISOString(),
+      frequency: r.frequency,
+      label: r.frequency === "UNA_VEZ" ? "una vez" : describeSchedule({ frequency: r.frequency, weekdays: r.weekdays, dayOfMonth: r.dayOfMonth, timeOfDay: r.timeOfDay }),
+    };
+  }
+
   // Sin contenedor con ancho máximo ni padding: la vista de Notas llena toda la ventana.
-  return <NotesApp initial={items} trashed={trashList} taskLinks={links} projects={projectList} clients={clientList} canCreateTasks={session.role !== "cliente" && session.role !== "demo"} />;
+  return <NotesApp initial={items} initialId={nota && items.some((n) => n.id === nota) ? nota : null} trashed={trashList} taskLinks={links} noteReminders={noteReminders} projects={projectList} clients={clientList} canCreateTasks={session.role !== "cliente" && session.role !== "demo"} />;
 }

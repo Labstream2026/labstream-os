@@ -681,6 +681,8 @@ model Note {
   archivedById String?
   // Tareas nacidas de esta nota (de una línea con casilla o de la nota entera).
   tasks       Task[]
+  // Recordatorios de esta nota (los de verdad: /recordatorios, posponer, repetir, hecho).
+  reminders   Reminder[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2331,6 +2333,10 @@ model Reminder {
   // (p. ej. 15 min antes). Si la cita se borra, el vínculo se anula y esos avisos se apagan.
   event       CalendarEvent? @relation("EventReminders", fields: [eventId], references: [id], onDelete: SetNull)
   eventId     String?
+  // Atado a una NOTA: el aviso abre la nota en vez de la lista de recordatorios. Si la nota
+  // se elimina definitivamente, su recordatorio deja de tener sentido y se va con ella.
+  note        Note?          @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  noteId      String?
   // UNA_VEZ | DIARIO | SEMANAL | MENSUAL — describe la RECURRENCIA. Los momentos concretos
   // viven en `alerts` (un recordatorio puede tener varios avisos). Para recurrentes se
   // materializa un aviso a la vez y se regenera al disparar.
