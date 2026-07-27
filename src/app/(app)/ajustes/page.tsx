@@ -11,6 +11,9 @@ import { UserControls } from "@/app/(app)/configuracion/user-controls";
 import { CleanupNamesButton } from "@/app/(app)/configuracion/cleanup-names-button";
 import { MarcebotCleanupButton } from "@/app/(app)/configuracion/marcebot-cleanup-button";
 import { DemoPanel } from "@/app/(app)/configuracion/demo-panel";
+import { DemoModePanel } from "@/app/(app)/configuracion/demo-mode-panel";
+import { leerEstadoDemo } from "@/lib/demo-mode";
+import { GUIA_TOTAL } from "@/lib/demo-guia";
 import { RolesManager } from "@/app/(app)/configuracion/roles-manager";
 import { UserPermissions } from "@/app/(app)/configuracion/user-permissions";
 import { IntegrationsPanel } from "@/app/(app)/configuracion/integrations-panel";
@@ -402,6 +405,21 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   const projectStatusesNode = <ProjectStatusesPanel initial={projectStatusesFromJson(brand.projectStatuses)} />;
   const marcebotNode = <MarcebotSettings initial={marcebotConfig} />;
 
+  // MODO DEMO: datos de muestra para enseñar/probar la app entera (aparte del usuario demo,
+  // que es de solo lectura: aquel da ACCESO, este da CONTENIDO).
+  const demoEstado = await leerEstadoDemo();
+  const demoModoNode = (
+    <DemoModePanel
+      activo={demoEstado.activo}
+      activadoEn={demoEstado.activadoEn}
+      activadoPor={demoEstado.activadoPor}
+      cuantos={demoEstado.artefactos.length}
+      clienteId={demoEstado.clienteId}
+      proyectoId={demoEstado.proyectoId}
+      totalFunciones={GUIA_TOTAL}
+    />
+  );
+
   // Mantenimiento: utilidades de limpieza y el usuario DEMO (antes incrustadas en Usuarios).
   const demoUser = users.find((u) => u.email === "demo@labstream.co");
   const mantenimientoNode = (
@@ -428,6 +446,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
     { key: "notificaciones-sistema", label: "Notificaciones del sistema", group: "sistema", icon: <IconNotificaciones />, admin: true, node: notifSistemaNode },
     ...(canAudit ? [{ key: "auditoria", label: "Auditoría", group: "sistema" as const, icon: <IconAuditoria />, admin: true, node: auditNode }] : []),
     { key: "biblioteca", label: "Biblioteca", group: "sistema", icon: <IconBiblioteca />, admin: true, node: bibliotecaNode },
+    { key: "demo", label: "Modo demo", group: "sistema", icon: <IconConfiguracion />, admin: true, node: demoModoNode },
     { key: "mantenimiento", label: "Mantenimiento", group: "sistema", icon: <IconConfiguracion />, admin: true, node: mantenimientoNode },
   ];
 
