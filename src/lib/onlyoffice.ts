@@ -73,13 +73,20 @@ export function isEditableOffice(name: string) {
   return officeType(name) !== null;
 }
 
+// ── Qué puede hacer quien abre el documento ──
+//  · "edit"    → escribir y comentar (el equipo).
+//  · "comment" → NO puede tocar el texto, solo dejar comentarios (el cliente). Sigue siendo
+//    modo "edit" en el editor: es lo que activa la barra de comentarios y la co-edición.
+//  · "view"    → solo leer y descargar (invitados, usuario demo, proyecto dormido).
+export type DocAccess = "edit" | "comment" | "view";
+
 export type EditorConfig = {
   document: {
     fileType: string;
     key: string;
     title: string;
     url: string;
-    permissions: { edit: boolean; download: boolean };
+    permissions: { edit: boolean; comment: boolean; download: boolean; print: boolean };
   };
   documentType: "word" | "cell" | "slide" | "pdf";
   editorConfig: {
@@ -87,6 +94,14 @@ export type EditorConfig = {
     callbackUrl: string;
     lang: string;
     user: { id: string; name: string };
+    customization: {
+      // Muestra el botón de guardar y hace que Ctrl+S fuerce el guardado (callback status 6).
+      // Sin esto, OnlyOffice solo guarda cuando el ÚLTIMO editor cierra el documento.
+      forcesave: boolean;
+      autosave: boolean;
+      // El botón «volver» del propio editor (además del nuestro).
+      goback?: { text: string; url: string };
+    };
   };
   token?: string;
 };
@@ -97,24 +112,33 @@ export function buildConfig(opts: {
   version: number;
   fileUrl: string;
   callbackUrl: string;
-  canEdit: boolean;
+  access: DocAccess;
   user: { id: string; name: string };
+  backUrl?: string;
 }): EditorConfig {
   const type = officeType(opts.name) ?? "word";
+  const canEdit = opts.access === "edit";
+  const canComment = opts.access !== "view";
   return {
     document: {
       fileType: extOf(opts.name),
       key: `${opts.attachmentId}_${opts.version}`, // debe cambiar cuando cambia el archivo
       title: opts.name,
       url: opts.fileUrl,
-      permissions: { edit: opts.canEdit, download: true },
+      permissions: { edit: canEdit, comment: canComment, download: true, print: true },
     },
     documentType: type,
     editorConfig: {
-      mode: opts.canEdit ? "edit" : "view",
+      // "comment" también entra en modo edit: es lo que habilita comentarios y co-edición.
+      mode: opts.access === "view" ? "view" : "edit",
       callbackUrl: opts.callbackUrl,
       lang: "es",
       user: opts.user,
+      customization: {
+        forcesave: true,
+        autosave: true,
+        ...(opts.backUrl ? { goback: { text: "Volver", url: opts.backUrl } } : {}),
+      },
     },
   };
 }

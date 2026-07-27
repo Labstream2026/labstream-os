@@ -6,7 +6,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled, currentEmailProvider, sendEmail, clearMailConfigCache, emailButton } from "@/lib/email";
 import { encryptSecret } from "@/lib/crypto";
 import { clearOpenClawCache } from "@/lib/openclaw/config";
-import { clearOnlyOfficeCache, getOnlyOfficeConfig } from "@/lib/onlyoffice";
+import { clearOnlyOfficeCache, getOnlyOfficeConfig, convertOfficeToText } from "@/lib/onlyoffice";
+import { signScopedToken } from "@/lib/signed-token";
 import { askOpenClaw } from "@/lib/openclaw/client";
 import { testCaldav } from "@/lib/caldav";
 import { syncAllCalendars } from "@/lib/calendar-sync";
@@ -234,6 +235,77 @@ export async function testOnlyOffice(): Promise<AdminActionResult> {
     }
   }
   return { ok: false, error: `El Document Server no respondió. Intentos: ${errors.join(" | ")}.` };
+}
+
+// ── Diagnóstico de OnlyOffice: los TRES caminos, uno por uno ──
+// La edición de documentos necesita tres conexiones distintas y cada una falla de una forma
+// diferente; sin separarlas, «no funciona» no dice nada. Aquí se prueban las dos que dependen
+// del servidor (el tercer camino, navegador → Document Server, lo prueba el navegador: es el
+// único que sabe si ESE equipo alcanza la dirección).
+export type DocsCheck = { ok: boolean; detail: string };
+export type DocsDiagnosis = {
+  docsUrl: string;
+  callbackBase: string;
+  internalUrl: string;
+  jwt: boolean;
+  appToDs: DocsCheck; // la app llega al Document Server (si falla: «no se ha podido guardar»)
+  dsToApp: DocsCheck; // el Document Server llega a la app (si falla: el documento abre vacío)
+};
+
+export async function diagnoseOnlyOffice(): Promise<{ ok: boolean; error?: string; diag?: DocsDiagnosis }> {
+  const session = await requireIntegrations();
+  if (!session) return { ok: false, error: "No autorizado" };
+  clearOnlyOfficeCache();
+  const cfg = await getOnlyOfficeConfig();
+  if (!cfg.docsUrl) return { ok: false, error: "Falta la URL del Document Server." };
+
+  // 1) app → Document Server.
+  const targets = [...new Set([cfg.internalUrl, cfg.docsUrl].filter(Boolean))];
+  let appToDs: DocsCheck = { ok: false, detail: "Sin dirección que probar." };
+  const intentos: string[] = [];
+  for (const base of targets) {
+    try {
+      const res = await fetch(`${base}/healthcheck`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+      const text = (await res.text().catch(() => "")).trim().toLowerCase();
+      if (res.ok && text.includes("true")) { appToDs = { ok: true, detail: `Responde en ${base}` }; break; }
+      intentos.push(`${base} → HTTP ${res.status}`);
+    } catch (e) {
+      intentos.push(`${base} → ${e instanceof Error ? e.message : "error de red"}`);
+    }
+  }
+  if (!appToDs.ok) appToDs = { ok: false, detail: intentos.join(" · ") || "No respondió." };
+
+  // 2) Document Server → app: se le pide que descargue un documento diminuto servido por
+  // nosotros y lo convierta. Si no puede bajarlo, el camino de vuelta está roto y los
+  // documentos abrirían vacíos.
+  let dsToApp: DocsCheck;
+  if (!appToDs.ok) {
+    dsToApp = { ok: false, detail: "No se pudo probar: el Document Server no responde." };
+  } else {
+    const probeUrl = `${cfg.callbackBase}/api/docs/probe?t=${encodeURIComponent(signScopedToken("docprobe", "probe", 1))}`;
+    try {
+      await convertOfficeToText({ fileId: `probe_${Date.now()}`, name: "prueba.docx", version: 1, sourceUrl: probeUrl });
+      dsToApp = { ok: true, detail: `El Document Server descargó de ${cfg.callbackBase}` };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "error desconocido";
+      dsToApp = {
+        ok: false,
+        detail: `${msg} — el Document Server no alcanza ${cfg.callbackBase}. Debe ser una dirección visible ENTRE contenedores (normalmente la IP de la LAN del NAS, no el dominio público).`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    diag: {
+      docsUrl: cfg.docsUrl,
+      callbackBase: cfg.callbackBase,
+      internalUrl: cfg.internalUrl,
+      jwt: Boolean(cfg.jwtSecret),
+      appToDs,
+      dsToApp,
+    },
+  };
 }
 
 // Envía un correo de prueba al propio admin para verificar la config SMTP de Synology.

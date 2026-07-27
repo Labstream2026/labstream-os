@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2, Bot } from "lucide-react";
-import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw, saveOnlyOfficeSettings, testOnlyOffice } from "./actions";
+import { Mail, CalendarDays, Sparkles, FileEdit, Loader2, Settings2, Bot, Stethoscope, Check, X } from "lucide-react";
+import { sendTestEmail, saveMailSettings, syncAllCalendarsNow, saveOpenClawSettings, testOpenClaw, saveOnlyOfficeSettings, testOnlyOffice, diagnoseOnlyOffice, type DocsDiagnosis } from "./actions";
 import { CalendarConnect } from "@/app/(app)/perfil/calendar-connect";
 import { CalendarSubscribe } from "@/app/(app)/perfil/calendar-subscribe";
 import { formatBogota } from "@/lib/bogota-time";
@@ -111,6 +111,13 @@ export function IntegrationsPanel({
   const [showOc, setShowOc] = React.useState(false);
   const [ooPending, startOo] = React.useTransition();
   const [ooMsg, setOoMsg] = React.useState<string | null>(null);
+  // Diagnóstico de los tres caminos de red del editor de documentos.
+  const [diag, setDiag] = React.useState<DocsDiagnosis | null>(null);
+  const [diagPend, setDiagPend] = React.useState(false);
+  // El tercer camino (navegador → Document Server) SOLO lo puede probar el navegador: es el
+  // único que sabe si ESTE equipo alcanza esa dirección. Se prueba cargando el mismo script
+  // que carga el editor de verdad.
+  const [browserCheck, setBrowserCheck] = React.useState<"sin-probar" | "probando" | "ok" | "falla">("sin-probar");
   const [showOo, setShowOo] = React.useState(false);
 
   return (
@@ -197,8 +204,49 @@ export function IntegrationsPanel({
             {ooPending ? <Loader2 className="size-3.5 animate-spin" /> : <FileEdit className="size-3.5" />} Probar
           </button>
         ) : null}
+        {onlyoffice ? (
+          <button
+            onClick={() => {
+              setOoMsg(null);
+              setDiagPend(true);
+              setBrowserCheck("probando");
+              // Camino 3 (este equipo → Document Server): se carga el script del editor, igual
+              // que al abrir un documento. Sin CORS de por medio: es la prueba fiel.
+              const s = document.createElement("script");
+              const fin = (r: "ok" | "falla") => { setBrowserCheck((c) => (c === "probando" ? r : c)); s.remove(); };
+              const t = setTimeout(() => fin("falla"), 12000);
+              s.onload = () => { clearTimeout(t); fin("ok"); };
+              s.onerror = () => { clearTimeout(t); fin("falla"); };
+              s.src = `${onlyofficeSettings.docsUrl.replace(/\/+$/, "")}/web-apps/apps/api/documents/api.js`;
+              document.body.appendChild(s);
+              void diagnoseOnlyOffice().then((r) => {
+                setDiag(r.diag ?? null);
+                if (!r.ok) setOoMsg(`⚠️ ${r.error}`);
+                setDiagPend(false);
+              });
+            }}
+            disabled={diagPend}
+            className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
+            title="Prueba por separado los tres caminos de red que necesita el editor"
+          >
+            {diagPend ? <Loader2 className="size-3.5 animate-spin" /> : <Stethoscope className="size-3.5" />} Diagnóstico
+          </button>
+        ) : null}
       </StatusRow>
       {ooMsg ? <p className="px-4 pb-2 text-xs text-muted-foreground">{ooMsg}</p> : null}
+      {diag ? (
+        <div className="mx-4 mb-3 space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Los tres caminos del editor</p>
+          <DiagRow ok={browserCheck === "ok"} pending={browserCheck === "probando"}
+            label="Este equipo → servidor de documentos"
+            detail={browserCheck === "ok" ? `Alcanza ${diag.docsUrl}` : browserCheck === "probando" ? "Probando…" : `Este equipo NO alcanza ${diag.docsUrl}. Si falla solo aquí, es la red o el DNS de esta máquina. Síntoma: el editor no aparece.`} />
+          <DiagRow ok={diag.dsToApp.ok} label="Servidor de documentos → la app" detail={diag.dsToApp.detail} />
+          <DiagRow ok={diag.appToDs.ok} label="La app → servidor de documentos" detail={diag.appToDs.detail} />
+          <p className="pt-1 text-[11px] text-muted-foreground">
+            Firma JWT: {diag.jwt ? "activada" : "SIN configurar — si el Document Server la exige, el editor dirá que el «token» es incorrecto"}.
+          </p>
+        </div>
+      ) : null}
       {showOo ? <OnlyOfficeForm initial={onlyofficeSettings} onSaved={(m) => setOoMsg(m)} /> : null}
       <StatusRow icon={<Bot className="size-4" />} label="Agente IA en el chat (OpenClaw)" on={openclawOn} detail="Tu agente OpenClaw responde en cualquier chat cuando lo etiquetan con @Marcebot.">
         <button
@@ -406,5 +454,22 @@ function OpenClawForm({ initial, onSaved }: { initial: OpenClawSettingsView; onS
         {result ? <span className="text-xs text-muted-foreground">{result}</span> : null}
       </div>
     </form>
+  );
+}
+
+// Una fila del diagnóstico: verde si el camino funciona, rojo con el motivo si no.
+function DiagRow({ ok, pending, label, detail }: { ok: boolean; pending?: boolean; label: string; detail: string }) {
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <span className="mt-0.5 shrink-0">
+        {pending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+          : ok ? <Check className="size-3.5 text-emerald-500" />
+          : <X className="size-3.5 text-destructive" />}
+      </span>
+      <span className="min-w-0">
+        <span className="font-medium">{label}</span>
+        <span className="block text-muted-foreground">{detail}</span>
+      </span>
+    </div>
   );
 }

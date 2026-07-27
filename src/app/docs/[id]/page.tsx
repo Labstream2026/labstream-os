@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel } from "@/lib/chat-access";
-import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig } from "@/lib/onlyoffice";
+import { canWriteProject } from "@/lib/project-access";
+import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig, type DocAccess } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "./editor";
 
@@ -19,7 +20,14 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
     include: {
       message: {
         include: {
-          channel: { include: { members: true, project: { select: { leadId: true } } } },
+          // El proyecto se trae ENTERO (privacidad, miembros, ciclo de vida) porque de él sale
+          // el permiso de ESCRITURA sobre el documento, no solo el de entrar al canal.
+          channel: {
+            include: {
+              members: true,
+              project: { select: { leadId: true, isPrivate: true, archivedAt: true, finishedAt: true, members: { select: { userId: true, role: true } } } },
+            },
+          },
         },
       },
     },
@@ -27,13 +35,13 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
   if (!att) notFound();
 
   const ch = att.message.channel;
-  const access = canAccessChannel(
+  const inChannel = canAccessChannel(
     { isPublic: ch.isPublic, project: ch.project, members: ch.members },
     session,
   );
   const backHref = ch.projectId ? `/proyectos/${ch.projectId}?tab=chat` : "/";
 
-  if (!access) {
+  if (!inChannel) {
     return <Notice title="Sin acceso" msg="No tienes acceso a este documento." backHref="/" />;
   }
   const cfg = await getOnlyOfficeConfig();
@@ -44,6 +52,19 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
+  // ── Quién puede ESCRIBIR en el documento (no solo entrar al canal) ──
+  // Antes esto era `canEdit: true` para cualquiera que alcanzara el canal: un invitado de solo
+  // lectura (miembro GUEST del proyecto) podía reescribir el documento del equipo. Ahora manda
+  // el permiso del PROYECTO; los canales sin proyecto (grupos, directos) los edita su gente.
+  const docAccess: DocAccess =
+    session.role === "demo"
+      ? "view"
+      : ch.project
+        ? canWriteProject(ch.project, session)
+          ? "edit"
+          : "comment" // invitado del proyecto: puede comentar, no reescribir
+        : "edit";
+
   const fileUrl = `${cfg.callbackBase}/api/files/${id}?t=${signFileToken(id)}`;
   const callbackUrl = `${cfg.callbackBase}/api/docs/${id}/callback`;
   const config = await signConfig(
@@ -53,12 +74,13 @@ export default async function DocEditPage({ params }: { params: Promise<{ id: st
       version: att.version,
       fileUrl,
       callbackUrl,
-      canEdit: true,
+      access: docAccess,
       user: { id: session.id, name: session.name },
+      backUrl: backHref,
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={att.name} backHref={backHref} />;
+  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={att.name} backHref={backHref} downloadHref={`/api/files/${id}?download=1`} />;
 }
 
 function Notice({

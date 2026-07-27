@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
-import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig } from "@/lib/onlyoffice";
+import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig, type DocAccess } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "../../[id]/editor";
 
@@ -13,6 +13,9 @@ const accessSelect = {
   isPrivate: true,
   leadId: true,
   members: { select: { userId: true, role: true } },
+  // Ciclo de vida: en un proyecto dormido el documento se abre en SOLO LECTURA.
+  archivedAt: true,
+  finishedAt: true,
 } as const;
 
 export default async function ProjectFileEditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,15 +44,24 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     return <Notice title="No editable" msg="Este tipo de archivo no se edita en OnlyOffice." backHref={backHref} download={id} />;
   }
 
-  // Abre en modo edición quien puede ESCRIBIR en el proyecto. Además, los invitados del PORTAL
-  // DEL CLIENTE (rol `cliente`, miembros del proyecto) con permiso para subir archivos también
-  // editan sus documentos en OnlyOffice: ya pueden reemplazarlos subiendo otra versión, así que
-  // editarlos en vivo es equivalente y más controlado. El resto de invitados (GUEST) siguen en
-  // modo vista.
+  // ── Qué puede hacer cada quien con este documento ──
+  // Edita quien puede ESCRIBIR en el proyecto. Los invitados del PORTAL DEL CLIENTE (rol
+  // `cliente`, miembros del proyecto) con permiso para subir archivos también editan: ya pueden
+  // reemplazarlos subiendo otra versión, así que editarlos en vivo es equivalente y más
+  // controlado. El resto de clientes COMENTA (puede opinar sin poder romper el documento) y los
+  // invitados de solo lectura y el usuario demo solo miran.
+  // El candado del ciclo de vida manda sobre todo: en un proyecto dormido (papelera o terminado)
+  // nadie escribe — ni siquiera un comentario, que también se guarda dentro del archivo.
   const isClienteMember =
     session.role === "cliente" && file.project.members.some((m) => m.userId === session.id);
-  const canEdit =
-    canWriteProject(file.project, session) || (isClienteMember && hasPermission(session, "subir_archivos"));
+  const asleep = Boolean(file.project.archivedAt || file.project.finishedAt);
+  const access: DocAccess = asleep || session.role === "demo"
+    ? "view"
+    : canWriteProject(file.project, session) || (isClienteMember && hasPermission(session, "subir_archivos"))
+      ? "edit"
+      : isClienteMember
+        ? "comment"
+        : "view";
   const fileUrl = `${cfg.callbackBase}/api/files-asset/${id}?t=${signFileToken(id)}`;
   const callbackUrl = `${cfg.callbackBase}/api/docs/file/${id}/callback`;
   const config = await signConfig(
@@ -59,12 +71,13 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
       version: file.version,
       fileUrl,
       callbackUrl,
-      canEdit,
+      access,
       user: { id: session.id, name: session.name },
+      backUrl: backHref,
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={file.name} backHref={backHref} />;
+  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={file.name} backHref={backHref} downloadHref={`/api/files-asset/${id}?download=1`} />;
 }
 
 function Notice({ title, msg, backHref, download }: { title: string; msg: string; backHref: string; download?: string }) {

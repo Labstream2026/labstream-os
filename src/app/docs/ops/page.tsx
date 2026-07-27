@@ -39,7 +39,7 @@ export default async function OpsDocPage({ searchParams }: { searchParams: Promi
   }
 
   // demo mira, el equipo edita.
-  const canEdit = session.role !== "demo";
+  const access = session.role === "demo" ? "view" : "edit";
   const t = signScopedToken("opsdoc", rel, 1); // 1 día: cubre la sesión de edición
   const fileUrl = `${cfg.callbackBase}/api/ops/file?path=${encodeURIComponent(rel)}&t=${encodeURIComponent(t)}`;
   const callbackUrl = `${cfg.callbackBase}/api/docs/ops/callback?path=${encodeURIComponent(rel)}&t=${encodeURIComponent(t)}`;
@@ -50,12 +50,12 @@ export default async function OpsDocPage({ searchParams }: { searchParams: Promi
       version: Math.round(st.mtimeMs), // la clave cambia cuando el archivo cambia por fuera
       fileUrl,
       callbackUrl,
-      canEdit,
+      access,
       user: { id: session.id, name: session.name },
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={st.name} backHref={backHref} />;
+  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={st.name} backHref={backHref} downloadHref={`/api/ops/file?path=${encodeURIComponent(rel)}&t=${encodeURIComponent(t)}&download=1`} />;
 }
 
 function Notice({ title, msg, backHref }: { title: string; msg: string; backHref: string }) {
