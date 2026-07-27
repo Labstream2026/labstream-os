@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { absPath } from "@/lib/storage";
 import { verifyCallbackToken, isAllowedDocsUrl, fetchSavedDoc } from "@/lib/onlyoffice";
+import { snapshotFileVersion } from "@/lib/file-versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 // Callback de OnlyOffice al guardar un archivo LOCAL de proyecto.
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  let body: { status?: number; url?: string; token?: string };
+  let body: { status?: number; url?: string; token?: string; users?: string[] };
   try {
     body = await req.json();
   } catch {
@@ -28,6 +29,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (file?.path) {
       try {
         const buf = await fetchSavedDoc(body.url);
+        // ANTES de sobrescribir: copia de lo que había, para poder volver atrás. Los archivos
+        // vivos de Operaciones_LAB no se versionan aquí (viven fuera del storage, en la share).
+        if (file.kind !== "OPS") {
+          const quien = body.users?.length
+            ? (await db.user.findMany({ where: { id: { in: body.users } }, select: { name: true } })).map((u) => u.name).join(", ")
+            : null;
+          await snapshotFileVersion(id, { savedByName: quien });
+        }
         if (file.kind === "OPS") {
           // Archivo vivo de Operaciones_LAB: se guarda de vuelta EN LA MISMA ruta de la share.
           const { opsAbs } = await import("@/lib/nas-ops");

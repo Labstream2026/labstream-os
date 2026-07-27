@@ -6,6 +6,7 @@ import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig, type DocAccess } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
 import { OnlyOfficeEditor } from "../../[id]/editor";
+import { HistoryPanel } from "./history-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +78,7 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={file.name} backHref={backHref} downloadHref={`/api/files-asset/${id}?download=1`} />;
+  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={file.name} backHref={backHref} downloadHref={`/api/files-asset/${id}?download=1`} extra={<HistoryPanel fileId={id} />} />;
 }
 
 function Notice({ title, msg, backHref, download }: { title: string; msg: string; backHref: string; download?: string }) {

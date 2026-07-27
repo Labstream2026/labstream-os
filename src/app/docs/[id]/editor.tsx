@@ -43,12 +43,15 @@ export function OnlyOfficeEditor({
   title,
   backHref,
   downloadHref,
+  extra,
 }: {
   docsUrl: string;
   config: EditorConfig;
   title: string;
   backHref: string;
   downloadHref?: string;
+  // Botones propios de cada superficie (p. ej. el «Historial» de los archivos de proyecto).
+  extra?: React.ReactNode;
 }) {
   const [estado, setEstado] = React.useState<Estado>("cargando");
   const [motivo, setMotivo] = React.useState<string | null>(null);
@@ -200,6 +203,7 @@ export function OnlyOfficeEditor({
         ) : null}
 
         <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          {extra}
           {estado === "listo" && puedeForzar ? (
             <>
               <span className="inline-flex items-center gap-1" title={hora ? `Último guardado a las ${hora}` : undefined}>

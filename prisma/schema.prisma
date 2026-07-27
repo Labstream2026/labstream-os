@@ -2196,11 +2196,30 @@ model FileAsset {
   projectCovers       ProjectCover[]       @relation("ProjectCoverFile")
   // Adjuntos del chat archivados como este archivo (chip «chat» que enlaza al mensaje).
   chatAttachments     MessageAttachment[]  @relation("ChatArchivedFile")
+  // Historial: copia de cada versión anterior, guardada ANTES de sobrescribir el archivo.
+  versions            FileVersion[]
   createdAt    DateTime       @default(now())
 
   @@index([projectId])
   @@index([folderId])
   @@index([taskId])
+}
+
+// Una versión ANTERIOR de un documento editado en OnlyOffice. Se crea justo antes de que el
+// callback sobrescriba el archivo, así que `version` es el número que tenía hasta ese momento
+// y `path` la copia de ese contenido. Permite ver, descargar y restaurar lo de antes.
+model FileVersion {
+  id          String   @id @default(cuid())
+  file        FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId      String
+  version     Int
+  path        String
+  size        Int
+  // Quién estaba editando cuando se guardó (lo informa el propio Document Server).
+  savedByName String?
+  createdAt   DateTime @default(now())
+
+  @@index([fileId, version])
 }
 
 // ─────────────────────────────────────────────
