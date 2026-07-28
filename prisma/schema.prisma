@@ -163,6 +163,7 @@ model User {
   createdCredentials Credential[]       @relation("CredentialCreator")
   credentialViews    CredentialViewer[] @relation("CredViewer")
   notes              Note[]             @relation("NoteCreator")
+  docPresence        DocPresence[]      @relation("DocPresenceUser")
   remindersFor       Reminder[]         @relation("ReminderFor")
   remindersCreated   Reminder[]         @relation("ReminderCreator")
   whatsappMessages   WhatsappMessage[]
@@ -1603,6 +1604,8 @@ model Task {
   blockedBy     TaskDependency[] @relation("DepTask")
   blocks        TaskDependency[] @relation("DepBlocker")
   runningTimers RunningTimer[]
+  // Comentario de un documento que se convirtió en esta tarea.
+  docComments   DocComment[]    @relation("DocCommentTask")
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -2198,6 +2201,10 @@ model FileAsset {
   chatAttachments     MessageAttachment[]  @relation("ChatArchivedFile")
   // Historial: copia de cada versión anterior, guardada ANTES de sobrescribir el archivo.
   versions            FileVersion[]
+  // Comentarios que la gente deja DENTRO del documento (se leen del archivo al guardar).
+  docComments         DocComment[]
+  // Quién lo tiene abierto ahora mismo en el editor.
+  presence            DocPresence[]
   createdAt    DateTime       @default(now())
 
   @@index([projectId])
@@ -2220,6 +2227,46 @@ model FileVersion {
   createdAt   DateTime @default(now())
 
   @@index([fileId, version])
+}
+
+// Un comentario dejado DENTRO de un documento de Office. Los comentarios no viajan por el
+// callback: viven en el propio archivo (word/comments.xml y compañía). Al guardar se leen de
+// ahí y se reflejan aquí, que es lo que permite AVISAR a quien no estaba, verlos sin abrir el
+// editor y convertirlos en tarea. El archivo manda: esta tabla es un espejo, no la fuente.
+model DocComment {
+  id        String    @id @default(cuid())
+  file      FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId    String
+  // Identificador DENTRO del documento (w:id de Word, GUID del hilo de Excel…): es lo que
+  // distingue un comentario nuevo de uno ya visto entre guardado y guardado.
+  extId     String
+  author    String // el nombre tal cual lo escribió el editor (no siempre es un usuario de la app)
+  text      String
+  at        DateTime? // fecha que trae el propio comentario (Excel viejo no la guarda)
+  resolved  Boolean   @default(false)
+  // Tarea creada desde este comentario. SetNull: si la tarea se borra, el comentario se queda.
+  task      Task?     @relation("DocCommentTask", fields: [taskId], references: [id], onDelete: SetNull)
+  taskId    String?
+  // Cuándo lo vio la app por primera vez (para avisar una sola vez).
+  createdAt DateTime  @default(now())
+
+  @@unique([fileId, extId])
+  @@index([fileId, resolved])
+}
+
+// Quién tiene ABIERTO ahora mismo un documento. Lo informa el propio Document Server en su
+// callback de estado (status 1) cada vez que alguien entra o sale. Sirve para que en Archivos
+// se vea «Ana está dentro» antes de abrirlo y no se pisen dos personas sin saberlo.
+model DocPresence {
+  id     String    @id @default(cuid())
+  file   FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId String
+  user   User      @relation("DocPresenceUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  seenAt DateTime  @default(now())
+
+  @@unique([fileId, userId])
+  @@index([fileId])
 }
 
 // ─────────────────────────────────────────────

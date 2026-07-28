@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { absPath } from "@/lib/storage";
 import { verifyCallbackToken, isAllowedDocsUrl, fetchSavedDoc } from "@/lib/onlyoffice";
 import { snapshotFileVersion } from "@/lib/file-versions";
+import { syncDocComments, setDocPresence } from "@/lib/doc-collab";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!(await verifyCallbackToken(body.token || headerToken))) {
     return NextResponse.json({ error: 1 });
   }
+
+  // status 1 = alguien entró o salió del documento. `users` es la lista COMPLETA de quienes lo
+  // tienen abierto ahora, así que basta con reflejarla tal cual.
+  if (body.status === 1) {
+    await setDocPresence(id, body.users ?? []);
+    return NextResponse.json({ error: 0 });
+  }
+  // status 4 = se cerró sin cambios: ya no queda nadie dentro.
+  if (body.status === 4) await setDocPresence(id, []);
 
   if ((body.status === 2 || body.status === 6) && body.url) {
     if (!(await isAllowedDocsUrl(body.url))) return NextResponse.json({ error: 1 });
@@ -45,6 +55,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           await fs.writeFile(absPath(file.path), buf);
         }
         await db.fileAsset.update({ where: { id }, data: { size: buf.length, version: { increment: 1 } } });
+        // Los comentarios viajan DENTRO del documento: este es el único momento en que se
+        // pueden leer. Va después de escribir el archivo y nunca tumba el guardado.
+        await syncDocComments(id, buf, body.users ?? []);
       } catch (e) {
         console.error("[onlyoffice] guardar archivo falló:", e instanceof Error ? e.message : e);
         return NextResponse.json({ error: 1 });

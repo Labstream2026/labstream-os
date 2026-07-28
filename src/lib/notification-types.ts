@@ -12,6 +12,7 @@
 export type NotificationCategory =
   | "Tareas"
   | "Entregables y revisiones"
+  | "Documentos"
   | "Chat"
   | "Agenda"
   | "Portal del cliente"
@@ -34,6 +35,7 @@ export type NotificationEventDef = {
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "Tareas",
   "Entregables y revisiones",
+  "Documentos",
   "Chat",
   "Agenda",
   "Portal del cliente",
@@ -66,6 +68,10 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "review_sla", label: "Plazo de revisión/corrección vencido", description: "Cuando vence el plazo de pre-aprobación sin revisar, o una corrección llega tarde (incumplimiento).", category: "Entregables y revisiones", priority: 2 },
   { key: "deliverable_due", label: "Entregable próximo a vencer", description: "Cuando se acerca la fecha de un entregable.", category: "Entregables y revisiones", priority: 1 },
   { key: "upload_complete", label: "Subida completa", description: "Cuando termina una subida larga de una versión (por trozos) y queda verificada y enviada a revisión.", category: "Entregables y revisiones" },
+
+  // ── Documentos ──
+  { key: "doc_comment", label: "Comentario en un documento", description: "Cuando alguien deja un comentario dentro de un documento de un proyecto tuyo (Word, Excel o Power Point).", category: "Documentos", priority: 1 },
+  { key: "doc_mention", label: "Te mencionan en un documento", description: "Cuando te nombran con «+» dentro de un comentario de un documento.", category: "Documentos", priority: 1 },
 
   // ── Chat ──
   { key: "chat_mention", label: "Menciones", description: "Cuando te mencionan (@) en el chat o en una tabla.", category: "Chat" },

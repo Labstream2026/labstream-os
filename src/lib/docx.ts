@@ -15,7 +15,7 @@ function crc32(buf: Buffer): number {
 
 type ZipEntry = { name: string; data: Buffer };
 
-function buildZip(entries: ZipEntry[]): Buffer {
+export function buildZip(entries: ZipEntry[]): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
