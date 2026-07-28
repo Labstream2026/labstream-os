@@ -1866,7 +1866,8 @@ export function ChannelChat({
 
       <div
         ref={scrollRef}
-        className="relative flex-1 overflow-y-auto"
+        // `chat-dots` (globals.css): la retícula de puntos del fondo de la conversación.
+        className="chat-dots relative flex-1 overflow-y-auto"
         onScroll={() => {
           const bottom = nearBottom();
           setAtBottom(bottom);

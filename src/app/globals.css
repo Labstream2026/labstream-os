@@ -40,6 +40,9 @@
   --sidebar-border: 240 6% 91%;
   --sidebar-accent: 221 92% 95%;
   --sidebar-accent-foreground: 221 83% 47%;
+
+  /* Punto de la retícula del chat (ver .chat-dots al final del archivo). */
+  --chat-dot: 240 6% 84%;
 }
 
 .dark {
@@ -77,6 +80,8 @@
   --sidebar-border: 240 6% 14%;
   --sidebar-accent: 221 60% 18%;
   --sidebar-accent-foreground: 217 91% 78%;
+
+  --chat-dot: 240 6% 20%;
 }
 
 @theme inline {
@@ -239,5 +244,27 @@ html.density-compact {
   }
   body {
     padding-top: var(--pwa-nav-h);
+  }
+}
+
+/* ── Fondo de los chats: retícula de puntos ── */
+/* Los mensajes flotan sobre una cuadrícula sutil en lugar de un lienzo plano: da profundidad
+   y hace que las burbujas se lean como tarjetas. El punto vive en `--chat-dot`, así que el
+   tema claro y el oscuro se resuelven solos y nunca compite con el texto.
+   `background-attachment: local` ata la retícula al CONTENIDO, no al marco: al desplazar la
+   conversación los puntos se mueven con los mensajes en vez de quedarse pegados detrás.
+   NO fija color de fondo a propósito: así los puntos se dibujan sobre la superficie donde esté
+   el chat (la página en /chat, la tarjeta en el dock y en la burbuja del proyecto). Al imprimir
+   desaparecen. */
+.chat-dots {
+  background-image: radial-gradient(circle at 1px 1px, hsl(var(--chat-dot)) 1px, transparent 0);
+  background-size: 22px 22px;
+  background-position: -1px -1px;
+  background-attachment: local;
+}
+
+@media print {
+  .chat-dots {
+    background-image: none;
   }
 }

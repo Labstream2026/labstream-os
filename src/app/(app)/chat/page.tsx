@@ -23,7 +23,8 @@ export default async function ChatIndexPage() {
         <ChatList data={data} canCreate={hasPermission(session, "crear_canales")} />
       </div>
       {/* Escritorio: panel vacío (el rail está en el layout) */}
-      <div className="hidden h-full flex-col items-center justify-center gap-2 px-6 text-center md:flex">
+      {/* Mismo fondo de puntos que las conversaciones: el panel vacío no rompe la continuidad. */}
+      <div className="chat-dots hidden h-full flex-col items-center justify-center gap-2 px-6 text-center md:flex">
         <MessagesSquare className="size-10 text-muted-foreground/40" />
         <p className="text-sm font-medium">Selecciona una conversación</p>
         <p className="text-sm text-muted-foreground">Elige un chat del navegador de la izquierda para abrirlo aquí.</p>
