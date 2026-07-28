@@ -14,6 +14,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { IconRevisiones } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
+import { SelectionProvider, SelectCheck, type SelectableItem } from "./selection";
+import { isEmailEnabled } from "@/lib/email";
+import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
 
@@ -236,6 +239,20 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
   };
 
   const total = visible.length;
+  // Lo que se puede marcar con la casilla: solo lo que esta persona GESTIONA. La barra lee de
+  // aquí para saber cuántas se pueden publicar o cuántas llevan enlace vivo.
+  const seleccionables: SelectableItem[] = visible
+    .filter((d) => d.manage)
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      archived: d.archived,
+      published: d.publishedAt != null,
+      publishable: d.status === "APROBADO" || d.status === "ENTREGADO",
+      linkActive: d.linkActive,
+      canPublish: d.canPublish,
+    }));
+  const [emailOk, waOk] = [await isEmailEnabled(), isWhatsappEnabled()];
   const TAB_META: Record<TabKey, { title: string; desc: string }> = {
     "por-aprobar": {
       title: "Proyectos a revisar",
@@ -311,6 +328,9 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
         ) : null}
       </header>
 
+      {/* Selección múltiple: la casilla de cada tarjeta y la barra de abajo (enviar al cliente,
+          archivar, marcar publicado) solo existen sobre lo que esta persona puede gestionar. */}
+      <SelectionProvider items={seleccionables} emailEnabled={emailOk} whatsappEnabled={waOk}>
       {visible.length === 0 ? (
         <EmptyState
           icon={<IconRevisiones />}
@@ -346,6 +366,7 @@ export default async function RevisionesPage({ searchParams }: { searchParams: P
       ) : (
         <GenericGroups items={visible} mode={groupMode} cta={activeTab === "archivados" ? "Abrir" : activeTab === "por-aprobar" ? "Revisar" : "Ver"} />
       )}
+      </SelectionProvider>
     </div>
   );
 }
@@ -584,7 +605,10 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
 
       {/* Acciones de gestión (solo quien puede gestionar): publicar, copiar enlace, archivar, borrar. */}
       {d.manage ? (
-        <div className="relative z-10 border-t border-border/70 bg-card/50 px-3 py-2">
+        <div className="relative z-10 flex items-start gap-2 border-t border-border/70 bg-card/50 px-3 py-2">
+          {/* Casilla de selección múltiple: al lado de las acciones sueltas, no encima de la
+              miniatura (ahí ya están el chip de urgencia y el de comentarios). */}
+          <SelectCheck id={d.id} />
           <DeliverableAdminActions
             deliverableId={d.id}
             projectId={d.project.id}
