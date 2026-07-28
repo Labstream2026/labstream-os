@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Home, Inbox, FolderCheck, MessageSquarePlus } from "lucide-react";
+import { Home, Inbox, FolderCheck, MessageSquarePlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Sub-navegación del PORTAL del cliente: pestañas propias entre sus 4 superficies.
@@ -9,6 +9,7 @@ const TABS = [
   { key: "inicio", label: "Inicio", href: "/inicio", icon: Home },
   { key: "entregas", label: "Mis entregas", href: "/mis-entregas", icon: Inbox },
   { key: "finales", label: "Entregas finales", href: "/entregas-finales", icon: FolderCheck },
+  { key: "documentos", label: "Documentos", href: "/documentos", icon: FileText },
   { key: "solicitudes", label: "Solicitudes", href: "/solicitudes", icon: MessageSquarePlus },
 ] as const;
 

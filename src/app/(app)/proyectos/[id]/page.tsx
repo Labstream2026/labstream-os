@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
+import { docPresenceFor } from "@/lib/doc-collab";
 import { opsEnabled, listOps, statOps } from "@/lib/nas-ops";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
@@ -290,6 +291,21 @@ export default async function ProyectoPage({
     entregables: project.deliverables.length,
     archivos: otherFolders.reduce((n, f) => n + f.files.length, 0) + project.files.length + guionesFiles.length,
   };
+
+  // Vida de los documentos de Office del proyecto: comentarios sin resolver y quién los tiene
+  // abiertos ahora mismo. Se ve en la lista, ANTES de abrir nada.
+  const docIds = [...guionesFiles, ...otherFolders.flatMap((f) => f.files), ...project.files]
+    .filter((f) => isEditableOffice(f.name))
+    .map((f) => f.id);
+  const docComentarios = docIds.length
+    ? await db.docComment.groupBy({ by: ["fileId"], where: { fileId: { in: docIds }, resolved: false }, _count: { _all: true } })
+    : [];
+  const docPresentes = await docPresenceFor(docIds);
+  const docCount = new Map(docComentarios.map((r) => [r.fileId, r._count._all]));
+  const docLive = (fileId: string) => ({
+    comentarios: docCount.get(fileId) ?? 0,
+    dentro: (docPresentes.get(fileId) ?? []).map((p) => p.name),
+  });
 
   // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
   // de inicio, horas estimadas y reales para el seguimiento del Gantt).
@@ -789,7 +805,7 @@ export default async function ProyectoPage({
               </div>
               <GuionesPanel
                 projectId={id}
-                files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name) }))}
+                files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name), ...docLive(file.id) }))}
                 canWrite={canUploadFiles}
                 onlyoffice={await onlyofficeReady()}
               />
@@ -822,9 +838,9 @@ export default async function ProyectoPage({
                   icon: f.icon,
                   color: f.color,
                   // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) })),
+                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), ...docLive(file.id), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) })),
                 }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) }))}
+                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), ...docLive(file.id), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) }))}
                 ops={opsInfo}
                 canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
               />

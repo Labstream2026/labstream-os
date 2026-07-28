@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FileText, UploadCloud, Eye, Pencil, Copy, Check, Download, Trash2, Loader2, FilePlus2 } from "lucide-react";
+import { FileText, UploadCloud, Eye, Pencil, Copy, Check, Download, Trash2, Loader2, FilePlus2, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { uploadGuiones, createGuion, copyGuionText, deleteFile } from "./actions";
 
-type Guion = { id: string; name: string; editable: boolean };
+type Guion = { id: string; name: string; editable: boolean; comentarios?: number; dentro?: string[] };
 
 export function GuionesPanel({
   projectId,
@@ -183,6 +183,25 @@ export function GuionesPanel({
             <li key={f.id} className="group flex items-center gap-3 px-4 py-3">
               <FileText className="size-5 shrink-0 text-sky-600 dark:text-sky-400" />
               <span className="min-w-0 flex-1 truncate text-sm font-medium" title={f.name}>{f.name}</span>
+
+              {/* Quién está dentro y qué queda por resolver, sin abrir el documento. */}
+              {f.dentro?.length ? (
+                <span
+                  title={`${f.dentro.join(", ")} ${f.dentro.length === 1 ? "lo tiene" : "lo tienen"} abierto ahora`}
+                  className="hidden shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 sm:inline-flex dark:text-emerald-400"
+                >
+                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                  {f.dentro.length === 1 ? f.dentro[0].split(" ")[0] : `${f.dentro.length} dentro`}
+                </span>
+              ) : null}
+              {f.comentarios ? (
+                <span
+                  title={`${f.comentarios} comentario${f.comentarios === 1 ? "" : "s"} sin resolver`}
+                  className="hidden shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 sm:inline-flex dark:text-amber-400"
+                >
+                  <MessageCircle className="size-3" /> {f.comentarios}
+                </span>
+              ) : null}
 
               <div className="flex shrink-0 items-center gap-1">
                 {onlyoffice && f.editable ? (

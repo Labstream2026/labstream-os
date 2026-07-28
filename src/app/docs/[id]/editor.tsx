@@ -2,15 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, Check, Loader2, MessageSquare, Eye, RefreshCw, Download } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, Loader2, MessageSquare, Eye, PenLine, RefreshCw, Download } from "lucide-react";
 import type { EditorConfig } from "@/lib/onlyoffice";
 import { forceSaveDoc } from "../save-action";
 
+// La instancia del editor: la necesitamos para contestarle (la lista de gente a mencionar).
+type DocEditorInstance = { setUsers?: (data: { c: string; users: MentionUser[] }) => void; destroyEditor?: () => void };
+
 declare global {
   interface Window {
-    DocsAPI?: { DocEditor: new (el: string, config: unknown) => unknown };
+    DocsAPI?: { DocEditor: new (el: string, config: unknown) => DocEditorInstance };
   }
 }
+
+// Gente a la que se puede mencionar con «+» dentro de un comentario.
+export type MentionUser = { id: string; name: string; email: string };
 
 // Eventos que el editor de OnlyOffice nos devuelve. No están tipados por la librería (se carga
 // por <script> desde el Document Server), así que se declara aquí lo justo para usarlos.
@@ -20,6 +26,10 @@ type DocsEvents = {
   onWarning?: (e: { data?: { warningCode?: number; warningDescription?: string } }) => void;
   onDocumentStateChange?: (e: { data?: boolean }) => void;
   onRequestClose?: () => void;
+  // El editor pide la lista de gente para el desplegable del «+».
+  onRequestUsers?: (e: { data?: { c?: string } }) => void;
+  // Alguien mencionó a alguien: trae el comentario y el ancla del punto exacto.
+  onRequestSendNotify?: (e: { data?: { actionLink?: unknown; comment?: string; emails?: string[] } }) => void;
 };
 
 // Cuánto se espera a que el editor dé señales de vida antes de dar el aviso de fallo. Si el
@@ -44,6 +54,9 @@ export function OnlyOfficeEditor({
   backHref,
   downloadHref,
   extra,
+  mentions,
+  onMention,
+  presentes,
 }: {
   docsUrl: string;
   config: EditorConfig;
@@ -52,6 +65,12 @@ export function OnlyOfficeEditor({
   downloadHref?: string;
   // Botones propios de cada superficie (p. ej. el «Historial» de los archivos de proyecto).
   extra?: React.ReactNode;
+  // Gente mencionable con «+» y a quién avisar cuando ocurra. Si no se pasan, el «+» no ofrece
+  // a nadie (es el caso de los adjuntos del chat, que no cuelgan de un proyecto).
+  mentions?: MentionUser[];
+  onMention?: (emails: string[], comment: string, actionLink: unknown) => void;
+  // Quién más tiene el documento abierto (según el Document Server, al abrir la página).
+  presentes?: string[];
 }) {
   const [estado, setEstado] = React.useState<Estado>("cargando");
   const [motivo, setMotivo] = React.useState<string | null>(null);
@@ -66,10 +85,21 @@ export function OnlyOfficeEditor({
   // editor. OnlyOffice REEMPLAZA ese nodo por su iframe, así que si React lo tuviera en su árbol
   // (o intentara insertar algo antes) reventaría con «insertBefore … is not a child of this node».
   const host = React.useRef<HTMLDivElement | null>(null);
+  const editorRef = React.useRef<DocEditorInstance | null>(null);
 
   const soloMira = config.editorConfig.mode === "view";
-  const soloComenta = !soloMira && !config.document.permissions.edit;
+  const sugiere = !soloMira && !config.document.permissions.edit && config.document.permissions.review;
+  const soloComenta = !soloMira && !config.document.permissions.edit && !sugiere;
   const puedeForzar = !soloMira;
+
+  // Las callbacks de mención viven en refs: el efecto que monta el editor NO debe volver a
+  // ejecutarse porque cambie una función (remontar el editor perdería lo que se esté escribiendo).
+  const mentionsRef = React.useRef(mentions);
+  const onMentionRef = React.useRef(onMention);
+  React.useEffect(() => {
+    mentionsRef.current = mentions;
+    onMentionRef.current = onMention;
+  }, [mentions, onMention]);
 
   // Guardar ahora: le pide al Document Server que escriba el archivo en disco, sin esperar a
   // que el último editor cierre el documento.
@@ -150,9 +180,20 @@ export function OnlyOfficeEditor({
           setGuardado(mod ? "sucio" : "limpio");
         },
         onRequestClose: () => { window.location.href = backHref; },
+        // «+» dentro de un comentario: el editor pide a quién puede mencionar.
+        onRequestUsers: (e) => {
+          const lista = mentionsRef.current ?? [];
+          editorRef.current?.setUsers?.({ c: e?.data?.c ?? "mention", users: lista });
+        },
+        // Ya mencionó a alguien: el aviso lo manda la app (el editor no sabe de campanas).
+        onRequestSendNotify: (e) => {
+          const d = e?.data;
+          if (!d?.emails?.length) return;
+          onMentionRef.current?.(d.emails, d.comment ?? "", d.actionLink);
+        },
       };
       try {
-        new window.DocsAPI.DocEditor("oo-editor", { ...config, events });
+        editorRef.current = new window.DocsAPI.DocEditor("oo-editor", { ...config, events });
       } catch (err) {
         clearTimeout(arranque);
         setEstado("fallo");
@@ -165,6 +206,7 @@ export function OnlyOfficeEditor({
       vivo = false;
       clearTimeout(arranque);
       script.remove();
+      editorRef.current = null;
       caja.replaceChildren(); // se lleva por delante lo que OnlyOffice haya montado dentro
     };
   }, [docsUrl, config, backHref]);
@@ -198,8 +240,26 @@ export function OnlyOfficeEditor({
         {/* Qué puedes hacer aquí: se dice, no se descubre probando. */}
         {soloMira ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"><Eye className="size-3" /> Solo lectura</span>
+        ) : sugiere ? (
+          <span
+            title="Lo que escribas queda marcado como sugerencia: el equipo lo acepta o lo rechaza."
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400"
+          >
+            <PenLine className="size-3" /> Modo sugerencias
+          </span>
         ) : soloComenta ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"><MessageSquare className="size-3" /> Puedes comentar</span>
+        ) : null}
+
+        {/* Quién más está aquí: se ve ANTES de empezar a escribir, no cuando ya se pisaron. */}
+        {presentes?.length ? (
+          <span
+            title={`${presentes.join(", ")} ${presentes.length === 1 ? "tiene" : "tienen"} este documento abierto`}
+            className="hidden shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 sm:inline-flex dark:text-emerald-400"
+          >
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            {presentes.length === 1 ? `${presentes[0]} está dentro` : `${presentes.length} personas dentro`}
+          </span>
         ) : null}
 
         <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

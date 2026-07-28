@@ -35,7 +35,7 @@ import { OpsFolderPicker } from "./ops-folder-picker";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmojiSelect } from "@/components/emoji-select";
 
-type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null; missing?: boolean };
+type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; comentarios?: number; dentro?: string[]; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null; missing?: boolean };
 
 // Carpeta viva de Operaciones_LAB vinculada al proyecto (solo equipo; el cliente no la ve).
 type OpsLiveFile = { name: string; rel: string; size: number | null; mtimeMs: number; ext: string };
@@ -462,6 +462,26 @@ function FileRow({ file, projectId, indent }: { file: FileAsset; projectId: stri
         <a href={`/proyectos/${projectId}?tab=tareas`} title={`Tarea: ${file.task.title}`} className="hidden shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 sm:inline-flex">
           <CheckSquare className="size-3" />
           <span className="max-w-[8rem] truncate">{file.task.title}</span>
+        </a>
+      ) : null}
+      {/* Vida del documento: quién lo tiene abierto y cuántos comentarios siguen sin resolver.
+          Se ve ANTES de abrirlo, que es cuando sirve para no pisarse. */}
+      {file.dentro?.length ? (
+        <span
+          title={`${file.dentro.join(", ")} ${file.dentro.length === 1 ? "lo tiene" : "lo tienen"} abierto ahora`}
+          className="hidden shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 sm:inline-flex dark:text-emerald-400"
+        >
+          <span className="size-1.5 rounded-full bg-emerald-500" />
+          {file.dentro.length === 1 ? file.dentro[0].split(" ")[0] : `${file.dentro.length} dentro`}
+        </span>
+      ) : null}
+      {file.comentarios ? (
+        <a
+          href={`/docs/file/${file.id}`}
+          title={`${file.comentarios} comentario${file.comentarios === 1 ? "" : "s"} sin resolver`}
+          className="hidden shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-500/20 sm:inline-flex dark:text-amber-400"
+        >
+          <MessageCircle className="size-3" /> {file.comentarios}
         </a>
       ) : null}
       {/* Chip «NAS»: archivo VIVO de Operaciones_LAB (kind OPS); el título muestra la ruta. */}

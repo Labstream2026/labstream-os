@@ -5,8 +5,9 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { getOnlyOfficeConfig, isEditableOffice, buildConfig, signConfig, type DocAccess } from "@/lib/onlyoffice";
 import { signFileToken } from "@/lib/storage";
-import { OnlyOfficeEditor } from "../../[id]/editor";
-import { HistoryPanel } from "./history-panel";
+import { decodeActionLink } from "@/lib/doc-action-link";
+import { docPresenceFor } from "@/lib/doc-collab";
+import { FileEditorShell } from "./editor-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,15 @@ const accessSelect = {
   finishedAt: true,
 } as const;
 
-export default async function ProjectFileEditPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectFileEditPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ ir?: string }>;
+}) {
   const { id } = await params;
+  const { ir } = await searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
 
@@ -60,9 +68,11 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
     ? "view"
     : canWriteProject(file.project, session) || (isClienteMember && hasPermission(session, "subir_archivos"))
       ? "edit"
+      // El cliente SUGIERE: escribe de verdad, pero todo queda marcado y lo acepta el equipo.
       : isClienteMember
-        ? "comment"
-        : "view";
+        ? "review"
+        // Invitado de solo lectura del equipo: puede opinar, no tocar.
+        : "comment";
   const fileUrl = `${cfg.callbackBase}/api/files-asset/${id}?t=${signFileToken(id)}`;
   const callbackUrl = `${cfg.callbackBase}/api/docs/file/${id}/callback`;
   const config = await signConfig(
@@ -75,10 +85,41 @@ export default async function ProjectFileEditPage({ params }: { params: Promise<
       access,
       user: { id: session.id, name: session.name },
       backUrl: backHref,
+      // Si se llega desde el aviso de una mención, el editor abre EN ese comentario.
+      actionLink: decodeActionLink(ir),
     }),
   );
 
-  return <OnlyOfficeEditor docsUrl={cfg.docsUrl} config={config} title={file.name} backHref={backHref} downloadHref={`/api/files-asset/${id}?download=1`} extra={<HistoryPanel fileId={id} />} />;
+  // Contexto que la app añade encima del editor: cuántos comentarios quedan sin resolver, a
+  // quién se puede mencionar con «+» y quién más tiene el documento abierto ahora mismo.
+  const [comentarios, gente, presencia] = await Promise.all([
+    db.docComment.count({ where: { fileId: id, resolved: false } }),
+    db.user.findMany({
+      where: {
+        active: true,
+        isSystemBot: false,
+        OR: [{ id: { in: file.project.members.map((m) => m.userId) } }, ...(file.project.leadId ? [{ id: file.project.leadId }] : [])],
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    }),
+    docPresenceFor([id]),
+  ]);
+
+  return (
+    <FileEditorShell
+      docsUrl={cfg.docsUrl}
+      config={config}
+      title={file.name}
+      backHref={backHref}
+      downloadHref={`/api/files-asset/${id}?download=1`}
+      fileId={id}
+      projectId={file.projectId}
+      comentarios={comentarios}
+      mentions={gente.filter((u) => u.id !== session.id)}
+      presentes={(presencia.get(id) ?? []).filter((p) => p.id !== session.id).map((p) => p.name)}
+    />
+  );
 }
 
 function Notice({ title, msg, backHref, download }: { title: string; msg: string; backHref: string; download?: string }) {

@@ -75,10 +75,17 @@ export function isEditableOffice(name: string) {
 
 // ── Qué puede hacer quien abre el documento ──
 //  · "edit"    → escribir y comentar (el equipo).
-//  · "comment" → NO puede tocar el texto, solo dejar comentarios (el cliente). Sigue siendo
-//    modo "edit" en el editor: es lo que activa la barra de comentarios y la co-edición.
-//  · "view"    → solo leer y descargar (invitados, usuario demo, proyecto dormido).
-export type DocAccess = "edit" | "comment" | "view";
+//  · "review"  → SUGERIR: escribe, pero todo queda marcado como cambio propuesto y solo el
+//    equipo lo acepta o lo rechaza. Es lo que ve el cliente: aporta de verdad sin poder
+//    romper nada, y nadie tiene que descifrar «qué me cambiaron».
+//  · "comment" → NO toca el texto, solo deja comentarios (invitados de solo lectura). Sigue
+//    siendo modo "edit" en el editor: es lo que activa la barra de comentarios y la co-edición.
+//  · "view"    → solo leer y descargar (usuario demo, proyecto dormido).
+export type DocAccess = "edit" | "review" | "comment" | "view";
+
+// Ancla que devuelve el editor al mencionar a alguien con «+»: guarda el punto exacto del
+// comentario. Devolviéndosela al abrir, el documento salta ahí solo.
+export type DocActionLink = Record<string, unknown>;
 
 export type EditorConfig = {
   document: {
@@ -86,7 +93,7 @@ export type EditorConfig = {
     key: string;
     title: string;
     url: string;
-    permissions: { edit: boolean; comment: boolean; download: boolean; print: boolean };
+    permissions: { edit: boolean; review: boolean; comment: boolean; download: boolean; print: boolean };
   };
   documentType: "word" | "cell" | "slide" | "pdf";
   editorConfig: {
@@ -94,11 +101,18 @@ export type EditorConfig = {
     callbackUrl: string;
     lang: string;
     user: { id: string; name: string };
+    // Punto del documento al que saltar al abrir (viene de una mención).
+    actionLink?: DocActionLink;
     customization: {
       // Muestra el botón de guardar y hace que Ctrl+S fuerce el guardado (callback status 6).
       // Sin esto, OnlyOffice solo guarda cuando el ÚLTIMO editor cierra el documento.
       forcesave: boolean;
       autosave: boolean;
+      // Al escribir «+» en un comentario, ofrecer MENCIONAR (no «compartir el archivo»): el
+      // compartir es de la app, no del editor.
+      mentionShare: boolean;
+      // Modo sugerencias: abre con el control de cambios encendido.
+      review?: { trackChanges: boolean };
       // El botón «volver» del propio editor (además del nuestro).
       goback?: { text: string; url: string };
     };
@@ -115,9 +129,12 @@ export function buildConfig(opts: {
   access: DocAccess;
   user: { id: string; name: string };
   backUrl?: string;
+  actionLink?: DocActionLink;
 }): EditorConfig {
   const type = officeType(opts.name) ?? "word";
   const canEdit = opts.access === "edit";
+  // Sugerir: quien edita también puede marcar cambios; quien solo comenta, no.
+  const canReview = opts.access === "edit" || opts.access === "review";
   const canComment = opts.access !== "view";
   return {
     document: {
@@ -125,18 +142,23 @@ export function buildConfig(opts: {
       key: `${opts.attachmentId}_${opts.version}`, // debe cambiar cuando cambia el archivo
       title: opts.name,
       url: opts.fileUrl,
-      permissions: { edit: canEdit, comment: canComment, download: true, print: true },
+      // edit:false + review:true = solo cambios marcados (el editor lo llama «revisión»).
+      permissions: { edit: canEdit, review: canReview, comment: canComment, download: true, print: true },
     },
     documentType: type,
     editorConfig: {
-      // "comment" también entra en modo edit: es lo que habilita comentarios y co-edición.
+      // "comment" y "review" también entran en modo edit: es lo que habilita comentarios,
+      // sugerencias y co-edición.
       mode: opts.access === "view" ? "view" : "edit",
       callbackUrl: opts.callbackUrl,
       lang: "es",
       user: opts.user,
+      ...(opts.actionLink ? { actionLink: opts.actionLink } : {}),
       customization: {
         forcesave: true,
         autosave: true,
+        mentionShare: false,
+        ...(opts.access === "review" ? { review: { trackChanges: true } } : {}),
         ...(opts.backUrl ? { goback: { text: "Volver", url: opts.backUrl } } : {}),
       },
     },
