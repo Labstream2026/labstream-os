@@ -26,7 +26,24 @@ import { fetchDriveDownload, guessDriveMime } from "@/lib/drive";
 const CACHE_DIR = path.join(STORAGE_DIR, "review-cache");
 const MAX_TOTAL_BYTES = 40 * 1024 * 1024 * 1024; // 40 GB: tope del caché (LRU por último acceso). Hay
 // proyectos de varios GB por pieza, así que 20 GB se quedaba corto y expulsaba videos aún en revisión.
-const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024; // un único archivo > 4 GB no se cachea (se proxia en vivo)
+// Tope por archivo. Eran 4 GB, que dejaba fuera justo a los masters largos —los que peor se
+// comportan en directo, con más saltos y más espera—. Con la cuenta de servicio de Google el
+// cupo ya no es el límite, así que el único riesgo real es el disco: de ahí el guardián de
+// abajo (nunca ocupar más de la mitad de lo libre), que manda sobre este número.
+const MAX_FILE_BYTES = 12 * 1024 * 1024 * 1024;
+// Nunca dejar el NAS al borde por una copia de revisión: si el archivo se comería más de esta
+// fracción del espacio libre, se sirve en directo desde Drive y no se copia.
+const MAX_FREE_FRACTION = 0.5;
+
+// Espacio libre del volumen donde vive STORAGE_DIR. null si el sistema no lo sabe decir.
+async function freeBytes(): Promise<number | null> {
+  try {
+    const st = await fs.statfs(STORAGE_DIR);
+    return Number(st.bavail) * Number(st.bsize);
+  } catch {
+    return null;
+  }
+}
 
 // Descargas en curso: comparte la MISMA descarga entre peticiones concurrentes (un contenedor Node),
 // para que N visitas simultáneas de un video aún sin cachear NO disparen N descargas de Drive.
@@ -129,11 +146,17 @@ async function downloadToCache(versionId: string, driveId: string, name: string)
       return null;
     }
     const len = Number(res.headers.get("content-length") || "0");
-    if (len && len > MAX_FILE_BYTES) {
-      // Demasiado grande: se sirve en vivo (no es fallo de cuota). Se corta el cuerpo para no
-      // dejar abierta una conexión a Drive que nadie va a leer.
-      await res.body.cancel().catch(() => {});
-      return null;
+    if (len > 0) {
+      // Demasiado grande, o no cabe con holgura en el NAS: se sirve en vivo desde Drive (no es
+      // fallo de cuota, así que no entra en enfriamiento). Se corta el cuerpo para no dejar
+      // abierta una conexión que nadie va a leer.
+      const libre = await freeBytes();
+      const noCabe = libre != null && len > libre * MAX_FREE_FRACTION;
+      if (len > MAX_FILE_BYTES || noCabe) {
+        await res.body.cancel().catch(() => {});
+        if (noCabe) console.warn(`[review-cache] ${versionId} no se copia: ${Math.round(len / 1e9)} GB no caben con holgura en el NAS`);
+        return null;
+      }
     }
 
     const mime = ctype && !ctype.includes("octet-stream") ? ctype.split(";")[0].trim() : guessDriveMime(name);

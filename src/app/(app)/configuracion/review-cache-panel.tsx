@@ -77,7 +77,8 @@ export function ReviewCachePanel() {
           <p className="mt-1 text-[11px] text-muted-foreground">
             {usoPct}% del tope. Al llegar al tope se borran solas las copias menos usadas, y las de
             los entregables aprobados hace más de una semana se retiran cada noche. Un video de más
-            de {gb(datos.topeArchivo)} no se copia: se sirve en directo desde Drive.
+            de {gb(datos.topeArchivo)} —o que se comiera más de la mitad de lo que queda libre— no se
+            copia: se sirve en directo desde Drive.
           </p>
           {discoJusto ? (
             <p className="mt-2 flex items-start gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] font-medium text-destructive">

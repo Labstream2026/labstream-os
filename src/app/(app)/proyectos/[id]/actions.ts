@@ -37,6 +37,7 @@ import { materialHealth, type MaterialHealth } from "@/lib/material-health";
 import { getAppConfigBool, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
 import { signDeliveryToken } from "@/lib/delivery-token";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
+import { prewarmReviewCopy } from "@/lib/review-prewarm";
 import type { SessionUser } from "@/lib/session";
 
 function refresh(projectId: string | null) {
@@ -1461,7 +1462,10 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     // Revisor CLIENTE (miembro invitado) = revisión DIRECTA: la v1 no pasa por la compuerta
     // interna; queda aprobada de una y va derecho al portal del cliente.
     const directToClient = await memberIsClient(reviewerId);
-    await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, durationSec: parseDurationSec(formData), uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
+    const v1 = await db.deliverableVersion.create({ data: { deliverableId: d.id, number: 1, notes: null, fileUrl, fileAssetId, durationSec: parseDurationSec(formData), uploadedById: session.id, internalApproved: directToClient, internalApprovedAt: directToClient ? new Date() : null } });
+    // Si la pieza vive en Drive, la copia al NAS arranca YA (en segundo plano): cuando el
+    // revisor abra la sala, el video sale de casa y la captura va al instante.
+    prewarmReviewCopy(v1.id, fileUrl);
     await db.deliverable.update({ where: { id: d.id }, data: { status: directToClient ? "ENVIADO_CLIENTE" : "REVISION_INTERNA" } });
     // Mandar la pieza a revisión ES terminar el trabajo: las tareas "ítem de entregable"
     // vinculadas se completan solas para el editor.
@@ -1929,7 +1933,7 @@ export async function addDeliverableVersion(
   // FileAsset recién creado para no dejar basura en disco/BD.
   for (let attempt = 0; ; attempt++) {
     try {
-      await db.deliverableVersion.create({
+      const creada = await db.deliverableVersion.create({
         data: {
           deliverableId,
           number,
@@ -1944,6 +1948,10 @@ export async function addDeliverableVersion(
           internalApprovedAt: directToClient ? new Date() : null,
         },
       });
+      // Pieza de Drive: la copia al NAS arranca YA, en segundo plano, para que el revisor no
+      // pague la espera de la primera apertura (que es donde antes se perdían el segundo y la
+      // captura mientras el video llegaba).
+      prewarmReviewCopy(creada.id, fileUrl);
       break;
     } catch (e) {
       if (attempt < 4 && (e as { code?: string })?.code === "P2002") {

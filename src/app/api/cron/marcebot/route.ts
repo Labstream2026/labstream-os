@@ -8,6 +8,7 @@ import { sweepReminders } from "@/lib/reminders";
 import { sweepDeliverableSla } from "@/lib/deliverable-sla";
 import { purgeApprovedReviewCache } from "@/lib/review-cache";
 import { purgeLegacyReviewProxies } from "@/lib/review-proxy-purge";
+import { sweepReviewPrewarm } from "@/lib/review-prewarm";
 import { sweepClientDigest } from "@/lib/client-digest";
 
 export const runtime = "nodejs";
@@ -42,9 +43,12 @@ async function run(req: NextRequest) {
     // ocupaban. Se agota solo (cuando no queda ninguno, no hace trabajo). Va AQUÍ (cron
     // garantizado de 2 h) porque /api/cron/reminders es opcional en el NAS.
     const reviewProxies = await purgeLegacyReviewProxies().catch((e) => ({ purged: 0, error: e instanceof Error ? e.message : "error" }));
+    // Copias de revisión que falten (reinicio del contenedor, versión creada por la API, pieza
+    // reabierta): se traen ANTES de que nadie abra la sala. De a 2 por pasada.
+    const reviewPrewarm = await sweepReviewPrewarm().catch((e) => ({ arrancadas: 0, error: e instanceof Error ? e.message : "error" }));
     // Resumen semanal del portal del cliente (viernes; se auto-limita por usuario y por día).
     const clientDigest = await sweepClientDigest().catch((e) => ({ sent: 0, error: e instanceof Error ? e.message : "error" }));
-    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache, reviewProxies, clientDigest });
+    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache, reviewProxies, reviewPrewarm, clientDigest });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }
