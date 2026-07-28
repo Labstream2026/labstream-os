@@ -94,6 +94,28 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Si el usuario cierra la pestaña a mitad de una respuesta larga, el controlador ya está
+      // cerrado y CUALQUIER escritura lanza. Antes el aviso de error del catch y el close del
+      // finally lo hacían sin red: una excepción encima de otra. Con esto, marcharse a mitad
+      // de una respuesta del asistente es un no-evento.
+      let cerrado = false;
+      const escribir = (texto: string) => {
+        if (cerrado) return;
+        try {
+          controller.enqueue(encoder.encode(texto));
+        } catch {
+          cerrado = true; // el cliente se fue
+        }
+      };
+      const cerrar = () => {
+        if (cerrado) return;
+        cerrado = true;
+        try {
+          controller.close();
+        } catch {
+          /* ya cerrado */
+        }
+      };
       try {
         const ai = client.messages.stream({
           model: AI_MODEL,
@@ -103,16 +125,17 @@ export async function POST(req: NextRequest) {
           messages,
         });
         for await (const event of ai) {
+          if (cerrado) break; // nadie escucha ya: no seguir gastando tokens del proveedor
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            controller.enqueue(encoder.encode(event.delta.text));
+            escribir(event.delta.text);
           }
         }
       } catch (e) {
         // No exponer el detalle del proveedor al cliente; registrarlo en el servidor.
         console.error("[ai] stream error:", e);
-        controller.enqueue(encoder.encode("\n\n[Error de IA: no se pudo completar la respuesta. Inténtalo de nuevo.]"));
+        escribir("\n\n[Error de IA: no se pudo completar la respuesta. Inténtalo de nuevo.]");
       } finally {
-        controller.close();
+        cerrar();
       }
     },
   });

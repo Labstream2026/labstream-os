@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { clientAbortCount } from "@/instrumentation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,9 @@ export async function GET() {
       ok: dbOk,
       upSec: Math.floor(process.uptime()),
       db: dbOk,
+      // Desconexiones de cliente a mitad de una respuesta que ANTES tumbaban el proceso. Si
+      // este número sube y `upSec` sigue creciendo, la app está aguantando lo que la reiniciaba.
+      clientAborts: clientAbortCount(),
     },
     { status: dbOk ? 200 : 503, headers: { "cache-control": "no-store" } },
   );
