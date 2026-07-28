@@ -11,8 +11,10 @@ import { resolveDriveMediaFile } from "@/lib/drive";
 // requiere leer su contenido.
 //
 // REGLA DE ORO: si la pieza está en Drive, se reproduce por /api/review-media (nuestro origen),
-// NUNCA por el iframe de Google. Es lo único que permite guardar el segundo y la captura del
-// fotograma en cada corrección; el visor de Google queda como salida manual, jamás automática.
+// con el ARCHIVO ORIGINAL sin recomprimir y NUNCA por el iframe de Google. Es lo único que
+// permite guardar el segundo y la captura del fotograma en cada corrección. Hay UN SOLO modo a
+// propósito: el visor de Google llegó a ser una salida manual y confundía —dos reproductores con
+// reglas distintas, y el más vistoso era el que no capturaba nada.
 
 const IMG = /\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i;
 // Incluye contenedores que el navegador puede NO decodificar (MKV, AVI, MXF, MTS…): aun así son
@@ -62,9 +64,7 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
       openUrl: s.url,
       fileName: null,
       timecodeCapable: true,
-      // Salida manual si el navegador no sabe decodificar ese contenedor (ProRes, MKV…):
-      // se ve, pero sin captura. Nunca se entra aquí solo.
-      googleViewUrl: s.embedUrl,
+      fromDrive: true,
     };
   }
 
@@ -81,7 +81,7 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
         openUrl: v.fileUrl,
         fileName: media.name || null,
         timecodeCapable: true,
-        googleViewUrl: `https://drive.google.com/file/d/${media.id}/preview`,
+        fromDrive: true,
       };
     }
     if (media) {

@@ -23,9 +23,9 @@ export type StageVersion = {
   notes: string | null;
   kind: "video" | "image" | "youtube" | "vimeo" | "drive_folder" | "other" | "none";
   src: string | null; // embed/src primario (iframe o <video>)
-  // Visor de Google para una pieza de Drive. Es una SALIDA MANUAL: ahí se ve pero no se puede
-  // capturar ni el segundo ni el fotograma, así que solo se entra pulsando el botón — nunca solo.
-  googleViewUrl?: string | null;
+  // ¿Es una pieza que vive en Google Drive? Solo para adaptar los avisos (la primera apertura
+  // trae la copia): NO cambia cómo se reproduce — todo pasa por nuestro reproductor.
+  fromDrive?: boolean;
   openUrl: string | null;
   fileName: string | null;
   timecodeCapable: boolean;
@@ -997,9 +997,9 @@ export function ReviewStage({
             ) : null}
             {drawing ? <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Anotación lista</span> : null}
           </div>
-          {version?.googleViewUrl ? (
+          {version?.fromDrive ? (
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              ℹ️ El video de Drive se reproduce aquí mismo, así que al comentar se guardan el segundo y la captura del fotograma. La primera vez la copia se trae de Drive y puede tardar unos segundos; después sale del NAS al instante. «▶︎ Ver con Google» está solo por si quieres mirarlo en su visor (ahí no hay captura).
+              ℹ️ El video se reproduce aquí mismo, en su calidad original y sin recomprimir, así que al comentar se guardan el segundo y la captura del fotograma. La primera vez se trae la copia desde Drive y puede tardar unos segundos; después sale del NAS al instante.
             </p>
           ) : null}
           {version?.kind === "youtube" || version?.kind === "vimeo" ? (
@@ -2028,13 +2028,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Duración y estado de pausa espejados desde los eventos (getDuration/getPaused son asíncronos).
   const vimeoDur = React.useRef<number | null>(null);
   const vimeoPaused = React.useRef(true);
-  // Salida MANUAL al visor de Google (solo para piezas de Drive). El material se reproduce
-  // siempre por nuestro origen —así se pueden leer el segundo y el fotograma, que es lo que se
-  // guarda en cada corrección—; a Google solo se va pulsando el botón, nunca por su cuenta.
-  // Antes el salto era automático ante cualquier tropiezo del stream: el video se veía, sí, pero
-  // la captura y el segundo desaparecían sin avisar.
-  const googleUrl = version?.googleViewUrl || null;
-  const [verConGoogle, setVerConGoogle] = React.useState(false);
+  // UN SOLO MODO. El material se reproduce SIEMPRE por nuestro origen, con el archivo original
+  // sin recomprimir, y por tanto siempre se pueden leer el segundo y el fotograma. Se quitó el
+  // conmutador al visor de Google: dos reproductores con reglas distintas confundían a quien
+  // revisa (sobre todo al cliente) y el que «se veía mejor» era justo el que no capturaba nada.
   // ── Fotograma LIMPIO en pausa ──
   // Safari (y otros) dejan los controles nativos FIJOS al pausar, con un velo oscuro sobre
   // todo el cuadro — justo cuando el revisor pausa para MIRAR el fotograma. Tras una pausa
@@ -2087,10 +2084,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Reintentos del stream antes de dar la pieza por no reproducible: un tropiezo transitorio del
   // arranque (la copia del NAS empezando, la red del cliente) no puede costar la captura.
   const proxyRetries = React.useRef(0);
-  // Timer del reintento: se cancela al cambiar de versión/modo para no restaurar un src viejo.
+  // Timer del reintento: se cancela al cambiar de versión para no restaurar un src viejo.
   const retryTimer = React.useRef<number | null>(null);
   React.useEffect(() => {
-    setVerConGoogle(false);
     proxyRetries.current = 0;
     if (retryTimer.current != null) { window.clearTimeout(retryTimer.current); retryTimer.current = null; }
   }, [version]);
@@ -2114,9 +2110,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     apiRef.current?.setRate(r);
   };
 
-  // ¿Se está reproduciendo con nuestro <video> (lo normal) o en el visor de Google (salida manual)?
-  const enGoogle = verConGoogle && !!googleUrl;
-  const esVideo = version?.kind === "video" && !enGoogle;
+  const esVideo = version?.kind === "video";
   // Elemento del mismo origen del que SÍ se puede leer el fotograma.
   const captureEl = (): HTMLVideoElement | HTMLImageElement | null =>
     esVideo ? videoRef.current : version?.kind === "image" ? imgRef.current : null;
@@ -2297,18 +2291,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       <span className="text-sm font-medium text-white drop-shadow">{caption.trim()}</span>
     </div>
   ) : null;
-  // Conmutador Drive: nuestro reproductor (con captura) ↔ el visor de Google (solo mirar).
-  // Volver a «modo captura» limpia el fallo previo para poder reintentar el stream.
-  const driveToggle = googleUrl && !drawOpen ? (
-    <button
-      type="button"
-      onClick={() => { setLocalFailed(false); proxyRetries.current = 0; setVerConGoogle((m) => !m); }}
-      title={enGoogle ? "Volver al reproductor de la app (guarda el segundo y captura el fotograma)" : "Ver en el reproductor de Google (no permite capturar)"}
-      className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white shadow hover:bg-black/85"
-    >
-      {enGoogle ? "📸 Modo captura" : "▶︎ Ver con Google"}
-    </button>
-  ) : null;
   // Barra de velocidad de la app (aplica al <video> del mismo origen y a YouTube).
   const speedBar = <SpeedBar rate={rate} onRate={applyRate} />;
 
@@ -2366,11 +2348,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             style={{ WebkitTouchCallout: "none" }}
             className={immersive ? "block h-full w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"}
           />
-          {immersive ? null : driveToggle}
           {liveCaption}
           {overlay}
           {/* El navegador no decodifica este contenedor (ProRes, MKV, HEVC 10-bit) o el stream
-              no llegó tras los reintentos: tarjeta explicativa con las salidas reales, en vez de
+              no llegó tras los reintentos: tarjeta explicativa con la salida real, en vez de
               un player negro y mudo. */}
           {localFailed ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 overflow-auto rounded-xl bg-card/95 p-6 text-center text-sm">
@@ -2383,25 +2364,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
                     ? "Comprobando con el servidor qué está pasando…"
                     : "Suele ser el formato del master (ProRes, MKV, HEVC de 10 bits). Vuelve a intentarlo, o sube un export H.264 como nueva versión para poder comentar con el segundo y la captura."}
               </p>
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setLocalFailed(false); setDiag(null); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}
-                  className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
-                >
-                  ↻ Reintentar
-                </button>
-                {googleUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setVerConGoogle(true)}
-                    title="Solo para verlo: en el visor de Google no se puede guardar el segundo ni capturar el fotograma"
-                    className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
-                  >
-                    ▶︎ Verlo con Google (sin captura)
-                  </button>
-                ) : null}
-              </div>
+              <button
+                type="button"
+                onClick={() => { setLocalFailed(false); setDiag(null); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}
+                className="mt-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
+              >
+                ↻ Reintentar
+              </button>
             </div>
           ) : null}
         </div>
@@ -2430,7 +2399,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       <div className={immersive ? "relative h-full w-full" : vertical ? "relative mx-auto w-fit max-w-full" : "relative"}>
         <iframe
           ref={ytRef}
-          src={enGoogle ? googleUrl! : version.src}
+          src={version.src}
           className={immersive
             ? "block h-full w-full border-0 bg-black"
             : vertical
@@ -2439,25 +2408,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           allow="autoplay; fullscreen; picture-in-picture"
           allowFullScreen
         />
-        {immersive ? null : driveToggle}
         {liveCaption}
         {overlay}
       </div>
-      {immersive ? null : isYouTube || version.kind === "vimeo" ? (
-        // YouTube y Vimeo exponen API de velocidad → barra de la app.
-        speedBar
-      ) : enGoogle ? (
-        // Salida manual: aquí Google manda. Se avisa de lo que se pierde y cómo volver.
-        <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-          <p>⏩ Cambia la velocidad (1.5×, 2×) desde el engranaje ⚙ del reproductor de Google.</p>
-          <p>
-            ⚠️ En el visor de Google <strong>no se guarda el segundo ni se captura el fotograma</strong>.{" "}
-            <button type="button" onClick={() => { setLocalFailed(false); proxyRetries.current = 0; setVerConGoogle(false); }} className="font-medium text-primary hover:underline">
-              Volver al modo captura
-            </button>.
-          </p>
-        </div>
-      ) : null}
+      {/* YouTube y Vimeo exponen API de velocidad → barra de la app. */}
+      {immersive ? null : isYouTube || version.kind === "vimeo" ? speedBar : null}
     </div>
   );
 }
