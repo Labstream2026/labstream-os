@@ -11,6 +11,7 @@ import { UserControls } from "@/app/(app)/configuracion/user-controls";
 import { CleanupNamesButton } from "@/app/(app)/configuracion/cleanup-names-button";
 import { MarcebotCleanupButton } from "@/app/(app)/configuracion/marcebot-cleanup-button";
 import { DemoPanel } from "@/app/(app)/configuracion/demo-panel";
+import { ReviewCachePanel } from "@/app/(app)/configuracion/review-cache-panel";
 import { DemoModePanel } from "@/app/(app)/configuracion/demo-mode-panel";
 import { leerEstadoDemo } from "@/lib/demo-mode";
 import { GUIA_TOTAL } from "@/lib/demo-guia";
@@ -424,6 +425,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   const demoUser = users.find((u) => u.email === "demo@labstream.co");
   const mantenimientoNode = (
     <div className="space-y-4">
+      <ReviewCachePanel />
       <CleanupNamesButton />
       <MarcebotCleanupButton />
       <DemoPanel exists={!!demoUser} active={demoUser?.active ?? false} />

@@ -168,6 +168,48 @@ function parseConfirmForm(html: string, id: string): string | null {
   return p.toString();
 }
 
+// ── Sonda de acceso (para el diagnóstico de la sala de revisión) ──
+// Pregunta a Drive por UN SOLO BYTE del archivo para saber si el servidor puede leerlo y por qué
+// camino. Solo se usa cuando el reproductor YA falló: sirve para decirle al revisor la verdad
+// («no es público», «Google agotó el cupo del enlace», «sí llego al archivo: es el formato»)
+// en vez de echarle la culpa al formato siempre. `conCuenta` indica si hay cuenta de servicio
+// configurada — sin ella, tanto el cupo como los archivos restringidos son inevitables.
+export type DriveProbe =
+  | { ok: true; via: "cuenta" | "anonimo"; conCuenta: boolean }
+  | { ok: false; causa: "sin_permiso" | "cuota" | "red"; conCuenta: boolean };
+
+export async function probeDriveAccess(id: string): Promise<DriveProbe> {
+  const token = await getGoogleAccessToken();
+  const conCuenta = !!token;
+  if (token) {
+    try {
+      const res = await fetch(
+        `${DRIVE_API}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`,
+        { headers: { Authorization: `Bearer ${token}`, Range: "bytes=0-0" } },
+      );
+      await res.body?.cancel().catch(() => {});
+      if (res.ok || res.status === 206) return { ok: true, via: "cuenta", conCuenta };
+    } catch {
+      /* la cuenta no llegó: se prueba el camino anónimo */
+    }
+  }
+  try {
+    const res = await fetchDriveDownload(id, "bytes=0-0");
+    const ctype = res.headers.get("content-type") || "";
+    if (!ctype.includes("text/html") && (res.ok || res.status === 206)) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: true, via: "anonimo", conCuenta };
+    }
+    // Drive responde HTML tanto para «no es público» como para «cupo diario agotado»; el texto
+    // de la página es lo único que los distingue.
+    const html = await res.text().catch(() => "");
+    const cuota = /quota exceeded|too many|demasiadas|cuota/i.test(html);
+    return { ok: false, causa: cuota ? "cuota" : "sin_permiso", conCuenta };
+  } catch {
+    return { ok: false, causa: "red", conCuenta };
+  }
+}
+
 // Adivina el tipo MIME reproducible a partir del nombre de archivo (para servir por el proxy).
 export function guessDriveMime(name: string): string {
   const n = name.toLowerCase();

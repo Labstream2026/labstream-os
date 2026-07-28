@@ -108,6 +108,17 @@ const MIME: Record<string, string> = {
   mov: "video/quicktime",
   mkv: "video/x-matroska",
   ogv: "video/ogg",
+  // Contenedores de cámara/edición que el navegador puede o no decodificar. Se registran igual
+  // para que el <video> los INTENTE (algunos MKV/AVI con H.264 sí reproducen) y, si no puede,
+  // la sala muestre su tarjeta explicativa. Antes caían a octet-stream y el reproductor ni
+  // aparecía: el revisor veía un marco vacío sin saber por qué.
+  avi: "video/x-msvideo",
+  wmv: "video/x-ms-wmv",
+  mts: "video/mp2t",
+  m2ts: "video/mp2t",
+  mxf: "application/mxf",
+  mpg: "video/mpeg",
+  mpeg: "video/mpeg",
 };
 
 export function extOf(name: string) {
@@ -143,6 +154,11 @@ const INLINE_SAFE_MIME = new Set([
   "video/quicktime",
   "video/x-m4v",
   "video/x-matroska",
+  "video/x-msvideo",
+  "video/x-ms-wmv",
+  "video/mp2t",
+  "video/mpeg",
+  "application/mxf",
 ]);
 
 export function isInlineSafeMime(mime: string): boolean {

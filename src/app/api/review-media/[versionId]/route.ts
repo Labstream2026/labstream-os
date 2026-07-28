@@ -2,8 +2,8 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { verifyReviewMediaToken } from "@/lib/review-token";
-import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload } from "@/lib/drive";
-import { getCachedReview, startReviewCache, serveCachedReview, servePartialReview } from "@/lib/review-cache";
+import { resolveDriveMediaFile, guessDriveMime, fetchDriveDownload, probeDriveAccess } from "@/lib/drive";
+import { getCachedReview, startReviewCache, serveCachedReview, servePartialReview, reviewCacheProgressPct } from "@/lib/review-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +24,8 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> },
 ) {
   const { versionId } = await params;
-  const t = new URL(req.url).searchParams.get("t") || "";
+  const sp = new URL(req.url).searchParams;
+  const t = sp.get("t") || "";
   if (verifyReviewMediaToken(t) !== versionId) return new Response("No autorizado", { status: 401 });
 
   const version = await db.deliverableVersion.findUnique({
@@ -58,10 +59,53 @@ export async function GET(
 
   // 1) Copia completa en el NAS.
   const cached = await getCachedReview(versionId);
-  if (cached) return serveCachedReview(cached, range);
+  if (cached && sp.get("diag") !== "1") return serveCachedReview(cached, range);
 
   // Resuelve el archivo concreto (si es una carpeta, busca el video/imagen dentro).
   const media = await resolveDriveMediaFile(version.fileUrl);
+
+  // ── DIAGNÓSTICO (?diag=1) ── Lo pide la sala SOLO cuando el reproductor ya falló, para decir
+  // la verdad en vez de culpar siempre al formato. No sirve bytes ni dispara descargas: como
+  // mucho le pregunta a Drive por UN byte. Va detrás del mismo token firmado que el video.
+  if (sp.get("diag") === "1") {
+    const di = (motivo: string, mensaje: string, consejo: string) =>
+      Response.json({ motivo, mensaje, consejo }, { headers: { "cache-control": "no-store" } });
+
+    if (!media) {
+      return di("no_drive", "Este enlace no apunta a un archivo de Drive que la app sepa leer.",
+        "Pega el enlace del ARCHIVO (no de la carpeta), o sube el video en «+ Versión».");
+    }
+    if (cached) {
+      return di("formato", "El servidor sí tiene el video: la copia está completa en el NAS.",
+        "Entonces es el formato — tu navegador no sabe decodificar este contenedor (ProRes, MKV, HEVC de 10 bits). Sube un export H.264 como nueva versión y podrás comentar con el segundo y la captura.");
+    }
+    const pct = await reviewCacheProgressPct(versionId);
+    if (pct != null) {
+      return di("copiando", `La copia se está trayendo de Drive al NAS (va por el ${pct} %).`,
+        "Dale unos segundos y pulsa «↻ Reintentar»: en cuanto termine, todo sale del NAS al instante.");
+    }
+
+    const probe = await probeDriveAccess(media.id);
+    if (probe.ok) {
+      return di("formato", `El servidor sí puede leer el archivo en Drive (por ${probe.via === "cuenta" ? "la cuenta de servicio" : "el enlace público"}).`,
+        "El problema es el formato: tu navegador no decodifica este contenedor. Sube un export H.264 como nueva versión.");
+    }
+    if (probe.causa === "red") {
+      return di("red", "No se pudo contactar con Google Drive en este momento.",
+        "Suele ser pasajero: pulsa «↻ Reintentar» en unos segundos.");
+    }
+    if (probe.causa === "cuota") {
+      return di("cuota", "Google bloqueó las descargas de este archivo por superar su cupo diario.",
+        probe.conCuenta
+          ? "Se libera solo en unas horas. Mientras tanto, sube el video al NAS en «+ Versión»."
+          : "Le pasa a los enlaces anónimos. La solución de fondo es configurar la cuenta de servicio de Google (GOOGLE_SERVICE_ACCOUNT_JSON): el cupo deja de ser por archivo.");
+    }
+    return di("sin_permiso", "El servidor no tiene permiso para leer este archivo de Drive (tú sí lo ves porque tu navegador está dentro de tu cuenta de Google).",
+      probe.conCuenta
+        ? "Compártelo como «Cualquiera con el enlace», o con el correo de la cuenta de servicio de la app."
+        : "Compártelo como «Cualquiera con el enlace». Y para que también funcionen los archivos privados, configura la cuenta de servicio de Google (GOOGLE_SERVICE_ACCOUNT_JSON).");
+  }
+
   if (!media) return new Response("No es un archivo de Drive", { status: 404 });
 
   // 2) Copia a medio bajar: los trozos que ya están en disco se sirven de ahí. Además, arranca la

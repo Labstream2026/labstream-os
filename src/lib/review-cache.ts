@@ -59,6 +59,20 @@ export function startReviewCache(versionId: string, driveId: string, name: strin
   void ensureReviewCached(versionId, driveId, name).catch(() => {});
 }
 
+// ¿Por dónde va la copia? Devuelve el porcentaje bajado (0-100) o null si no hay descarga en
+// curso con tamaño conocido. Lo usa el diagnóstico de la sala para decir «espera, va por el 62 %»
+// en vez de un genérico «no se pudo».
+export async function reviewCacheProgressPct(versionId: string): Promise<number | null> {
+  const p = progress.get(versionId);
+  if (!p || p.done || p.total <= 0) return null;
+  try {
+    const st = await fs.stat(partPath(versionId));
+    return Math.max(0, Math.min(99, Math.floor((st.size / p.total) * 100)));
+  } catch {
+    return 0; // apuntada pero aún sin escribir el primer byte
+  }
+}
+
 // Devuelve la caché SOLO si está completa (existe el .bin no vacío y su meta .json). null si no.
 export async function getCachedReview(versionId: string): Promise<CachedReview | null> {
   try {
@@ -147,6 +161,69 @@ async function downloadToCache(versionId: string, driveId: string, name: string)
     lastFail.set(versionId, Date.now());
     return null;
   }
+}
+
+// ── Cuánto ocupa esto en el NAS ──
+// Lo pinta Ajustes → Mantenimiento. Sin este número, decidir si el tope de 40 GB (o el de 4 GB
+// por archivo) se queda corto es adivinar; y quedarse sin disco en el NAS tumba mucho más que la
+// sala de revisión. `libre`/`total` salen del sistema de archivos donde vive STORAGE_DIR.
+export type ReviewCacheStats = { copias: number; bytes: number; libre: number | null; total: number | null; tope: number; topeArchivo: number };
+
+export async function reviewCacheStats(): Promise<ReviewCacheStats> {
+  let copias = 0;
+  let bytes = 0;
+  try {
+    for (const n of await fs.readdir(CACHE_DIR)) {
+      if (!n.endsWith(".bin") && !n.endsWith(".part")) continue;
+      try {
+        const st = await fs.stat(path.join(CACHE_DIR, n));
+        bytes += st.size;
+        if (n.endsWith(".bin")) copias += 1;
+      } catch {
+        /* desapareció entre readdir y stat */
+      }
+    }
+  } catch {
+    /* la carpeta aún no existe: cero y ya */
+  }
+  let libre: number | null = null;
+  let total: number | null = null;
+  try {
+    const st = await fs.statfs(STORAGE_DIR);
+    libre = Number(st.bavail) * Number(st.bsize);
+    total = Number(st.blocks) * Number(st.bsize);
+  } catch {
+    /* sistema de archivos sin statfs: se muestra solo lo que ocupa la caché */
+  }
+  return { copias, bytes, libre, total, tope: MAX_TOTAL_BYTES, topeArchivo: MAX_FILE_BYTES };
+}
+
+// Vacía las copias completas. NO es destructivo de verdad: el original sigue en Drive y la copia
+// se vuelve a traer sola la próxima vez que alguien abra esa revisión. Respeta las descargas en
+// curso (.part) para no dejar a medias a quien esté viendo algo ahora mismo.
+export async function clearReviewCache(): Promise<{ borradas: number; liberados: number }> {
+  let borradas = 0;
+  let liberados = 0;
+  let names: string[];
+  try {
+    names = await fs.readdir(CACHE_DIR);
+  } catch {
+    return { borradas: 0, liberados: 0 };
+  }
+  for (const n of names) {
+    if (!n.endsWith(".bin")) continue;
+    const version = n.slice(0, -".bin".length);
+    if (inFlight.has(version)) continue;
+    try {
+      liberados += (await fs.stat(binPath(version))).size;
+    } catch {
+      /* ya no estaba */
+    }
+    await fs.rm(binPath(version), { force: true }).catch(() => {});
+    await fs.rm(metaPath(version), { force: true }).catch(() => {});
+    borradas += 1;
+  }
+  return { borradas, liberados };
 }
 
 // LRU: si el caché supera el tope, borra los archivos menos usados recientemente (por mtime, que

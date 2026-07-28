@@ -15,7 +15,10 @@ import { resolveDriveMediaFile } from "@/lib/drive";
 // fotograma en cada corrección; el visor de Google queda como salida manual, jamás automática.
 
 const IMG = /\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i;
-const VID = /\.(mp4|webm|mov|m4v|ogg)(\?|#|$)/i;
+// Incluye contenedores que el navegador puede NO decodificar (MKV, AVI, MXF, MTS…): aun así son
+// VIDEO. Tratarlos como «otro» los metía en un iframe que no reproduce nada y no explica nada;
+// como video, el reproductor lo intenta y, si no puede, sale la tarjeta que dice qué hacer.
+const VID = /\.(mp4|webm|mov|m4v|ogg|ogv|mkv|avi|wmv|mts|m2ts|mxf|mpe?g)(\?|#|$)/i;
 
 type VersionRow = {
   id: string;

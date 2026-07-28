@@ -2041,12 +2041,30 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // breve se esconde el atributo `controls` (el velo se va con él) y cualquier movimiento
   // del mouse o toque sobre el video los devuelve al instante. No toca captura ni timecode.
   const [nativeControls, setNativeControls] = React.useState(true);
-  // El navegador no sabe decodificar este material (ProRes, MKV, HEVC 10-bit…): en vez de un
-  // player negro y mudo, una tarjeta que explica qué pasa y qué hacer.
+  // El material no se reproduce: en vez de un player negro y mudo, una tarjeta que explica qué
+  // pasa y qué hacer.
   const [localFailed, setLocalFailed] = React.useState(false);
+  // ── Diagnóstico REAL ── Un <video> que falla no dice por qué (el evento `error` no distingue
+  // «privado» de «cupo agotado» de «códec»), así que la tarjeta se lo pregunta al servidor, que
+  // sí lo sabe. Antes se culpaba siempre al formato y el revisor perseguía el problema
+  // equivocado. Solo para piezas de Drive (las del NAS no tienen nada que diagnosticar).
+  const [diag, setDiag] = React.useState<{ mensaje: string; consejo: string } | null>(null);
   React.useEffect(() => {
     setLocalFailed(false);
+    setDiag(null);
   }, [version]);
+  const mediaSrc = version?.src;
+  React.useEffect(() => {
+    if (!localFailed || !mediaSrc?.startsWith("/api/review-media/")) return;
+    let cancelled = false;
+    fetch(`${mediaSrc}&diag=1`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { mensaje?: string; consejo?: string } | null) => {
+        if (!cancelled && j?.mensaje) setDiag({ mensaje: j.mensaje, consejo: j.consejo ?? "" });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [localFailed, mediaSrc]);
   const controlsTimer = React.useRef<number | null>(null);
   const armControlsHide = React.useCallback(() => {
     if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
@@ -2298,7 +2316,15 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     return (
       <div className={immersive ? "h-full w-full" : undefined}>
         <div
-          className={immersive ? "relative h-full w-full" : "relative mx-auto w-fit max-w-full"}
+          className={
+            immersive
+              ? "relative h-full w-full"
+              // Un <video> que no cargó no tiene tamaño propio: el marco se encogía a nada y la
+              // tarjeta con la explicación salía recortada, justo cuando más hay que leerla.
+              : localFailed
+                ? "relative mx-auto min-h-[19rem] w-full max-w-2xl"
+                : "relative mx-auto w-fit max-w-full"
+          }
           // Cualquier movimiento/toque sobre el video devuelve los controles escondidos en pausa.
           onPointerMove={immersive ? undefined : wakeControls}
           onPointerDown={immersive ? undefined : wakeControls}
@@ -2347,17 +2373,20 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
               no llegó tras los reintentos: tarjeta explicativa con las salidas reales, en vez de
               un player negro y mudo. */}
           {localFailed ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-card/95 p-6 text-center text-sm">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 overflow-auto rounded-xl bg-card/95 p-6 text-center text-sm">
               <span className="text-2xl">🎞️</span>
-              <p className="font-semibold">Este material no se reproduce directo en el navegador.</p>
+              <p className="font-semibold">{diag?.mensaje ?? "Este material no se reproduce directo en el navegador."}</p>
               <p className="max-w-md text-muted-foreground">
-                Suele ser el formato del master (ProRes, MKV, HEVC de 10 bits). Vuelve a intentarlo,
-                o sube un export H.264 como nueva versión para poder comentar con el segundo y la captura.
+                {diag?.consejo
+                  ? diag.consejo
+                  : mediaSrc?.startsWith("/api/review-media/")
+                    ? "Comprobando con el servidor qué está pasando…"
+                    : "Suele ser el formato del master (ProRes, MKV, HEVC de 10 bits). Vuelve a intentarlo, o sube un export H.264 como nueva versión para poder comentar con el segundo y la captura."}
               </p>
               <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"
-                  onClick={() => { setLocalFailed(false); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}
+                  onClick={() => { setLocalFailed(false); setDiag(null); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}
                   className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent"
                 >
                   ↻ Reintentar
