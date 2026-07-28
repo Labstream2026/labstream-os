@@ -164,6 +164,7 @@ model User {
   credentialViews    CredentialViewer[] @relation("CredViewer")
   notes              Note[]             @relation("NoteCreator")
   docPresence        DocPresence[]      @relation("DocPresenceUser")
+  docTemplates       DocTemplate[]      @relation("DocTemplateCreator")
   remindersFor       Reminder[]         @relation("ReminderFor")
   remindersCreated   Reminder[]         @relation("ReminderCreator")
   whatsappMessages   WhatsappMessage[]
@@ -2267,6 +2268,28 @@ model DocPresence {
 
   @@unique([fileId, userId])
   @@index([fileId])
+}
+
+// Plantilla de DOCUMENTO de la empresa: un .docx/.xlsx/.pptx que el equipo sube una sola vez
+// (el guion técnico, el presupuesto, la propuesta con la marca) y que sirve de punto de partida
+// para los documentos nuevos de cualquier proyecto. El archivo vive en el storage, fuera de los
+// proyectos: crear a partir de ella COPIA el archivo, así que editar el documento nuevo nunca
+// toca la plantilla. No se borran: se archivan, para que un documento viejo siga sabiendo de
+// dónde salió.
+model DocTemplate {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  ext         String // docx | xlsx | pptx
+  path        String // ruta en el storage de la app
+  size        Int
+  createdBy   User?     @relation("DocTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  usedCount   Int       @default(0) // cuántos documentos han nacido de ella
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([archivedAt])
 }
 
 // ─────────────────────────────────────────────

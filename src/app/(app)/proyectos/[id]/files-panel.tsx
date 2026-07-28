@@ -27,12 +27,14 @@ import {
   Search,
   LayoutGrid,
   List as ListIcon,
+  FilePlus2,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { addFile, addNasRoute, deleteFile, uploadProjectFiles, createFolder, updateFolder, deleteFolder } from "./actions";
 import { OpsFolderPicker } from "./ops-folder-picker";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { NewDocForm } from "./new-doc-form";
 import { EmojiSelect } from "@/components/emoji-select";
 
 type FileAsset = { id: string; name: string; kind: string; url: string | null; path?: string | null; editable: boolean; comentarios?: number; dentro?: string[]; viaClientLink?: boolean; task?: { id: string; title: string } | null; chat?: { channelId: string; messageId: string } | null; missing?: boolean };
@@ -83,6 +85,8 @@ export function FilesPanel({
   looseFiles,
   ops = null,
   canLinkOps = false,
+  canCreateDoc = false,
+  onlyoffice = false,
 }: {
   projectId: string;
   folders: FolderItem[];
@@ -91,14 +95,18 @@ export function FilesPanel({
   ops?: OpsInfo | null;
   // Puede vincular/cambiar la carpeta (equipo con escritura y NAS_OPS_DIR montado).
   canLinkOps?: boolean;
+  // Puede crear documentos de Office aquí mismo (equipo con escritura, proyecto vivo).
+  canCreateDoc?: boolean;
+  // El Document Server está conectado: el documento nuevo se abre para escribirlo al instante.
+  onlyoffice?: boolean;
 }) {
-  const [tool, setTool] = React.useState<null | "upload" | "link" | "nas" | "folder">(null);
+  const [tool, setTool] = React.useState<null | "doc" | "upload" | "link" | "nas" | "folder">(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(folders.filter((f) => f.files.length).map((f) => [f.id, true])),
   );
   const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
-  const flip = (t: "upload" | "link" | "nas" | "folder") => setTool((cur) => (cur === t ? null : t));
+  const flip = (t: "doc" | "upload" | "link" | "nas" | "folder") => setTool((cur) => (cur === t ? null : t));
 
   // A1 · Vista lista/cuadrícula (recordada por dispositivo) + A2 · buscador y filtro por origen.
   const [view, setView] = React.useState<"lista" | "cuadricula">("lista");
@@ -132,6 +140,9 @@ export function FilesPanel({
     <div className="space-y-3">
       {/* Barra de acciones (estilo Finder: limpia, las opciones se despliegan al pulsar) */}
       <div className="flex flex-wrap items-center gap-1.5">
+        {canCreateDoc ? (
+          <ToolBtn active={tool === "doc"} onClick={() => flip("doc")} icon={FilePlus2}>Nuevo documento</ToolBtn>
+        ) : null}
         <ToolBtn active={tool === "upload"} onClick={() => flip("upload")} icon={Upload}>Subir archivos</ToolBtn>
         <ToolBtn active={tool === "link"} onClick={() => flip("link")} icon={Link2}>Añadir enlace</ToolBtn>
         <ToolBtn active={tool === "nas"} onClick={() => flip("nas")} icon={HardDrive}>Ruta de red (SMB)</ToolBtn>
@@ -142,6 +153,9 @@ export function FilesPanel({
       </div>
 
       {/* Formulario activo */}
+      {tool === "doc" ? (
+        <NewDocForm projectId={projectId} folders={folders.map((f) => ({ id: f.id, name: f.name }))} onlyoffice={onlyoffice} />
+      ) : null}
       {tool === "upload" ? (
         <form action={uploadProjectFiles.bind(null, projectId)} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
           <input type="file" name="files" multiple required className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />

@@ -161,6 +161,8 @@ export default async function ProyectoPage({
   // saltan ese candado → se les añade `alive` explícito.
   const alive = !project.archivedAt && !project.finishedAt;
   const canUploadFiles = canWriteProject(project, session) || (alive && isCliente && hasPermission(session, "subir_archivos"));
+  // ¿Está conectado el Document Server? Lo usan Guiones, Archivos y la carpeta de Operaciones.
+  const ooReady = await onlyofficeReady();
 
   // ── Carpeta viva de Operaciones_LAB (bind mount del NAS) ──
   // El cliente jamás la ve (rutas internas). Se lee el disco EN VIVO: la sección muestra lo
@@ -183,7 +185,7 @@ export default async function ProyectoPage({
     } catch {
       ok = false;
     }
-    opsInfo = { folder: project.opsFolder, ok, live, dirs, ooReady: await onlyofficeReady() };
+    opsInfo = { folder: project.opsFolder, ok, live, dirs, ooReady };
   }
   if (opsAvailable) {
     for (const f of allProjectFiles) {
@@ -807,7 +809,7 @@ export default async function ProyectoPage({
                 projectId={id}
                 files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name), ...docLive(file.id) }))}
                 canWrite={canUploadFiles}
-                onlyoffice={await onlyofficeReady()}
+                onlyoffice={ooReady}
               />
             </section>
 
@@ -843,6 +845,8 @@ export default async function ProyectoPage({
                 looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), ...docLive(file.id), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) }))}
                 ops={opsInfo}
                 canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
+                canCreateDoc={alive && canUploadFiles && session?.role !== "demo"}
+                onlyoffice={ooReady}
               />
             </section>
           </div>

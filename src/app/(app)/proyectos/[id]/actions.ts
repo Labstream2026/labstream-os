@@ -11,7 +11,7 @@ import { safeExternalUrl } from "@/lib/url";
 import { bogotaNoon } from "@/lib/today";
 import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
-import { emptyDocx } from "@/lib/docx";
+import { createProjectDoc } from "@/lib/doc-create";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
 import { writeOps, opsReady } from "@/lib/nas-ops";
 import { claimChunkUpload } from "@/lib/chunked-claim";
@@ -2595,28 +2595,19 @@ export async function uploadGuiones(projectId: string, formData: FormData) {
 // un .docx válido y lo guarda en la carpeta «Guiones». Devuelve el id para abrirlo en
 // OnlyOffice y empezar a editar de inmediato.
 export async function createGuion(projectId: string, formData: FormData): Promise<{ ok: boolean; id?: string; error?: string }> {
-  const session = await ensureProjectAccess(projectId, "subir_archivos");
-  let name = String(formData.get("name") ?? "").trim() || "Guion sin título";
-  if (!/\.docx$/i.test(name)) name = `${name}.docx`;
-  const folderId = await ensureGuionesFolder(projectId);
-  const buf = emptyDocx();
-  const asset = await db.fileAsset.create({
-    data: {
-      projectId,
-      name,
-      kind: "LOCAL",
-      path: "",
-      mime: mimeFor(name),
-      size: buf.length,
-      folderId,
-      uploadedById: session.id,
-    },
+  await ensureProjectAccess(projectId, "subir_archivos");
+  // Un guion es un documento de Word en la carpeta Guiones: mismo motor que «Nuevo documento»
+  // de Archivos (`@/lib/doc-create`), que además admite empezar desde una plantilla.
+  const r = await createProjectDoc({
+    projectId,
+    name: String(formData.get("name") ?? "").trim() || "Guion sin título",
+    kind: "word",
+    folderId: await ensureGuionesFolder(projectId),
+    templateId: String(formData.get("templateId") ?? "") || null,
   });
-  const rel = await saveBuffer(`project/${projectId}`, `${asset.id}-${name}`, buf);
-  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
-  await logActivity({ action: "file.upload", summary: `creó el guion «${name}»`, projectId, entityType: "file", entityId: asset.id });
+  if (!r.ok) return r;
   refresh(projectId);
-  return { ok: true, id: asset.id };
+  return { ok: true, id: r.id };
 }
 
 // Extrae el texto plano de un guion (vía conversión de OnlyOffice) para copiarlo al

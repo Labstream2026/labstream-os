@@ -131,7 +131,7 @@ export function GuionesPanel({
             onClick={() => setCreating(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            <FilePlus2 className="size-4" /> Nuevo documento
+            <FilePlus2 className="size-4" /> Nuevo guion
           </button>
         )
       ) : null}
