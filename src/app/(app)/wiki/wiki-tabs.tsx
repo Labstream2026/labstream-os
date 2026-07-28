@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Boxes, HardDrive, KeyRound, LayoutTemplate } from "lucide-react";
+import { BookOpen, Boxes, HardDrive, KeyRound, LayoutTemplate, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -10,16 +10,22 @@ const TABS = [
   { href: "/wiki/inventario", label: "Inventario", icon: Boxes },
   { href: "/wiki/ubicacion", label: "Ubicación del material", icon: HardDrive },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
+  { href: "/plantillas/documentos", label: "Plantillas de documento", icon: FileText },
   { href: "/wiki/contrasenas", label: "Usuarios y contraseñas", icon: KeyRound, adminOnly: false },
 ];
 
 export function WikiTabs({ canSeePasswords = true }: { canSeePasswords?: boolean }) {
   const pathname = usePathname();
+  // Con rutas anidadas (/plantillas y /plantillas/documentos) varias pestañas encajan a la vez:
+  // gana la MÁS específica, si no se encenderían dos.
+  const activa = TABS.filter((t) => (t.exact ? pathname === t.href : pathname.startsWith(t.href))).sort(
+    (a, b) => b.href.length - a.href.length,
+  )[0]?.href;
   return (
     <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border">
       {TABS.map((t) => {
         if (t.href === "/wiki/contrasenas" && !canSeePasswords) return null;
-        const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
+        const active = t.href === activa;
         const Icon = t.icon;
         return (
           <Link

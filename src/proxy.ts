@@ -34,7 +34,9 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 // - /entrega + /api/entrega: sala PÚBLICA de entrega del proyecto (el cliente descarga su
 //   material final sin cuenta; token firmado por proyecto) y su redirector de descargas /go
 //   (valida alcance + registra actividad antes de redirigir al archivo real).
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health"];
+// - /api/doc-templates: archivo de una plantilla de documento; el Document Server lo descarga
+//   con token firmado (sin cookie) para poder editarla. La ruta exige sesión del equipo O token.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health"];
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no

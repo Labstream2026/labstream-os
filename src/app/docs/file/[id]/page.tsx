@@ -118,6 +118,7 @@ export default async function ProjectFileEditPage({
       comentarios={comentarios}
       mentions={gente.filter((u) => u.id !== session.id)}
       presentes={(presencia.get(id) ?? []).filter((p) => p.id !== session.id).map((p) => p.name)}
+      canTemplate={access === "edit" && session.role !== "cliente" && session.role !== "demo" && hasPermission(session, "subir_archivos")}
     />
   );
 }

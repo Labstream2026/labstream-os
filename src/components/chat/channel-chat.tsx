@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, ChevronRight, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2, Sparkles } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation, FileType, File as FileIcon, Download, Pencil, Eye, X, BarChart3, Smile, SmilePlus, Pin, Trash2, MoreVertical, MoreHorizontal, Search, Check, Mic, Camera, ChevronDown, ChevronRight, Reply, CornerUpLeft, ListChecks, Share2, Link2, AtSign, FolderPlus, Loader2, Sparkles, FilePlus2 } from "lucide-react";
 import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
@@ -2472,6 +2472,18 @@ export function ChannelChat({
             >
               <Camera className="size-5" />
             </button>
+            {projectId ? (
+              // Crear el documento SIN salir de la conversación: se habla de un guion y se abre
+              // el guion, en el proyecto de este canal.
+              <Link
+                href={`/documentos/nuevo?proyecto=${projectId}`}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Nuevo documento"
+                title="Nuevo documento (Word, Excel, Power Point)"
+              >
+                <FilePlus2 className="size-5" />
+              </Link>
+            ) : null}
             <button
               type="button"
               onClick={() => setPollMode((v) => !v)}

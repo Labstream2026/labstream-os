@@ -70,6 +70,7 @@ const PAGES: Item[] = [
   { id: "p-pass", label: "Usuarios y contraseñas", sub: "Wiki", href: "/wiki/contrasenas", icon: IconConfiguracion, group: "Ir a" },
   { id: "p-lib", label: "Biblioteca", href: "/biblioteca", icon: IconBiblioteca, group: "Ir a" },
   { id: "p-cfg", label: "Configuración", href: "/configuracion", icon: IconConfiguracion, group: "Ir a" },
+  { id: "p-newdoc", label: "Nuevo documento", sub: "Word, Excel o Power Point", href: "/documentos/nuevo", icon: IconArchivo, group: "Crear" },
 ];
 
 export function CommandPalette({ clients, wikiPages = [], open, onClose }: { clients: SidebarClient[]; wikiPages?: WikiSearchItem[]; open: boolean; onClose: () => void }) {
@@ -131,6 +132,15 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
         sub: "fechas, @persona, #tag, 2h…",
         href: "/mis-tareas",
         icon: Plus,
+        group: "Crear",
+      });
+      // Lo escrito sirve también de nombre del documento: se lleva a la pantalla de creación.
+      base.push({
+        id: "quick-doc",
+        label: `＋ Nuevo documento: «${term}»`,
+        sub: "Word, Excel o Power Point",
+        href: `/documentos/nuevo?nombre=${encodeURIComponent(term)}`,
+        icon: IconArchivo,
         group: "Crear",
       });
     }

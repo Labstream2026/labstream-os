@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FileText, FileSpreadsheet, Presentation, File as FileIcon, MessageCircle, PenLine, Eye, ExternalLink } from "lucide-react";
+import { FileText, FileSpreadsheet, Presentation, File as FileIcon, MessageCircle, PenLine, Eye, ExternalLink, FilePlus2 } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
@@ -65,17 +65,28 @@ export default async function DocumentosClientePage() {
     }),
   ]);
   const sinResolver = new Map(comentarios.map((c) => [c.fileId, c._count._all]));
-  // Quien puede subir archivos edita de verdad; el resto sugiere (o mira, si ya se entregó).
+  // Quien puede subir archivos edita de verdad (y crea documentos nuevos); el resto sugiere,
+  // o solo mira si el proyecto ya se entregó.
   const puedeEscribir = hasPermission(session, "subir_archivos");
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <header className="mb-4">
-        <h1 className="text-2xl font-bold tracking-tight">Documentos</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Los guiones, propuestas y planillas de tus proyectos. Puedes comentarlos y proponer cambios: lo que escribas
-          queda marcado como sugerencia y el equipo lo revisa.
-        </p>
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Documentos</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Los guiones, propuestas y planillas de tus proyectos. Puedes comentarlos y proponer cambios: lo que escribas
+            queda marcado como sugerencia y el equipo lo revisa.
+          </p>
+        </div>
+        {puedeEscribir ? (
+          <Link
+            href="/documentos/nuevo"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            <FilePlus2 className="size-4" /> Nuevo documento
+          </Link>
+        ) : null}
       </header>
 
       <ClientPortalNav active="documentos" />
