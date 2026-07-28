@@ -71,7 +71,41 @@ Verifica la conexión en Configuración → Integraciones → Calendario → "Pr
 > explícitamente (acción "Invitar cliente"), se les envía un `.ics` por correo que
 > ellos deciden agregar a su propio calendario.
 
+## Google Drive (videos de revisión) — MUY recomendado
+
+La sala de revisión reproduce los videos de Drive **desde el propio servidor** (es lo
+único que permite guardar el segundo exacto y la captura del fotograma en cada
+corrección). Para leerlos, el servidor entra a Drive de una de dos formas:
+
+- **Sin credencial (por defecto):** solo llega a los archivos compartidos como
+  «Cualquiera con el enlace», y Google impone un tope de descargas **diario y por
+  archivo**. El video que más revisa el equipo es el primero que se bloquea — y ahí la
+  sala se queda sin segundo y sin captura hasta el día siguiente.
+- **Con cuenta de servicio:** el cupo pasa al proyecto de Google Cloud (inalcanzable a
+  esta escala) y además se leen los archivos compartidos con el correo de la cuenta,
+  sin tener que hacerlos públicos.
+
+Se crea una cuenta de servicio en Google Cloud con la API de Drive habilitada y permiso
+de **solo lectura**, y se pega su clave JSON (tal cual, o en base64 si prefieres una
+sola línea):
+
+    GOOGLE_SERVICE_ACCOUNT_JSON=
+
+Comparte con el correo de esa cuenta (`...@....iam.gserviceaccount.com`) las carpetas de
+Drive donde el equipo deja los masters.
+
+**Verificar:** al arrancar, el log lo confirma una sola vez —
+
+    sudo docker compose -p labstream-os logs app | grep google-auth
+    # [google-auth] cuenta de servicio activa: <correo de la cuenta>
+
+Si no aparece esa línea, la app está en modo anónimo. Y si en la sala de revisión un
+video no carga, la tarjeta del reproductor dice el motivo real (no es público, cupo
+agotado, copia en camino o formato) — no hay que adivinar.
+
 ## Verificar
 - **Correo:** Configuración → Integraciones → "Activo" + botón de prueba funciona.
 - **Calendario:** crea una cita desde una tabla de proyecto (columna tipo EVENT) y
   revisa que aparezca en el Synology Calendar.
+- **Drive:** ver el `grep google-auth` de arriba; y en Ajustes → Mantenimiento, la
+  «Copia local de los videos de revisión» debe ir creciendo a medida que se revisa.
