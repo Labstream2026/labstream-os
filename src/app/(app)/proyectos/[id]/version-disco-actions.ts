@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import type { DeliverableType } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
-import { scanGaleria, resolveGaleriaFile, normalizeGaleriaRel } from "@/lib/nas-galeria";
+import { listGaleriaNivel, resolveGaleriaFile, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import {
   carpetaGaleriaProyecto,
   carpetaGaleriaClienteDelProyecto,
@@ -31,15 +31,18 @@ const accessSelect = {
   members: { select: { userId: true, role: true } },
 } as const;
 
-// `dir`: subcarpeta (relativa a la carpeta base) donde vive la pieza — "" = la raíz de la
-// carpeta del cliente. El selector la enseña como etiqueta para ubicarse.
-export type PiezaDisco = { rel: string; name: string; takenAt: string; video: boolean; dir: string };
-export type PiezasResultado = { ok: true; carpeta: string; piezas: PiezaDisco[] } | { error: string };
+// El selector NAVEGA por carpetas (como un Finder chiquito): cada llamada devuelve UN nivel —
+// subcarpetas + piezas — de la carpeta del cliente. `rel` null/"" = la carpeta base.
+export type NivelCarpeta = { rel: string; name: string };
+export type NivelPieza = { rel: string; name: string; video: boolean; mtimeMs: number };
+export type NivelResultado =
+  | { ok: true; base: string; rel: string; carpetas: NivelCarpeta[]; piezas: NivelPieza[] }
+  | { error: string };
 
-// Lista las piezas para el selector: la carpeta del CLIENTE si existe (todo su material,
-// subcarpetas incluidas); si el cliente no tiene, la del proyecto (vínculo propio). Solo
-// equipo con acceso al proyecto; cada rel ya viene acotado porque el scan parte de ahí.
-export async function piezasDeCarpetaProyecto(projectId: string): Promise<PiezasResultado> {
+// Un nivel de la carpeta del CLIENTE (o la del proyecto si el cliente no tiene vínculo).
+// Solo equipo con acceso al proyecto; cualquier `rel` pedido se valida DENTRO de la base —
+// el navegador no puede pasearse por carpetas de otros clientes.
+export async function nivelDeCarpetaCliente(projectId: string, rel?: string | null): Promise<NivelResultado> {
   const session = await getSession();
   if (!session || session.role === "cliente") return { error: "Sin permiso" };
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
@@ -57,19 +60,27 @@ export async function piezasDeCarpetaProyecto(projectId: string): Promise<Piezas
   const base = cliente?.existe ? cliente : proyecto?.existe ? proyecto : (cliente ?? proyecto)!;
   if (!base.existe) return { error: `La carpeta «${base.rel}» todavía no existe en el disco (o LabTem no responde).` };
 
+  let destino = base.rel;
+  if (rel) {
+    let norm: string;
+    try {
+      norm = normalizeGaleriaRel(rel);
+    } catch {
+      return { error: "Ruta inválida" };
+    }
+    if (norm !== base.rel && !norm.startsWith(base.rel + "/")) return { error: "Esa carpeta no es de este cliente." };
+    destino = norm;
+  }
+
   try {
-    // Sin EXIF: listar nombres no necesita abrir miles de archivos por NFS.
-    const scan = await scanGaleria(base.rel, { exif: false });
-    const todas = scan.months.flatMap((m) => m.days).flatMap((d) => d.items);
-    // Videos PRIMERO y luego el tope: en carpetas con miles de fotos, las fotos no
-    // deben desplazar del selector a los videos (que son lo que se manda a revisión).
-    const ordenadas = [...todas.filter((it) => it.kind === "video"), ...todas.filter((it) => it.kind !== "video")].slice(0, 500);
-    const piezas: PiezaDisco[] = ordenadas.map((it) => {
-      const dentro = it.rel.length > base.rel.length ? it.rel.slice(base.rel.length + 1) : it.rel;
-      const corte = dentro.lastIndexOf("/");
-      return { rel: it.rel, name: it.name, takenAt: it.takenAt, video: it.kind === "video", dir: corte > 0 ? dentro.slice(0, corte) : "" };
-    });
-    return { ok: true, carpeta: base.rel, piezas };
+    const nivel = await listGaleriaNivel(destino);
+    return {
+      ok: true,
+      base: base.rel,
+      rel: destino,
+      carpetas: nivel.carpetas.map((c) => ({ rel: c.rel, name: c.name })),
+      piezas: nivel.archivos.map((a) => ({ rel: a.rel, name: a.name, video: a.kind === "video", mtimeMs: a.mtimeMs })),
+    };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "No se pudo leer la carpeta del cliente." };
   }

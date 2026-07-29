@@ -426,6 +426,42 @@ export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
   return out;
 }
 
+// ── UN nivel de una carpeta: subcarpetas + material, sin recursión ni EXIF ──
+// Para selectores que NAVEGAN por carpetas (p. ej. «Desde el disco» de los entregables):
+// un readdir + un stat por entrada — instantáneo hasta en carpetas con miles de piezas
+// repartidas en subcarpetas, porque solo se mira el nivel pedido.
+export type GaleriaNivelCarpeta = { rel: string; name: string; mtimeMs: number };
+export type GaleriaNivelArchivo = { rel: string; name: string; kind: GaleriaKind; size: number; mtimeMs: number };
+export type GaleriaNivel = { carpetas: GaleriaNivelCarpeta[]; archivos: GaleriaNivelArchivo[] };
+
+export async function listGaleriaNivel(rel = ""): Promise<GaleriaNivel> {
+  const norm = normalizeGaleriaRel(rel);
+  const abs = await galeriaAbs(norm);
+  const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
+  if (!raw) return { carpetas: [], archivos: [] };
+  const carpetas: GaleriaNivelCarpeta[] = [];
+  const archivos: GaleriaNivelArchivo[] = [];
+  for (const d of raw) {
+    if (isJunkName(d.name)) continue; // incluye .proxy, que es interna
+    const childRel = norm ? `${norm}/${d.name}` : d.name;
+    const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
+    if (!st) continue; // desapareció entre readdir y stat
+    if (d.isDirectory()) {
+      carpetas.push({ rel: childRel, name: d.name, mtimeMs: st.mtimeMs });
+      continue;
+    }
+    if (!d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
+    const kind = galeriaKind(d.name);
+    if (!kind) continue;
+    archivos.push({ rel: childRel, name: d.name, kind, size: st.size, mtimeMs: st.mtimeMs });
+  }
+  // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);
+  // archivos por fecha, lo más nuevo arriba — el export recién hecho es lo que se busca.
+  carpetas.sort((a, b) => a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" }));
+  archivos.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return { carpetas, archivos };
+}
+
 // ── Servir un archivo ──────────────────────────────────────────────────────────
 
 export type GaleriaFileInfo = { abs: string; size: number; mtimeMs: number; name: string };

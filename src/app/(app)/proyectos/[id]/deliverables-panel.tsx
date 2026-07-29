@@ -29,7 +29,7 @@ import { ReviewersPicker } from "./reviewers-picker";
 import { VideoUploadField } from "./video-upload-field";
 import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-content-editor";
 import { DeliverableRenditions } from "./deliverable-renditions";
-import { TypeAndCoverFields } from "./deliverable-create-fields";
+import { TypeAndCoverFields, SourceFields } from "./deliverable-create-fields";
 import { ChunkedUploadForm } from "./chunked-upload-form";
 import { VersionDesdeDisco, CrearDesdeDisco } from "./desde-disco";
 import { DeliverableTabs } from "./deliverable-tabs";
@@ -293,11 +293,14 @@ export function DeliverablesPanel({
           {/* Tipo + portada (la portada solo aparece si el tipo es reel) */}
           <TypeAndCoverFields options={DELIVERABLE_TYPE_OPTIONS} />
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <input name="fileUrl" placeholder="Link (Drive · YouTube · Vimeo · MP4)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
-          <VideoUploadField name="file" title="O sube el material (vídeo, imagen, PDF…)" className="max-w-56 text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs" />
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
+        {/* UNA fuente a la vez (Link · Subir archivo · Desde el disco): el ojo va a lo que eligió. */}
+        <SourceFields discoSlot={<CrearDesdeDisco projectId={projectId} tipos={DELIVERABLE_TYPE_OPTIONS} estiloTab />} />
+        {/* Lo que casi nunca se toca, plegado: el formulario respira. */}
+        <details className="rounded-lg border border-dashed border-border px-3 py-2">
+          <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
+            Más opciones <span className="font-normal text-muted-foreground/70">· responsable, caducidad del enlace y plazo de pre-aprobación</span>
+          </summary>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
             Responsable de la revisión
             <select name="reviewerId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
@@ -316,8 +319,8 @@ export function DeliverablesPanel({
               <input name="internalReviewTime" type="time" defaultValue="18:00" title="Hora límite (Bogotá)" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
             </span>
           </label>
-          <SubmitButton pendingText="Subiendo…" className="ml-auto rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
-        </div>
+          </div>
+        </details>
         {workTasks.length > 0 ? (
           <details className="rounded-lg border border-dashed border-border px-3 py-2">
             <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
@@ -333,13 +336,13 @@ export function DeliverablesPanel({
             </div>
           </details>
         ) : null}
-        <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <p className="min-w-40 flex-1 text-[11px] text-muted-foreground">
+            Con link o archivo, «Añadir» crea la v1 y la manda a pre-aprobación interna. «Desde el disco» abre el material del cliente en LabTem.
+          </p>
+          <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
+        </div>
       </ChunkedUploadForm>
-      {/* O crear el entregable apuntando a un video que YA está en la carpeta del cliente
-          en la galería (LabTem): un paso, sin subir nada ni pasar por Drive. */}
-      <div className="border-t border-border px-4 py-3">
-        <CrearDesdeDisco projectId={projectId} tipos={DELIVERABLE_TYPE_OPTIONS} />
-      </div>
       </details>
 
       {(() => {
