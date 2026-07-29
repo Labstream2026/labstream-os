@@ -9,7 +9,7 @@ import { WikiTabs } from "./wiki-tabs";
 import { NewWikiPageButton } from "./new-page";
 import { ensureStartHerePage, getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
 import { WIKI_SECTIONS, WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
-import { plainExcerpt } from "@/lib/markdown";
+import { plainExcerpt, searchSnippet } from "@/lib/markdown";
 
 export const dynamic = "force-dynamic";
 
@@ -215,8 +215,20 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
                             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Sin dueño</span>
                           ) : null}
                         </div>
-                        {/* Extracto: saber de qué trata la página sin tener que abrirla. */}
-                        {extracto ? (
+                        {/* Buscando: el trozo del texto DONDE aparece lo buscado, resaltado — así el
+                            resultado da la respuesta y no obliga a leer la página entera. Sin
+                            búsqueda: el extracto, para saber de qué trata sin abrirla. */}
+                        {query ? (
+                          <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                            {searchSnippet(p.content, query).map((f, i) =>
+                              f.marca ? (
+                                <mark key={i} className="rounded-sm bg-primary/20 px-0.5 text-foreground">{f.texto}</mark>
+                              ) : (
+                                <span key={i}>{f.texto}</span>
+                              ),
+                            )}
+                          </p>
+                        ) : extracto ? (
                           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{extracto}</p>
                         ) : (
                           <p className="mt-1 text-xs italic text-muted-foreground">Página vacía.</p>

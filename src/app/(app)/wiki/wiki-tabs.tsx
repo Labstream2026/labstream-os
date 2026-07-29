@@ -62,7 +62,10 @@ export function WikiTabs({
   };
 
   return (
-    <div className="mb-6 flex items-stretch gap-1 overflow-x-auto border-b border-border">
+    // Solo en pantallas estrechas: en escritorio la navegación la da el árbol lateral
+    // (WikiSidebar), que además muestra la jerarquía. Aquí siguen porque el árbol se
+    // esconde en móvil y, sin ellas, no habría forma de llegar a las herramientas.
+    <div className="mb-6 flex items-stretch gap-1 overflow-x-auto border-b border-border lg:hidden">
       {DOCS.map(tab)}
       <span className="my-2 w-px shrink-0 bg-border" aria-hidden />
       {TOOLS.map((t) => (t.gated && !canSeePasswords ? null : tab(t)))}

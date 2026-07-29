@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { plainExcerpt, headingSlug, extractHeadings } from "./markdown";
+import { plainExcerpt, headingSlug, extractHeadings, searchSnippet } from "./markdown";
 
 describe("plainExcerpt (extracto en texto plano para las fichas de la wiki)", () => {
   it("quita la sintaxis de Markdown y separa cada idea con «·»", () => {
@@ -81,5 +81,41 @@ describe("extractHeadings (índice de la página)", () => {
       text: "El parte meteorológico",
       slug: "el-parte-meteorologico",
     });
+  });
+});
+
+describe("searchSnippet (el resultado dice la frase, no solo el título)", () => {
+  const md = "## Entrega y respaldo\n\nAl cerrar el proyecto se hace el respaldo en dos discos distintos: uno se queda en el NAS y el otro va a la caja fuerte.";
+
+  it("centra el trozo en la coincidencia y la marca", () => {
+    const fr = searchSnippet(md, "respaldo");
+    expect(fr.some((f) => f.marca && f.texto === "respaldo")).toBe(true);
+    expect(fr.map((f) => f.texto).join("")).toContain("dos discos distintos");
+  });
+
+  it("marca TODAS las coincidencias del trozo", () => {
+    expect(searchSnippet("uno respaldo dos respaldo tres", "respaldo").filter((f) => f.marca)).toHaveLength(2);
+  });
+
+  it("ignora mayúsculas y acentos pero devuelve el texto original", () => {
+    const fr = searchSnippet("La ubicación del material", "UBICACION");
+    const marcado = fr.find((f) => f.marca);
+    expect(marcado?.texto).toBe("ubicación");
+  });
+
+  it("pone puntos suspensivos cuando recorta por delante", () => {
+    const largo = "palabra ".repeat(60) + "aguja al final";
+    expect(searchSnippet(largo, "aguja")[0].texto).toBe("…");
+  });
+
+  it("sin coincidencia devuelve el principio, sin marcas", () => {
+    const fr = searchSnippet(md, "zzz-no-existe");
+    expect(fr.every((f) => !f.marca)).toBe(true);
+    expect(fr[0].texto.startsWith("Entrega y respaldo")).toBe(true);
+  });
+
+  it("tolera contenido vacío y consulta vacía", () => {
+    expect(searchSnippet("", "algo")).toEqual([]);
+    expect(searchSnippet(md, "  ")[0].marca).toBe(false);
   });
 });

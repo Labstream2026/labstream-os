@@ -10,6 +10,7 @@ import { wikiTemplate } from "@/lib/wiki-templates";
 import { saveBuffer, extOf, deleteRel } from "@/lib/storage";
 import { saveBufferWithPreview, previewRel } from "@/lib/image";
 import { extractWikiAttachments } from "@/lib/markdown";
+import { wikiDescendants } from "@/lib/wiki-tree";
 import { logActivity } from "@/lib/activity";
 
 // La wiki es del equipo interno: solo quien tiene acceso a la Wiki puede crear/
@@ -62,7 +63,15 @@ export async function updateWikiPage(id: string, formData: FormData): Promise<vo
   const content = String(formData.get("content") ?? "");
   const section = String(formData.get("section") ?? "").trim() || null;
   const tags = parseTags(String(formData.get("tags") ?? ""));
-  await db.wikiPage.update({ where: { id }, data: { title, icon, content, section, tags } });
+  // Página madre (posición en el árbol). Se valida SIEMPRE en el servidor, no solo en el
+  // desplegable: colgar una página de sí misma o de una hija suya crearía un ciclo y la
+  // haría desaparecer del árbol. Ante cualquier duda, se deja suelta (null).
+  let parentId: string | null = String(formData.get("parentId") ?? "").trim() || null;
+  if (parentId) {
+    const todas = await db.wikiPage.findMany({ select: { id: true, title: true, icon: true, section: true, parentId: true, updatedAt: true } });
+    if (!todas.some((p) => p.id === parentId) || wikiDescendants(todas, id).has(parentId)) parentId = null;
+  }
+  await db.wikiPage.update({ where: { id }, data: { title, icon, content, section, tags, parentId } });
   await logActivity({ action: "wiki.update", summary: `editó la página «${title}» de la wiki`, entityType: "wiki", entityId: id, silent: true });
   revalidatePath("/wiki");
   redirect(`/wiki/${id}`); // tras guardar, volver al modo lectura

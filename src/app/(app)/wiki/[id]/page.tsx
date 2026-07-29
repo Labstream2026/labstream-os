@@ -10,8 +10,10 @@ import { cellsToMap } from "@/lib/table-cells";
 import { GovernanceBar } from "./governance-bar";
 import { MarkdownEditor } from "./markdown-editor";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
-import { renderMarkdown, extractWikiAttachments } from "@/lib/markdown";
-import { Pencil, Paperclip } from "lucide-react";
+import { renderMarkdown, extractWikiAttachments, extractHeadings } from "@/lib/markdown";
+import { wikiBreadcrumb, wikiDescendants } from "@/lib/wiki-tree";
+import { WikiToc } from "./toc";
+import { Pencil, Paperclip, ChevronRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +40,37 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
   ]);
   if (!page) notFound();
 
+  // Migas de pan y candidatas a página madre. Se leen todas las páginas (solo id/título/
+  // madre: es una consulta barata) porque ambas cosas necesitan la jerarquía completa.
+  const todas = await db.wikiPage.findMany({
+    orderBy: { title: "asc" },
+    select: { id: true, title: true, icon: true, section: true, parentId: true, updatedAt: true },
+  });
+  const ruta = wikiBreadcrumb(todas, id);
+  const prohibidas = wikiDescendants(todas, id); // no puede colgar de sí misma ni de una hija
+  const headings = extractHeadings(page.content);
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
-      <div className="flex items-center justify-between">
-        <Link href="/wiki" className="text-sm text-muted-foreground hover:text-foreground">← Wiki</Link>
-        <div className="flex items-center gap-3">
+    <div className="mx-auto flex max-w-6xl gap-8 px-4 py-6 sm:px-8 sm:py-10">
+      <div className="min-w-0 flex-1">
+      <div className="flex items-center justify-between gap-3">
+        {/* Migas: la página deja de ser una isla — se ve de dónde cuelga y se sube de nivel. */}
+        <nav aria-label="Ruta" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <Link href="/wiki" className="shrink-0 hover:text-foreground">Wiki</Link>
+          {ruta.slice(0, -1).map((r) => (
+            <span key={r.id} className="flex min-w-0 items-center gap-1">
+              <ChevronRight className="size-3 shrink-0" />
+              <Link href={`/wiki/${r.id}`} className="truncate hover:text-foreground">{r.title}</Link>
+            </span>
+          ))}
+          {ruta.length > 0 ? (
+            <span className="flex min-w-0 items-center gap-1">
+              <ChevronRight className="size-3 shrink-0" />
+              <span className="truncate text-foreground">{page.title}</span>
+            </span>
+          ) : null}
+        </nav>
+        <div className="flex shrink-0 items-center gap-3">
           {editing ? (
             <Link href={`/wiki/${id}`} className="text-xs text-muted-foreground hover:text-foreground">Ver</Link>
           ) : (
@@ -79,6 +107,17 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
             </select>
             <input name="tags" defaultValue={page.tags.join(", ")} placeholder="Etiquetas (separadas por coma)" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
           </div>
+          {/* Página madre: es lo que coloca la página en el árbol. No se ofrecen ni ella
+              misma ni sus descendientes — eso crearía un ciclo y la sacaría del árbol. */}
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Cuelga de:</span>
+            <select name="parentId" defaultValue={page.parentId ?? ""} className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring">
+              <option value="">— Nada (va directo a su sección) —</option>
+              {todas.filter((t) => !prohibidas.has(t.id)).map((t) => (
+                <option key={t.id} value={t.id}>{t.icon ? `${t.icon} ` : ""}{t.title}</option>
+              ))}
+            </select>
+          </label>
           <MarkdownEditor defaultValue={page.content} />
           <div className="flex items-center gap-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar cambios</button>
@@ -100,7 +139,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
           {page.content.trim() ? (
             /* `wiki-prose`: ancho de lectura cómodo y aire entre bloques (ver globals.css).
                El HTML lo produce renderMarkdown, que escapa todo lo que venga del usuario. */
-            <div className="wiki-prose mt-5 text-[15px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.content) }} />
+            <div className="wiki-prose mt-5 text-[15px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.content, { headingIds: true }) }} />
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Esta página está vacía. <Link href={`/wiki/${id}?edit=1`} className="text-primary hover:underline">Edítala</Link> para añadir contenido.</p>
           )}
@@ -163,6 +202,17 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
           </div>
         ))}
       </div>
+      </div>
+
+      {/* Índice de la página. Solo en pantallas anchas y solo en lectura: durante la
+          edición el contenido cambia a cada tecla y un índice a medias estorba. */}
+      {!editing && headings.length > 1 ? (
+        <aside className="hidden w-44 shrink-0 xl:block">
+          <div className="sticky top-6">
+            <WikiToc headings={headings} />
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }
