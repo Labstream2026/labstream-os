@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, canWriteProject, canManageProject, accessibleProjectWhere } from "@/lib/project-access";
+import { isEditableOffice } from "@/lib/onlyoffice";
+import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientTopbarPeople } from "./client-topbar-people";
@@ -48,9 +50,14 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     include: {
       _count: { select: { quotes: true } },
       members: { include: { user: { select: { id: true, name: true, email: true, initials: true, avatarColor: true, passwordHash: true, role: { select: { key: true } } } } } },
-      files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true } },
+      files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true, createdAt: true, uploadedBy: { select: { name: true } } } },
       projects: {
-        where: { archivedAt: null },
+        // El recorte por acceso va EN LA BASE (accessibleProjectWhere), no en un .filter() de
+        // JS: antes se traía cada proyecto vedado entero (con entregables y versiones) solo
+        // para tirarlo. Nota: esto además CORRIGE un permiso latente — el RESPONSABLE de la
+        // cuenta ahora ve aquí los proyectos privados de su cliente, como ya le prometía
+        // canAccessProject (la rama nunca podía cumplirse porque el include no traía client).
+        where: { AND: [{ archivedAt: null }, accessibleProjectWhere(session)] },
         orderBy: { createdAt: "asc" },
         include: {
           lead: { select: { initials: true, avatarColor: true } },
@@ -75,8 +82,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   // Solo quien puede ver el cliente (miembro o participa en sus proyectos; admin todos).
   if (!canAccessClient(client, session)) notFound();
 
-  // Solo proyectos visibles para el usuario.
-  const projects = client.projects.filter((p) => canAccessProject(p, session));
+  // Cinturón sobre el where de arriba. OJO: hay que pasarle el cliente con sus miembros, o la
+  // rama del RESPONSABLE fallaría aquí y el filtro desharía lo que la consulta ya concedió.
+  const projects = client.projects.filter((p) => canAccessProject({ ...p, client: { members: client.members } }, session));
   const projectIds = projects.map((p) => p.id);
   const active = projects.filter((p) => !["CERRADO", "CANCELADO"].includes(p.status)).length;
 
@@ -173,6 +181,77 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
   const canManage = canManageClient(client, session);
   const canEdit = canManage || hasPermission(session, "editar_clientes");
+
+  // ── Vista «Archivos»: TODOS los archivos de los proyectos visibles + el material de marca ──
+  // Mismo patrón que la pestaña Entregables: se aplana con el proyecto de origen colgado.
+  // Se excluyen los FileAsset que son fotos de entregables o portadas (no son archivos sueltos).
+  const rawArchivos = await db.fileAsset.findMany({
+    where: {
+      projectId: { in: projectIds.length ? projectIds : ["__none__"] },
+      deliverablePhotos: { none: {} },
+      projectCovers: { none: {} },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300, // tope duro: el payload RSC de esta página se serializa SIEMPRE, se mire o no la vista
+    select: {
+      id: true, name: true, kind: true, url: true, path: true, size: true, version: true,
+      createdAt: true, viaClientLink: true, uploaderName: true,
+      uploadedBy: { select: { name: true } },
+      task: { select: { id: true, title: true } },
+      folder: { select: { id: true, name: true, icon: true, color: true } },
+      project: { select: { id: true, name: true, emoji: true } },
+      chatAttachments: { where: { message: { deletedAt: null } }, take: 1, select: { messageId: true, message: { select: { channelId: true } } } },
+      _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } },
+    },
+  });
+  // Escritura por proyecto, con el cliente puesto (la rama del RESPONSABLE cuenta aquí).
+  const clientePara = { members: client.members };
+  const escribibles = projects.filter((p) => canWriteProject({ ...p, client: clientePara }, session));
+  const gestionados = projects.filter((p) => canManageProject({ ...p, client: clientePara }, session));
+  const escribeEn = new Set(escribibles.map((p) => p.id));
+  const puedeEliminarArchivos = hasPermission(session, "eliminar_archivos");
+  const itemsArchivos: ArchivoItem[] = [
+    ...rawArchivos.map((f) => {
+      const enUso = f._count.deliverableVersions + f._count.deliverablePhotos + f._count.projectCovers > 0;
+      const gestiona = gestionados.some((p) => p.id === f.project.id);
+      return {
+        id: f.id,
+        name: f.name,
+        kind: f.kind as string,
+        url: f.url,
+        path: f.path,
+        size: f.size,
+        createdAt: f.createdAt.toISOString(),
+        autor: f.uploadedBy?.name ?? f.uploaderName ?? null,
+        version: f.version,
+        editable: isEditableOffice(f.name),
+        viaClientLink: f.viaClientLink,
+        enUso,
+        // Espejo de las reglas reales de deleteFile: permiso + escritura, y con vínculos, gestión.
+        puedeEliminar: puedeEliminarArchivos && escribeEn.has(f.project.id) && (!enUso || gestiona),
+        task: f.task,
+        chat: f.chatAttachments[0] ? { channelId: f.chatAttachments[0].message.channelId, messageId: f.chatAttachments[0].messageId } : null,
+        carpeta: f.folder,
+        proyecto: f.project,
+      };
+    }),
+    ...client.files.map((cf) => ({
+      id: cf.id,
+      name: cf.name,
+      kind: cf.kind as string,
+      url: cf.url,
+      path: cf.path,
+      size: null,
+      createdAt: cf.createdAt.toISOString(),
+      autor: cf.uploadedBy?.name ?? null,
+      version: 1,
+      editable: false,
+      viaClientLink: false,
+      esMarca: true,
+      puedeEliminar: canEdit,
+    })),
+  ];
+  const proyectoRef = (p: (typeof projects)[number]) => ({ id: p.id, name: p.name, emoji: p.emoji });
   // Invitar/crear usuarios cliente es sensible → solo admins (administrar_usuarios).
   const isAdmin = hasPermission(session, "administrar_usuarios");
   // Notas de la cuenta (las que se apuntaron del cliente, no de un proyecto suelto).
@@ -338,9 +417,18 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                 {
                   key: "archivos",
                   label: "Archivos",
-                  badge: client.files.length || undefined,
+                  badge: itemsArchivos.length || undefined,
                   icon: <IconArchivo />,
-                  node: <ClientFilesPanel clientId={id} files={client.files} canEdit={canEdit} />,
+                  node: (
+                    <ClientFilesPanel
+                      clientId={id}
+                      items={itemsArchivos}
+                      ahora={ahoraMs()}
+                      proyectosEscribibles={escribibles.map(proyectoRef)}
+                      proyectosGestionados={gestionados.map(proyectoRef)}
+                      canEdit={canEdit}
+                    />
+                  ),
                 },
                 // Notas del cliente: lo que se apunta de la cuenta (no de un proyecto suelto).
                 ...(hasPermission(session, "ver_notas") ? [{

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
+import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
 import { docPresenceFor } from "@/lib/doc-collab";
 import { opsEnabled, listOps, statOps } from "@/lib/nas-ops";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
@@ -110,21 +111,16 @@ export default async function ProyectoPage({
             photos: { orderBy: { position: "asc" } },
           },
         },
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
+        // orderBy en los files ANIDADOS a propósito: sin él, el orden lo decide el heap de
+        // Postgres y cambia tras cualquier UPDATE (p. ej. un guardado de OnlyOffice).
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
         // Excluye de Archivos los FileAsset que son fotos de entregables o portadas del banco
         // (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
+        files: { where: { folderId: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
         // Banco de portadas (pestaña «Portadas» de entregables).
         covers: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
           include: { notes: { orderBy: { createdAt: "desc" }, select: { id: true, authorName: true, body: true, drawing: true, resolved: true, createdAt: true } } },
-        },
-        tables: {
-          orderBy: { createdAt: "asc" },
-          include: {
-            columns: { orderBy: { position: "asc" } },
-            rows: { orderBy: { position: "asc" }, include: { cells: true } },
-          },
         },
         members: { select: { userId: true, role: true } },
         activity: {
@@ -172,7 +168,8 @@ export default async function ProyectoPage({
   const allProjectFiles = [...project.files, ...project.folders.flatMap((f) => f.files)];
   let opsInfo: { folder: string; ok: boolean; live: { name: string; rel: string; size: number | null; mtimeMs: number; ext: string }[]; dirs: { name: string; rel: string }[]; ooReady: boolean } | null = null;
   const opsMissing = new Set<string>();
-  if (opsAvailable && project.opsFolder) {
+  // El listado en vivo solo lo pinta la pestaña de Archivos: no se paga en las demás.
+  if (opsAvailable && project.opsFolder && tab === "archivos") {
     let ok = false;
     let live: { name: string; rel: string; size: number | null; mtimeMs: number; ext: string }[] = [];
     let dirs: { name: string; rel: string }[] = [];
@@ -187,11 +184,15 @@ export default async function ProyectoPage({
     }
     opsInfo = { folder: project.opsFolder, ok, live, dirs, ooReady };
   }
-  if (opsAvailable) {
-    for (const f of allProjectFiles) {
-      if (f.kind !== "OPS" || !f.path) continue;
-      if (!(await statOps(f.path))) opsMissing.add(f.id);
-    }
+  // Solo cuando la pestaña de Archivos está abierta (es la única que pinta «¿movido?»), y en
+  // paralelo: antes era un stat SECUENCIAL por archivo OPS contra el bind mount, en TODAS las
+  // pestañas — con el mount lento, cada visita al proyecto lo pagaba.
+  if (opsAvailable && tab === "archivos") {
+    const opsFiles = allProjectFiles.filter((f) => f.kind === "OPS" && f.path);
+    const stats = await Promise.all(opsFiles.map((f) => statOps(f.path as string).catch(() => null)));
+    opsFiles.forEach((f, i) => {
+      if (!stats[i]) opsMissing.add(f.id);
+    });
   }
   // Broche del TERMINADO: el banner muestra el proyecto en números (todo ya viene cargado
   // arriba — tareas con timeEntries y entregables — así que sumar aquí no cuesta consultas).
@@ -308,6 +309,52 @@ export default async function ProyectoPage({
     comentarios: docCount.get(fileId) ?? 0,
     dentro: (docPresentes.get(fileId) ?? []).map((p) => p.name),
   });
+
+  // ── Los archivos como los pinta el panel unificado (ArchivoItem) ──
+  // Los recortes del rol cliente se hacen AQUÍ, en el servidor: las rutas SMB no viajan y el
+  // path de un OPS se anula. El panel nunca decide qué esconder.
+  const puedeBorrarBase = alive && session?.role !== "demo" && hasPermission(session, "eliminar_archivos");
+  const esClienteMiembro = isCliente && project.members.some((m) => m.userId === session?.id);
+  const puedeEliminarArchivo = (uploadedById: string | null, enUso: boolean): boolean => {
+    if (!puedeBorrarBase) return false;
+    // Vinculado a un entregable (versión/foto/portada): borrar exige gestionar el proyecto.
+    if (enUso) return canManageProject(project, session);
+    if (canWriteProject(project, session)) return true;
+    // Excepción del portal: el cliente borra SOLO lo que subió él.
+    return esClienteMiembro && uploadedById === session!.id;
+  };
+  type ArchivoRow = (typeof project.files)[number];
+  const aArchivoItem = (file: ArchivoRow, carpeta: { id: string; name: string; icon: string | null; color: string | null } | null): ArchivoItem => {
+    const enUso = file._count.deliverableVersions + file._count.deliverablePhotos + file._count.projectCovers > 0;
+    return {
+      id: file.id,
+      name: file.name,
+      kind: file.kind as string,
+      url: file.url,
+      path: isCliente && file.kind === "OPS" ? null : file.path,
+      size: file.size,
+      createdAt: file.createdAt.toISOString(),
+      autor: file.uploadedBy?.name ?? file.uploaderName ?? null,
+      version: file.version,
+      editable: isEditableOffice(file.name),
+      viaClientLink: file.viaClientLink,
+      missing: opsMissing.has(file.id),
+      enUso,
+      puedeEliminar: puedeEliminarArchivo(file.uploadedById, enUso),
+      ...docLive(file.id),
+      task: file.task,
+      chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null,
+      carpeta,
+    };
+  };
+  const archivosItems: ArchivoItem[] = [
+    ...otherFolders.flatMap((f) =>
+      f.files
+        .filter((file) => !isCliente || file.kind !== "NAS")
+        .map((file) => aArchivoItem(file, { id: f.id, name: f.name, icon: f.icon, color: f.color })),
+    ),
+    ...project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => aArchivoItem(file, null)),
+  ];
 
   // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
   // de inicio, horas estimadas y reales para el seguimiento del Gantt).
@@ -834,16 +881,14 @@ export default async function ProyectoPage({
               ) : null}
               <FilesPanel
                 projectId={id}
-                folders={otherFolders.map((f) => ({
-                  id: f.id,
-                  name: f.name,
-                  icon: f.icon,
-                  color: f.color,
-                  // El cliente no ve las rutas de red (SMB/NAS): exponen la estructura interna del servidor.
-                  files: f.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), ...docLive(file.id), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) })),
-                }))}
-                looseFiles={project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => ({ id: file.id, name: file.name, kind: file.kind, url: file.url, path: isCliente && file.kind === "OPS" ? null : file.path, editable: isEditableOffice(file.name), ...docLive(file.id), task: file.task, viaClientLink: file.viaClientLink, chat: file.chatAttachments[0] ? { channelId: file.chatAttachments[0].message.channelId, messageId: file.chatAttachments[0].messageId } : null, missing: opsMissing.has(file.id) }))}
+                items={archivosItems}
+                ahora={ahoraMs()}
+                carpetas={otherFolders.map((f) => ({ id: f.id, name: f.name, icon: f.icon, color: f.color }))}
                 ops={opsInfo}
+                canUpload={alive && canUploadFiles && session?.role !== "demo"}
+                canLinks={alive && canUploadFiles && session?.role !== "demo"}
+                canRutas={alive && !isCliente && canWriteProject(project, session) && session?.role !== "demo"}
+                canFolders={alive && !isCliente && canWriteProject(project, session) && session?.role !== "demo"}
                 canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
                 canCreateDoc={alive && canUploadFiles && session?.role !== "demo"}
                 onlyoffice={ooReady}
