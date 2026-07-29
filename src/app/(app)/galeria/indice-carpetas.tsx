@@ -2,7 +2,14 @@
 
 import * as React from "react";
 import { Folder, Image as ImageIcon, Search, SortAsc } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { tone } from "@/lib/colors";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
+
+// El CLIENTE al que está vinculada una carpeta: su tarjeta lleva una insignia con su color
+// (la misma paleta que su cabecera y sus chips en la barra), así el índice se organiza a
+// simple vista sin leer los nombres uno a uno.
+export type DuenoIndice = { nombre: string; color: string | null };
 
 // ── El índice de entregas ──────────────────────────────────────────────────────
 // Antes era una lista de tarjetas iguales, con un icono de carpeta y la fecha de la
@@ -51,7 +58,15 @@ function plano(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-export function IndiceCarpetas({ folders, onAbrir }: { folders: GaleriaFolder[]; onAbrir: (rel: string) => void }) {
+export function IndiceCarpetas({
+  folders,
+  duenos,
+  onAbrir,
+}: {
+  folders: GaleriaFolder[];
+  duenos?: Record<string, DuenoIndice>;
+  onAbrir: (rel: string) => void;
+}) {
   const [resumenes, setResumenes] = React.useState<Record<string, Resumen>>({});
   const [orden, setOrden] = React.useState<Orden>("reciente");
   const [busca, setBusca] = React.useState("");
@@ -146,6 +161,7 @@ export function IndiceCarpetas({ folders, onAbrir }: { folders: GaleriaFolder[];
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visibles.map((f) => {
             const r = resumenes[f.rel];
+            const dueno = duenos?.[f.rel];
             return (
               <button
                 key={f.rel}
@@ -176,7 +192,20 @@ export function IndiceCarpetas({ folders, onAbrir }: { folders: GaleriaFolder[];
                 <div className="flex items-start gap-2.5 p-3">
                   <Folder className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{f.name}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="min-w-0 truncate font-medium">{f.name.replace(/_/g, " ")}</span>
+                      {dueno && (
+                        <span
+                          title={`Carpeta de ${dueno.nombre}`}
+                          className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                            tone(dueno.color ?? "slate").chip,
+                          )}
+                        >
+                          {dueno.nombre}
+                        </span>
+                      )}
+                    </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {r ? (
                         <>

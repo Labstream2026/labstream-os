@@ -15,6 +15,9 @@ import type { GaleriaFolder } from "@/lib/nas-galeria";
 
 type Props = {
   seleccion: string[];
+  // Peso total ya formateado («3,4 GB»). Importa al decidir: mover 12 piezas no dice nada,
+  // mover 40 GB sí — sobre NFS eso es tiempo, y borrarlo es saber cuánto se recupera.
+  peso?: string | null;
   onLimpiar: () => void;
   onHecho: () => void; // releer la carpeta: el material cambió
   puedeEscribir: boolean;
@@ -24,7 +27,7 @@ function nombreDe(rel: string): string {
   return rel.split("/").pop() || rel;
 }
 
-export function BarraSeleccion({ seleccion, onLimpiar, onHecho, puedeEscribir }: Props) {
+export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscribir }: Props) {
   const [ocupado, setOcupado] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [dialogo, setDialogo] = React.useState<null | "borrar" | "mover" | "renombrar">(null);
@@ -85,6 +88,7 @@ export function BarraSeleccion({ seleccion, onLimpiar, onHecho, puedeEscribir }:
         <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5 rounded-2xl border bg-card/95 p-1.5 shadow-lg backdrop-blur">
           <span className="px-2 text-sm font-medium tabular-nums">
             {seleccion.length} {uno ? "seleccionado" : "seleccionados"}
+            {peso && <span className="ml-1.5 font-normal text-muted-foreground">· {peso}</span>}
           </span>
           <span className="mx-0.5 h-5 w-px bg-border" />
 

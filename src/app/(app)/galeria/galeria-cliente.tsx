@@ -1,14 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Check, Copy, Download, Film, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, Film, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
 import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
-import { IndiceCarpetas } from "./indice-carpetas";
+import { IndiceCarpetas, type DuenoIndice } from "./indice-carpetas";
 import { BarraSeleccion } from "./seleccion";
-import type { GaleriaFolder, GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
+import type { GaleriaFolder, GaleriaItem, GaleriaKind, GaleriaScan } from "@/lib/nas-galeria";
 
 // Galería de entregas: la línea de tiempo del material que hay en LabTem.
 // Todo se lee EN VIVO por /api/galeria/*; aquí no hay estado que se pueda desincronizar.
+//
+// NAVEGACIÓN: una sola fuente de verdad, la URL (?rel=). Este componente recibe `rel` del
+// servidor y navega con router.push; la barra de herramientas de arriba hace lo mismo. La
+// versión anterior guardaba su PROPIA copia de la carpeta en useState y navegaba con
+// replaceState: la barra y la cuadrícula podían quedar cada una en una carpeta distinta
+// (los chips cambiaban la URL pero la cuadrícula ni se enteraba, y al revés).
+//
+// ESTADO POR CARPETA: lo cargado, el fallo, la selección y el visor se guardan CON la
+// carpeta a la que pertenecen y se descartan al comparar con la actual. Así una respuesta
+// lenta de la carpeta anterior no puede pintar la equivocada, y volver atrás con el
+// navegador no arrastra la selección ni reabre el visor de otra entrega.
 
 type Respuesta =
   | { ok: true; ready: false; motivo: string; mensaje: string }
@@ -44,106 +56,168 @@ async function pedir(rel: string): Promise<Respuesta> {
   return (await res.json()) as Respuesta;
 }
 
-export function GaleriaCliente({ relInicial, puedeEscribir }: { relInicial: string; puedeEscribir: boolean }) {
-  const [rel, setRel] = React.useState(relInicial);
-  const [datos, setDatos] = React.useState<Respuesta | null>(null);
-  const [cargando, setCargando] = React.useState(true);
-  const [fallo, setFallo] = React.useState<string | null>(null);
-  const [abierto, setAbierto] = React.useState<GaleriaItem | null>(null);
+type Filtro = "todo" | GaleriaKind;
+
+export function GaleriaCliente({
+  rel,
+  puedeEscribir,
+  duenos,
+}: {
+  rel: string;
+  puedeEscribir: boolean;
+  duenos: Record<string, DuenoIndice>;
+}) {
+  const router = useRouter();
+  const [cargado, setCargado] = React.useState<{ rel: string; datos: Respuesta } | null>(null);
+  const [fallo, setFallo] = React.useState<{ rel: string; msg: string } | null>(null);
+  const [refrescando, setRefrescando] = React.useState(false);
   const [vuelta, setVuelta] = React.useState(0); // subirlo = volver a pedir
-  const [seleccion, setSeleccion] = React.useState<string[]>([]);
+  const [seleccion, setSeleccion] = React.useState<{ rel: string; rels: string[] }>({ rel: "", rels: [] });
+  const [abierto, setAbierto] = React.useState<{ rel: string; item: GaleriaItem } | null>(null);
+  const [filtro, setFiltro] = React.useState<Filtro>("todo");
   // Ancla del Shift: la última pieza marcada a mano. Sin ella, «marcar el rango» no tiene
   // desde dónde contar.
   const anclaRef = React.useRef<string | null>(null);
 
-  // La bandera `cancelado` importa de verdad: si se pincha entrega tras entrega, la respuesta
-  // lenta de la primera llegaría después de la segunda y pintaría la carpeta equivocada.
+  // Todo lo guardado se valida contra la carpeta ACTUAL; lo de otra carpeta no existe aquí.
+  const datos = cargado?.rel === rel ? cargado.datos : null;
+  const error = fallo?.rel === rel ? fallo.msg : null;
+  const cargando = !datos && !error;
+
   React.useEffect(() => {
     let cancelado = false;
     pedir(rel)
       .then((d) => {
         if (cancelado) return;
-        setDatos(d);
+        setCargado({ rel, datos: d });
         setFallo(null);
       })
       .catch((e: unknown) => {
         if (cancelado) return;
-        setDatos(null);
-        setFallo(e instanceof Error ? e.message : "No se pudo leer la carpeta");
+        setFallo({ rel, msg: e instanceof Error ? e.message : "No se pudo leer la carpeta" });
+        setCargado((c) => (c?.rel === rel ? null : c));
       })
       .finally(() => {
-        if (!cancelado) setCargando(false);
+        if (!cancelado) setRefrescando(false);
       });
     return () => {
       cancelado = true;
     };
   }, [rel, vuelta]);
 
-  // Desde manejadores de evento sí se puede tocar el estado directamente.
+  // Navegar = cambiar la URL. El servidor re-renderiza la página entera (barra incluida) y
+  // este componente recibe el `rel` nuevo: imposible que las dos mitades discrepen.
   const abrirCarpeta = (r: string) => {
-    setCargando(true);
     setAbierto(null);
-    setSeleccion([]); // lo marcado en otra carpeta no se arrastra a esta
-    anclaRef.current = null;
-    setRel(r);
+    router.push(r ? `/galeria?rel=${encodeURIComponent(r)}` : "/galeria");
   };
   const recargar = () => {
-    setCargando(true);
+    setRefrescando(true);
     setVuelta((n) => n + 1);
   };
 
-  // La URL sigue a la carpeta abierta: así el enlace se puede compartir dentro del equipo
-  // y el botón «atrás» del navegador hace lo que se espera.
-  React.useEffect(() => {
-    const u = new URL(window.location.href);
-    if (rel) u.searchParams.set("rel", rel);
-    else u.searchParams.delete("rel");
-    window.history.replaceState(null, "", u.toString());
-  }, [rel]);
+  const scan = datos && datos.ready && "scan" in datos ? datos.scan : null;
+
+  // La vista filtrada (solo fotos / solo videos) se deriva del escaneo: meses y días se
+  // recortan y los que quedan vacíos desaparecen. El visor y el Shift trabajan sobre lo
+  // VISIBLE, que es lo que cualquiera espera: «siguiente» va a la siguiente que se ve.
+  const scanVisible = React.useMemo(() => {
+    if (!scan || filtro === "todo") return scan;
+    const months = scan.months
+      .map((m) => {
+        const days = m.days
+          .map((d) => ({ ...d, items: d.items.filter((i) => i.kind === filtro) }))
+          .filter((d) => d.items.length > 0);
+        return { ...m, days, count: days.reduce((n, d) => n + d.items.length, 0) };
+      })
+      .filter((m) => m.days.length > 0);
+    return { ...scan, months };
+  }, [scan, filtro]);
 
   const piezas = React.useMemo(() => {
-    if (!datos || !datos.ready || !("scan" in datos)) return [];
-    return datos.scan.months.flatMap((m) => m.days.flatMap((d) => d.items));
-  }, [datos]);
+    if (!scan) return [];
+    return scan.months.flatMap((m) => m.days.flatMap((d) => d.items));
+  }, [scan]);
 
+  const piezasVisibles = React.useMemo(() => {
+    if (!scanVisible) return [];
+    return scanVisible.months.flatMap((m) => m.days.flatMap((d) => d.items));
+  }, [scanVisible]);
+
+  // Selección de ESTA carpeta (la de otra no cuenta ni se arrastra). En useMemo para que
+  // el `[]` del caso vacío sea estable y no invalide los memos que cuelgan de él.
+  const rels = React.useMemo(() => (seleccion.rel === rel ? seleccion.rels : []), [seleccion, rel]);
   // Conjunto, no array: la cuadrícula pregunta «¿está marcada?» una vez por pieza, y con
   // 20.000 piezas un `includes` por cada una es cuadrático.
-  const marcadas = React.useMemo(() => new Set(seleccion), [seleccion]);
+  const marcadas = React.useMemo(() => new Set(rels), [rels]);
+
+  // El peso de lo seleccionado se suma de las piezas reales (para la barra de abajo).
+  const pesoSeleccion = React.useMemo(() => {
+    if (rels.length === 0) return 0;
+    const porRel = new Map(piezas.map((p) => [p.rel, p.size]));
+    return rels.reduce((n, r) => n + (porRel.get(r) ?? 0), 0);
+  }, [rels, piezas]);
 
   const marcar = (r: string, rango: boolean) => {
-    const orden = piezas.map((p) => p.rel);
     // Shift: se marca todo el tramo entre el ancla y esta pieza, en el orden en que se ven.
     if (rango && anclaRef.current) {
+      const orden = piezasVisibles.map((p) => p.rel);
       const a = orden.indexOf(anclaRef.current);
       const b = orden.indexOf(r);
       if (a >= 0 && b >= 0) {
         const [i, j] = a < b ? [a, b] : [b, a];
-        const tramo = orden.slice(i, j + 1);
-        setSeleccion((prev) => Array.from(new Set([...prev, ...tramo])));
+        setSeleccion({ rel, rels: Array.from(new Set([...rels, ...orden.slice(i, j + 1)])) });
         return;
       }
     }
     anclaRef.current = r;
-    setSeleccion((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
+    setSeleccion({ rel, rels: rels.includes(r) ? rels.filter((x) => x !== r) : [...rels, r] });
+  };
+
+  // Marca o desmarca un día entero. También es la puerta de entrada a la selección en
+  // táctil, donde no hay hover para descubrir la casilla ni Ctrl para empezar.
+  const marcarDia = (items: GaleriaItem[]) => {
+    const delDia = items.map((i) => i.rel);
+    const todos = delDia.every((d) => marcadas.has(d));
+    setSeleccion({
+      rel,
+      rels: todos ? rels.filter((x) => !delDia.includes(x)) : Array.from(new Set([...rels, ...delDia])),
+    });
+    if (!todos && delDia.length > 0) anclaRef.current = delDia[delDia.length - 1]!;
   };
 
   const limpiarSeleccion = () => {
-    setSeleccion([]);
+    setSeleccion({ rel, rels: [] });
     anclaRef.current = null;
   };
 
-  if (cargando && !datos) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 size-4 animate-spin" /> Leyendo LabTem…
+  // El visor solo vive si su pieza sigue en la carpeta actual: si se borró (o se volvió con
+  // el navegador a otra entrega), se cierra solo en vez de quedarse enseñando un 404.
+  const abiertoReal = abierto && abierto.rel === rel && piezas.some((p) => p.rel === abierto.item.rel) ? abierto.item : null;
+
+  // Escape quita la selección — solo cuando el visor no está abierto (su propio Escape lo
+  // cierra a él primero; dos Escapes = cerrar visor y luego limpiar, como en el Finder).
+  React.useEffect(() => {
+    if (rels.length === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !abiertoReal) limpiarSeleccion();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- limpiarSeleccion cambia en cada render
+  }, [rels.length, abiertoReal, rel]);
+
+  if (cargando) {
+    return rel ? <EsqueletoCuadricula /> : (
+      <div>
+        <Cabecera titulo="Galería de entregas" sub="El material que vive en LabTem, listo para entregar." />
+        <EsqueletoIndice />
       </div>
     );
   }
 
-  if (fallo) {
-    return (
-      <Aviso titulo="No se pudo leer la carpeta" texto={fallo} onReintentar={recargar} />
-    );
+  if (error) {
+    return <Aviso titulo="No se pudo leer la carpeta" texto={error} onReintentar={recargar} />;
   }
 
   if (datos && !datos.ready) {
@@ -162,44 +236,65 @@ export function GaleriaCliente({ relInicial, puedeEscribir }: { relInicial: stri
             onReintentar={recargar}
           />
         ) : (
-          <IndiceCarpetas folders={datos.folders} onAbrir={abrirCarpeta} />
+          <IndiceCarpetas folders={datos.folders} duenos={duenos} onAbrir={abrirCarpeta} />
         )}
       </div>
     );
   }
 
   // ── Línea de tiempo de una entrega ───────────────────────────────────────────
-  if (!datos || !datos.ready || !("scan" in datos)) return null;
-  const { scan } = datos;
+  if (!scan || !scanVisible) return null;
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <button
-          onClick={() => abrirCarpeta("")}
-          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
-        >
-          <ArrowLeft className="size-4" /> Entregas
-        </button>
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight">{rel.split("/").pop()}</h1>
-          <p className="text-xs text-muted-foreground">
-            {plural(scan.total, "elemento", "elementos")} · {plural(scan.photos, "foto", "fotos")} ·{" "}
-            {plural(scan.videos, "video", "videos")} · {pesar(scan.bytes)}
-          </p>
+      <div className="mb-4">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-xl font-semibold tracking-tight">{(rel.split("/").pop() ?? "").replace(/_/g, " ")}</h1>
+            <p className="text-xs text-muted-foreground">
+              {plural(scan.total, "elemento", "elementos")} · {plural(scan.photos, "foto", "fotos")} ·{" "}
+              {plural(scan.videos, "video", "videos")} · {pesar(scan.bytes)}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* key: al cambiar de entrega el componente se remonta y el enlace de la anterior
+                desaparece solo. Enseñar el enlace de otra carpeta sería el peor error aquí. */}
+            <Compartir key={rel} rel={rel} />
+            <button
+              onClick={recargar}
+              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
+              title="Volver a leer la carpeta"
+            >
+              <RefreshCw className={`size-4 ${refrescando ? "animate-spin" : ""}`} /> Actualizar
+            </button>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {/* key: al cambiar de entrega el componente se remonta y el enlace de la anterior
-              desaparece solo. Enseñar el enlace de otra carpeta sería el peor error aquí. */}
-          <Compartir key={rel} rel={rel} />
-        <button
-          onClick={recargar}
-          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
-          title="Volver a leer la carpeta"
-        >
-          <RefreshCw className={`size-4 ${cargando ? "animate-spin" : ""}`} /> Actualizar
-        </button>
-        </div>
+
+        {/* Filtro por tipo: solo aparece cuando la entrega MEZCLA fotos y videos (si es todo
+            del mismo tipo, unos chips que no filtran nada son ruido). */}
+        {scan.photos > 0 && scan.videos > 0 && (
+          <div className="mt-3 flex items-center gap-1">
+            {(
+              [
+                { id: "todo", etiqueta: "Todo", n: scan.total },
+                { id: "photo", etiqueta: "Fotos", n: scan.photos },
+                { id: "video", etiqueta: "Videos", n: scan.videos },
+              ] as { id: Filtro; etiqueta: string; n: number }[]
+            ).map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFiltro(f.id)}
+                className={`rounded-full border px-3 py-1 text-xs transition ${
+                  filtro === f.id
+                    ? "border-primary/40 bg-primary/10 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {f.etiqueta} · {f.n.toLocaleString("es-CO")}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {scan.truncated && (
@@ -215,53 +310,65 @@ export function GaleriaCliente({ relInicial, puedeEscribir }: { relInicial: stri
           onReintentar={recargar}
         />
       ) : (
-        scan.months.map((mes) => (
+        scanVisible.months.map((mes) => (
           <section key={mes.month} className="mb-8">
             <h2 className="sticky top-0 z-10 -mx-1 bg-background/90 px-1 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary backdrop-blur">
               {mes.label} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground">· {mes.count}</span>
             </h2>
-            {mes.days.map((dia) => (
-              <div key={dia.date} className="mt-4">
-                <div className="mb-2 flex items-baseline gap-2">
-                  <h3 className="text-sm font-semibold capitalize">{titularDia(dia.date)}</h3>
-                  <span className="text-xs text-muted-foreground">{plural(dia.items.length, "elemento", "elementos")}</span>
-                  {dia.items.every((i) => !i.exact) && (
-                    <span className="text-[11px] text-muted-foreground/70" title="Ninguna pieza traía fecha de disparo; se usa la del archivo">
-                      fecha aproximada
-                    </span>
-                  )}
+            {mes.days.map((dia) => {
+              const todosDia = dia.items.every((i) => marcadas.has(i.rel));
+              return (
+                <div key={dia.date} className="group/dia mt-4">
+                  <div className="mb-2 flex items-baseline gap-2">
+                    <h3 className="text-sm font-semibold capitalize">{titularDia(dia.date)}</h3>
+                    <span className="text-xs text-muted-foreground">{plural(dia.items.length, "elemento", "elementos")}</span>
+                    {dia.items.every((i) => !i.exact) && (
+                      <span className="text-[11px] text-muted-foreground/70" title="Ninguna pieza traía fecha de disparo; se usa la del archivo">
+                        fecha aproximada
+                      </span>
+                    )}
+                    <button
+                      onClick={() => marcarDia(dia.items)}
+                      className={`ml-auto text-[11px] transition hover:text-primary focus:opacity-100 ${
+                        rels.length > 0 ? "opacity-100" : "opacity-0 group-hover/dia:opacity-100"
+                      } ${todosDia && rels.length > 0 ? "text-primary" : "text-muted-foreground"}`}
+                    >
+                      {todosDia && rels.length > 0 ? "Quitar el día" : "Seleccionar el día"}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
+                    {dia.items.map((it) => (
+                      <Ficha
+                        key={it.rel}
+                        item={it}
+                        onAbrir={() => setAbierto({ rel, item: it })}
+                        marcada={marcadas.has(it.rel)}
+                        haySeleccion={rels.length > 0}
+                        onMarcar={(rango) => marcar(it.rel, rango)}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
-                  {dia.items.map((it) => (
-                    <Ficha
-                      key={it.rel}
-                      item={it}
-                      onAbrir={() => setAbierto(it)}
-                      marcada={marcadas.has(it.rel)}
-                      haySeleccion={seleccion.length > 0}
-                      onMarcar={(rango) => marcar(it.rel, rango)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         ))
       )}
 
       <BarraSeleccion
-        seleccion={seleccion}
+        seleccion={rels}
+        peso={rels.length > 0 && pesoSeleccion > 0 ? pesar(pesoSeleccion) : null}
         onLimpiar={limpiarSeleccion}
         onHecho={recargar}
         puedeEscribir={puedeEscribir}
       />
 
-      {abierto && (
+      {abiertoReal && (
         <Visor
-          item={abierto}
-          piezas={piezas}
+          item={abiertoReal}
+          piezas={piezasVisibles}
           onCerrar={() => setAbierto(null)}
-          onCambiar={(x) => setAbierto(x)}
+          onCambiar={(x) => setAbierto({ rel, item: x })}
         />
       )}
     </div>
@@ -375,7 +482,7 @@ function Ficha({
         }
         onAbrir();
       }}
-      className={`group relative aspect-square overflow-hidden rounded-md bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary ${
+      className={`group relative aspect-square overflow-hidden rounded-md bg-muted transition focus:outline-none focus:ring-2 focus:ring-primary ${
         marcada ? "ring-2 ring-primary" : ""
       }`}
       title={item.name}
@@ -405,17 +512,24 @@ function Ficha({
           <span className="text-[9px] text-muted-foreground/70">preparando</span>
         </span>
       ) : (
-        <img
-          src={src}
-          alt={item.name}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
-          onError={() => setSinMiniatura(true)}
-        />
+        <>
+          <img
+            src={src}
+            alt={item.name}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+            onError={() => setSinMiniatura(true)}
+          />
+          {/* Al pasar por encima: nombre y peso, sin esperar al tooltip del sistema. */}
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-1.5 pt-5 text-left opacity-0 transition group-hover:opacity-100">
+            <span className="block truncate text-[10px] font-medium leading-tight text-white">{item.name}</span>
+            <span className="block text-[9px] text-white/70">{pesar(item.size)}</span>
+          </span>
+        </>
       )}
       {item.kind === "video" && !sinMiniatura && (
-        <span className="absolute bottom-1 left-1 grid size-4 place-items-center rounded-full bg-black/55">
+        <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-black/55">
           <span className="ml-[1px] border-y-[3px] border-l-[5px] border-y-transparent border-l-white" />
         </span>
       )}
@@ -480,22 +594,46 @@ function Visor({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4">
+      {/* Clic en el fondo negro = cerrar (clic en la foto/video no, que ahí se pausa). */}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center px-4 pb-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onCerrar();
+        }}
+      >
+        {i > 0 && (
+          <button
+            onClick={() => mover(-1)}
+            aria-label="Anterior"
+            className="absolute left-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full bg-white/10 p-2 text-white transition hover:bg-white/25 sm:grid"
+          >
+            <ChevronLeft className="size-6" />
+          </button>
+        )}
         {item.kind === "video" ? (
           <video key={item.rel} src={ver} controls autoPlay playsInline className="max-h-full max-w-full" />
         ) : (
           <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" />
         )}
+        {i < piezas.length - 1 && (
+          <button
+            onClick={() => mover(1)}
+            aria-label="Siguiente"
+            className="absolute right-3 top-1/2 z-10 hidden -translate-y-1/2 rounded-full bg-white/10 p-2 text-white transition hover:bg-white/25 sm:grid"
+          >
+            <ChevronRight className="size-6" />
+          </button>
+        )}
       </div>
 
       <div className="flex items-center justify-center gap-6 pb-4 text-sm text-white/70">
-        <button onClick={() => mover(-1)} disabled={i <= 0} className="disabled:opacity-30">
+        <button onClick={() => mover(-1)} disabled={i <= 0} className="disabled:opacity-30 sm:hidden">
           ← Anterior
         </button>
         <span className="tabular-nums text-xs">
           {i + 1} de {piezas.length}
         </span>
-        <button onClick={() => mover(1)} disabled={i >= piezas.length - 1} className="disabled:opacity-30">
+        <button onClick={() => mover(1)} disabled={i >= piezas.length - 1} className="disabled:opacity-30 sm:hidden">
           Siguiente →
         </button>
       </div>
@@ -523,6 +661,41 @@ function Aviso({ titulo, texto, onReintentar }: { titulo: string; texto: string;
       <button onClick={onReintentar} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition hover:bg-accent">
         <RefreshCw className="size-4" /> Reintentar
       </button>
+    </div>
+  );
+}
+
+// ── Esqueletos de carga ────────────────────────────────────────────────────────
+// Un esqueleto con la forma del contenido dice «esto viene ya»; el spinner centrado de
+// antes decía «espera», que se siente el doble de largo.
+
+function EsqueletoIndice() {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="overflow-hidden rounded-xl border bg-card">
+          <div className="aspect-[16/9] animate-pulse bg-muted" />
+          <div className="space-y-2 p-3">
+            <div className="h-3.5 w-2/3 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EsqueletoCuadricula() {
+  return (
+    <div>
+      <div className="mb-1 h-6 w-56 animate-pulse rounded bg-muted" />
+      <div className="mb-5 h-3.5 w-72 animate-pulse rounded bg-muted" />
+      <div className="mb-2 h-4 w-40 animate-pulse rounded bg-muted" />
+      <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
+        {Array.from({ length: 16 }).map((_, i) => (
+          <div key={i} className="aspect-square animate-pulse rounded-md bg-muted" />
+        ))}
+      </div>
     </div>
   );
 }

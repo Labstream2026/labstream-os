@@ -100,7 +100,9 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
         puedeEscribir={puedeEscribir}
         escrituraLista={escrituraLista}
       />
-      <GaleriaCliente relInicial={relNorm} puedeEscribir={puedeEscribir && escrituraLista} />
+      {/* `rel` viene del servidor y es LA fuente de verdad: el visor navega con router.push
+          y las dos mitades (barra y cuadrícula) siempre ven la misma carpeta. */}
+      <GaleriaCliente rel={relNorm} puedeEscribir={puedeEscribir && escrituraLista} duenos={Object.fromEntries(duenoPorRel)} />
     </div>
   );
 }

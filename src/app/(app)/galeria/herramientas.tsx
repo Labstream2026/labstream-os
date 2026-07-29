@@ -121,32 +121,38 @@ export function GaleriaHerramientas({
 
   return (
     <div className="mb-4 space-y-2">
-      {/* Migas + subcarpetas: la línea de tiempo aplana el árbol, esto lo devuelve a la vista */}
-      <div className="flex flex-wrap items-center gap-1 text-sm">
-        <button type="button" onClick={() => navegar("")} className={cn("rounded px-1.5 py-0.5 hover:bg-accent", !rel && "font-semibold")}>
-          Galería
-        </button>
-        {migas.map((seg, i) => {
-          const destino = migas.slice(0, i + 1).join("/");
-          const ultimo = i === migas.length - 1;
-          return (
-            <React.Fragment key={destino}>
-              <ChevronRight className="size-3.5 text-muted-foreground" />
-              <button
-                type="button"
-                onClick={() => navegar(destino)}
-                className={cn("max-w-[16rem] truncate rounded px-1.5 py-0.5 hover:bg-accent", ultimo && "font-semibold")}
-              >
-                {seg.replace(/_/g, " ")}
-              </button>
-            </React.Fragment>
-          );
-        })}
-      </div>
+      {/* Migas: solo DENTRO de una carpeta. En la raíz eran un «Galería» suelto sin nada que
+          navegar, compitiendo con el título de la página justo debajo. */}
+      {rel && (
+        <div className="flex flex-wrap items-center gap-1 text-sm">
+          <button type="button" onClick={() => navegar("")} className="rounded px-1.5 py-0.5 hover:bg-accent">
+            Galería
+          </button>
+          {migas.map((seg, i) => {
+            const destino = migas.slice(0, i + 1).join("/");
+            const ultimo = i === migas.length - 1;
+            return (
+              <React.Fragment key={destino}>
+                <ChevronRight className="size-3.5 text-muted-foreground" />
+                <button
+                  type="button"
+                  onClick={() => navegar(destino)}
+                  className={cn("max-w-[16rem] truncate rounded px-1.5 py-0.5 hover:bg-accent", ultimo && "font-semibold")}
+                >
+                  {seg.replace(/_/g, " ")}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
 
-      {(subcarpetas.length > 0 || puedeEscribir || vinculos.length > 0) && (
+      {((rel && subcarpetas.length > 0) || puedeEscribir || vinculos.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {subcarpetas.map((s) => (
+          {/* Chips de subcarpeta: solo dentro de una carpeta (la línea de tiempo la aplana y
+              esto la devuelve a la vista). En la raíz DUPLICABAN el índice: las mismas 30
+              entregas como chips y como tarjetas, una debajo de la otra. */}
+          {(rel ? subcarpetas : []).map((s) => (
             <button
               key={s.rel}
               type="button"
@@ -216,24 +222,30 @@ export function GaleriaHerramientas({
                 </button>
               )}
 
-              <input ref={inputRef} type="file" multiple hidden onChange={(e) => void subir(e.target.files)} />
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                disabled={!escrituraLista || !rel || ocupado === "subida"}
-                title={!escrituraLista ? "La galería está en solo lectura (falta el montaje rw + el centinela en LabTem)" : !rel ? "Entra a una carpeta para subir ahí" : undefined}
-                className={botonCls}
-              >
-                {progreso ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" /> {progreso.hecho}/{progreso.total}
-                  </>
-                ) : (
-                  <>
-                    <Upload className="size-3.5" /> Subir aquí
-                  </>
-                )}
-              </button>
+              {/* En la raíz no se sube (el servidor lo rechaza): mejor sin botón que con un
+                  botón apagado que hay que leer para entender por qué no hace nada. */}
+              {rel && (
+                <>
+                  <input ref={inputRef} type="file" multiple hidden onChange={(e) => void subir(e.target.files)} />
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    disabled={!escrituraLista || ocupado === "subida"}
+                    title={!escrituraLista ? "La galería está en solo lectura (falta el montaje rw + el centinela en LabTem)" : undefined}
+                    className={botonCls}
+                  >
+                    {progreso ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" /> {progreso.hecho}/{progreso.total}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="size-3.5" /> Subir aquí
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
 
               {rel && vinculos.length === 0 && (
                 <>
