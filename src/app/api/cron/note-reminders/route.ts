@@ -6,8 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Dispara los recordatorios de notas cuya fecha ya llegó. Lo invoca el Programador del NAS
-// cada pocos minutos:  curl http://localhost:3200/api/cron/note-reminders
-// Local del NAS sin secreto; externas exigen Authorization: Bearer $CRON_SECRET (cron-auth).
+// cada pocos minutos. El secreto es obligatorio también en local (ver @/lib/cron-auth):
+//   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3200/api/cron/note-reminders
 // (Como red de seguridad, el cron diario recurring-tasks también lo ejecuta.)
 async function run(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "no autorizado" }, { status: 401 });

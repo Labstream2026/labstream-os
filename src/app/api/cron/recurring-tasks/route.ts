@@ -7,8 +7,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Materializa las tareas recurrentes que tocan hoy. Lo invoca el Programador de tareas del
-// NAS una vez al día (p. ej. 6:00):  curl http://localhost:3200/api/cron/recurring-tasks
-// Local del NAS sin secreto; externas exigen Authorization: Bearer $CRON_SECRET (cron-auth).
+// NAS una vez al día (p. ej. 6:00). El secreto es obligatorio también en local, porque el
+// puerto 3200 está publicado en la LAN y «viene de localhost» es falsificable (@/lib/cron-auth):
+//   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3200/api/cron/recurring-tasks
 async function run(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
   try {
