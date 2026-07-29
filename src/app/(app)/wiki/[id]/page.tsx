@@ -12,8 +12,10 @@ import { MarkdownEditor } from "./markdown-editor";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
 import { renderMarkdown, extractWikiAttachments, extractHeadings } from "@/lib/markdown";
 import { wikiBreadcrumb, wikiDescendants } from "@/lib/wiki-tree";
+import { resolveWikiLinks, wikiTitleIndex, extractWikiLinks, wikiLinkKey } from "@/lib/wiki-links";
 import { WikiToc } from "./toc";
-import { Pencil, Paperclip, ChevronRight } from "lucide-react";
+import { BotonFavorito, RegistrarVisita } from "@/components/wiki/wiki-atajos";
+import { Pencil, Paperclip, ChevronRight, Link as LinkIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +52,28 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
   const prohibidas = wikiDescendants(todas, id); // no puede colgar de sí misma ni de una hija
   const headings = extractHeadings(page.content);
 
+  // Enlaces [[entre páginas]]: se resuelven a rutas reales antes de renderizar.
+  const indice = wikiTitleIndex(todas);
+  const contenidoResuelto = resolveWikiLinks(page.content, indice);
+
+  // RETROENLACES: quién apunta a esta página. Se filtra en la base de datos por el título
+  // (barato) y luego se comprueba de verdad — `contains` encontraría también «[[Rodaje en
+  // exteriores extendido]]», que es OTRA página.
+  const claveEsta = wikiLinkKey(page.title);
+  const entrantes = (
+    await db.wikiPage.findMany({
+      where: { id: { not: id }, content: { contains: page.title, mode: "insensitive" } },
+      select: { id: true, title: true, icon: true, content: true },
+      take: 50,
+    })
+  )
+    .filter((o) => extractWikiLinks(o.content).some((t) => wikiLinkKey(t) === claveEsta))
+    .map((o) => ({ id: o.id, title: o.title, icon: o.icon }));
+
   return (
     <div className="mx-auto flex max-w-6xl gap-8 px-4 py-6 sm:px-8 sm:py-10">
+      {/* Deja la página en «vistas hace poco» (solo en este navegador). */}
+      <RegistrarVisita pageId={id} />
       <div className="min-w-0 flex-1">
       <div className="flex items-center justify-between gap-3">
         {/* Migas: la página deja de ser una isla — se ve de dónde cuelga y se sube de nivel. */}
@@ -71,6 +93,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
           ) : null}
         </nav>
         <div className="flex shrink-0 items-center gap-3">
+          <BotonFavorito pageId={id} />
           {editing ? (
             <Link href={`/wiki/${id}`} className="text-xs text-muted-foreground hover:text-foreground">Ver</Link>
           ) : (
@@ -118,7 +141,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
               ))}
             </select>
           </label>
-          <MarkdownEditor defaultValue={page.content} />
+          <MarkdownEditor defaultValue={page.content} paginas={todas.filter((t) => t.id !== id).map((t) => ({ id: t.id, title: t.title, icon: t.icon }))} />
           <div className="flex items-center gap-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar cambios</button>
             <Link href={`/wiki/${id}`} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancelar</Link>
@@ -139,7 +162,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
           {page.content.trim() ? (
             /* `wiki-prose`: ancho de lectura cómodo y aire entre bloques (ver globals.css).
                El HTML lo produce renderMarkdown, que escapa todo lo que venga del usuario. */
-            <div className="wiki-prose mt-5 text-[15px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.content, { headingIds: true }) }} />
+            <div className="wiki-prose mt-5 text-[15px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(contenidoResuelto, { headingIds: true }) }} />
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Esta página está vacía. <Link href={`/wiki/${id}?edit=1`} className="text-primary hover:underline">Edítala</Link> para añadir contenido.</p>
           )}
@@ -166,6 +189,28 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
               </div>
             );
           })()}
+
+          {/* Retroenlaces: qué páginas dependen de esta. Es la respuesta a «si cambio
+              esto, ¿a quién le afecta?», que antes no existía en ninguna parte. */}
+          {entrantes.length > 0 ? (
+            <div className="mt-6 rounded-xl border border-border bg-muted/40 p-4">
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <LinkIcon className="size-3.5" /> Enlazan a esta página ({entrantes.length})
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {entrantes.map((o) => (
+                  <Link
+                    key={o.id}
+                    href={`/wiki/${o.id}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs transition-colors hover:border-primary/40"
+                  >
+                    <span>{o.icon ?? "📄"}</span>
+                    <span className="max-w-56 truncate">{o.title}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </article>
       )}
 

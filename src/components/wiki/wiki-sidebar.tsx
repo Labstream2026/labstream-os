@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronRight, FileText, Search, Boxes, HardDrive, KeyRound, LayoutTemplate, FileType2, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WikiGroup, WikiNode } from "@/lib/wiki-tree";
+import { MisAtajos, type AtajoPagina } from "@/components/wiki/wiki-atajos";
 
 // Barra lateral de la Wiki: el árbol de páginas (secciones → páginas → hijas) y las
 // HERRAMIENTAS, separadas de la documentación porque no son lo mismo. Sustituye a las
@@ -20,11 +21,14 @@ type Herramienta = { href: string; label: string; icon: React.ComponentType<{ cl
 
 export function WikiSidebar({
   grupos,
+  todas = [],
   canSeePasswords = true,
   alertInventario = 0,
   alertMaterial = 0,
 }: {
   grupos: WikiGroup[];
+  // Todas las páginas en plano: los atajos guardan ids y necesitan resolverlos a título.
+  todas?: AtajoPagina[];
   canSeePasswords?: boolean;
   alertInventario?: number;
   alertMaterial?: number;
@@ -136,6 +140,7 @@ export function WikiSidebar({
       </div>
 
       <div className="min-h-0 flex-1">
+        {!q ? <MisAtajos paginas={todas} /> : null}
         {gruposVisibles.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted-foreground">
             {q ? "Ninguna página coincide." : "Aún no hay páginas."}

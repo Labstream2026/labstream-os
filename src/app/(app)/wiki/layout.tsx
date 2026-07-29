@@ -47,7 +47,7 @@ export default async function WikiLayout({ children }: { children: React.ReactNo
     <div className="flex min-h-0 flex-1">
       <aside className="hidden w-56 shrink-0 lg:block">
         <div className="sticky top-0 h-[calc(100dvh-var(--pwa-nav-h,0px)-3.5rem)]">
-          <WikiSidebar grupos={grupos} alertInventario={alertInventario} alertMaterial={alertMaterial} />
+          <WikiSidebar grupos={grupos} todas={pages.map((p) => ({ id: p.id, title: p.title, icon: p.icon }))} alertInventario={alertInventario} alertMaterial={alertMaterial} />
         </div>
       </aside>
       <div className="min-w-0 flex-1">{children}</div>

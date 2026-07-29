@@ -1,15 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { Bold, Italic, Heading, List, ListChecks, Quote, Code, Link2, Table, Image as ImageIcon, Paperclip, Eye, Pencil } from "lucide-react";
+import { Bold, Italic, Heading, List, ListChecks, Quote, Code, Link2, Table, Image as ImageIcon, Paperclip, Eye, Pencil, BookMarked } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderMarkdown } from "@/lib/markdown";
+import { resolveWikiLinks, wikiTitleIndex } from "@/lib/wiki-links";
 import { uploadWikiFile } from "../actions";
 
 // Editor de Markdown con barra de herramientas, subida de imágenes/archivos y vista
 // previa. Guarda Markdown (campo name="content") — el mismo formato que se renderiza
 // en modo lectura, sin depender de un editor pesado.
-export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
+export function MarkdownEditor({
+  defaultValue,
+  paginas = [],
+}: {
+  defaultValue: string;
+  // Páginas de la wiki para autocompletar al escribir `[[`. Vacío = sin sugerencias.
+  paginas?: { id: string; title: string; icon: string | null }[];
+}) {
   const [value, setValue] = React.useState(defaultValue);
   const [mode, setMode] = React.useState<"edit" | "preview">("edit");
   const [busy, setBusy] = React.useState(false);
@@ -18,6 +26,9 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
   const ref = React.useRef<HTMLTextAreaElement>(null);
   const imgInput = React.useRef<HTMLInputElement>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
+  // Autocompletado de [[…]]: `abierto` guarda dónde empezó el corchete y qué se lleva escrito.
+  const [sugerir, setSugerir] = React.useState<{ desde: number; texto: string } | null>(null);
+  const [elegido, setElegido] = React.useState(0);
 
   const restore = (start: number, end: number) => requestAnimationFrame(() => { const ta = ref.current; if (ta) { ta.focus(); ta.setSelectionRange(start, end); } });
 
@@ -78,6 +89,42 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
     }
   };
 
+  // ── Autocompletado de enlaces [[…]] ──
+  // Se mira el texto ANTES del cursor: si hay un `[[` sin cerrar en la misma línea, se
+  // sugieren páginas. Sin dependencias ni menú flotante: una lista bajo la barra, que
+  // funciona igual con teclado (↑ ↓ Intro Esc) que con el ratón.
+  const detectar = (texto: string, cursor: number) => {
+    const antes = texto.slice(0, cursor);
+    const ini = antes.lastIndexOf("[[");
+    if (ini === -1) return setSugerir(null);
+    const dentro = antes.slice(ini + 2);
+    if (dentro.includes("]") || dentro.includes("\n")) return setSugerir(null);
+    setSugerir({ desde: ini, texto: dentro });
+    setElegido(0);
+  };
+
+  // \u00cdndice t\u00edtulo\u2192id: lo usa la vista previa para que los [[enlaces]] ya se vean resueltos.
+  const indiceTitulos = React.useMemo(() => wikiTitleIndex(paginas), [paginas]);
+
+  const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const candidatas = React.useMemo(() => {
+    if (!sugerir || !paginas.length) return [];
+    const q = norm(sugerir.texto.trim());
+    return paginas.filter((p) => !q || norm(p.title).includes(q)).slice(0, 6);
+  }, [sugerir, paginas]);
+
+  // Completa el `[[` abierto con el título elegido y deja el cursor DESPUÉS del cierre.
+  const insertarEnlace = (titulo: string) => {
+    if (!sugerir) return;
+    const ta = ref.current;
+    const cursor = ta?.selectionStart ?? value.length;
+    const next = value.slice(0, sugerir.desde) + `[[${titulo}]]` + value.slice(cursor);
+    const pos = sugerir.desde + titulo.length + 4;
+    setValue(next);
+    setSugerir(null);
+    restore(pos, pos);
+  };
+
   const Btn = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
     <button type="button" onClick={onClick} title={title} className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">{children}</button>
   );
@@ -94,6 +141,21 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
         <Btn onClick={() => prefixLine("> ")} title="Cita"><Quote className="size-4" /></Btn>
         <Btn onClick={() => surround("`")} title="Código"><Code className="size-4" /></Btn>
         <Btn onClick={() => surround("[", "](https://)")} title="Enlace"><Link2 className="size-4" /></Btn>
+        {paginas.length > 0 ? (
+          <Btn
+            onClick={() => {
+              const ta = ref.current;
+              const s = ta?.selectionStart ?? value.length;
+              insertAt("[[");
+              // Se abre el desplegable de sugerencias como si se hubiera tecleado.
+              setSugerir({ desde: s, texto: "" });
+              setElegido(0);
+            }}
+            title="Enlazar otra página de la wiki ([[)"
+          >
+            <BookMarked className="size-4" />
+          </Btn>
+        ) : null}
         <Btn onClick={() => insertAt("\n| Columna | Columna |\n| --- | --- |\n| · | · |\n")} title="Tabla"><Table className="size-4" /></Btn>
         <span className="mx-1 h-5 w-px bg-border" />
         <Btn onClick={() => imgInput.current?.click()} title="Insertar imagen"><ImageIcon className="size-4" /></Btn>
@@ -113,7 +175,15 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
         ref={ref}
         name="content"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => { setValue(e.target.value); detectar(e.target.value, e.target.selectionStart); }}
+        onClick={(e) => detectar(value, e.currentTarget.selectionStart)}
+        onKeyDown={(e) => {
+          if (!sugerir || !candidatas.length) return;
+          if (e.key === "ArrowDown") { e.preventDefault(); setElegido((i) => (i + 1) % candidatas.length); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setElegido((i) => (i - 1 + candidatas.length) % candidatas.length); }
+          else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertarEnlace(candidatas[elegido].title); }
+          else if (e.key === "Escape") { e.preventDefault(); setSugerir(null); }
+        }}
         onPaste={(e) => {
           const files = [...(e.clipboardData?.files ?? [])];
           if (files.length) { e.preventDefault(); void uploadMany(files); }
@@ -125,14 +195,42 @@ export function MarkdownEditor({ defaultValue }: { defaultValue: string }) {
           if (files.length) { e.preventDefault(); setDragging(false); void uploadMany(files); }
         }}
         rows={18}
-        placeholder="Escribe aquí… Markdown: # títulos, - listas, - [ ] tareas, **negrita**, tablas | |, enlaces y ![imágenes](). Pega o arrastra una imagen para subirla."
+        placeholder="Escribe aquí… Markdown: # títulos, - listas, - [ ] tareas, **negrita**, tablas | |, enlaces y ![imágenes](). Escribe [[ para enlazar otra página. Pega o arrastra una imagen para subirla."
         className={cn("w-full resize-y bg-transparent px-4 py-3 font-mono text-sm outline-none", mode === "preview" && "hidden")}
       />
+
+      {/* Sugerencias de [[enlace]]. Van bajo el área de texto (no flotando sobre el
+          cursor): se ven siempre completas y no tapan lo que se está escribiendo. */}
+      {mode === "edit" && sugerir && candidatas.length > 0 ? (
+        <div className="border-t border-border bg-muted/40 px-2 py-1.5">
+          <p className="px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Enlazar a… <span className="font-normal normal-case">(↑↓ para elegir, Intro para insertar, Esc para salir)</span>
+          </p>
+          <ul>
+            {candidatas.map((p, i) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); insertarEnlace(p.title); }}
+                  onMouseEnter={() => setElegido(i)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-sm",
+                    i === elegido ? "bg-primary/10 text-primary" : "hover:bg-accent",
+                  )}
+                >
+                  <span className="shrink-0">{p.icon ?? "📄"}</span>
+                  <span className="truncate">{p.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* Vista previa */}
       {mode === "preview" ? (
         value.trim()
-          ? <div className="px-4 py-3 text-sm" dangerouslySetInnerHTML={{ __html: renderMarkdown(value) }} />
+          ? <div className="wiki-prose px-4 py-3 text-sm" dangerouslySetInnerHTML={{ __html: renderMarkdown(resolveWikiLinks(value, indiceTitulos)) }} />
           : <p className="px-4 py-6 text-sm text-muted-foreground">Nada que previsualizar todavía.</p>
       ) : null}
 
