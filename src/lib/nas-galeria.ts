@@ -409,13 +409,18 @@ export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
   const abs = await galeriaAbs(norm);
   const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
   if (!raw) return [];
-  const out: GaleriaFolder[] = [];
-  for (const d of raw) {
-    if (!d.isDirectory() || isJunkName(d.name)) continue;
-    const childRel = norm ? `${norm}/${d.name}` : d.name;
-    const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
-    out.push({ rel: childRel, name: d.name, mtimeMs: st?.mtimeMs ?? 0 });
-  }
+  const dirs = raw.filter((d) => d.isDirectory() && !isJunkName(d.name));
+  // Los stat van EN PARALELO, no en serie: sobre NFS cada uno es un viaje de red, y 30+
+  // carpetas en fila podían pasarse del timeout del proxy inverso — daba 503 al crear/subir
+  // AUNQUE el mkdir ya hubiera cuajado (esta lista es lo que re-renderiza la página tras la
+  // acción). En paralelo el coste es ~un viaje, no la suma.
+  const out = await Promise.all(
+    dirs.map(async (d) => {
+      const childRel = norm ? `${norm}/${d.name}` : d.name;
+      const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
+      return { rel: childRel, name: d.name, mtimeMs: st?.mtimeMs ?? 0 };
+    }),
+  );
   // Lo más reciente primero: la entrega en la que se está trabajando suele ser la última.
   out.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return out;
