@@ -119,3 +119,21 @@ describe("searchSnippet (el resultado dice la frase, no solo el título)", () =>
     expect(searchSnippet(md, "  ")[0].marca).toBe(false);
   });
 });
+
+describe("searchSnippet con acentos descompuestos (NFD)", () => {
+  it("resalta la palabra exacta aunque el texto venga descompuesto", () => {
+    // En NFD la «ó» ocupa DOS posiciones (o + tilde suelta): así llega el texto de macOS.
+    // Antes, los índices se desplazaban y el resaltado marcaba « aguj» en vez de «aguja».
+    const nfd = "La ubicación del material es aguja aquí".normalize("NFD");
+    const marcado = searchSnippet(nfd, "aguja").filter((f) => f.marca).map((f) => f.texto.normalize("NFC"));
+    expect(marcado).toEqual(["aguja"]);
+  });
+
+  it("encuentra la palabra acentuada esté compuesta o descompuesta", () => {
+    for (const forma of ["NFC", "NFD"] as const) {
+      const t = "El mapa de ubicación del material".normalize(forma);
+      const m = searchSnippet(t, "ubicacion").filter((f) => f.marca).map((f) => f.texto.normalize("NFC"));
+      expect(m).toEqual(["ubicación"]);
+    }
+  });
+});

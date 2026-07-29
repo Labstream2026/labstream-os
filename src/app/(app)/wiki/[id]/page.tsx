@@ -12,7 +12,7 @@ import { MarkdownEditor } from "./markdown-editor";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
 import { renderMarkdown, extractWikiAttachments, extractHeadings } from "@/lib/markdown";
 import { wikiBreadcrumb, wikiDescendants } from "@/lib/wiki-tree";
-import { resolveWikiLinks, wikiTitleIndex, extractWikiLinks, wikiLinkKey } from "@/lib/wiki-links";
+import { resolveWikiLinks, wikiTitleIndex, extractWikiLinks, wikiLinkKey, wikiLinkPrefilter } from "@/lib/wiki-links";
 import { WikiToc } from "./toc";
 import { BotonFavorito, RegistrarVisita } from "@/components/wiki/wiki-atajos";
 import { Pencil, Paperclip, ChevronRight, Link as LinkIcon } from "lucide-react";
@@ -50,21 +50,31 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
   });
   const ruta = wikiBreadcrumb(todas, id);
   const prohibidas = wikiDescendants(todas, id); // no puede colgar de sí misma ni de una hija
-  const headings = extractHeadings(page.content);
 
   // Enlaces [[entre páginas]]: se resuelven a rutas reales antes de renderizar.
   const indice = wikiTitleIndex(todas);
   const contenidoResuelto = resolveWikiLinks(page.content, indice);
 
-  // RETROENLACES: quién apunta a esta página. Se filtra en la base de datos por el título
-  // (barato) y luego se comprueba de verdad — `contains` encontraría también «[[Rodaje en
-  // exteriores extendido]]», que es OTRA página.
+  // El índice se saca del MISMO texto que se renderiza, no del original: con un encabezado
+  // como «## Guía de [[Rodaje|campo]]» el original da el ancla del título («…rodaje») y el
+  // renderizado la del alias («…campo»), y entonces el enlace del índice no saltaba.
+  const headings = extractHeadings(contenidoResuelto);
+
+  // RETROENLACES: quién apunta a esta página.
+  // El prefiltro SQL usa el trozo del título SIN acentos (ver `wikiLinkPrefilter`): un
+  // `contains` del título completo perdía los enlaces escritos sin tilde, que la comparación
+  // real sí acepta. El filtro fino se hace después, porque `contains` daría por bueno
+  // «[[Rodaje en exteriores extendido]]», que es OTRA página.
+  // El orden es explícito y el tope generoso: con `take` sin `orderBy` la lista salía en un
+  // orden arbitrario de Postgres y el número de retroenlaces bailaba entre recargas.
   const claveEsta = wikiLinkKey(page.title);
+  const pista = wikiLinkPrefilter(page.title);
   const entrantes = (
     await db.wikiPage.findMany({
-      where: { id: { not: id }, content: { contains: page.title, mode: "insensitive" } },
+      where: { id: { not: id }, content: { contains: pista ?? "[[", mode: "insensitive" } },
       select: { id: true, title: true, icon: true, content: true },
-      take: 50,
+      orderBy: { title: "asc" },
+      take: 200,
     })
   )
     .filter((o) => extractWikiLinks(o.content).some((t) => wikiLinkKey(t) === claveEsta))

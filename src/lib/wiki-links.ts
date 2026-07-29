@@ -52,6 +52,22 @@ export function resolveWikiLinks(md: string, porTitulo: Map<string, string>): st
   });
 }
 
+/**
+ * Trozo del título que sirve para PREFILTRAR en SQL. Un `contains` compara byte a byte, así
+ * que buscar «Ubicación del material» se pierde los enlaces escritos «[[Ubicacion del
+ * material]]» (sin tilde), que son válidos porque la comparación real ignora acentos.
+ * Se devuelve el fragmento contiguo más largo SIN letras acentuadas: aparece igual en ambas
+ * grafías, así que el prefiltro las captura a las dos. El filtro fino ya lo hace después
+ * `extractWikiLinks` + `wikiLinkKey`.
+ * Si el título es demasiado corto o va todo acentuado, se devuelve null: quien llama debe
+ * caer a un prefiltro genérico (buscar «[[») en vez de perder resultados.
+ */
+export function wikiLinkPrefilter(title: string): string | null {
+  const trozos = title.split(/[^\w\s]|[áéíóúüñÁÉÍÓÚÜÑ]/i).map((t) => t.trim());
+  const mejor = trozos.reduce((a, b) => (b.length > a.length ? b : a), "");
+  return mejor.length >= 4 ? mejor : null;
+}
+
 /** Índice título→id para resolver enlaces. Si dos páginas comparten título, gana la primera. */
 export function wikiTitleIndex(pages: { id: string; title: string }[]): Map<string, string> {
   const m = new Map<string, string>();

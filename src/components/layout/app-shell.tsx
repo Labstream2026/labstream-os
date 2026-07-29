@@ -108,10 +108,17 @@ export function AppShell({
   // El panel de la burbuja y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
   const [chatPanelOpen, setChatPanelOpen] = React.useState(false);
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
-  // MODO ENFOQUE (/chat): el panel de «Producción/Clientes» se retira por defecto para que la
-  // conversación ocupe todo el ancho. El botón de colapsar de la barra lo trae de vuelta durante la
-  // sesión; al recargar vuelve a enfocarse. Fuera de /chat manda la preferencia normal (persistida).
+  // La WIKI trae su PROPIO menú lateral (el árbol de páginas), así que aquí manda el mismo
+  // modo enfoque que en el chat: el panel de «Producción/Clientes» se pliega solo para no
+  // tener dos menús compitiendo. /plantillas cuenta como Wiki: comparte ese árbol.
+  const isWikiPage = pathname === "/wiki" || pathname.startsWith("/wiki/") || pathname === "/plantillas" || pathname.startsWith("/plantillas/");
+
+  // MODO ENFOQUE (/chat y /wiki): el panel de «Producción/Clientes» se retira por defecto para que
+  // la conversación —o el árbol de la wiki— ocupe todo el ancho. El botón de colapsar de la barra
+  // lo trae de vuelta durante la sesión; al recargar vuelve a enfocarse. Fuera manda la preferencia
+  // normal (persistida).
   const [chatFocus, setChatFocus] = React.useState(true);
+  const focusPage = isChatPage || isWikiPage;
 
   // Atajo ⌘K / Ctrl+K para abrir el buscador.
   React.useEffect(() => {
@@ -128,9 +135,9 @@ export function AppShell({
   // Al alternar, persiste en BD (best-effort) para que el estado siga al usuario entre el
   // móvil y el escritorio. Antes solo se guardaba en localStorage de ese navegador.
   const toggleSidebar = () => {
-    // En /chat el botón de colapsar controla el MODO ENFOQUE (mostrar/ocultar el panel de clientes);
-    // no se persiste (cada entrada a /chat arranca enfocada). Fuera de /chat, la preferencia normal.
-    if (isChatPage) {
+    // En /chat y en la Wiki el botón de colapsar controla el MODO ENFOQUE (mostrar/ocultar el panel
+    // de clientes); no se persiste (cada entrada arranca enfocada). Fuera, la preferencia normal.
+    if (focusPage) {
       setChatFocus((v) => !v);
       return;
     }
@@ -163,7 +170,7 @@ export function AppShell({
     <div className={`flex h-[calc(100dvh-var(--pwa-nav-h,0px))] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={isChatPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}

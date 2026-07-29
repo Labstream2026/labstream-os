@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wikiLinkKey, extractWikiLinks, resolveWikiLinks, wikiTitleIndex } from "./wiki-links";
+import { wikiLinkKey, extractWikiLinks, resolveWikiLinks, wikiTitleIndex, wikiLinkPrefilter } from "./wiki-links";
 
 const PAGS = [
   { id: "p1", title: "Flujo de post-producción" },
@@ -72,5 +72,39 @@ describe("wikiTitleIndex", () => {
   it("con títulos repetidos gana la primera página", () => {
     const m = wikiTitleIndex([{ id: "a", title: "Notas" }, { id: "b", title: "notas" }]);
     expect(m.get(wikiLinkKey("Notas"))).toBe("a");
+  });
+});
+
+describe("regresión: el índice y el render deben producir el MISMO ancla", () => {
+  it("con un encabezado que lleva [[Título|alias]]", async () => {
+    const { extractHeadings, renderMarkdown } = await import("./markdown");
+    const md = "## Guía de [[Rodaje|campo]]\n\nTexto";
+    const i = wikiTitleIndex([{ id: "abc123", title: "Rodaje" }]);
+    const resuelto = resolveWikiLinks(md, i);
+    // Ambos deben partir del MISMO texto: el original daría «guia-de-rodaje» y el
+    // renderizado «guia-de-campo», y el enlace del índice no saltaría.
+    const delIndice = extractHeadings(resuelto)[0].slug;
+    const delRender = /id="([^"]+)"/.exec(renderMarkdown(resuelto, { headingIds: true }))?.[1];
+    expect(delRender).toBe(delIndice);
+  });
+});
+
+describe("wikiLinkPrefilter (prefiltro SQL que no pierde enlaces sin tilde)", () => {
+  it("devuelve el trozo más largo sin letras acentuadas", () => {
+    // Así el prefiltro casa tanto con «Ubicación del material» como con «Ubicacion del material».
+    const p = wikiLinkPrefilter("Ubicación del material")!;
+    expect("Ubicación del material").toContain(p);
+    expect("Ubicacion del material").toContain(p);
+  });
+
+  it("sirve igual para títulos sin acentos", () => {
+    const p = wikiLinkPrefilter("Protocolo de rodaje")!;
+    expect("Protocolo de rodaje").toContain(p);
+    expect(p.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("devuelve null si no queda un trozo aprovechable", () => {
+    expect(wikiLinkPrefilter("Áéí")).toBeNull();
+    expect(wikiLinkPrefilter("ó")).toBeNull();
   });
 });
