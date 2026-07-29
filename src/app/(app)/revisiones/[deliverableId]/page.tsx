@@ -8,6 +8,8 @@ import { signReviewToken } from "@/lib/review-token";
 import { buildStageVersions } from "@/lib/review-version";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
+import { EmailReviewButton } from "@/app/(app)/proyectos/[id]/email-review-button";
+import { isEmailEnabled } from "@/lib/email";
 import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
 import type { StageComment } from "@/components/review/review-stage";
@@ -143,7 +145,12 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
                 revoked={Boolean(deliverable.reviewRevokedAt)}
                 allowDrawings={deliverable.reviewAllowDrawings}
                 hasApproved={hasApproved}
-              />
+              >
+                {/* «Enviar al cliente» también DESDE LA SALA: los productores gestionan
+                    (rol de acceso total) pero antes solo tenían esta casilla en el panel
+                    del proyecto — aquí, donde revisan, solo podían copiar el enlace. */}
+                {(await isEmailEnabled()) && !deliverable.reviewRevokedAt ? <EmailReviewButton deliverableId={deliverable.id} /> : null}
+              </ReviewLinkBar>
             </div>
           ) : null}
         </>
