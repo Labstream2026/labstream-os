@@ -300,14 +300,16 @@ function ymd(d: Date): string {
 
 // Recorre la carpeta en profundidad y devuelve la línea de tiempo: meses de más nuevo a más
 // viejo, y dentro de cada mes los días igual. Es lo que pinta la galería del cliente.
-export async function scanGaleria(rel = ""): Promise<GaleriaScan> {
+// `exif: false` se salta la lectura de metadatos (miles de aperturas sobre NFS): para
+// selectores que solo listan nombres, el orden por fecha de archivo basta y llega al instante.
+export async function scanGaleria(rel = "", opts?: { exif?: boolean }): Promise<GaleriaScan> {
   const norm = normalizeGaleriaRel(rel);
   const rootAbs = await galeriaAbs(norm);
 
   const items: GaleriaItem[] = [];
   let bytes = 0;
   let truncated = false;
-  let exifBudget = MAX_EXIF_READS;
+  let exifBudget = opts?.exif === false ? 0 : MAX_EXIF_READS;
 
   const walk = async (dirAbs: string, dirRel: string, depth: number): Promise<void> => {
     if (depth > MAX_DEPTH || truncated) return;

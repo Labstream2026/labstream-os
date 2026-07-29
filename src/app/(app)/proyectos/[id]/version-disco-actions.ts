@@ -1,18 +1,29 @@
 "use server";
 
 import { db } from "@/lib/db";
+import type { DeliverableType } from "@prisma/client";
 import { getSession } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { scanGaleria, resolveGaleriaFile, normalizeGaleriaRel } from "@/lib/nas-galeria";
-import { carpetaGaleriaProyecto, relPerteneceAlProyecto } from "@/lib/galeria-vinculos";
+import {
+  carpetaGaleriaProyecto,
+  carpetaGaleriaClienteDelProyecto,
+  relPerteneceAlClienteOProyecto,
+} from "@/lib/galeria-vinculos";
+import { DELIVERABLE_TYPE_OPTIONS } from "@/lib/ui";
 import { mimeFor } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
 import { addDeliverableVersion } from "./actions";
 
 // ── Versión de entregable DESDE EL DISCO (galería de LabTem) ──
-// El video ya vive en la carpeta del proyecto: no se copia un byte. Se registra un FileAsset
+// El video ya vive en la carpeta del CLIENTE: no se copia un byte. Se registra un FileAsset
 // kind GALERIA que apunta a la ruta y la sala de revisión lo reproduce por /api/files-asset
 // (que prefiere la copia ligera H.264 que fabricó LabTem — reproducción instantánea).
+//
+// El selector enseña TODA la carpeta del cliente (no solo la subcarpeta del proyecto): el
+// editor suelta el export por SMB donde le quede cómodo y lo lanza a revisión desde la app.
+// La guarda del servidor (relPerteneceAlClienteOProyecto) mantiene la línea roja de siempre:
+// material de OTRO cliente, jamás.
 
 const accessSelect = {
   isPrivate: true,
@@ -20,39 +31,55 @@ const accessSelect = {
   members: { select: { userId: true, role: true } },
 } as const;
 
-export type PiezaDisco = { rel: string; name: string; takenAt: string; video: boolean };
+// `dir`: subcarpeta (relativa a la carpeta base) donde vive la pieza — "" = la raíz de la
+// carpeta del cliente. El selector la enseña como etiqueta para ubicarse.
+export type PiezaDisco = { rel: string; name: string; takenAt: string; video: boolean; dir: string };
 export type PiezasResultado = { ok: true; carpeta: string; piezas: PiezaDisco[] } | { error: string };
 
-// Lista las piezas de la carpeta del proyecto para el selector. Solo equipo con acceso al
-// proyecto; el rel de cada pieza ya viene acotado porque el scan parte de ESA carpeta.
+// Lista las piezas para el selector: la carpeta del CLIENTE si existe (todo su material,
+// subcarpetas incluidas); si el cliente no tiene, la del proyecto (vínculo propio). Solo
+// equipo con acceso al proyecto; cada rel ya viene acotado porque el scan parte de ahí.
 export async function piezasDeCarpetaProyecto(projectId: string): Promise<PiezasResultado> {
   const session = await getSession();
   if (!session || session.role === "cliente") return { error: "Sin permiso" };
   const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
   if (!project || !canAccessProject(project, session)) return { error: "Sin permiso" };
 
-  const carpeta = await carpetaGaleriaProyecto(projectId);
-  if (!carpeta) return { error: "Ni el proyecto ni su cliente tienen carpeta vinculada en la galería. Vincúlala desde /galeria." };
-  if (!carpeta.existe) return { error: `La carpeta «${carpeta.rel}» todavía no existe en el disco (o LabTem no responde).` };
+  const [cliente, proyecto] = await Promise.all([
+    carpetaGaleriaClienteDelProyecto(projectId),
+    carpetaGaleriaProyecto(projectId),
+  ]);
+  if (!cliente && !proyecto) {
+    return { error: "Ni el proyecto ni su cliente tienen carpeta vinculada en la galería. Créala desde la ficha del cliente (Ajustes) o en /galeria." };
+  }
+  // La del cliente manda si está en el disco; si no, la del proyecto; si ninguna existe
+  // físicamente, se avisa con la ruta esperada para que se note QUÉ falta.
+  const base = cliente?.existe ? cliente : proyecto?.existe ? proyecto : (cliente ?? proyecto)!;
+  if (!base.existe) return { error: `La carpeta «${base.rel}» todavía no existe en el disco (o LabTem no responde).` };
 
   try {
-    const scan = await scanGaleria(carpeta.rel);
-    const piezas: PiezaDisco[] = scan.months
-      .flatMap((m) => m.days)
-      .flatMap((d) => d.items)
-      .slice(0, 500)
-      .map((it) => ({ rel: it.rel, name: it.name, takenAt: it.takenAt, video: it.kind === "video" }));
-    return { ok: true, carpeta: carpeta.rel, piezas };
+    // Sin EXIF: listar nombres no necesita abrir miles de archivos por NFS.
+    const scan = await scanGaleria(base.rel, { exif: false });
+    const todas = scan.months.flatMap((m) => m.days).flatMap((d) => d.items);
+    // Videos PRIMERO y luego el tope: en carpetas con miles de fotos, las fotos no
+    // deben desplazar del selector a los videos (que son lo que se manda a revisión).
+    const ordenadas = [...todas.filter((it) => it.kind === "video"), ...todas.filter((it) => it.kind !== "video")].slice(0, 500);
+    const piezas: PiezaDisco[] = ordenadas.map((it) => {
+      const dentro = it.rel.length > base.rel.length ? it.rel.slice(base.rel.length + 1) : it.rel;
+      const corte = dentro.lastIndexOf("/");
+      return { rel: it.rel, name: it.name, takenAt: it.takenAt, video: it.kind === "video", dir: corte > 0 ? dentro.slice(0, corte) : "" };
+    });
+    return { ok: true, carpeta: base.rel, piezas };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "No se pudo leer la carpeta del proyecto." };
+    return { error: e instanceof Error ? e.message : "No se pudo leer la carpeta del cliente." };
   }
 }
 
 export type VersionDiscoResultado = { ok: true; version: number } | { error: string };
 
 // Crea la versión apuntando al archivo del disco. La ruta viene del navegador → SIEMPRE se
-// re-verifica en el servidor que cuelgue de la carpeta de ESTE proyecto: sin esa guarda, un
-// rel manipulado le serviría al cliente A el material del cliente B.
+// re-verifica en el servidor que cuelgue de la carpeta de ESTE proyecto o de su CLIENTE:
+// sin esa guarda, un rel manipulado le serviría al cliente A el material del cliente B.
 export async function crearVersionDesdeDisco(
   deliverableId: string,
   projectId: string,
@@ -68,8 +95,8 @@ export async function crearVersionDesdeDisco(
   } catch {
     return { error: "Ruta inválida" };
   }
-  if (!(await relPerteneceAlProyecto(projectId, norm))) {
-    return { error: "Ese archivo no está en la carpeta de este proyecto." };
+  if (!(await relPerteneceAlClienteOProyecto(projectId, norm))) {
+    return { error: "Ese archivo no está en la carpeta de este cliente." };
   }
   const info = await resolveGaleriaFile(norm, false);
   if (!info) return { error: "El archivo ya no está en el disco (¿lo movieron por SMB?)." };
@@ -120,4 +147,75 @@ export async function crearVersionDesdeDisco(
     await db.fileAsset.delete({ where: { id: asset.id } }).catch(() => {});
     return { error: e instanceof Error ? e.message : "No se pudo crear la versión." };
   }
+}
+
+export type EntregableDiscoResultado = { ok: true; numero: number; version: number } | { error: string };
+
+// ── Entregable NUEVO desde el disco, en UN paso ──
+// El flujo del editor: botón en «Subir para revisión» → elegir el video de la carpeta del
+// cliente → nombre y tipo → se crea el entregable, su v1 apunta al NAS y entra a
+// pre-aprobación interna. Sin Drive, sin subir nada.
+export async function crearEntregableDesdeDisco(
+  projectId: string,
+  rel: string,
+  nombre: string,
+  tipo: string,
+  notas?: string,
+): Promise<EntregableDiscoResultado> {
+  const session = await getSession();
+  if (!session || session.role === "cliente") return { error: "Sin permiso" };
+  const name = String(nombre ?? "").trim().slice(0, 200);
+  if (!name) return { error: "Ponle nombre al entregable." };
+
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: { ...accessSelect, archivedAt: true, finishedAt: true },
+  });
+  if (!project || !canWriteProject(project, session)) return { error: "No eres parte de este proyecto." };
+  if (project.archivedAt || project.finishedAt) return { error: "Este proyecto está dormido (terminado o en papelera)." };
+
+  // La ruta se valida ANTES de crear nada: si está mala, no queda un entregable vacío.
+  let norm: string;
+  try {
+    norm = normalizeGaleriaRel(rel);
+  } catch {
+    return { error: "Ruta inválida" };
+  }
+  if (!(await relPerteneceAlClienteOProyecto(projectId, norm))) {
+    return { error: "Ese archivo no está en la carpeta de este cliente." };
+  }
+  if (!(await resolveGaleriaFile(norm, false))) {
+    return { error: "El archivo ya no está en el disco (¿lo movieron por SMB?)." };
+  }
+
+  // Solo los tipos del catálogo; cualquier otra cosa cae a REEL (igual que createDeliverable).
+  const type = (DELIVERABLE_TYPE_OPTIONS.some(([v]) => v === tipo) ? tipo : "REEL") as DeliverableType;
+
+  // Consecutivo #N por proyecto con el MISMO advisory-lock que createDeliverable: dos
+  // creaciones simultáneas (esta y la del formulario clásico) no pueden repetir número.
+  const d = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`deliv:${projectId}`}, 0))`;
+    const top = await tx.deliverable.aggregate({ where: { projectId }, _max: { number: true } });
+    return tx.deliverable.create({
+      data: { projectId, name, number: (top._max.number ?? 0) + 1, type, ownerId: session.id },
+    });
+  });
+  await logActivity({
+    action: "deliverable.create",
+    summary: `creó el entregable «${name}» (#${d.number}) desde el disco`,
+    projectId,
+    entityType: "deliverable",
+    entityId: d.id,
+    userId: session.id,
+  });
+
+  // La v1 reutiliza TODO el aparato de «desde el disco» (asset GALERIA, pre-aprobación,
+  // tareas y avisos). Si falla, el entregable recién creado se retira: nada a medias.
+  const r = await crearVersionDesdeDisco(d.id, projectId, norm, notas);
+  if ("error" in r) {
+    await db.deliverable.delete({ where: { id: d.id } }).catch(() => {});
+    return { error: r.error };
+  }
+  // number es opcional en el esquema (filas históricas); aquí siempre se crea con valor.
+  return { ok: true, numero: d.number ?? 0, version: r.version };
 }

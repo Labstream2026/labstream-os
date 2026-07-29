@@ -31,7 +31,7 @@ import { DeliverableContentEditor, CoverStatusBadge } from "./deliverable-conten
 import { DeliverableRenditions } from "./deliverable-renditions";
 import { TypeAndCoverFields } from "./deliverable-create-fields";
 import { ChunkedUploadForm } from "./chunked-upload-form";
-import { VersionDesdeDisco } from "./desde-disco";
+import { VersionDesdeDisco, CrearDesdeDisco } from "./desde-disco";
 import { DeliverableTabs } from "./deliverable-tabs";
 import { SubmitButton } from "@/components/submit-button";
 
@@ -335,6 +335,11 @@ export function DeliverablesPanel({
         ) : null}
         <p className="text-[11px] text-muted-foreground">Si añades link o archivo, se crea la v1 y pasa a pre-aprobación interna del responsable de la revisión.</p>
       </ChunkedUploadForm>
+      {/* O crear el entregable apuntando a un video que YA está en la carpeta del cliente
+          en la galería (LabTem): un paso, sin subir nada ni pasar por Drive. */}
+      <div className="border-t border-border px-4 py-3">
+        <CrearDesdeDisco projectId={projectId} tipos={DELIVERABLE_TYPE_OPTIONS} />
+      </div>
       </details>
 
       {(() => {
@@ -485,7 +490,7 @@ export function DeliverablesPanel({
                                 ) : null}
                                 <button className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">+ Subir versión</button>
                               </ChunkedUploadForm>
-                              {/* O apuntar a un archivo que YA está en la carpeta del proyecto en la galería (LabTem): sin copiar nada. */}
+                              {/* O apuntar a un archivo que YA está en la carpeta del cliente en la galería (LabTem): sin copiar nada. */}
                               <VersionDesdeDisco deliverableId={d.id} projectId={projectId} />
                               <p className="text-[11px] text-muted-foreground">Cada versión nueva pasa a pre-aprobación interna antes de llegar al cliente.</p>
                             </div>

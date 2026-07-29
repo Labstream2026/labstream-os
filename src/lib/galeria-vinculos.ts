@@ -92,3 +92,33 @@ export async function relPerteneceAlProyecto(projectId: string, rel: string): Pr
   }
   return norm === carpeta.rel || norm.startsWith(carpeta.rel + "/");
 }
+
+// Carpeta del CLIENTE del proyecto (si la tiene): el selector «Desde el disco» enseña TODO
+// el material del cliente, no solo la subcarpeta del proyecto — el editor suelta el export
+// por SMB donde le quede cómodo dentro del cliente y lo encuentra igual.
+export async function carpetaGaleriaClienteDelProyecto(projectId: string): Promise<CarpetaProyecto | null> {
+  if (!galeriaEnabled()) return null;
+  const p = await db.project.findUnique({
+    where: { id: projectId },
+    select: { client: { select: { galeriaFolder: true } } },
+  });
+  if (!p?.client?.galeriaFolder) return null;
+  const st = await statGaleria(p.client.galeriaFolder).catch(() => null);
+  return { rel: p.client.galeriaFolder, existe: !!st?.dir };
+}
+
+// ¿La ruta cae dentro de la carpeta del proyecto O de la de su CLIENTE? La guarda del
+// selector ampliado: material del MISMO cliente sí (venga de la subcarpeta que venga);
+// material de otro cliente, jamás. Los entregables «desde el disco» pasan por aquí.
+export async function relPerteneceAlClienteOProyecto(projectId: string, rel: string): Promise<boolean> {
+  let norm: string;
+  try {
+    norm = normalizeGaleriaRel(rel);
+  } catch {
+    return false;
+  }
+  const proyecto = await carpetaGaleriaProyecto(projectId);
+  if (proyecto && (norm === proyecto.rel || norm.startsWith(proyecto.rel + "/"))) return true;
+  const cliente = await carpetaGaleriaClienteDelProyecto(projectId);
+  return !!cliente && (norm === cliente.rel || norm.startsWith(cliente.rel + "/"));
+}
