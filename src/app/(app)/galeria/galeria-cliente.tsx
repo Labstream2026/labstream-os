@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Check, Copy, Download, Film, Folder, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Download, Film, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
 import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
+import { IndiceCarpetas } from "./indice-carpetas";
+import { BarraSeleccion } from "./seleccion";
 import type { GaleriaFolder, GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
 
 // Galería de entregas: la línea de tiempo del material que hay en LabTem.
@@ -42,13 +44,17 @@ async function pedir(rel: string): Promise<Respuesta> {
   return (await res.json()) as Respuesta;
 }
 
-export function GaleriaCliente({ relInicial }: { relInicial: string }) {
+export function GaleriaCliente({ relInicial, puedeEscribir }: { relInicial: string; puedeEscribir: boolean }) {
   const [rel, setRel] = React.useState(relInicial);
   const [datos, setDatos] = React.useState<Respuesta | null>(null);
   const [cargando, setCargando] = React.useState(true);
   const [fallo, setFallo] = React.useState<string | null>(null);
   const [abierto, setAbierto] = React.useState<GaleriaItem | null>(null);
   const [vuelta, setVuelta] = React.useState(0); // subirlo = volver a pedir
+  const [seleccion, setSeleccion] = React.useState<string[]>([]);
+  // Ancla del Shift: la última pieza marcada a mano. Sin ella, «marcar el rango» no tiene
+  // desde dónde contar.
+  const anclaRef = React.useRef<string | null>(null);
 
   // La bandera `cancelado` importa de verdad: si se pincha entrega tras entrega, la respuesta
   // lenta de la primera llegaría después de la segunda y pintaría la carpeta equivocada.
@@ -77,6 +83,8 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
   const abrirCarpeta = (r: string) => {
     setCargando(true);
     setAbierto(null);
+    setSeleccion([]); // lo marcado en otra carpeta no se arrastra a esta
+    anclaRef.current = null;
     setRel(r);
   };
   const recargar = () => {
@@ -97,6 +105,32 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
     if (!datos || !datos.ready || !("scan" in datos)) return [];
     return datos.scan.months.flatMap((m) => m.days.flatMap((d) => d.items));
   }, [datos]);
+
+  // Conjunto, no array: la cuadrícula pregunta «¿está marcada?» una vez por pieza, y con
+  // 20.000 piezas un `includes` por cada una es cuadrático.
+  const marcadas = React.useMemo(() => new Set(seleccion), [seleccion]);
+
+  const marcar = (r: string, rango: boolean) => {
+    const orden = piezas.map((p) => p.rel);
+    // Shift: se marca todo el tramo entre el ancla y esta pieza, en el orden en que se ven.
+    if (rango && anclaRef.current) {
+      const a = orden.indexOf(anclaRef.current);
+      const b = orden.indexOf(r);
+      if (a >= 0 && b >= 0) {
+        const [i, j] = a < b ? [a, b] : [b, a];
+        const tramo = orden.slice(i, j + 1);
+        setSeleccion((prev) => Array.from(new Set([...prev, ...tramo])));
+        return;
+      }
+    }
+    anclaRef.current = r;
+    setSeleccion((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
+  };
+
+  const limpiarSeleccion = () => {
+    setSeleccion([]);
+    anclaRef.current = null;
+  };
 
   if (cargando && !datos) {
     return (
@@ -128,23 +162,7 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
             onReintentar={recargar}
           />
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {datos.folders.map((f) => (
-              <button
-                key={f.rel}
-                onClick={() => abrirCarpeta(f.rel)}
-                className="flex items-center gap-3 rounded-xl border bg-card p-4 text-left transition hover:border-primary/50 hover:bg-accent"
-              >
-                <Folder className="size-5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{f.name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {f.mtimeMs ? new Date(f.mtimeMs).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" }) : "—"}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+          <IndiceCarpetas folders={datos.folders} onAbrir={abrirCarpeta} />
         )}
       </div>
     );
@@ -215,7 +233,14 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
                 </div>
                 <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
                   {dia.items.map((it) => (
-                    <Ficha key={it.rel} item={it} onAbrir={() => setAbierto(it)} />
+                    <Ficha
+                      key={it.rel}
+                      item={it}
+                      onAbrir={() => setAbierto(it)}
+                      marcada={marcadas.has(it.rel)}
+                      haySeleccion={seleccion.length > 0}
+                      onMarcar={(rango) => marcar(it.rel, rango)}
+                    />
                   ))}
                 </div>
               </div>
@@ -223,6 +248,13 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
           </section>
         ))
       )}
+
+      <BarraSeleccion
+        seleccion={seleccion}
+        onLimpiar={limpiarSeleccion}
+        onHecho={recargar}
+        puedeEscribir={puedeEscribir}
+      />
 
       {abierto && (
         <Visor
@@ -315,16 +347,56 @@ function Compartir({ rel }: { rel: string }) {
 
 // ── Ficha de la cuadrícula ─────────────────────────────────────────────────────
 
-function Ficha({ item, onAbrir }: { item: GaleriaItem; onAbrir: () => void }) {
+function Ficha({
+  item,
+  onAbrir,
+  marcada,
+  haySeleccion,
+  onMarcar,
+}: {
+  item: GaleriaItem;
+  onAbrir: () => void;
+  marcada: boolean;
+  haySeleccion: boolean;
+  onMarcar: (rango: boolean) => void;
+}) {
   const [sinMiniatura, setSinMiniatura] = React.useState(false);
   const src = `/api/galeria/thumb?rel=${encodeURIComponent(item.rel)}&v=${encodeURIComponent(item.takenAt)}`;
 
   return (
     <button
-      onClick={onAbrir}
-      className="group relative aspect-square overflow-hidden rounded-md bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
+      onClick={(e) => {
+        // Con algo ya marcado, el clic suelto sigue marcando: es lo que espera cualquiera
+        // que venga del Finder o del Explorador. Ctrl/Cmd marca, Shift extiende el rango.
+        if (haySeleccion || e.ctrlKey || e.metaKey || e.shiftKey) {
+          e.preventDefault();
+          onMarcar(e.shiftKey);
+          return;
+        }
+        onAbrir();
+      }}
+      className={`group relative aspect-square overflow-hidden rounded-md bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary ${
+        marcada ? "ring-2 ring-primary" : ""
+      }`}
       title={item.name}
     >
+      {/* La casilla aparece al pasar por encima, y se queda fija en lo ya marcado. */}
+      <span
+        role="checkbox"
+        aria-checked={marcada}
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          onMarcar(e.shiftKey);
+        }}
+        className={`absolute left-1 top-1 z-10 grid size-4 place-items-center rounded border transition ${
+          marcada
+            ? "border-primary bg-primary text-primary-foreground opacity-100"
+            : "border-white/70 bg-black/40 opacity-0 group-hover:opacity-100"
+        }`}
+      >
+        {marcada && <Check className="size-3" />}
+      </span>
       {sinMiniatura ? (
         // Ni copia ligera ni póster todavía: se dice la verdad en vez de mostrar algo roto.
         <span className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">

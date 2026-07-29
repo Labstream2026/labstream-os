@@ -48,7 +48,7 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   const [subcarpetas, escrituraLista, clienteVinculado, proyectoVinculado, clientes, proyectos] = await Promise.all([
     listGaleriaFolders(relNorm).catch(() => []),
     galeriaWritable(),
-    relNorm ? db.client.findFirst({ where: { galeriaFolder: relNorm }, select: { id: true, name: true } }) : null,
+    relNorm ? db.client.findFirst({ where: { galeriaFolder: relNorm }, select: { id: true, name: true, accentColor: true } }) : null,
     relNorm ? db.project.findFirst({ where: { galeriaFolder: relNorm }, select: { id: true, name: true } }) : null,
     // Solo lo que esta persona puede VER: sin el filtro, el selector le enumeraba los
     // clientes y proyectos privados ajenos a cualquiera con permiso de escribir.
@@ -74,22 +74,33 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   ]);
 
   const vinculos: VinculoChip[] = [
-    ...(clienteVinculado ? [{ tipo: "cliente" as const, id: clienteVinculado.id, nombre: clienteVinculado.name }] : []),
+    ...(clienteVinculado ? [{ tipo: "cliente" as const, id: clienteVinculado.id, nombre: clienteVinculado.name, color: clienteVinculado.accentColor }] : []),
     ...(proyectoVinculado ? [{ tipo: "proyecto" as const, id: proyectoVinculado.id, nombre: proyectoVinculado.name }] : []),
   ];
+
+  // ¿De qué CLIENTE es cada subcarpeta? Su chip se tiñe con el color del cliente (mismo tono
+  // que su cabecera y sus proyectos): en la raíz, la galería queda organizada a simple vista.
+  const relsNivel = subcarpetas.map((f) => f.rel);
+  const duenos = relsNivel.length
+    ? await db.client.findMany({
+        where: { galeriaFolder: { in: relsNivel } },
+        select: { name: true, accentColor: true, galeriaFolder: true },
+      })
+    : [];
+  const duenoPorRel = new Map(duenos.map((c) => [c.galeriaFolder as string, { nombre: c.name, color: c.accentColor }]));
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
       <GaleriaHerramientas
         rel={relNorm}
-        subcarpetas={subcarpetas.map((f) => ({ rel: f.rel, name: f.name }))}
+        subcarpetas={subcarpetas.map((f) => ({ rel: f.rel, name: f.name, dueno: duenoPorRel.get(f.rel) ?? null }))}
         vinculos={vinculos}
         clientes={clientes.map((c) => ({ id: c.id, nombre: c.name }))}
         proyectos={proyectos.map((p) => ({ id: p.id, nombre: p.client ? `${p.name} · ${p.client.name}` : p.name }))}
         puedeEscribir={puedeEscribir}
         escrituraLista={escrituraLista}
       />
-      <GaleriaCliente relInicial={relNorm} />
+      <GaleriaCliente relInicial={relNorm} puedeEscribir={puedeEscribir && escrituraLista} />
     </div>
   );
 }

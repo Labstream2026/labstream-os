@@ -40,6 +40,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // `?solo=carpetas` devuelve las SUBCARPETAS de cualquier nivel, sin la línea de tiempo.
+    // Lo pide el selector de destino al mover material: navegar el árbol no necesita
+    // escanear las piezas de cada carpeta, que es lo caro.
+    if (url.searchParams.get("solo") === "carpetas") {
+      const folders = await listGaleriaFolders(rel);
+      return NextResponse.json({ ok: true, ready: true, rel, folders });
+    }
     if (!rel) {
       const folders = await listGaleriaFolders("");
       return NextResponse.json({ ok: true, ready: true, rel: "", folders });

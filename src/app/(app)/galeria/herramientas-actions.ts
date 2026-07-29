@@ -5,36 +5,18 @@ import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/auth";
 import { canWriteProject } from "@/lib/project-access";
 import { galeriaWriteSession } from "@/lib/galeria-access";
-import { createGaleriaFolder, writeGaleria, statGaleria, normalizeGaleriaRel, sanitizeGaleriaName } from "@/lib/nas-galeria";
+import {
+  createGaleriaFolder,
+  writeGaleria,
+  statGaleria,
+  normalizeGaleriaRel,
+  sanitizeGaleriaName,
+  trashGaleria,
+  moveGaleria,
+  renameGaleria,
+} from "@/lib/nas-galeria";
+import { conflictoDeVinculo } from "@/lib/galeria-vinculos";
 import { logActivity } from "@/lib/activity";
-
-// ¿La carpeta que se quiere vincular pisa (o cuelga de) la de OTRO cliente/proyecto? El candado
-// de los entregables autoriza todo lo que cuelgue del vínculo, así que un vínculo que envuelve
-// carpetas ajenas abre material ajeno — la misma puerta que prohibir la raíz quería cerrar.
-// La anidación LEGÍTIMA (el proyecto dentro de la carpeta de SU cliente) se permite.
-function solapa(a: string, b: string): boolean {
-  return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
-}
-async function conflictoDeVinculo(
-  value: string,
-  quien: { clientId?: string; projectId?: string; projectClientId?: string | null },
-): Promise<string | null> {
-  const [clientes, proyectos] = await Promise.all([
-    db.client.findMany({ where: { galeriaFolder: { not: null } }, select: { id: true, name: true, galeriaFolder: true } }),
-    db.project.findMany({ where: { galeriaFolder: { not: null } }, select: { id: true, name: true, clientId: true, galeriaFolder: true } }),
-  ]);
-  for (const c of clientes) {
-    if (c.id === quien.clientId || c.id === quien.projectClientId) continue;
-    if (c.galeriaFolder && solapa(value, c.galeriaFolder)) return `Esa carpeta pisa la del cliente «${c.name}» (${c.galeriaFolder}).`;
-  }
-  for (const p of proyectos) {
-    if (p.id === quien.projectId) continue;
-    // Un cliente puede envolver las carpetas de SUS proyectos; nadie más.
-    if (quien.clientId && p.clientId === quien.clientId) continue;
-    if (p.galeriaFolder && solapa(value, p.galeriaFolder)) return `Esa carpeta pisa la del proyecto «${p.name}» (${p.galeriaFolder}).`;
-  }
-  return null;
-}
 
 // ── Herramientas del EQUIPO sobre la galería: crear carpetas, subir material y vincular ──
 // Todo detrás de `escribir_discos` (galeriaWriteSession) y de las guardas de nas-galeria
@@ -106,6 +88,116 @@ export async function subirArchivoGaleria(rel: string, formData: FormData): Prom
   }
 }
 
+// ── Gestión del material: borrar, mover, renombrar ────────────────────────────
+// Faltaba entera. Se podía crear carpeta y subir, pero no deshacer nada de eso desde la
+// app: para quitar un archivo mal subido o colocarlo en su sitio había que entrar al NAS
+// por SMB. Las tres pasan por las guardas de nas-galeria (centinela de escritura, nunca
+// pisar un nombre existente, y borrar = papelera de red recuperable desde File Station).
+
+// Tope de un lote. No es un límite técnico: es que estas tres operaciones son secuenciales
+// sobre NFS y un lote enorme dejaría la petición colgada minutos.
+const MAX_LOTE = 200;
+
+type ResultadoLote = { ok: true; hechos: number; fallos: string[] } | { error: string };
+
+function nombreDe(rel: string): string {
+  return rel.split("/").pop() || rel;
+}
+
+// Un lote no se cae entero porque una pieza falle: se cuenta lo que sí salió y se devuelve
+// el detalle de lo que no, para que la UI lo pueda decir pieza por pieza.
+async function porLotes(rels: string[], hacer: (rel: string) => Promise<unknown>): Promise<{ hechos: number; fallos: string[] }> {
+  const fallos: string[] = [];
+  let hechos = 0;
+  for (const rel of rels) {
+    try {
+      await hacer(rel);
+      hechos++;
+    } catch (e) {
+      fallos.push(`${nombreDe(rel)}: ${msg(e, "no se pudo")}`);
+    }
+  }
+  return { hechos, fallos };
+}
+
+export async function borrarGaleria(rels: string[]): Promise<ResultadoLote> {
+  const session = await galeriaWriteSession();
+  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  if (!Array.isArray(rels) || rels.length === 0) return { error: "No se indicó qué borrar." };
+  if (rels.length > MAX_LOTE) return { error: `Demasiados elementos de una vez (máximo ${MAX_LOTE}).` };
+
+  const { hechos, fallos } = await porLotes(rels, (rel) => trashGaleria(rel));
+  if (hechos > 0) {
+    await logActivity({
+      action: "galeria.borrado",
+      summary:
+        hechos === 1
+          ? `envió «${nombreDe(rels[0]!)}» a la papelera del NAS`
+          : `envió ${hechos} elementos de la galería a la papelera del NAS`,
+      entityType: "galeria",
+      entityId: rels[0] ?? "",
+      userId: session.id,
+    });
+    revalidatePath("/galeria");
+  }
+  return { ok: true, hechos, fallos };
+}
+
+export async function moverGaleria(rels: string[], destino: string): Promise<ResultadoLote> {
+  const session = await galeriaWriteSession();
+  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  if (!Array.isArray(rels) || rels.length === 0) return { error: "No se indicó qué mover." };
+  if (rels.length > MAX_LOTE) return { error: `Demasiados elementos de una vez (máximo ${MAX_LOTE}).` };
+
+  let destinoNorm: string;
+  try {
+    destinoNorm = normalizeGaleriaRel(destino);
+  } catch {
+    return { error: "La carpeta de destino no es válida." };
+  }
+  // La raíz de la galería es el índice de entregas, no un cajón de archivos sueltos.
+  if (!destinoNorm) return { error: "Elige una carpeta de destino: en la raíz no se sueltan archivos." };
+  const st = await statGaleria(destinoNorm);
+  if (!st?.dir) return { error: "La carpeta de destino ya no existe en el disco." };
+
+  const { hechos, fallos } = await porLotes(rels, (rel) => moveGaleria(rel, destinoNorm));
+  if (hechos > 0) {
+    await logActivity({
+      action: "galeria.movido",
+      summary:
+        hechos === 1
+          ? `movió «${nombreDe(rels[0]!)}» a «${destinoNorm}» en la galería`
+          : `movió ${hechos} elementos de la galería a «${destinoNorm}»`,
+      entityType: "galeria",
+      entityId: destinoNorm,
+      userId: session.id,
+    });
+    revalidatePath("/galeria");
+  }
+  return { ok: true, hechos, fallos };
+}
+
+export async function renombrarGaleria(rel: string, nombre: string): Promise<Resultado> {
+  const session = await galeriaWriteSession();
+  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  if (!nombre.trim()) return { error: "Escribe un nombre." };
+  try {
+    const antes = nombreDe(normalizeGaleriaRel(rel));
+    const nuevoRel = await renameGaleria(rel, nombre);
+    await logActivity({
+      action: "galeria.renombrado",
+      summary: `renombró «${antes}» a «${nombreDe(nuevoRel)}» en la galería`,
+      entityType: "galeria",
+      entityId: nuevoRel,
+      userId: session.id,
+    });
+    revalidatePath("/galeria");
+    return { ok: true, rel: nuevoRel };
+  } catch (e) {
+    return { error: msg(e, "No se pudo renombrar") };
+  }
+}
+
 // Vincular la carpeta actual a un CLIENTE: todo su material cuelga de aquí y los proyectos
 // ganan subcarpeta automática. rel = null desvincula.
 export async function vincularCarpetaCliente(clientId: string, rel: string | null): Promise<Resultado> {
@@ -138,6 +230,8 @@ export async function vincularCarpetaCliente(clientId: string, rel: string | nul
     userId: session.id,
   });
   revalidatePath("/galeria");
+  // La ficha del cliente enseña este vínculo en Ajustes: que no se quede con el chip viejo.
+  revalidatePath(`/clientes/${clientId}`);
   return { ok: true };
 }
 

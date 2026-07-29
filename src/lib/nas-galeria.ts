@@ -658,6 +658,124 @@ export async function writeGaleria(relDir: string, filename: string, buf: Buffer
   }
 }
 
+// ── Mover y renombrar ──────────────────────────────────────────────────────────
+// Las dos son el MISMO rename del sistema de archivos, y las dos comparten las tres
+// reglas que hacen que no se pierda material: nunca se pisa un nombre existente (se
+// desdobla a «nombre (2)»), nunca se mueve algo dentro de sí mismo, y la raíz no se
+// toca. Se devuelve la ruta nueva porque casi siempre NO es la que pidió el llamador.
+
+// Mueve una pieza o una carpeta a otra carpeta de la galería.
+export async function moveGaleria(rel: string, relDirDestino: string): Promise<string> {
+  await assertGaleriaEscritura();
+  const origen = normalizeGaleriaRel(rel);
+  const destinoDir = normalizeGaleriaRel(relDirDestino);
+  if (!origen) throw new Error("no se puede mover la raíz");
+  // Meter una carpeta dentro de sí misma (o de su propia descendencia) la desconecta del
+  // árbol: el material seguiría en el disco pero nadie podría llegar a él.
+  if (destinoDir === origen || destinoDir.startsWith(`${origen}/`)) {
+    throw new Error("no se puede mover una carpeta dentro de sí misma");
+  }
+  const nombre = origen.split("/").pop() ?? "";
+  const yaEstaAhi = (origen.includes("/") ? origen.slice(0, origen.lastIndexOf("/")) : "") === destinoDir;
+  if (yaEstaAhi) return origen; // nada que hacer: ya vive ahí
+  try {
+    const absOrigen = await galeriaAbs(origen);
+    const absDir = await galeriaAbs(destinoDir);
+    if (!(await fs.stat(absDir)).isDirectory()) throw new Error("el destino no es una carpeta");
+    const libre = await freeGaleriaName(absDir, nombre);
+    await fs.rename(absOrigen, path.join(absDir, libre));
+    return destinoDir ? `${destinoDir}/${libre}` : libre;
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+}
+
+// Cambia el nombre de una pieza o carpeta, sin sacarla de donde está.
+export async function renameGaleria(rel: string, nombreNuevo: string): Promise<string> {
+  await assertGaleriaEscritura();
+  const origen = normalizeGaleriaRel(rel);
+  if (!origen) throw new Error("no se puede renombrar la raíz");
+  const dirRel = origen.includes("/") ? origen.slice(0, origen.lastIndexOf("/")) : "";
+  const actual = origen.split("/").pop() ?? "";
+  // La extensión no se toca: renombrar «toma.mxf» a «bueno» dejaría un archivo que ni la
+  // app reconoce como video ni el sistema sabe abrir. Se conserva la del nombre actual.
+  const punto = actual.lastIndexOf(".");
+  const ext = punto > 0 ? actual.slice(punto) : "";
+  let limpio = sanitizeGaleriaName(nombreNuevo);
+  if (ext && !limpio.toLowerCase().endsWith(ext.toLowerCase())) limpio += ext;
+  if (limpio === actual) return origen;
+  try {
+    const absOrigen = await galeriaAbs(origen);
+    const absDir = await galeriaAbs(dirRel);
+    const libre = await freeGaleriaName(absDir, limpio);
+    await fs.rename(absOrigen, path.join(absDir, libre));
+    return dirRel ? `${dirRel}/${libre}` : libre;
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+}
+
+// ── Resumen de una carpeta (para el índice) ────────────────────────────────────
+
+export type GaleriaResumen = {
+  piezas: number;
+  bytes: number;
+  ultimoMs: number;      // fecha de la pieza MÁS NUEVA que hay dentro
+  portadaRel: string | null; // qué pieza representa la carpeta en el índice
+  truncado: boolean;     // se llegó al tope y la cuenta es «al menos esto»
+};
+
+// El índice ordenaba las carpetas por la fecha de la CARPETA, y eso resultó ser un dato
+// falso: cualquier cosa que escriba dentro —crear una `.proxy`, por ejemplo— la actualiza
+// toda, y basta una pasada de la fábrica de copias para dejar 34 carpetas con la misma
+// fecha y el orden destruido. Aquí se mira lo que de verdad importa: la pieza más nueva
+// que contiene. Se acota (tope y profundidad) porque son 7 TB y esto se pide por carpeta.
+const RESUMEN_MAX = 600;
+const RESUMEN_DEPTH = 5;
+
+export async function resumenCarpeta(rel: string): Promise<GaleriaResumen> {
+  const norm = normalizeGaleriaRel(rel);
+  const raiz = await galeriaAbs(norm);
+  const out: GaleriaResumen = { piezas: 0, bytes: 0, ultimoMs: 0, portadaRel: null, truncado: false };
+  // Se prefiere una FOTO como portada (se ve al instante desde el original); un video solo
+  // sirve si su póster ya existe, y si no hay ninguno la carpeta se queda con su icono.
+  let portadaFoto: string | null = null;
+  let portadaVideo: string | null = null;
+
+  const walk = async (dirAbs: string, dirRel: string, depth: number): Promise<void> => {
+    if (depth > RESUMEN_DEPTH || out.truncado) return;
+    const raw = await fs.readdir(dirAbs, { withFileTypes: true }).catch(() => null);
+    if (!raw) return;
+    for (const d of raw) {
+      if (out.truncado) return;
+      if (isJunkName(d.name)) continue;
+      const childRel = dirRel ? `${dirRel}/${d.name}` : d.name;
+      if (d.isDirectory()) {
+        await walk(path.join(dirAbs, d.name), childRel, depth + 1);
+        continue;
+      }
+      if (!d.isFile()) continue;
+      const kind = galeriaKind(d.name);
+      if (!kind) continue;
+      if (out.piezas >= RESUMEN_MAX) {
+        out.truncado = true;
+        return;
+      }
+      const st = await fs.stat(path.join(dirAbs, d.name)).catch(() => null);
+      if (!st) continue;
+      out.piezas++;
+      out.bytes += st.size;
+      if (st.mtimeMs > out.ultimoMs) out.ultimoMs = st.mtimeMs;
+      if (!portadaFoto && kind === "photo" && !needsProxy(d.name)) portadaFoto = childRel;
+      else if (!portadaVideo && kind === "video") portadaVideo = childRel;
+    }
+  };
+
+  await walk(raiz, norm, 0);
+  out.portadaRel = portadaFoto ?? portadaVideo;
+  return out;
+}
+
 // «Borrar» = mover a la papelera de red (#recycle) conservando la subruta, como hace DSM.
 // Recuperable desde File Station. La raíz jamás.
 export async function trashGaleria(rel: string): Promise<void> {
