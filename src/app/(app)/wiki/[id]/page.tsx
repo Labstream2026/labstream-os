@@ -88,17 +88,19 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
       ) : (
         /* Vista de lectura (Markdown renderizado) */
         <article className="mt-4">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
             <h1 className="text-3xl font-bold tracking-tight">{page.icon ? `${page.icon} ` : ""}{page.title}</h1>
           </div>
           {(page.section || page.tags.length) ? (
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               {page.section ? <span className="rounded bg-muted px-1.5 py-0.5">{page.section}</span> : null}
               {page.tags.map((t) => <span key={t} className="rounded bg-muted px-1.5 py-0.5">#{t}</span>)}
             </div>
           ) : null}
           {page.content.trim() ? (
-            <div className="mt-4 text-sm text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.content) }} />
+            /* `wiki-prose`: ancho de lectura cómodo y aire entre bloques (ver globals.css).
+               El HTML lo produce renderMarkdown, que escapa todo lo que venga del usuario. */
+            <div className="wiki-prose mt-5 text-[15px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.content) }} />
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Esta página está vacía. <Link href={`/wiki/${id}?edit=1`} className="text-primary hover:underline">Edítala</Link> para añadir contenido.</p>
           )}

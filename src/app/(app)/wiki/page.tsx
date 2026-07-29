@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { SectionChatCard } from "@/components/chat/section-chat-card";
-import { FileText, Search, ChevronRight, Package, HardDrive, KeyRound, Clock } from "lucide-react";
+import { FileText, Search, Table2 } from "lucide-react";
 import { IconWiki } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
@@ -9,6 +9,7 @@ import { WikiTabs } from "./wiki-tabs";
 import { NewWikiPageButton } from "./new-page";
 import { ensureStartHerePage, getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
 import { WIKI_SECTIONS, WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
+import { plainExcerpt } from "@/lib/markdown";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,26 @@ function daysUntil(date: string): number | null {
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
-export default async function WikiPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const { q } = await searchParams;
+// Antigüedad en palabras ("hace 3 días", "hace 7 meses"). Se calcula en el SERVIDOR y solo
+// se imprime como texto: al ser un componente de servidor no hay hidratación que desajustar.
+function antiguedad(from: Date, now: number): string {
+  const d = Math.max(0, Math.round((now - from.getTime()) / 86400000));
+  if (d === 0) return "hoy";
+  if (d === 1) return "ayer";
+  if (d < 30) return `hace ${d} días`;
+  const m = Math.round(d / 30);
+  if (m < 12) return `hace ${m} ${m === 1 ? "mes" : "meses"}`;
+  const y = Math.floor(d / 365);
+  return `hace ${y} ${y === 1 ? "año" : "años"}`;
+}
+
+// Estado de salud de UNA página: es lo que se lee de un vistazo en su ficha.
+type Salud = "al-dia" | "revisar" | "sin-duenno";
+
+export default async function WikiPage({ searchParams }: { searchParams: Promise<{ q?: string; f?: string }> }) {
+  const { q, f } = await searchParams;
   const query = (q ?? "").trim();
+  const filtro = f === "revisar" || f === "sin-duenno" ? f : null;
 
   // Siembra la página índice "Empieza aquí" la primera vez (idempotente).
   await ensureStartHerePage();
@@ -50,12 +68,11 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
     },
   });
 
-  // Conteos en vivo para los accesos rápidos (inventario / ubicación).
+  // Alertas vivas de las herramientas: viajan como chips en sus pestañas (antes eran tres
+  // tarjetas que repetían lo que ya dicen las pestañas y empujaban la documentación hacia abajo).
   const [invTableId, locTableId] = await Promise.all([getInventoryTableId(), getLocationsTableId()]);
-  const [invTotal, invEstadoCol, locTotal, locCadCol] = await Promise.all([
-    db.dataRow.count({ where: { tableId: invTableId } }),
+  const [invEstadoCol, locCadCol] = await Promise.all([
     db.dataColumn.findFirst({ where: { tableId: invTableId, name: "Estado" }, select: { id: true } }),
-    db.dataRow.count({ where: { tableId: locTableId } }),
     db.dataColumn.findFirst({ where: { tableId: locTableId, name: "Caducidad" }, select: { id: true } }),
   ]);
   const [estadoCells, cadCells] = await Promise.all([
@@ -65,140 +82,161 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
   const invAttention = estadoCells.filter((c) => c.value === "en-mantenimiento" || c.value === "danado").length;
   const locSoon = cadCells.filter((c) => { const d = daysUntil(typeof c.value === "string" ? c.value : ""); return d !== null && d <= 30; }).length;
 
-  const tiles = [
-    { href: "/wiki/inventario", Icon: Package, title: "Inventario", main: `${invTotal} equipo${invTotal === 1 ? "" : "s"}`, alert: invAttention > 0 ? `${invAttention} requiere${invAttention === 1 ? "" : "n"} atención` : null },
-    { href: "/wiki/ubicacion", Icon: HardDrive, title: "Ubicación del material", main: `${locTotal} respaldo${locTotal === 1 ? "" : "s"}`, alert: locSoon > 0 ? `${locSoon} por vencer` : null },
-    { href: "/wiki/contrasenas", Icon: KeyRound, title: "Usuarios y contraseñas", main: "Credenciales cifradas", alert: null },
-  ];
-
   const now = nowMs();
 
-  // Páginas que ya tocaba revisar (revisadas alguna vez y vencidas) — gobernanza arriba.
-  const reviewList = pages
-    .filter((p) => p.lastReviewedAt && now - p.lastReviewedAt.getTime() > staleMs)
-    .slice(0, 6);
+  const saludDe = (p: (typeof pages)[number]): Salud => {
+    if (!p.ownerId) return "sin-duenno";
+    const reviewed = p.lastReviewedAt ? p.lastReviewedAt.getTime() : 0;
+    return now - reviewed > staleMs ? "revisar" : "al-dia";
+  };
+
+  // Resumen de salud sobre TODAS las páginas (no sobre el resultado filtrado): así el
+  // panorama no cambia según lo que estés mirando.
+  const todas = query ? await db.wikiPage.findMany({ select: { ownerId: true, lastReviewedAt: true } }) : pages;
+  const total = todas.length;
+  const nRevisar = todas.filter((p) => p.ownerId && now - (p.lastReviewedAt?.getTime() ?? 0) > staleMs).length;
+  const nSinDuenno = todas.filter((p) => !p.ownerId).length;
+  const nAlDia = total - nRevisar - nSinDuenno;
+
+  const visibles = filtro ? pages.filter((p) => saludDe(p) === filtro) : pages;
 
   // Agrupa las páginas de documentación por sección (lo demás cae en "Otras páginas").
   const bySection = new Map<string, typeof pages>();
-  for (const p of pages) {
+  for (const p of visibles) {
     const key = p.section && WIKI_SECTIONS.includes(p.section as never) ? p.section : OTHER;
     (bySection.get(key) ?? bySection.set(key, []).get(key)!).push(p);
   }
   const orderedSections = [...WIKI_SECTIONS.filter((s) => bySection.has(s)), ...(bySection.has(OTHER) ? [OTHER] : [])];
 
+  // Un stat del resumen: los que filtran son enlaces; el resto, texto.
+  const stats: { k: string; v: number; tone: "ink" | "good" | "warn"; f: Salud | null }[] = [
+    { k: "Páginas", v: total, tone: "ink", f: null },
+    { k: "Al día", v: nAlDia, tone: "good", f: null },
+    { k: "Para revisar", v: nRevisar, tone: "warn", f: "revisar" },
+    { k: "Sin dueño", v: nSinDuenno, tone: "warn", f: "sin-duenno" },
+  ];
+  const toneClass = { ink: "", good: "text-emerald-600 dark:text-emerald-400", warn: "text-amber-600 dark:text-amber-400" };
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
       <p className="mt-1 mb-6 text-sm text-muted-foreground">
-        Toda la información de la empresa: procesos, equipo, clientes, inventario y contraseñas.
+        Cómo trabajamos, qué tenemos y dónde está todo.
       </p>
       <div className="mb-6"><SectionChatCard section="wiki" /></div>
-      <WikiTabs />
+      <WikiTabs alertInventario={invAttention} alertMaterial={locSoon} />
 
-      {/* Accesos rápidos con conteos en vivo */}
-      {!query ? (
-        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {tiles.map((t) => (
+      {/* Buscador global de la wiki (título, contenido y etiquetas) */}
+      <form className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <Search className="size-4 shrink-0 text-muted-foreground" />
+        <input name="q" defaultValue={query} placeholder="Buscar en toda la wiki…" className="w-full bg-transparent text-sm outline-none" />
+        {query ? <Link href="/wiki" className="shrink-0 text-xs text-muted-foreground hover:text-foreground">Limpiar</Link> : null}
+      </form>
+
+      {/* Salud de la documentación: el panorama antes del detalle. «Para revisar» y
+          «Sin dueño» son filtros — el número deja de ser un dato y pasa a ser una acción. */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stats.map((s) => {
+          const activo = filtro === s.f && s.f !== null;
+          const inner = (
+            <>
+              {/* nowrap: «Para revisar» se partía en dos líneas y desalineaba los números. */}
+              <p className="truncate whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{s.k}</p>
+              <p className={`mt-0.5 text-2xl font-bold tabular-nums tracking-tight ${s.v > 0 ? toneClass[s.tone] : "text-muted-foreground"}`}>{s.v}</p>
+            </>
+          );
+          return s.f && s.v > 0 ? (
             <Link
-              key={t.href}
-              href={t.href}
-              className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+              key={s.k}
+              href={activo ? "/wiki" : `/wiki?f=${s.f}`}
+              className={`rounded-xl border bg-card px-4 py-3 transition-colors ${activo ? "border-primary ring-2 ring-primary/20" : "border-border hover:border-primary/40"}`}
             >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                <t.Icon className="size-5 text-muted-foreground" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{t.title}</p>
-                <p className="truncate text-xs text-muted-foreground">{t.main}</p>
-                {t.alert ? (
-                  <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{t.alert}</span>
-                ) : null}
-              </div>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              {inner}
+              <p className="mt-1 text-[11px] text-primary">{activo ? "Quitar filtro" : "Ver solo estas"}</p>
             </Link>
-          ))}
-        </div>
-      ) : null}
+          ) : (
+            <div key={s.k} className="rounded-xl border border-border bg-card px-4 py-3">{inner}</div>
+          );
+        })}
+      </div>
 
-      {/* Para revisar (páginas con revisión vencida) */}
-      {!query && reviewList.length > 0 ? (
-        <div className="mb-6 overflow-hidden rounded-xl border border-amber-300 bg-amber-50/60 dark:border-amber-800/60 dark:bg-amber-950/20">
-          <div className="flex items-center gap-2 border-b border-amber-200 px-4 py-2.5 dark:border-amber-900/50">
-            <Clock className="size-4 text-amber-600 dark:text-amber-400" />
-            <span className="text-sm font-semibold text-amber-800 dark:text-amber-200">Para revisar</span>
-            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">{reviewList.length}</span>
-          </div>
-          <div className="divide-y divide-amber-200/70 dark:divide-amber-900/40">
-            {reviewList.map((p) => (
-              <Link key={p.id} href={`/wiki/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-amber-100/50 dark:hover:bg-amber-900/20">
-                <span className="text-lg">{p.icon ?? <FileText className="size-4 text-muted-foreground" />}</span>
-                <span className="min-w-0 flex-1 truncate text-sm">{p.title}</span>
-                {p.owner ? <span title={`Dueño: ${p.owner.name}`}><UserAvatar initials={p.owner.initials} name={p.owner.name} color={p.owner.avatarColor} size="sm" /></span> : null}
-                <span className="shrink-0 text-xs text-amber-700 dark:text-amber-300">
-                  {Math.round((now - p.lastReviewedAt!.getTime()) / 86400000)} días
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Documentación</h2>
+          <h2 className="text-lg font-semibold">
+            {filtro === "revisar" ? "Páginas para revisar" : filtro === "sin-duenno" ? "Páginas sin dueño" : "Documentación"}
+          </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Páginas por sección. Cada una con su dueño y su última revisión.
+            {query
+              ? `${visibles.length} resultado${visibles.length === 1 ? "" : "s"} para «${query}».`
+              : filtro
+                ? "Nadie responde por ellas o llevan demasiado sin revisarse."
+                : "Páginas por sección. Cada una con su dueño y su última revisión."}
           </p>
         </div>
         <NewWikiPageButton />
       </div>
 
-      {/* Buscador global de la wiki (título, contenido y etiquetas) */}
-      <form className="mt-4 flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
-        <Search className="size-4 text-muted-foreground" />
-        <input name="q" defaultValue={query} placeholder="Buscar en toda la wiki…" className="w-full bg-transparent text-sm outline-none" />
-        {query ? <Link href="/wiki" className="text-xs text-muted-foreground hover:text-foreground">Limpiar</Link> : null}
-      </form>
-
-      <div className="mt-6 space-y-8">
-        {pages.length === 0 ? (
+      <div className="mt-5 space-y-8">
+        {visibles.length === 0 ? (
           <EmptyState
             icon={<IconWiki />}
-            title={query ? "Sin resultados" : "Aún no hay páginas"}
-            description={query ? `No encontramos páginas para «${query}».` : "Crea la primera con una plantilla."}
+            title={query ? "Sin resultados" : filtro ? "Nada pendiente por aquí" : "Aún no hay páginas"}
+            description={
+              query ? `No encontramos páginas para «${query}».`
+                : filtro ? "Toda la documentación tiene dueño y revisión al día."
+                  : "Crea la primera con una plantilla."
+            }
           />
         ) : (
           orderedSections.map((section) => (
             <section key={section}>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h3>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {section} · {(bySection.get(section) ?? []).length}
+              </h3>
               <div className="space-y-2">
                 {(bySection.get(section) ?? []).map((p) => {
-                  const reviewedMs = p.lastReviewedAt ? p.lastReviewedAt.getTime() : 0;
-                  const stale = now - reviewedMs > staleMs;
+                  const salud = saludDe(p);
+                  const extracto = plainExcerpt(p.content, 150);
                   return (
                     <Link
                       key={p.id}
                       href={`/wiki/${p.id}`}
-                      className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
+                      className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-lg">
+                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-lg">
                         {p.icon ?? <FileText className="size-4 text-muted-foreground" />}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{p.title}</p>
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                          {p._count.tables > 0 ? <span>{p._count.tables} tabla{p._count.tables === 1 ? "" : "s"}</span> : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold">{p.title}</p>
+                          {salud === "revisar" ? (
+                            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Revisar</span>
+                          ) : salud === "sin-duenno" ? (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Sin dueño</span>
+                          ) : null}
+                        </div>
+                        {/* Extracto: saber de qué trata la página sin tener que abrirla. */}
+                        {extracto ? (
+                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{extracto}</p>
+                        ) : (
+                          <p className="mt-1 text-xs italic text-muted-foreground">Página vacía.</p>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                          {p.owner ? (
+                            <span className="flex items-center gap-1.5">
+                              <UserAvatar initials={p.owner.initials} name={p.owner.name} color={p.owner.avatarColor} size="sm" />
+                              {p.owner.name}
+                            </span>
+                          ) : null}
+                          <span>· {antiguedad(p.updatedAt, now)}</span>
+                          {p._count.tables > 0 ? (
+                            <span className="flex items-center gap-1"><Table2 className="size-3" /> {p._count.tables}</span>
+                          ) : null}
                           {p.tags.slice(0, 4).map((t) => (
                             <span key={t} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">#{t}</span>
                           ))}
                         </div>
                       </div>
-                      {stale ? (
-                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Revisar</span>
-                      ) : null}
-                      {p.owner ? (
-                        <span title={`Dueño: ${p.owner.name}`}><UserAvatar initials={p.owner.initials} name={p.owner.name} color={p.owner.avatarColor} size="sm" /></span>
-                      ) : null}
                     </Link>
                   );
                 })}

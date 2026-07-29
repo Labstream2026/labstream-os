@@ -268,3 +268,30 @@ html.density-compact {
     background-image: none;
   }
 }
+
+/* ── Lectura de una página de la Wiki ── */
+/* El Markdown ya trae sus clases de Tailwind (ver lib/markdown.ts); esto solo pone el
+   ANCHO DE LECTURA y el aire entre bloques, que es lo que faltaba para que un protocolo
+   largo se lea sin cansar. Se limita a la vista de lectura, no al editor. */
+.wiki-prose {
+  max-width: 68ch;
+}
+.wiki-prose > :first-child {
+  margin-top: 0;
+}
+.wiki-prose h1,
+.wiki-prose h2,
+.wiki-prose h3,
+.wiki-prose h4 {
+  scroll-margin-top: 5rem; /* al saltar desde el índice, el título no queda bajo la barra */
+  text-wrap: balance;
+}
+.wiki-prose h2 {
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.wiki-prose p,
+.wiki-prose ul,
+.wiki-prose ol {
+  max-width: 68ch;
+}
