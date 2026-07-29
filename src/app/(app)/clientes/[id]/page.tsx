@@ -422,7 +422,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                   icon: <IconEntregas />,
                   node: <ClientDeliverables deliverables={clientDeliverables} />,
                 },
-                {
+                // La pestaña exige ver_archivos. El backfill (ensureVerArchivosDefaults) ya se lo
+                // concedió a todo rol que ve proyectos, así que nadie la pierde al desplegar.
+                ...(hasPermission(session, "ver_archivos") ? [{
                   key: "archivos",
                   label: "Archivos",
                   badge: itemsArchivos.length || undefined,
@@ -438,7 +440,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                       canChunked={canEdit && session?.role !== "demo"}
                     />
                   ),
-                },
+                }] : []),
                 // Notas del cliente: lo que se apunta de la cuenta (no de un proyecto suelto).
                 ...(hasPermission(session, "ver_notas") ? [{
                   key: "notas",

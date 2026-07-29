@@ -5,6 +5,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
+import { categoriaLabel } from "@/lib/archivos/tipos";
 
 // ── Búsqueda global de CONTENIDO (⌘K) ──
 // Amplía el buscador más allá de páginas/clientes/proyectos: encuentra tareas, entregables,
@@ -67,7 +68,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
             { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
           ];
 
-  const [tasks, delivs, quotes, invoices, proposals, files, notes, channels, libAssets, disks] = await Promise.all([
+  const [tasks, delivs, quotes, invoices, proposals, files, clientFiles, notes, channels, libAssets, disks] = await Promise.all([
     // Tareas: en un proyecto que puedo ver, o asignadas a/por mí (tareas personales sin proyecto).
     db.task.findMany({
       where: {
@@ -112,7 +113,16 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
     canFiles
       ? db.fileAsset.findMany({
           where: { name: like, project: projWhere },
-          select: { id: true, name: true, projectId: true, project: { select: { finishedAt: true } } },
+          select: { id: true, name: true, projectId: true, folder: { select: { name: true } }, project: { select: { name: true, finishedAt: true } } },
+          take: TAKE,
+        })
+      : Promise.resolve([]),
+    // Material de MARCA del cliente (ClientFile): no vive en ningún proyecto, así que sin esto
+    // el «brand kit» de una cuenta era invisible para ⌘K.
+    canFiles
+      ? db.clientFile.findMany({
+          where: { name: like, client: clientWhere },
+          select: { id: true, name: true, kind: true, category: true, clientId: true, client: { select: { name: true } } },
           take: TAKE,
         })
       : Promise.resolve([]),
@@ -169,7 +179,18 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   for (const c of quotes) hits.push({ id: `q-${c.id}`, label: c.title || c.code, sub: `${c.code} · ${c.client?.name ?? ""}`.trim(), href: `/cotizaciones/${c.id}`, group: "Cotizaciones", kind: "quote" });
   for (const i of invoices) hits.push({ id: `i-${i.id}`, label: i.code, sub: i.client?.name ?? "Factura", href: `/facturacion/${i.id}`, group: "Facturas", kind: "invoice" });
   for (const p of proposals) hits.push({ id: `pp-${p.id}`, label: p.title || p.code, sub: p.code, href: `/cotizaciones/propuestas/${p.id}`, group: "Propuestas", kind: "proposal" });
-  for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file", finished: !!f.project?.finishedAt });
+  // El `sub` dice DÓNDE está («Spot 30s · 02 Material»), no la palabra «Archivo», que no
+  // ayudaba a elegir entre tres resultados con el mismo nombre.
+  for (const f of files) hits.push({ id: `f-${f.id}`, label: f.name, sub: [f.project?.name, f.folder?.name].filter(Boolean).join(" · ") || "Archivo", href: `/proyectos/${f.projectId}?tab=archivos`, group: "Archivos", kind: "file", finished: !!f.project?.finishedAt });
+  for (const cf of clientFiles)
+    hits.push({
+      id: `cf-${cf.id}`,
+      label: cf.name,
+      sub: [cf.client?.name, categoriaLabel(cf.category) ?? (cf.kind === "NAS" ? "Ruta del NAS" : "Material de marca")].filter(Boolean).join(" · "),
+      href: `/clientes/${cf.clientId}#archivos`,
+      group: "Archivos",
+      kind: "file",
+    });
   // El resultado lleva DIRECTO a la nota y muestra el trozo de texto donde apareció lo buscado.
   for (const n of notes) {
     const owner = n.createdById === session.id ? null : n.createdBy?.name ?? null;

@@ -362,6 +362,28 @@ export async function ensureClienteCollabDefaults(): Promise<void> {
   });
 }
 
+// Concede `ver_archivos` a todo rol que ya pueda VER PROYECTOS. Sin esto, encender el gate de
+// la pestaña Archivos dejaría sin ella, de un día para otro, a quien lleva meses usándola:
+// `ROLE_DEFAULTS` solo se aplica a roles nuevos y los permisos viven en la BD.
+// Idempotente y ADITIVA: no quita nada y no repite trabajo si ya corrió.
+export async function ensureVerArchivosDefaults(): Promise<void> {
+  const permVer = await db.permission.findUnique({ where: { key: "ver_archivos" }, select: { id: true } });
+  const permProy = await db.permission.findUnique({ where: { key: "ver_proyectos" }, select: { id: true } });
+  if (!permVer || !permProy) return;
+  // Roles que ven proyectos pero AÚN no tienen ver_archivos.
+  const conProyectos = await db.rolePermission.findMany({ where: { permissionId: permProy.id }, select: { roleId: true } });
+  if (!conProyectos.length) return;
+  const yaTienen = new Set(
+    (await db.rolePermission.findMany({ where: { permissionId: permVer.id }, select: { roleId: true } })).map((r) => r.roleId),
+  );
+  const faltan = conProyectos.map((r) => r.roleId).filter((id) => !yaTienen.has(id));
+  if (!faltan.length) return;
+  await db.rolePermission.createMany({
+    data: faltan.map((roleId) => ({ roleId, permissionId: permVer.id })),
+    skipDuplicates: true,
+  });
+}
+
 // Estado de autenticación EN VIVO de un usuario (rol + permisos efectivos + activo).
 // Cacheado por request (React cache) → una sola consulta aunque getSession se llame
 // muchas veces. Hace que cualquier cambio de rol/permisos aplique al instante.

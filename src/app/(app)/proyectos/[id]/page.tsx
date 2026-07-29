@@ -559,7 +559,10 @@ export default async function ProyectoPage({
       (t.key !== "actividad" || hasPermission(session, "ver_actividad")) &&
       (t.key !== "equipos" || !isCliente) &&
       // Las notas son una herramienta interna: el portal del cliente no las ve.
-      (t.key !== "notas" || (!isCliente && hasPermission(session, "ver_notas"))),
+      (t.key !== "notas" || (!isCliente && hasPermission(session, "ver_notas"))) &&
+      // Archivos exige su permiso. El backfill (ensureVerArchivosDefaults) ya se lo dio a
+      // todo rol que ve proyectos: nadie pierde la pestaña por encender el gate.
+      (t.key !== "archivos" || hasPermission(session, "ver_archivos")),
   );
 
   return (
