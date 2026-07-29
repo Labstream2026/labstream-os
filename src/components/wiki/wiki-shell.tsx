@@ -23,7 +23,6 @@ export async function WikiShell({ children }: { children: React.ReactNode }) {
             canSeePasswords={nav.canSeePasswords}
             canBiblioteca={nav.canBiblioteca}
             alertInventario={nav.alertInventario}
-            alertMaterial={nav.alertMaterial}
             alertSalud={nav.alertSalud}
             alertBiblioteca={nav.alertBiblioteca}
           />

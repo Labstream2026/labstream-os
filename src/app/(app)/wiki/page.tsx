@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { UserAvatar } from "@/components/user-avatar";
 import { WikiTabs } from "./wiki-tabs";
 import { NewWikiPageButton } from "./new-page";
-import { ensureStartHerePage, getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
+import { ensureStartHerePage, getInventoryTableId } from "@/lib/wiki-tables";
 import { WIKI_SECTIONS, WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
 import { plainExcerpt, searchSnippet } from "@/lib/markdown";
 
@@ -20,16 +20,6 @@ const staleMs = WIKI_REVIEW_STALE_DAYS * 86400000;
 // a nivel de módulo es equivalente y evita el falso positivo (igual que `new Date()` en helpers).
 function nowMs(): number {
   return Date.now();
-}
-
-// Días desde hoy hasta "YYYY-MM-DD" (negativo = vencido); null si no hay fecha.
-function daysUntil(date: string): number | null {
-  if (!date) return null;
-  const d = new Date(date + "T00:00:00");
-  if (Number.isNaN(d.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
 // Antigüedad en palabras ("hace 3 días", "hace 7 meses"). Se calcula en el SERVIDOR y solo
@@ -70,17 +60,14 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
 
   // Alertas vivas de las herramientas: viajan como chips en sus pestañas (antes eran tres
   // tarjetas que repetían lo que ya dicen las pestañas y empujaban la documentación hacia abajo).
-  const [invTableId, locTableId] = await Promise.all([getInventoryTableId(), getLocationsTableId()]);
-  const [invEstadoCol, locCadCol] = await Promise.all([
-    db.dataColumn.findFirst({ where: { tableId: invTableId, name: "Estado" }, select: { id: true } }),
-    db.dataColumn.findFirst({ where: { tableId: locTableId, name: "Caducidad" }, select: { id: true } }),
-  ]);
-  const [estadoCells, cadCells] = await Promise.all([
-    invEstadoCol ? db.dataCell.findMany({ where: { columnId: invEstadoCol.id }, select: { value: true } }) : Promise.resolve([]),
-    locCadCol ? db.dataCell.findMany({ where: { columnId: locCadCol.id }, select: { value: true } }) : Promise.resolve([]),
-  ]);
+  // Ya no se calcula la de «Ubicación del material»: esa tabla se fusionó con el Mapa del
+  // material de la Biblioteca, que lleva su propio aviso.
+  const invTableId = await getInventoryTableId();
+  const invEstadoCol = await db.dataColumn.findFirst({ where: { tableId: invTableId, name: "Estado" }, select: { id: true } });
+  const estadoCells = invEstadoCol
+    ? await db.dataCell.findMany({ where: { columnId: invEstadoCol.id }, select: { value: true } })
+    : [];
   const invAttention = estadoCells.filter((c) => c.value === "en-mantenimiento" || c.value === "danado").length;
-  const locSoon = cadCells.filter((c) => { const d = daysUntil(typeof c.value === "string" ? c.value : ""); return d !== null && d <= 30; }).length;
 
   const now = nowMs();
 
@@ -124,7 +111,7 @@ export default async function WikiPage({ searchParams }: { searchParams: Promise
         Cómo trabajamos, qué tenemos y dónde está todo.
       </p>
       <div className="mb-6"><SectionChatCard section="wiki" /></div>
-      <WikiTabs alertInventario={invAttention} alertMaterial={locSoon} />
+      <WikiTabs alertInventario={invAttention} />
 
       {/* Buscador global de la wiki (título, contenido y etiquetas) */}
       <form className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">

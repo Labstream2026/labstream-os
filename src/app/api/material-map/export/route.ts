@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { materialHealth, ROLE_LABEL } from "@/lib/material-health";
-import { formatBogota } from "@/lib/bogota-time";
+import { formatBogota, formatBogotaDate } from "@/lib/bogota-time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +35,10 @@ export async function GET() {
     return /[";\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
   };
 
+  // «Caducidad» y «Notas» llegan de la vieja tabla de Ubicación de la Wiki, fusionada aquí:
+  // sin ellas el informe del estudio se quedaba sin lo que justificaba aquella función.
   const lines = [
-    ["Proyecto", "Cliente", "Estado", "Salud", "Rol", "Disco", "Tipo de disco", "Dónde está el disco", "Ruta", "Verificado"].map(esc).join(";"),
+    ["Proyecto", "Cliente", "Estado", "Salud", "Rol", "Disco", "Tipo de disco", "Dónde está el disco", "Ruta", "Verificado", "Caducidad", "Notas"].map(esc).join(";"),
   ];
   for (const p of projects) {
     const health = materialHealth(
@@ -44,7 +46,7 @@ export async function GET() {
     );
     const estado = p.finishedAt ? "Terminado" : "Activo";
     if (p.materialLocations.length === 0) {
-      lines.push([p.name, p.client?.name ?? "", estado, health.label, "", "", "", "", "", ""].map(esc).join(";"));
+      lines.push([p.name, p.client?.name ?? "", estado, health.label, "", "", "", "", "", "", "", ""].map(esc).join(";"));
       continue;
     }
     for (const l of p.materialLocations) {
@@ -60,6 +62,8 @@ export async function GET() {
           l.disk.location ?? "",
           l.path ?? "",
           l.verifiedAt ? (formatBogota(l.verifiedAt) ?? "") : "Sin verificar",
+          l.expiresAt ? (formatBogotaDate(l.expiresAt) ?? "") : "",
+          l.notes ?? "",
         ].map(esc).join(";")
       );
     }

@@ -98,6 +98,14 @@ export async function deleteStorageDisk(id: string) {
 
 // ── Mapa del material ──────────────────────────────────────────────────────
 
+// "YYYY-MM-DD" → Date a medianoche local; vacío o basura → null.
+function fecha(raw: FormDataEntryValue | null): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export async function addMaterialLocation(formData: FormData) {
   const session = await getSession();
   requireManage(session);
@@ -105,20 +113,53 @@ export async function addMaterialLocation(formData: FormData) {
   const diskId = String(formData.get("diskId") ?? "");
   const role = String(formData.get("role") ?? "");
   const path = String(formData.get("path") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  const expiresAt = fecha(formData.get("expiresAt"));
   if (!projectId || !diskId || !(MATERIAL_ROLES as readonly string[]).includes(role)) return;
   const [project, disk] = await Promise.all([
     db.project.findUnique({ where: { id: projectId }, select: { id: true } }),
     db.storageDisk.findUnique({ where: { id: diskId }, select: { id: true } }),
   ]);
   if (!project || !disk) return;
-  // Idempotente sobre la clave única (proyecto, disco, rol): repetir actualiza la ruta.
+
+  // Idempotente sobre la clave única (proyecto, disco, rol): repetir ENRIQUECE la entrada.
+  //
+  // Antes hacía `update: { path, verifiedAt: new Date() }` y eso tenía dos daños: registrar
+  // de nuevo sin escribir ruta la BORRABA, y además re-sellaba la verificación sin que nadie
+  // hubiera mirado el disco —justo la señal que avisa de copias que nadie confirma hace
+  // medio año—. Ahora solo se escriben los campos que traen valor, y `verifiedAt` es cosa
+  // exclusiva de «Sigue ahí» (verifyMaterialLocation) y del alta.
+  const update: { path?: string; notes?: string; expiresAt?: Date } = {};
+  if (path) update.path = path;
+  if (notes) update.notes = notes;
+  if (expiresAt) update.expiresAt = expiresAt;
+
   await db.materialLocation.upsert({
     where: { projectId_diskId_role: { projectId, diskId, role } },
-    create: { projectId, diskId, role, path, verifiedAt: new Date(), createdById: session!.id },
-    update: { path, verifiedAt: new Date() },
+    create: { projectId, diskId, role, path, notes, expiresAt, verifiedAt: new Date(), createdById: session!.id },
+    update,
   });
   revalidatePath("/biblioteca");
   revalidatePath(`/proyectos/${projectId}`);
+}
+
+// Editar una entrada ya registrada. A diferencia del alta, aquí vaciar un campo SÍ lo borra:
+// es una edición explícita sobre una fila concreta, no un registro repetido.
+export async function updateMaterialLocation(id: string, formData: FormData) {
+  const session = await getSession();
+  requireManage(session);
+  const loc = await db.materialLocation.findUnique({ where: { id }, select: { projectId: true } });
+  if (!loc) return;
+  await db.materialLocation.update({
+    where: { id },
+    data: {
+      path: String(formData.get("path") ?? "").trim() || null,
+      notes: String(formData.get("notes") ?? "").trim() || null,
+      expiresAt: fecha(formData.get("expiresAt")),
+    },
+  });
+  revalidatePath("/biblioteca");
+  revalidatePath(`/proyectos/${loc.projectId}`);
 }
 
 export async function removeMaterialLocation(id: string) {

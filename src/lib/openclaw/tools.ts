@@ -615,10 +615,12 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "get_wiki_table",
-      description: "Lee una tabla de la WIKI: el INVENTARIO de equipos o la UBICACIÓN. REQUIERE permiso ver_wiki. Para las tablas de un PROYECTO usa read_table.",
+      description:
+        "Lee el INVENTARIO de equipos de la wiki. REQUIERE permiso ver_wiki. Para las tablas de un PROYECTO usa read_table. " +
+        "Para saber DÓNDE ESTÁ EL MATERIAL usa get_material_map: la vieja tabla de 'ubicación' se fusionó ahí y lo que queda aquí es solo el archivo congelado de antes de la fusión.",
       parameters: {
         type: "object",
-        properties: { table: { type: "string", description: "'inventario' o 'ubicacion'." } },
+        properties: { table: { type: "string", description: "'inventario' (o 'ubicacion' solo para consultar el archivo anterior a la fusión)." } },
         required: ["table"],
       },
     },
@@ -885,6 +887,10 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
             donde_esta_el_disco: l.disk.location ?? null,
             ruta: l.path ?? null,
             verificado: l.verifiedAt ? ymd(l.verifiedAt) : "sin verificar",
+            // Dos relojes distintos: «verificado» es «¿sigue ahí?» y «caduca» es «¿hasta
+            // cuándo hay que guardarlo?». La caducidad venía de la vieja tabla de la Wiki.
+            caduca: l.expiresAt ? ymd(l.expiresAt) : null,
+            notas: l.notes ?? null,
           })),
           ...(locs.length === 0 ? { nota: "Nadie ha registrado dónde vive el material de este proyecto. Se registra en el proyecto → Archivos → «¿Dónde está el material?»." } : {}),
         });
@@ -1842,7 +1848,20 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const table = key
         ? await db.dataTable.findUnique({ where: { key }, select: TABLE_SELECT })
         : await db.dataTable.findFirst({ where: { name: { contains: str(args.table), mode: "insensitive" }, OR: [{ key: { not: null } }, { wikiPageId: { not: null } }] }, select: TABLE_SELECT });
-      if (!table) return "No encontré esa tabla de wiki. Usa 'inventario' o 'ubicacion', o read_table para tablas de proyecto.";
+      if (!table) {
+        return key === "sys:ubicacion"
+          ? "La ubicación del material ya no vive en una tabla de la wiki: se fusionó con el Mapa del material (Biblioteca). Consúltalo con get_material_map."
+          : "No encontré esa tabla de wiki. Usa 'inventario', o read_table para tablas de proyecto.";
+      }
+      // El archivo de «ubicación» se conserva pero está congelado: se avisa para que la
+      // respuesta no se dé por vigente cuando la verdad viva está en el mapa del material.
+      if (key === "sys:ubicacion") {
+        return (
+          "AVISO: esta tabla es el ARCHIVO anterior a la fusión y ya no se actualiza. " +
+          "La ubicación vigente está en el Mapa del material (get_material_map).\n\n" +
+          renderDataTable(table)
+        );
+      }
       return renderDataTable(table);
     }
 

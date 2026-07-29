@@ -2027,6 +2027,10 @@ model MaterialLocation {
   path        String? // ruta dentro del disco ("/MiParamo/BRUTO_2026")
   notes       String?
   verifiedAt  DateTime? // última vez que alguien confirmó que el material está ahí
+  // Hasta cuándo hay que conservar este material («¿cuándo puedo borrarlo?»). NO confundir
+  // con verifiedAt, que responde a otra pregunta («¿sigue ahí?»): son dos relojes distintos.
+  // Viene de la columna «Caducidad» de la vieja tabla de la Wiki, fusionada aquí.
+  expiresAt   DateTime?
   createdBy   User?       @relation("MaterialCreator", fields: [createdById], references: [id])
   createdById String?
   createdAt   DateTime    @default(now())
@@ -2035,6 +2039,7 @@ model MaterialLocation {
   @@unique([projectId, diskId, role])
   @@index([projectId])
   @@index([diskId])
+  @@index([expiresAt])
 }
 
 model ReviewComment {

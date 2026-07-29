@@ -1,9 +1,13 @@
 import { db } from "@/lib/db";
 import { wikiTemplate } from "@/lib/wiki-templates";
 
-// Tablas globales únicas de la Wiki (Inventario y Ubicación del material).
-// Se crean una sola vez con columnas predefinidas; luego el equipo puede añadir
-// más columnas/opciones desde la propia tabla.
+// Tablas globales únicas de la Wiki. Hoy solo queda INVENTARIO: se crea una sola vez con
+// columnas predefinidas y luego el equipo puede añadir más columnas/opciones desde la tabla.
+//
+// «Ubicación del material» ya NO se crea: se fusionó con el Mapa del material de la Biblioteca
+// (que sí enlaza proyectos y discos de verdad, aplica la regla 3-2-1 y alimenta el CSV, las
+// etiquetas QR y el candado de cierre de proyecto). Lo único que aquella tabla sabía y el mapa
+// no era la CADUCIDAD, que ahora vive en MaterialLocation.expiresAt. Ver findLocationsTableId.
 
 // Página índice "Empieza aquí" del onboarding. Se siembra una sola vez (idempotente
 // por templateKey "sys-start"); si se borra, se vuelve a crear al entrar a la Wiki.
@@ -37,20 +41,6 @@ const INVENTORY_COLUMNS = [
   { name: "Localización", type: "TEXT" as const },
 ];
 
-const LOCATION_COLUMNS = [
-  { name: "Cliente", type: "MULTISELECT" as const, options: [] as Opt[] }, // se siembra con los clientes
-  { name: "Proyecto", type: "TEXT" as const },
-  { name: "Disco", type: "SELECT" as const, options: [opt("Disco 1", "blue"), opt("Disco 2", "cyan"), opt("NAS", "emerald"), opt("LTO/Backup", "slate")] },
-  { name: "Ruta", type: "TEXT" as const },
-  { name: "Optimizado", type: "SELECT" as const, options: [opt("Sí", "emerald"), opt("No", "rose")] },
-  { name: "Respaldo en 2 discos", type: "CHECKBOX" as const },
-  { name: "Responsable", type: "PERSON" as const },
-  { name: "Capacidad", type: "TEXT" as const },
-  { name: "Fecha del material", type: "DATE" as const },
-  { name: "Caducidad", type: "DATE" as const },
-  { name: "Notas", type: "LONGTEXT" as const },
-];
-
 async function getOrCreate(key: string, name: string, columns: { name: string; type: string; options?: Opt[] }[], seedRows = 0) {
   const existing = await db.dataTable.findUnique({ where: { key }, select: { id: true } });
   if (existing) return existing.id;
@@ -77,18 +67,17 @@ export async function getInventoryTableId(): Promise<string> {
   return getOrCreate("sys:inventario", "Inventario", INVENTORY_COLUMNS, 2);
 }
 
-export async function getLocationsTableId(): Promise<string> {
-  const id = await getOrCreate("sys:ubicacion", "Ubicación del material", LOCATION_COLUMNS, 1);
-  // Siembra las opciones del multiselect "Cliente" con los clientes actuales (una vez).
-  const clienteCol = await db.dataColumn.findFirst({ where: { tableId: id, name: "Cliente" }, select: { id: true, options: true } });
-  if (clienteCol && (!clienteCol.options || (clienteCol.options as unknown[]).length === 0)) {
-    const clients = await db.client.findMany({ orderBy: { name: "asc" }, select: { name: true } });
-    if (clients.length) {
-      await db.dataColumn.update({
-        where: { id: clienteCol.id },
-        data: { options: clients.map((c) => opt(c.name, "indigo")) as never },
-      });
-    }
-  }
-  return id;
+/**
+ * La tabla «Ubicación del material» se FUSIONÓ con el Mapa del material de la Biblioteca.
+ *
+ * Ya no se crea: esto es un buscador, no un getOrCreate. Antes se recreaba en CADA carga de
+ * /wiki, /plantillas y /biblioteca (los tres montan WikiShell), así que borrarla no servía de
+ * nada — volvía sola y vacía. Ahora, en una instalación nueva simplemente nunca existe.
+ *
+ * Devuelve null si nunca se creó. Donde SÍ existe se conserva íntegra y de solo lectura: es
+ * el archivo de lo que el equipo escribió antes de la fusión, y de ahí se pasa al mapa a mano.
+ */
+export async function findLocationsTableId(): Promise<string | null> {
+  const t = await db.dataTable.findUnique({ where: { key: "sys:ubicacion" }, select: { id: true } });
+  return t?.id ?? null;
 }

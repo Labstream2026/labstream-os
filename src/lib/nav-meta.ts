@@ -29,7 +29,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/comercial")) return { icon: "comercial", label: "Embudo comercial", desc: "Oportunidades y seguimiento de ventas" };
   if (pathname.startsWith("/cotizaciones")) return { icon: "cotizacion", label: "Cotizaciones", desc: "Propuestas económicas para clientes" };
   if (pathname.startsWith("/facturacion")) return { icon: "facturacion", label: "Facturación", desc: "Facturas, pagos y cartera" };
-  if (pathname.startsWith("/biblioteca")) return { icon: "biblioteca", label: "Biblioteca", desc: "Material de referencia del estudio" };
+  if (pathname.startsWith("/biblioteca")) return { icon: "biblioteca", label: "Biblioteca", desc: "Recursos, discos y dónde está el material" };
   if (pathname.startsWith("/revisiones")) return { icon: "revisiones", label: "Revisiones", desc: "Entregables esperando tu visto bueno" };
   if (pathname.startsWith("/reportes")) return { icon: "reportes", label: "Reportes", desc: "Métricas de producción y del equipo" };
   if (pathname.startsWith("/timeline")) return { icon: "horas", label: "Timeline", desc: "La línea de tiempo de todo el estudio" };

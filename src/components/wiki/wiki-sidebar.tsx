@@ -25,7 +25,6 @@ export function WikiSidebar({
   canSeePasswords = true,
   canBiblioteca = true,
   alertInventario = 0,
-  alertMaterial = 0,
   alertSalud = 0,
   alertBiblioteca = 0,
 }: {
@@ -35,10 +34,9 @@ export function WikiSidebar({
   canSeePasswords?: boolean;
   canBiblioteca?: boolean;
   alertInventario?: number;
-  alertMaterial?: number;
   // Páginas vencidas o sin dueño: el chip lleva a arreglarlas.
   alertSalud?: number;
-  // Discos activos sin verificar hace más de seis meses.
+  // Discos sin verificar + material por vencer: todo lo que pide atención en la Biblioteca.
   alertBiblioteca?: number;
 }) {
   const pathname = usePathname();
@@ -73,9 +71,10 @@ export function WikiSidebar({
 
   const herramientas: Herramienta[] = [
     { href: "/wiki/salud", label: "Salud del conocimiento", icon: Stethoscope, alerta: alertSalud },
+    // «Material y discos» ya no tiene fila propia: era una tabla suelta que se fusionó con el
+    // Mapa del material, dentro de la Biblioteca. Una entrada menos y una sola verdad.
     ...(canBiblioteca ? [{ href: "/biblioteca", label: "Biblioteca", icon: Library, alerta: alertBiblioteca }] : []),
     { href: "/wiki/inventario", label: "Inventario", icon: Boxes, alerta: alertInventario },
-    { href: "/wiki/ubicacion", label: "Material y discos", icon: HardDrive, alerta: alertMaterial },
     ...(canSeePasswords ? [{ href: "/wiki/contrasenas", label: "Contraseñas", icon: KeyRound }] : []),
     { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
     { href: "/plantillas/documentos", label: "Plantillas de documento", icon: FileType2 },

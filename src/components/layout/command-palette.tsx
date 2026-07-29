@@ -66,9 +66,13 @@ const PAGES: Item[] = [
   { id: "p-quote", label: "Cotizaciones", href: "/cotizaciones", icon: IconCotizacion, group: "Ir a" },
   { id: "p-wiki", label: "Wiki del equipo", href: "/wiki", icon: IconWiki, group: "Ir a" },
   { id: "p-inv", label: "Inventario", sub: "Wiki", href: "/wiki/inventario", icon: IconArchivo, group: "Ir a" },
-  { id: "p-ubi", label: "Ubicación del material", sub: "Wiki", href: "/wiki/ubicacion", icon: IconArchivo, group: "Ir a" },
   { id: "p-pass", label: "Usuarios y contraseñas", sub: "Wiki", href: "/wiki/contrasenas", icon: IconConfiguracion, group: "Ir a" },
   { id: "p-lib", label: "Biblioteca", href: "/biblioteca", icon: IconBiblioteca, group: "Ir a" },
+  // El subtítulo conserva a propósito la palabra «ubicación», que es como el equipo lo tiene
+  // en la cabeza desde que vivía en la Wiki: el filtro busca en label + sub, así que quien
+  // escriba «ubicacion» sigue llegando al sitio bueno sin mantener un enlace muerto.
+  { id: "p-mapa", label: "Mapa del material", sub: "Biblioteca · ubicación del material", href: "/biblioteca?tab=mapa", icon: IconBiblioteca, group: "Ir a" },
+  { id: "p-discos", label: "Discos", sub: "Biblioteca", href: "/biblioteca?tab=discos", icon: IconBiblioteca, group: "Ir a" },
   { id: "p-cfg", label: "Configuración", href: "/configuracion", icon: IconConfiguracion, group: "Ir a" },
   { id: "p-newdoc", label: "Nuevo documento", sub: "Word, Excel o Power Point", href: "/documentos/nuevo", icon: IconArchivo, group: "Crear" },
 ];

@@ -4,7 +4,7 @@ import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
-import { daysSince, materialHealth } from "@/lib/material-health";
+import { daysSince, expiryTone, materialHealth, MATERIAL_EXPIRY_SOON_DAYS } from "@/lib/material-health";
 import { opsDiskUsage } from "@/lib/nas-ops";
 import { IconBiblioteca } from "@/components/icons";
 import { PageHeader } from "@/components/ui/page-header";
@@ -36,6 +36,13 @@ function tb(gb: number): string {
   return `${(gb / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} TB`;
 }
 
+// Date → "YYYY-MM-DD" en hora LOCAL. `toISOString()` no sirve: convierte a UTC y en Bogotá
+// (UTC−5) devolvería el día anterior para cualquier fecha guardada a medianoche.
+function fechaISO(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export default async function BibliotecaPage({
   searchParams,
 }: {
@@ -62,7 +69,11 @@ export default async function BibliotecaPage({
     }),
     db.project.findMany({
       where: { archivedAt: null },
-      select: { materialLocations: { select: { role: true, diskId: true, disk: { select: { kind: true, offsite: true } } } } },
+      select: {
+        materialLocations: {
+          select: { role: true, diskId: true, expiresAt: true, disk: { select: { kind: true, offsite: true } } },
+        },
+      },
     }),
     opsDiskUsage(),
   ]);
@@ -84,12 +95,27 @@ export default async function BibliotecaPage({
     (d) => now.getTime() - (d.lastCheckAt?.getTime() ?? 0) > VERIF_DIAS * 86400000,
   ).length;
 
-  const nRiesgo = proyectosResumen.filter((p) => {
+  // Dos preguntas distintas sobre el mismo material: «¿está respaldado?» y «¿hasta cuándo hay
+  // que guardarlo?». Se cuentan en una sola pasada, y aparte los proyectos que piden atención
+  // por CUALQUIERA de las dos — sin sumar los dos números, que contaría doble a quien falla en
+  // ambas. Todo sobre los MISMOS proyectos que pinta el mapa (sin archivar), o el chip diría
+  // un número que la tabla de abajo no puede enseñar.
+  let nRiesgo = 0;
+  let nPorVencer = 0;
+  let nAtencionMapa = 0;
+  for (const p of proyectosResumen) {
     const nivel = materialHealth(
       p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite })),
     ).level;
-    return nivel === "SIN_RESPALDO" || nivel === "SIN_REGISTRO";
-  }).length;
+    const enRiesgo = nivel === "SIN_RESPALDO" || nivel === "SIN_REGISTRO";
+    const vence = p.materialLocations.some((l) => {
+      const e = expiryTone(l.expiresAt, now).level;
+      return e === "VENCIDO" || e === "PRONTO";
+    });
+    if (enRiesgo) nRiesgo++;
+    if (vence) nPorVencer++;
+    if (enRiesgo || vence) nAtencionMapa++;
+  }
 
   const datos: ResumenDato[] = [
     { k: "Recursos", v: String(nRecursos), pie: "enlaces, Drive y rutas", href: "/biblioteca" },
@@ -110,8 +136,12 @@ export default async function BibliotecaPage({
     {
       k: "Material en riesgo",
       v: String(nRiesgo),
-      pie: nRiesgo ? "sin respaldo o sin registrar" : "todo con respaldo",
-      tono: nRiesgo ? "bad" : "good",
+      pie: nPorVencer
+        ? `${nRiesgo ? "sin respaldo · " : ""}${nPorVencer} por vencer`
+        : nRiesgo
+          ? "sin respaldo o sin registrar"
+          : "todo con respaldo",
+      tono: nRiesgo ? "bad" : nPorVencer ? "warn" : "good",
       href: nRiesgo ? "/biblioteca?tab=mapa&riesgo=1" : "/biblioteca?tab=mapa",
     },
   ];
@@ -121,14 +151,14 @@ export default async function BibliotecaPage({
     discos: discosResumen.length,
     mapa: proyectosResumen.length,
   };
-  const avisos: Record<TabKey, number> = { recursos: 0, discos: porVerificar, mapa: nRiesgo };
+  const avisos: Record<TabKey, number> = { recursos: 0, discos: porVerificar, mapa: nAtencionMapa };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         icon={<IconBiblioteca />}
         title="Biblioteca"
-        description="Recursos del estudio, discos y ubicación del material."
+        description="Recursos del estudio, discos y el mapa del material: dónde vive y hasta cuándo."
       />
 
       <Resumen datos={datos} />
@@ -276,15 +306,25 @@ async function MapaTab({ canManage, now, soloRiesgo }: { canManage: boolean; now
       name: p.name,
       clientName: p.client?.name ?? null,
       finished: Boolean(p.finishedAt),
-      locations: p.materialLocations.map((l) => ({
-        id: l.id,
-        role: l.role,
-        path: l.path,
-        diskId: l.diskId,
-        diskName: l.disk.name,
-        diskColor: l.disk.color,
-        verifiedDays: daysSince(l.verifiedAt, now),
-      })),
+      locations: p.materialLocations.map((l) => {
+        const exp = expiryTone(l.expiresAt, now);
+        return {
+          id: l.id,
+          role: l.role,
+          path: l.path,
+          notes: l.notes,
+          diskId: l.diskId,
+          diskName: l.disk.name,
+          diskColor: l.disk.color,
+          verifiedDays: daysSince(l.verifiedAt, now),
+          // "YYYY-MM-DD" en hora LOCAL (no toISOString, que desplaza el día en zonas al
+          // oeste de Greenwich y haría que el <input type=date> mostrara la víspera).
+          expiresOn: l.expiresAt ? fechaISO(l.expiresAt) : null,
+          expiresDays: exp.days,
+          expiresLabel: exp.label,
+          expiresLevel: exp.level,
+        };
+      }),
       health: materialHealth(
         p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))
       ),

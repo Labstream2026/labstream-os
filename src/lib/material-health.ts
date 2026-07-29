@@ -69,3 +69,41 @@ export function daysSince(date: Date | null | undefined, now: Date): number | nu
   if (!date) return null;
   return Math.floor((now.getTime() - date.getTime()) / 86400000);
 }
+
+// ── Caducidad del material ─────────────────────────────────────────────────────
+// «¿Cuándo puedo borrar esto?». Es OTRO reloj distinto del de verificación («¿sigue ahí?»),
+// y por eso se pintan por separado. Viene de la columna «Caducidad» de la vieja tabla de
+// Ubicación de la Wiki, que se fusionó aquí: los umbrales son los mismos que tenía su
+// semáforo para que nadie note un cambio de criterio.
+
+// A partir de aquí cuenta como «por vencer» (y es lo que suman los chips de aviso).
+export const MATERIAL_EXPIRY_SOON_DAYS = 30;
+
+export type ExpiryLevel = "NINGUNA" | "VENCIDO" | "PRONTO" | "MEDIO" | "OK";
+export type MaterialExpiry = { level: ExpiryLevel; days: number | null; label: string };
+
+const mesFmt = new Intl.DateTimeFormat("es-CO", { month: "short", year: "numeric" });
+
+// Día calendario, no instante: dos fechas del mismo día distan 0 aunque las separen horas.
+function aMedianoche(d: Date): number {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x.getTime();
+}
+
+export function expiryTone(expiresAt: Date | null | undefined, now: Date): MaterialExpiry {
+  if (!expiresAt) return { level: "NINGUNA", days: null, label: "Sin caducidad" };
+  const days = Math.round((aMedianoche(expiresAt) - aMedianoche(now)) / 86400000);
+  if (days < 0) {
+    return { level: "VENCIDO", days, label: days === -1 ? "Venció ayer" : `Venció hace ${-days} días` };
+  }
+  if (days === 0) return { level: "PRONTO", days, label: "Vence hoy" };
+  if (days <= MATERIAL_EXPIRY_SOON_DAYS) {
+    return { level: "PRONTO", days, label: `Vence en ${days} ${days === 1 ? "día" : "días"}` };
+  }
+  if (days <= 90) {
+    const meses = Math.max(1, Math.round(days / 30));
+    return { level: "MEDIO", days, label: `~${meses} ${meses === 1 ? "mes" : "meses"}` };
+  }
+  return { level: "OK", days, label: mesFmt.format(expiresAt) };
+}

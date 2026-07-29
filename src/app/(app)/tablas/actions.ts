@@ -81,7 +81,13 @@ async function revalidateForTable(tableId: string) {
   // esto, los cambios se guardaban en la BD pero la página no se refrescaba (parecía
   // que "no se guardaban" y que las fotos no subían).
   if (t?.key === "sys:inventario") revalidatePath("/wiki/inventario");
-  if (t?.key === "sys:ubicacion") revalidatePath("/wiki/ubicacion");
+  // «Ubicación del material» se fusionó con el Mapa del material: su pantalla ya no tiene
+  // editor, así que por aquí no debería llegar nada. Si llegara, lo que hay que refrescar es
+  // el archivo de solo lectura y la Biblioteca, no una pestaña que ya no existe.
+  if (t?.key === "sys:ubicacion") {
+    revalidatePath("/wiki/ubicacion");
+    revalidatePath("/biblioteca");
+  }
 }
 
 const DEFAULT_TABLE = {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Boxes, HardDrive, KeyRound, LayoutTemplate, FileText } from "lucide-react";
+import { BookOpen, Boxes, KeyRound, LayoutTemplate, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Pestañas de la Wiki. Van en DOS grupos separados por una barra, porque son dos cosas
@@ -11,9 +11,11 @@ import { cn } from "@/lib/utils";
 // ellas ni siquiera viven en la Wiki: llevan a /plantillas y desde allí ya no hay vuelta.
 const DOCS = [{ href: "/wiki", label: "Documentación", icon: BookOpen, exact: true }];
 
+// «Material y discos» ya no está aquí: esa tabla se fusionó con el Mapa del material, dentro
+// de la Biblioteca. En móvil se llega a la Biblioteca por el cajón lateral, que no tiene rail
+// ni el problema de acumular iconos.
 const TOOLS = [
   { href: "/wiki/inventario", label: "Inventario", icon: Boxes, alert: "inventario" as const },
-  { href: "/wiki/ubicacion", label: "Material y discos", icon: HardDrive, alert: "material" as const },
   { href: "/wiki/contrasenas", label: "Contraseñas", icon: KeyRound, gated: true },
   { href: "/plantillas", label: "Plantillas", icon: LayoutTemplate },
   { href: "/plantillas/documentos", label: "Plantillas de documento", icon: FileText },
@@ -22,13 +24,11 @@ const TOOLS = [
 export function WikiTabs({
   canSeePasswords = true,
   alertInventario = 0,
-  alertMaterial = 0,
 }: {
   canSeePasswords?: boolean;
-  // Cuántos equipos requieren atención / cuántos respaldos están por vencer. Viajan como
-  // chip en su pestaña: el aviso vive donde se actúa, sin repetir tarjetas en el índice.
+  // Cuántos equipos requieren atención. Viaja como chip en su pestaña: el aviso vive donde se
+  // actúa, sin repetir tarjetas en el índice.
   alertInventario?: number;
-  alertMaterial?: number;
 }) {
   const pathname = usePathname();
   const all = [...DOCS, ...TOOLS];
@@ -41,7 +41,7 @@ export function WikiTabs({
   const tab = (t: (typeof all)[number]) => {
     const active = t.href === activa;
     const Icon = t.icon;
-    const alerta = "alert" in t ? (t.alert === "inventario" ? alertInventario : alertMaterial) : 0;
+    const alerta = "alert" in t && t.alert === "inventario" ? alertInventario : 0;
     return (
       <Link
         key={t.href}
