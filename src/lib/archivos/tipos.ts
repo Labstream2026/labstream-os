@@ -36,6 +36,9 @@ export type ArchivoItem = {
   proyecto?: { id: string; name: string; emoji: string | null } | null;
   // ClientFile: material de marca del cliente, no pertenece a ningún proyecto.
   esMarca?: boolean;
+  // En la PAPELERA: fecha de borrado (ISO) y días que le quedan antes de la purga.
+  borradoEn?: string | null;
+  diasRestantes?: number;
   // Categoría del material de marca (solo esMarca): clave de CATEGORIAS_MARCA.
   categoria?: string | null;
   // Nota de uso corta: «Solo para redes, no para TV».

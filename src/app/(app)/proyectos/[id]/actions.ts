@@ -2691,8 +2691,42 @@ export async function deleteFile(fileId: string, _projectId: string) {
   // proyecto — la ocultación de estos archivos en el panel es un where, no un candado.
   const vinculos = file!._count.deliverableVersions + file!._count.deliverablePhotos + file!._count.projectCovers;
   if (vinculos > 0 && !canManageProject(file!.project!, session)) noAutorizado();
+  // PAPELERA: solo se marca la fecha. El borrado real arrastra en cascada fotos del entregable,
+  // portadas, historial de versiones y comentarios del documento — con esto no se pierde nada y
+  // restaurar devuelve el archivo con sus vínculos. Purga a los 30 días (cron purgar-papelera).
+  await db.fileAsset.update({ where: { id: fileId }, data: { deletedAt: new Date() } });
+  await logActivity({ action: "file.delete", summary: `mandó «${file!.name}» a la papelera`, projectId, entityType: "file", entityId: fileId });
+  refresh(projectId);
+}
+
+// Saca un archivo de la papelera. Vuelve entero: los vínculos nunca se rompieron.
+export async function restaurarArchivo(fileId: string, _projectId: string) {
+  const file = await db.fileAsset.findUnique({
+    where: { id: fileId },
+    select: { name: true, projectId: true, deletedAt: true, project: { select: accessSelect } },
+  });
+  const projectId = await ensureAccessVia(file, "eliminar_archivos");
+  if (!file!.deletedAt) return; // no estaba en la papelera
+  await db.fileAsset.update({ where: { id: fileId }, data: { deletedAt: null } });
+  await logActivity({ action: "file.restore", summary: `restauró «${file!.name}» desde la papelera`, projectId, entityType: "file", entityId: fileId });
+  refresh(projectId);
+}
+
+// Borra YA y para siempre un archivo que está en la papelera, sin esperar a los 30 días. Exige
+// gestionar el proyecto: aquí sí cae la cascada y no hay vuelta atrás.
+export async function purgarArchivo(fileId: string, _projectId: string) {
+  const file = await db.fileAsset.findUnique({
+    where: { id: fileId },
+    select: { name: true, kind: true, path: true, projectId: true, deletedAt: true, project: { select: accessSelect } },
+  });
+  const projectId = await ensureAccessVia(file, "eliminar_archivos");
+  const session = await getSession();
+  if (!file!.deletedAt) return; // solo se purga lo que ya está en la papelera
+  if (!canManageProject(file!.project!, session)) noAutorizado();
+  const { borrarBytesDeArchivo } = await import("@/lib/archivos/papelera");
+  await borrarBytesDeArchivo(file!.kind, file!.path);
   await db.fileAsset.delete({ where: { id: fileId } });
-  await logActivity({ action: "file.delete", summary: `eliminó el archivo «${file!.name}»`, projectId, entityType: "file", entityId: fileId });
+  await logActivity({ action: "file.purge", summary: `borró para siempre «${file!.name}»`, projectId, entityType: "file", entityId: fileId });
   refresh(projectId);
 }
 
@@ -2761,6 +2795,7 @@ export async function fijarArchivosLote(projectId: string, formData: FormData): 
   return { ok: files.length > 0, fijados: fijar ? files.length : 0 };
 }
 
+// Manda varios a la papelera de una vez (cada uno con las mismas reglas que el borrado suelto).
 export async function quitarArchivosLote(projectId: string, formData: FormData): Promise<{ ok: boolean; quitados: number; rechazados: number }> {
   await ensureProjectAccess(projectId, "eliminar_archivos");
   const ids = formData.getAll("ids").map(String).filter(Boolean).slice(0, 200);

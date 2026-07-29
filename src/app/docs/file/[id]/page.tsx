@@ -34,13 +34,16 @@ export default async function ProjectFileEditPage({
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, version: true, path: true, kind: true, projectId: true, project: { select: accessSelect } },
+    select: { name: true, version: true, path: true, kind: true, deletedAt: true, projectId: true, project: { select: accessSelect } },
   });
   if (!file) notFound();
 
   const backHref = `/proyectos/${file.projectId}?tab=archivos`;
   if (!canAccessProject(file.project, session)) {
     return <Notice title="Sin acceso" msg="No tienes acceso a este documento." backHref="/" />;
+  }
+  if (file.deletedAt) {
+    return <Notice title="Está en la papelera" msg="Este archivo se borró. Restáuralo desde Archivos del proyecto para volver a editarlo." backHref={backHref} />;
   }
   if (!file.path) {
     return <Notice title="No editable" msg="Este archivo no es local (es un enlace)." backHref={backHref} />;

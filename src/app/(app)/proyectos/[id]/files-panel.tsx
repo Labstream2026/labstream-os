@@ -25,6 +25,7 @@ export function FilesPanel({
   canLinkOps = false,
   canCreateDoc = false,
   canChunked = false,
+  papelera = [],
   onlyoffice = false,
 }: {
   projectId: string;
@@ -39,6 +40,7 @@ export function FilesPanel({
   canLinkOps?: boolean;
   canCreateDoc?: boolean;
   canChunked?: boolean;
+  papelera?: ArchivoItem[];
   onlyoffice?: boolean;
 }) {
   const [docAbierto, setDocAbierto] = React.useState(false);
@@ -58,6 +60,7 @@ export function FilesPanel({
         canRutas={canRutas}
         canFolders={canFolders}
         canChunked={canChunked}
+        papelera={papelera}
         slotHerramientas={
           <>
             {canCreateDoc ? (

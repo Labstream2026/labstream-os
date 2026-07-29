@@ -1612,7 +1612,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       }
       if (str(args.query)) filters.push({ name: { contains: str(args.query), mode: "insensitive" } });
       const rows = await db.fileAsset.findMany({
-        where: { AND: filters }, take: 25, orderBy: { updatedAt: "desc" },
+        where: { AND: [...filters, { deletedAt: null }] }, take: 25, orderBy: { updatedAt: "desc" },
         select: { id: true, name: true, kind: true, mime: true, size: true, project: { select: { name: true } } },
       });
       if (!rows.length) return "No hay archivos que coincidan (o no tienes acceso).";

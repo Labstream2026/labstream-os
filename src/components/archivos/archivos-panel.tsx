@@ -33,6 +33,7 @@ import {
   Sparkles,
   Pin,
   X,
+  Undo2,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,8 @@ import {
   fijarArchivosLote,
   quitarArchivosLote,
   finishChunkedArchivo,
+  restaurarArchivo,
+  purgarArchivo,
 } from "@/app/(app)/proyectos/[id]/actions";
 import {
   addClientLink,
@@ -114,6 +117,7 @@ export function ArchivosPanel({
   canFolders = false, // crear/editar carpetas (solo proyecto)
   canEditMarca = false, // editar el material de marca (solo cliente)
   canChunked = false, // subida por trozos (>100 MB): solo equipo, nunca portal ni demo
+  papelera = [], // archivos borrados que aún se pueden recuperar (solo alcance proyecto)
   slotHerramientas = null, // p. ej. «Nuevo documento» + «Vincular carpeta del NAS» del proyecto
   slotPie = null, // p. ej. los enlaces de subida por proyecto en la ficha del cliente
   ahora, // Date.now() del SERVIDOR: mantiene puro el render (filtro «lo último», grupos por fecha)
@@ -128,6 +132,7 @@ export function ArchivosPanel({
   canFolders?: boolean;
   canEditMarca?: boolean;
   canChunked?: boolean;
+  papelera?: ArchivoItem[];
   slotHerramientas?: React.ReactNode;
   slotPie?: React.ReactNode;
   ahora: number;
@@ -641,6 +646,11 @@ export function ArchivosPanel({
         </div>
       )}
 
+      {/* ── Papelera: 30 días para arrepentirse ── */}
+      {alcance.tipo === "proyecto" && papelera.length > 0 ? (
+        <Papelera archivos={papelera} projectId={alcance.projectId} onCambio={() => router.refresh()} />
+      ) : null}
+
       {/* ── Barra de acciones EN LOTE (aparece con la primera casilla marcada) ── */}
       {alcance.tipo === "proyecto" && sel.size > 0 ? (
         <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg">
@@ -1132,6 +1142,77 @@ function MenuArchivo({
         </form>
       </div>
     </details>
+  );
+}
+
+// La PAPELERA. Borrar ya no es definitivo: el archivo se queda aquí 30 días con sus vínculos
+// intactos (fotos del entregable, portadas, historial) y vuelve entero al restaurarlo.
+function Papelera({ archivos, projectId, onCambio }: { archivos: ArchivoItem[]; projectId: string; onCambio: () => void }) {
+  const [abierta, setAbierta] = React.useState(false);
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <button
+        type="button"
+        onClick={() => setAbierta((v) => !v)}
+        aria-expanded={abierta}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/40"
+      >
+        <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", abierta && "rotate-90")} />
+        <Trash2 className="size-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Papelera</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{archivos.length}</span>
+        <span className="ml-auto text-[11px] text-muted-foreground">se borran solos a los 30 días</span>
+      </button>
+      {abierta ? (
+        <ul className="divide-y divide-border border-t border-border">
+          {archivos.map((f) => {
+            const { Icon, color } = iconoDe(f.name, f.kind);
+            const dias = f.diasRestantes ?? 30;
+            return (
+              <li key={f.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-muted/40">
+                <Icon className={cn("size-4 shrink-0 opacity-60", color)} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-muted-foreground line-through">{f.name}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                    {f.proyecto ? <span>{f.proyecto.emoji ? `${f.proyecto.emoji} ` : ""}{f.proyecto.name}</span> : null}
+                    {f.borradoEn ? <span>borrado {fechaRelativa(f.borradoEn)}</span> : null}
+                    <span className={cn("font-medium", dias <= 5 && "text-amber-600")}>
+                      {dias === 0 ? "se borra hoy" : `quedan ${dias} ${dias === 1 ? "día" : "días"}`}
+                    </span>
+                    {f.enUso ? (
+                      <span className="rounded-full bg-red-500/10 px-1.5 py-px text-[10px] font-medium text-red-600" title="Al purgarse se llevará por delante la foto, portada o versión del entregable que sostiene.">
+                        sostiene un entregable
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <form action={async () => { await restaurarArchivo(f.id, projectId); onCambio(); }}>
+                    <SubmitButton pendingText="…" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent">
+                      <Undo2 className="size-3.5" /> Restaurar
+                    </SubmitButton>
+                  </form>
+                  <form action={async () => { await purgarArchivo(f.id, projectId); onCambio(); }}>
+                    <ConfirmSubmit
+                      message={
+                        f.enUso
+                          ? `¿Borrar «${f.name}» para siempre? Sostiene material de un entregable (una versión, una foto o una portada) y eso también se irá. No hay vuelta atrás.`
+                          : `¿Borrar «${f.name}» para siempre? No hay vuelta atrás.`
+                      }
+                      confirmLabel="Borrar para siempre"
+                      className="text-muted-foreground hover:text-destructive"
+                      title="Borrar ya, sin esperar los 30 días"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </ConfirmSubmit>
+                  </form>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

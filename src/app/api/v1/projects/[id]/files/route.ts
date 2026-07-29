@@ -22,7 +22,7 @@ export const GET = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, rout
   const [folders, files] = await Promise.all([
     db.projectFolder.findMany({ where: { projectId: id }, orderBy: { position: "asc" }, select: { id: true, name: true, _count: { select: { files: true } } } }),
     db.fileAsset.findMany({
-      where: { projectId: id },
+      where: { projectId: id, deletedAt: null },
       // Por ACTIVIDAD (updatedAt): un documento editado ayer es más reciente que su subida.
       orderBy: { updatedAt: "desc" },
       take: 300,

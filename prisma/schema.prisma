@@ -1977,6 +1977,30 @@ model LibraryAsset {
 
 // Ajustes GLOBALES de la app (clave → valor JSON): toggles como el candado de
 // respaldo al terminar. Pocas filas, leídas en caliente; nada de datos de usuario.
+// Una ENTREGA de la galería: la carpeta de LabTem que se le comparte a un cliente por
+// /galeria/[token]. Antes esto vivía en una clave de AppConfig con una lista de rutas revocadas,
+// y esa forma tenía cuatro agujeros que este modelo cierra:
+//   - la visita del cliente no se registraba en ninguna parte (solo la descarga);
+//   - regenerar el enlace no mataba el anterior, porque el token es autónomo -> ahora lleva
+//     dentro la `version`, y crear un enlace nuevo la sube: los viejos dejan de valer;
+//   - renombrar la carpeta por SMB dejaba la revocación huérfana y muda -> ahora la fila se
+//     conserva y el panel la enseña como «la carpeta ya no está» para que alguien decida;
+//   - dos clics a la vez se pisaban al reescribir la lista entera -> ahora cada entrega es una
+//     fila y se toca con un upsert.
+model GaleriaEntrega {
+  id        String    @id @default(cuid())
+  folderRel String    @unique
+  version   Int       @default(1)
+  revokedAt DateTime?
+  titulo    String?
+  visitas   Int       @default(0)
+  ultimaVisitaAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([revokedAt])
+}
+
 model AppConfig {
   key       String   @id
   value     Json
@@ -2254,6 +2278,11 @@ model FileAsset {
   presence            DocPresence[]
   // 📌 Fijado en la MARCA del cliente: destaca arriba en la ficha del cliente (Archivos 2.0).
   pinned       Boolean        @default(false)
+  // PAPELERA: borrar un archivo solo pone esta fecha. Importa porque el borrado de verdad se
+  // lleva EN CASCADA las fotos del entregable, las portadas del banco, el historial de
+  // versiones y los comentarios del documento — con `deletedAt` no se pierde nada y restaurar
+  // devuelve el archivo entero. El barredor purga a los 30 días, y ahí sí cae la cascada.
+  deletedAt    DateTime?
   createdAt    DateTime       @default(now())
   // Última actividad REAL (subida o guardado de OnlyOffice): el orden «recientes» deja de
   // mentir cuando un documento se edita. La migración la rellena con createdAt.
@@ -2263,6 +2292,8 @@ model FileAsset {
   @@index([folderId])
   @@index([taskId])
   @@index([projectId, updatedAt])
+  @@index([projectId, deletedAt])
+  @@index([deletedAt])
 }
 
 // Una versión ANTERIOR de un documento editado en OnlyOffice. Se crea justo antes de que el

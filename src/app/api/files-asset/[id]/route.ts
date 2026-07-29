@@ -24,9 +24,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, path: true, mime: true, kind: true, projectId: true, project: { select: PROJECT_ACCESS_SELECT } },
+    select: { name: true, path: true, mime: true, kind: true, deletedAt: true, projectId: true, project: { select: PROJECT_ACCESS_SELECT } },
   });
-  if (!file || !file.path) return new NextResponse("No encontrado", { status: 404 });
+  // En la papelera = no existe para quien pida el archivo, aunque tenga el enlace o el token
+  // firmado. Los bytes siguen ahí 30 días por si hay que restaurarlo, no para seguir sirviéndolos.
+  if (!file || !file.path || file.deletedAt) return new NextResponse("No encontrado", { status: 404 });
 
   let viewer: { id: string } | null = null;
   if (!verifyFileToken(id, token)) {

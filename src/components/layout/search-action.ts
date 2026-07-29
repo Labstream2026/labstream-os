@@ -112,7 +112,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       : Promise.resolve([]),
     canFiles
       ? db.fileAsset.findMany({
-          where: { name: like, project: projWhere },
+          where: { name: like, deletedAt: null, project: projWhere },
           select: { id: true, name: true, projectId: true, folder: { select: { name: true } }, project: { select: { name: true, finishedAt: true } } },
           take: TAKE,
         })

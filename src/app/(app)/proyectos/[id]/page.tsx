@@ -13,6 +13,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { isEmailEnabled } from "@/lib/email";
 import { isEditableOffice, onlyofficeReady } from "@/lib/onlyoffice";
 import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
+import { diasQueQuedan } from "@/lib/archivos/papelera";
 import { docPresenceFor } from "@/lib/doc-collab";
 import { opsEnabled, listOps, statOps } from "@/lib/nas-ops";
 import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
@@ -154,10 +155,10 @@ export default async function ProyectoPage({
         },
         // orderBy en los files ANIDADOS a propósito: sin él, el orden lo decide el heap de
         // Postgres y cambia tras cualquier UPDATE (p. ej. un guardado de OnlyOffice).
-        folders: { orderBy: { position: "asc" }, include: { files: { where: { deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
+        folders: { orderBy: { position: "asc" }, include: { files: { where: { deletedAt: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } } } },
         // Excluye de Archivos los FileAsset que son fotos de entregables o portadas del banco
         // (no son archivos sueltos del proyecto).
-        files: { where: { folderId: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
+        files: { where: { folderId: null, deletedAt: null, deliverablePhotos: { none: {} }, projectCovers: { none: {} } }, orderBy: { createdAt: "asc" }, include: { task: { select: { id: true, title: true } }, uploadedBy: { select: { name: true } }, _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } }, chatAttachments: { where: { message: { deletedAt: null } }, select: { messageId: true, message: { select: { channelId: true } } }, take: 1 } } },
         // Banco de portadas (pestaña «Portadas» de entregables).
         covers: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -392,6 +393,42 @@ export default async function ProyectoPage({
       carpeta,
     };
   };
+  // La papelera se pide aparte y SOLO en su pestaña: es una lista corta que casi nadie mira.
+  const papeleraRaw = tab === "archivos" && !isCliente
+    ? await db.fileAsset.findMany({
+        where: { projectId: id, deletedAt: { not: null } },
+        orderBy: { deletedAt: "desc" },
+        take: 100,
+        select: {
+          id: true, name: true, kind: true, url: true, path: true, size: true, version: true,
+          createdAt: true, updatedAt: true, pinned: true, viaClientLink: true, uploaderName: true,
+          deletedAt: true,
+          uploadedBy: { select: { name: true } },
+          folder: { select: { id: true, name: true, icon: true, color: true } },
+          _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } },
+        },
+      })
+    : [];
+  const papeleraItems: ArchivoItem[] = papeleraRaw.map((f) => ({
+    id: f.id,
+    name: f.name,
+    kind: f.kind as string,
+    url: f.url,
+    path: f.path,
+    size: f.size,
+    createdAt: f.createdAt.toISOString(),
+    updatedAt: f.updatedAt.toISOString(),
+    pinned: f.pinned,
+    autor: f.uploadedBy?.name ?? f.uploaderName ?? null,
+    version: f.version,
+    editable: false,
+    viaClientLink: f.viaClientLink,
+    enUso: f._count.deliverableVersions + f._count.deliverablePhotos + f._count.projectCovers > 0,
+    carpeta: f.folder,
+    borradoEn: f.deletedAt ? f.deletedAt.toISOString() : null,
+    diasRestantes: f.deletedAt ? diasQueQuedan(f.deletedAt) : 0,
+  }));
+
   const archivosItems: ArchivoItem[] = [
     ...otherFolders.flatMap((f) =>
       f.files
@@ -943,6 +980,7 @@ export default async function ProyectoPage({
                 canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
                 canCreateDoc={alive && canUploadFiles && session?.role !== "demo"}
                 canChunked={alive && !isCliente && canWriteProject(project, session) && session?.role !== "demo"}
+                papelera={papeleraItems}
                 onlyoffice={ooReady}
               />
             </section>

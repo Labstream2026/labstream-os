@@ -242,6 +242,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const rawArchivos = await db.fileAsset.findMany({
     where: {
       projectId: { in: projectIds.length ? projectIds : ["__none__"] },
+      deletedAt: null, // lo que está en la papelera no se enseña (se recupera desde su proyecto)
       deliverablePhotos: { none: {} },
       projectCovers: { none: {} },
     },

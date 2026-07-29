@@ -14,7 +14,7 @@ type RouteCtx = { params: Promise<{ id: string }> };
 export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
   const { id } = await (routeCtx as RouteCtx).params;
-  const file = await db.fileAsset.findUnique({ where: { id }, select: { name: true, projectId: true } });
+  const file = await db.fileAsset.findUnique({ where: { id, deletedAt: null }, select: { name: true, projectId: true } });
   if (!file?.projectId) return apiJson({ ok: false, error: "Archivo no encontrado." }, 404);
   const access = await loadProjectForWrite(file.projectId, ctx.session, "subir_archivos");
   if (access instanceof NextResponse) return access;
@@ -45,11 +45,13 @@ export const PATCH = withApiKey(async (req: NextRequest, ctx: ApiKeyContext, rou
 export const DELETE = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, routeCtx: unknown) => {
   if (ctx.readOnly) return apiJson({ ok: false, error: "Esta clave es de solo lectura." }, 403);
   const { id } = await (routeCtx as RouteCtx).params;
-  const file = await db.fileAsset.findUnique({ where: { id }, select: { name: true, projectId: true } });
+  const file = await db.fileAsset.findUnique({ where: { id, deletedAt: null }, select: { name: true, projectId: true } });
   if (!file?.projectId) return apiJson({ ok: false, error: "Archivo no encontrado." }, 404);
   const access = await loadProjectForWrite(file.projectId, ctx.session, "eliminar_archivos");
   if (access instanceof NextResponse) return access;
-  await db.fileAsset.delete({ where: { id } });
-  await logActivity({ action: "file.delete", summary: `eliminó el archivo «${file.name}» (vía API)`, projectId: file.projectId, entityType: "file", entityId: id }).catch(() => null);
+  // Papelera, no borrado duro: espejo de deleteFile de la app. Antes esto hacía delete() a secas,
+  // que se saltaba la papelera y dejaba los bytes huérfanos en el storage. Se purga a los 30 días.
+  await db.fileAsset.update({ where: { id }, data: { deletedAt: new Date() } });
+  await logActivity({ action: "file.delete", summary: `mandó «${file.name}» a la papelera (vía API)`, projectId: file.projectId, entityType: "file", entityId: id }).catch(() => null);
   return apiJson({ ok: true });
 });
