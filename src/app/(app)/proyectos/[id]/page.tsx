@@ -81,6 +81,11 @@ export default async function ProyectoPage({
   const { tab = "resumen", estado } = await searchParams;
 
   const session = await getSession();
+  // Profundidad de los entregables: sus comentarios de revisión, decisiones y fotos SOLO los
+  // consumen la pestaña «Entregables» y la vista del portal del cliente. En el resto de
+  // pestañas se traían enteros —todos los comentarios de todos los entregables— para tirarlos.
+  const esClienteRol = session?.role === "cliente";
+  const detalleEntregables = tab === "entregables" || esClienteRol;
   const [project, team, taskLabels, projectEvents] = await Promise.all([
     db.project.findUnique({
       where: { id },
@@ -105,10 +110,12 @@ export default async function ProyectoPage({
             owner: { select: { initials: true, avatarColor: true } },
             reviewers: { select: { userId: true } },
             versions: { include: { uploadedBy: { select: { initials: true, avatarColor: true } } } },
-            decisions: { orderBy: { createdAt: "desc" }, take: 12, include: { by: { select: { name: true } } } },
-            reviewComments: { orderBy: { createdAt: "asc" } },
+            // `take: 0` fuera de su pestaña: la FORMA del tipo no cambia (por eso el take y no un
+            // include condicional, que partía el tipo en una unión), pero no viajan filas.
+            decisions: { orderBy: { createdAt: "desc" }, take: detalleEntregables ? 12 : 0, include: { by: { select: { name: true } } } },
+            reviewComments: { orderBy: { createdAt: "asc" }, take: detalleEntregables ? 500 : 0 },
             // Fotos de los entregables FOTOGRAFIA (galería de selección del cliente).
-            photos: { orderBy: { position: "asc" } },
+            photos: { orderBy: { position: "asc" }, take: detalleEntregables ? 500 : 0 },
           },
         },
         // orderBy en los files ANIDADOS a propósito: sin él, el orden lo decide el heap de
@@ -123,9 +130,11 @@ export default async function ProyectoPage({
           include: { notes: { orderBy: { createdAt: "desc" }, select: { id: true, authorName: true, body: true, drawing: true, resolved: true, createdAt: true } } },
         },
         members: { select: { userId: true, role: true } },
+        // Fuera de la pestaña «Actividad» solo se usa la MÁS RECIENTE (el «último movimiento»
+        // del resumen): traer 60 filas con su autor en cada visita era trabajo tirado.
         activity: {
           orderBy: { createdAt: "desc" },
-          take: 60,
+          take: tab === "actividad" ? 60 : 1,
           include: { user: { select: { name: true, initials: true, avatarColor: true } } },
         },
       },
@@ -413,7 +422,10 @@ export default async function ProyectoPage({
 
   // Panel de entregables, definido una vez y reutilizado en Resumen y en la pestaña Entregables.
   const emailEnabled = await isEmailEnabled();
-  const deliverablesPanelNode = (
+  // Se construye SOLO en su pestaña: armarlo mapea versiones, decisiones, comentarios y fotos
+  // de cada entregable, y además serializa todo ese árbol en el payload RSC. En las otras
+  // pestañas no se pinta, así que era trabajo y bytes tirados.
+  const deliverablesPanelNode = tab !== "entregables" ? null : (
     <DeliverablesPanel
       projectId={id}
       canManage={canManageProject(project, session)}

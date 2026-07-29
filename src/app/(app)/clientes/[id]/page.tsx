@@ -102,13 +102,17 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     })),
   );
 
-  // Actividad del cliente: cambios del propio cliente + de sus proyectos.
-  const activity = await db.activityLog.findMany({
-    where: { OR: [{ clientId: id }, { projectId: { in: projectIds.length ? projectIds : ["__none__"] } }] },
-    orderBy: { createdAt: "desc" },
-    take: 60,
-    include: { user: { select: { name: true, initials: true, avatarColor: true } } },
-  });
+  // Actividad del cliente: cambios del propio cliente + de sus proyectos. Solo se consulta si
+  // la pestaña existe para este usuario: sin `ver_actividad` la vista no se pinta, así que
+  // traer 60 registros con su autor era trabajo tirado en cada carga de la ficha.
+  const activity = canActividad
+    ? await db.activityLog.findMany({
+        where: { OR: [{ clientId: id }, { projectId: { in: projectIds.length ? projectIds : ["__none__"] } }] },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+        include: { user: { select: { name: true, initials: true, avatarColor: true } } },
+      })
+    : [];
 
   // Propuestas vinculadas a este cliente (constructor de propuestas).
   const proposals = await db.proposal.findMany({
@@ -274,10 +278,15 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const memberItems = client.members
     .filter((m) => m.user.role?.key !== "cliente")
     .map((m) => ({ id: m.user.id, name: m.user.name, initials: m.user.initials, color: m.user.avatarColor, role: m.role }));
-  // El listado para "Dar acceso" es del EQUIPO (excluye usuarios cliente del portal).
-  const team = canManage
-    ? await db.user.findMany({ where: { active: true, role: { key: { not: "cliente" } } }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } })
-    : [];
+  // UNA sola consulta de usuarios activos para los dos usos de la página: el listado de «Dar
+  // acceso» (equipo, sin los usuarios cliente del portal) y el selector de personas del
+  // calendario (todos). Antes eran dos consultas casi idénticas.
+  const activeUsers = await db.user.findMany({
+    where: { active: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, initials: true, avatarColor: true, role: { select: { key: true } } },
+  });
+  const team = canManage ? activeUsers.filter((u) => u.role?.key !== "cliente") : [];
   const memberIds = new Set(client.members.map((m) => m.user.id));
   const addable = team
     .filter((u) => !memberIds.has(u.id))
@@ -286,7 +295,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   // Calendario colaborativo del cliente: citas + tareas de sus proyectos visibles.
   const calWindowStart = new Date(new Date().setMonth(new Date().getMonth() - 1));
   const safeProjectIds = projectIds.length ? projectIds : ["__none__"];
-  const [clientEvents, clientTasks, calTeam] = await Promise.all([
+  const calTeam = activeUsers;
+  const [clientEvents, clientTasks] = await Promise.all([
     db.calendarEvent.findMany({
       where: { projectId: { in: safeProjectIds }, start: { gte: calWindowStart } },
       include: {
@@ -303,7 +313,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         assignee: { select: { name: true, initials: true, avatarColor: true } },
       },
     }),
-    db.user.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, initials: true, avatarColor: true } }),
   ]);
   const clientCalItems = [
     ...clientEvents.map((e) => eventToCalItem(e, session?.id, e.projectId ? `/proyectos/${e.projectId}` : null)),
