@@ -114,13 +114,16 @@ function AddLocationRow({ projectId, disks, onDone }: { projectId: string; disks
   );
 }
 
-export function Mapa({ projects, disks, canManage }: {
+export function Mapa({ projects, disks, canManage, initialRiesgo = false }: {
   projects: MapProject[];
   disks: MapDiskOption[];
   canManage: boolean;
+  // Llega encendido desde el resumen («Material en riesgo»): entrar ya filtrado ahorra el
+  // paso de buscar el filtro después de haber hecho clic justo en ese dato.
+  initialRiesgo?: boolean;
 }) {
   const [q, setQ] = useState("");
-  const [soloRiesgo, setSoloRiesgo] = useState(false);
+  const [soloRiesgo, setSoloRiesgo] = useState(initialRiesgo);
   const [addingFor, setAddingFor] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -135,7 +138,7 @@ export function Mapa({ projects, disks, canManage }: {
   const enRiesgo = projects.filter((p) => p.health.level === "SIN_RESPALDO" || p.health.level === "SIN_REGISTRO").length;
 
   return (
-    <div className="mt-6">
+    <div className="mt-5">
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={q}

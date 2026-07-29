@@ -168,19 +168,63 @@ function DiskCard({ d, canManage, onEdit, highlighted }: { d: DiskRow; canManage
   );
 }
 
+// Un disco «pide atención» a los seis meses sin verificar (o si nunca se verificó).
+function pideAtencion(d: DiskRow): boolean {
+  return d.status !== "RETIRADO" && (d.lastCheckDays == null || d.lastCheckDays >= 180);
+}
+
 export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRow[]; canManage: boolean; highlightId?: string | null }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [soloAtencion, setSoloAtencion] = useState(false);
+  const [verRetirados, setVerRetirados] = useState(false);
 
   const editing = disks.find((d) => d.id === editingId) ?? null;
 
+  const nAtencion = disks.filter(pideAtencion).length;
+  const nRetirados = disks.filter((d) => d.status === "RETIRADO").length;
+
+  // Primero lo que pide atención: un disco que lleva un año sin conectarse importa más que
+  // el orden en que se registraron. Los retirados, si se piden, van al final.
+  const visibles = disks
+    .filter((d) => (d.status === "RETIRADO" ? verRetirados : true))
+    .filter((d) => (soloAtencion ? pideAtencion(d) : true))
+    .sort((a, b) => {
+      const retA = a.status === "RETIRADO" ? 1 : 0;
+      const retB = b.status === "RETIRADO" ? 1 : 0;
+      if (retA !== retB) return retA - retB;
+      const atA = pideAtencion(a) ? 0 : 1;
+      const atB = pideAtencion(b) ? 0 : 1;
+      if (atA !== atB) return atA - atB;
+      return a.name.localeCompare(b.name, "es");
+    });
+
+  const chipCls = (activo: boolean, tono: "warn" | "ink") =>
+    `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      activo
+        ? tono === "warn"
+          ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          : "border-primary bg-primary text-primary-foreground"
+        : "border-border bg-card text-muted-foreground hover:text-foreground"
+    }`;
+
   return (
-    <div className="mt-6">
-      {canManage ? (
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            Cada disco del estudio: qué es, dónde está y hace cuánto no se verifica.
-          </p>
+    <div className="mt-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="min-w-48 flex-1 text-sm text-muted-foreground">
+          Cada disco del estudio: qué es, dónde está y hace cuánto no se verifica.
+        </p>
+        {nAtencion > 0 ? (
+          <button type="button" onClick={() => setSoloAtencion((v) => !v)} className={chipCls(soloAtencion, "warn")}>
+            ⚠ Por verificar · {nAtencion}
+          </button>
+        ) : null}
+        {nRetirados > 0 ? (
+          <button type="button" onClick={() => setVerRetirados((v) => !v)} className={chipCls(verRetirados, "ink")}>
+            Retirados · {nRetirados}
+          </button>
+        ) : null}
+        {canManage ? (
           <button
             type="button"
             onClick={() => { setAdding((v) => !v); setEditingId(null); }}
@@ -188,8 +232,8 @@ export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRo
           >
             <Plus className="size-4" /> Añadir disco
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {canManage && (adding || editing) ? (
         <div className="mt-3 rounded-xl border border-border bg-card">
@@ -206,9 +250,13 @@ export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRo
             description="Registra el NAS, los discos externos y la nube para armar el mapa del material."
           />
         </div>
+      ) : visibles.length === 0 ? (
+        <p className="mt-8 rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          Ningún disco coincide con el filtro.
+        </p>
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {disks.map((d) => (
+          {visibles.map((d) => (
             <DiskCard key={d.id} d={d} canManage={canManage} highlighted={d.id === highlightId} onEdit={() => { setEditingId(d.id); setAdding(false); }} />
           ))}
         </div>

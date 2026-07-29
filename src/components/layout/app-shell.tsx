@@ -110,8 +110,15 @@ export function AppShell({
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
   // La WIKI trae su PROPIO menú lateral (el árbol de páginas), así que aquí manda el mismo
   // modo enfoque que en el chat: el panel de «Producción/Clientes» se pliega solo para no
-  // tener dos menús compitiendo. /plantillas cuenta como Wiki: comparte ese árbol.
-  const isWikiPage = pathname === "/wiki" || pathname.startsWith("/wiki/") || pathname === "/plantillas" || pathname.startsWith("/plantillas/");
+  // tener dos menús compitiendo. /plantillas y /biblioteca cuentan como Wiki: comparten ese
+  // árbol y se llega a ellas desde sus Herramientas.
+  const isWikiPage =
+    pathname === "/wiki" ||
+    pathname.startsWith("/wiki/") ||
+    pathname === "/plantillas" ||
+    pathname.startsWith("/plantillas/") ||
+    pathname === "/biblioteca" ||
+    pathname.startsWith("/biblioteca/");
 
   // MODO ENFOQUE (/chat y /wiki): el panel de «Producción/Clientes» se retira por defecto para que
   // la conversación —o el árbol de la wiki— ocupe todo el ancho. El botón de colapsar de la barra

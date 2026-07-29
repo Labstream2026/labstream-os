@@ -37,13 +37,27 @@ export async function loadWikiNav() {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
 
-  // La bóveda de contraseñas tiene su propio permiso: si no lo tiene, su fila no se pinta.
-  // La página ya redirige por su cuenta; esto solo evita ofrecer un callejón sin salida.
-  const canSeePasswords = hasPermission(await getSession(), "ver_contrasenas");
+  // La bóveda de contraseñas y la Biblioteca tienen su propio permiso: si no lo tienen, su
+  // fila no se pinta. Las páginas ya redirigen por su cuenta; esto solo evita ofrecer un
+  // callejón sin salida.
+  const session = await getSession();
+  const canSeePasswords = hasPermission(session, "ver_contrasenas");
+  const canBiblioteca = hasPermission(session, "ver_biblioteca");
+
+  // Discos activos que llevan más de seis meses sin verificarse (o que nunca se verificaron):
+  // es el aviso de la Biblioteca. Se consulta solo si la persona puede entrar.
+  const discos = canBiblioteca
+    ? await db.storageDisk.findMany({ where: { status: "ACTIVO" }, select: { lastCheckAt: true } })
+    : [];
+  const alertBiblioteca = discos.filter(
+    (d) => ahora - (d.lastCheckAt?.getTime() ?? 0) > 180 * 86400000,
+  ).length;
 
   return {
     grupos: buildWikiTree(pages, WIKI_SECTIONS),
     canSeePasswords,
+    canBiblioteca,
+    alertBiblioteca,
     alertSalud,
     todas: pages.map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
     alertInventario: estadoCells.filter((c) => c.value === "en-mantenimiento" || c.value === "danado").length,

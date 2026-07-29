@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Recursos, type LibRow } from "./recursos";
 import { Discos, type DiskRow } from "./discos";
 import { Mapa, type MapProject } from "./mapa";
+import { Resumen, type ResumenDato } from "./resumen";
 
 export const dynamic = "force-dynamic";
 
@@ -23,19 +24,104 @@ const TABS = [
   { key: "mapa", label: "Mapa del material" },
 ] as const;
 
+type TabKey = (typeof TABS)[number]["key"];
+
 // Severidad para ordenar el mapa: lo que está en riesgo, arriba.
 const HEALTH_ORDER: Record<string, number> = { SIN_RESPALDO: 0, SIN_REGISTRO: 1, PARCIAL: 2, OK: 3 };
 
-export default async function BibliotecaPage({ searchParams }: { searchParams: Promise<{ tab?: string; q?: string; disco?: string }> }) {
+// Un disco lleva demasiado sin verificarse a los seis meses (mismo umbral que el recordatorio).
+const VERIF_DIAS = 180;
+
+function tb(gb: number): string {
+  return `${(gb / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} TB`;
+}
+
+export default async function BibliotecaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; q?: string; disco?: string; riesgo?: string }>;
+}) {
   // Acceso a la Biblioteca por permiso (el backfill se lo da al equipo; los clientes no).
   const session = await getSession();
   if (!hasPermission(session, "ver_biblioteca")) redirect("/");
   // Gestionar (añadir/editar/fijar) requiere permiso aparte; ver es suficiente para mirar.
   const canManage = hasPermission(session, "gestionar_biblioteca");
 
-  const { tab: rawTab, q, disco } = await searchParams;
-  const tab = TABS.some((t) => t.key === rawTab) ? (rawTab as (typeof TABS)[number]["key"]) : "recursos";
+  const { tab: rawTab, q, disco, riesgo } = await searchParams;
+  const tab: TabKey = TABS.some((t) => t.key === rawTab) ? (rawTab as TabKey) : "recursos";
   const now = new Date();
+
+  // ── Resumen: se calcula SIEMPRE, sea cual sea la pestaña ────────────────────────────────
+  // Es la respuesta a las preguntas que antes obligaban a entrar y salir de las tres
+  // pestañas: cuánto hay, cuánto espacio queda y qué material está en riesgo.
+  const [nRecursos, discosResumen, proyectosResumen, nasUsage] = await Promise.all([
+    db.libraryAsset.count(),
+    db.storageDisk.findMany({
+      where: { status: "ACTIVO" },
+      select: { id: true, capacityGB: true, usedGB: true, isNas: true, lastCheckAt: true },
+    }),
+    db.project.findMany({
+      where: { archivedAt: null },
+      select: { materialLocations: { select: { role: true, diskId: true, disk: { select: { kind: true, offsite: true } } } } },
+    }),
+    opsDiskUsage(),
+  ]);
+
+  let capacidad = 0;
+  let usado = 0;
+  let sinCapacidad = 0;
+  for (const d of discosResumen) {
+    const live = d.isNas && nasUsage ? nasUsage : null;
+    const cap = live?.totalGB ?? d.capacityGB;
+    if (cap == null) { sinCapacidad++; continue; }
+    capacidad += cap;
+    usado += Math.min(cap, live?.usedGB ?? d.usedGB ?? 0);
+  }
+  const libre = Math.max(0, capacidad - usado);
+  const pctUsado = capacidad > 0 ? Math.round((usado / capacidad) * 100) : null;
+
+  const porVerificar = discosResumen.filter(
+    (d) => now.getTime() - (d.lastCheckAt?.getTime() ?? 0) > VERIF_DIAS * 86400000,
+  ).length;
+
+  const nRiesgo = proyectosResumen.filter((p) => {
+    const nivel = materialHealth(
+      p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite })),
+    ).level;
+    return nivel === "SIN_RESPALDO" || nivel === "SIN_REGISTRO";
+  }).length;
+
+  const datos: ResumenDato[] = [
+    { k: "Recursos", v: String(nRecursos), pie: "enlaces, Drive y rutas", href: "/biblioteca" },
+    {
+      k: "Discos activos",
+      v: String(discosResumen.length),
+      pie: porVerificar ? `${porVerificar} sin verificar` : "todos verificados",
+      tono: porVerificar ? "warn" : "good",
+      href: "/biblioteca?tab=discos",
+    },
+    {
+      k: "Espacio libre",
+      v: capacidad > 0 ? tb(libre) : "—",
+      pie: capacidad > 0 ? `${pctUsado} % ocupado${sinCapacidad ? ` · ${sinCapacidad} sin medir` : ""}` : "sin capacidades anotadas",
+      tono: pctUsado != null && pctUsado >= 85 ? "warn" : "ink",
+      href: "/biblioteca?tab=discos",
+    },
+    {
+      k: "Material en riesgo",
+      v: String(nRiesgo),
+      pie: nRiesgo ? "sin respaldo o sin registrar" : "todo con respaldo",
+      tono: nRiesgo ? "bad" : "good",
+      href: nRiesgo ? "/biblioteca?tab=mapa&riesgo=1" : "/biblioteca?tab=mapa",
+    },
+  ];
+
+  const conteos: Record<TabKey, number> = {
+    recursos: nRecursos,
+    discos: discosResumen.length,
+    mapa: proyectosResumen.length,
+  };
+  const avisos: Record<TabKey, number> = { recursos: 0, discos: porVerificar, mapa: nRiesgo };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
@@ -44,26 +130,39 @@ export default async function BibliotecaPage({ searchParams }: { searchParams: P
         title="Biblioteca"
         description="Recursos del estudio, discos y ubicación del material."
       />
+
+      <Resumen datos={datos} />
+
       <div className="mt-3"><SectionChatCard section="biblioteca" /></div>
 
-      {/* Pestañas */}
-      <div className="mt-6 inline-flex gap-0.5 rounded-lg border border-border bg-accent/50 p-0.5">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={t.key === "recursos" ? "/biblioteca" : `/biblioteca?tab=${t.key}`}
-            className={`rounded-md px-3.5 py-1.5 text-sm font-medium ${
-              tab === t.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </Link>
-        ))}
+      {/* Pestañas: con el conteo de lo que hay dentro y, si algo pide atención, su aviso. */}
+      <div className="mt-6 inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+        {TABS.map((t) => {
+          const activa = tab === t.key;
+          const aviso = avisos[t.key];
+          return (
+            <Link
+              key={t.key}
+              href={t.key === "recursos" ? "/biblioteca" : `/biblioteca?tab=${t.key}`}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                activa ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              <span className="tabular-nums text-xs opacity-60">{conteos[t.key]}</span>
+              {aviso > 0 ? (
+                <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold tabular-nums text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                  {aviso}
+                </span>
+              ) : null}
+            </Link>
+          );
+        })}
       </div>
 
       {tab === "recursos" ? <RecursosTab canManage={canManage} userId={session!.id} initialQ={q ?? ""} /> : null}
-      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} highlightId={disco ?? null} /> : null}
-      {tab === "mapa" ? <MapaTab canManage={canManage} now={now} /> : null}
+      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} highlightId={disco ?? null} nasUsage={nasUsage} /> : null}
+      {tab === "mapa" ? <MapaTab canManage={canManage} now={now} soloRiesgo={riesgo === "1"} /> : null}
     </div>
   );
 }
@@ -93,6 +192,7 @@ async function RecursosTab({ canManage, userId, initialQ }: { canManage: boolean
     uploadedById: a.uploadedById,
     uploadedByName: a.uploadedBy?.name ?? null,
     createdAtLabel: formatShortDate(a.createdAt) ?? "",
+    createdAtMs: a.createdAt.getTime(),
     projectId: a.projectId,
     projectName: a.project?.name ?? null,
     clientId: a.clientId,
@@ -112,16 +212,20 @@ async function RecursosTab({ canManage, userId, initialQ }: { canManage: boolean
   );
 }
 
-async function DiscosTab({ canManage, now, highlightId = null }: { canManage: boolean; now: Date; highlightId?: string | null }) {
-  const [disks, nasUsage] = await Promise.all([
-    db.storageDisk.findMany({
-      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
-      include: { locations: { select: { projectId: true } } },
-    }),
-    // Ocupación EN VIVO de Operaciones_LAB (statfs): pinta el disco «Es el NAS» sola.
-    // null si el mount no está (dev o deploy sin bind): se usa el valor anotado a mano.
-    opsDiskUsage(),
-  ]);
+async function DiscosTab({ canManage, now, highlightId = null, nasUsage }: {
+  canManage: boolean;
+  now: Date;
+  highlightId?: string | null;
+  // Ocupación EN VIVO de Operaciones_LAB (statfs), ya leída para el resumen: pinta el disco
+  // «Es el NAS» sola. null si el mount no está (dev o deploy sin bind): se usa el valor
+  // anotado a mano. Se recibe en vez de volver a leerla para que la tarjeta del disco y el
+  // «Espacio libre» de arriba no puedan discrepar.
+  nasUsage: { usedGB: number; totalGB: number } | null;
+}) {
+  const disks = await db.storageDisk.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+    include: { locations: { select: { projectId: true } } },
+  });
 
   const rows: DiskRow[] = disks.map((d) => {
     const live = d.isNas && nasUsage ? nasUsage : null;
@@ -147,7 +251,7 @@ async function DiscosTab({ canManage, now, highlightId = null }: { canManage: bo
   return <Discos disks={rows} canManage={canManage} highlightId={highlightId} />;
 }
 
-async function MapaTab({ canManage, now }: { canManage: boolean; now: Date }) {
+async function MapaTab({ canManage, now, soloRiesgo }: { canManage: boolean; now: Date; soloRiesgo: boolean }) {
   const [projects, disks] = await Promise.all([
     // Fuera de la papelera; los TERMINADOS se quedan (su respaldo es el que más importa).
     db.project.findMany({
@@ -187,5 +291,5 @@ async function MapaTab({ canManage, now }: { canManage: boolean; now: Date }) {
     }))
     .sort((a, b) => (HEALTH_ORDER[a.health.level] ?? 9) - (HEALTH_ORDER[b.health.level] ?? 9) || a.name.localeCompare(b.name, "es"));
 
-  return <Mapa projects={rows} disks={disks} canManage={canManage} />;
+  return <Mapa projects={rows} disks={disks} canManage={canManage} initialRiesgo={soloRiesgo} />;
 }

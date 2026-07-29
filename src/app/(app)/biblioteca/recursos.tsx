@@ -35,6 +35,7 @@ export type LibRow = {
   uploadedById: string | null;
   uploadedByName: string | null;
   createdAtLabel: string;
+  createdAtMs: number; // para ordenar por «Recientes» sin volver a parsear la fecha
   projectId: string | null;
   projectName: string | null;
   clientId: string | null;
@@ -45,36 +46,56 @@ export type LibOption = { id: string; name: string };
 
 const KIND_LABEL: Record<string, string> = { DRIVE: "Google Drive", LINK: "Enlace", NAS: "Ruta del NAS", LOCAL: "Archivo" };
 const KIND_FILTERS: { key: string; label: string }[] = [
-  { key: "ALL", label: "Todos" },
+  { key: "ALL", label: "Todo" },
   { key: "DRIVE", label: "Drive" },
   { key: "LINK", label: "Enlaces" },
   { key: "NAS", label: "Rutas NAS" },
 ];
 const SIN_CATEGORIA = "Sin categoría";
+// Cuántas categorías se ven antes de plegar el resto. Con muchas categorías la fila de
+// chips se convertía en un muro de tres renglones que empujaba la lista fuera de pantalla.
+const CATS_VISIBLES = 8;
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+// Dónde lleva el recurso, en corto: el dominio para los enlaces y la ruta para el NAS. Se
+// pinta junto al nombre porque «Manual de marca» no dice si abre en Drive o en el NAS, y
+// eso cambia lo que hay que hacer con él (abrirlo o copiarlo y pegarlo en el explorador).
+function destino(kind: string, url: string | null): string | null {
+  if (!url) return null;
+  if (kind === "NAS") return url;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const resto = u.pathname.replace(/\/$/, "");
+    return resto && resto !== "/" ? `${host}${resto}` : host;
+  } catch {
+    return url;
+  }
+}
+
 function KindIcon({ kind }: { kind: string }) {
+  const base = "flex size-7 shrink-0 items-center justify-center rounded-lg";
   if (kind === "NAS") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-        <Server className="size-4" />
+      <span className={`${base} bg-amber-500/10 text-amber-600 dark:text-amber-400`} title="Ruta del NAS">
+        <Server className="size-3.5" />
       </span>
     );
   }
   if (kind === "DRIVE") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-        <ExternalLink className="size-4" />
+      <span className={`${base} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400`} title="Google Drive">
+        <ExternalLink className="size-3.5" />
       </span>
     );
   }
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-      <ExternalLink className="size-4" />
+    <span className={`${base} bg-primary/10 text-primary`} title="Enlace">
+      <ExternalLink className="size-3.5" />
     </span>
   );
 }
@@ -116,7 +137,7 @@ function LinkSelectors({ projects, clients, projectId, clientId }: {
 
 // Fila independiente (fuera de Recursos para que los re-render del padre no
 // remonten el formulario de edición y pierdan lo escrito).
-function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, onCopy, onEdit, onCancel }: {
+function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, mostrarCategoria, onCopy, onEdit, onCancel }: {
   r: LibRow;
   editing: boolean;
   copied: boolean;
@@ -124,6 +145,8 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
   userId: string;
   projects: LibOption[];
   clients: LibOption[];
+  // En la vista agrupada la categoría ya la dice el encabezado: repetirla en cada fila es ruido.
+  mostrarCategoria: boolean;
   onCopy: () => void;
   onEdit: () => void;
   onCancel: () => void;
@@ -158,33 +181,61 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
       </form>
     );
   }
+
+  const dest = destino(r.kind, r.url);
+  const quienCuando = [r.uploadedByName, r.createdAtLabel].filter(Boolean).join(" · ");
+
   return (
-    <div className="group flex items-center gap-3 p-3">
+    <div className="group flex items-center gap-2.5 px-3 py-2 transition-colors hover:bg-accent/40">
       <KindIcon kind={r.kind} />
-      <div className="min-w-0 flex-1">
+
+      {/* Nombre + a dónde lleva, en UN renglón. Antes cada recurso ocupaba tres. */}
+      <div className="flex min-w-0 flex-1 items-baseline gap-2">
         {r.kind === "NAS" ? (
-          <span className="font-medium">{r.name}</span>
+          <span className="truncate text-sm font-medium">{r.name}</span>
         ) : (
-          <a href={r.url ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium hover:underline">
-            {r.name} <ExternalLink className="size-3.5 text-muted-foreground" />
+          <a
+            href={r.url ?? "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="truncate text-sm font-medium hover:text-primary hover:underline"
+          >
+            {r.name}
           </a>
         )}
-        {r.kind === "NAS" && r.url ? (
-          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{r.url}</p>
+        {dest ? (
+          <span
+            className={`hidden max-w-[42%] shrink-0 truncate text-[11px] text-muted-foreground lg:block ${r.kind === "NAS" ? "font-mono" : ""}`}
+            title={r.url ?? undefined}
+          >
+            {dest}
+          </span>
         ) : null}
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{KIND_LABEL[r.kind] ?? r.kind}</span>
-          {r.projectName ? (
-            <span className="rounded-full bg-primary/10 px-2 py-px font-medium text-primary">📁 {r.projectName}</span>
-          ) : null}
-          {r.clientName ? (
-            <span className="rounded-full bg-accent px-2 py-px font-medium text-accent-foreground">{r.clientName}</span>
-          ) : null}
-          {r.uploadedByName ? <span>· {r.uploadedByName}</span> : null}
-          <span>· {r.createdAtLabel}</span>
-        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+
+      {/* Etiquetas: solo las que aportan algo aquí. */}
+      <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+        {mostrarCategoria && r.category ? (
+          <span className="rounded-full bg-accent px-2 py-px text-[11px] font-medium text-accent-foreground">{r.category}</span>
+        ) : null}
+        {r.projectName ? (
+          <span className="max-w-40 truncate rounded-full bg-primary/10 px-2 py-px text-[11px] font-medium text-primary" title={`Proyecto: ${r.projectName}`}>
+            {r.projectName}
+          </span>
+        ) : null}
+        {r.clientName ? (
+          <span className="max-w-32 truncate rounded-full bg-accent px-2 py-px text-[11px] font-medium text-accent-foreground" title={`Cliente: ${r.clientName}`}>
+            {r.clientName}
+          </span>
+        ) : null}
+        <span className="w-20 shrink-0 truncate text-right text-[11px] text-muted-foreground" title={quienCuando}>
+          {r.createdAtLabel}
+        </span>
+      </div>
+
+      {/* Acciones: se atenúan hasta que el puntero entra en la fila, pero siguen ahí para
+          el teclado y para el táctil (no se ocultan con `hidden`). */}
+      <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         {r.url ? (
           <button
             type="button"
@@ -192,7 +243,7 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             title={r.kind === "NAS" ? "Copiar ruta" : "Copiar enlace"}
           >
-            {copied ? <Check className="size-4 text-emerald-500" /> : <Copy className="size-4" />}
+            {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
           </button>
         ) : null}
         {canManage ? (
@@ -201,7 +252,7 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
               className={`flex size-7 items-center justify-center rounded-md hover:bg-accent ${r.pinned ? "text-amber-500" : "text-muted-foreground hover:text-foreground"}`}
               title={r.pinned ? "Soltar de fijados" : "Fijar arriba"}
             >
-              <Star className={`size-4 ${r.pinned ? "fill-current" : ""}`} />
+              <Star className={`size-3.5 ${r.pinned ? "fill-current" : ""}`} />
             </button>
           </form>
         ) : null}
@@ -212,7 +263,7 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Editar"
           >
-            <Pencil className="size-4" />
+            <Pencil className="size-3.5" />
           </button>
         ) : null}
         {canEdit ? (
@@ -222,7 +273,7 @@ function RecursoRow({ r, editing, copied, canManage, userId, projects, clients, 
               title="Eliminar"
               className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             >
-              <Trash2 className="size-4" />
+              <Trash2 className="size-3.5" />
             </ConfirmSubmit>
           </form>
         ) : null}
@@ -243,6 +294,8 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
   const [q, setQ] = useState(initialQ);
   const [kind, setKind] = useState("ALL");
   const [cat, setCat] = useState<string | null>(null);
+  const [orden, setOrden] = useState<"categoria" | "recientes">("categoria");
+  const [verTodasCats, setVerTodasCats] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<"cerrado" | "link" | "nas">("cerrado");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -257,6 +310,20 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
     return m;
   }, [rows]);
 
+  // Alfabético y con «Sin categoría» al final: el orden no baila cuando cambian los conteos.
+  const catsOrdenadas = useMemo(
+    () =>
+      [...catCounts.entries()].sort((a, b) =>
+        a[0] === SIN_CATEGORIA ? 1 : b[0] === SIN_CATEGORIA ? -1 : a[0].localeCompare(b[0], "es"),
+      ),
+    [catCounts],
+  );
+  // La categoría elegida siempre se ve, aunque esté fuera de las primeras.
+  const catsVisibles = verTodasCats
+    ? catsOrdenadas
+    : catsOrdenadas.filter(([c], i) => i < CATS_VISIBLES || c === cat);
+  const catsOcultas = catsOrdenadas.length - catsVisibles.length;
+
   const filtered = useMemo(() => {
     const nq = norm(q.trim());
     return rows.filter((r) => {
@@ -269,6 +336,9 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
       return nq.split(/\s+/).every((part) => hay.includes(part));
     });
   }, [rows, q, kind, cat]);
+
+  const hayFiltro = Boolean(q.trim()) || kind !== "ALL" || cat !== null;
+  const limpiar = () => { setQ(""); setKind("ALL"); setCat(null); };
 
   const pinned = filtered.filter((r) => r.pinned);
   const rest = filtered.filter((r) => !r.pinned);
@@ -288,6 +358,10 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
     });
   }, [rest]);
 
+  // «Recientes»: lo último que entró, sin agrupar. Responde a «¿qué se añadió esta semana?»,
+  // que con la lista por categorías obligaba a recorrerlas todas.
+  const recientes = useMemo(() => [...rest].sort((a, b) => b.createdAtMs - a.createdAtMs), [rest]);
+
   function copiar(r: LibRow) {
     if (!r.url) return;
     navigator.clipboard?.writeText(r.url).then(() => {
@@ -296,7 +370,7 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
     });
   }
 
-  function row(r: LibRow) {
+  function row(r: LibRow, mostrarCategoria: boolean) {
     return (
       <RecursoRow
         key={r.id}
@@ -307,6 +381,7 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
         userId={userId}
         projects={projects}
         clients={clients}
+        mostrarCategoria={mostrarCategoria}
         onCopy={() => copiar(r)}
         onEdit={() => setEditingId(r.id)}
         onCancel={() => setEditingId(null)}
@@ -314,10 +389,15 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
     );
   }
 
+  const chipCls = (activo: boolean) =>
+    `shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+      activo ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"
+    }`;
+
   return (
     <div>
-      {/* Buscador + filtros */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
+      {/* Buscador + orden + alta */}
+      <div className="mt-5 flex flex-wrap items-center gap-2">
         <div className="relative min-w-56 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -327,46 +407,72 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
             className={`w-full pl-9 ${inputCls}`}
           />
         </div>
+        <div className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-muted p-1">
+          {([["categoria", "Por categoría"], ["recientes", "Recientes"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setOrden(k)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                orden === k ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {canManage ? (
           <button
             type="button"
             onClick={() => setAddMode((m) => (m === "cerrado" ? "link" : "cerrado"))}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="size-4" /> Añadir
           </button>
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      {/* Filtros: tipo y categoría en UNA fila que no se desborda. */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {KIND_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setKind(f.key)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium ${
-              kind === f.key ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
+          <button key={f.key} type="button" onClick={() => setKind(f.key)} className={chipCls(kind === f.key)}>
             {f.label}
           </button>
         ))}
-        <span className="px-1 text-muted-foreground">·</span>
-        {[...catCounts.entries()]
-          .sort((a, b) => (a[0] === SIN_CATEGORIA ? 1 : b[0] === SIN_CATEGORIA ? -1 : a[0].localeCompare(b[0], "es")))
-          .map(([c, n]) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCat((prev) => (prev === c ? null : c))}
-              className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                cat === c ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {c} <span className="opacity-70">{n}</span>
-            </button>
-          ))}
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+        {catsVisibles.map(([c, n]) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setCat((prev) => (prev === c ? null : c))}
+            className={chipCls(cat === c)}
+          >
+            {c} <span className="opacity-70 tabular-nums">{n}</span>
+          </button>
+        ))}
+        {catsOcultas > 0 && !verTodasCats ? (
+          <button type="button" onClick={() => setVerTodasCats(true)} className="shrink-0 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            +{catsOcultas} más
+          </button>
+        ) : null}
+        {verTodasCats && catsOrdenadas.length > CATS_VISIBLES ? (
+          <button type="button" onClick={() => setVerTodasCats(false)} className="shrink-0 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            Ver menos
+          </button>
+        ) : null}
       </div>
+
+      {/* Qué se está viendo: sin esto, un filtro puesto sin querer parece una biblioteca vacía. */}
+      {hayFiltro ? (
+        <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            {filtered.length} de {rows.length} recurso{rows.length === 1 ? "" : "s"}
+          </span>
+          <button type="button" onClick={limpiar} className="font-medium text-primary hover:underline">
+            Limpiar filtros
+          </button>
+        </p>
+      ) : null}
 
       {/* Alta (solo gestores) */}
       {canManage && addMode !== "cerrado" ? (
@@ -421,19 +527,18 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
         ))}
       </datalist>
 
-      {/* Fijados */}
+      {/* Fijados: los recursos de cabecera del estudio, siempre arriba. */}
       {pinned.length > 0 ? (
-        <div className="mt-6">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">★ Fijados</h2>
+        <div className="mt-5">
+          <h2 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <Star className="size-3 fill-amber-500 text-amber-500" /> Fijados
+          </h2>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-amber-500/30 bg-card shadow-sm">
-            {pinned.map((r) => (
-              row(r)
-            ))}
+            {pinned.map((r) => row(r, true))}
           </div>
         </div>
       ) : null}
 
-      {/* Resto por categoría */}
       {filtered.length === 0 ? (
         <div className="mt-10">
           <EmptyState
@@ -442,17 +547,24 @@ export function Recursos({ rows, canManage, userId, projects, clients, baseCateg
             description={rows.length === 0 ? "Añade música, logos, plantillas, stock o rutas del NAS." : "Prueba con otro término o quita los filtros."}
           />
         </div>
+      ) : orden === "recientes" ? (
+        <div className="mt-5">
+          <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Lo último añadido {rest.length ? <span className="opacity-70">· {rest.length}</span> : null}
+          </h2>
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            {recientes.map((r) => row(r, true))}
+          </div>
+        </div>
       ) : (
-        <div className="mt-6 space-y-6">
+        <div className="mt-5 space-y-5">
           {groups.map(([c, items]) => (
             <section key={c}>
-              <h2 className="mb-2 text-sm font-semibold">
-                {c} <span className="text-muted-foreground">· {items.length}</span>
+              <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {c} <span className="opacity-70">· {items.length}</span>
               </h2>
               <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                {items.map((r) => (
-                  row(r)
-                ))}
+                {items.map((r) => row(r, false))}
               </div>
             </section>
           ))}

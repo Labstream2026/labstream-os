@@ -16,7 +16,6 @@ import {
   Images,
   Home,
   Inbox,
-  Library,
   ListTodo,
   LogOut,
   MessageCircle,
@@ -522,8 +521,9 @@ export function Sidebar({
   const RAIL_ADMIN = [
     { href: "/cotizaciones", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
     { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
-    { href: "/wiki", label: "Wiki del equipo", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") },
-    { href: "/biblioteca", label: "Biblioteca", icon: Library, show: canBiblioteca, active: pathname.startsWith("/biblioteca") },
+    // La Biblioteca YA NO tiene icono propio: vive dentro del espacio de la Wiki (en sus
+    // Herramientas), así que enciende esta misma fila. Un icono menos en el rail.
+    { href: "/wiki", label: "Wiki del equipo", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") },
     { href: "/reportes", label: "Reportes", icon: BarChart3, show: canReports, active: pathname.startsWith("/reportes") },
     { href: "/papelera", label: "Papelera", icon: Trash2, show: canPapelera, active: pathname.startsWith("/papelera") },
   ].filter((r) => r.show && !isCliente);

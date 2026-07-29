@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, FileText, Search, Boxes, HardDrive, KeyRound, LayoutTemplate, FileType2, BookOpen, Stethoscope } from "lucide-react";
+import { ChevronRight, FileText, Search, Boxes, HardDrive, KeyRound, LayoutTemplate, FileType2, BookOpen, Stethoscope, Library } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WikiGroup, WikiNode } from "@/lib/wiki-tree";
 import { MisAtajos, type AtajoPagina } from "@/components/wiki/wiki-atajos";
@@ -23,18 +23,23 @@ export function WikiSidebar({
   grupos,
   todas = [],
   canSeePasswords = true,
+  canBiblioteca = true,
   alertInventario = 0,
   alertMaterial = 0,
   alertSalud = 0,
+  alertBiblioteca = 0,
 }: {
   grupos: WikiGroup[];
   // Todas las páginas en plano: los atajos guardan ids y necesitan resolverlos a título.
   todas?: AtajoPagina[];
   canSeePasswords?: boolean;
+  canBiblioteca?: boolean;
   alertInventario?: number;
   alertMaterial?: number;
   // Páginas vencidas o sin dueño: el chip lleva a arreglarlas.
   alertSalud?: number;
+  // Discos activos sin verificar hace más de seis meses.
+  alertBiblioteca?: number;
 }) {
   const pathname = usePathname();
   const [filtro, setFiltro] = React.useState("");
@@ -68,6 +73,7 @@ export function WikiSidebar({
 
   const herramientas: Herramienta[] = [
     { href: "/wiki/salud", label: "Salud del conocimiento", icon: Stethoscope, alerta: alertSalud },
+    ...(canBiblioteca ? [{ href: "/biblioteca", label: "Biblioteca", icon: Library, alerta: alertBiblioteca }] : []),
     { href: "/wiki/inventario", label: "Inventario", icon: Boxes, alerta: alertInventario },
     { href: "/wiki/ubicacion", label: "Material y discos", icon: HardDrive, alerta: alertMaterial },
     ...(canSeePasswords ? [{ href: "/wiki/contrasenas", label: "Contraseñas", icon: KeyRound }] : []),
