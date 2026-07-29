@@ -3,12 +3,15 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { HardDrive, Loader2, Film, Image as ImageIcon, X, Folder, Search, ChevronRight } from "lucide-react";
+import { HardDrive, Loader2, Film, Image as ImageIcon, FileText, X, Folder, FolderPlus, Upload, Search, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   nivelDeCarpetaCliente,
   crearVersionDesdeDisco,
   crearEntregableDesdeDisco,
+  crearCarpetaExplorador,
+  subirArchivoExplorador,
+  crearCarpetaDelProyecto,
   type NivelCarpeta,
   type NivelPieza,
 } from "./version-disco-actions";
@@ -34,6 +37,8 @@ function useNivel(projectId: string, abierto: boolean) {
   const [rel, setRel] = React.useState("");
   const [carpetas, setCarpetas] = React.useState<NivelCarpeta[]>([]);
   const [piezas, setPiezas] = React.useState<NivelPieza[]>([]);
+  const [escritura, setEscritura] = React.useState(false);
+  const [proyecto, setProyecto] = React.useState<{ rel: string; existe: boolean } | null>(null);
 
   const cargar = React.useCallback(
     async (destino: string | null) => {
@@ -46,6 +51,8 @@ function useNivel(projectId: string, abierto: boolean) {
       setRel(r.rel);
       setCarpetas(r.carpetas);
       setPiezas(r.piezas);
+      setEscritura(r.escritura);
+      setProyecto(r.proyecto);
     },
     [projectId],
   );
@@ -55,7 +62,20 @@ function useNivel(projectId: string, abierto: boolean) {
     if (abierto) void cargar(null);
   }, [abierto, cargar]);
 
-  return { cargando, error, setError, base, rel, carpetas, piezas, navegar: (destino: string | null) => void cargar(destino) };
+  return {
+    cargando,
+    error,
+    setError,
+    base,
+    rel,
+    carpetas,
+    piezas,
+    escritura,
+    proyecto,
+    navegar: (destino: string | null) => void cargar(destino),
+    // Releer el nivel actual sin moverse (tras subir o crear carpeta).
+    recargar: () => void cargar(rel || null),
+  };
 }
 
 function fechaCorta(ms: number): string {
@@ -120,20 +140,78 @@ function ModalDisco({
   );
 }
 
-// ── Cuerpo compartido: migas + buscador + carpetas + piezas ──
+// ── Cuerpo compartido: migas + buscador + herramientas + carpetas + piezas ──
 function CuerpoDisco({
+  projectId,
   nivel,
   elegida,
   onElegir,
 }: {
+  projectId: string;
   nivel: ReturnType<typeof useNivel>;
   elegida: NivelPieza | null;
   onElegir: (p: NivelPieza) => void;
 }) {
-  const { cargando, error, base, rel, carpetas, piezas, navegar } = nivel;
+  const { cargando, error, base, rel, carpetas, piezas, escritura, proyecto, navegar, recargar } = nivel;
   const [filtro, setFiltro] = React.useState("");
   // El filtro es DEL NIVEL: al cambiar de carpeta se limpia para no «esconder» contenido.
   React.useEffect(() => setFiltro(""), [rel]);
+
+  // ── Escritura: subir aquí + nueva carpeta (solo con permiso; el servidor re-verifica) ──
+  const [avisoNivel, setAvisoNivel] = React.useState<string | null>(null);
+  React.useEffect(() => setAvisoNivel(null), [rel]);
+  const archivoRef = React.useRef<HTMLInputElement>(null);
+  const [subiendo, setSubiendo] = React.useState<{ hecho: number; total: number } | null>(null);
+  const subirArchivos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAvisoNivel(null);
+    setSubiendo({ hecho: 0, total: files.length });
+    const errores: string[] = [];
+    // De a UNO por petición: el body de una server action aguanta 100 MB, no un lote entero.
+    for (const f of Array.from(files)) {
+      const fd = new FormData();
+      fd.set("file", f);
+      try {
+        const r = await subirArchivoExplorador(projectId, rel, fd);
+        if ("error" in r) errores.push(`«${f.name}»: ${r.error}`);
+      } catch {
+        errores.push(`«${f.name}» no se pudo subir (¿conexión cortada?).`);
+      }
+      setSubiendo((s) => (s ? { hecho: s.hecho + 1, total: s.total } : s));
+    }
+    setSubiendo(null);
+    if (archivoRef.current) archivoRef.current.value = "";
+    setAvisoNivel(errores.length ? errores.join(" · ") : `Listo: ${files.length === 1 ? "1 archivo subido" : `${files.length} archivos subidos`} a esta carpeta.`);
+    recargar();
+  };
+
+  const [creandoCarpeta, setCreandoCarpeta] = React.useState(false);
+  const [nombreCarpeta, setNombreCarpeta] = React.useState("");
+  const [ocupadoCarpeta, setOcupadoCarpeta] = React.useState(false);
+  const crearCarpeta = async () => {
+    const n = nombreCarpeta.trim();
+    if (!n || ocupadoCarpeta) return;
+    setOcupadoCarpeta(true);
+    setAvisoNivel(null);
+    const r = await crearCarpetaExplorador(projectId, rel, n);
+    setOcupadoCarpeta(false);
+    if ("error" in r) return setAvisoNivel(r.error);
+    setCreandoCarpeta(false);
+    setNombreCarpeta("");
+    navegar(r.rel); // entrar a la carpeta recién creada: lo siguiente es subirle contenido
+  };
+
+  // La subcarpeta del PROYECTO, creada desde aquí (para proyectos anteriores al alta automática).
+  const [creandoProyecto, setCreandoProyecto] = React.useState(false);
+  const crearDelProyecto = async () => {
+    if (creandoProyecto) return;
+    setCreandoProyecto(true);
+    setAvisoNivel(null);
+    const r = await crearCarpetaDelProyecto(projectId);
+    setCreandoProyecto(false);
+    if ("error" in r) return setAvisoNivel(r.error);
+    navegar(r.rel);
+  };
 
   if (cargando) {
     return (
@@ -187,15 +265,92 @@ function CuerpoDisco({
             );
           })}
         </div>
-        <label className="flex items-center gap-1.5 rounded-md border border-input bg-background px-2">
-          <Search className="size-3.5 shrink-0 text-muted-foreground" />
-          <input
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            placeholder="Buscar en esta carpeta…"
-            className="w-full bg-transparent py-1.5 text-sm outline-none"
-          />
-        </label>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <label className="flex min-w-40 flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" />
+            <input
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              placeholder="Buscar en esta carpeta…"
+              className="w-full bg-transparent py-1.5 text-sm outline-none"
+            />
+          </label>
+          {escritura ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setCreandoCarpeta((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"
+                title="Crear una subcarpeta aquí (p. ej. «Guiones»)"
+              >
+                <FolderPlus className="size-3.5" /> Nueva carpeta
+              </button>
+              <button
+                type="button"
+                onClick={() => archivoRef.current?.click()}
+                disabled={!!subiendo}
+                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+                title="Subir guiones, PDFs o material a ESTA carpeta (hasta 100 MB por archivo; lo pesado va por SMB)"
+              >
+                {subiendo ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                {subiendo ? `Subiendo ${subiendo.hecho}/${subiendo.total}…` : "Subir aquí"}
+              </button>
+              <input ref={archivoRef} type="file" multiple className="hidden" onChange={(e) => void subirArchivos(e.target.files)} />
+            </>
+          ) : null}
+        </div>
+        {creandoCarpeta ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              value={nombreCarpeta}
+              onChange={(e) => setNombreCarpeta(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter crea; Escape cierra el input SIN cerrar el modal.
+                if (e.key === "Enter") void crearCarpeta();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setCreandoCarpeta(false);
+                }
+              }}
+              placeholder="Nombre de la carpeta (p. ej. Guiones)…"
+              className="min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              type="button"
+              onClick={() => void crearCarpeta()}
+              disabled={!nombreCarpeta.trim() || ocupadoCarpeta}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {ocupadoCarpeta ? <Loader2 className="size-3.5 animate-spin" /> : <FolderPlus className="size-3.5" />} Crear
+            </button>
+          </div>
+        ) : null}
+        {proyecto && rel === base && proyecto.rel !== base ? (
+          proyecto.existe ? (
+            <button
+              type="button"
+              onClick={() => navegar(proyecto.rel)}
+              className="flex w-full items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              <Folder className="size-3.5" /> Ir a la carpeta de este proyecto
+              <ChevronRight className="ml-auto size-3.5" />
+            </button>
+          ) : escritura ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1">Este proyecto aún no tiene su subcarpeta en el disco.</span>
+              <button
+                type="button"
+                onClick={() => void crearDelProyecto()}
+                disabled={creandoProyecto}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-primary/40 bg-background px-2 py-1 font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+              >
+                {creandoProyecto ? <Loader2 className="size-3.5 animate-spin" /> : <FolderPlus className="size-3.5" />} Crearla
+              </button>
+            </div>
+          ) : null
+        ) : null}
+        {avisoNivel ? <p className="text-[11px] text-muted-foreground">{avisoNivel}</p> : null}
       </div>
 
       <div className="mt-2 flex-1 overflow-y-auto px-2 pb-2">
@@ -223,6 +378,21 @@ function CuerpoDisco({
               </p>
             ) : null}
             {piezasVisibles.map((p) => {
+              // Un PAPEL (guion, PDF, hoja) vive aquí y se sube desde aquí, pero no se manda a
+              // revisión: la sala solo reproduce video y foto. Se pinta sin selección.
+              if (p.doc) {
+                return (
+                  <div
+                    key={p.rel}
+                    title="Los papeles del proyecto viven aquí; a revisión solo van videos y fotos."
+                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground"
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground/60" />
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{fechaCorta(p.mtimeMs)}</span>
+                  </div>
+                );
+              }
               const on = elegida?.rel === p.rel;
               return (
                 <button
@@ -368,7 +538,7 @@ export function CrearDesdeDisco({
           </div>
         }
       >
-        <CuerpoDisco nivel={nivel} elegida={elegida} onElegir={elegir} />
+        <CuerpoDisco projectId={projectId} nivel={nivel} elegida={elegida} onElegir={elegir} />
       </ModalDisco>
     </>
   );
@@ -440,7 +610,7 @@ export function VersionDesdeDisco({ deliverableId, projectId }: { deliverableId:
           </div>
         }
       >
-        <CuerpoDisco nivel={nivel} elegida={elegida} onElegir={setElegida} />
+        <CuerpoDisco projectId={projectId} nivel={nivel} elegida={elegida} onElegir={setElegida} />
       </ModalDisco>
     </>
   );

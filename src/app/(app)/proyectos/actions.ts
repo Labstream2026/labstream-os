@@ -8,6 +8,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient, accessibleClientWhere } from "@/lib/client-access";
 import { ensureProjectChannels } from "@/lib/project-chat";
 import { instantiateTemplate } from "@/lib/provisioning";
+import { ensureCarpetaGaleriaProyecto } from "@/lib/galeria-vinculos";
 import { validateAssignee } from "@/lib/task-assign";
 import { logActivity } from "@/lib/activity";
 import { notifyAndEmail } from "@/lib/notify";
@@ -34,6 +35,16 @@ export async function createProject(formData: FormData) {
     clientId,
     leadId,
   });
+
+  // Carpeta SIEMPRE: si el cliente tiene la suya en la galería (LabTem), la subcarpeta del
+  // proyecto nace con él y queda persistida en Project.galeriaFolder. Best-effort a
+  // conciencia: sin montaje, sin centinela o con el cliente aún sin carpeta, el proyecto se
+  // crea igual — el explorador «Desde el disco» ofrece crearla después con un clic.
+  try {
+    await ensureCarpetaGaleriaProyecto(project.id);
+  } catch {
+    /* la app no depende del disco */
+  }
 
   // El cliente accede a sus proyectos SOLO por membresía (no por la rama de proyectos públicos),
   // así que al crear uno debe quedar como miembro GUEST (solo lectura) para poder verlo.

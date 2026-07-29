@@ -430,11 +430,17 @@ export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
 // Para selectores que NAVEGAN por carpetas (p. ej. «Desde el disco» de los entregables):
 // un readdir + un stat por entrada — instantáneo hasta en carpetas con miles de piezas
 // repartidas en subcarpetas, porque solo se mira el nivel pedido.
+//
+// `docs: true` añade los PAPELES del proyecto (guiones, PDFs, hojas): existen en el
+// explorador de entregables, pero jamás en la línea de tiempo del cliente (scanGaleria
+// no los conoce) — la galería sigue siendo material audiovisual.
+const DOC_EXT = new Set(["pdf", "doc", "docx", "txt", "rtf", "md", "xls", "xlsx", "csv", "ppt", "pptx", "key", "numbers", "pages", "srt", "vtt", "xml", "fcpxml", "drp", "zip"]);
+
 export type GaleriaNivelCarpeta = { rel: string; name: string; mtimeMs: number };
-export type GaleriaNivelArchivo = { rel: string; name: string; kind: GaleriaKind; size: number; mtimeMs: number };
+export type GaleriaNivelArchivo = { rel: string; name: string; kind: GaleriaKind | "doc"; size: number; mtimeMs: number };
 export type GaleriaNivel = { carpetas: GaleriaNivelCarpeta[]; archivos: GaleriaNivelArchivo[] };
 
-export async function listGaleriaNivel(rel = ""): Promise<GaleriaNivel> {
+export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Promise<GaleriaNivel> {
   const norm = normalizeGaleriaRel(rel);
   const abs = await galeriaAbs(norm);
   const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
@@ -451,7 +457,7 @@ export async function listGaleriaNivel(rel = ""): Promise<GaleriaNivel> {
       continue;
     }
     if (!d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
-    const kind = galeriaKind(d.name);
+    const kind = galeriaKind(d.name) ?? (opts?.docs && DOC_EXT.has(extOf(d.name)) ? ("doc" as const) : null);
     if (!kind) continue;
     archivos.push({ rel: childRel, name: d.name, kind, size: st.size, mtimeMs: st.mtimeMs });
   }

@@ -2,14 +2,16 @@
 
 import { db } from "@/lib/db";
 import type { DeliverableType } from "@prisma/client";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject } from "@/lib/project-access";
 import { listGaleriaNivel, resolveGaleriaFile, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import {
   carpetaGaleriaProyecto,
   carpetaGaleriaClienteDelProyecto,
   relPerteneceAlClienteOProyecto,
+  ensureCarpetaGaleriaProyecto,
 } from "@/lib/galeria-vinculos";
+import { crearCarpetaGaleria, subirArchivoGaleria } from "@/app/(app)/galeria/herramientas-actions";
 import { DELIVERABLE_TYPE_OPTIONS } from "@/lib/ui";
 import { mimeFor } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
@@ -33,10 +35,24 @@ const accessSelect = {
 
 // El selector NAVEGA por carpetas (como un Finder chiquito): cada llamada devuelve UN nivel —
 // subcarpetas + piezas — de la carpeta del cliente. `rel` null/"" = la carpeta base.
+// `doc` = papel del proyecto (guion, PDF, hoja): se ve y se sube, pero no va a revisión
+// (la sala solo reproduce fotos y video; resolveGaleriaFile lo rechaza de todos modos).
 export type NivelCarpeta = { rel: string; name: string };
-export type NivelPieza = { rel: string; name: string; video: boolean; mtimeMs: number };
+export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number };
 export type NivelResultado =
-  | { ok: true; base: string; rel: string; carpetas: NivelCarpeta[]; piezas: NivelPieza[] }
+  | {
+      ok: true;
+      base: string;
+      rel: string;
+      carpetas: NivelCarpeta[];
+      piezas: NivelPieza[];
+      // ¿Este usuario puede escribir en el disco? (permiso «escribir_discos»; el centinela
+      // se re-verifica al escribir). Con false, el explorador ni enseña los botones.
+      escritura: boolean;
+      // La subcarpeta que le corresponde al PROYECTO: para el atajo «Ir a la carpeta del
+      // proyecto» o el botón de crearla si aún no existe en el disco. null = sin vínculo posible.
+      proyecto: { rel: string; existe: boolean } | null;
+    }
   | { error: string };
 
 // Un nivel de la carpeta del CLIENTE (o la del proyecto si el cliente no tiene vínculo).
@@ -73,16 +89,71 @@ export async function nivelDeCarpetaCliente(projectId: string, rel?: string | nu
   }
 
   try {
-    const nivel = await listGaleriaNivel(destino);
+    const nivel = await listGaleriaNivel(destino, { docs: true });
     return {
       ok: true,
       base: base.rel,
       rel: destino,
       carpetas: nivel.carpetas.map((c) => ({ rel: c.rel, name: c.name })),
-      piezas: nivel.archivos.map((a) => ({ rel: a.rel, name: a.name, video: a.kind === "video", mtimeMs: a.mtimeMs })),
+      piezas: nivel.archivos.map((a) => ({ rel: a.rel, name: a.name, video: a.kind === "video", doc: a.kind === "doc", mtimeMs: a.mtimeMs })),
+      escritura: session.role !== "demo" && hasPermission(session, "escribir_discos"),
+      proyecto: proyecto ? { rel: proyecto.rel, existe: proyecto.existe } : null,
     };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "No se pudo leer la carpeta del cliente." };
+  }
+}
+
+// ── Escritura EN el explorador: carpetas nuevas y guiones/material que se sube ──
+// Mismas manos que la barra de /galeria (permiso «escribir_discos», centinela, nunca
+// sobreescribir, papelera de red): se DELEGA en esas acciones para que todo pase por las
+// mismas guardas y quede en la misma auditoría. Aquí solo se añade el candado del proyecto:
+// el destino tiene que caer dentro de la carpeta de ESTE cliente (o proyecto).
+
+async function destinoDelProyecto(projectId: string, rel: string): Promise<string | { error: string }> {
+  const session = await getSession();
+  if (!session || session.role === "cliente") return { error: "Sin permiso" };
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  if (!project || !canAccessProject(project, session)) return { error: "Sin permiso" };
+  let norm: string;
+  try {
+    norm = normalizeGaleriaRel(rel);
+  } catch {
+    return { error: "Ruta inválida" };
+  }
+  if (!(await relPerteneceAlClienteOProyecto(projectId, norm))) return { error: "Esa carpeta no es de este cliente." };
+  return norm;
+}
+
+export async function crearCarpetaExplorador(projectId: string, relPadre: string, nombre: string): Promise<{ ok: true; rel: string } | { error: string }> {
+  const destino = await destinoDelProyecto(projectId, relPadre);
+  if (typeof destino !== "string") return destino;
+  const r = await crearCarpetaGaleria(destino, nombre);
+  if ("error" in r) return r;
+  return { ok: true, rel: r.rel ?? destino };
+}
+
+export async function subirArchivoExplorador(projectId: string, relDestino: string, formData: FormData): Promise<{ ok: true } | { error: string }> {
+  const destino = await destinoDelProyecto(projectId, relDestino);
+  if (typeof destino !== "string") return destino;
+  const r = await subirArchivoGaleria(destino, formData);
+  if ("error" in r) return r;
+  return { ok: true };
+}
+
+// La subcarpeta del proyecto, creada a mano desde el explorador (para proyectos que nacieron
+// antes de que el alta la creara sola, o cuando el montaje estaba caído aquel día).
+export async function crearCarpetaDelProyecto(projectId: string): Promise<{ ok: true; rel: string } | { error: string }> {
+  const session = await getSession();
+  if (!session || session.role === "cliente" || session.role === "demo") return { error: "Sin permiso" };
+  if (!hasPermission(session, "escribir_discos")) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  if (!project || !canAccessProject(project, session)) return { error: "Sin permiso" };
+  try {
+    const rel = await ensureCarpetaGaleriaProyecto(projectId);
+    return { ok: true, rel };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo crear la carpeta del proyecto." };
   }
 }
 
