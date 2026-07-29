@@ -7,6 +7,36 @@ import {
   galeriaEnabled,
 } from "@/lib/nas-galeria";
 
+// ── ¿La carpeta que se quiere vincular pisa (o cuelga de) la de OTRO cliente/proyecto? ──
+// El candado de los entregables autoriza todo lo que cuelgue del vínculo, así que un vínculo
+// que envuelve carpetas ajenas abre material ajeno. La anidación LEGÍTIMA (el proyecto dentro
+// de la carpeta de SU cliente) se permite. Lo usan las herramientas de la galería, la ficha
+// del cliente y el alta de cliente — por eso vive aquí y no en un archivo de acciones.
+export function solapaRel(a: string, b: string): boolean {
+  return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+}
+
+export async function conflictoDeVinculo(
+  value: string,
+  quien: { clientId?: string; projectId?: string; projectClientId?: string | null },
+): Promise<string | null> {
+  const [clientes, proyectos] = await Promise.all([
+    db.client.findMany({ where: { galeriaFolder: { not: null } }, select: { id: true, name: true, galeriaFolder: true } }),
+    db.project.findMany({ where: { galeriaFolder: { not: null } }, select: { id: true, name: true, clientId: true, galeriaFolder: true } }),
+  ]);
+  for (const c of clientes) {
+    if (c.id === quien.clientId || c.id === quien.projectClientId) continue;
+    if (c.galeriaFolder && solapaRel(value, c.galeriaFolder)) return `Esa carpeta pisa la del cliente «${c.name}» (${c.galeriaFolder}).`;
+  }
+  for (const p of proyectos) {
+    if (p.id === quien.projectId) continue;
+    // Un cliente puede envolver las carpetas de SUS proyectos; nadie más.
+    if (quien.clientId && p.clientId === quien.clientId) continue;
+    if (p.galeriaFolder && solapaRel(value, p.galeriaFolder)) return `Esa carpeta pisa la del proyecto «${p.name}» (${p.galeriaFolder}).`;
+  }
+  return null;
+}
+
 // ── Qué carpeta de la galería le corresponde a un proyecto ──
 // Regla: la del proyecto si tiene vínculo propio; si no, la subcarpeta
 // <carpetaCliente>/<nombreProyecto> bajo la carpeta del CLIENTE. La subcarpeta se PERSISTE en

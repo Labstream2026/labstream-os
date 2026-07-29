@@ -13,6 +13,8 @@ import { TONE_MAP } from "@/lib/colors";
 import { HERO_PRESET_KEYS } from "@/lib/client-hero-presets";
 import { sendEmail, emailButton, isEmailEnabled } from "@/lib/email";
 import { signClientInviteToken } from "@/lib/client-invite-token";
+import { galeriaEnabled, galeriaWritable, createGaleriaFolder, statGaleria, normalizeGaleriaRel, sanitizeGaleriaName } from "@/lib/nas-galeria";
+import { conflictoDeVinculo } from "@/lib/galeria-vinculos";
 
 // Color de acento válido = clave de la paleta (lib/colors), o null.
 function safeTone(value: string): string | null {
@@ -47,11 +49,49 @@ export async function createClient(formData: FormData) {
       company: String(formData.get("company") ?? "").trim() || null,
       description: String(formData.get("description") ?? "").trim() || null,
       emoji: String(formData.get("emoji") ?? "").trim() || "🏢",
+      // El color se elige desde el alta: tiñe su cabecera, sus proyectos y su carpeta de la Galería.
+      accentColor: safeTone(String(formData.get("accentColor") ?? "")),
       // El creador queda como miembro para poder verlo (los admin ven todos igual).
       members: { create: { userId: session!.id } },
     },
   });
   await logActivity({ action: "client.create", summary: `creó el cliente «${name}»`, clientId: client.id, entityType: "client", entityId: client.id });
+
+  // Carpeta en la Galería (casilla marcada por defecto en el alta): con el nombre del cliente
+  // en la RAÍZ de Entregas_LAB, vinculada de una vez. Mismas llaves que en la galería
+  // (escribir_discos + disco en rw). Si el disco falla, EL ALTA NO SE CAE: el cliente queda
+  // creado y la ficha enseña el aviso de «aún no tiene carpeta» para resolverlo después.
+  if (
+    formData.get("crearCarpeta") != null &&
+    session!.role !== "demo" &&
+    hasPermission(session, "escribir_discos") &&
+    galeriaEnabled()
+  ) {
+    try {
+      if (await galeriaWritable()) {
+        const rel = normalizeGaleriaRel(sanitizeGaleriaName(name));
+        const conflicto = await conflictoDeVinculo(rel, { clientId: client.id });
+        const st = conflicto ? null : await statGaleria(rel);
+        if (!conflicto && (!st || st.dir)) {
+          if (!st?.dir) await createGaleriaFolder("", name); // si ya existía (homónima sin dueño), se adopta
+          await db.client.update({ where: { id: client.id }, data: { galeriaFolder: rel } });
+          await logActivity({
+            action: "galeria.vinculo_cliente",
+            summary: st?.dir
+              ? `vinculó a ${name} con su carpeta «${rel}» de la galería`
+              : `creó la carpeta «${rel}» en la galería y la vinculó a ${name}`,
+            clientId: client.id,
+            entityType: "client",
+            entityId: client.id,
+          });
+          revalidatePath("/galeria");
+        }
+      }
+    } catch {
+      /* el disco no frena el alta: la carpeta queda pendiente y visible en la ficha */
+    }
+  }
+
   revalidatePath("/");
   revalidatePath("/proyectos");
   redirect(`/clientes/${client.id}`);

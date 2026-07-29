@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -12,6 +13,8 @@ import { ClientTopbarPeople } from "./client-topbar-people";
 import { ClientUsers, type ClientUserItem } from "./client-users";
 import { ClientEdit } from "./client-edit";
 import { ClientIdentity, ClientCover } from "./client-appearance";
+import { ClientGaleria, ClientGaleriaAviso, type CarpetaDisponible } from "./client-galeria";
+import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, statGaleria } from "@/lib/nas-galeria";
 import { ClientHero } from "@/components/client-hero";
 import { ClientViewNav } from "./client-view-nav";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
@@ -205,6 +208,33 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   // Acceso al cliente: miembros explícitos + a quién se le puede dar acceso.
   const canManage = canManageClient(client, session);
   const canEdit = canManage || hasPermission(session, "editar_clientes");
+
+  // ── Carpeta del cliente en la Galería (tarjeta de Ajustes + aviso en la ficha) ──
+  // La regla: todo cliente tiene su carpeta en la raíz de Entregas_LAB. Aquí solo se LEE el
+  // estado (¿hay vínculo?, ¿la carpeta sigue en el disco?, ¿qué carpetas de la raíz hay para
+  // vincular?); crear/vincular corre en galeria-actions con sus propias llaves.
+  const galeriaOn = galeriaEnabled() && (await galeriaReady());
+  const puedeCarpeta = canEdit && session?.role !== "demo" && hasPermission(session, "escribir_discos");
+  let galeriaEscritura = false;
+  let carpetaExiste = true;
+  let carpetasRaiz: CarpetaDisponible[] = [];
+  if (galeriaOn) {
+    galeriaEscritura = await galeriaWritable();
+    if (client.galeriaFolder) {
+      const st = await statGaleria(client.galeriaFolder).catch(() => null);
+      carpetaExiste = !!st?.dir;
+    }
+    if (puedeCarpeta) {
+      // Solo la raíz: la carpeta del cliente vive ahí por convención. Se marca la dueña de
+      // cada una para deshabilitarla en el selector (el servidor la rechazaría igual).
+      const [folders, duenos] = await Promise.all([
+        listGaleriaFolders("").catch(() => []),
+        db.client.findMany({ where: { galeriaFolder: { not: null }, id: { not: id } }, select: { name: true, galeriaFolder: true } }),
+      ]);
+      const duenoPorRel = new Map(duenos.map((c) => [c.galeriaFolder as string, c.name]));
+      carpetasRaiz = folders.map((f) => ({ rel: f.rel, name: f.name, ocupadaPor: duenoPorRel.get(f.rel) ?? null }));
+    }
+  }
 
   // ── Vista «Archivos»: TODOS los archivos de los proyectos visibles + el material de marca ──
   // Mismo patrón que la pestaña Entregables: se aplana con el proyecto de origen colgado.
@@ -417,6 +447,11 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         </div>
       ) : null}
 
+      {/* Empujón de la carpeta «casi obligatoria»: solo a quien puede crearla, y con el disco listo. */}
+      {galeriaOn && galeriaEscritura && puedeCarpeta && !client.galeriaFolder ? (
+        <ClientGaleriaAviso clientId={id} clientName={client.name} />
+      ) : null}
+
       <div className="mt-6">
         <ClientViewNav
           storageKey={`cliente-view`}
@@ -544,52 +579,111 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: "Ajustes",
               icon: <IconConfiguracion />,
               node: (
-                // REJILLA FLUIDA (Opción A): dos columnas del MISMO peso, sin espacio muerto.
-                // Izquierda: Identidad → Portada → Información. Derecha: Personas del portal →
-                // Acceso del equipo → Estado. Lo que se toca junto vive junto; en móvil se apilan.
-                <div className="grid items-start gap-5 lg:grid-cols-2">
-                  <div className="min-w-0 space-y-5">
-                    {canEdit ? (
-                      <ClientIdentity
-                        name={client.name}
-                        emoji={client.emoji}
-                        color={client.accentColor}
-                        photoUrl={client.photoUrl}
-                        logoUrl={client.logoUrl}
-                        logoBg={client.logoBg}
-                        onSave={saveClientAppearance.bind(null, client.id)}
-                        onClearImage={clearClientImage.bind(null, client.id)}
-                      />
-                    ) : null}
-                    {canEdit ? (
-                      <ClientCover
-                        bannerUrl={client.bannerUrl}
-                        onSave={saveClientAppearance.bind(null, client.id)}
-                        onClearCover={clearClientCover.bind(null, client.id)}
-                      />
-                    ) : null}
-                    {canEdit ? (
-                      <ClientEdit
-                        clientId={id}
-                        name={client.name}
-                        emoji={client.emoji}
-                        company={client.company}
-                        description={client.description}
-                        notes={client.notes}
-                      />
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
-                    )}
-                  </div>
-                  <div className="min-w-0 space-y-5">
-                    {clientUsers.length > 0 || isAdmin ? (
-                      <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
-                    ) : null}
-                    <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
-                    {canEdit ? (
-                      <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
-                    ) : null}
-                  </div>
+                // AJUSTES POR SECCIONES: cuatro bloques titulados —Presentación · Información y
+                // material · Personas y acceso · Ciclo de vida— con píldoras de salto arriba.
+                // Cada bloque agrupa lo que se toca junto; la zona de peligro CIERRA la página
+                // (nadie la pisa por accidente buscando otra cosa). En móvil todo se apila.
+                <div className="space-y-8">
+                  <nav className="flex flex-wrap gap-1.5" aria-label="Secciones de ajustes">
+                    {[
+                      ...(canEdit ? [["aj-presentacion", "Presentación"]] : []),
+                      ["aj-informacion", "Información y material"],
+                      ["aj-personas", "Personas y acceso"],
+                      ...(canEdit ? [["aj-ciclo", "Ciclo de vida"]] : []),
+                    ].map(([sec, label]) => (
+                      <a
+                        key={sec}
+                        href={`#${sec}`}
+                        className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        {label}
+                      </a>
+                    ))}
+                  </nav>
+
+                  {canEdit ? (
+                    <AjustesSeccion
+                      id="aj-presentacion"
+                      titulo="Presentación"
+                      desc="Cómo se ve el cliente en listas, cabeceras y su portal: color, foto, logo y portada."
+                    >
+                      <div className="grid items-start gap-5 lg:grid-cols-2">
+                        <ClientIdentity
+                          name={client.name}
+                          emoji={client.emoji}
+                          color={client.accentColor}
+                          photoUrl={client.photoUrl}
+                          logoUrl={client.logoUrl}
+                          logoBg={client.logoBg}
+                          onSave={saveClientAppearance.bind(null, client.id)}
+                          onClearImage={clearClientImage.bind(null, client.id)}
+                        />
+                        <ClientCover
+                          bannerUrl={client.bannerUrl}
+                          onSave={saveClientAppearance.bind(null, client.id)}
+                          onClearCover={clearClientCover.bind(null, client.id)}
+                        />
+                      </div>
+                    </AjustesSeccion>
+                  ) : null}
+
+                  <AjustesSeccion
+                    id="aj-informacion"
+                    titulo="Información y material"
+                    desc="Los datos de la cuenta y su carpeta de entregas en la Galería (con el color del cliente)."
+                  >
+                    <div className="grid items-start gap-5 lg:grid-cols-2">
+                      {canEdit ? (
+                        <ClientEdit
+                          clientId={id}
+                          name={client.name}
+                          emoji={client.emoji}
+                          company={client.company}
+                          description={client.description}
+                          notes={client.notes}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
+                      )}
+                      {galeriaOn ? (
+                        <ClientGaleria
+                          clientId={id}
+                          clientName={client.name}
+                          color={client.accentColor}
+                          folder={client.galeriaFolder}
+                          folderExists={carpetaExiste}
+                          puedeEscribir={puedeCarpeta}
+                          escrituraLista={galeriaEscritura}
+                          disponibles={carpetasRaiz}
+                        />
+                      ) : null}
+                    </div>
+                  </AjustesSeccion>
+
+                  <AjustesSeccion
+                    id="aj-personas"
+                    titulo="Personas y acceso"
+                    desc="Quién entra por el portal del cliente y qué parte del equipo ve esta cuenta."
+                  >
+                    <div className="grid items-start gap-5 lg:grid-cols-2">
+                      {clientUsers.length > 0 || isAdmin ? (
+                        <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
+                      ) : null}
+                      <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                    </div>
+                  </AjustesSeccion>
+
+                  {canEdit ? (
+                    <AjustesSeccion
+                      id="aj-ciclo"
+                      titulo="Ciclo de vida"
+                      desc="Activo o en el Archivo; al final, la papelera (borrado suave, siempre reversible)."
+                    >
+                      <div className="grid items-start gap-5 lg:grid-cols-2">
+                        <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
+                      </div>
+                    </AjustesSeccion>
+                  ) : null}
                 </div>
               ),
             },
@@ -599,5 +693,20 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         />
       </div>
     </div>
+  );
+}
+
+// Bloque titulado de la pestaña Ajustes: ancla (para las píldoras de salto), título y
+// descripción cortos, y dentro la rejilla que cada sección decida. scroll-mt deja aire
+// para la barra superior cuando se llega por ancla.
+function AjustesSeccion({ id, titulo, desc, children }: { id: string; titulo: string; desc: string; children: ReactNode }) {
+  return (
+    <section id={id} className="scroll-mt-24">
+      <div className="mb-3">
+        <h2 className="text-base font-semibold tracking-tight">{titulo}</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+      </div>
+      {children}
+    </section>
   );
 }

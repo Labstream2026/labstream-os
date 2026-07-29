@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { FolderPlus, Upload, Link2, Folder, ChevronRight, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tone } from "@/lib/colors";
 import { crearCarpetaGaleria, subirArchivoGaleria, vincularCarpetaCliente, vincularCarpetaProyecto } from "./herramientas-actions";
 
 // ── Barra de herramientas de la galería ──
@@ -11,8 +12,10 @@ import { crearCarpetaGaleria, subirArchivoGaleria, vincularCarpetaCliente, vincu
 // mantiene otra sesión; esta barra añade navegación por subcarpetas, crear/subir y el vínculo
 // con cliente/proyecto sin tocarlo. Comparten estado por la URL (?rel=), nada más.
 
-export type SubcarpetaChip = { rel: string; name: string };
-export type VinculoChip = { tipo: "cliente" | "proyecto"; id: string; nombre: string };
+// `dueno`: el CLIENTE al que está vinculada la carpeta — su chip se tiñe con el color del
+// cliente (la misma paleta de su cabecera), y el título dice de quién es.
+export type SubcarpetaChip = { rel: string; name: string; dueno?: { nombre: string; color: string | null } | null };
+export type VinculoChip = { tipo: "cliente" | "proyecto"; id: string; nombre: string; color?: string | null };
 export type OpcionVinculo = { id: string; nombre: string };
 
 export function GaleriaHerramientas({
@@ -148,15 +151,27 @@ export function GaleriaHerramientas({
               key={s.rel}
               type="button"
               onClick={() => navegar(s.rel)}
-              className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-xs hover:bg-accent"
+              title={s.dueno ? `Carpeta de ${s.dueno.nombre}` : undefined}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
+                // Carpeta de un cliente → teñida con SU color (hover un pelín más presente vía brightness).
+                s.dueno ? cn(tone(s.dueno.color ?? "slate").chip, "font-medium hover:brightness-95 dark:hover:brightness-110") : "bg-card hover:bg-accent",
+              )}
             >
-              <Folder className="size-3.5 text-muted-foreground" />
+              <Folder className={cn("size-3.5", s.dueno ? "opacity-70" : "text-muted-foreground")} />
               <span className="max-w-[14rem] truncate">{s.name.replace(/_/g, " ")}</span>
             </button>
           ))}
 
           {vinculos.map((v) => (
-            <span key={`${v.tipo}-${v.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs">
+            <span
+              key={`${v.tipo}-${v.id}`}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
+                // El chip del vínculo de cliente también lleva su color: se ve al entrar a la carpeta.
+                v.tipo === "cliente" && v.color ? tone(v.color).chip : "border-primary/30 bg-primary/5",
+              )}
+            >
               <Link2 className="size-3.5" />
               {v.tipo === "cliente" ? "Cliente:" : "Proyecto:"} <span className="font-medium">{v.nombre}</span>
               {puedeEscribir && (
