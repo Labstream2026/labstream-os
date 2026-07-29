@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Download, Film, Folder, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Download, Film, Folder, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
 import type { GaleriaFolder, GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
 
 // Galería de entregas: la línea de tiempo del material que hay en LabTem.
@@ -169,13 +170,18 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
             {plural(scan.videos, "video", "videos")} · {pesar(scan.bytes)}
           </p>
         </div>
+        <div className="ml-auto flex items-center gap-2">
+          {/* key: al cambiar de entrega el componente se remonta y el enlace de la anterior
+              desaparece solo. Enseñar el enlace de otra carpeta sería el peor error aquí. */}
+          <Compartir key={rel} rel={rel} />
         <button
           onClick={recargar}
-          className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
+          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
           title="Volver a leer la carpeta"
         >
           <RefreshCw className={`size-4 ${cargando ? "animate-spin" : ""}`} /> Actualizar
         </button>
+        </div>
       </div>
 
       {scan.truncated && (
@@ -226,6 +232,83 @@ export function GaleriaCliente({ relInicial }: { relInicial: string }) {
           onCambiar={(x) => setAbierto(x)}
         />
       )}
+    </div>
+  );
+}
+
+// ── Compartir con el cliente ───────────────────────────────────────────────────
+
+function Compartir({ rel }: { rel: string }) {
+  const [url, setUrl] = React.useState<string | null>(null);
+  const [copiado, setCopiado] = React.useState(false);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [retirada, setRetirada] = React.useState(false);
+
+  const generar = async () => {
+    setOcupado(true);
+    setError(null);
+    const r = await crearEnlaceEntrega(rel);
+    setOcupado(false);
+    if ("error" in r) setError(r.error);
+    else {
+      setUrl(`${window.location.origin}${r.url}`);
+      setRetirada(false);
+    }
+  };
+
+  const retirar = async () => {
+    setOcupado(true);
+    setError(null);
+    const r = await revocarEnlaceEntrega(rel);
+    setOcupado(false);
+    if ("error" in r) setError(r.error);
+    else {
+      setRetirada(true);
+      setUrl(null);
+    }
+  };
+
+  const copiar = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1800);
+    } catch {
+      setError("El navegador no dejó copiar; selecciona el enlace a mano.");
+    }
+  };
+
+  return (
+    <div className="relative">
+      {url ? (
+        <div className="flex items-center gap-1.5 rounded-lg border bg-card px-2 py-1.5">
+          <input
+            readOnly
+            value={url}
+            onFocus={(e) => e.currentTarget.select()}
+            className="w-44 bg-transparent text-xs text-muted-foreground outline-none sm:w-64"
+          />
+          <button onClick={copiar} className="rounded-md p-1 transition hover:bg-accent" title="Copiar enlace">
+            {copiado ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+          </button>
+          <button onClick={retirar} disabled={ocupado} className="rounded-md p-1 transition hover:bg-accent" title="Retirar el acceso ya">
+            <ShieldOff className="size-4 text-destructive" />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={generar}
+          disabled={ocupado}
+          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition hover:bg-accent disabled:opacity-50"
+          title="Genera un enlace para que el cliente vea esta entrega sin cuenta"
+        >
+          {ocupado ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+          {retirada ? "Acceso retirado · volver a compartir" : "Compartir con el cliente"}
+        </button>
+      )}
+      {error && <p className="absolute right-0 top-full mt-1 whitespace-nowrap text-xs text-destructive">{error}</p>}
     </div>
   );
 }

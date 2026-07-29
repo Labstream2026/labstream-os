@@ -1,0 +1,74 @@
+"use server";
+
+import { galeriaSession } from "@/lib/galeria-access";
+import { normalizeGaleriaRel } from "@/lib/nas-galeria";
+import { signGaleriaToken } from "@/lib/galeria-token";
+import { revocarEntrega, reactivarEntrega, entregaRevocada } from "@/lib/galeria-entrega";
+import { logActivity } from "@/lib/activity";
+
+// Acciones del EQUIPO sobre el enlace que se le manda al cliente. El cliente nunca llega aquí:
+// entra por /galeria/[token], que no pasa por sesión.
+
+type Resultado = { ok: true; url?: string; revocada?: boolean } | { error: string };
+
+function msg(e: unknown, porDefecto: string): string {
+  return e instanceof Error && e.message ? e.message : porDefecto;
+}
+
+// Genera (o regenera) el enlace de una entrega. El token lleva dentro la caducidad, así que
+// «renovar» es simplemente volver a firmarlo: se llama a esto otra vez y se comparte el nuevo.
+export async function crearEnlaceEntrega(rel: string, dias = 90): Promise<Resultado> {
+  const session = await galeriaSession();
+  if (!session || session.role === "demo") return { error: "Sin permiso" };
+  try {
+    const norm = normalizeGaleriaRel(rel);
+    if (!norm) return { error: "Hay que elegir una entrega" };
+    // Regenerar el enlace de una entrega retirada la vuelve a poner en pie: si no, el equipo
+    // crearía un enlace nuevo que el guardián seguiría rechazando, sin entender por qué.
+    if (await entregaRevocada(norm)) await reactivarEntrega(norm);
+    const token = signGaleriaToken(norm, dias);
+    await logActivity({
+      action: "galeria.enlace",
+      summary: `generó el enlace de la entrega «${norm}» (${dias} días)`,
+      entityType: "galeria",
+      entityId: norm,
+      userId: session.id,
+    });
+    return { ok: true, url: `/galeria/${token}` };
+  } catch (e) {
+    return { error: msg(e, "No se pudo generar el enlace") };
+  }
+}
+
+// Retira el acceso YA, sin esperar a que caduque el token. Es lo que se pulsa cuando un enlace
+// se comparte donde no debía.
+export async function revocarEnlaceEntrega(rel: string): Promise<Resultado> {
+  const session = await galeriaSession();
+  if (!session || session.role === "demo") return { error: "Sin permiso" };
+  try {
+    const norm = normalizeGaleriaRel(rel);
+    if (!norm) return { error: "Hay que elegir una entrega" };
+    await revocarEntrega(norm);
+    await logActivity({
+      action: "galeria.revocar",
+      summary: `retiró el acceso a la entrega «${norm}»`,
+      entityType: "galeria",
+      entityId: norm,
+      userId: session.id,
+    });
+    return { ok: true, revocada: true };
+  } catch (e) {
+    return { error: msg(e, "No se pudo retirar el acceso") };
+  }
+}
+
+// Estado actual, para que el botón diga la verdad al pintarse.
+export async function estadoEntrega(rel: string): Promise<{ revocada: boolean }> {
+  const session = await galeriaSession();
+  if (!session) return { revocada: false };
+  try {
+    return { revocada: await entregaRevocada(normalizeGaleriaRel(rel)) };
+  } catch {
+    return { revocada: false };
+  }
+}
