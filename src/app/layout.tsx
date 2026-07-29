@@ -20,7 +20,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Labstream OS",
+  // `template` deja que cada página ponga lo SUYO delante ("Hotjamin Orgánicos · Labstream
+  // OS"). Sin esto todas las pestañas se llamaban igual y con varias abiertas no había forma
+  // de distinguirlas — ni en el navegador ni en la app de escritorio, que lee este título.
+  title: { default: "Labstream OS", template: "%s · Labstream OS" },
   description: "Sistema operativo colaborativo para producción audiovisual de Labstream Studio.",
   // Permite "Añadir a pantalla de inicio" con aspecto de app en iOS.
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Labstream OS" },

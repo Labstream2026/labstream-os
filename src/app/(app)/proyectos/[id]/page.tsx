@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
@@ -69,6 +70,39 @@ const TABS = [
   { key: "actividad", label: "Actividad", group: "operacion" },
 ];
 const GROUP_LABEL: Record<string, string> = { contenido: "Contenido", entregables: "Entregables", operacion: "Operación" };
+
+// Título de la pestaña: el nombre del proyecto y dónde estás dentro de él. Antes TODAS las
+// páginas se llamaban "Labstream OS", así que dos proyectos abiertos —o el mismo proyecto en
+// dos secciones— daban pestañas idénticas. En el resumen se pone el cliente, que es lo que
+// ubica; en las demás, la sección, que es lo que distingue dos pestañas del mismo proyecto.
+//
+// Consulta aparte de la de la página (mínima) y con el MISMO candado de acceso: sin él, el
+// título revelaría el nombre de un proyecto privado a quien la página le responde 404.
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const { tab = "resumen" } = await searchParams;
+  const session = await getSession();
+  const project = await db.project.findUnique({
+    where: { id },
+    select: {
+      name: true,
+      isPrivate: true,
+      leadId: true,
+      members: { select: { userId: true, role: true } },
+      client: { select: { name: true, members: { select: { userId: true, role: true } } } },
+    },
+  });
+  if (!project || !canAccessProject(project, session)) return { title: "Proyecto" };
+  const seccion = TABS.find((t) => t.key === tab)?.label;
+  const cola = seccion && tab !== "resumen" ? seccion : project.client?.name;
+  return { title: cola ? `${project.name} · ${cola}` : project.name };
+}
 
 export default async function ProyectoPage({
   params,

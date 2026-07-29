@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -38,6 +39,25 @@ import { NotesTab } from "@/components/notes/notes-tab";
 import { notesFor } from "@/lib/notes-for";
 
 export const dynamic = "force-dynamic";
+
+// Título de la pestaña: el nombre del cliente, no "Labstream OS" como todas las demás.
+// Con el mismo candado que la página (permiso de zona + acceso a ESTE cliente), para que el
+// título no revele la cartera de clientes a quien no la puede ver.
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const session = await getSession();
+  if (!hasPermission(session, "ver_clientes")) return { title: "Cliente" };
+  const client = await db.client.findUnique({
+    where: { id },
+    select: {
+      name: true,
+      members: { select: { userId: true, role: true } },
+      projects: { select: { leadId: true, members: { select: { userId: true } } } },
+    },
+  });
+  if (!client || !canAccessClient(client, session)) return { title: "Cliente" };
+  return { title: client.name };
+}
 
 export default async function ClientePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
