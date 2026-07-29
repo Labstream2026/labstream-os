@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { resolverEntrega, type EntregaEstado } from "@/lib/galeria-entrega";
+import { resolverEntrega, registrarVisita, type EntregaEstado } from "@/lib/galeria-entrega";
 import { formatBogotaDate } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 import { SalaCliente } from "./sala-cliente";
@@ -49,6 +49,7 @@ const TITULO_FALLO: Record<Exclude<EntregaEstado, { ok: true }>["motivo"], strin
   invalido: "Este enlace no es válido",
   caducado: "Este enlace ya caducó",
   revocado: "Este enlace se retiró",
+  reemplazado: "Hay un enlace más nuevo",
   sin_carpeta: "Tu galería todavía no está lista",
 };
 
@@ -91,6 +92,10 @@ function vencimientoDelToken(token: string): { largo: string; corto: string } | 
 export default async function GaleriaSalaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const estado = await resolverEntrega(token);
+  // Que el cliente ABRIÓ la sala. Hasta ahora solo quedaba rastro de las descargas, así que no
+  // había forma de saber si el enlace se había mirado siquiera. Va aquí y no en las rutas de
+  // material: si fuera allí, una galería de 200 fotos contaría 200 visitas.
+  if (estado.ok) await registrarVisita(estado.folderRel);
   if (!estado.ok) return <NoDisponible motivo={estado.motivo} mensaje={estado.mensaje} />;
 
   const vence = vencimientoDelToken(token);

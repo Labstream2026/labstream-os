@@ -7,6 +7,8 @@ import { db } from "@/lib/db";
 import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import { GaleriaCliente } from "./galeria-cliente";
 import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
+import { EntregasCompartidas } from "./entregas-compartidas";
+import { listarEntregas } from "@/lib/galeria-entrega";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +105,17 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
       {/* `rel` viene del servidor y es LA fuente de verdad: el visor navega con router.push
           y las dos mitades (barra y cuadrícula) siempre ven la misma carpeta. */}
       <GaleriaCliente rel={relNorm} puedeEscribir={puedeEscribir && escrituraLista} duenos={Object.fromEntries(duenoPorRel)} />
+      <EntregasCompartidas
+        entregas={(await listarEntregas()).map((e) => ({
+          folderRel: e.folderRel,
+          titulo: e.titulo,
+          version: e.version,
+          revocada: e.revocada,
+          visitas: e.visitas,
+          ultimaVisita: e.ultimaVisitaAt ? e.ultimaVisitaAt.toISOString() : null,
+          huerfana: e.huerfana,
+        }))}
+      />
     </div>
   );
 }
