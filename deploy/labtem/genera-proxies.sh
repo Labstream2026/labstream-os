@@ -19,11 +19,11 @@
 set -u
 
 # ── Configuración ──
-RAIZ="${RAIZ:-/volume1/Entregas_LAB}"          # raíz de la galería en LabTem
+RAIZ="${RAIZ:-/volume5/Entregas_LAB}"          # raíz de la galería en LabTem
 FFMPEG="${FFMPEG:-/var/packages/ffmpeg7/target/bin/ffmpeg}" # el de jellyfin (SynoCommunity); ajusta si vive en otra ruta
 ALTO=720                                        # altura de la copia ligera
 CALIDAD=23                                      # global_quality QSV / CRF x264 (menor = mejor)
-LOG="/var/log/genera-proxies.log"
+LOG="${LOG:-/var/log/genera-proxies.log}"
 MAX_POR_TANDA="${MAX_POR_TANDA:-40}"            # tope por corrida: tandas cortas y frecuentes
 
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
