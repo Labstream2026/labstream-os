@@ -36,7 +36,10 @@ async function ensureWrite(projectId: string, perm?: string): Promise<SessionUse
 // Con carpeta vinculada, las subidas de Archivos van ahí por defecto y la pestaña muestra
 // la carpeta en vivo.
 export async function setProjectOpsFolder(projectId: string, rel: string | null): Promise<{ ok: true } | { error: string }> {
+  // `escribir_discos` además de subir_archivos: este vínculo decide A QUÉ carpeta de la share
+  // aterrizan las subidas del proyecto — re-apuntarlo es, en la práctica, escribir en el disco.
   const session = await ensureWrite(projectId, "subir_archivos");
+  if (!hasPermission(session, "escribir_discos")) return { error: "Necesitas el permiso «Escribir en los discos»." };
   if (!opsEnabled()) return { error: "Operaciones_LAB no está configurado" };
   let value: string | null = null;
   if (rel !== null) {

@@ -19,7 +19,7 @@ import { RolesManager } from "@/app/(app)/configuracion/roles-manager";
 import { UserPermissions } from "@/app/(app)/configuracion/user-permissions";
 import { IntegrationsPanel } from "@/app/(app)/configuracion/integrations-panel";
 import { CalendarSubscribe } from "@/app/(app)/perfil/calendar-subscribe";
-import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureDiscosDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "@/app/(app)/configuracion/labels-manager";
 import { MarcebotSettings } from "@/app/(app)/configuracion/marcebot-settings";
 import { NotificationSettingsPanel } from "@/app/(app)/configuracion/notification-settings-panel";
@@ -178,6 +178,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   await ensureFinanzasDefault();
   await ensureVentasFinanzas();
   await ensureNotasDefault();
+  await ensureDiscosDefault();
   await ensureClienteDefaults();
   await ensureClienteWriteDefaults();
   await ensureClienteCollabDefaults();

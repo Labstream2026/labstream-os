@@ -1,14 +1,18 @@
 import { redirect } from "next/navigation";
 import { Images } from "lucide-react";
-import { getSession } from "@/lib/auth";
-import { galeriaEnabled, galeriaReady } from "@/lib/nas-galeria";
+import { getSession, hasPermission } from "@/lib/auth";
+import { canAccessProject } from "@/lib/project-access";
+import { accessibleClientWhere } from "@/lib/client-access";
+import { db } from "@/lib/db";
+import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import { GaleriaCliente } from "./galeria-cliente";
+import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
 
 export const dynamic = "force-dynamic";
 
-// Galería de entregas: el material que vive en LabTem (el segundo NAS), montado en solo
-// lectura dentro del contenedor. Solo equipo; el cliente tendrá su propia sala con enlace
-// firmado, que no pasa por aquí.
+// Galería de entregas: el material que vive en LabTem (el segundo NAS). El visor (línea de
+// tiempo) es GaleriaCliente; encima va la barra de herramientas: subcarpetas, crear, subir y
+// el vínculo carpeta ↔ cliente/proyecto. Solo equipo; el cliente entra por /galeria/[token].
 export default async function GaleriaPage({ searchParams }: { searchParams: Promise<{ rel?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -30,9 +34,62 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
     );
   }
 
+  // Ruta actual saneada (si viene rota, se cae a la raíz en vez de reventar la página).
+  let relNorm = "";
+  try {
+    relNorm = normalizeGaleriaRel(rel || "");
+  } catch {
+    relNorm = "";
+  }
+
+  // Subcarpetas del nivel actual (la línea de tiempo las aplana; la barra las devuelve a la
+  // vista) + vínculos de ESTA carpeta + catálogos para el selector de vincular.
+  const puedeEscribir = session.role !== "demo" && hasPermission(session, "escribir_discos");
+  const [subcarpetas, escrituraLista, clienteVinculado, proyectoVinculado, clientes, proyectos] = await Promise.all([
+    listGaleriaFolders(relNorm).catch(() => []),
+    galeriaWritable(),
+    relNorm ? db.client.findFirst({ where: { galeriaFolder: relNorm }, select: { id: true, name: true } }) : null,
+    relNorm ? db.project.findFirst({ where: { galeriaFolder: relNorm }, select: { id: true, name: true } }) : null,
+    // Solo lo que esta persona puede VER: sin el filtro, el selector le enumeraba los
+    // clientes y proyectos privados ajenos a cualquiera con permiso de escribir.
+    puedeEscribir
+      ? db.client.findMany({ where: { AND: [accessibleClientWhere(session), { archivedAt: null }] }, orderBy: { name: "asc" }, select: { id: true, name: true } })
+      : [],
+    puedeEscribir
+      ? db.project
+          .findMany({
+            where: { archivedAt: null, finishedAt: null },
+            orderBy: { name: "asc" },
+            select: {
+              id: true,
+              name: true,
+              isPrivate: true,
+              leadId: true,
+              members: { select: { userId: true, role: true } },
+              client: { select: { name: true } },
+            },
+          })
+          .then((ps) => ps.filter((p) => canAccessProject(p, session)))
+      : [],
+  ]);
+
+  const vinculos: VinculoChip[] = [
+    ...(clienteVinculado ? [{ tipo: "cliente" as const, id: clienteVinculado.id, nombre: clienteVinculado.name }] : []),
+    ...(proyectoVinculado ? [{ tipo: "proyecto" as const, id: proyectoVinculado.id, nombre: proyectoVinculado.name }] : []),
+  ];
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
-      <GaleriaCliente relInicial={rel || ""} />
+      <GaleriaHerramientas
+        rel={relNorm}
+        subcarpetas={subcarpetas.map((f) => ({ rel: f.rel, name: f.name }))}
+        vinculos={vinculos}
+        clientes={clientes.map((c) => ({ id: c.id, nombre: c.name }))}
+        proyectos={proyectos.map((p) => ({ id: p.id, nombre: p.client ? `${p.name} · ${p.client.name}` : p.name }))}
+        puedeEscribir={puedeEscribir}
+        escrituraLista={escrituraLista}
+      />
+      <GaleriaCliente relInicial={relNorm} />
     </div>
   );
 }

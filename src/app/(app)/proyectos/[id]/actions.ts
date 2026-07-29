@@ -2525,7 +2525,9 @@ export async function uploadProjectFiles(
   // como FileAsset para chips/permisos/auditoría. El checkbox «internal» fuerza el storage
   // interno; el cliente del portal siempre sube a interno (no maneja rutas del NAS).
   let opsDir: string | null = null;
-  if (!formData.get("internal") && session.role !== "cliente") {
+  // Escribir DIRECTO en la share exige además `escribir_discos`; sin él, la subida cae al
+  // storage interno de siempre (no se rechaza: el archivo llega igual, solo que adentro).
+  if (!formData.get("internal") && session.role !== "cliente" && hasPermission(session, "escribir_discos")) {
     const proj = await db.project.findUnique({ where: { id: projectId }, select: { opsFolder: true } });
     if (proj?.opsFolder && (await opsReady())) opsDir = proj.opsFolder;
   }

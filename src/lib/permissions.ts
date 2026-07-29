@@ -47,6 +47,11 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "ver_archivos", label: "Ver archivos", category: "Archivos" },
   { key: "subir_archivos", label: "Subir archivos", category: "Archivos" },
   { key: "eliminar_archivos", label: "Eliminar archivos", category: "Archivos" },
+  // Escritura DIRECTA en los discos montados (Operaciones_LAB y la galería de LabTem):
+  // crear carpetas, subir material y mandar a la papelera de red. Aparte de subir_archivos
+  // porque aquí se toca la carpeta compartida real del equipo (visible por SMB), no el
+  // storage interno de la app — un descuido pesa mucho más.
+  { key: "escribir_discos", label: "Escribir en los discos (Operaciones y Galería)", category: "Archivos" },
   // Cotizaciones
   { key: "ver_cotizaciones", label: "Ver cotizaciones", category: "Cotizaciones" },
   { key: "crear_cotizaciones", label: "Crear cotizaciones", category: "Cotizaciones" },
@@ -241,6 +246,28 @@ export async function ensureNotasDefault(): Promise<void> {
   const roles = await db.role.findMany({ select: { id: true } });
   const data = roles.flatMap((r) => perms.map((p) => ({ roleId: r.id, permissionId: p.id })));
   if (data.length) await db.rolePermission.createMany({ data, skipDuplicates: true });
+}
+
+// `escribir_discos` es NUEVO y llega con las acciones de escritura sobre los discos montados
+// (Operaciones_LAB ya tenía crear/subir/mover/borrar SIN gate de permiso: solo excluía a
+// cliente/demo). Para no quitarle a nadie lo que ya podía hacer, la primera vez se concede a
+// todos los roles que hoy tienen subir_archivos, MENOS cliente y demo (externos/vitrina).
+// Idempotente: si algún rol interno ya lo tiene, el backfill ya corrió.
+export async function ensureDiscosDefault(): Promise<void> {
+  const perm = await db.permission.findUnique({ where: { key: "escribir_discos" }, select: { id: true } });
+  if (!perm) return;
+  const already = await db.rolePermission.count({ where: { permissionId: perm.id } });
+  if (already > 0) return;
+  const conSubir = await db.rolePermission.findMany({
+    where: { permission: { key: "subir_archivos" }, role: { key: { notIn: ["cliente", "demo"] } } },
+    select: { roleId: true },
+  });
+  if (conSubir.length) {
+    await db.rolePermission.createMany({
+      data: [...new Set(conSubir.map((r) => r.roleId))].map((roleId) => ({ roleId, permissionId: perm.id })),
+      skipDuplicates: true,
+    });
+  }
 }
 
 // El reporte de "Cumplimiento del equipo" es sensible (mide a cada persona). Por

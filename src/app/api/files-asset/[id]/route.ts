@@ -99,6 +99,44 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     return serveDisk(req, opsFile, file.name, opsType, opsIsVideo, wantInline);
   }
 
+  // Archivo VIVO de la galería de LabTem (kind GALERIA): file.path es relativo a
+  // NAS_GALERIA_DIR. Para VER un video se prefiere la copia ligera H.264 que fabrica LabTem
+  // con su iGPU (.proxy/<nombre>.mp4): reproduce al instante aunque el original sea un MXF o
+  // ProRes de gigas. Para DESCARGAR (?download=1) siempre el original, byte a byte.
+  if (file.kind === "GALERIA") {
+    const { resolveGaleriaFile, galeriaThumb, galeriaKind } = await import("@/lib/nas-galeria");
+    const galType = mimeFor(file.name, file.mime);
+    // El tipo lo decide el CATÁLOGO de la galería, no la tabla MIME: un master .mxf/.braw sale
+    // de mimeFor como application/* y la regex local tampoco lo conoce — con eso la sala de
+    // revisión recibía el PÓSTER en vez del video y la copia ligera no se usaba nunca, que es
+    // justo el caso para el que existe.
+    const galIsVideo = galeriaKind(file.name) === "video";
+    if (wantInline && !galIsVideo) {
+      try {
+        const webp = await galeriaThumb(file.path, 1600);
+        if (webp) {
+          return new NextResponse(new Uint8Array(webp), {
+            headers: {
+              "Content-Type": "image/webp",
+              "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+              "X-Content-Type-Options": "nosniff",
+              "Cache-Control": "private, no-store",
+            },
+          });
+        }
+      } catch {
+        /* sin miniatura → sigue con el original */
+      }
+    }
+    const info = await resolveGaleriaFile(file.path, wantInline && galIsVideo);
+    if (!info) return new NextResponse("El archivo ya no está en el disco (¿movido por SMB o LabTem apagado?)", { status: 404 });
+    // ¿Se resolvió la copia ligera? Se sabe por dónde vive (dentro de `.proxy/`), no por el
+    // nombre: entonces el tipo es el de la copia (mp4), no el del original.
+    const esProxy = /[\\/]\.proxy[\\/]/.test(info.abs);
+    const outType = esProxy ? "video/mp4" : galType;
+    return serveDisk(req, info.abs, esProxy ? info.name : file.name, outType, galIsVideo, wantInline);
+  }
+
   // La sala de revisión reproduce SIEMPRE este archivo tal cual (mismo origen, con Range): así
   // el segundo y la captura del fotograma no dependen de ninguna copia transcodificada.
   const servePath = file.path;

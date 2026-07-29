@@ -35,7 +35,7 @@ export async function opsReady(): Promise<boolean> {
 // ── Rutas seguras ──────────────────────────────────────────────────────────────
 
 // Basura que no se lista ni se sirve: metadatos de Synology, papelera, fantasmas de macOS/Windows.
-const JUNK = new Set(["@eaDir", "#recycle", "#snapshot", ".DS_Store", "Thumbs.db", "desktop.ini", ".SynologyWorkingDirectory", "@tmp"]);
+const JUNK = new Set(["@eaDir", "#recycle", "#snapshot", ".DS_Store", "Thumbs.db", "desktop.ini", ".SynologyWorkingDirectory", "@tmp", "Backups_LabstreamOS"]);
 export function isJunkName(name: string): boolean {
   return JUNK.has(name) || name.startsWith("._") || name.startsWith(".");
 }
@@ -54,9 +54,16 @@ export function normalizeOpsRel(rel: string): string {
 
 // Ruta absoluta con guardas: dentro de la raíz y sin enlaces simbólicos que escapen
 // (se compara el realpath del ancestro existente más profundo contra el realpath de la raíz).
+// La carpeta de copias de seguridad de la app vive (hoy) DENTRO de la share
+// (deploy/backup-nas.sh → Backups_LabstreamOS) y cada .tar.gz lleva el .env de producción y
+// el volcado completo de la base. Mientras no se mueva a otro sitio, desde la app ni se lista,
+// ni se sirve, ni se toca: un solo punto de corte aquí cubre leer, escribir, mover y borrar.
+const BACKUPS_DIR = "Backups_LabstreamOS";
+
 export async function opsAbs(rel: string): Promise<string> {
   if (!OPS_DIR) throw new Error("Operaciones_LAB no está configurado");
   const norm = normalizeOpsRel(rel);
+  if (norm === BACKUPS_DIR || norm.startsWith(BACKUPS_DIR + "/")) throw new Error("ruta inválida");
   const root = path.resolve(OPS_DIR);
   const full = path.resolve(root, norm);
   if (full !== root && !full.startsWith(root + path.sep)) throw new Error("ruta inválida");

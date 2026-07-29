@@ -17,7 +17,14 @@ import { optimizeToWebp } from "@/lib/image";
 //    el montaje no rompen nada, la sección simplemente no aparece.
 //  - Se lee EN VIVO del disco. No hay índice en BD que se desincronice cuando el equipo
 //    mueve archivos por SMB.
-//  - La app NUNCA escribe en la carpeta: es material entregable, se toca solo desde el NAS.
+//  - ESCRITURA (decisión revisada 2026-07-30): la app SÍ escribe, pero acotada y reversible.
+//    El módulo nació de solo lectura («material entregable, se toca solo desde el NAS»); el
+//    flujo real del equipo pide lo contrario: subir material, crear la carpeta del cliente y
+//    atar entregables a archivos del disco. Las guardas que sustituyen a la prohibición:
+//    permiso `escribir_discos` + centinela ESCRITURA_SENTINEL en la raíz (sin él, ni un byte:
+//    distingue el disco real de la carpeta local vacía que queda si el montaje NFS se cae),
+//    nunca sobreescribir (nombre (2)), escribir a temporal y renombrar (nada a medias con
+//    nombre bueno), y borrar = mover a #recycle (recuperable desde DSM).
 //  - Se filtra la basura de Synology/macOS/Windows.
 //
 // LabTem sirve los ORIGINALES. Las copias ligeras que fabrica su GPU viven aparte (carpeta
@@ -495,4 +502,177 @@ export async function galeriaThumb(rel: string, maxEdge = 640): Promise<Buffer |
   if (!webp) return null; // sharp no supo con este formato: sin miniatura, sin romper nada
   await writeRelBuffer(cacheRel, webp).catch(() => {});
   return webp;
+}
+
+// ── Escribir (acotado; ver el encabezado del módulo) ───────────────────────────
+
+// Centinela creado A MANO una sola vez en la raíz de la share real de LabTem. Doble trabajo:
+// autoriza la escritura desde la app Y distingue «disco montado» de «el montaje NFS se cayó y
+// esto es la carpeta local vacía de debajo» — escribir ahí sería tragarse material en un
+// directorio que nadie mira. Sin centinela: solo lectura, como siempre.
+export const ESCRITURA_SENTINEL = ".labstream-escritura";
+
+export async function galeriaWritable(): Promise<boolean> {
+  if (!GALERIA_DIR) return false;
+  try {
+    return (await fs.stat(path.join(path.resolve(GALERIA_DIR), ESCRITURA_SENTINEL))).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function assertGaleriaEscritura(): Promise<void> {
+  if (!GALERIA_DIR) throw new Error("La galería no está configurada en este servidor.");
+  if (!(await galeriaReady())) throw new Error("El disco de la galería no responde (¿LabTem apagado o el montaje caído?).");
+  if (!(await galeriaWritable())) {
+    throw new Error(
+      `La galería está en solo lectura. Para habilitar la escritura: montaje NFS en lectura-escritura y el archivo ${ESCRITURA_SENTINEL} en la raíz de la share de LabTem.`,
+    );
+  }
+}
+
+// Errores de disco → mensajes que el equipo entiende (el código EROFS no le dice nada a nadie).
+function galeriaFsError(e: unknown): Error {
+  const code = (e as NodeJS.ErrnoException)?.code;
+  if (code === "EROFS") return new Error("El montaje de LabTem está en SOLO LECTURA: hay que remontarlo en lectura-escritura (rw).");
+  if (code === "EACCES" || code === "EPERM") return new Error("LabTem rechazó la escritura (permisos NFS/share del usuario del contenedor).");
+  if (code === "ENOSPC") return new Error("El disco de LabTem está lleno.");
+  if (code === "ESTALE" || code === "EIO") return new Error("El montaje de LabTem se cayó a mitad de la operación. Revisa el NAS y reintenta.");
+  return e instanceof Error ? e : new Error("No se pudo escribir en la galería.");
+}
+
+// Nombre válido en la share (visible por SMB): tildes y espacios se conservan; fuera lo que
+// rompe rutas o Windows. Mismo criterio que Operaciones.
+export function sanitizeGaleriaName(name: string): string {
+  const clean = String(name || "")
+    .replace(/[/\\:*?"<>|\u0000-\u001f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.#@]+/, "")
+    .slice(0, 180)
+    .trim();
+  if (!clean) throw new Error("nombre inválido");
+  return clean;
+}
+
+export async function statGaleria(rel: string): Promise<{ name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number } | null> {
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) return { name: "", rel: "", dir: true, size: null, mtimeMs: 0 };
+  try {
+    const st = await fs.stat(await galeriaAbs(norm));
+    const name = norm.split("/").pop() || "";
+    return { name, rel: norm, dir: st.isDirectory(), size: st.isFile() ? st.size : null, mtimeMs: st.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+// Ruta libre: si el nombre existe, «nombre (2).ext», etc. NUNCA se sobreescribe material.
+async function freeGaleriaName(absDir: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 0; i < 200; i++) {
+    const candidate = i === 0 ? name : `${base} (${i + 1})${ext}`;
+    try {
+      await fs.access(path.join(absDir, candidate));
+    } catch {
+      return candidate;
+    }
+  }
+  throw new Error("demasiadas colisiones de nombre");
+}
+
+export async function createGaleriaFolder(relDir: string, name: string): Promise<string> {
+  await assertGaleriaEscritura();
+  const dirNorm = normalizeGaleriaRel(relDir);
+  const clean = sanitizeGaleriaName(name);
+  try {
+    const abs = path.join(await galeriaAbs(dirNorm), clean);
+    await fs.mkdir(abs, { recursive: false }).catch((e) => {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    });
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+  return dirNorm ? `${dirNorm}/${clean}` : clean;
+}
+
+// Crea (si hace falta) toda la ruta de una subcarpeta ya normalizada — p. ej. la subcarpeta
+// automática <carpetaCliente>/<proyecto>. mkdir recursivo, cada tramo ya saneado por quien llama.
+export async function ensureGaleriaDir(rel: string): Promise<string> {
+  await assertGaleriaEscritura();
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) throw new Error("falta la carpeta destino");
+  try {
+    await fs.mkdir(await galeriaAbs(norm), { recursive: true });
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+  return norm;
+}
+
+// Guarda un archivo: primero a un temporal oculto y luego rename. Si la subida muere a medias
+// no queda un archivo mocho con nombre bueno que alguien entregue por error — queda un
+// .lstmp-* que isJunkName ya esconde y que cualquiera puede purgar.
+export async function writeGaleria(relDir: string, filename: string, buf: Buffer): Promise<string> {
+  await assertGaleriaEscritura();
+  const dirNorm = normalizeGaleriaRel(relDir);
+  try {
+    const absDir = await galeriaAbs(dirNorm);
+    if (!(await fs.stat(absDir)).isDirectory()) throw new Error("el destino no es una carpeta");
+    const limpio = sanitizeGaleriaName(filename);
+    const tmp = path.join(absDir, `.lstmp-${crypto.randomBytes(6).toString("hex")}`);
+    try {
+      await fs.writeFile(tmp, buf);
+      // El estreno del nombre va con link(2), que FALLA si el destino existe — rename pisa en
+      // silencio, y dos subidas simultáneas del mismo nombre podían verse «libre» a la vez y
+      // una tragarse a la otra. Si el sistema de archivos no sabe de enlaces duros, se cae al
+      // rename de antes (misma ventana mínima de siempre, nunca peor).
+      let name = await freeGaleriaName(absDir, limpio);
+      for (let intento = 0; ; intento++) {
+        try {
+          await fs.link(tmp, path.join(absDir, name));
+          await fs.rm(tmp, { force: true }).catch(() => {});
+          break;
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code;
+          if (code === "EEXIST" && intento < 10) {
+            name = await freeGaleriaName(absDir, limpio); // perdimos la carrera: siguiente libre
+            continue;
+          }
+          if (code === "EPERM" || code === "ENOTSUP" || code === "EOPNOTSUPP" || code === "ENOSYS") {
+            await fs.rename(tmp, path.join(absDir, name));
+            break;
+          }
+          throw e;
+        }
+      }
+      return dirNorm ? `${dirNorm}/${name}` : name;
+    } catch (e) {
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      throw e;
+    }
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+}
+
+// «Borrar» = mover a la papelera de red (#recycle) conservando la subruta, como hace DSM.
+// Recuperable desde File Station. La raíz jamás.
+export async function trashGaleria(rel: string): Promise<void> {
+  await assertGaleriaEscritura();
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) throw new Error("no se puede borrar la raíz");
+  try {
+    const abs = await galeriaAbs(norm);
+    const root = path.resolve(GALERIA_DIR);
+    const parentRel = norm.includes("/") ? norm.slice(0, norm.lastIndexOf("/")) : "";
+    const binDir = path.join(root, "#recycle", parentRel);
+    await fs.mkdir(binDir, { recursive: true });
+    const name = await freeGaleriaName(binDir, path.basename(abs));
+    await fs.rename(abs, path.join(binDir, name));
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
 }

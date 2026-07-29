@@ -27,8 +27,13 @@ set -o pipefail
 # ── Configuración ──
 PROJECT="labstream-os"
 APPDIR="/volume1/docker/labstream-os"
-# OTRO volumen (volumen 5, junto a Operaciones_LAB). Ajustar si el share se llama distinto.
-BACKUP_DEST="/volume5/Operaciones_LAB/Backups_LabstreamOS"
+# OTRO volumen (el 5), pero FUERA de Operaciones_LAB: esa share ahora se monta dentro del
+# contenedor y su explorador la lee el equipo entero — y cada .tar.gz de aquí lleva el .env
+# de producción y el volcado completo de la base. En una carpeta propia del volumen, sin
+# compartir por SMB, nadie la lista ni la borra por accidente. Al cambiarla: MOVER los
+# respaldos viejos (mv /volume5/Operaciones_LAB/Backups_LabstreamOS/* /volume5/backups-labstream/)
+# y actualizar la copia real del script en el NAS.
+BACKUP_DEST="/volume5/backups-labstream"
 RETAIN=5
 LOG="$BACKUP_DEST/backup.log"
 STAMP="$(date +%F_%H%M)"

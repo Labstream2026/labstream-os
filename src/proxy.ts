@@ -36,7 +36,15 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   (valida alcance + registra actividad antes de redirigir al archivo real).
 // - /api/doc-templates: archivo de una plantilla de documento; el Document Server lo descarga
 //   con token firmado (sin cookie) para poder editarla. La ruta exige sesión del equipo O token.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica"];
+
+// La sala del CLIENTE de la galería (/galeria/<token>, enlace firmado sin cuenta) es pública,
+// pero /galeria a secas es la página del EQUIPO y sigue detrás de la sesión. La lista de
+// prefijos no sabe expresar «los hijos sí, la raíz no», por eso va aparte. Sin esto, el
+// cliente que abría su enlace aterrizaba en /login y la sala entera estaba muerta.
+function isGaleriaPublica(pathname: string) {
+  return /^\/galeria\/[^/]+$/.test(pathname);
+}
 
 // Los callbacks de OnlyOffice (Document Server → app, en /api/docs/.../callback) se autentican
 // con su PROPIO JWT (verifyCallbackToken), no con la sesión del navegador. El Document Server no
@@ -50,7 +58,7 @@ function isOnlyOfficeCallback(pathname: string) {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isPublic =
-    PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) || isOnlyOfficeCallback(pathname);
+    PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) || isOnlyOfficeCallback(pathname) || isGaleriaPublica(pathname);
 
   // Las rutas públicas con su propia autenticación (Bearer en /api/v1, tokens en webhooks/cron)
   // NO dependen de la cookie de sesión: se cortocircuitan ANTES de verifyToken, para que un

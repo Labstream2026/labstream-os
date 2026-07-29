@@ -445,6 +445,10 @@ model Client {
   // Sirve para mandarle el enlace de sus portadas o de su entrega desde la app; se recuerda
   // al primer envío. Un cliente NO es necesariamente un usuario, por eso vive aquí.
   phone       String?
+  // Carpeta del CLIENTE en la galería de entregas (LabTem, relativa a NAS_GALERIA_DIR).
+  // Todo el material del cliente cuelga de aquí, con una subcarpeta por proyecto: así los
+  // editores lo ven todo junto. Los proyectos heredan de esta salvo vínculo propio.
+  galeriaFolder String?
   notes       String?
   projects    Project[]
   quotes      Quote[]
@@ -592,6 +596,11 @@ model Project {
   // Con carpeta vinculada, las subidas de Archivos van ahí por defecto (kind OPS) y la pestaña
   // muestra la carpeta EN VIVO (se lee el disco, no un índice).
   opsFolder    String?
+  // Carpeta del proyecto dentro de la GALERÍA de entregas (LabTem, bind mount NAS_GALERIA_DIR).
+  // Gemela de opsFolder. Si el CLIENTE tiene carpeta vinculada y el proyecto no, la primera
+  // subida crea (y persiste aquí) la subcarpeta <carpetaCliente>/<nombreProyecto> — persistirla
+  // evita que renombrar el proyecto "mueva" la carpeta en silencio.
+  galeriaFolder String?
   folders      ProjectFolder[]
   files        FileAsset[]
   libraryAssets LibraryAsset[] @relation("LibraryProject") // recursos de la Biblioteca ligados a este proyecto
@@ -2159,6 +2168,7 @@ enum FileKind {
   LINK
   NAS // ruta SMB del NAS para copiar/pegar en el explorador (\\servidor\carpeta)
   OPS // archivo VIVO en Operaciones_LAB (bind mount NAS_OPS_DIR); path = ruta relativa ahí
+  GALERIA // archivo VIVO en la galería de entregas (LabTem, NAS_GALERIA_DIR); path = ruta relativa ahí
 }
 
 // Archivo/referencia a NIVEL DE CLIENTE (ligero): enlaces (Drive/web) y rutas de red SMB
