@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
+import { readBuffer, writeRelBuffer } from "@/lib/storage";
+import { optimizeToWebp } from "@/lib/image";
 
 // ── Entregas_LAB: la carpeta compartida de LabTem (el segundo NAS) montada DENTRO del
 // contenedor (bind mount → NAS_GALERIA_DIR). Para la app es una carpeta local más: sin SMB
@@ -138,6 +141,15 @@ export function proxyRelFor(rel: string, kind: GaleriaKind): string {
   const base = path.posix.basename(rel);
   const suffix = kind === "photo" ? ".webp" : ".mp4";
   return dir === "." ? `${PROXY_DIR_NAME}/${base}${suffix}` : `${dir}/${PROXY_DIR_NAME}/${base}${suffix}`;
+}
+
+// El póster de un video (el fotograma que se ve en la cuadrícula) también lo fabrica LabTem:
+// la app ya no lleva ffmpeg dentro, así que un video sin póster sale con marcador y su nombre.
+// `toma.mxf` → `.proxy/toma.mxf.poster.jpg`
+export function posterRelFor(rel: string): string {
+  const dir = path.posix.dirname(rel);
+  const base = path.posix.basename(rel);
+  return dir === "." ? `${PROXY_DIR_NAME}/${base}.poster.jpg` : `${dir}/${PROXY_DIR_NAME}/${base}.poster.jpg`;
 }
 
 // ── Fecha de la pieza ──────────────────────────────────────────────────────────
@@ -379,6 +391,27 @@ export async function scanGaleria(rel = ""): Promise<GaleriaScan> {
   };
 }
 
+// Carpetas de primer nivel = una por entrega. Es lo que se ve al abrir la sección: el equipo
+// elige de qué entrega quiere ver la línea de tiempo, en vez de escanear 7 TB de golpe.
+export type GaleriaFolder = { rel: string; name: string; mtimeMs: number };
+
+export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
+  const norm = normalizeGaleriaRel(rel);
+  const abs = await galeriaAbs(norm);
+  const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
+  if (!raw) return [];
+  const out: GaleriaFolder[] = [];
+  for (const d of raw) {
+    if (!d.isDirectory() || isJunkName(d.name)) continue;
+    const childRel = norm ? `${norm}/${d.name}` : d.name;
+    const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
+    out.push({ rel: childRel, name: d.name, mtimeMs: st?.mtimeMs ?? 0 });
+  }
+  // Lo más reciente primero: la entrega en la que se está trabajando suele ser la última.
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out;
+}
+
 // ── Servir un archivo ──────────────────────────────────────────────────────────
 
 export type GaleriaFileInfo = { abs: string; size: number; mtimeMs: number; name: string };
@@ -410,4 +443,56 @@ export async function resolveGaleriaFile(rel: string, preferProxy = false): Prom
   } catch {
     return null;
   }
+}
+
+// ── Miniatura para la cuadrícula ───────────────────────────────────────────────
+
+// De qué archivo se saca la miniatura de una pieza:
+//  - foto que el navegador entiende → el original
+//  - foto que no (DNG, CR2, HEIC…)  → la copia ligera .webp que hizo LabTem
+//  - video                           → el póster .jpg que hizo LabTem
+// Si el archivo elegido todavía no existe, no hay miniatura: la cuadrícula pinta el hueco
+// «preparando» en vez de una imagen rota.
+function thumbSourceRel(rel: string, kind: GaleriaKind): string {
+  if (kind === "video") return posterRelFor(rel);
+  return needsProxy(rel) ? proxyRelFor(rel, "photo") : rel;
+}
+
+// Miniatura WebP, cacheada en el storage interno de la app (NUNCA se escribe en LabTem: esa
+// carpeta es material entregable y se monta en solo lectura). La clave de caché lleva mtime y
+// tamaño, así que si alguien reemplaza el archivo por SMB la miniatura se regenera sola.
+export async function galeriaThumb(rel: string, maxEdge = 640): Promise<Buffer | null> {
+  const norm = normalizeGaleriaRel(rel);
+  const kind = galeriaKind(norm.split("/").pop() || "");
+  if (!kind) return null;
+
+  const srcRel = thumbSourceRel(norm, kind);
+  let abs: string;
+  let st: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    abs = await galeriaAbs(srcRel);
+    st = await fs.stat(abs);
+    if (!st.isFile()) return null;
+  } catch {
+    return null; // todavía no hay copia ni póster
+  }
+
+  const key = crypto.createHash("sha1").update(srcRel).digest("hex");
+  const cacheRel = `galeria-cache/${key}-${Math.round(st.mtimeMs)}-${st.size}-${maxEdge}.webp`;
+  try {
+    return await readBuffer(cacheRel);
+  } catch {
+    /* aún no cacheada */
+  }
+
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(abs);
+  } catch {
+    return null;
+  }
+  const webp = await optimizeToWebp(buf, { maxEdge });
+  if (!webp) return null; // sharp no supo con este formato: sin miniatura, sin romper nada
+  await writeRelBuffer(cacheRel, webp).catch(() => {});
+  return webp;
 }

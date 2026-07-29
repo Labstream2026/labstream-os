@@ -1,0 +1,373 @@
+"use client";
+
+import * as React from "react";
+import { ArrowLeft, Download, Film, Folder, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
+import type { GaleriaFolder, GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
+
+// Galería de entregas: la línea de tiempo del material que hay en LabTem.
+// Todo se lee EN VIVO por /api/galeria/*; aquí no hay estado que se pueda desincronizar.
+
+type Respuesta =
+  | { ok: true; ready: false; motivo: string; mensaje: string }
+  | { ok: true; ready: true; rel: ""; folders: GaleriaFolder[] }
+  | { ok: true; ready: true; rel: string; scan: GaleriaScan };
+
+function pesar(bytes: number): string {
+  if (bytes <= 0) return "0 KB";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const n = bytes / 1024 ** i;
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${u[i]}`;
+}
+
+// «1 elemento», no «1 elementos». Detalle pequeño, pero es lo que separa una pantalla
+// cuidada de una que parece a medio hacer.
+function plural(n: number, uno: string, varios: string): string {
+  return `${n.toLocaleString("es-CO")} ${n === 1 ? uno : varios}`;
+}
+
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+function titularDia(iso: string): string {
+  // iso viene como YYYY-MM-DD; se parte a mano para no depender de la zona horaria del navegador.
+  const [y, m, d] = iso.split("-").map(Number);
+  const fecha = new Date(y, m - 1, d);
+  return `${DIAS[fecha.getDay()]} ${d}`;
+}
+
+async function pedir(rel: string): Promise<Respuesta> {
+  const res = await fetch(`/api/galeria/list?rel=${encodeURIComponent(rel)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error((await res.text()) || "No se pudo leer la carpeta");
+  return (await res.json()) as Respuesta;
+}
+
+export function GaleriaCliente({ relInicial }: { relInicial: string }) {
+  const [rel, setRel] = React.useState(relInicial);
+  const [datos, setDatos] = React.useState<Respuesta | null>(null);
+  const [cargando, setCargando] = React.useState(true);
+  const [fallo, setFallo] = React.useState<string | null>(null);
+  const [abierto, setAbierto] = React.useState<GaleriaItem | null>(null);
+  const [vuelta, setVuelta] = React.useState(0); // subirlo = volver a pedir
+
+  // La bandera `cancelado` importa de verdad: si se pincha entrega tras entrega, la respuesta
+  // lenta de la primera llegaría después de la segunda y pintaría la carpeta equivocada.
+  React.useEffect(() => {
+    let cancelado = false;
+    pedir(rel)
+      .then((d) => {
+        if (cancelado) return;
+        setDatos(d);
+        setFallo(null);
+      })
+      .catch((e: unknown) => {
+        if (cancelado) return;
+        setDatos(null);
+        setFallo(e instanceof Error ? e.message : "No se pudo leer la carpeta");
+      })
+      .finally(() => {
+        if (!cancelado) setCargando(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [rel, vuelta]);
+
+  // Desde manejadores de evento sí se puede tocar el estado directamente.
+  const abrirCarpeta = (r: string) => {
+    setCargando(true);
+    setAbierto(null);
+    setRel(r);
+  };
+  const recargar = () => {
+    setCargando(true);
+    setVuelta((n) => n + 1);
+  };
+
+  // La URL sigue a la carpeta abierta: así el enlace se puede compartir dentro del equipo
+  // y el botón «atrás» del navegador hace lo que se espera.
+  React.useEffect(() => {
+    const u = new URL(window.location.href);
+    if (rel) u.searchParams.set("rel", rel);
+    else u.searchParams.delete("rel");
+    window.history.replaceState(null, "", u.toString());
+  }, [rel]);
+
+  const piezas = React.useMemo(() => {
+    if (!datos || !datos.ready || !("scan" in datos)) return [];
+    return datos.scan.months.flatMap((m) => m.days.flatMap((d) => d.items));
+  }, [datos]);
+
+  if (cargando && !datos) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin" /> Leyendo LabTem…
+      </div>
+    );
+  }
+
+  if (fallo) {
+    return (
+      <Aviso titulo="No se pudo leer la carpeta" texto={fallo} onReintentar={recargar} />
+    );
+  }
+
+  if (datos && !datos.ready) {
+    return <Aviso titulo="La galería no está disponible" texto={datos.mensaje} onReintentar={recargar} />;
+  }
+
+  // ── Carpetas de entrega ──────────────────────────────────────────────────────
+  if (datos && datos.ready && "folders" in datos) {
+    return (
+      <div>
+        <Cabecera titulo="Galería de entregas" sub="El material que vive en LabTem, listo para entregar." />
+        {datos.folders.length === 0 ? (
+          <Aviso
+            titulo="Todavía no hay nada"
+            texto="Copia el material dentro de la carpeta compartida Entregas_LAB del NAS y aparecerá aquí, sin tener que importar nada."
+            onReintentar={recargar}
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {datos.folders.map((f) => (
+              <button
+                key={f.rel}
+                onClick={() => abrirCarpeta(f.rel)}
+                className="flex items-center gap-3 rounded-xl border bg-card p-4 text-left transition hover:border-primary/50 hover:bg-accent"
+              >
+                <Folder className="size-5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{f.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {f.mtimeMs ? new Date(f.mtimeMs).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" }) : "—"}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Línea de tiempo de una entrega ───────────────────────────────────────────
+  if (!datos || !datos.ready || !("scan" in datos)) return null;
+  const { scan } = datos;
+
+  return (
+    <div>
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => abrirCarpeta("")}
+          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
+        >
+          <ArrowLeft className="size-4" /> Entregas
+        </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{rel.split("/").pop()}</h1>
+          <p className="text-xs text-muted-foreground">
+            {plural(scan.total, "elemento", "elementos")} · {plural(scan.photos, "foto", "fotos")} ·{" "}
+            {plural(scan.videos, "video", "videos")} · {pesar(scan.bytes)}
+          </p>
+        </div>
+        <button
+          onClick={recargar}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
+          title="Volver a leer la carpeta"
+        >
+          <RefreshCw className={`size-4 ${cargando ? "animate-spin" : ""}`} /> Actualizar
+        </button>
+      </div>
+
+      {scan.truncated && (
+        <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          La carpeta tiene más piezas de las que se muestran. Conviene partirla en subcarpetas por jornada.
+        </p>
+      )}
+
+      {scan.total === 0 ? (
+        <Aviso
+          titulo="Esta entrega está vacía"
+          texto="No hay fotos ni videos dentro. Si acabas de copiarlos, pulsa Actualizar."
+          onReintentar={recargar}
+        />
+      ) : (
+        scan.months.map((mes) => (
+          <section key={mes.month} className="mb-8">
+            <h2 className="sticky top-0 z-10 -mx-1 bg-background/90 px-1 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary backdrop-blur">
+              {mes.label} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground">· {mes.count}</span>
+            </h2>
+            {mes.days.map((dia) => (
+              <div key={dia.date} className="mt-4">
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h3 className="text-sm font-semibold capitalize">{titularDia(dia.date)}</h3>
+                  <span className="text-xs text-muted-foreground">{plural(dia.items.length, "elemento", "elementos")}</span>
+                  {dia.items.every((i) => !i.exact) && (
+                    <span className="text-[11px] text-muted-foreground/70" title="Ninguna pieza traía fecha de disparo; se usa la del archivo">
+                      fecha aproximada
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
+                  {dia.items.map((it) => (
+                    <Ficha key={it.rel} item={it} onAbrir={() => setAbierto(it)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        ))
+      )}
+
+      {abierto && (
+        <Visor
+          item={abierto}
+          piezas={piezas}
+          onCerrar={() => setAbierto(null)}
+          onCambiar={(x) => setAbierto(x)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Ficha de la cuadrícula ─────────────────────────────────────────────────────
+
+function Ficha({ item, onAbrir }: { item: GaleriaItem; onAbrir: () => void }) {
+  const [sinMiniatura, setSinMiniatura] = React.useState(false);
+  const src = `/api/galeria/thumb?rel=${encodeURIComponent(item.rel)}&v=${encodeURIComponent(item.takenAt)}`;
+
+  return (
+    <button
+      onClick={onAbrir}
+      className="group relative aspect-square overflow-hidden rounded-md bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
+      title={item.name}
+    >
+      {sinMiniatura ? (
+        // Ni copia ligera ni póster todavía: se dice la verdad en vez de mostrar algo roto.
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+          {item.kind === "video" ? <Film className="size-4 text-muted-foreground" /> : <ImageIcon className="size-4 text-muted-foreground" />}
+          <span className="line-clamp-2 text-[9px] leading-tight text-muted-foreground">{item.name}</span>
+          <span className="text-[9px] text-muted-foreground/70">preparando</span>
+        </span>
+      ) : (
+        <img
+          src={src}
+          alt={item.name}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+          onError={() => setSinMiniatura(true)}
+        />
+      )}
+      {item.kind === "video" && !sinMiniatura && (
+        <span className="absolute bottom-1 left-1 grid size-4 place-items-center rounded-full bg-black/55">
+          <span className="ml-[1px] border-y-[3px] border-l-[5px] border-y-transparent border-l-white" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ── Visor ──────────────────────────────────────────────────────────────────────
+
+function Visor({
+  item,
+  piezas,
+  onCerrar,
+  onCambiar,
+}: {
+  item: GaleriaItem;
+  piezas: GaleriaItem[];
+  onCerrar: () => void;
+  onCambiar: (x: GaleriaItem) => void;
+}) {
+  const i = piezas.findIndex((p) => p.rel === item.rel);
+  const mover = React.useCallback(
+    (paso: number) => {
+      const j = i + paso;
+      if (j >= 0 && j < piezas.length) onCambiar(piezas[j]);
+    },
+    [i, piezas, onCambiar],
+  );
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCerrar();
+      else if (e.key === "ArrowRight") mover(1);
+      else if (e.key === "ArrowLeft") mover(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCerrar, mover]);
+
+  // Se reproduce/mira la COPIA LIGERA (?copia=1). Si LabTem no la ha hecho todavía, la ruta
+  // cae sola al original: el cliente ve algo igual, solo que pesa más.
+  const ver = `/api/galeria/media?rel=${encodeURIComponent(item.rel)}&copia=1`;
+  const bajar = `/api/galeria/media?rel=${encodeURIComponent(item.rel)}&descargar=1`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/95" role="dialog" aria-modal="true">
+      <div className="flex items-center gap-3 px-4 py-3 text-white">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.name}</span>
+        <span className="hidden text-xs text-white/60 sm:block">
+          {new Date(item.takenAt).toLocaleString("es-CO", { dateStyle: "long", timeStyle: "short" })}
+          {!item.exact && " (fecha del archivo)"}
+        </span>
+        <span className="text-xs text-white/60">{pesar(item.size)}</span>
+        <a
+          href={bajar}
+          className="flex items-center gap-1.5 rounded-lg border border-white/25 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/10"
+        >
+          <Download className="size-3.5" /> Original
+        </a>
+        <button onClick={onCerrar} className="rounded-lg p-1.5 text-white transition hover:bg-white/10" aria-label="Cerrar">
+          <X className="size-5" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4">
+        {item.kind === "video" ? (
+          <video key={item.rel} src={ver} controls autoPlay playsInline className="max-h-full max-w-full" />
+        ) : (
+          <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" />
+        )}
+      </div>
+
+      <div className="flex items-center justify-center gap-6 pb-4 text-sm text-white/70">
+        <button onClick={() => mover(-1)} disabled={i <= 0} className="disabled:opacity-30">
+          ← Anterior
+        </button>
+        <span className="tabular-nums text-xs">
+          {i + 1} de {piezas.length}
+        </span>
+        <button onClick={() => mover(1)} disabled={i >= piezas.length - 1} className="disabled:opacity-30">
+          Siguiente →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Piezas pequeñas ────────────────────────────────────────────────────────────
+
+function Cabecera({ titulo, sub }: { titulo: string; sub: string }) {
+  return (
+    <div className="mb-5">
+      <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
+      <p className="text-sm text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
+function Aviso({ titulo, texto, onReintentar }: { titulo: string; texto: string; onReintentar: () => void }) {
+  return (
+    <div className="mx-auto flex min-h-[40vh] max-w-md flex-col items-center justify-center gap-3 text-center">
+      <ImageIcon className="size-9 text-muted-foreground" />
+      <h2 className="text-lg font-semibold">{titulo}</h2>
+      <p className="text-sm text-muted-foreground">{texto}</p>
+      <button onClick={onReintentar} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition hover:bg-accent">
+        <RefreshCw className="size-4" /> Reintentar
+      </button>
+    </div>
+  );
+}

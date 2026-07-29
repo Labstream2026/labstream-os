@@ -9,6 +9,7 @@ import { canSeeWiki } from "@/lib/wiki-access";
 import { getChatUnreadSummary } from "@/lib/chat-unread";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { opsEnabled } from "@/lib/nas-ops";
+import { galeriaEnabled } from "@/lib/nas-galeria";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { labelOptions } from "@/lib/colors";
 import { AppShell } from "@/components/layout/app-shell";
@@ -177,6 +178,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canWiki={showWiki}
       canBiblioteca={hasPermission(session, "ver_biblioteca")}
       opsEnabled={session.role !== "cliente" && opsEnabled()}
+      galeriaEnabled={session.role !== "cliente" && galeriaEnabled()}
       canCalendar={hasPermission(session, "ver_calendario")}
       canTimeline={hasPermission(session, "ver_proyectos")}
       wikiPages={wikiPages}

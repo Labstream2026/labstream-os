@@ -13,6 +13,7 @@ import {
   FileCheck2,
   FolderCheck,
   HardDrive,
+  Images,
   Home,
   Inbox,
   Library,
@@ -175,6 +176,7 @@ export function Sidebar({
   canPapelera = false,
   canCreateTasks = false,
   opsEnabled = false,
+  galeriaEnabled = false,
   isCliente = false,
   collapsed = false,
   drawer = false,
@@ -201,6 +203,7 @@ export function Sidebar({
   canCreateTasks?: boolean;
   // Hay carpeta Operaciones_LAB montada (NAS_OPS_DIR): muestra la sección «Operaciones».
   opsEnabled?: boolean;
+  galeriaEnabled?: boolean;
   isCliente?: boolean;
   collapsed?: boolean;
   drawer?: boolean;
@@ -239,6 +242,9 @@ export function Sidebar({
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
     // Explorador del disco Operaciones_LAB (bind mount del NAS). Solo equipo; nunca clientes.
     { href: "/operaciones", label: "Operaciones", icon: HardDrive, show: !isCliente && opsEnabled, active: pathname.startsWith("/operaciones") },
+    // Galería de entregas: el material de LabTem (segundo NAS). Solo equipo; el cliente
+    // entra por su enlace firmado, no por el menú.
+    { href: "/galeria", label: "Galería", icon: Images, show: !isCliente && galeriaEnabled, active: pathname.startsWith("/galeria") },
   ];
 
   // Archivar un cliente (solo admin): borrado SUAVE (restaurable desde /clientes).
