@@ -1,0 +1,91 @@
+# ── LabTem · fábrica de copias ligeras (proxies) de la galería de entregas ──
+#
+# LabTem es el SEGUNDO NAS (i3-10105 + UHD 630). Guarda los originales en
+# /volume5/Entregas_LAB y, de madrugada, fabrica al lado de cada pieza la copia que
+# el cliente verá en el navegador (carpeta hermana `.proxy`). Nunca se transcodifica
+# al vuelo: cuando el cliente abre la sala, el trabajo pesado ya está hecho.
+#
+# Este contenedor NO es un servicio: es una caja de herramientas que se queda
+# dormida (`sleep infinity`) y a la que la tarea programada de DSM le grita cada
+# noche. Está así a propósito:
+#   - Container Manager solo respeta `devices:` y `group_add:` cuando el contenedor
+#     se crea por la vía «Proyecto» (con este compose). Por el asistente de
+#     contenedor los ignora en silencio y el ffmpeg de dentro no ve la GPU.
+#   - Si el contenedor arrancara, trabajara y saliera, el Proyecto quedaría en
+#     «detenido» y Container Manager lo intentaría reiniciar en bucle.
+#
+# Levantar (ver README.md, paso a paso):
+#   Container Manager → Proyecto → Crear → carpeta con este compose.yaml
+# Pasada manual:
+#   docker exec -e LIMITE=3 labtem-proxies /opt/hacer-proxies.sh
+# Pasada de una entrega concreta:
+#   docker exec labtem-proxies /opt/hacer-proxies.sh "Cliente X/Entrega mayo"
+
+services:
+  proxies:
+    # Imagen base mínima y FIJADA (no `:latest`, mismo criterio que OnlyOffice).
+    # Solo aporta shell + coreutils/findutils: el ffmpeg es el del NAS, montado
+    # abajo. Así usamos EXACTAMENTE el binario ya probado con Quick Sync en esta
+    # máquina, sin instalar nada ni depender de que la imagen traiga los drivers.
+    image: debian:12-slim
+    container_name: labtem-proxies
+    restart: unless-stopped
+
+    # No hace nada hasta que se le pide una pasada. Ver cabecera.
+    command: ["sleep", "infinity"]
+
+    # La GPU. `crw-rw---- root:videodriver` → el contenedor corre como root, que es
+    # el DUEÑO del nodo, así que puede abrirlo sin más. `group_add` está igualmente
+    # porque es lo único que hace falta el día que se quiera correr sin root
+    # (descomentar `user:` abajo): 937 es el GID de `videodriver` en DSM 7.2.2,
+    # comprobado con `grep videodriver /etc/group`. Si tras una actualización de DSM
+    # el ffmpeg deja de ver la GPU, lo PRIMERO que hay que volver a mirar es ese GID.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "937"
+
+    # Sin red: este trabajo solo lee y escribe disco local. Si Container Manager se
+    # atraganta creando el Proyecto, quita esta línea (no cambia nada del resultado).
+    network_mode: "none"
+
+    # Un ffmpeg decodificando 4K por software se come lo que le den. En una máquina
+    # de 8 GB, el tope lo deja a él solo si se dispara, en vez de que el OOM-killer
+    # elija víctima (mismo criterio que el `mem_limit` de la app).
+    mem_limit: 4g
+
+    environment:
+      TZ: America/Bogota
+      # Rutas dentro del contenedor (los montajes de abajo).
+      RAIZ: /material
+      ESTADO: /estado
+      FFMPEG: /opt/ffmpeg/bin/ffmpeg
+      FFPROBE: /opt/ffmpeg/bin/ffprobe
+      # El paquete de SynoCommunity lleva sus propias librerías (libva, driver de
+      # Quick Sync, códecs). Sin esto el binario arranca contra las de Debian —o no
+      # arranca— y la GPU desaparece.
+      LD_LIBRARY_PATH: /opt/ffmpeg/lib
+      # Los .proxy los crea root: con umask 002 el grupo conserva permiso de
+      # escritura y el equipo puede borrarlos por SMB sin pedir ayuda.
+      UMASK: "002"
+
+    volumes:
+      # El material. ESCRITURA: este contenedor es el ÚNICO que escribe en
+      # Entregas_LAB (la app lo monta en solo lectura, a propósito).
+      - /volume5/Entregas_LAB:/material
+      # El ffmpeg del NAS (SynoCommunity ffmpeg5, con los parches de jellyfin).
+      # Solo lectura: no se toca el paquete, se usa.
+      - /var/packages/ffmpeg5/target:/opt/ffmpeg:ro
+      # El script y su estado (registros y lista de fallos). `estado` debe existir
+      # antes de levantar: Synology NO autocrea los directorios de bind mount.
+      - ./hacer-proxies.sh:/opt/hacer-proxies.sh:ro
+      - ./estado:/estado
+
+    # Correr como un usuario del NAS en vez de root: los .proxy salen con su dueño y
+    # el `group_add: 937` de arriba pasa a ser imprescindible para ver la GPU.
+    # Sustituye por el UID:GID real (`id <usuario>` por SSH) si lo prefieres así.
+    # user: "1026:100"
+
+    # ffmpeg atiende el SIGTERM y el script borra su temporal antes de salir; 30 s
+    # sobran para que un `docker stop` no deje copias a medias.
+    stop_grace_period: 30s

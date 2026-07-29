@@ -1,0 +1,519 @@
+#!/bin/bash
+# ── LabTem · fabrica las copias ligeras de la galería de entregas ──────────────
+#
+# Recorre el material y, junto a cada pieza, deja en la carpeta hermana `.proxy` lo
+# que el cliente verá desde el navegador. Los nombres NO son negociables: son los
+# que calcula src/lib/nas-galeria.ts (proxyRelFor / posterRelFor).
+#
+#   <carpeta>/toma.mxf   →  <carpeta>/.proxy/toma.mxf.mp4         copia para reproducir
+#                           <carpeta>/.proxy/toma.mxf.poster.jpg  fotograma de la cuadrícula
+#                           <carpeta>/.proxy/toma.mxf.sprite.jpg  tira para el barrido con el ratón
+#   <carpeta>/foto.dng   →  <carpeta>/.proxy/foto.dng.webp        copia que el navegador sí pinta
+#
+# Principios (por qué está escrito así):
+#   - IDEMPOTENTE. Corre cada noche sobre los mismos 7 TB: si la copia ya está y es
+#     más nueva que el original, ni se abre el archivo. Una segunda pasada sobre
+#     material sin cambios tarda minutos, no horas.
+#   - ATÓMICO. Todo se escribe en un temporal `.tmpNNN.<ext>` y se renombra al final.
+#     La app nunca puede encontrarse media copia (el `mv` dentro de la misma carpeta
+#     es atómico), y el temporal no coincide con ningún nombre que ella busque.
+#   - NO SE MUERE. Un archivo que falla se anota y se sigue. Un R3D o un HEIC que
+#     este ffmpeg no sepa abrir no puede costar la entrega entera.
+#   - NO REPITE LO IMPOSIBLE. Un fallo deja una marca `.fallo` y una decisión de
+#     saltarse algo deja una marca `.omitido`. Sin ellas, cada noche se volverían a
+#     intentar (y a fallar) los mismos archivos durante horas.
+#
+# Sirve igual DENTRO del contenedor (ver compose.yaml) o directamente en el NAS:
+#   RAIZ=/volume5/Entregas_LAB ESTADO=/volume5/docker/labtem-proxies/estado \
+#   FFMPEG=/var/packages/ffmpeg5/target/bin/ffmpeg \
+#   FFPROBE=/var/packages/ffmpeg5/target/bin/ffprobe bash hacer-proxies.sh
+#
+# Uso:  hacer-proxies.sh [subcarpeta]     (subcarpeta relativa a RAIZ, opcional)
+
+# `set -e` NO: aquí el caso normal es que algún archivo falle, y eso no puede
+# terminar el lote. Los fallos se manejan a mano, uno a uno.
+set -uo pipefail
+
+# Se usan expansiones de bash 4 (`${x,,}`). DSM 7.2 trae 4.4 y debian:12-slim 5.2;
+# el aviso está para que nadie lo lance con `sh` y se lleve un resultado raro.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "FATAL: hace falta bash 4 o superior (aquí hay ${BASH_VERSION:-desconocido})." >&2
+  exit 1
+fi
+
+# ── Ajustes (todos por variable de entorno, para poder probar sin editar) ──────
+
+RAIZ="${RAIZ:-/material}"
+ESTADO="${ESTADO:-/estado}"
+FFMPEG="${FFMPEG:-/opt/ffmpeg/bin/ffmpeg}"
+FFPROBE="${FFPROBE:-/opt/ffmpeg/bin/ffprobe}"
+
+# Video: el destino es un cliente mirando en portátil o móvil. El 4K se queda en el
+# original (que sigue ahí para descargar); la copia se topa en 1080p y NUNCA amplía.
+ANCHO_MAX="${ANCHO_MAX:-1920}"
+ALTO_MAX="${ALTO_MAX:-1080}"
+V_BITRATE="${V_BITRATE:-6M}"      # objetivo ≈ 45 MB por minuto
+V_MAXRATE="${V_MAXRATE:-8M}"      # pico
+V_BUFSIZE="${V_BUFSIZE:-12M}"     # 1,5 s de pico: absorbe un plano difícil sin dispararse
+A_BITRATE="${A_BITRATE:-128k}"
+GOP_SEG="${GOP_SEG:-2}"           # un keyframe cada 2 s → mover la barra cae cerca
+
+# Poster: al 15 % de la duración, nunca el primer fotograma (negro o claqueta).
+POSTER_ANCHO="${POSTER_ANCHO:-1280}"
+# Tira de previsualización: 20 fotogramas en UNA fila. Número FIJO a propósito: así
+# el CSS la coloca por porcentaje sin leer un JSON ni saber el tamaño real.
+TIRA_FOTOGRAMAS="${TIRA_FOTOGRAMAS:-20}"
+TIRA_ANCHO="${TIRA_ANCHO:-240}"
+
+# Foto: 2560 px llena una pantalla retina a pantalla completa; un DNG de 45 MP cae
+# por debajo de 1 MB. Calidad 82 es donde el artefacto deja de verse en piel y cielo.
+FOTO_LADO="${FOTO_LADO:-2560}"
+FOTO_CALIDAD="${FOTO_CALIDAD:-82}"
+
+# Un archivo recién copiado por SMB puede estar a medias: se exige que lleve un rato
+# quieto. Sin esto, una copia nocturna en curso genera copias truncadas.
+MIN_EDAD_MIN="${MIN_EDAD_MIN:-10}"
+# Margen de disco. Por debajo, la pasada ni empieza: llenar el volumen del material
+# es mucho peor que quedarse una noche sin copias.
+MIN_LIBRE_GB="${MIN_LIBRE_GB:-50}"
+# Un ffmpeg colgado no puede comerse la madrugada entera.
+TIMEOUT_VIDEO="${TIMEOUT_VIDEO:-14400}"   # 4 h por video
+TIMEOUT_CORTO="${TIMEOUT_CORTO:-900}"     # 15 min por foto, póster o tira
+
+FORZAR="${FORZAR:-0}"                       # 1 = rehacer aunque esté al día
+REINTENTAR_FALLOS="${REINTENTAR_FALLOS:-0}" # 1 = ignorar las marcas .fallo
+SOLO_LISTAR="${SOLO_LISTAR:-0}"             # 1 = decir qué haría, sin tocar nada
+LIMITE="${LIMITE:-0}"                       # nº máx. de archivos por pasada (0 = sin tope)
+USAR_QSV="${USAR_QSV:-1}"                   # 0 = forzar codificación por software
+# Cómo se abre la GPU. Si esta forma no arranca en la máquina, se cambia AQUÍ (por
+# variable de entorno, sin tocar el script): `qsv=hw` deja que ffmpeg elija el nodo.
+# El nombre del dispositivo debe seguir siendo `hw`: es al que apunta -filter_hw_device.
+QSV_INIT="${QSV_INIT:-qsv=hw:/dev/dri/renderD128}"
+
+umask "${UMASK:-002}"
+
+# ── Registro ──────────────────────────────────────────────────────────────────
+
+mkdir -p "$ESTADO" 2>/dev/null
+LOG="$ESTADO/hacer-proxies-$(date +%Y%m%d).log"
+FALLOS="$ESTADO/fallos.tsv"
+INICIO=$(date +%s)
+
+log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG" 2>/dev/null; }
+
+anotar_fallo() { # archivo, tarea, motivo
+  printf '%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$2" "$1" "$3" >> "$FALLOS" 2>/dev/null
+  log "  ✗ $2: $1 — $3"
+}
+
+hay() { command -v "$1" >/dev/null 2>&1; }
+
+# ── Una sola pasada a la vez ──────────────────────────────────────────────────
+# `mkdir` es atómico en cualquier sistema de archivos: sirve de candado sin flock
+# (que en DSM no siempre está). Si la pasada de anoche sigue viva —7 TB pueden
+# tardar días— la de hoy se retira en vez de pelearse por la GPU.
+LOCK="$ESTADO/.candado"
+TMP_ACTUAL=""
+
+limpiar() {
+  [ -n "$TMP_ACTUAL" ] && rm -f "$TMP_ACTUAL" 2>/dev/null
+  rmdir "$LOCK" 2>/dev/null
+  return 0
+}
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+  log "Ya hay una pasada en marcha ($LOCK). Esta se retira."
+  log "Si fue un corte de luz y quedó huérfano:  rmdir '$LOCK'"
+  exit 0
+fi
+trap limpiar EXIT
+trap 'log "Interrumpido: se descarta el temporal a medias."; exit 130' INT TERM
+
+# El trabajo de madrugada no puede dejar sin aliento al NAS si alguien está copiando
+# material a la vez.
+hay renice && renice -n 10 -p $$ >/dev/null 2>&1
+hay ionice && ionice -c2 -n7 -p $$ >/dev/null 2>&1
+
+# ── Comprobaciones antes de empezar ───────────────────────────────────────────
+
+[ -x "$FFMPEG" ]  || { log "FATAL: no encuentro ffmpeg en $FFMPEG";   exit 1; }
+[ -x "$FFPROBE" ] || { log "FATAL: no encuentro ffprobe en $FFPROBE"; exit 1; }
+
+SUB="${1:-}"
+DESTINO="$RAIZ"
+[ -n "$SUB" ] && DESTINO="$RAIZ/${SUB#/}"
+[ -d "$DESTINO" ] || { log "FATAL: no existe la carpeta $DESTINO"; exit 1; }
+[ -w "$DESTINO" ] || { log "FATAL: $DESTINO no es escribible (¿montado en solo lectura?)"; exit 1; }
+
+LIBRE_GB=$(df -Pk "$DESTINO" 2>/dev/null | awk 'NR==2{printf "%d", $4/1048576}')
+if [ -n "${LIBRE_GB:-}" ] && [ "$LIBRE_GB" -lt "$MIN_LIBRE_GB" ] 2>/dev/null; then
+  log "FATAL: quedan ${LIBRE_GB} GB libres (mínimo $MIN_LIBRE_GB). No se empieza."
+  exit 1
+fi
+
+CAPS=$("$FFMPEG" -hide_banner -encoders 2>/dev/null)
+if [ "$USAR_QSV" = "1" ]; then
+  if ! grep -q ' h264_qsv' <<<"$CAPS"; then
+    log "AVISO: este ffmpeg no trae h264_qsv → se codifica por software (mucho más lento)."
+    USAR_QSV=0
+  elif [ ! -e /dev/dri/renderD128 ]; then
+    log "AVISO: no veo /dev/dri/renderD128 (¿el contenedor se creó por el asistente en vez de por Proyecto?) → software."
+    USAR_QSV=0
+  fi
+fi
+# Sin libwebp no hay copias de foto: la app pide un .webp de verdad, y renombrar un
+# JPEG a .webp lo rompe (el navegador rechaza el tipo declarado por el nosniff).
+HACER_FOTOS=1
+if ! grep -q ' libwebp' <<<"$CAPS"; then
+  log "AVISO: este ffmpeg no trae libwebp → se saltan las fotos RAW/HEIC (los videos siguen)."
+  HACER_FOTOS=0
+fi
+hay timeout || log "AVISO: no hay 'timeout': un ffmpeg colgado no se cortará solo."
+
+log "════ Pasada iniciada · carpeta: $DESTINO · QSV: $([ "$USAR_QSV" = 1 ] && echo sí || echo no) · libre: ${LIBRE_GB:-?} GB"
+[ "$SOLO_LISTAR" = "1" ] && log "MODO LISTA: no se escribe nada."
+
+# ── Qué es cada archivo (espejo de src/lib/nas-galeria.ts) ─────────────────────
+
+# Fotos que el navegador NO pinta y por eso necesitan copia. Las que sí (jpg, png,
+# webp, avif, gif) se sirven tal cual y aquí no se tocan.
+FOTO_CONVERTIR=" heic heif tif tiff bmp dng cr2 cr3 nef arw raf orf rw2 "
+# Todo lo que la app considera video. Se mira a TODOS (mp4 y mov incluidos): un
+# ProRes 4K de 800 Mbps es «reproducible» y aun así inservible por internet. Quién
+# se libra de la copia lo decide `original_ya_sirve`, mirando el archivo de verdad.
+VIDEO_EXT=" mp4 m4v mov webm mkv avi wmv mts m2ts mxf mpg mpeg ogv prores braw r3d "
+
+ext_de() { local n="${1##*.}"; printf '%s' "${n,,}"; }
+
+# ── Estado de un destino ──────────────────────────────────────────────────────
+
+# ¿No hay nada que hacer con este destino? Lo hay cuando falta, o cuando el original
+# es más nuevo (alguien reemplazó la pieza por SMB y hay que rehacerla). Las marcas
+# `.fallo` y `.omitido` cuentan como «al día» hasta que el original cambie: son las
+# que impiden que la pasada de cada noche repita lo que ya se sabe que no toca.
+al_dia() { # destino, origen
+  [ "$FORZAR" = "1" ] && return 1
+  [ -f "$1" ]          && [ ! "$2" -nt "$1" ]          && return 0
+  [ -f "$1.omitido" ]  && [ ! "$2" -nt "$1.omitido" ]  && return 0
+  if [ "$REINTENTAR_FALLOS" != "1" ]; then
+    [ -f "$1.fallo" ] && [ ! "$2" -nt "$1.fallo" ] && return 0
+  fi
+  return 1
+}
+
+marcar() { # destino, sufijo (fallo|omitido), motivo
+  mkdir -p "$(dirname "$1")" 2>/dev/null
+  printf '%s\n' "$3" > "$1.$2" 2>/dev/null
+}
+
+# ── Lanzar ffmpeg ─────────────────────────────────────────────────────────────
+
+# Escribe a un temporal y solo entonces lo pone en su sitio. Devuelve 0 si la copia
+# quedó puesta; si no, deja la marca `.fallo` con el motivo y lo anota en el registro.
+correr_ffmpeg() { # destino, tarea, timeout, args-de-ffmpeg...
+  local dst="$1" tarea="$2" tmo="$3"; shift 3
+  local ext="${dst##*.}"
+  local tmp="${dst}.tmp$$.${ext}"
+  local errf="$ESTADO/.ffmpeg-err.$$"
+  local rc=0
+  TMP_ACTUAL="$tmp"
+
+  if hay timeout; then
+    timeout -k 30 "$tmo" "$FFMPEG" -hide_banner -nostdin -y -loglevel error "$@" "$tmp" 2>"$errf"
+    rc=$?
+  else
+    "$FFMPEG" -hide_banner -nostdin -y -loglevel error "$@" "$tmp" 2>"$errf"
+    rc=$?
+  fi
+
+  if [ $rc -ne 0 ] || [ ! -s "$tmp" ]; then
+    local motivo
+    motivo=$(tr '\n' ' ' < "$errf" 2>/dev/null | tail -c 300)
+    [ $rc -eq 124 ] && motivo="se pasó del tiempo máximo (${tmo}s)"
+    [ -z "$motivo" ] && motivo="ffmpeg salió con código $rc"
+    rm -f "$tmp" "$errf"; TMP_ACTUAL=""
+    marcar "$dst" fallo "$motivo"
+    anotar_fallo "$dst" "$tarea" "$motivo"
+    return 1
+  fi
+
+  mv -f "$tmp" "$dst"
+  rm -f "$errf" "$dst.fallo" "$dst.omitido"
+  TMP_ACTUAL=""
+  return 0
+}
+
+# El filtro de escala, compartido. `min(iw,…)` impide ampliar (subir un 720p a 1080p
+# solo engorda el archivo), `force_original_aspect_ratio=decrease` conserva la forma
+# y `force_divisible_by=2` evita el «height not divisible by 2» que mata a H.264 en
+# fuentes DCI o verticales raras. Las comillas simples protegen las comas de min().
+escala() { # ancho, alto
+  printf "scale=w='min(iw,%s)':h='min(ih,%s)':force_original_aspect_ratio=decrease:force_divisible_by=2" "$1" "$2"
+}
+
+# ── Video ─────────────────────────────────────────────────────────────────────
+
+# Un original ya servible se deja como está: la app cae sola al original cuando no
+# hay copia, y así se ahorran horas de GPU y gigas de disco. Para librarse tiene que
+# cumplirlo TODO: contenedor y códec que el navegador abre, 1080p o menos, tasa
+# razonable y audio AAC (o sin audio).
+original_ya_sirve() { # ext, vcodec, ancho, tasa_bits, acodec
+  case " mp4 m4v mov " in *" $1 "*) ;; *) return 1;; esac
+  [ "$2" = "h264" ] || return 1
+  [ -n "$3" ] && [ "$3" -le "$ANCHO_MAX" ] 2>/dev/null || return 1
+  [ -n "$4" ] && [ "$4" -le 9000000 ]      2>/dev/null || return 1
+  case "$5" in aac|mp3|"") ;; *) return 1;; esac
+  return 0
+}
+
+procesar_video() { # ruta absoluta
+  local src="$1"
+  local dir base pd mp4 poster tira
+  dir=$(dirname "$src"); base=$(basename "$src")
+  pd="$dir/.proxy"
+  mp4="$pd/$base.mp4"; poster="$pd/$base.poster.jpg"; tira="$pd/$base.sprite.jpg"
+
+  # Salida rápida: si las tres piezas están resueltas, el archivo ni se abre. Esto es
+  # lo que hace que la segunda noche dure minutos en vez de días.
+  local falta_mp4=0 falta_poster=0 falta_tira=0
+  al_dia "$mp4"    "$src" || falta_mp4=1
+  al_dia "$poster" "$src" || falta_poster=1
+  al_dia "$tira"   "$src" || falta_tira=1
+  if [ $falta_mp4 = 0 ] && [ $falta_poster = 0 ] && [ $falta_tira = 0 ]; then
+    OMITIDOS=$((OMITIDOS+1)); return 0
+  fi
+
+  # Datos del original: UNA sola lectura para decidirlo todo.
+  local w="" h="" vcodec="" rfr="" dur="" tasa="" acodec="" k v
+  while IFS='=' read -r k v; do
+    case "$k" in
+      width) w="$v";; height) h="$v";; codec_name) vcodec="$v";;
+      r_frame_rate) rfr="$v";; duration) dur="$v";; bit_rate) tasa="$v";;
+    esac
+  done < <("$FFPROBE" -v error -select_streams v:0 \
+            -show_entries "stream=width,height,codec_name,r_frame_rate:format=duration,bit_rate" \
+            -of default=noprint_wrappers=1 "$src" 2>/dev/null)
+
+  if [ -z "$vcodec" ]; then
+    if [ "$SOLO_LISTAR" != "1" ]; then
+      # Se marcan las TRES piezas: si solo se marcara la copia, cada noche se volvería
+      # a sondear el archivo por el póster y la tira, y a anotar el mismo fallo.
+      marcar "$mp4"    fallo "ffprobe no reconoce el archivo"
+      marcar "$poster" fallo "ffprobe no reconoce el archivo"
+      marcar "$tira"   fallo "ffprobe no reconoce el archivo"
+      anotar_fallo "$src" "video" "ffprobe no reconoce el archivo (formato que este ffmpeg no abre)"
+    fi
+    return 1
+  fi
+  acodec=$("$FFPROBE" -v error -select_streams a:0 -show_entries stream=codec_name \
+            -of default=nk=1:nw=1 "$src" 2>/dev/null | head -1)
+
+  if [ "$SOLO_LISTAR" = "1" ]; then
+    log "  (lista) $src · ${w}x${h} $vcodec ${dur}s · falta: mp4=$falta_mp4 poster=$falta_poster tira=$falta_tira"
+    return 0
+  fi
+
+  local fallo=0
+  if [ $falta_mp4 = 1 ]; then
+    if [ "$FORZAR" != "1" ] && original_ya_sirve "$(ext_de "$base")" "$vcodec" "$w" "$tasa" "$acodec"; then
+      # No se hace copia. Se deja constancia para no volver a analizarlo cada noche.
+      marcar "$mp4" omitido "el original ya es apto para el navegador ($vcodec ${w}x${h} ${tasa} bps)"
+      log "  = original ya sirve: $base"
+      OMITIDOS=$((OMITIDOS+1))
+    else
+      mkdir -p "$pd"
+      local gop
+      gop=$(awk -v r="${rfr:-25}" -v s="$GOP_SEG" 'BEGIN{split(r,a,"/"); f=(a[2]&&a[2]+0>0?a[1]/a[2]:a[1]+0); if(f<=0||f>1000)f=25; g=int(f*s+0.5); if(g<24)g=24; if(g>240)g=240; print g}')
+      log "  → copia de $base (${w}x${h} $vcodec, GOP $gop)"
+      if codificar_video "$src" "$mp4" "$gop"; then
+        CREADOS_VIDEO=$((CREADOS_VIDEO+1))
+      else
+        fallo=1
+      fi
+    fi
+  fi
+
+  # El póster y la tira salen de la copia si existe: decodificar un 1080p H.264 es
+  # muchísimo más barato que volver a abrir el master.
+  local fuente="$src"
+  [ -f "$mp4" ] && fuente="$mp4"
+
+  if [ $falta_poster = 1 ]; then
+    mkdir -p "$pd"
+    if hacer_poster "$fuente" "$poster" "$dur"; then CREADOS_POSTER=$((CREADOS_POSTER+1)); else fallo=1; fi
+  fi
+  if [ $falta_tira = 1 ]; then
+    mkdir -p "$pd"
+    if hacer_tira "$fuente" "$tira" "$dur"; then CREADOS_TIRA=$((CREADOS_TIRA+1)); fi
+    # Una tira que no sale no es un fallo que merezca contarse: el póster ya cubre la
+    # cuadrícula y los clips de menos de 2 s no tienen nada que barrer.
+  fi
+  return $fallo
+}
+
+codificar_video() { # origen, destino, gop
+  local src="$1" dst="$2" gop="$3"
+  local esc; esc=$(escala "$ANCHO_MAX" "$ALTO_MAX")
+
+  if [ "$USAR_QSV" = "1" ]; then
+    # DECODIFICA LA CPU, CODIFICA LA GPU. A propósito: el decodificador de la UHD 630
+    # no sabe de ProRes/DNxHD/MXF y media entrega es eso; el de software los abre
+    # todos, y el trabajo caro (codificar) se lo queda igualmente Quick Sync.
+    #
+    # OJO con el orden `format=nv12,hwupload`: al revés, el escalador automático elige
+    # BGRA 4:4:4 y Gen9.5 NO codifica AVC en 4:4:4 → «Error initializing the encoder».
+    # Comprobado en esta máquina (150 fotogramas a 96 fps). No lo toques.
+    if correr_ffmpeg "$dst" "video" "$TIMEOUT_VIDEO" \
+        -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+        -i "$src" \
+        -map 0:v:0 -map 0:a:0? -sn -dn \
+        -vf "${esc},format=nv12,hwupload=extra_hw_frames=64" \
+        -c:v h264_qsv -profile:v high -b:v "$V_BITRATE" -maxrate "$V_MAXRATE" -bufsize "$V_BUFSIZE" \
+        -g "$gop" -bf 2 -look_ahead 0 \
+        -c:a aac -b:a "$A_BITRATE" -ac 2 -ar 48000 \
+        -movflags +faststart -max_muxing_queue_size 1024; then
+      return 0
+    fi
+    # Tres fallos seguidos de la GPU no son culpa del archivo: es que esta noche no hay
+    # Quick Sync (driver, dispositivo sin pasar, otro proceso encima). Se sigue por
+    # software en vez de fallar 4.000 veces igual.
+    FALLOS_QSV=$((FALLOS_QSV+1))
+    if [ "$FALLOS_QSV" -ge 3 ]; then
+      log "AVISO: 3 fallos seguidos de Quick Sync → el resto de la pasada va por software."
+      USAR_QSV=0
+    fi
+    rm -f "$dst.fallo"   # se reintenta por software antes de darlo por perdido
+  fi
+
+  # Respaldo por software: mucho más lento (y libx264 puede no estar en este ffmpeg),
+  # pero salva la noche si la GPU no responde.
+  correr_ffmpeg "$dst" "video-sw" "$TIMEOUT_VIDEO" \
+    -i "$src" \
+    -map 0:v:0 -map 0:a:0? -sn -dn \
+    -vf "$esc" \
+    -c:v libx264 -preset veryfast -profile:v high -pix_fmt yuv420p \
+    -crf 23 -maxrate "$V_MAXRATE" -bufsize "$V_BUFSIZE" -g "$gop" \
+    -c:a aac -b:a "$A_BITRATE" -ac 2 -ar 48000 \
+    -movflags +faststart -max_muxing_queue_size 1024
+}
+
+hacer_poster() { # origen, destino, duración
+  local src="$1" dst="$2" dur="${3:-}"
+  # NUNCA el primer fotograma: casi siempre es negro, claqueta o el destello del
+  # arranque de cámara. Se entra al 15 % (mínimo 1 s, máximo 60 s) y encima se deja
+  # que el filtro `thumbnail` elija el más representativo de los 60 siguientes, que
+  # esquiva fundidos y fotogramas movidos.
+  local pos esc
+  pos=$(awk -v d="${dur:-0}" 'BEGIN{ d=d+0; if(d<=0){print "1"; exit} p=d*0.15; if(p<1)p=(d>2?1:d/2); if(p>60)p=60; printf "%.3f", p}')
+  esc=$(escala "$POSTER_ANCHO" "$POSTER_ANCHO")
+  correr_ffmpeg "$dst" "poster" "$TIMEOUT_CORTO" \
+    -ss "$pos" -i "$src" -an -sn -dn \
+    -vf "thumbnail=60,${esc}" -frames:v 1 -q:v 3
+}
+
+hacer_tira() { # origen, destino, duración
+  local src="$1" dst="$2" dur="${3:-}"
+  local d rate
+  d=$(awk -v x="${dur:-0}" 'BEGIN{printf "%d", x+0}')
+  # Menos de 2 s no tiene nada que barrer: el póster ya lo cuenta todo. Queda marcado
+  # para no volver a mirarlo cada noche.
+  if [ "$d" -lt 2 ] 2>/dev/null; then
+    marcar "$dst" omitido "clip demasiado corto (${dur}s) para una tira"
+    return 1
+  fi
+  rate=$(awk -v d="$dur" -v n="$TIRA_FOTOGRAMAS" 'BEGIN{ d=d+0; if(d<=0)exit 1; r=n/d; if(r>60)r=60; printf "%.6f", r}') || return 1
+  # `fps=` reparte los 20 fotogramas por igual a lo largo del video y `tile=20x1` los
+  # pega en UNA fila. Si el video se queda corto, tile rellena en negro: preferible a
+  # una tira con menos casillas, porque el CSS cuenta con que siempre son 20.
+  correr_ffmpeg "$dst" "tira" "$TIMEOUT_CORTO" \
+    -i "$src" -an -sn -dn \
+    -vf "fps=${rate},scale=${TIRA_ANCHO}:-2,tile=${TIRA_FOTOGRAMAS}x1" \
+    -frames:v 1 -q:v 5
+}
+
+# ── Foto ──────────────────────────────────────────────────────────────────────
+
+procesar_foto() { # ruta absoluta
+  local src="$1"
+  local dir base pd dst esc
+  dir=$(dirname "$src"); base=$(basename "$src")
+  pd="$dir/.proxy"; dst="$pd/$base.webp"
+
+  al_dia "$dst" "$src" && { OMITIDOS=$((OMITIDOS+1)); return 0; }
+  [ "$SOLO_LISTAR" = "1" ] && { log "  (lista) $src"; return 0; }
+
+  mkdir -p "$pd"
+  esc=$(escala "$FOTO_LADO" "$FOTO_LADO")
+  log "  → copia de $base"
+  if correr_ffmpeg "$dst" "foto" "$TIMEOUT_CORTO" \
+      -i "$src" -an \
+      -vf "$esc" -frames:v 1 \
+      -c:v libwebp -quality "$FOTO_CALIDAD" -compression_level 6 -preset photo; then
+    CREADOS_FOTO=$((CREADOS_FOTO+1))
+    return 0
+  fi
+
+  # PENDIENTE DE VERIFICAR EN LA MÁQUINA: este ffmpeg abre TIFF/BMP y algunos DNG,
+  # pero los RAW de Canon/Sony/Nikon y el HEIC del iPhone probablemente no. Antes de
+  # rendirse se prueba con la miniatura que DSM ya generó en @eaDir (solo existe si
+  # la carpeta está indexada por Synology Photos): no es el original, pero el cliente
+  # ve la foto en vez de un hueco.
+  local eadir="$dir/@eaDir/$base" alt="" cand
+  for cand in SYNOPHOTO_THUMB_XL.jpg SYNOPHOTO_THUMB_B.jpg SYNOPHOTO_THUMB_M.jpg; do
+    [ -f "$eadir/$cand" ] && { alt="$eadir/$cand"; break; }
+  done
+  [ -z "$alt" ] && return 1
+  log "    ↳ reintento desde la miniatura de DSM (@eaDir)"
+  if correr_ffmpeg "$dst" "foto-eadir" "$TIMEOUT_CORTO" \
+      -i "$alt" -an -vf "$esc" -frames:v 1 \
+      -c:v libwebp -quality "$FOTO_CALIDAD" -compression_level 6 -preset photo; then
+    CREADOS_FOTO=$((CREADOS_FOTO+1))
+    return 0
+  fi
+  return 1
+}
+
+# ── Recorrido ─────────────────────────────────────────────────────────────────
+
+CREADOS_VIDEO=0; CREADOS_POSTER=0; CREADOS_TIRA=0; CREADOS_FOTO=0
+OMITIDOS=0; FALLOS_N=0; VISTOS=0; FALLOS_QSV=0
+
+# Se podan las mismas carpetas que ignora la app (nas-galeria.ts → isJunkName): la
+# basura de Synology/macOS/Windows y TODO lo que empiece por punto — ahí entra
+# `.proxy`, y sin esa poda acabaríamos haciendo copias de las copias.
+# `-mmin +N` deja fuera lo que aún se está copiando por SMB.
+while IFS= read -r -d '' f; do
+  if [ "$LIMITE" -gt 0 ] && [ "$VISTOS" -ge "$LIMITE" ]; then
+    log "Tope de $LIMITE archivos alcanzado; el resto queda para la próxima pasada."
+    break
+  fi
+  nombre=$(basename "$f")
+  ext=$(ext_de "$nombre")
+  case "$VIDEO_EXT" in
+    *" $ext "*)
+      VISTOS=$((VISTOS+1))
+      procesar_video "$f" || FALLOS_N=$((FALLOS_N+1))
+      continue;;
+  esac
+  case "$FOTO_CONVERTIR" in
+    *" $ext "*)
+      [ "$HACER_FOTOS" = "1" ] || continue
+      VISTOS=$((VISTOS+1))
+      procesar_foto "$f" || FALLOS_N=$((FALLOS_N+1))
+      continue;;
+  esac
+done < <(find "$DESTINO" \
+           \( -name '@eaDir' -o -name '#recycle' -o -name '#snapshot' -o -name '.*' \) -prune -o \
+           -type f -mmin +"$MIN_EDAD_MIN" -print0 2>/dev/null | sort -z)
+
+# ── Cierre ────────────────────────────────────────────────────────────────────
+
+SEGS=$(( $(date +%s) - INICIO ))
+log "════ Fin en $((SEGS/3600))h $(((SEGS%3600)/60))m · vistos:$VISTOS · videos:$CREADOS_VIDEO · pósters:$CREADOS_POSTER · tiras:$CREADOS_TIRA · fotos:$CREADOS_FOTO · al día:$OMITIDOS · fallos:$FALLOS_N"
+[ "$FALLOS_N" -gt 0 ] && log "Detalle de los fallos: $FALLOS"
+
+# Registros: 14 días. Más no sirve de nada y el volumen del material no es sitio
+# para basura acumulada.
+find "$ESTADO" -maxdepth 1 -name 'hacer-proxies-*.log' -mtime +14 -delete 2>/dev/null
+
+exit 0
