@@ -3,6 +3,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { buildWikiTree } from "@/lib/wiki-tree";
 import { WIKI_SECTIONS } from "@/lib/wiki-templates";
 import { getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
+import { WIKI_REVIEW_STALE_DAYS } from "@/lib/wiki-templates";
 
 // Datos del árbol lateral de la Wiki. Vive aquí porque lo montan DOS layouts: el de
 // /wiki y el de /plantillas — que está fuera de esa carpeta pero pertenece al mismo
@@ -11,8 +12,15 @@ import { getInventoryTableId, getLocationsTableId } from "@/lib/wiki-tables";
 export async function loadWikiNav() {
   const pages = await db.wikiPage.findMany({
     orderBy: { title: "asc" },
-    select: { id: true, title: true, icon: true, section: true, parentId: true, updatedAt: true },
+    select: { id: true, title: true, icon: true, section: true, parentId: true, updatedAt: true, ownerId: true, lastReviewedAt: true },
   });
+
+  // Cuántas piden atención (vencidas o sin dueño): es el chip de «Salud del conocimiento».
+  const staleMs = WIKI_REVIEW_STALE_DAYS * 86400000;
+  const ahora = Date.now();
+  const alertSalud = pages.filter(
+    (p) => !p.ownerId || ahora - (p.lastReviewedAt?.getTime() ?? 0) > staleMs,
+  ).length;
 
   // Alertas vivas de las herramientas (equipos que requieren atención, respaldos por
   // vencer): viajan como chip en su fila del árbol.
@@ -36,6 +44,7 @@ export async function loadWikiNav() {
   return {
     grupos: buildWikiTree(pages, WIKI_SECTIONS),
     canSeePasswords,
+    alertSalud,
     todas: pages.map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
     alertInventario: estadoCells.filter((c) => c.value === "en-mantenimiento" || c.value === "danado").length,
     alertMaterial: cadCells.filter((c) => {

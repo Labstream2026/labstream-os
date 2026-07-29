@@ -176,6 +176,7 @@ model User {
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
   reviewedWikiPages  WikiPage[]         @relation("WikiPageReviewer")
+  wikiRevisions      WikiRevision[]     @relation("WikiRevisionAuthor")
   permissionOverrides UserPermission[]
   preference          UserPreference?
   notifPrefs          UserNotificationPref[]
@@ -1403,10 +1404,34 @@ model WikiPage {
   parentId  String?
   children  WikiPage[]  @relation("WikiTree")
   tables    DataTable[]
+  revisions WikiRevision[]
+  // Aviso al dueño de que su página venció: se sella para no repetirlo cada día.
+  staleNotifiedAt DateTime?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   @@index([section])
+}
+
+// Una versión ANTERIOR de una página: se guarda justo antes de sobrescribirla, así el
+// historial es el rastro de lo que se perdió. Antes, editar pisaba el contenido para
+// siempre y nadie se atrevía a tocar un manual de empresa.
+model WikiRevision {
+  id        String   @id @default(cuid())
+  page      WikiPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId    String
+  // Copia del estado previo (lo que se puede restaurar).
+  title     String
+  content   String
+  section   String?
+  tags      String[] @default([])
+  icon      String?
+  // Quién dejó ESTA versión atrás (el autor del cambio que la sustituyó).
+  author    User?    @relation("WikiRevisionAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  @@index([pageId, createdAt])
 }
 
 model DataTable {

@@ -15,7 +15,7 @@ import { wikiBreadcrumb, wikiDescendants } from "@/lib/wiki-tree";
 import { resolveWikiLinks, wikiTitleIndex, extractWikiLinks, wikiLinkKey, wikiLinkPrefilter } from "@/lib/wiki-links";
 import { WikiToc } from "./toc";
 import { BotonFavorito, RegistrarVisita } from "@/components/wiki/wiki-atajos";
-import { Pencil, Paperclip, ChevronRight, Link as LinkIcon } from "lucide-react";
+import { Pencil, Paperclip, ChevronRight, Link as LinkIcon, History } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +104,9 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
         </nav>
         <div className="flex shrink-0 items-center gap-3">
           <BotonFavorito pageId={id} />
+          <Link href={`/wiki/${id}/historial`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" title="Ver versiones anteriores">
+            <History className="size-3.5" /> Historial
+          </Link>
           {editing ? (
             <Link href={`/wiki/${id}`} className="text-xs text-muted-foreground hover:text-foreground">Ver</Link>
           ) : (
@@ -151,7 +154,7 @@ export default async function WikiPageDetail({ params, searchParams }: { params:
               ))}
             </select>
           </label>
-          <MarkdownEditor defaultValue={page.content} paginas={todas.filter((t) => t.id !== id).map((t) => ({ id: t.id, title: t.title, icon: t.icon }))} />
+          <MarkdownEditor defaultValue={page.content} pageId={id} updatedAt={page.updatedAt.toISOString()} paginas={todas.filter((t) => t.id !== id).map((t) => ({ id: t.id, title: t.title, icon: t.icon }))} />
           <div className="flex items-center gap-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Guardar cambios</button>
             <Link href={`/wiki/${id}`} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancelar</Link>

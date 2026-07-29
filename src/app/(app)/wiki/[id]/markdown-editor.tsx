@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Bold, Italic, Heading, List, ListChecks, Quote, Code, Link2, Table, Image as ImageIcon, Paperclip, Eye, Pencil, BookMarked } from "lucide-react";
+import { Bold, Italic, Heading, List, ListChecks, Quote, Code, Link2, Table, Image as ImageIcon, Paperclip, Eye, Pencil, BookMarked, Check, Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderMarkdown } from "@/lib/markdown";
 import { resolveWikiLinks, wikiTitleIndex } from "@/lib/wiki-links";
-import { uploadWikiFile } from "../actions";
+import { uploadWikiFile, autosaveWikiPage } from "../actions";
 
 // Editor de Markdown con barra de herramientas, subida de imágenes/archivos y vista
 // previa. Guarda Markdown (campo name="content") — el mismo formato que se renderiza
@@ -13,10 +13,16 @@ import { uploadWikiFile } from "../actions";
 export function MarkdownEditor({
   defaultValue,
   paginas = [],
+  pageId,
+  updatedAt,
 }: {
   defaultValue: string;
   // Páginas de la wiki para autocompletar al escribir `[[`. Vacío = sin sugerencias.
   paginas?: { id: string; title: string; icon: string | null }[];
+  // Con estos dos, el editor guarda solo cada pocos segundos. Sin ellos (otras
+  // superficies), se comporta como antes: guardar es cosa del botón del formulario.
+  pageId?: string;
+  updatedAt?: string;
 }) {
   const [value, setValue] = React.useState(defaultValue);
   const [mode, setMode] = React.useState<"edit" | "preview">("edit");
@@ -29,6 +35,13 @@ export function MarkdownEditor({
   // Autocompletado de [[…]]: `abierto` guarda dónde empezó el corchete y qué se lleva escrito.
   const [sugerir, setSugerir] = React.useState<{ desde: number; texto: string } | null>(null);
   const [elegido, setElegido] = React.useState(0);
+  // Guardado automático: «limpio» = lo escrito ya está en el servidor.
+  const [estado, setEstado] = React.useState<"limpio" | "pendiente" | "guardando" | "conflicto">("limpio");
+  const [avisoGuardado, setAvisoGuardado] = React.useState<string | null>(null);
+  // Sello de la versión sobre la que se está escribiendo: si en el servidor cambia, es que
+  // otra persona guardó y hay que avisar en vez de pisarla.
+  const base = React.useRef(updatedAt ?? "");
+  const ultimoGuardado = React.useRef(defaultValue);
 
   const restore = (start: number, end: number) => requestAnimationFrame(() => { const ta = ref.current; if (ta) { ta.focus(); ta.setSelectionRange(start, end); } });
 
@@ -103,6 +116,43 @@ export function MarkdownEditor({
     setElegido(0);
   };
 
+  // \u2500\u2500 Guardado autom\u00e1tico \u2500\u2500
+  // Se guarda a los 2 s de dejar de escribir. El objetivo es no perder trabajo: antes, cerrar
+  // la pesta\u00f1a a mitad de un protocolo tiraba todo lo escrito.
+  const autoguardable = !!pageId && !!updatedAt;
+
+  React.useEffect(() => {
+    if (!autoguardable || estado === "conflicto") return;
+    if (value === ultimoGuardado.current) return;
+    setEstado("pendiente");
+    const t = setTimeout(async () => {
+      setEstado("guardando");
+      const r = await autosaveWikiPage(pageId!, value, base.current);
+      if (r.ok) {
+        base.current = r.updatedAt;
+        ultimoGuardado.current = value;
+        setEstado("limpio");
+        setAvisoGuardado(null);
+      } else if (r.motivo === "conflicto") {
+        setEstado("conflicto");
+        setAvisoGuardado(r.mensaje);
+      } else {
+        // Un fallo puntual (red) no debe bloquear: se reintentar\u00e1 al siguiente cambio.
+        setEstado("pendiente");
+        setAvisoGuardado(r.mensaje);
+      }
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [value, autoguardable, pageId, estado]);
+
+  // Aviso del navegador si se cierra con algo sin guardar (los 2 s de espera, o un fallo).
+  React.useEffect(() => {
+    if (!autoguardable || estado === "limpio") return;
+    const onLeave = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [estado, autoguardable]);
+
   // \u00cdndice t\u00edtulo\u2192id: lo usa la vista previa para que los [[enlaces]] ya se vean resueltos.
   const indiceTitulos = React.useMemo(() => wikiTitleIndex(paginas), [paginas]);
 
@@ -161,10 +211,30 @@ export function MarkdownEditor({
         <Btn onClick={() => imgInput.current?.click()} title="Insertar imagen"><ImageIcon className="size-4" /></Btn>
         <Btn onClick={() => fileInput.current?.click()} title="Adjuntar archivo"><Paperclip className="size-4" /></Btn>
         {busy ? <span className="ml-1 text-xs text-muted-foreground">Subiendo…</span> : null}
+        {/* Estado del guardado automático: que se vea que lo escrito ya está a salvo. */}
+        {autoguardable ? (
+          <span
+            className={cn(
+              "ml-auto mr-2 inline-flex items-center gap-1 whitespace-nowrap text-xs",
+              estado === "conflicto" ? "font-medium text-destructive" : "text-muted-foreground",
+            )}
+            aria-live="polite"
+          >
+            {estado === "limpio" ? (
+              <><Check className="size-3.5 text-emerald-600 dark:text-emerald-400" /> Guardado</>
+            ) : estado === "guardando" ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Guardando…</>
+            ) : estado === "conflicto" ? (
+              <><AlertTriangle className="size-3.5" /> Sin guardar</>
+            ) : (
+              <>Cambios sin guardar…</>
+            )}
+          </span>
+        ) : null}
         <button
           type="button"
           onClick={() => setMode((m) => (m === "edit" ? "preview" : "edit"))}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent"
         >
           {mode === "edit" ? <><Eye className="size-3.5" /> Vista previa</> : <><Pencil className="size-3.5" /> Editar</>}
         </button>
@@ -235,6 +305,11 @@ export function MarkdownEditor({
       ) : null}
 
       {err ? <p className="border-t border-border px-4 py-2 text-xs text-destructive">{err}</p> : null}
+      {avisoGuardado ? (
+        <p className={cn("border-t px-4 py-2 text-xs", estado === "conflicto" ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border text-muted-foreground")}>
+          {avisoGuardado}
+        </p>
+      ) : null}
 
       <input ref={imgInput} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void upload(f, true); }} />
       <input ref={fileInput} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void upload(f, false); }} />

@@ -94,6 +94,8 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
   { key: "admin_role", label: "Cambios de rol y permisos", description: "Cuando cambian tu rol o tus permisos.", category: "Administración", essential: true, priority: 2 },
   { key: "disk_check", label: "Verificación de discos pendiente", description: "Cuando un disco de la Biblioteca lleva 6+ meses sin verificarse (conectarlo y confirmar que abre).", category: "Administración", priority: 1 },
 
+  { key: "wiki_stale", label: "Página de la wiki por revisar", description: "Cuando una página de la que eres dueño lleva más de seis meses sin revisarse.", category: "Administración" },
+
   // ── Recordatorios ──
   { key: "reminder_fire", label: "Recordatorio programado", description: "Cuando llega la hora de un recordatorio tuyo (puntual o recurrente).", category: "Recordatorios" },
   { key: "reminder_assigned", label: "Te dejan un recordatorio", description: "Cuando otra persona te crea o programa un recordatorio.", category: "Recordatorios" },

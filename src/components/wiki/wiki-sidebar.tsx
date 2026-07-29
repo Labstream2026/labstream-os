@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, FileText, Search, Boxes, HardDrive, KeyRound, LayoutTemplate, FileType2, BookOpen } from "lucide-react";
+import { ChevronRight, FileText, Search, Boxes, HardDrive, KeyRound, LayoutTemplate, FileType2, BookOpen, Stethoscope } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WikiGroup, WikiNode } from "@/lib/wiki-tree";
 import { MisAtajos, type AtajoPagina } from "@/components/wiki/wiki-atajos";
@@ -25,6 +25,7 @@ export function WikiSidebar({
   canSeePasswords = true,
   alertInventario = 0,
   alertMaterial = 0,
+  alertSalud = 0,
 }: {
   grupos: WikiGroup[];
   // Todas las páginas en plano: los atajos guardan ids y necesitan resolverlos a título.
@@ -32,6 +33,8 @@ export function WikiSidebar({
   canSeePasswords?: boolean;
   alertInventario?: number;
   alertMaterial?: number;
+  // Páginas vencidas o sin dueño: el chip lleva a arreglarlas.
+  alertSalud?: number;
 }) {
   const pathname = usePathname();
   const [filtro, setFiltro] = React.useState("");
@@ -64,6 +67,7 @@ export function WikiSidebar({
     !q || n.title.toLowerCase().includes(q) || n.hijos.some(coincide);
 
   const herramientas: Herramienta[] = [
+    { href: "/wiki/salud", label: "Salud del conocimiento", icon: Stethoscope, alerta: alertSalud },
     { href: "/wiki/inventario", label: "Inventario", icon: Boxes, alerta: alertInventario },
     { href: "/wiki/ubicacion", label: "Material y discos", icon: HardDrive, alerta: alertMaterial },
     ...(canSeePasswords ? [{ href: "/wiki/contrasenas", label: "Contraseñas", icon: KeyRound }] : []),
@@ -117,7 +121,7 @@ export function WikiSidebar({
     .filter((g) => g.paginas.length > 0);
 
   return (
-    <nav aria-label="Páginas de la wiki" className="flex h-full flex-col gap-3 overflow-y-auto border-r border-border bg-sidebar/40 px-3 py-4">
+    <nav aria-label="Páginas de la wiki" className="flex h-full flex-col gap-3 overflow-hidden border-r border-border bg-sidebar/40 px-3 py-4">
       <Link
         href="/wiki"
         className={cn(
@@ -139,7 +143,7 @@ export function WikiSidebar({
         />
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {!q ? <MisAtajos paginas={todas} /> : null}
         {gruposVisibles.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted-foreground">
@@ -169,7 +173,7 @@ export function WikiSidebar({
 
       {/* Herramientas: tablas y bóvedas. Van abajo y separadas — no son documentación,
           aunque hasta ahora compartían la misma fila de pestañas. */}
-      <div className="border-t border-border pt-3">
+      <div className="shrink-0 border-t border-border pt-3">
         <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Herramientas</p>
         <ul className="space-y-0.5">
           {herramientas.map((h) => {
