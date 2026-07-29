@@ -17,9 +17,13 @@ import { StatTile } from "@/components/charts";
 import { EntityEmoji } from "@/components/icons/marks";
 import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
 import { IconCalendario, IconRodaje, IconTareas, IconNotificaciones, IconInicio, IconRaci, IconReportes } from "@/components/icons";
+import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 
 function greeting(name: string) {
-  const h = new Date().getHours();
+  // Hora de BOGOTÁ, no la del proceso: el contenedor corre en UTC a propósito, así que
+  // getHours() daba 5 h de más y la portada saludaba "Buenas noches" a las 3 de la tarde.
+  // Misma cuenta que todayLabel(), aquí abajo.
+  const h = Math.floor(bogotaMinutesOfDay() / 60);
   const part = h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
   return `${part}, ${name.split(" ")[0]} 👋`;
 }
