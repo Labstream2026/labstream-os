@@ -34,7 +34,7 @@ export default async function ProjectFileEditPage({
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, version: true, path: true, projectId: true, project: { select: accessSelect } },
+    select: { name: true, version: true, path: true, kind: true, projectId: true, project: { select: accessSelect } },
   });
   if (!file) notFound();
 
@@ -64,7 +64,12 @@ export default async function ProjectFileEditPage({
   const isClienteMember =
     session.role === "cliente" && file.project.members.some((m) => m.userId === session.id);
   const asleep = Boolean(file.project.archivedAt || file.project.finishedAt);
-  const access: DocAccess = asleep || session.role === "demo"
+  // Un archivo VIVO de Operaciones_LAB (kind OPS) escribe sus bytes de vuelta en la share del
+  // NAS al guardar. El cliente del portal no puede subir ahí (su subida va siempre al storage
+  // interno), así que tampoco puede escribirle por esta puerta. Y como comentar o sugerir
+  // TAMBIÉN se guarda dentro del archivo, para él un OPS es solo lectura, sin excepciones.
+  const clienteEnOps = file.kind === "OPS" && session.role === "cliente";
+  const access: DocAccess = asleep || session.role === "demo" || clienteEnOps
     ? "view"
     : canWriteProject(file.project, session) || (isClienteMember && hasPermission(session, "subir_archivos"))
       ? "edit"

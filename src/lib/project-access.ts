@@ -119,10 +119,16 @@ export function accessibleProjectWhere(session: SessionUser | null): Record<stri
   return { archivedAt: null, OR: or };
 }
 
-const accessSelect = {
+// Select CANÓNICO para resolver acceso a un proyecto. Incluye `client.members` a propósito:
+// sin él, la rama del RESPONSABLE de la cuenta en canAccessProject nunca puede evaluarse, y a
+// quien gestiona el cliente se le listan archivos que el guardián de la ruta luego le niega
+// con 403 (miniaturas rotas incluidas). Úsalo en toda ruta/acción que cargue un proyecto solo
+// para decidir acceso.
+export const PROJECT_ACCESS_SELECT = {
   isPrivate: true,
   leadId: true,
   members: { select: { userId: true, role: true } },
+  client: { select: { members: { select: { userId: true, role: true } } } },
 } as const;
 
 export async function userCanAccessProject(
@@ -130,7 +136,7 @@ export async function userCanAccessProject(
   session: SessionUser | null,
 ): Promise<boolean> {
   if (!session) return false;
-  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  const project = await db.project.findUnique({ where: { id: projectId }, select: PROJECT_ACCESS_SELECT });
   if (!project) return false;
   return canAccessProject(project, session);
 }
@@ -140,7 +146,7 @@ export async function userCanManageProject(
   session: SessionUser | null,
 ): Promise<boolean> {
   if (!session) return false;
-  const project = await db.project.findUnique({ where: { id: projectId }, select: accessSelect });
+  const project = await db.project.findUnique({ where: { id: projectId }, select: PROJECT_ACCESS_SELECT });
   if (!project) return false;
   return canManageProject(project, session);
 }

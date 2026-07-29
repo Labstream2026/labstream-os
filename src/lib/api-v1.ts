@@ -311,7 +311,9 @@ export async function loadClientForRead(clientId: string, session: SessionUser):
 export async function loadClientForManage(clientId: string, session: SessionUser, allowArchived = false): Promise<ClientAccess | NextResponse> {
   const client = await db.client.findUnique({ where: { id: clientId }, select: CLIENT_ACCESS_SELECT });
   if (!client || (!allowArchived && client.archivedAt)) return apiJson({ ok: false, error: "Cliente no encontrado." }, 404);
-  if (!canManageClient(client, session) && !hasPermission(session, "editar_clientes")) {
+  // El permiso global editar_clientes solo cuenta sobre clientes que el usuario puede VER:
+  // sin canAccessClient, una llave con ese permiso escribía sobre cualquier cliente por id.
+  if (!canManageClient(client, session) && !(hasPermission(session, "editar_clientes") && canAccessClient(client, session))) {
     return apiJson({ ok: false, error: "Sin permiso para gestionar este cliente." }, 403);
   }
   return client;

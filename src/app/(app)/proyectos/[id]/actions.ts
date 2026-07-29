@@ -1293,18 +1293,22 @@ export async function addTaskLink(taskId: string, _projectId: string, formData: 
 }
 export async function removeTaskLink(linkId: string, _projectId: string) {
   // Solo opera sobre archivos que estén LIGADOS a una tarea (no archivos sueltos del proyecto).
-  const f = await db.fileAsset.findUnique({ where: { id: linkId }, select: { taskId: true, kind: true, task: { select: taskAccessSelect } } });
+  const f = await db.fileAsset.findUnique({ where: { id: linkId }, select: { name: true, taskId: true, kind: true, task: { select: taskAccessSelect } } });
   if (!f?.task) return;
-  const projectId = await ensureAccessVia(f.task);
   if (f.kind === "LOCAL") {
     // Archivo SUBIDO: quitarlo de la tarea solo lo DESLIGA — el archivo queda en Archivos del
     // proyecto (un guion puede servir para otra pieza). Borrarlo del todo se hace desde Archivos.
+    const projectId = await ensureAccessVia(f.task);
     await db.fileAsset.update({ where: { id: linkId }, data: { taskId: null } });
+    refresh(projectId);
   } else {
-    // Enlace (LINK/DRIVE): es solo una referencia añadida desde la tarea → se borra.
+    // Enlace (LINK/DRIVE): la referencia SE BORRA del proyecto — eso es un borrado de Archivos,
+    // así que exige `eliminar_archivos` (no el permiso de tareas) y deja rastro en la actividad.
+    const projectId = await ensureAccessVia(f.task, "eliminar_archivos");
     await db.fileAsset.delete({ where: { id: linkId } });
+    await logActivity({ action: "file.delete", summary: `eliminó el enlace «${f.name}» de una tarea`, projectId, entityType: "file", entityId: linkId });
+    refresh(projectId);
   }
-  refresh(projectId);
 }
 
 // Sube ARCHIVOS locales ligados a una tarea (el guion, una referencia…): quedan en «Archivos»
@@ -2443,12 +2447,23 @@ export async function addInternalReviewComment(deliverableId: string, formData: 
 }
 
 // ── Archivos ──
+
+// La carpeta llega del formulario: hay que comprobar que pertenezca a ESTE proyecto, o un id
+// ajeno inyectaría el archivo en el panel de otro proyecto (la API v1 ya hace esta comprobación;
+// aquí faltaba). Un id que no cuadra se trata como «sin carpeta», no como error.
+async function folderDelProyecto(projectId: string, raw: FormDataEntryValue | null): Promise<string | null> {
+  const folderId = String(raw ?? "") || null;
+  if (!folderId) return null;
+  const folder = await db.projectFolder.findUnique({ where: { id: folderId }, select: { projectId: true } });
+  return folder?.projectId === projectId ? folderId : null;
+}
+
 export async function addFile(projectId: string, formData: FormData) {
   const session = await ensureProjectAccess(projectId, "subir_archivos");
   const name = String(formData.get("name") ?? "").trim();
   const url = safeExternalUrl(String(formData.get("url") ?? ""));
   if (!name || !url) return;
-  const folderId = String(formData.get("folderId") ?? "") || null;
+  const folderId = await folderDelProyecto(projectId, formData.get("folderId"));
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
   const f = await db.fileAsset.create({
     data: { projectId, name, url, folderId, kind, uploadedById: session.id },
@@ -2468,7 +2483,7 @@ export async function addNasRoute(projectId: string, formData: FormData) {
   if (!name || !path) return;
   // Acepta UNC (\\srv\share), smb:// y rutas absolutas locales; nada de http(s) ni javascript.
   if (!/^(\\\\|smb:\/\/|\/\/|[a-zA-Z]:\\|\/)/.test(path) || /^\s*(javascript|data|http):/i.test(path)) return;
-  const folderId = String(formData.get("folderId") ?? "") || null;
+  const folderId = await folderDelProyecto(projectId, formData.get("folderId"));
   const f = await db.fileAsset.create({
     data: { projectId, name, path, folderId, kind: "NAS", uploadedById: session.id },
   });
@@ -2482,12 +2497,29 @@ export async function addNasRoute(projectId: string, formData: FormData) {
 const BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|pif|cpl|jar|js|vbs|ps1|sh|app|dmg|deb|rpm)$/i;
 const MAX_UPLOAD = 100 * 1024 * 1024; // 100 MB por archivo (coincide con bodySizeLimit)
 
-export async function uploadProjectFiles(projectId: string, formData: FormData) {
+export async function uploadProjectFiles(
+  projectId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; subidos: number; omitidos: string[] }> {
   const session = await ensureProjectAccess(projectId, "subir_archivos");
-  const folderId = String(formData.get("folderId") ?? "") || null;
+  const folderId = await folderDelProyecto(projectId, formData.get("folderId"));
+  // Lo que NO se sube se DICE: hasta ahora un archivo de más de 100 MB o de tipo bloqueado se
+  // descartaba en silencio y el formulario aparentaba éxito. El panel pinta esta lista.
+  const omitidos: string[] = [];
   const files = formData
     .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name));
+    .filter((f): f is File => f instanceof File && f.size > 0)
+    .filter((f) => {
+      if (f.size > MAX_UPLOAD) {
+        omitidos.push(`«${f.name}» supera los 100 MB (usa la subida por trozos de Entregables)`);
+        return false;
+      }
+      if (BLOCKED_EXT.test(f.name)) {
+        omitidos.push(`«${f.name}» es de un tipo no permitido`);
+        return false;
+      }
+      return true;
+    });
   // Destino predeterminado: con carpeta de Operaciones_LAB vinculada, el archivo se escribe
   // DIRECTO en la share del NAS (kind OPS, visible por SMB con su nombre real) y se registra
   // como FileAsset para chips/permisos/auditoría. El checkbox «internal» fuerza el storage
@@ -2533,6 +2565,7 @@ export async function uploadProjectFiles(projectId: string, formData: FormData) 
     await logActivity({ action: "file.upload", summary: `subió el archivo «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
   }
   refresh(projectId);
+  return { ok: files.length > 0, subidos: files.length, omitidos };
 }
 
 // ── Guiones (documentos de Word del proyecto) ──
@@ -2633,8 +2666,29 @@ export async function copyGuionText(fileId: string): Promise<{ ok: boolean; text
 }
 
 export async function deleteFile(fileId: string, _projectId: string) {
-  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const file = await db.fileAsset.findUnique({
+    where: { id: fileId },
+    select: {
+      name: true,
+      projectId: true,
+      uploadedById: true,
+      // ¿Este archivo SOSTIENE algo? Las FK de fotos/portadas son onDelete: Cascade y la de
+      // versiones deja la entrega sin archivo: borrarlo arrastra material del entregable.
+      _count: { select: { deliverableVersions: true, deliverablePhotos: true, projectCovers: true } },
+      project: { select: accessSelect },
+    },
+  });
   const projectId = await ensureAccessVia(file, "eliminar_archivos");
+  const session = await getSession();
+  // La excepción del PORTAL le da `eliminar_archivos` al cliente para SUS subidas, no para las
+  // del equipo: si no puede escribir en el proyecto (es GUEST), solo borra lo que subió él.
+  if (session?.role === "cliente" && !canWriteProject(file!.project!, session) && file!.uploadedById !== session.id) {
+    noAutorizado();
+  }
+  // Archivo VINCULADO (versión de entregable, foto o portada): borrar exige gestionar el
+  // proyecto — la ocultación de estos archivos en el panel es un where, no un candado.
+  const vinculos = file!._count.deliverableVersions + file!._count.deliverablePhotos + file!._count.projectCovers;
+  if (vinculos > 0 && !canManageProject(file!.project!, session)) noAutorizado();
   await db.fileAsset.delete({ where: { id: fileId } });
   await logActivity({ action: "file.delete", summary: `eliminó el archivo «${file!.name}»`, projectId, entityType: "file", entityId: fileId });
   refresh(projectId);

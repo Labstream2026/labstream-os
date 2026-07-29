@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { userCanManageClient } from "@/lib/client-access";
+import { userCanManageClient, userCanAccessClient } from "@/lib/client-access";
 import { logActivity } from "@/lib/activity";
 import { saveOptimizedImage } from "@/lib/image";
 import { safeExternalUrl } from "@/lib/url";
@@ -24,7 +24,11 @@ function safeTone(value: string): string | null {
 async function canEditClient(clientId: string): Promise<boolean> {
   const session = await getSession();
   if (!session) return false;
-  return (await userCanManageClient(clientId, session)) || hasPermission(session, "editar_clientes");
+  if (await userCanManageClient(clientId, session)) return true;
+  // El permiso global editar_clientes NO basta por sí solo: se exige además poder VER este
+  // cliente. Sin esta comprobación, un rol con el permiso escribía sobre CUALQUIER cliente por
+  // id, incluso sobre fichas que la propia app le devuelve como «no encontrado».
+  return hasPermission(session, "editar_clientes") && (await userCanAccessClient(clientId, session));
 }
 
 export async function createClient(formData: FormData) {

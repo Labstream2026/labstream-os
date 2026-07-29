@@ -4,18 +4,12 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { canAccessProject } from "@/lib/project-access";
+import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
 import { absPath, verifyFileToken, mimeFor, isInlineSafeMime } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const accessSelect = {
-  isPrivate: true,
-  leadId: true,
-  members: { select: { userId: true, role: true } },
-} as const;
 
 const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|ogv|webm)$/i;
 
@@ -30,7 +24,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const file = await db.fileAsset.findUnique({
     where: { id },
-    select: { name: true, path: true, mime: true, kind: true, projectId: true, project: { select: accessSelect } },
+    select: { name: true, path: true, mime: true, kind: true, projectId: true, project: { select: PROJECT_ACCESS_SELECT } },
   });
   if (!file || !file.path) return new NextResponse("No encontrado", { status: 404 });
 
@@ -46,9 +40,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     viewer = session ? { id: session.id } : null;
   }
 
+  // Modo MINIATURA (?thumb=1): lo pide la cuadrícula de Archivos para pintar decenas de
+  // celdas. No es una apertura del archivo → no se audita (sin esto, mirar la pestaña
+  // escribía una línea de actividad por celda), y se permite caché privada del navegador.
+  const isThumb = !!url.searchParams.get("thumb");
+
   // Auditoría de descargas/aperturas: una vez por archivo servido. Los saltos del <video>
   // (peticiones Range intermedias) no cuentan — solo la primera carga completa o byte 0.
-  {
+  if (!isThumb) {
     const range = req.headers.get("range");
     if (!range || /^bytes=0-/.test(range)) {
       const { logActivity } = await import("@/lib/activity");
@@ -82,14 +81,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const opsIsVideo = opsType.startsWith("video/") || VIDEO_EXT.test(file.name);
     if (wantInline && !opsIsVideo) {
       try {
-        const webp = await opsThumb(file.path, 1600);
+        const webp = await opsThumb(file.path, isThumb ? 480 : 1600);
         if (webp) {
           return new NextResponse(new Uint8Array(webp), {
             headers: {
               "Content-Type": "image/webp",
               "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
               "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, no-store",
+              "Cache-Control": isThumb ? "private, max-age=3600, must-revalidate" : "private, no-store",
             },
           });
         }
@@ -120,7 +119,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           "Content-Type": "image/webp",
           "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
           "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "private, no-store",
+          "Cache-Control": isThumb ? "private, max-age=3600, must-revalidate" : "private, no-store",
         },
       });
     } catch {
