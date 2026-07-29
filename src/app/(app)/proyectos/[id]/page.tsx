@@ -334,6 +334,8 @@ export default async function ProyectoPage({
       path: isCliente && file.kind === "OPS" ? null : file.path,
       size: file.size,
       createdAt: file.createdAt.toISOString(),
+      updatedAt: file.updatedAt.toISOString(),
+      pinned: file.pinned,
       autor: file.uploadedBy?.name ?? file.uploaderName ?? null,
       version: file.version,
       editable: isEditableOffice(file.name),
@@ -891,6 +893,7 @@ export default async function ProyectoPage({
                 canFolders={alive && !isCliente && canWriteProject(project, session) && session?.role !== "demo"}
                 canLinkOps={opsAvailable && alive && canWriteProject(project, session) && session?.role !== "demo"}
                 canCreateDoc={alive && canUploadFiles && session?.role !== "demo"}
+                canChunked={alive && !isCliente && canWriteProject(project, session) && session?.role !== "demo"}
                 onlyoffice={ooReady}
               />
             </section>

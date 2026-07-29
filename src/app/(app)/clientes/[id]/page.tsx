@@ -50,7 +50,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     include: {
       _count: { select: { quotes: true } },
       members: { include: { user: { select: { id: true, name: true, email: true, initials: true, avatarColor: true, passwordHash: true, role: { select: { key: true } } } } } },
-      files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true, createdAt: true, uploadedBy: { select: { name: true } } } },
+      files: { orderBy: { createdAt: "desc" }, select: { id: true, name: true, kind: true, url: true, path: true, createdAt: true, updatedAt: true, pinned: true, category: true, note: true, uploadedBy: { select: { name: true } } } },
       projects: {
         // El recorte por acceso va EN LA BASE (accessibleProjectWhere), no en un .filter() de
         // JS: antes se traía cada proyecto vedado entero (con entregables y versiones) solo
@@ -191,11 +191,13 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       deliverablePhotos: { none: {} },
       projectCovers: { none: {} },
     },
-    orderBy: { createdAt: "desc" },
+    // Por ACTIVIDAD, no por creación: un guion editado ayer en OnlyOffice es más «reciente»
+    // que una foto subida hoy hace un mes. updatedAt existe desde la migración archivos_fase2.
+    orderBy: { updatedAt: "desc" },
     take: 300, // tope duro: el payload RSC de esta página se serializa SIEMPRE, se mire o no la vista
     select: {
       id: true, name: true, kind: true, url: true, path: true, size: true, version: true,
-      createdAt: true, viaClientLink: true, uploaderName: true,
+      createdAt: true, updatedAt: true, pinned: true, viaClientLink: true, uploaderName: true,
       uploadedBy: { select: { name: true } },
       task: { select: { id: true, title: true } },
       folder: { select: { id: true, name: true, icon: true, color: true } },
@@ -222,6 +224,8 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         path: f.path,
         size: f.size,
         createdAt: f.createdAt.toISOString(),
+        updatedAt: f.updatedAt.toISOString(),
+        pinned: f.pinned,
         autor: f.uploadedBy?.name ?? f.uploaderName ?? null,
         version: f.version,
         editable: isEditableOffice(f.name),
@@ -243,6 +247,10 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       path: cf.path,
       size: null,
       createdAt: cf.createdAt.toISOString(),
+      updatedAt: cf.updatedAt.toISOString(),
+      pinned: cf.pinned,
+      categoria: cf.category,
+      nota: cf.note,
       autor: cf.uploadedBy?.name ?? null,
       version: 1,
       editable: false,
@@ -427,6 +435,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                       proyectosEscribibles={escribibles.map(proyectoRef)}
                       proyectosGestionados={gestionados.map(proyectoRef)}
                       canEdit={canEdit}
+                      canChunked={canEdit && session?.role !== "demo"}
                     />
                   ),
                 },

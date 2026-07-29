@@ -23,9 +23,10 @@ export const GET = withApiKey(async (_req: NextRequest, ctx: ApiKeyContext, rout
     db.projectFolder.findMany({ where: { projectId: id }, orderBy: { position: "asc" }, select: { id: true, name: true, _count: { select: { files: true } } } }),
     db.fileAsset.findMany({
       where: { projectId: id },
-      orderBy: { createdAt: "desc" },
+      // Por ACTIVIDAD (updatedAt): un documento editado ayer es más reciente que su subida.
+      orderBy: { updatedAt: "desc" },
       take: 300,
-      select: { id: true, name: true, kind: true, url: true, mime: true, size: true, folderId: true, createdAt: true, uploadedBy: { select: { name: true } } },
+      select: { id: true, name: true, kind: true, url: true, mime: true, size: true, folderId: true, createdAt: true, updatedAt: true, uploadedBy: { select: { name: true } } },
     }),
   ]);
   return apiJson({

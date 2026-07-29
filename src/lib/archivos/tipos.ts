@@ -14,8 +14,13 @@ export type ArchivoItem = {
   url: string | null;
   path: string | null;
   size: number | null;
-  createdAt: string; // ISO — el panel lo pinta relativo
+  createdAt: string; // ISO
+  // Última ACTIVIDAD real (subida o guardado de OnlyOffice): es la fecha que pinta el panel
+  // y la que usa «Lo último». En archivos nunca editados coincide con createdAt.
+  updatedAt: string;
   autor: string | null; // quién lo subió (o el nombre que escribió el cliente en el enlace público)
+  // 📌 Fijado: destaca en la franja «Fijado» de la ficha del cliente.
+  pinned: boolean;
   version: number;
   editable: boolean; // se puede abrir en OnlyOffice
   viaClientLink: boolean;
@@ -31,7 +36,24 @@ export type ArchivoItem = {
   proyecto?: { id: string; name: string; emoji: string | null } | null;
   // ClientFile: material de marca del cliente, no pertenece a ningún proyecto.
   esMarca?: boolean;
+  // Categoría del material de marca (solo esMarca): clave de CATEGORIAS_MARCA.
+  categoria?: string | null;
+  // Nota de uso corta: «Solo para redes, no para TV».
+  nota?: string | null;
 };
+
+// Categorías cerradas del material de marca. La clave viaja a ClientFile.category.
+export const CATEGORIAS_MARCA: { key: string; label: string }[] = [
+  { key: "marca", label: "🎨 Marca" },
+  { key: "legal", label: "📄 Legal" },
+  { key: "referencias", label: "🎬 Referencias" },
+  { key: "material", label: "📥 Material del cliente" },
+  { key: "acceso", label: "🔌 Accesos" },
+];
+export function categoriaLabel(key: string | null | undefined): string | null {
+  if (!key) return null;
+  return CATEGORIAS_MARCA.find((c) => c.key === key)?.label ?? null;
+}
 
 export type CarpetaItem = { id: string; name: string; icon: string | null; color: string | null };
 
@@ -101,7 +123,7 @@ export function pasaFiltro(f: ArchivoItem, filtro: FiltroArchivos, ahora: number
     case "marca":
       return !!f.esMarca;
     case "reciente": {
-      const d = new Date(f.createdAt).getTime();
+      const d = new Date(f.updatedAt).getTime();
       return ahora - d < 7 * 24 * 3600_000;
     }
     case "cliente":

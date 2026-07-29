@@ -2174,7 +2174,13 @@ model ClientFile {
   clientId     String
   uploadedBy   User?    @relation("ClientFileUploader", fields: [uploadedById], references: [id])
   uploadedById String?
+  // Categoría del material de marca: marca | legal | referencias | material | acceso.
+  category     String?
+  // Nota de uso corta: «Solo para redes, no para TV», «Vence 12/2026».
+  note         String?
+  pinned       Boolean  @default(false)
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@index([clientId])
 }
@@ -2231,11 +2237,17 @@ model FileAsset {
   docComments         DocComment[]
   // Quién lo tiene abierto ahora mismo en el editor.
   presence            DocPresence[]
+  // 📌 Fijado en la MARCA del cliente: destaca arriba en la ficha del cliente (Archivos 2.0).
+  pinned       Boolean        @default(false)
   createdAt    DateTime       @default(now())
+  // Última actividad REAL (subida o guardado de OnlyOffice): el orden «recientes» deja de
+  // mentir cuando un documento se edita. La migración la rellena con createdAt.
+  updatedAt    DateTime       @default(now()) @updatedAt
 
   @@index([projectId])
   @@index([folderId])
   @@index([taskId])
+  @@index([projectId, updatedAt])
 }
 
 // Una versión ANTERIOR de un documento editado en OnlyOffice. Se crea justo antes de que el

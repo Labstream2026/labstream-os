@@ -553,7 +553,8 @@ export async function addClientLink(clientId: string, formData: FormData): Promi
   const url = safeExternalUrl(String(formData.get("url") ?? ""));
   if (!name || !url) return;
   const kind = url.includes("drive.google.com") ? "DRIVE" : "LINK";
-  await db.clientFile.create({ data: { clientId, name, url, kind, uploadedById: session!.id } });
+  const category = CATEGORIAS_MARCA_KEYS.has(String(formData.get("category") ?? "")) ? String(formData.get("category")) : null;
+  await db.clientFile.create({ data: { clientId, name, url, kind, category, uploadedById: session!.id } });
   await logActivity({ action: "client.file.link", summary: `añadió el enlace «${name}»`, clientId, entityType: "client", entityId: clientId });
   revalidatePath(`/clientes/${clientId}`);
 }
@@ -566,8 +567,33 @@ export async function addClientNasRoute(clientId: string, formData: FormData): P
   const path = String(formData.get("path") ?? "").trim();
   if (!name || !path) return;
   if (!/^(\\\\|smb:\/\/|\/\/|[a-zA-Z]:\\|\/)/.test(path) || /^\s*(javascript|data|http):/i.test(path)) return;
-  await db.clientFile.create({ data: { clientId, name, path, kind: "NAS", uploadedById: session!.id } });
+  const category = CATEGORIAS_MARCA_KEYS.has(String(formData.get("category") ?? "")) ? String(formData.get("category")) : null;
+  await db.clientFile.create({ data: { clientId, name, path, kind: "NAS", category, uploadedById: session!.id } });
   await logActivity({ action: "client.file.nas", summary: `añadió la ruta de red «${name}»`, clientId, entityType: "client", entityId: clientId });
+  revalidatePath(`/clientes/${clientId}`);
+}
+
+// Claves válidas de categoría del material de marca (espejo de CATEGORIAS_MARCA de la UI).
+const CATEGORIAS_MARCA_KEYS = new Set(["marca", "legal", "referencias", "material", "acceso"]);
+
+// Edita la categoría y la nota de uso de un material de marca.
+export async function updateClientFileMeta(fileId: string, clientId: string, formData: FormData): Promise<void> {
+  if (!(await canEditClient(clientId))) return;
+  const file = await db.clientFile.findUnique({ where: { id: fileId }, select: { clientId: true } });
+  if (!file || file.clientId !== clientId) return;
+  const raw = String(formData.get("category") ?? "");
+  const category = CATEGORIAS_MARCA_KEYS.has(raw) ? raw : null;
+  const note = String(formData.get("note") ?? "").trim().slice(0, 200) || null;
+  await db.clientFile.update({ where: { id: fileId }, data: { category, note } });
+  revalidatePath(`/clientes/${clientId}`);
+}
+
+// 📌 Fijar/soltar un material de marca en la franja «Fijado» de la ficha.
+export async function toggleClientFilePin(fileId: string, clientId: string): Promise<void> {
+  if (!(await canEditClient(clientId))) return;
+  const file = await db.clientFile.findUnique({ where: { id: fileId }, select: { clientId: true, pinned: true } });
+  if (!file || file.clientId !== clientId) return;
+  await db.clientFile.update({ where: { id: fileId }, data: { pinned: !file.pinned } });
   revalidatePath(`/clientes/${clientId}`);
 }
 

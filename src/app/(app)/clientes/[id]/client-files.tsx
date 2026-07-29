@@ -18,6 +18,7 @@ export function ClientFilesPanel({
   // Proyectos que este usuario GESTIONA: sus enlaces de subida van en el pie.
   proyectosGestionados,
   canEdit,
+  canChunked = false,
 }: {
   clientId: string;
   items: ArchivoItem[];
@@ -25,6 +26,7 @@ export function ClientFilesPanel({
   proyectosEscribibles: ProyectoRef[];
   proyectosGestionados: ProyectoRef[];
   canEdit: boolean;
+  canChunked?: boolean;
 }) {
   return (
     <ArchivosPanel
@@ -35,6 +37,7 @@ export function ClientFilesPanel({
       canLinks={canEdit}
       canRutas={canEdit}
       canEditMarca={canEdit}
+      canChunked={canChunked}
       slotPie={
         <div className="flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/[0.04] px-3 py-2.5 text-xs text-muted-foreground">
           <Send className="mt-0.5 size-3.5 shrink-0 text-primary" />

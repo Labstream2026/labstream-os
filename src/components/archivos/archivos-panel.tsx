@@ -31,6 +31,8 @@ import {
   Users,
   ExternalLink,
   Sparkles,
+  Pin,
+  X,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -49,6 +51,8 @@ import {
   pasaFiltro,
   coincide,
   normaliza,
+  CATEGORIAS_MARCA,
+  categoriaLabel,
 } from "@/lib/archivos/tipos";
 import {
   addFile,
@@ -58,8 +62,22 @@ import {
   updateFolder,
   deleteFolder,
   deleteFile,
+  renameFile,
+  moveFile,
+  toggleFilePin,
+  moverArchivosLote,
+  fijarArchivosLote,
+  quitarArchivosLote,
+  finishChunkedArchivo,
 } from "@/app/(app)/proyectos/[id]/actions";
-import { addClientLink, addClientNasRoute, deleteClientFile } from "@/app/(app)/clientes/actions";
+import {
+  addClientLink,
+  addClientNasRoute,
+  deleteClientFile,
+  updateClientFileMeta,
+  toggleClientFilePin,
+} from "@/app/(app)/clientes/actions";
+import { startChunkedUpload, type UploadProgress } from "@/lib/chunked-upload-client";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EL PANEL DE ARCHIVOS — un solo componente, dos alcances.
@@ -95,6 +113,7 @@ export function ArchivosPanel({
   canRutas = false, // añadir rutas SMB (nunca el portal del cliente)
   canFolders = false, // crear/editar carpetas (solo proyecto)
   canEditMarca = false, // editar el material de marca (solo cliente)
+  canChunked = false, // subida por trozos (>100 MB): solo equipo, nunca portal ni demo
   slotHerramientas = null, // p. ej. «Nuevo documento» + «Vincular carpeta del NAS» del proyecto
   slotPie = null, // p. ej. los enlaces de subida por proyecto en la ficha del cliente
   ahora, // Date.now() del SERVIDOR: mantiene puro el render (filtro «lo último», grupos por fecha)
@@ -108,6 +127,7 @@ export function ArchivosPanel({
   canRutas?: boolean;
   canFolders?: boolean;
   canEditMarca?: boolean;
+  canChunked?: boolean;
   slotHerramientas?: React.ReactNode;
   slotPie?: React.ReactNode;
   ahora: number;
@@ -144,7 +164,7 @@ export function ArchivosPanel({
   // ── Línea de contexto ──
   const nProyectos = esCliente ? new Set(items.filter((f) => f.proyecto).map((f) => f.proyecto!.id)).size : 0;
   const masReciente = items.length
-    ? items.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
+    ? items.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b))
     : null;
 
   // ── Pastillas de filtro: las de conteo 0 no se pintan ──
@@ -201,7 +221,7 @@ export function ArchivosPanel({
     const lista = [...mapa.values()];
     if (esCliente && agrupado === "origen") {
       // El proyecto con el archivo más reciente, primero.
-      lista.sort((a, b) => (b.files[0]?.createdAt ?? "").localeCompare(a.files[0]?.createdAt ?? ""));
+      lista.sort((a, b) => (b.files[0]?.updatedAt ?? "").localeCompare(a.files[0]?.updatedAt ?? ""));
     } else {
       lista.sort((a, b) => a.key.localeCompare(b.key));
     }
@@ -216,7 +236,7 @@ export function ArchivosPanel({
   // Dentro del grupo: en el cliente, lo último primero; en el proyecto, el orden estable de
   // siempre (createdAt asc), para no descolocar a quien ya conoce su pestaña.
   const ordenaGrupo = (files: ArchivoItem[]) =>
-    esCliente ? [...files].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) : files;
+    esCliente ? [...files].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : files;
 
   // Grupos abiertos: los 3 primeros de entrada, y TODOS cuando se filtra. Default reactivo
   // (abierto[key] ?? índice < 3): no se congela en el primer render como el useState de antes.
@@ -224,23 +244,92 @@ export function ArchivosPanel({
   const estaAbierto = (key: string, i: number) => (filtrando ? true : abierto[key] ?? i < 3);
   const alterna = (key: string, i: number) => setAbierto((o) => ({ ...o, [key]: !estaAbierto(key, i) }));
 
-  // ── Subida con acuse: dice qué subió y qué OMITIÓ (antes se lo tragaba en silencio) ──
+  // ── Subida con acuse — y POR TROZOS para lo grande ──
+  // Hasta 100 MB va directo por la server action. Con canChunked (equipo), lo que pase de ahí
+  // usa el transporte reanudable de /api/upload/chunked (el del subidor pro de revisiones) y
+  // se registra con finishChunkedArchivo. Todo desde el mismo formulario, sin pasos extra.
   type ResultadoSubida = { ok: boolean; subidos: number; omitidos: string[]; error?: string };
-  const [subida, accionSubir, subiendo] = React.useActionState<ResultadoSubida | null, FormData>(
-    async (_prev, fd) => {
-      const projectId = alcance.tipo === "proyecto" ? alcance.projectId : String(fd.get("projectId") ?? "");
-      if (!projectId) return { ok: false, subidos: 0, omitidos: [], error: "Elige a qué proyecto va" };
-      try {
-        const r = await uploadProjectFiles(projectId, fd);
-        router.refresh();
-        if (r.ok && !r.omitidos.length) setTool(null);
-        return r;
-      } catch {
-        return { ok: false, subidos: 0, omitidos: [], error: "No se pudo subir. Inténtalo otra vez." };
+  const [subida, setSubida] = React.useState<ResultadoSubida | null>(null);
+  const [subiendo, setSubiendo] = React.useState(false);
+  const [progreso, setProgreso] = React.useState<{ nombre: string; pct: number; etaSec: number | null } | null>(null);
+  const LIMITE_DIRECTO = 100 * 1024 * 1024;
+
+  async function manejarSubida(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const projectId = alcance.tipo === "proyecto" ? alcance.projectId : String(fd.get("projectId") ?? "");
+    if (!projectId) {
+      setSubida({ ok: false, subidos: 0, omitidos: [], error: "Elige a qué proyecto va" });
+      return;
+    }
+    const files = fd.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+    if (!files.length) return;
+    const grandes = canChunked ? files.filter((f) => f.size > LIMITE_DIRECTO) : [];
+    const pequenos = files.filter((f) => !grandes.includes(f));
+    setSubiendo(true);
+    setSubida(null);
+    try {
+      let subidos = 0;
+      const omitidos: string[] = [];
+      if (pequenos.length) {
+        const fdP = new FormData();
+        for (const f of pequenos) fdP.append("files", f);
+        const folderId = fd.get("folderId");
+        if (folderId) fdP.set("folderId", String(folderId));
+        if (fd.get("internal")) fdP.set("internal", "1");
+        const r = await uploadProjectFiles(projectId, fdP);
+        subidos += r.subidos;
+        omitidos.push(...r.omitidos);
       }
-    },
-    null,
-  );
+      for (const f of grandes) {
+        setProgreso({ nombre: f.name, pct: 0, etaSec: null });
+        const h = startChunkedUpload(f, {
+          projectId,
+          onProgress: (pr: UploadProgress) => setProgreso({ nombre: f.name, pct: pr.pct, etaSec: pr.etaSec }),
+        });
+        const { uploadId, crc32 } = await h.done;
+        const fdG = new FormData();
+        fdG.set("uploadId", uploadId);
+        fdG.set("crc32", crc32);
+        const folderId = fd.get("folderId");
+        if (folderId) fdG.set("folderId", String(folderId));
+        const r = await finishChunkedArchivo(projectId, fdG);
+        if (r.ok) subidos++;
+        else omitidos.push(`«${f.name}»: ${r.error ?? "no se pudo cerrar la subida"}`);
+        setProgreso(null);
+      }
+      setSubida({ ok: subidos > 0, subidos, omitidos });
+      router.refresh();
+      if (subidos > 0 && omitidos.length === 0) {
+        form.reset();
+        setTool(null);
+      }
+    } catch (err) {
+      setSubida({ ok: false, subidos: 0, omitidos: [], error: err instanceof Error ? err.message : "No se pudo subir. Inténtalo otra vez." });
+      setProgreso(null);
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  // ── Selección múltiple (solo alcance proyecto: las acciones en lote son por proyecto) ──
+  const [sel, setSel] = React.useState<Set<string>>(new Set());
+  const seleccionable = !esCliente && canUpload && vista === "lista";
+  const toggleSel = (id: string) =>
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const limpiaSel = () => setSel(new Set());
+  const [copiado, setCopiado] = React.useState(false);
+  const idsFD = () => {
+    const fd = new FormData();
+    sel.forEach((id) => fd.append("ids", id));
+    return fd;
+  };
 
   // Enlaces y rutas: en el cliente llevan selector de destino (Marca del cliente | proyecto).
   const conRefresh = (fn: (fd: FormData) => Promise<unknown>) => async (fd: FormData) => {
@@ -297,7 +386,7 @@ export function ArchivosPanel({
 
       {/* Formulario activo */}
       {tool === "upload" && canUpload ? (
-        <form action={accionSubir} className="space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
+        <form onSubmit={manejarSubida} className="space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
           <div className="flex flex-wrap items-center gap-2">
             {esCliente ? (
               <select name="projectId" required defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
@@ -310,13 +399,25 @@ export function ArchivosPanel({
               <SelectorCarpeta carpetas={carpetas} />
             )}
             <input type="file" name="files" multiple required className="min-w-44 flex-1 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-            <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-              Subir
-            </SubmitButton>
+            <button type="submit" disabled={subiendo} className={cn("rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90", subiendo && "cursor-not-allowed opacity-60")}>
+              {subiendo ? "Subiendo…" : "Subir"}
+            </button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {esCliente ? "Los archivos siempre viven dentro de un proyecto. Elige a cuál va este. " : ""}Máx. 100 MB por archivo.
+            {esCliente ? "Los archivos siempre viven dentro de un proyecto. Elige a cuál va este. " : ""}
+            {canChunked ? "Hasta 100 MB va directo; lo más grande sube por trozos (reanudable, con progreso)." : "Máx. 100 MB por archivo."}
           </p>
+          {progreso ? (
+            <div className="space-y-1">
+              <p className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="truncate">Subiendo por trozos «{progreso.nombre}»…</span>
+                <span className="tabular-nums">{progreso.pct}%{progreso.etaSec != null ? ` · ${progreso.etaSec > 90 ? `${Math.ceil(progreso.etaSec / 60)} min` : `${progreso.etaSec} s`}` : ""}</span>
+              </p>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progreso.pct}%` }} />
+              </div>
+            </div>
+          ) : null}
           {subida?.error ? <p className="text-xs font-medium text-destructive">{subida.error}</p> : null}
           {subida && !subida.error ? (
             <p className={cn("text-xs", subida.omitidos.length ? "text-amber-600 dark:text-amber-400" : "text-emerald-600")}>
@@ -457,6 +558,22 @@ export function ArchivosPanel({
         </div>
       ) : (
         <div className="space-y-2.5">
+          {/* 📌 FIJADO (solo cliente): lo que el equipo destacó de esta cuenta. Los archivos
+              también aparecen en su grupo — esto es curación, no una carpeta. */}
+          {esCliente && visibles.some((f) => f.pinned) ? (
+            <section className="overflow-hidden rounded-xl border border-amber-500/40 bg-card">
+              <div className="flex items-center gap-2 border-b border-border bg-amber-500/[0.06] px-3 py-2">
+                <Pin className="size-4 text-amber-600" />
+                <span className="text-sm font-semibold">Fijado</span>
+                <span className="text-xs tabular-nums text-muted-foreground">{visibles.filter((f) => f.pinned).length}</span>
+              </div>
+              <ul className="divide-y divide-border">
+                {visibles.filter((f) => f.pinned).map((f) => (
+                  <FilaArchivo key={`pin-${f.id}`} f={f} conProyecto={!!f.proyecto} alcance={alcance} carpetas={carpetas} canGestionar={f.esMarca ? canEditMarca : canUpload} canMarcar={canEditMarca} onCambio={() => router.refresh()} />
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {/* Grupo FIJO de marca (solo cliente): no pertenece a ningún proyecto. */}
           {marca.length > 0 ? (
             <section className="overflow-hidden rounded-xl border border-primary/30 bg-card">
@@ -468,7 +585,7 @@ export function ArchivosPanel({
               </div>
               <ul className="divide-y divide-border">
                 {marca.map((f) => (
-                  <FilaArchivo key={f.id} f={f} conProyecto={false} alcance={alcance} onCambio={() => router.refresh()} />
+                  <FilaArchivo key={f.id} f={f} conProyecto={false} alcance={alcance} carpetas={carpetas} canGestionar={canEditMarca} canMarcar={canEditMarca} onCambio={() => router.refresh()} />
                 ))}
               </ul>
             </section>
@@ -479,7 +596,7 @@ export function ArchivosPanel({
               <section key={g.key} className="overflow-hidden rounded-xl border border-border bg-card">
                 <ul className="divide-y divide-border">
                   {ordenaGrupo(g.files).map((f) => (
-                    <FilaArchivo key={f.id} f={f} conProyecto={esCliente} alcance={alcance} onCambio={() => router.refresh()} />
+                    <FilaArchivo key={f.id} f={f} conProyecto={esCliente} alcance={alcance} carpetas={carpetas} canGestionar={canUpload} canMarcar={canEditMarca} seleccionado={seleccionable ? sel.has(f.id) : undefined} onToggleSel={seleccionable ? toggleSel : undefined} onCambio={() => router.refresh()} />
                   ))}
                 </ul>
               </section>
@@ -511,7 +628,7 @@ export function ArchivosPanel({
                   g.files.length ? (
                     <ul className="divide-y divide-border">
                       {ordenaGrupo(g.files).map((f) => (
-                        <FilaArchivo key={f.id} f={f} conProyecto={esCliente && agrupado !== "origen"} alcance={alcance} onCambio={() => router.refresh()} />
+                        <FilaArchivo key={f.id} f={f} conProyecto={esCliente && agrupado !== "origen"} alcance={alcance} carpetas={carpetas} canGestionar={canUpload} canMarcar={canEditMarca} seleccionado={seleccionable ? sel.has(f.id) : undefined} onToggleSel={seleccionable ? toggleSel : undefined} onCambio={() => router.refresh()} />
                       ))}
                     </ul>
                   ) : (
@@ -523,6 +640,81 @@ export function ArchivosPanel({
           )}
         </div>
       )}
+
+      {/* ── Barra de acciones EN LOTE (aparece con la primera casilla marcada) ── */}
+      {alcance.tipo === "proyecto" && sel.size > 0 ? (
+        <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg">
+          <span className="text-sm font-semibold tabular-nums">{sel.size} seleccionado{sel.size === 1 ? "" : "s"}</span>
+          <form
+            action={async (fd) => {
+              const datos = idsFD();
+              datos.set("folderId", String(fd.get("folderId") ?? ""));
+              await moverArchivosLote(alcance.projectId, datos);
+              limpiaSel();
+              router.refresh();
+            }}
+            className="flex items-center gap-1.5"
+          >
+            <select name="folderId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-1.5 text-xs">
+              <option value="">Sin carpeta</option>
+              {carpetas.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <SubmitButton pendingText="Moviendo…" className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+              Mover
+            </SubmitButton>
+          </form>
+          <form
+            action={async () => {
+              await fijarArchivosLote(alcance.projectId, idsFD());
+              limpiaSel();
+              router.refresh();
+            }}
+          >
+            <SubmitButton pendingText="Fijando…" className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Fijar en la marca del cliente (o soltar si ya lo están todos)">
+              <Pin className="size-3.5" /> Fijar
+            </SubmitButton>
+          </form>
+          <button
+            type="button"
+            onClick={async () => {
+              const lineas = items
+                .filter((f) => sel.has(f.id))
+                .map((f) => f.url ?? f.path ?? `${window.location.origin}/api/files-asset/${f.id}`);
+              try {
+                await navigator.clipboard.writeText(lineas.join("\n"));
+                setCopiado(true);
+                setTimeout(() => setCopiado(false), 1500);
+              } catch {
+                /* sin portapapeles */
+              }
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"
+          >
+            {copiado ? <><Check className="size-3.5" /> Copiados</> : <><Copy className="size-3.5" /> Copiar enlaces</>}
+          </button>
+          <form
+            action={async () => {
+              const r = await quitarArchivosLote(alcance.projectId, idsFD());
+              limpiaSel();
+              router.refresh();
+              if (r.rechazados) window.alert(`${r.rechazados} archivo${r.rechazados === 1 ? "" : "s"} no se pudieron quitar (vinculados a un entregable o sin permiso).`);
+            }}
+          >
+            <ConfirmSubmit
+              message={`¿Quitar ${sel.size} archivo${sel.size === 1 ? "" : "s"}? Los de Operaciones_LAB solo se desvinculan (siguen en el disco).`}
+              confirmLabel={`Quitar ${sel.size}`}
+              className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-3.5" /> Quitar
+            </ConfirmSubmit>
+          </form>
+          <button type="button" onClick={limpiaSel} className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Deshacer la selección" aria-label="Deshacer la selección">
+            <X className="size-4" />
+          </button>
+        </div>
+      ) : null}
 
       {slotPie}
     </div>
@@ -664,15 +856,48 @@ function CopiarRuta({ path }: { path: string }) {
   );
 }
 
-// La FILA: miniatura/icono + nombre + metadatos (proyecto · carpeta · peso · fecha · autor)
-// + chips + acciones. La información que el modelo ya guardaba y el panel viejo tiraba.
-function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; conProyecto: boolean; alcance: AlcanceArchivos; onCambio: () => void }) {
+// La FILA: casilla (lote) + miniatura/icono + nombre + metadatos (proyecto · carpeta · peso ·
+// actividad · autor) + chips + acciones + menú ⋯ (renombrar, mover, fijar, categoría).
+function FilaArchivo({
+  f,
+  conProyecto,
+  alcance,
+  carpetas = [],
+  canGestionar = false,
+  canMarcar = false,
+  seleccionado,
+  onToggleSel,
+  onCambio,
+}: {
+  f: ArchivoItem;
+  conProyecto: boolean;
+  alcance: AlcanceArchivos;
+  carpetas?: CarpetaItem[];
+  // Puede renombrar/mover/fijar este archivo (subir_archivos en su proyecto, o editar la marca).
+  canGestionar?: boolean;
+  // Puede editar categoría/nota del material de marca.
+  canMarcar?: boolean;
+  seleccionado?: boolean;
+  onToggleSel?: (id: string) => void;
+  onCambio: () => void;
+}) {
   const { Icon, color } = iconoDe(f.name, f.kind);
   const peso = formatPeso(f.size);
   const esImg = esImagen(f);
   const verHref = f.kind === "LOCAL" || f.kind === "OPS" ? `/api/files-asset/${f.id}` : f.url;
+  const projectIdDe = f.proyecto?.id ?? (alcance.tipo === "proyecto" ? alcance.projectId : "");
+  const catLabel = categoriaLabel(f.categoria);
   return (
     <li className="group/file flex items-start gap-2.5 px-3 py-2 hover:bg-muted/40">
+      {onToggleSel ? (
+        <input
+          type="checkbox"
+          checked={!!seleccionado}
+          onChange={() => onToggleSel(f.id)}
+          aria-label={`Seleccionar ${f.name}`}
+          className="mt-3 size-3.5 shrink-0 accent-[hsl(var(--primary))]"
+        />
+      ) : null}
       {esImg ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/api/files-asset/${f.id}?thumb=1`} alt="" loading="lazy" className="mt-0.5 size-9 shrink-0 rounded-md object-cover ring-1 ring-border" />
@@ -682,7 +907,10 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium leading-5">{f.name}</p>
+        <p className="truncate text-sm font-medium leading-5">
+          {f.pinned ? <Pin className="mr-1 inline size-3 text-amber-600" aria-label="Fijado" /> : null}
+          {f.name}
+        </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
           {conProyecto && f.proyecto ? (
             <Link
@@ -693,10 +921,12 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
               <span className="max-w-[9rem] truncate">{f.proyecto.name}</span>
             </Link>
           ) : null}
+          {catLabel ? <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium">{catLabel}</span> : null}
           {f.carpeta ? <span className="truncate">{f.carpeta.icon ? `${f.carpeta.icon} ` : ""}{f.carpeta.name}</span> : null}
           {peso ? <span className="tabular-nums">{peso}</span> : null}
-          <span>{fechaRelativa(f.createdAt)}</span>
+          <span title={new Date(f.updatedAt).toLocaleString("es-CO")}>{fechaRelativa(f.updatedAt)}</span>
           {f.autor ? <span className="truncate">{f.autor}</span> : null}
+          {f.nota ? <span className="truncate italic" title={f.nota}>· {f.nota}</span> : null}
           {f.viaClientLink ? <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">cliente</span> : null}
           {f.chat ? (
             <Link href={`/chat/${f.chat.channelId}?msg=${f.chat.messageId}`} title="Compartido en el chat — abrir el mensaje" className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/10 px-1.5 py-px text-[10px] font-medium text-orange-600 hover:bg-orange-500/20">
@@ -720,7 +950,7 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
             </span>
           ) : null}
           {f.version > 1 ? (
-            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium" title={`Guardado ${f.version} veces desde OnlyOffice (no es un historial: no hay copias anteriores)`}>
+            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium" title={`Guardado ${f.version} veces desde OnlyOffice — hay historial de versiones para volver atrás`}>
               v{f.version}
             </span>
           ) : null}
@@ -745,7 +975,6 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
         {f.kind === "NAS" && f.path ? (
           <CopiarRuta path={f.path} />
         ) : f.missing ? (
-          // Un OPS que ya no está en el disco NO enlaza a un 404: manda al explorador a buscarlo.
           <a href={`/operaciones${f.path && f.path.includes("/") ? `?path=${encodeURIComponent(f.path.split("/").slice(0, -1).join("/"))}` : ""}`} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
             Búscalo en Operaciones
           </a>
@@ -775,12 +1004,12 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
             <ExternalLink className="size-3.5" /> Abrir
           </a>
         ) : null}
+        {canGestionar ? <MenuArchivo f={f} alcance={alcance} carpetas={carpetas} projectId={projectIdDe} canMarcar={canMarcar} onCambio={onCambio} /> : null}
         {f.puedeEliminar ? (
           <form
             action={async () => {
               if (f.esMarca && alcance.tipo === "cliente") await deleteClientFile(f.id, alcance.clientId);
-              else if (f.proyecto) await deleteFile(f.id, f.proyecto.id);
-              else if (alcance.tipo === "proyecto") await deleteFile(f.id, alcance.projectId);
+              else if (projectIdDe) await deleteFile(f.id, projectIdDe);
               onCambio();
             }}
           >
@@ -802,6 +1031,107 @@ function FilaArchivo({ f, conProyecto, alcance, onCambio }: { f: ArchivoItem; co
         ) : null}
       </div>
     </li>
+  );
+}
+
+// Menú ⋯ del archivo: renombrar y mover (archivos de proyecto), categoría y nota (marca),
+// y 📌 fijar/soltar en ambos. Mismo patrón details que el menú de la carpeta.
+function MenuArchivo({
+  f,
+  alcance,
+  carpetas,
+  projectId,
+  canMarcar,
+  onCambio,
+}: {
+  f: ArchivoItem;
+  alcance: AlcanceArchivos;
+  carpetas: CarpetaItem[];
+  projectId: string;
+  canMarcar: boolean;
+  onCambio: () => void;
+}) {
+  const esMarcaEnCliente = !!f.esMarca && alcance.tipo === "cliente";
+  return (
+    <details data-autoclose className="relative shrink-0">
+      <summary
+        title="Más opciones"
+        aria-label={`Más opciones de ${f.name}`}
+        className="flex size-6 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <MoreHorizontal className="size-4" />
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 w-64 space-y-2 rounded-lg border border-border bg-popover p-3 shadow-lg">
+        {esMarcaEnCliente ? (
+          canMarcar ? (
+            <form
+              action={async (fd) => {
+                await updateClientFileMeta(f.id, alcance.clientId, fd);
+                onCambio();
+              }}
+              className="space-y-2"
+            >
+              <select name="category" defaultValue={f.categoria ?? ""} className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+                <option value="">Sin categoría</option>
+                {CATEGORIAS_MARCA.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+              <input name="note" defaultValue={f.nota ?? ""} placeholder="Nota de uso (ej. Solo para redes)" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+              <SubmitButton pendingText="Guardando…" className="w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
+                Guardar
+              </SubmitButton>
+            </form>
+          ) : null
+        ) : (
+          <>
+            <form
+              action={async (fd) => {
+                await renameFile(f.id, projectId, fd);
+                onCambio();
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <input name="name" defaultValue={f.name} aria-label="Nuevo nombre" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+              <SubmitButton pendingText="…" className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground">
+                Renombrar
+              </SubmitButton>
+            </form>
+            {carpetas.length ? (
+              <form
+                action={async (fd) => {
+                  await moveFile(f.id, projectId, fd);
+                  onCambio();
+                }}
+                className="flex items-center gap-1.5"
+              >
+                <select name="folderId" defaultValue={f.carpeta?.id ?? ""} aria-label="Mover a la carpeta" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+                  <option value="">Sin carpeta</option>
+                  {carpetas.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <SubmitButton pendingText="…" className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+                  Mover
+                </SubmitButton>
+              </form>
+            ) : null}
+          </>
+        )}
+        <form
+          action={async () => {
+            if (esMarcaEnCliente) await toggleClientFilePin(f.id, alcance.clientId);
+            else await toggleFilePin(f.id, projectId);
+            onCambio();
+          }}
+          className="border-t border-border pt-2"
+        >
+          <SubmitButton pendingText="…" className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+            <Pin className="size-3.5" /> {f.pinned ? "Soltar de fijados" : "Fijar en la marca del cliente"}
+          </SubmitButton>
+        </form>
+      </div>
+    </details>
   );
 }
 

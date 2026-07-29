@@ -2694,6 +2694,111 @@ export async function deleteFile(fileId: string, _projectId: string) {
   refresh(projectId);
 }
 
+// Renombrar un archivo (solo el nombre visible; los bytes y su ruta no se tocan).
+export async function renameFile(fileId: string, _projectId: string, formData: FormData) {
+  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(file, "subir_archivos");
+  const name = String(formData.get("name") ?? "").trim().slice(0, 200);
+  if (!name || name === file!.name) return;
+  await db.fileAsset.update({ where: { id: fileId }, data: { name } });
+  await logActivity({ action: "file.rename", summary: `renombró «${file!.name}» a «${name}»`, projectId, entityType: "file", entityId: fileId });
+  refresh(projectId);
+}
+
+// Mover un archivo a otra carpeta (o a «sin carpeta»). La carpeta se valida contra el proyecto.
+export async function moveFile(fileId: string, _projectId: string, formData: FormData) {
+  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(file, "subir_archivos");
+  const folderId = await folderDelProyecto(projectId!, formData.get("folderId"));
+  await db.fileAsset.update({ where: { id: fileId }, data: { folderId } });
+  refresh(projectId);
+}
+
+// 📌 Fijar/soltar en la MARCA del cliente: el archivo destaca en la franja «Fijado» de la
+// ficha del cliente. No copia bytes: es una bandera sobre el mismo FileAsset.
+export async function toggleFilePin(fileId: string, _projectId: string) {
+  const file = await db.fileAsset.findUnique({ where: { id: fileId }, select: { name: true, pinned: true, projectId: true, project: { select: accessSelect } } });
+  const projectId = await ensureAccessVia(file, "subir_archivos");
+  await db.fileAsset.update({ where: { id: fileId }, data: { pinned: !file!.pinned } });
+  await logActivity({
+    action: "file.pin",
+    summary: `${file!.pinned ? "soltó" : "fijó"} «${file!.name}» ${file!.pinned ? "de" : "en"} la marca del cliente`,
+    projectId, entityType: "file", entityId: fileId,
+  });
+  refresh(projectId);
+}
+
+// ── Acciones EN LOTE del panel de Archivos (casillas + barra flotante) ──
+// Cada archivo pasa por las MISMAS reglas que su acción individual: un id que no cumple se
+// salta y se cuenta, nunca tumba el lote entero.
+
+export async function moverArchivosLote(projectId: string, formData: FormData): Promise<{ ok: boolean; movidos: number }> {
+  await ensureProjectAccess(projectId, "subir_archivos");
+  const ids = formData.getAll("ids").map(String).filter(Boolean).slice(0, 200);
+  const folderId = await folderDelProyecto(projectId, formData.get("folderId"));
+  let movidos = 0;
+  for (const id of ids) {
+    const f = await db.fileAsset.findUnique({ where: { id }, select: { projectId: true } });
+    if (f?.projectId !== projectId) continue; // de otro proyecto: fuera del lote
+    await db.fileAsset.update({ where: { id }, data: { folderId } });
+    movidos++;
+  }
+  if (movidos) await logActivity({ action: "file.move", summary: `movió ${movidos} archivo${movidos === 1 ? "" : "s"} de carpeta`, projectId, entityType: "file" });
+  refresh(projectId);
+  return { ok: movidos > 0, movidos };
+}
+
+export async function fijarArchivosLote(projectId: string, formData: FormData): Promise<{ ok: boolean; fijados: number }> {
+  await ensureProjectAccess(projectId, "subir_archivos");
+  const ids = formData.getAll("ids").map(String).filter(Boolean).slice(0, 200);
+  const files = await db.fileAsset.findMany({ where: { id: { in: ids }, projectId }, select: { id: true, pinned: true } });
+  // Si alguno está suelto se fijan TODOS; si todos están fijados, se sueltan todos.
+  const fijar = files.some((f) => !f.pinned);
+  await db.fileAsset.updateMany({ where: { id: { in: files.map((f) => f.id) } }, data: { pinned: fijar } });
+  refresh(projectId);
+  return { ok: files.length > 0, fijados: fijar ? files.length : 0 };
+}
+
+export async function quitarArchivosLote(projectId: string, formData: FormData): Promise<{ ok: boolean; quitados: number; rechazados: number }> {
+  await ensureProjectAccess(projectId, "eliminar_archivos");
+  const ids = formData.getAll("ids").map(String).filter(Boolean).slice(0, 200);
+  let quitados = 0;
+  let rechazados = 0;
+  for (const id of ids) {
+    try {
+      await deleteFile(id, projectId); // mismas reglas que el borrado individual (autoría, vínculos)
+      quitados++;
+    } catch {
+      rechazados++;
+    }
+  }
+  refresh(projectId);
+  return { ok: quitados > 0, quitados, rechazados };
+}
+
+// Cierra una subida POR TROZOS iniciada con /api/upload/chunked y la registra en Archivos.
+// El transporte es el mismo del subidor pro de /revisiones (reanudable, con CRC32); esta
+// action solo reclama el archivo ya verificado y lo coloca en su carpeta.
+export async function finishChunkedArchivo(projectId: string, formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const session = await ensureProjectAccess(projectId, "subir_archivos");
+  // Mismo listón que el inicio de la subida (/api/upload/chunked): equipo, no portal ni demo.
+  if (session.role === "cliente" || session.role === "demo") noAutorizado();
+  const uploadId = String(formData.get("uploadId") ?? "");
+  const crc32 = String(formData.get("crc32") ?? "") || null;
+  if (!uploadId) return { ok: false, error: "Falta la subida por trozos." };
+  try {
+    const assetId = await claimChunkUpload({ uploadId, crc32, projectId, userId: session.id });
+    const folderId = await folderDelProyecto(projectId, formData.get("folderId"));
+    if (folderId) await db.fileAsset.update({ where: { id: assetId }, data: { folderId } });
+    const asset = await db.fileAsset.findUnique({ where: { id: assetId }, select: { name: true } });
+    await logActivity({ action: "file.upload", summary: `subió el archivo «${asset?.name ?? "?"}» (por trozos)`, projectId, entityType: "file", entityId: assetId });
+    refresh(projectId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo cerrar la subida." };
+  }
+}
+
 // ── Carpetas (personalizables: nombre, icono, color; se pueden crear y borrar) ──
 export async function createFolder(projectId: string, formData: FormData) {
   await ensureProjectAccess(projectId, "subir_archivos");
