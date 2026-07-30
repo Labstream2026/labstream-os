@@ -233,6 +233,7 @@ export default async function DiscoPage({ params }: { params: Promise<{ id: stri
           <h2 className="mb-2 text-sm font-semibold">Carpetas del disco</h2>
           <ExploradorDisco
             diskId={disk.id}
+            montaje={montaje}
             raizNombre={MOUNT_LABEL[montaje]}
             hrefBase={montaje === "OPS" ? "/operaciones?path=" : "/galeria?rel="}
             inicial={nivelRaiz}

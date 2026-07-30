@@ -170,15 +170,28 @@ export function IndiceCarpetas({
               >
                 <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted">
                   {r?.portadaRel ? (
-                    // La miniatura la sirve nuestra propia ruta leyendo del NAS: el
-                    // optimizador de next/image no puede con ella, así que va <img> pelado.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`/api/galeria/thumb?rel=${encodeURIComponent(r.portadaRel)}&v=${r.ultimoMs}`}
-                      alt=""
-                      loading="lazy"
-                      className="size-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                    />
+                    <>
+                      {/* Debajo de la portada, y solo visible si esta falla: la carpeta TIENE
+                          una pieza de portada, pero LabTem aún no ha fabricado su póster. Sin
+                          esto el navegador pintaba su icono de imagen partida —parecía la app
+                          rota cuando lo que pasa es que la fábrica va por detrás. */}
+                      <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
+                        <ImageIcon className="size-6 opacity-40" />
+                        <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">preparando…</span>
+                      </span>
+                      {/* La miniatura la sirve nuestra propia ruta leyendo del NAS: el
+                          optimizador de next/image no puede con ella, así que va <img> pelado. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/galeria/thumb?rel=${encodeURIComponent(r.portadaRel)}&v=${r.ultimoMs}`}
+                        alt=""
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                        className="relative size-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                      />
+                    </>
                   ) : (
                     <div className="flex size-full items-center justify-center">
                       {r ? (

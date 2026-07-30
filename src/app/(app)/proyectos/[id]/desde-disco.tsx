@@ -3,8 +3,9 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { HardDrive, Loader2, Film, Image as ImageIcon, FileText, X, Folder, FolderPlus, Upload, Search, ChevronRight } from "lucide-react";
+import { HardDrive, Loader2, FileText, X, Folder, FolderPlus, Upload, Search, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Miniatura } from "@/components/discos/miniatura";
 import {
   nivelDeCarpetaCliente,
   crearVersionDesdeDisco,
@@ -57,10 +58,11 @@ function useNivel(projectId: string, abierto: boolean) {
     [projectId],
   );
 
-  // Al abrir, siempre desde la carpeta base del cliente (estado fresco).
-  React.useEffect(() => {
-    if (abierto) void cargar(null);
-  }, [abierto, cargar]);
+  // La carga la dispara el BOTÓN que abre el modal, no un efecto: abrir es un evento, y
+  // pedirle a un efecto que reaccione a «abierto» encadena un render de más por cada
+  // apertura (y React lo avisa). `abierto` sigue en la firma para no cambiar a los que la
+  // usan; aquí solo hace falta para saber que el modal está montado.
+  void abierto;
 
   return {
     cargando,
@@ -82,6 +84,9 @@ function fechaCorta(ms: number): string {
   return new Date(ms).toLocaleDateString("es-CO", { day: "numeric", month: "short" });
 }
 
+// Nada a lo que suscribirse: el valor no cambia nunca, solo difiere entre servidor y cliente.
+const sinSuscripcion = () => () => {};
+
 // ── El cascarón del modal (overlay + panel centrado, por portal) ──
 function ModalDisco({
   abierto,
@@ -98,8 +103,10 @@ function ModalDisco({
   children: React.ReactNode;
   footer: React.ReactNode;
 }) {
-  const [montado, setMontado] = React.useState(false);
-  React.useEffect(() => setMontado(true), []);
+  // «¿Ya estamos en el navegador?» — el portal necesita document, que en el servidor no existe.
+  // Con useSyncExternalStore la respuesta es false al pintar en el servidor y true en el
+  // cliente, sin un efecto que provoque un render de más solo para decir «ya monté».
+  const montado = React.useSyncExternalStore(sinSuscripcion, () => true, () => false);
   React.useEffect(() => {
     if (!abierto) return;
     const onKey = (e: KeyboardEvent) => {
@@ -153,13 +160,18 @@ function CuerpoDisco({
   onElegir: (p: NivelPieza) => void;
 }) {
   const { cargando, error, base, rel, carpetas, piezas, escritura, proyecto, navegar, recargar } = nivel;
-  const [filtro, setFiltro] = React.useState("");
-  // El filtro es DEL NIVEL: al cambiar de carpeta se limpia para no «esconder» contenido.
-  React.useEffect(() => setFiltro(""), [rel]);
+  // El filtro y el aviso son DEL NIVEL: al cambiar de carpeta se limpian para no «esconder»
+  // contenido ni dejar colgado un mensaje de la carpeta anterior. Se guardan JUNTO al rel al
+  // que pertenecen y se leen al pintar, en vez de borrarlos desde un efecto: así no hay un
+  // parpadeo con el valor viejo antes de que el efecto corra.
+  const [filtroDe, setFiltroDe] = React.useState<{ rel: string; texto: string }>({ rel, texto: "" });
+  const filtro = filtroDe.rel === rel ? filtroDe.texto : "";
+  const setFiltro = (texto: string) => setFiltroDe({ rel, texto });
 
   // ── Escritura: subir aquí + nueva carpeta (solo con permiso; el servidor re-verifica) ──
-  const [avisoNivel, setAvisoNivel] = React.useState<string | null>(null);
-  React.useEffect(() => setAvisoNivel(null), [rel]);
+  const [avisoDe, setAvisoDe] = React.useState<{ rel: string; texto: string | null }>({ rel, texto: null });
+  const avisoNivel = avisoDe.rel === rel ? avisoDe.texto : null;
+  const setAvisoNivel = (texto: string | null) => setAvisoDe({ rel, texto });
   const archivoRef = React.useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = React.useState<{ hecho: number; total: number } | null>(null);
   const subirArchivos = async (files: FileList | null) => {
@@ -394,21 +406,26 @@ function CuerpoDisco({
                 );
               }
               const on = elegida?.rel === p.rel;
+              const v = Math.round(p.mtimeMs);
+              // El material del cliente vive en el disco de LabTem: su póster y su tira de
+              // barrido los fabrica la GPU de allí. Ver el fotograma (y poder recorrer el
+              // clip sin abrirlo) es la diferencia entre elegir por nombre y elegir mirando.
               return (
                 <button
                   key={p.rel}
                   type="button"
                   onClick={() => onElegir(p)}
                   className={cn(
-                    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm",
+                    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm",
                     on ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : "hover:bg-accent",
                   )}
                 >
-                  {p.video ? (
-                    <Film className={cn("size-4 shrink-0", on ? "text-primary" : "text-muted-foreground")} />
-                  ) : (
-                    <ImageIcon className={cn("size-4 shrink-0", on ? "text-primary" : "text-muted-foreground")} />
-                  )}
+                  <Miniatura
+                    thumb={`/api/galeria/thumb?rel=${encodeURIComponent(p.rel)}&v=${v}`}
+                    tira={p.video ? `/api/galeria/tira?rel=${encodeURIComponent(p.rel)}&v=${v}` : null}
+                    tipo={p.video ? "video" : "foto"}
+                    preparandoSiFalta
+                  />
                   <span className={cn("min-w-0 flex-1 truncate", on && "font-medium")}>{p.name}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fechaCorta(p.mtimeMs)}</span>
                 </button>
@@ -445,6 +462,13 @@ export function CrearDesdeDisco({
   const [creando, setCreando] = React.useState(false);
   const [aviso, setAviso] = React.useState<string | null>(null);
 
+  // Abrir dispara la lectura del disco aquí, en el evento: es lo que de verdad pasa cuando
+  // alguien pulsa, y evita el render de más que encadenaba hacerlo desde un efecto.
+  const abrir = () => {
+    setAbierto(true);
+    nivel.navegar(null); // siempre desde la carpeta base del cliente, estado fresco
+  };
+
   const cerrar = () => {
     setAbierto(false);
     setElegida(null);
@@ -479,7 +503,7 @@ export function CrearDesdeDisco({
            y notas — por eso en modo galería el formulario de fuera no muestra ningún campo. */
         <button
           type="button"
-          onClick={() => setAbierto(true)}
+          onClick={abrir}
           title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
           className="group flex w-full items-center gap-3 rounded-xl border border-dashed border-[#F47A20]/50 bg-[#F47A20]/5 px-4 py-3.5 text-left transition-colors hover:border-[#F47A20] hover:bg-[#F47A20]/10"
         >
@@ -499,7 +523,7 @@ export function CrearDesdeDisco({
       ) : (
         <button
           type="button"
-          onClick={() => setAbierto(true)}
+          onClick={abrir}
           title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
           className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
@@ -575,6 +599,11 @@ export function VersionDesdeDisco({ deliverableId, projectId }: { deliverableId:
   const [creando, setCreando] = React.useState(false);
   const [aviso, setAviso] = React.useState<string | null>(null);
 
+  const abrir = () => {
+    setAbierto(true);
+    nivel.navegar(null);
+  };
+
   const cerrar = () => {
     setAbierto(false);
     setElegida(null);
@@ -597,7 +626,7 @@ export function VersionDesdeDisco({ deliverableId, projectId }: { deliverableId:
     <>
       <button
         type="button"
-        onClick={() => setAbierto(true)}
+        onClick={abrir}
         className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         title="Elegir un archivo que ya está en la carpeta del cliente en la galería (LabTem)"
       >

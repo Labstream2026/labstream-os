@@ -1,20 +1,9 @@
 "use client";
 
 import * as React from "react";
-import {
-  ChevronRight,
-  File as FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Film,
-  Folder,
-  Image as ImageIcon,
-  Loader2,
-  Music,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { ChevronRight, Folder, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
 import { nivelDelDisco } from "../../explorar-actions";
 import type { NivelEntrada } from "@/lib/disco-raiz";
 
@@ -25,21 +14,16 @@ import type { NivelEntrada } from "@/lib/disco-raiz";
 const IMG = new Set(["png", "jpg", "jpeg", "webp", "gif", "avif", "heic", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw"]);
 const VID = new Set(["mp4", "m4v", "mov", "mkv", "webm", "avi", "mxf", "mts", "m2ts", "braw", "r3d", "prores"]);
 const AUD = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg"]);
-const HOJA = new Set(["xls", "xlsx", "ods", "csv"]);
-const DOC = new Set(["pdf", "doc", "docx", "odt", "rtf", "txt", "md", "ppt", "pptx", "srt", "vtt", "fcpxml", "xml"]);
 
 function extDe(name: string): string {
   return (name.split(".").pop() || "").toLowerCase();
 }
-function IconoArchivo({ name }: { name: string }) {
+function tipoDe(name: string): TipoPieza {
   const e = extDe(name);
-  const cls = "size-4 shrink-0 text-muted-foreground";
-  if (IMG.has(e)) return <ImageIcon className={cls} />;
-  if (VID.has(e)) return <Film className={cls} />;
-  if (AUD.has(e)) return <Music className={cls} />;
-  if (HOJA.has(e)) return <FileSpreadsheet className={cls} />;
-  if (DOC.has(e)) return <FileText className={cls} />;
-  return <FileIcon className={cls} />;
+  if (VID.has(e)) return "video";
+  if (IMG.has(e)) return "foto";
+  if (AUD.has(e)) return "audio";
+  return "doc";
 }
 
 function tam(n: number | null): string {
@@ -56,11 +40,16 @@ function fecha(ms: number): string {
 
 export function ExploradorDisco({
   diskId,
+  montaje,
   raizNombre,
   hrefBase,
   inicial,
 }: {
   diskId: string;
+  // Qué disco es, para pedir la miniatura a la ruta que le corresponde. Solo el de LabTem
+  // tiene fábrica de copias ligeras: allí la falta de póster es «aún no fabricado», y en
+  // Operaciones es «no habrá» (su ruta hace la miniatura al vuelo, y solo de imágenes).
+  montaje: "OPS" | "GALERIA";
   raizNombre: string; // "Operaciones_LAB" | "Entregas_LAB"
   // Prefijo de la pantalla donde SÍ se trabaja con los archivos ("/operaciones?path=").
   // Se pasa como texto y no como función: una función no cruza la frontera servidor→cliente.
@@ -176,15 +165,26 @@ export function ExploradorDisco({
               </button>
             </li>
           ))}
-          {aVis.map((a) => (
-            <li key={a.rel} className="flex items-center gap-3 px-4 py-2">
-              <IconoArchivo name={a.name} />
-              <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
-              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                {[tam(a.size), fecha(a.mtimeMs)].filter(Boolean).join(" · ")}
-              </span>
-            </li>
-          ))}
+          {aVis.map((a) => {
+            const tipo = tipoDe(a.name);
+            const v = Math.round(a.mtimeMs);
+            // Cada disco sirve sus miniaturas por su propia ruta; la tira de barrido solo
+            // existe donde hay fábrica (LabTem).
+            const thumb =
+              montaje === "GALERIA"
+                ? `/api/galeria/thumb?rel=${encodeURIComponent(a.rel)}&v=${v}`
+                : `/api/ops/thumb?path=${encodeURIComponent(a.rel)}&v=${v}`;
+            const tira = montaje === "GALERIA" && tipo === "video" ? `/api/galeria/tira?rel=${encodeURIComponent(a.rel)}&v=${v}` : null;
+            return (
+              <li key={a.rel} className="flex items-center gap-3 px-4 py-2">
+                <Miniatura thumb={thumb} tira={tira} tipo={tipo} preparandoSiFalta={montaje === "GALERIA"} />
+                <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                  {[tam(a.size), fecha(a.mtimeMs)].filter(Boolean).join(" · ")}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
 
