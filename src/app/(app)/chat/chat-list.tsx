@@ -5,12 +5,12 @@ import { EntityEmoji } from "@/components/icons/marks";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/user-avatar";
-import { Hash, Lock, Users, Plus, X, ChevronRight, Building2, Search, BellOff, Pin, MessagesSquare, AtSign, Zap, CheckCircle2 } from "lucide-react";
+import { Hash, Lock, Users, Plus, ChevronRight, Building2, BellOff, Pin, MessagesSquare, AtSign, Zap, CheckCircle2, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { createChannel, toggleChannelPin, searchMessages, type MessageSearchHit } from "./actions";
+import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador } from "@/components/ui/barra-menu";
+import { createChannel, toggleChannelPin, searchMessages, openDirectMessage, type MessageSearchHit } from "./actions";
 import { CHAT_SECTIONS } from "@/lib/chat-section";
-import { DmStarter } from "./dm-starter";
 import type { ChatListData, ChatListRow } from "./list-data";
 import { useChatLive } from "@/components/layout/chat-live";
 
@@ -28,14 +28,9 @@ const KIND_META: Record<NonNullable<ChatListRow["kind"]>, { label: string; cls: 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 // Filtros rápidos de la lista (Dirección C: priorizar por ATENCIÓN, no solo por fecha).
+// Ya no hay una tabla de cinco: «No leídos» y «Menciones» se pintan en la barra porque llevan
+// número, y el resto vive en el menú, donde se declaran junto a su opción.
 type Filter = "all" | "unread" | "mention" | "dm" | "proj";
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Todos" },
-  { key: "unread", label: "No leídos" },
-  { key: "mention", label: "Menciones" },
-  { key: "dm", label: "Directos" },
-  { key: "proj", label: "Proyectos" },
-];
 
 // Rail/navegador de chats. Al pulsar una conversación se navega a /chat/[id], que se
 // abre en el panel de la derecha (el rail persiste vía el layout). Resalta la activa.
@@ -46,6 +41,10 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<Filter>("all");
+  // Dos opciones del menú ⚙: quitarse de encima los silenciados, y volver al orden puro por fecha
+  // (que apaga el bloque «Requiere respuesta» — es justo lo que lo rompe).
+  const [ocultarSilenciados, setOcultarSilenciados] = React.useState(false);
+  const [ordenPorFecha, setOrdenPorFecha] = React.useState(false);
   // Búsqueda server-side EN los mensajes (se dispara a mano; el filtro de conversaciones es en vivo).
   const [hits, setHits] = React.useState<MessageSearchHit[] | null>(null);
   const [seeking, setSeeking] = React.useState(false);
@@ -53,6 +52,10 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   // respuesta VIEJA no debe pisar el estado (se mostraría bajo la consulta nueva).
   const searchSeq = React.useRef(0);
   const [, startTransition] = React.useTransition();
+
+  // Abrir (o crear) el directo con alguien del equipo. Era un <select> aparte en la cabecera;
+  // ahora es una entrada del menú ＋, que es donde se empieza cualquier conversación.
+  const abrirDirecto = (userId: string) => startTransition(() => { void openDirectMessage(userId); });
 
   const searchInMessages = () => {
     const q = query.trim();
@@ -183,6 +186,9 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
     !searching || norm(r.name).includes(q) || (r.last ? norm(r.last).includes(q) : false) || norm(r.meta).includes(q);
   // Filtro rápido activo (Dirección C). Se aplica DESPUÉS del overlay vivo (unread/mentions frescos).
   const passFilter = (r: ChatListRow) => {
+    // Los silenciados SIEMPRE se han listado (solo no suman al badge). Quien silenció diez canales
+    // puede además quitárselos de encima desde el menú.
+    if (ocultarSilenciados && r.muted) return false;
     if (filter === "unread") return r.unread > 0;
     if (filter === "mention") return r.mentions > 0;
     if (filter === "dm") return r.isDM;
@@ -218,7 +224,9 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
     .filter((r) => !r.muted && (r.unread > 0 || r.mentions > 0))
     .sort((a, b) => b.mentions - a.mentions || b.unread - a.unread || byActivity(a, b))
     .slice(0, 8);
-  const showUrgent = filter === "all" && !searching && urgent.length >= 3;
+  // El bloque de atención se apaga si se pidió orden por fecha: es justo lo que lo rompe.
+  const showUrgent = filter === "all" && !searching && !ordenPorFecha && urgent.length >= 3;
+  const haySilenciados = liveAll.some((r) => r.muted);
 
   const nothing = !dailyVisible && pinned.length === 0 && dms.length === 0 && groups.length === 0 && clientGroups.length === 0 && explore.length === 0;
 
@@ -226,22 +234,49 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
 
   return (
     <div className="flex h-full flex-col">
-      {/* Cabecera + acciones rápidas */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-3">
-        <h1 className="shrink-0 text-base font-bold tracking-tight">Chats</h1>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-          <DmStarter team={data.team} />
+      {/* «/» enfoca el buscador y «f» abre el menú, igual que en las otras tres pantallas. */}
+      <AtajosBarra />
+      {/* ── Una sola fila arriba ──
+          El título «Chats» se fue: el rail ya está debajo del icono de Mensajes en la barra
+          lateral, y decirlo dos veces costaba una fila entera de las tres que había. El buscador
+          —lo que más se usa de las tres barras— sube aquí y se queda con todo el ancho; el
+          selector de directo y el ＋ de canal se juntan en un solo menú, porque son la misma
+          intención: empezar algo nuevo. En una columna de 320 px el alto es lo que escasea. */}
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <BuscadorBarra
+          value={query}
+          onChange={(v) => {
+            setQuery(v);
+            searchSeq.current++; // invalida cualquier búsqueda de mensajes en vuelo
+            setHits(null); // cambió lo buscado: los resultados de mensajes quedan viejos
+          }}
+          placeholder="Buscar conversación…"
+          tecla="/"
+        />
+        <MenuBarra tono="primario" icono={<Plus />} alineado="derecha" titulo="Empezar una conversación">
           {canCreate ? (
-            <button
-              type="button"
-              onClick={() => setCreating((v) => !v)}
-              title="Nuevo grupo o canal"
-              className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent"
-            >
-              {creating ? <X className="size-4" /> : <Plus className="size-4" />}
-            </button>
+            <>
+              <MenuOpcion icono={<Hash />} marca={false} onClick={() => setCreating((v) => !v)}>
+                Grupo o canal nuevo
+              </MenuOpcion>
+              <MenuSeparador />
+            </>
           ) : null}
-        </div>
+          <MenuGrupo>Mensaje directo</MenuGrupo>
+          {data.team.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">No hay más personas en el equipo.</p>
+          ) : (
+            // Con un equipo grande la lista crece: se hace scroll DENTRO del menú en vez de
+            // estirar el panel más allá de la ventana.
+            <div className="max-h-64 overflow-y-auto">
+              {data.team.map((u) => (
+                <MenuOpcion key={u.id} marca={false} onClick={() => abrirDirecto(u.id)}>
+                  {u.name}
+                </MenuOpcion>
+              ))}
+            </div>
+          )}
+        </MenuBarra>
       </div>
 
       {creating ? (
@@ -278,61 +313,37 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         </form>
       ) : null}
 
-      {/* Buscador de conversaciones (filtra el rail al escribir). */}
-      <div className="border-b border-border px-3 py-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              searchSeq.current++; // invalida cualquier búsqueda de mensajes en vuelo
-              setHits(null); // cambió lo buscado: los resultados de mensajes quedan viejos
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") searchInMessages();
-            }}
-            placeholder="Buscar conversación…"
-            className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-7 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setHits(null);
-              }}
-              aria-label="Limpiar búsqueda"
-              className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent"
-            >
-              <X className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-        {query.trim().length >= 2 && hits === null ? (
+      {/* Buscar DENTRO de los mensajes: solo aparece cuando hay algo escrito y aún no se pidió. */}
+      {query.trim().length >= 2 && hits === null ? (
+        <div className="border-b border-border px-3 py-1.5">
           <button
             type="button"
             onClick={searchInMessages}
             disabled={seeking}
-            className="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-medium text-primary hover:bg-muted/50 disabled:opacity-50"
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-medium text-primary hover:bg-muted/50 disabled:opacity-50"
           >
             <MessagesSquare className="size-3.5 shrink-0" />
             {seeking ? "Buscando en los mensajes…" : <>Buscar «{query.trim()}» en los mensajes (Enter)</>}
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
-      {/* Filtros rápidos (Dirección C): No leídos / Menciones priorizan por atención; Directos /
-          Proyectos por tipo. La píldora activa se llena con un cambio de color suave. */}
-      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {FILTERS.map((f) => {
-          const n = f.key === "unread" ? totalUnread : f.key === "mention" ? totalMentions : 0;
+      {/* ── Segunda y última fila ──
+          «No leídos» y «Menciones» se quedan FUERA porque llevan número, y ese número hay que
+          verlo sin pulsar nada. «Todos», «Directos» y «Proyectos» no cuentan nada en reposo, así
+          que entran en el menú junto con dos cosas que antes no existían: el orden y los
+          silenciados. */}
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+        {([
+          { key: "unread", label: "No leídos", n: totalUnread },
+          { key: "mention", label: "Menciones", n: totalMentions },
+        ] as const).map((f) => {
           const on = filter === f.key;
           return (
             <button
               key={f.key}
               type="button"
-              onClick={() => setFilter(f.key)}
+              onClick={() => setFilter(on ? "all" : f.key)}
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors duration-200",
                 on
@@ -340,14 +351,54 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
                   : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
               )}
             >
+              {f.key === "mention" ? <AtSign className="size-3" /> : null}
               {f.label}
-              {n > 0 ? (
-                <span className={cn("rounded-full px-1 text-[10px] font-bold tabular-nums", on ? "bg-background/25 text-background" : "bg-primary text-primary-foreground")}>{n > 99 ? "99+" : n}</span>
+              {f.n > 0 ? (
+                <span className={cn("rounded-full px-1 text-[10px] font-bold tabular-nums", on ? "bg-background/25 text-background" : "bg-primary text-primary-foreground")}>{f.n > 99 ? "99+" : f.n}</span>
               ) : null}
             </button>
           );
         })}
+        <span className="ml-auto" />
+        <MenuBarra
+          clave="filtrar"
+          tono="icono"
+          icono={<SlidersHorizontal />}
+          titulo="Ver, ordenar y silenciados"
+          activos={(filter === "dm" || filter === "proj" ? 1 : 0) + (ocultarSilenciados ? 1 : 0) + (ordenPorFecha ? 1 : 0)}
+        >
+          <MenuGrupo>Ver solo</MenuGrupo>
+          <MenuOpcion activa={filter === "all"} onClick={() => setFilter("all")}>Todas las conversaciones</MenuOpcion>
+          <MenuOpcion activa={filter === "dm"} icono={<Users />} onClick={() => setFilter("dm")}>Directos</MenuOpcion>
+          <MenuOpcion activa={filter === "proj"} icono={<Hash />} onClick={() => setFilter("proj")}>Proyectos</MenuOpcion>
+          <MenuSeparador />
+          <MenuGrupo>Ordenar</MenuGrupo>
+          <MenuOpcion activa={!ordenPorFecha} icono={<Zap />} onClick={() => setOrdenPorFecha(false)}>
+            Lo que pide respuesta primero
+          </MenuOpcion>
+          <MenuOpcion activa={ordenPorFecha} icono={<ChevronRight />} onClick={() => setOrdenPorFecha(true)}>
+            Solo por fecha
+          </MenuOpcion>
+          {haySilenciados ? (
+            <>
+              <MenuSeparador />
+              <MenuOpcion activa={ocultarSilenciados} icono={<BellOff />} onClick={() => setOcultarSilenciados((v) => !v)}>
+                Ocultar los silenciados
+              </MenuOpcion>
+            </>
+          ) : null}
+        </MenuBarra>
       </div>
+
+      {/* Lo que esté puesto, a la vista y con equis. */}
+      {filter === "dm" || filter === "proj" || ocultarSilenciados || ordenPorFecha ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-1.5">
+          {filter === "dm" ? <ChipFiltro onQuitar={() => setFilter("all")}>Solo directos</ChipFiltro> : null}
+          {filter === "proj" ? <ChipFiltro onQuitar={() => setFilter("all")}>Solo proyectos</ChipFiltro> : null}
+          {ocultarSilenciados ? <ChipFiltro onQuitar={() => setOcultarSilenciados(false)}>Sin silenciados</ChipFiltro> : null}
+          {ordenPorFecha ? <ChipFiltro onQuitar={() => setOrdenPorFecha(false)}>Por fecha</ChipFiltro> : null}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
         {/* Requiere respuesta: lo urgente flota arriba (menciones y más no-leídos primero), sin
