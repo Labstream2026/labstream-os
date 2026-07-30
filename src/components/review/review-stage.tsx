@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Play, Pause, StepBack, StepForward, Volume2, VolumeX, Maximize } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
@@ -956,7 +957,18 @@ export function ReviewStage({
           style={immersive ? { WebkitTapHighlightColor: "transparent" } : undefined}
         >
           <div className={immersive ? "relative h-full w-full" : "relative"}>
-            <MediaViewer version={version} apiRef={playerRef} drawOpen={drawOpen} onDrawn={setDrawing} caption={drawOpen ? "" : body} vertical={vertical} onCapabilities={setCaps} immersive={immersive} />
+            <MediaViewer
+              version={version}
+              apiRef={playerRef}
+              drawOpen={drawOpen}
+              onDrawn={setDrawing}
+              caption={drawOpen ? "" : body}
+              vertical={vertical}
+              onCapabilities={setCaps}
+              immersive={immersive}
+              // Marcas de las correcciones para la pista de la barra propia (video del mismo origen).
+              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved }))}
+            />
 
             {immersive ? (
               <>
@@ -1067,9 +1079,10 @@ export function ReviewStage({
           {!immersive ? (
             <>
           {/* Línea de tiempo de correcciones: cada momento comentado es una marca (ámbar =
-              pendiente, verde = hecha); clic = saltar. Vive FUERA del reproductor — no toca
-              la captura de fotograma ni el timecode. */}
-          {caps.time ? (
+              pendiente, verde = hecha); clic = saltar. SOLO para fuentes iframe con segundo
+              (YouTube/Vimeo): el <video> del mismo origen ya trae la pista con marcas
+              INTEGRADA en su barra propia (PlayerBar) — dos líneas de tiempo confundían. */}
+          {caps.time && !caps.frame ? (
             <TimelineStrip
               playerRef={playerRef}
               markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved }))}
@@ -2162,7 +2175,7 @@ function ImmersiveSheet({
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false, markers = [] }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
@@ -2178,6 +2191,8 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Modo inmersivo (pantalla completa del portal): el material llena el contenedor (sin marco
   // ni controles nativos en el <video>; la barra y el toque los pone el overlay del padre).
   immersive?: boolean;
+  // Correcciones con timecode: marcas en la pista de la barra propia (ámbar/verde, clic=saltar).
+  markers?: { id: string; t: number; resolved: boolean }[];
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
@@ -2196,12 +2211,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // sin recomprimir, y por tanto siempre se pueden leer el segundo y el fotograma. Se quitó el
   // conmutador al visor de Google: dos reproductores con reglas distintas confundían a quien
   // revisa (sobre todo al cliente) y el que «se veía mejor» era justo el que no capturaba nada.
-  // ── Fotograma LIMPIO en pausa ──
-  // Safari (y otros) dejan los controles nativos FIJOS al pausar, con un velo oscuro sobre
-  // todo el cuadro — justo cuando el revisor pausa para MIRAR el fotograma. Tras una pausa
-  // breve se esconde el atributo `controls` (el velo se va con él) y cualquier movimiento
-  // del mouse o toque sobre el video los devuelve al instante. No toca captura ni timecode.
-  const [nativeControls, setNativeControls] = React.useState(true);
+  // Los controles NATIVOS solo quedan para la pantalla completa: en la vista normal la barra
+  // propia (PlayerBar) es la única superficie de control — sin velo del navegador al pausar
+  // (el viejo hack de esconder `controls` sobra) y con las correcciones EN la pista.
   // El material no se reproduce: en vez de un player negro y mudo, una tarjeta que explica qué
   // pasa y qué hacer.
   const [localFailed, setLocalFailed] = React.useState(false);
@@ -2226,25 +2238,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       .catch(() => {});
     return () => { cancelled = true; };
   }, [localFailed, mediaSrc]);
-  const controlsTimer = React.useRef<number | null>(null);
-  const armControlsHide = React.useCallback(() => {
-    if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
-    controlsTimer.current = window.setTimeout(() => {
-      controlsTimer.current = null;
-      if (videoRef.current?.paused) setNativeControls(false);
-    }, 1500);
-  }, []);
-  const wakeControls = React.useCallback(() => {
-    if (drawOpen) return; // dibujando: el lienzo manda, sin controles debajo
-    setNativeControls(true);
-    if (videoRef.current?.paused) armControlsHide();
-  }, [drawOpen, armControlsHide]);
-  React.useEffect(
-    () => () => {
-      if (controlsTimer.current) window.clearTimeout(controlsTimer.current);
-    },
-    [],
-  );
   // Reintentos del stream antes de dar la pieza por no reproducible: un tropiezo transitorio del
   // arranque (la copia del NAS empezando, la red del cliente) no puede costar la captura.
   const proxyRetries = React.useRef(0);
@@ -2461,6 +2454,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   if (esVideo) {
     return (
       <div className={immersive ? "h-full w-full" : undefined}>
+        {/* Una SOLA tarjeta: video arriba + barra de controles propia abajo (sin controles
+            nativos, sin fila de velocidad aparte, sin segunda línea de tiempo). El w-fit hace
+            que la barra mida EXACTO lo que mide el video (también en reels verticales). */}
         <div
           className={
             immersive
@@ -2468,18 +2464,25 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
               // Un <video> que no cargó no tiene tamaño propio: el marco se encogía a nada y la
               // tarjeta con la explicación salía recortada, justo cuando más hay que leerla.
               : localFailed
-                ? "relative mx-auto min-h-[19rem] w-full max-w-2xl"
-                : "relative mx-auto w-fit max-w-full"
+                ? "mx-auto w-full max-w-2xl"
+                : "mx-auto w-fit max-w-full"
           }
-          // Cualquier movimiento/toque sobre el video devuelve los controles escondidos en pausa.
-          onPointerMove={immersive ? undefined : wakeControls}
-          onPointerDown={immersive ? undefined : wakeControls}
+        >
+        <div
+          className={
+            immersive
+              ? "relative h-full w-full"
+              : `relative overflow-hidden border border-border bg-black ${localFailed ? "min-h-[19rem] rounded-xl" : "rounded-t-xl border-b-0"}`
+          }
         >
           <video
             ref={videoRef}
             src={version.src}
-            controls={!immersive && nativeControls}
+            controls={false}
             playsInline
+            // Clic = pausa/reanuda (como en el modo inmersivo); doble clic = pantalla completa.
+            onClick={immersive ? undefined : (e) => { const v = e.currentTarget; if (v.paused) v.play().catch(() => {}); else v.pause(); }}
+            onDoubleClick={immersive ? undefined : (e) => { const v = e.currentTarget as HTMLVideoElement & { webkitEnterFullscreen?: () => void }; try { if (v.requestFullscreen) void v.requestFullscreen(); else v.webkitEnterFullscreen?.(); } catch { /* noop */ } }}
             // SIN crossOrigin: con "anonymous", un MP4 externo sin cabeceras CORS no reproduce NADA.
             // Sin el atributo siempre reproduce; si la fuente es de otro origen, la captura del
             // fotograma simplemente devuelve null (composite lo maneja) en vez de romper el video.
@@ -2506,11 +2509,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onLoadedMetadata={(e) => { restorePos(); e.currentTarget.playbackRate = rateRef.current; }}
             onRateChange={(e) => applyRate(e.currentTarget.playbackRate)}
             onTimeUpdate={() => savePos()}
-            onPause={() => { savePos(true); armControlsHide(); }}
-            onPlay={() => { if (controlsTimer.current) window.clearTimeout(controlsTimer.current); setNativeControls(true); }}
+            onPause={() => savePos(true)}
             // iOS: sin menú de long-press ("Guardar vídeo") sobre el material.
             style={{ WebkitTouchCallout: "none" }}
-            className={immersive ? "block h-full w-full object-contain" : "block max-h-[80vh] w-auto max-w-full rounded-xl border border-border bg-black"}
+            className={immersive ? "block h-full w-full object-contain" : "block max-h-[72vh] w-auto max-w-full bg-black"}
           />
           {liveCaption}
           {overlay}
@@ -2538,7 +2540,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             </div>
           ) : null}
         </div>
-        {immersive ? null : speedBar}
+        {/* Barra de controles propia, pegada al video (misma tarjeta). */}
+        {immersive || localFailed ? null : (
+          <PlayerBar videoRef={videoRef} markers={markers} rate={rate} onRate={applyRate} compact={vertical} />
+        )}
+        </div>
       </div>
     );
   }
@@ -2598,6 +2604,198 @@ function LiveTimecode({ playerRef, frame }: { playerRef: React.MutableRefObject<
         ? `⏱ Se guardará en ${fmtTime(sec)}${frame ? " + captura del fotograma" : ""}`
         : "⏱ Se guardará el segundo al comentar"}
     </span>
+  );
+}
+
+// ── Barra de controles propia del reproductor (video del mismo origen) ──
+// UNA sola superficie de control donde antes había tres pisos (controles nativos del navegador
+// + fila de velocidad + línea de tiempo con marcas): play/pausa, cuadro a cuadro, timecode,
+// pista con las correcciones integradas (ámbar = pendiente, verde = hecha; clic = saltar),
+// volumen, velocidad y pantalla completa. El progreso se escribe DIRECTO al DOM con rAF
+// (mismo patrón que el HUD inmersivo): cero re-renders de React por frame; el estado solo
+// cambia con pausa/duración/silencio. `compact` (reels verticales, barra angosta) esconde
+// el cuadro-a-cuadro y el deslizador de volumen para que todo quepa.
+function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  markers: { id: string; t: number; resolved: boolean }[];
+  rate: number;
+  onRate: (r: number) => void;
+  compact?: boolean;
+}) {
+  const [paused, setPaused] = React.useState(true);
+  const [muted, setMuted] = React.useState(false);
+  const [dur, setDur] = React.useState(0);
+  const [rateOpen, setRateOpen] = React.useState(false);
+  const fillRef = React.useRef<HTMLDivElement>(null);
+  const bufRef = React.useRef<HTMLDivElement>(null);
+  const knobRef = React.useRef<HTMLDivElement>(null);
+  const tcRef = React.useRef<HTMLSpanElement>(null);
+  const trackRef = React.useRef<HTMLDivElement>(null);
+  const durRef = React.useRef(0);
+  const pausedRef = React.useRef(true);
+  const mutedRef = React.useRef(false);
+  const scrubbing = React.useRef(false);
+
+  React.useEffect(() => {
+    let raf = 0;
+    let lastTc = "";
+    const sync = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      const d = v.duration && Number.isFinite(v.duration) ? v.duration : 0;
+      const t = v.currentTime || 0;
+      const p = d > 0 ? Math.min(1, t / d) : 0;
+      if (fillRef.current) fillRef.current.style.transform = `scaleX(${p})`;
+      if (knobRef.current) knobRef.current.style.left = `${p * 100}%`;
+      // Rango bufereado (hasta dónde llegó el stream): da contexto en masters pesados del NAS.
+      if (bufRef.current) {
+        let b = 0;
+        try { if (v.buffered.length) b = v.buffered.end(v.buffered.length - 1) / (d || 1); } catch { /* noop */ }
+        bufRef.current.style.transform = `scaleX(${Math.min(1, b)})`;
+      }
+      const txt = `${fmtTime(t)} / ${fmtTime(d)}`;
+      if (tcRef.current && txt !== lastTc) { lastTc = txt; tcRef.current.textContent = txt; }
+      // Estado de React SOLO cuando cambia de verdad.
+      if (d > 0 && Math.abs(d - durRef.current) > 0.5) { durRef.current = d; setDur(d); }
+      if (v.paused !== pausedRef.current) { pausedRef.current = v.paused; setPaused(v.paused); }
+      if (v.muted !== mutedRef.current) { mutedRef.current = v.muted; setMuted(v.muted); }
+    };
+    const loop = () => { sync(); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    // rAF se suspende con la pestaña oculta: este respaldo mantiene la barra al día igual.
+    const fallback = window.setInterval(sync, 500);
+    return () => { cancelAnimationFrame(raf); window.clearInterval(fallback); };
+  }, [videoRef]);
+
+  const toggle = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  };
+  const frameStep = (dir: 1 | -1) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = Math.max(0, v.currentTime + dir / 30);
+  };
+  // Arrastre de la pista: salta EN VIVO mientras se desliza (igual que el HUD inmersivo).
+  const seekAt = (clientX: number) => {
+    const el = trackRef.current, v = videoRef.current;
+    if (!el || !v || durRef.current <= 0) return;
+    const r = el.getBoundingClientRect();
+    v.currentTime = Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * durRef.current;
+  };
+  const fullscreen = () => {
+    const v = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (!v) return;
+    try { if (v.requestFullscreen) void v.requestFullscreen(); else v.webkitEnterFullscreen?.(); } catch { /* noop */ }
+  };
+  const btn = "flex size-7 shrink-0 items-center justify-center rounded-md text-white/75 transition-colors hover:bg-white/10 hover:text-white";
+  const pct = (t: number) => `${Math.max(0, Math.min(100, (t / (durRef.current || 1)) * 100))}%`;
+
+  return (
+    <div className="w-full rounded-b-xl border border-t-0 border-border bg-neutral-950 px-2 py-1.5">
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={toggle} title={paused ? "Reproducir (espacio)" : "Pausar (espacio)"} aria-label={paused ? "Reproducir" : "Pausar"} className={btn}>
+          {paused ? <Play className="size-4 fill-current" /> : <Pause className="size-4 fill-current" />}
+        </button>
+        {compact ? null : (
+          <>
+            <button type="button" onClick={() => frameStep(-1)} title="Cuadro anterior (,)" aria-label="Cuadro anterior" className={btn}>
+              <StepBack className="size-3.5" />
+            </button>
+            <button type="button" onClick={() => frameStep(1)} title="Cuadro siguiente (.)" aria-label="Cuadro siguiente" className={btn}>
+              <StepForward className="size-3.5" />
+            </button>
+          </>
+        )}
+        <span ref={tcRef} className="shrink-0 px-1 font-mono text-[11px] text-white/70 tabular-nums">0:00 / 0:00</span>
+        {/* Pista: progreso + bufereado + marcas de correcciones. Área de toque generosa (h-6),
+            línea fina (h-1.5) — se arrastra en vivo y las marcas saltan a su momento. */}
+        <div
+          ref={trackRef}
+          role="slider"
+          aria-label="Línea de tiempo con correcciones"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(dur)}
+          aria-valuenow={undefined}
+          className="relative flex h-6 min-w-0 flex-1 cursor-pointer touch-none items-center"
+          onPointerDown={(e) => { scrubbing.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); seekAt(e.clientX); }}
+          onPointerMove={(e) => { if (scrubbing.current) seekAt(e.clientX); }}
+          onPointerUp={() => { scrubbing.current = false; }}
+          onPointerCancel={() => { scrubbing.current = false; }}
+        >
+          <div className="relative h-1.5 w-full overflow-visible rounded-full bg-white/15">
+            <div ref={bufRef} className="absolute inset-0 origin-left rounded-full bg-white/15" style={{ transform: "scaleX(0)" }} />
+            <div ref={fillRef} className="absolute inset-0 origin-left rounded-full bg-primary" style={{ transform: "scaleX(0)" }} />
+            {dur > 0
+              ? markers.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    title={`${fmtTime(m.t)} · ${m.resolved ? "hecha ✓" : "pendiente"}`}
+                    aria-label={`Corrección en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); const v = videoRef.current; if (v) v.currentTime = m.t; }}
+                    className={`absolute -top-[5px] h-4 w-1 -translate-x-1/2 rounded-sm transition-transform hover:scale-125 ${m.resolved ? "bg-emerald-400" : "bg-amber-400"}`}
+                    style={{ left: pct(m.t) }}
+                  />
+                ))
+              : null}
+            <div ref={knobRef} className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow" style={{ left: "0%" }} />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => { const v = videoRef.current; if (v) v.muted = !v.muted; }}
+          title={muted ? "Activar sonido" : "Silenciar"}
+          aria-label={muted ? "Activar sonido" : "Silenciar"}
+          className={btn}
+        >
+          {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+        </button>
+        {compact ? null : (
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            defaultValue={1}
+            aria-label="Volumen"
+            onChange={(e) => { const v = videoRef.current; if (!v) return; v.volume = Number(e.target.value); v.muted = Number(e.target.value) === 0; }}
+            className="h-1 w-14 shrink-0 cursor-pointer accent-primary"
+          />
+        )}
+        {/* Velocidad: menú hacia arriba con las opciones de siempre. */}
+        <div className="relative shrink-0">
+          <button type="button" onClick={() => setRateOpen((o) => !o)} title="Velocidad de reproducción" aria-haspopup="menu" aria-expanded={rateOpen} className={`${btn} w-auto px-1.5 font-mono text-[11px] tabular-nums`}>
+            {rate}×
+          </button>
+          {rateOpen ? (
+            <>
+              <button type="button" aria-label="Cerrar velocidad" className="fixed inset-0 z-10 cursor-default" onClick={() => setRateOpen(false)} />
+              <div role="menu" className="absolute bottom-full right-0 z-20 mb-1.5 flex flex-col overflow-hidden rounded-md border border-white/15 bg-neutral-900 py-0.5 shadow-lg">
+                {PLAYBACK_RATES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={r === rate}
+                    onClick={() => { onRate(r); setRateOpen(false); }}
+                    className={`px-3 py-1 text-left font-mono text-[11px] tabular-nums ${r === rate ? "bg-primary text-primary-foreground" : "text-white/80 hover:bg-white/10"}`}
+                  >
+                    {r}×
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+        <button type="button" onClick={fullscreen} title="Pantalla completa (doble clic en el video)" aria-label="Pantalla completa" className={btn}>
+          <Maximize className="size-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
