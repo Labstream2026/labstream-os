@@ -30,10 +30,15 @@ import {
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cerrarMenu, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
+import { cn } from "@/lib/utils";
+import { tone } from "@/lib/colors";
 import { opsCreateFolder, opsRename, opsMove, opsTrash } from "./actions";
 
 type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string; miniatura?: boolean };
-type Listing = { path: string; dirs: Entry[]; files: Entry[]; truncated: boolean };
+// El dueño de una carpeta, cuando su nombre delata al cliente (lo resuelve el servidor con
+// las guardas de dueno-carpeta). Su color ordena la pantalla igual que en el disco de entregas.
+type Dueno = { id: string; nombre: string; color: string | null };
+type Listing = { path: string; dirs: Entry[]; files: Entry[]; truncated: boolean; duenos?: Record<string, Dueno> };
 
 // Tipos que OnlyOffice abre/edita (mismo catálogo que la pestaña Archivos).
 const OO_EXT = new Set(["doc", "docx", "odt", "rtf", "txt", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp", "pdf"]);
@@ -188,85 +193,97 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   const dirs = (data?.dirs || []).filter(match);
   const files = (data?.files || []).filter(match);
 
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Una sola fila: dónde estás (migas) y, a la derecha, buscar y actuar. El nombre del
-          disco ya lo dice la pestaña de arriba, así que la raíz es solo el icono del drive
-          (o «Todo el disco» cuando estás en ella). */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-        <button
-          onClick={() => go("")}
-          title="Raíz de Operaciones_LAB"
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-muted"
-        >
-          <HardDrive className="size-4 text-[#F47A20]" />
-          {crumbs.length === 0 ? "Todo el disco" : null}
-        </button>
-        {crumbs.map((seg, i) => {
-          const target = crumbs.slice(0, i + 1).join("/");
-          const last = i === crumbs.length - 1;
-          return (
-            <span key={target} className="flex min-w-0 items-center gap-2 text-sm">
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              {last ? (
-                <span className="truncate font-semibold">{seg}</span>
-              ) : (
-                <button onClick={() => go(target)} className="truncate text-muted-foreground hover:text-foreground">{seg}</button>
-              )}
-            </span>
-          );
-        })}
+  const duenos = data?.duenos || {};
 
-        <span className="ml-auto flex items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground lg:inline">
-            {data ? `${data.dirs.length} carpetas · ${data.files.length} archivos` : ""}
-          </span>
-          <label className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Todo vive en UNA tarjeta —migas arriba, material en medio, el estado abajo—, el mismo
+          lenguaje que la ficha del disco en la Biblioteca: un solo sitio donde mirar, no una
+          pila de cajas sueltas. */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        {/* Migas + herramientas */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => go("")}
+              title="Raíz de Operaciones_LAB"
+              className={cn(
+                "inline-flex max-w-[13rem] items-center gap-1.5 truncate rounded px-1.5 py-0.5 hover:bg-accent",
+                crumbs.length === 0 ? "font-semibold" : "text-muted-foreground",
+              )}
+            >
+              <HardDrive className="size-3.5 shrink-0 text-[#F47A20]" />
+              Todo el disco
+            </button>
+            {crumbs.map((seg, i) => {
+              const target = crumbs.slice(0, i + 1).join("/");
+              const last = i === crumbs.length - 1;
+              return (
+                <React.Fragment key={target}>
+                  <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+                  <button
+                    type="button"
+                    onClick={() => go(target)}
+                    className={cn("max-w-[11rem] truncate rounded px-1.5 py-0.5 hover:bg-accent", last ? "font-semibold" : "text-muted-foreground")}
+                  >
+                    {seg}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+          <label className="relative shrink-0">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filtrar…"
-              className="w-36 rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm outline-none transition-[width] focus:w-52 focus:border-[#F47A20] md:w-44"
+              placeholder="Filtrar esta carpeta…"
+              className="w-40 rounded-md border border-border bg-background py-1 pl-8 pr-2 text-xs outline-none focus:border-primary"
             />
           </label>
           {/* Lista para leer nombres, cuadrícula para reconocer material a ojo. La lista sigue
               siendo la de siempre —con sus acciones al pasar el ratón—; la cuadrícula se suma. */}
-          <span className="inline-flex overflow-hidden rounded-md border border-border bg-card" role="group" aria-label="Vista">
+          <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-border" role="group" aria-label="Vista">
             {([["lista", List, "Lista"], ["cuadricula", LayoutGrid, "Cuadrícula"]] as const).map(([k, Icono, etiqueta]) => (
               <button
                 key={k}
+                type="button"
                 onClick={() => setVista(k)}
                 title={etiqueta}
                 aria-label={etiqueta}
                 aria-pressed={vista === k}
-                className={`p-2 ${vista === k ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+                className={cn(
+                  "flex size-7 items-center justify-center",
+                  vista === k ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
               >
-                <Icono className="size-4" />
+                <Icono className="size-3.5" />
               </button>
             ))}
-          </span>
+          </div>
           <button
+            type="button"
             onClick={refresh}
             title="Actualizar (lee el disco en vivo)"
-            className="rounded-md border border-border bg-card p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            <RefreshCw className={`size-4${loading ? " animate-spin" : ""}`} />
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
           </button>
           {canWrite ? (
-            <span className="relative">
+            <span className="relative shrink-0">
               <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => void doUpload(e.target.files)} />
               {uploading > 0 ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground opacity-60">
-                  <Loader2 className="size-4 animate-spin" /> Subiendo {uploading}…
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground opacity-60">
+                  <Loader2 className="size-3.5 animate-spin" /> Subiendo {uploading}…
                 </span>
               ) : (
                 /* <details data-autoclose>: DetailsAutoClose (en el shell) lo cierra al pulsar
                    fuera y COLOCA la caja (fixed + volteo si no cabe abajo), como todos los menús. */
                 <details data-autoclose className="group/add relative">
-                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md bg-primary py-1.5 pl-2.5 pr-2 text-sm font-medium text-primary-foreground hover:opacity-90 [&::-webkit-details-marker]:hidden">
-                    <Plus className="size-4" /> Añadir
-                    <ChevronDown className="size-3.5 opacity-70 transition-transform group-open/add:rotate-180" />
+                  <summary className="inline-flex h-7 cursor-pointer list-none items-center gap-1 rounded-md bg-primary pl-2 pr-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 [&::-webkit-details-marker]:hidden">
+                    <Plus className="size-3.5" /> Añadir
+                    <ChevronDown className="size-3 opacity-70 transition-transform group-open/add:rotate-180" />
                   </summary>
                   <div className="absolute right-0 z-20 mt-1 flex w-48 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
                     <button
@@ -292,154 +309,173 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
               )}
             </span>
           ) : null}
-        </span>
-      </div>
+        </div>
 
-      {notice ? (
-        <p className="flex items-start justify-between gap-2 rounded-md border border-amber-300/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-          <span>{notice}</span>
-          <button onClick={() => setNotice(null)} aria-label="Cerrar aviso"><X className="size-4" /></button>
-        </p>
-      ) : null}
-      {data?.truncated ? (
-        <p className="text-xs text-muted-foreground">Esta carpeta tiene más de 2000 elementos: se muestran los primeros (organízala en subcarpetas).</p>
-      ) : null}
+        {notice ? (
+          <p className="flex items-start justify-between gap-2 border-b border-amber-300/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+            <span>{notice}</span>
+            <button onClick={() => setNotice(null)} aria-label="Cerrar aviso"><X className="size-4" /></button>
+          </p>
+        ) : null}
 
-      {/* Crear carpeta (fila inline) */}
-      {newFolder !== null ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void doCreateFolder();
-          }}
-          className="flex items-center gap-2 rounded-md border border-dashed border-border bg-card px-3 py-2"
-        >
-          <Folder className="size-4 text-[#F47A20]" />
-          <input
-            autoFocus
-            value={newFolder}
-            onChange={(e) => setNewFolder(e.target.value)}
-            placeholder="Nombre de la carpeta nueva"
-            className="flex-1 bg-transparent text-sm outline-none"
-          />
-          <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground">Crear</button>
-          <button type="button" onClick={() => setNewFolder(null)} className="rounded-md border border-border px-2.5 py-1 text-xs">Cancelar</button>
-        </form>
-      ) : null}
+        {/* Crear carpeta (fila inline) */}
+        {newFolder !== null ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void doCreateFolder();
+            }}
+            className="flex items-center gap-2 border-b border-dashed border-border px-3 py-2"
+          >
+            <Folder className="size-4 text-[#F47A20]" />
+            <input
+              autoFocus
+              value={newFolder}
+              onChange={(e) => setNewFolder(e.target.value)}
+              placeholder="Nombre de la carpeta nueva"
+              className="flex-1 bg-transparent text-sm outline-none"
+            />
+            <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground">Crear</button>
+            <button type="button" onClick={() => setNewFolder(null)} className="rounded-md border border-border px-2.5 py-1 text-xs">Cancelar</button>
+          </form>
+        ) : null}
 
-      {/* Listado */}
-      {error ? (
-        <div className="rounded-md border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          {error}
-          {path ? (
-            <div className="mt-2">
-              <button onClick={() => go("")} className="text-[#F47A20] hover:underline">Volver a la raíz</button>
-            </div>
-          ) : null}
-        </div>
-      ) : loading && !data ? (
-        <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-10 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Leyendo el disco…
-        </div>
-      ) : dirs.length === 0 && files.length === 0 ? (
-        <div className="rounded-md border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
-          {filter ? "Nada coincide con el filtro." : "Carpeta vacía. Lo que agregues aquí (o por el Finder/SMB) aparece en ambos lados al instante."}
-        </div>
-      ) : vista === "cuadricula" ? (
-        // ── Cuadrícula ── Para reconocer material sin leer nombres. Las carpetas van arriba y
-        // en tarjeta baja: son el escalón para llegar al material, no el destino. Las acciones
-        // de cada pieza (renombrar, mover, papelera) siguen viviendo en la lista, que es donde
-        // se trabaja fino; aquí se viene a encontrar.
-        <div className="space-y-3 rounded-lg border border-border bg-card p-3">
-          {dirs.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              {dirs.map((d) => (
-                <button
-                  key={d.rel}
-                  onClick={() => go(d.rel)}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-left hover:bg-muted"
-                >
-                  <Folder className="size-4 shrink-0 text-[#F47A20]" />
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{d.name}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {files.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-              {files.map((f) => (
-                <a
-                  key={f.rel}
-                  href={fileUrl(f.rel)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="overflow-hidden rounded-lg border border-border transition hover:border-[#F47A20]/50 hover:bg-muted/40"
-                >
-                  <Miniatura
-                    thumb={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
-                    tipo={tipoPieza(f.ext)}
-                    alto="tarjeta"
-                    // Lo dice el SERVIDOR, que miró el disco: una imagen se pinta sola, y un
-                    // vídeo si tiene póster o si la app puede sacárselo. Los formatos de cámara
-                    // propietarios (BRAW, R3D) no los abre nadie: esos se quedan con su icono y
-                    // no se les promete «preparando», que sería prometer lo que no va a llegar.
-                    hay={f.miniatura ?? THUMB_EXT.has(f.ext)}
-                    // Un vídeo que el servidor dio por bueno y aún no aparece es un fotograma
-                    // en cola, no un fallo: se dice, y la pieza se recoloca sola al salir.
-                    preparandoSiFalta={tipoPieza(f.ext) === "video" && (f.miniatura ?? false)}
-                  />
-                  <span className="block px-2 py-1.5">
-                    <span className="block truncate text-xs font-medium">{f.name}</span>
-                    <span className="block truncate text-[10px] text-muted-foreground">
-                      {fmtSize(f.size)}{f.mtimeMs ? ` · ${fmtDate(f.mtimeMs)}` : ""}
-                    </span>
-                  </span>
-                </a>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <ul className="divide-y divide-border">
-            {dirs.map((d) => (
-              <li key={d.rel} className="group flex items-center gap-3 px-3 py-2 hover:bg-muted/60">
-                {renaming?.rel === d.rel ? (
-                  <RenameRow icon={<Folder className="size-5 shrink-0 text-[#F47A20]" />} renaming={renaming} setRenaming={setRenaming} onSave={doRename} />
-                ) : (
-                  <>
-                    <button onClick={() => go(d.rel)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                      <Folder className="size-5 shrink-0 text-[#F47A20]" />
-                      <span className="truncate text-sm font-medium">{d.name}</span>
+        {/* Listado */}
+        {error ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            {error}
+            {path ? (
+              <div className="mt-2">
+                <button onClick={() => go("")} className="text-[#F47A20] hover:underline">Volver a la raíz</button>
+              </div>
+            ) : null}
+          </div>
+        ) : loading && !data ? (
+          <p className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Leyendo el disco…
+          </p>
+        ) : dirs.length === 0 && files.length === 0 ? (
+          <p className="px-4 py-12 text-center text-sm text-muted-foreground">
+            {filter ? `Nada coincide con «${filter}».` : "Carpeta vacía. Lo que agregues aquí (o por el Finder/SMB) aparece en ambos lados al instante."}
+          </p>
+        ) : vista === "cuadricula" ? (
+          // ── Cuadrícula ── Para reconocer material sin leer nombres. Las carpetas van arriba
+          // y en tarjeta baja: son el escalón para llegar al material, no el destino. Las
+          // acciones de cada pieza (renombrar, mover, papelera) siguen viviendo en la lista,
+          // que es donde se trabaja fino; aquí se viene a encontrar.
+          <div className="space-y-3 p-3">
+            {dirs.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {dirs.map((d) => {
+                  const dueno = duenos[d.rel];
+                  return (
+                    <button
+                      key={d.rel}
+                      type="button"
+                      onClick={() => go(d.rel)}
+                      title={dueno ? `Carpeta de ${dueno.nombre}` : undefined}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left",
+                        dueno
+                          ? cn(tone(dueno.color ?? "slate").chip, "font-medium hover:brightness-95 dark:hover:brightness-110")
+                          : "border-border bg-muted/30 hover:bg-accent",
+                      )}
+                    >
+                      <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium">{d.name}</span>
                     </button>
-                    {canWrite ? (
-                      <RowActions
-                        onRename={() => setRenaming({ rel: d.rel, value: d.name })}
-                        onMove={() => setMoving(d)}
-                        onTrash={() => void doTrash(d)}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </li>
-            ))}
+                  );
+                })}
+              </div>
+            ) : null}
+            {files.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+                {files.map((f) => (
+                  <a
+                    key={f.rel}
+                    href={fileUrl(f.rel)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="overflow-hidden rounded-lg border border-border transition hover:border-[#F47A20]/50 hover:bg-muted/40"
+                  >
+                    <Miniatura
+                      thumb={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
+                      tipo={tipoPieza(f.ext)}
+                      alto="tarjeta"
+                      // Lo dice el SERVIDOR, que miró el disco: una imagen se pinta sola, y un
+                      // vídeo si tiene póster o si la app puede sacárselo. Los formatos de
+                      // cámara propietarios (BRAW, R3D) no los abre nadie: esos se quedan con
+                      // su icono y no se les promete «preparando», que sería mentir.
+                      hay={f.miniatura ?? THUMB_EXT.has(f.ext)}
+                      // Un vídeo que el servidor dio por bueno y aún no aparece es un fotograma
+                      // en cola, no un fallo: se dice, y la pieza se recoloca sola al salir.
+                      preparandoSiFalta={tipoPieza(f.ext) === "video" && (f.miniatura ?? false)}
+                    />
+                    <span className="block px-2 py-1.5">
+                      <span className="block truncate text-xs font-medium">{f.name}</span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        {fmtSize(f.size)}{f.mtimeMs ? ` · ${fmtDate(f.mtimeMs)}` : ""}
+                      </span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {dirs.map((d) => {
+              const dueno = duenos[d.rel];
+              return (
+                <li key={d.rel} className="group flex items-center gap-3 px-4 py-2 hover:bg-muted/60">
+                  {renaming?.rel === d.rel ? (
+                    <RenameRow icon={<Folder className="size-4 shrink-0 text-[#F47A20]" />} renaming={renaming} setRenaming={setRenaming} onSave={doRename} />
+                  ) : (
+                    <>
+                      <button onClick={() => go(d.rel)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <Folder className={cn("size-4 shrink-0", dueno ? "opacity-80" : "text-[#F47A20]")} />
+                        <span className="min-w-0 truncate text-sm font-medium">{d.name}</span>
+                        {/* La carpeta de un cliente se reconoce por SU color —el mismo de su
+                            ficha y sus proyectos—, sin leer un solo nombre. */}
+                        {dueno ? (
+                          <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-semibold", tone(dueno.color ?? "slate").chip)}>
+                            {dueno.nombre}
+                          </span>
+                        ) : null}
+                      </button>
+                      {canWrite ? (
+                        <RowActions
+                          onRename={() => setRenaming({ rel: d.rel, value: d.name })}
+                          onMove={() => setMoving(d)}
+                          onTrash={() => void doTrash(d)}
+                        />
+                      ) : null}
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
+                    </>
+                  )}
+                </li>
+              );
+            })}
             {files.map((f) => {
               const Icon = iconFor(f.ext);
+              const t = tipoPieza(f.ext);
               const editable = ooReady && OO_EXT.has(f.ext);
               return (
-                <li key={f.rel} className="group flex items-center gap-3 px-3 py-2 hover:bg-muted/60">
+                <li key={f.rel} className="group flex items-center gap-3 px-4 py-2 hover:bg-muted/60">
                   {renaming?.rel === f.rel ? (
-                    <RenameRow icon={<Icon className="size-5 shrink-0 text-muted-foreground" />} renaming={renaming} setRenaming={setRenaming} onSave={doRename} />
+                    <RenameRow icon={<Icon className="size-4 shrink-0 text-muted-foreground" />} renaming={renaming} setRenaming={setRenaming} onSave={doRename} />
                   ) : (
                     <>
                       <a href={fileUrl(f.rel)} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-3">
-                        {THUMB_EXT.has(f.ext) ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
-                            alt=""
-                            loading="lazy"
-                            className="size-9 shrink-0 rounded object-cover ring-1 ring-border"
+                        {/* La misma miniatura de toda la app: fotograma para el vídeo y la
+                            foto, icono por tipo para el resto. Antes la lista solo enseñaba
+                            imágenes y un vídeo era una fila ciega. */}
+                        {t === "foto" || t === "video" ? (
+                          <Miniatura
+                            thumb={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
+                            tipo={t}
+                            hay={f.miniatura ?? THUMB_EXT.has(f.ext)}
+                            preparandoSiFalta={t === "video" && (f.miniatura ?? false)}
                           />
                         ) : (
                           <Icon className="size-5 shrink-0 text-muted-foreground" />
@@ -478,8 +514,16 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
               );
             })}
           </ul>
+        )}
+
+        {/* El pie dice el estado del disco sin ocupar la pantalla. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+          <span>
+            {data ? `${data.dirs.length} ${data.dirs.length === 1 ? "carpeta" : "carpetas"} · ${data.files.length} ${data.files.length === 1 ? "archivo" : "archivos"} · ` : ""}
+            {data?.truncated ? "esta carpeta pasa de 2000 elementos: se muestran los primeros" : "se lee el disco en vivo"}
+          </span>
         </div>
-      )}
+      </div>
 
       {/* La explicación de siempre, plegada: quien ya la sabe no la vuelve a leer nunca. */}
       <details className="group/como text-xs text-muted-foreground">

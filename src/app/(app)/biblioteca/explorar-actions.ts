@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isMountKey, type NivelEntrada } from "@/lib/disco-raiz";
 import { listarNivelMontaje, mountReady } from "@/lib/disco-raiz-server";
+import { duenosPorNombre, type DuenoCarpeta } from "@/lib/dueno-carpeta";
 
 // ── Navegar por dentro de un disco MONTADO, desde su ficha ─────────────────────
 // Solo lectura: la ficha del disco enseña qué hay, y para trabajar (subir, mover, borrar)
@@ -16,7 +17,7 @@ import { listarNivelMontaje, mountReady } from "@/lib/disco-raiz-server";
 // De qué CLIENTE es una carpeta, cuando lo es. En el disco de entregas las carpetas de la
 // raíz SON los clientes, y verlas como carpetas anónimas obliga a reconocerlas por el nombre
 // —que casi nunca coincide con cómo se llama el cliente en la app.
-export type DuenoCarpeta = { id: string; nombre: string; color: string | null };
+export type { DuenoCarpeta } from "@/lib/dueno-carpeta";
 
 export type NivelResultado =
   | {
@@ -42,9 +43,14 @@ export async function nivelDelDisco(diskId: string, rel: string): Promise<NivelR
 
   try {
     const nivel = await listarNivelMontaje(disk.mountKey, rel || "");
-    // Solo el disco de entregas tiene carpetas de cliente; en Operaciones la raíz es material
-    // de trabajo del estudio y preguntarle a la base por cada carpeta no devolvería nada.
-    const duenos: Record<string, DuenoCarpeta> = {};
+    // De quién es cada carpeta. En el disco de entregas el vínculo es EXPLÍCITO (la carpeta
+    // del cliente en la app); en Operaciones no hay vínculo, pero el equipo nombra las
+    // carpetas como a sus clientes, y reconocerlas por nombre —con las guardas de
+    // dueno-carpeta— ordena la pantalla igual.
+    let duenos: Record<string, DuenoCarpeta> = {};
+    if (disk.mountKey === "OPS" && nivel.carpetas.length > 0) {
+      duenos = await duenosPorNombre(nivel.carpetas);
+    }
     if (disk.mountKey === "GALERIA" && nivel.carpetas.length > 0) {
       const clientes = await db.client
         .findMany({
