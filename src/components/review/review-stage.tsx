@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Play, Pause, StepBack, StepForward, Volume2, VolumeX, Maximize } from "lucide-react";
+import { Play, Pause, StepBack, StepForward, Volume2, VolumeX, Maximize, ChevronLeft, ChevronRight, Bookmark, Frame, Keyboard } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
@@ -966,8 +966,11 @@ export function ReviewStage({
               vertical={vertical}
               onCapabilities={setCaps}
               immersive={immersive}
-              // Marcas de las correcciones para la pista de la barra propia (video del mismo origen).
-              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved }))}
+              // Marcas de las correcciones para la pista de la barra propia (video del mismo origen):
+              // autor y texto alimentan el popover al pasar el mouse y el salto siguiente/anterior.
+              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved, author: c.authorName, body: c.body }))}
+              // Herramientas del EQUIPO (zonas seguras del reel): el portal del cliente no las ve.
+              teamTools={mode === "internal"}
             />
 
             {immersive ? (
@@ -2175,7 +2178,7 @@ function ImmersiveSheet({
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false, markers = [] }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false, markers = [], teamTools = false }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
@@ -2191,8 +2194,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Modo inmersivo (pantalla completa del portal): el material llena el contenedor (sin marco
   // ni controles nativos en el <video>; la barra y el toque los pone el overlay del padre).
   immersive?: boolean;
-  // Correcciones con timecode: marcas en la pista de la barra propia (ámbar/verde, clic=saltar).
-  markers?: { id: string; t: number; resolved: boolean }[];
+  // Correcciones con timecode: marcas en la pista de la barra propia (ámbar/verde, clic=saltar,
+  // popover con autor+texto al pasar el mouse y salto siguiente/anterior).
+  markers?: PlayerMarker[];
+  // Herramientas SOLO del equipo (modo interno): hoy, las zonas seguras del reel.
+  teamTools?: boolean;
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
@@ -2247,6 +2253,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     proxyRetries.current = 0;
     if (retryTimer.current != null) { window.clearTimeout(retryTimer.current); retryTimer.current = null; }
   }, [version]);
+
+  // ── Zonas seguras del reel (solo equipo) ── overlay-guía sobre el video vertical con las
+  // franjas donde TikTok/Instagram pintan SU interfaz encima; ciclo off → TikTok → Reels → off.
+  const [safeZone, setSafeZone] = React.useState<SafeZonePreset | null>(null);
+  const cycleSafeZone = React.useCallback(() => {
+    setSafeZone((s) => (s === null ? "tiktok" : s === "tiktok" ? "reels" : null));
+  }, []);
 
   // ── Velocidad de reproducción (0.5×–2×) ── se recuerda entre sesiones y se re-aplica al
   // (re)cargar el video o al cambiar de versión.
@@ -2516,6 +2529,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           />
           {liveCaption}
           {overlay}
+          {/* Zonas seguras del reel: guía visual del equipo (no se guarda, el cliente no la ve).
+              pointer-events-none → el clic sigue pausando/reanudando el video debajo. */}
+          {safeZone && !immersive && vertical ? <SafeZonesOverlay preset={safeZone} /> : null}
           {/* El navegador no decodifica este contenedor (ProRes, MKV, HEVC 10-bit) o el stream
               no llegó tras los reintentos: tarjeta explicativa con la salida real, en vez de
               un player negro y mudo. */}
@@ -2542,7 +2558,16 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
         </div>
         {/* Barra de controles propia, pegada al video (misma tarjeta). */}
         {immersive || localFailed ? null : (
-          <PlayerBar videoRef={videoRef} markers={markers} rate={rate} onRate={applyRate} compact={vertical} />
+          <PlayerBar
+            videoRef={videoRef}
+            markers={markers}
+            rate={rate}
+            onRate={applyRate}
+            compact={vertical}
+            safeZone={safeZone}
+            // El botón de zonas seguras solo existe para el EQUIPO y en reels verticales.
+            onSafeZone={teamTools && vertical ? cycleSafeZone : undefined}
+          />
         )}
         </div>
       </div>
@@ -2607,25 +2632,41 @@ function LiveTimecode({ playerRef, frame }: { playerRef: React.MutableRefObject<
   );
 }
 
+// Marca de corrección en la pista del reproductor: momento + estado + quién y qué pidió
+// (autor/texto alimentan el popover y el salto «corrección siguiente/anterior»).
+type PlayerMarker = { id: string; t: number; resolved: boolean; author: string; body: string };
+// Presets de zonas seguras del reel (dónde pinta SU interfaz cada app encima del video).
+type SafeZonePreset = "tiktok" | "reels";
+
 // ── Barra de controles propia del reproductor (video del mismo origen) ──
 // UNA sola superficie de control donde antes había tres pisos (controles nativos del navegador
 // + fila de velocidad + línea de tiempo con marcas): play/pausa, cuadro a cuadro, timecode,
-// pista con las correcciones integradas (ámbar = pendiente, verde = hecha; clic = saltar),
-// volumen, velocidad y pantalla completa. El progreso se escribe DIRECTO al DOM con rAF
-// (mismo patrón que el HUD inmersivo): cero re-renders de React por frame; el estado solo
-// cambia con pausa/duración/silencio. `compact` (reels verticales, barra angosta) esconde
-// el cuadro-a-cuadro y el deslizador de volumen para que todo quepa.
-function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
+// pista con las correcciones integradas (ámbar = pendiente, verde = hecha; clic = saltar;
+// hover = popover con autor y texto; tooltip del segundo al frotar), salto a la corrección
+// siguiente/anterior (botones y teclas N/P), volumen, velocidad, atajos (?) y pantalla
+// completa. El progreso se escribe DIRECTO al DOM con rAF (mismo patrón que el HUD inmersivo):
+// cero re-renders de React por frame; el estado solo cambia con pausa/duración/silencio.
+// `compact` (reels verticales, barra angosta) esconde cuadro-a-cuadro, deslizador de volumen
+// y atajos para que todo quepa.
+function PlayerBar({ videoRef, markers, rate, onRate, compact = false, safeZone = null, onSafeZone }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  markers: { id: string; t: number; resolved: boolean }[];
+  markers: PlayerMarker[];
   rate: number;
   onRate: (r: number) => void;
   compact?: boolean;
+  // Zonas seguras (solo lo pasa el equipo en reels): estado actual + ciclado off→TikTok→Reels.
+  safeZone?: SafeZonePreset | null;
+  onSafeZone?: () => void;
 }) {
   const [paused, setPaused] = React.useState(true);
   const [muted, setMuted] = React.useState(false);
   const [dur, setDur] = React.useState(0);
   const [rateOpen, setRateOpen] = React.useState(false);
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  // Popover de una marca: fijo mientras el mouse está encima (sticky) o fugaz tras un salto N/P.
+  const [pop, setPop] = React.useState<{ idx: number; sticky: boolean } | null>(null);
+  const popTimer = React.useRef<number | null>(null);
+  const hoverTipRef = React.useRef<HTMLSpanElement>(null);
   const fillRef = React.useRef<HTMLDivElement>(null);
   const bufRef = React.useRef<HTMLDivElement>(null);
   const knobRef = React.useRef<HTMLDivElement>(null);
@@ -2678,6 +2719,40 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
     v.pause();
     v.currentTime = Math.max(0, v.currentTime + dir / 30);
   };
+  // Popover de una marca (autor + texto + estado). Con autoHide (salto N/P) se esfuma solo.
+  const showPop = React.useCallback((idx: number, sticky: boolean) => {
+    if (popTimer.current) { window.clearTimeout(popTimer.current); popTimer.current = null; }
+    setPop({ idx, sticky });
+    if (!sticky) popTimer.current = window.setTimeout(() => setPop(null), 2400);
+  }, []);
+  // Salto a la corrección siguiente/anterior desde el instante actual (envuelve en los bordes).
+  // NO fuerza reproducción: repasar los ajustes se hace en pausa, mirando el fotograma.
+  const jumpCorr = React.useCallback((dir: 1 | -1) => {
+    const v = videoRef.current;
+    if (!v || !markers.length) return;
+    const sorted = [...markers].sort((a, b) => a.t - b.t);
+    const cur = v.currentTime;
+    const target = dir === 1
+      ? sorted.find((m) => m.t > cur + 0.3) ?? sorted[0]
+      : [...sorted].reverse().find((m) => m.t < cur - 0.3) ?? sorted[sorted.length - 1];
+    v.currentTime = target.t;
+    showPop(markers.indexOf(target), false);
+  }, [videoRef, markers, showPop]);
+  // Teclas N/P (siguiente/anterior corrección). Mismo contrato que los atajos del escenario:
+  // nunca roba teclas mientras se escribe en un campo.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (k === "n") { e.preventDefault(); jumpCorr(1); }
+      else if (k === "p") { e.preventDefault(); jumpCorr(-1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [jumpCorr]);
+  React.useEffect(() => () => { if (popTimer.current) window.clearTimeout(popTimer.current); }, []);
   // Arrastre de la pista: salta EN VIVO mientras se desliza (igual que el HUD inmersivo).
   const seekAt = (clientX: number) => {
     const el = trackRef.current, v = videoRef.current;
@@ -2709,9 +2784,23 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
             </button>
           </>
         )}
+        {/* Corrección anterior / siguiente: repasar los ajustes uno a uno (teclas P / N). */}
+        {markers.length > 0 ? (
+          <>
+            <button type="button" onClick={() => jumpCorr(-1)} title="Corrección anterior (P)" aria-label="Corrección anterior" className={btn}>
+              <ChevronLeft className="size-4" />
+              <Bookmark className="-ml-1.5 size-2.5" />
+            </button>
+            <button type="button" onClick={() => jumpCorr(1)} title="Corrección siguiente (N)" aria-label="Corrección siguiente" className={btn}>
+              <Bookmark className="-mr-1.5 size-2.5" />
+              <ChevronRight className="size-4" />
+            </button>
+          </>
+        ) : null}
         <span ref={tcRef} className="shrink-0 px-1 font-mono text-[11px] text-white/70 tabular-nums">0:00 / 0:00</span>
         {/* Pista: progreso + bufereado + marcas de correcciones. Área de toque generosa (h-6),
-            línea fina (h-1.5) — se arrastra en vivo y las marcas saltan a su momento. */}
+            línea fina (h-1.5) — se arrastra en vivo, las marcas saltan a su momento, el hover
+            enseña el segundo bajo el cursor y el popover de cada marca dice quién pidió qué. */}
         <div
           ref={trackRef}
           role="slider"
@@ -2724,19 +2813,32 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
           onPointerMove={(e) => { if (scrubbing.current) seekAt(e.clientX); }}
           onPointerUp={() => { scrubbing.current = false; }}
           onPointerCancel={() => { scrubbing.current = false; }}
+          onMouseMove={(e) => {
+            // Tooltip del segundo bajo el cursor (DOM directo: sin re-render por movimiento).
+            const tip = hoverTipRef.current, el = trackRef.current;
+            if (!tip || !el || durRef.current <= 0) return;
+            if (pop) { tip.style.display = "none"; return; } // el popover manda
+            const r = el.getBoundingClientRect();
+            const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+            tip.textContent = fmtTime(p * durRef.current);
+            tip.style.left = `${p * 100}%`;
+            tip.style.display = "block";
+          }}
+          onMouseLeave={() => { if (hoverTipRef.current) hoverTipRef.current.style.display = "none"; }}
         >
           <div className="relative h-1.5 w-full overflow-visible rounded-full bg-white/15">
             <div ref={bufRef} className="absolute inset-0 origin-left rounded-full bg-white/15" style={{ transform: "scaleX(0)" }} />
             <div ref={fillRef} className="absolute inset-0 origin-left rounded-full bg-primary" style={{ transform: "scaleX(0)" }} />
             {dur > 0
-              ? markers.map((m) => (
+              ? markers.map((m, i) => (
                   <button
                     key={m.id}
                     type="button"
-                    title={`${fmtTime(m.t)} · ${m.resolved ? "hecha ✓" : "pendiente"}`}
                     aria-label={`Corrección en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); const v = videoRef.current; if (v) v.currentTime = m.t; }}
+                    onMouseEnter={() => showPop(i, true)}
+                    onMouseLeave={() => setPop((p) => (p?.sticky ? null : p))}
                     className={`absolute -top-[5px] h-4 w-1 -translate-x-1/2 rounded-sm transition-transform hover:scale-125 ${m.resolved ? "bg-emerald-400" : "bg-amber-400"}`}
                     style={{ left: pct(m.t) }}
                   />
@@ -2744,6 +2846,21 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
               : null}
             <div ref={knobRef} className="pointer-events-none absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow" style={{ left: "0%" }} />
           </div>
+          {/* Tooltip del segundo (frotar la pista). */}
+          <span ref={hoverTipRef} className="pointer-events-none absolute bottom-7 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-white/15 bg-neutral-900 px-1.5 py-0.5 font-mono text-[11px] text-white" />
+          {/* Popover de la marca: quién pidió qué y en qué estado va. */}
+          {pop && markers[pop.idx] ? (
+            <div
+              className="pointer-events-none absolute bottom-8 z-20 w-56 max-w-[70vw] -translate-x-1/2 rounded-lg border border-white/15 bg-neutral-900 px-2.5 py-2"
+              style={{ left: `${Math.min(85, Math.max(15, ((markers[pop.idx].t) / (durRef.current || 1)) * 100))}%` }}
+            >
+              <p className="text-[12px] font-medium text-white">{markers[pop.idx].author} · {fmtTime(markers[pop.idx].t)}</p>
+              <p className="mt-0.5 line-clamp-2 text-[12px] text-white/75">{markers[pop.idx].body}</p>
+              <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${markers[pop.idx].resolved ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                {markers[pop.idx].resolved ? "✓ Hecha" : "Pendiente"}
+              </span>
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -2791,10 +2908,81 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false }: {
             </>
           ) : null}
         </div>
+        {/* Zonas seguras del reel (solo equipo, solo vertical): off → TikTok → Reels → off. */}
+        {onSafeZone ? (
+          <button
+            type="button"
+            onClick={onSafeZone}
+            title={safeZone ? `Zonas seguras: ${safeZone === "tiktok" ? "TikTok" : "Instagram Reels"} (clic para cambiar)` : "Zonas seguras (TikTok / Instagram Reels)"}
+            aria-pressed={!!safeZone}
+            className={`${btn} ${safeZone ? "bg-white/15 text-white" : ""}`}
+          >
+            <Frame className="size-4" />
+          </button>
+        ) : null}
+        {/* Tabla de atajos: existían desde siempre, pero nadie los descubría. */}
+        {compact ? null : (
+          <div className="relative shrink-0">
+            <button type="button" onClick={() => setHelpOpen((o) => !o)} title="Atajos del teclado" aria-haspopup="dialog" aria-expanded={helpOpen} className={btn}>
+              <Keyboard className="size-4" />
+            </button>
+            {helpOpen ? (
+              <>
+                <button type="button" aria-label="Cerrar atajos" className="fixed inset-0 z-10 cursor-default" onClick={() => setHelpOpen(false)} />
+                <div role="dialog" aria-label="Atajos del reproductor" className="absolute bottom-full right-0 z-20 mb-1.5 w-64 rounded-lg border border-white/15 bg-neutral-900 p-3">
+                  <p className="mb-1.5 text-[12px] font-semibold text-white">Atajos del reproductor</p>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px] text-white/80">
+                    <span className="font-mono">espacio · K</span><span>reproducir / pausar</span>
+                    <span className="font-mono">J · L</span><span>−10 s / +10 s</span>
+                    <span className="font-mono">← · →</span><span>−5 s / +5 s</span>
+                    <span className="font-mono">, · .</span><span>cuadro a cuadro</span>
+                    <span className="font-mono">N · P</span><span>corrección siguiente / anterior</span>
+                    <span className="font-mono">C</span><span>comentar en este momento</span>
+                    <span className="font-mono">V</span><span>comparar con la otra versión</span>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
         <button type="button" onClick={fullscreen} title="Pantalla completa (doble clic en el video)" aria-label="Pantalla completa" className={btn}>
           <Maximize className="size-4" />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Zonas seguras del reel ── overlay-guía del EQUIPO sobre el video vertical: franjas rojas =
+// donde TikTok/Instagram pintan SU interfaz encima del video (estado, caption, carril de
+// acciones); caja punteada verde = zona segura para texto quemado y subtítulos. Es solo una
+// guía visual (pointer-events-none, no se guarda, el cliente nunca la ve).
+function SafeZonesOverlay({ preset }: { preset: SafeZonePreset }) {
+  const zones: { style: React.CSSProperties; label: string | null }[] = preset === "tiktok"
+    ? [
+        { style: { top: 0, left: 0, right: 0, height: "8%" }, label: "estado y búsqueda" },
+        { style: { bottom: 0, left: 0, right: 0, height: "15%" }, label: "caption, usuario y audio" },
+        { style: { right: 0, bottom: "15%", width: "17%", height: "42%" }, label: null },
+      ]
+    : [
+        { style: { top: 0, left: 0, right: 0, height: "6%" }, label: null },
+        { style: { bottom: 0, left: 0, right: 0, height: "19%" }, label: "caption y audio" },
+        { style: { right: 0, bottom: "19%", width: "15%", height: "38%" }, label: null },
+      ];
+  const safe: React.CSSProperties = preset === "tiktok"
+    ? { top: "10%", left: "4%", right: "21%", bottom: "18%" }
+    : { top: "8%", left: "4%", right: "19%", bottom: "22%" };
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      {zones.map((z, i) => (
+        <div key={i} className="absolute border border-dashed border-red-500/80 bg-red-500/25" style={z.style}>
+          {z.label ? <span className="absolute left-1.5 top-1 text-[10px] font-medium text-red-100">{z.label}</span> : null}
+        </div>
+      ))}
+      <div className="absolute rounded-lg border-2 border-dashed border-emerald-300/90" style={safe} />
+      <span className="absolute left-1/2 top-1.5 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
+        Zonas seguras · {preset === "tiktok" ? "TikTok" : "Instagram Reels"}
+      </span>
     </div>
   );
 }
