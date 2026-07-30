@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, Copy, Download, ExternalLink, Folder, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { Check, ChevronRight, Copy, Download, ExternalLink, Folder, LayoutGrid, List, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
 import { nivelDelDisco } from "../../explorar-actions";
 import type { NivelEntrada } from "@/lib/disco-raiz";
@@ -138,6 +139,9 @@ export function ExploradorDisco({
   // La pieza elegida abre el panel de detalle. Se guarda entera (no solo el rel) para poder
   // pintarla sin volver a buscarla en la lista.
   const [sel, setSel] = React.useState<NivelEntrada | null>(null);
+  // Lista para leer nombres, cuadrícula para reconocer fotogramas. Se recuerda por navegador:
+  // quien busca material a ojo no debería volver a pedirlo cada vez que entra a un disco.
+  const [vista, setVista] = usePreferenciaLocal<"lista" | "cuadricula">("disco-vista", "lista");
 
   const cargar = React.useCallback(
     async (destino: string) => {
@@ -228,6 +232,24 @@ export function ExploradorDisco({
             className="w-40 rounded-md border border-border bg-background py-1 pl-8 pr-2 text-xs outline-none focus:border-primary"
           />
         </label>
+        <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-border" role="group" aria-label="Vista">
+          {([["lista", List, "Lista"], ["cuadricula", LayoutGrid, "Cuadrícula"]] as const).map(([k, Icono, etiqueta]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setVista(k)}
+              title={etiqueta}
+              aria-label={etiqueta}
+              aria-pressed={vista === k}
+              className={cn(
+                "flex size-7 items-center justify-center",
+                vista === k ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              )}
+            >
+              <Icono className="size-3.5" />
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => void cargar(rel)}
@@ -252,6 +274,53 @@ export function ExploradorDisco({
         <p className="px-4 py-12 text-center text-sm text-muted-foreground">
           {q ? `Nada coincide con «${filtro}».` : "Esta carpeta está vacía."}
         </p>
+      ) : vista === "cuadricula" ? (
+        // Cuadrícula: las carpetas primero como tarjetas bajas (son escalones, no destino),
+        // y debajo el material a tamaño de fotograma, que es lo que se viene a reconocer.
+        <div className="space-y-3 p-3">
+          {cVis.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {cVis.map((c) => (
+                <button
+                  key={c.rel}
+                  type="button"
+                  onClick={() => ir(c.rel)}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-left hover:bg-accent"
+                >
+                  <Folder className="size-4 shrink-0 text-[#F47A20]" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{c.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {aVis.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+              {aVis.map((a) => {
+                const u = urls(a);
+                const on = sel?.rel === a.rel;
+                return (
+                  <button
+                    key={a.rel}
+                    type="button"
+                    onClick={() => setSel(on ? null : a)}
+                    className={cn(
+                      "overflow-hidden rounded-lg border text-left transition",
+                      on ? "border-primary ring-2 ring-primary/25" : "border-border hover:border-border/80 hover:bg-accent/40",
+                    )}
+                  >
+                    <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} alto="tarjeta" preparandoSiFalta={u.preparando} />
+                    <span className="block px-2 py-1.5">
+                      <span className="block truncate text-xs font-medium">{a.name}</span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        {[tam(a.size), fecha(a.mtimeMs)].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       ) : (
         <ul className="divide-y divide-border">
           {cVis.map((c) => (
