@@ -5,6 +5,8 @@ import { canAccessProject } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { db } from "@/lib/db";
 import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, normalizeGaleriaRel } from "@/lib/nas-galeria";
+import { opsEnabled } from "@/lib/nas-ops";
+import { DiscoTabs } from "@/components/discos/disco-tabs";
 import { GaleriaCliente } from "./galeria-cliente";
 import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
 import { EntregasCompartidas } from "./entregas-compartidas";
@@ -26,14 +28,18 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
 
   if (!galeriaEnabled() || !(await galeriaReady())) {
     return (
-      <div className="mx-auto flex min-h-[60vh] w-full max-w-lg flex-col items-center justify-center gap-3 px-4 text-center">
-        <Images className="size-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">La galería de entregas no está conectada</h1>
-        <p className="text-sm text-muted-foreground">
-          {galeriaEnabled()
-            ? "La variable NAS_GALERIA_DIR está definida pero la carpeta no responde. Suele pasar tras reiniciar el NAS: el montaje NFS de LabTem se cae y hay que volver a montarlo."
-            : "Falta montar la carpeta de LabTem en el contenedor: añade el bind mount /volume1/entregas-labtem → /entregas y la variable NAS_GALERIA_DIR en el docker-compose, y recrea el contenedor."}
-        </p>
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+        {/* Con las pestañas a la vista, un disco caído no te deja atrapado: saltas al otro. */}
+        <DiscoTabs activo="galeria" hayOps={opsEnabled()} hayGaleria={galeriaEnabled()} />
+        <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center gap-3 px-4 text-center">
+          <Images className="size-10 text-muted-foreground" />
+          <h1 className="text-xl font-semibold">La galería de entregas no está conectada</h1>
+          <p className="text-sm text-muted-foreground">
+            {galeriaEnabled()
+              ? "La variable NAS_GALERIA_DIR está definida pero la carpeta no responde. Suele pasar tras reiniciar el NAS: el montaje NFS de LabTem se cae y hay que volver a montarlo."
+              : "Falta montar la carpeta de LabTem en el contenedor: añade el bind mount /volume1/entregas-labtem → /entregas y la variable NAS_GALERIA_DIR en el docker-compose, y recrea el contenedor."}
+          </p>
+        </div>
       </div>
     );
   }
@@ -99,7 +105,9 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   const duenosArbol = await duenosDeRamas(niveles);
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 md:flex-row md:px-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+      <DiscoTabs activo="galeria" hayOps={opsEnabled()} hayGaleria />
+      <div className="flex flex-col gap-5 md:flex-row">
       <ArbolGaleria rel={relNorm} niveles={niveles} duenos={duenosArbol} />
       <div className="min-w-0 flex-1">
       <GaleriaHerramientas
@@ -125,6 +133,7 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
           huerfana: e.huerfana,
         }))}
       />
+      </div>
       </div>
     </div>
   );

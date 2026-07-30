@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FolderPlus, Upload, Link2, Folder, ChevronRight, Loader2, X } from "lucide-react";
+import { FolderPlus, Upload, Link2, Folder, ChevronDown, ChevronRight, Loader2, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
 import { crearCarpetaGaleria, subirArchivoGaleria, vincularCarpetaCliente, vincularCarpetaProyecto } from "./herramientas-actions";
@@ -95,6 +95,10 @@ export function GaleriaHerramientas({
     setAviso(errores.length ? errores.join(" · ") : `Subid${hecho === 1 ? "o 1 archivo" : `os ${hecho} archivos`}. Los videos salen como «preparando» hasta que LabTem fabrique su copia ligera.`);
     router.refresh();
   };
+
+  // ── Menús desplegables de la barra (todo lo accionable vive plegado en dos botones) ──
+  const [menuAdd, setMenuAdd] = React.useState(false);
+  const [menuVinc, setMenuVinc] = React.useState(false);
 
   // ── Vincular la carpeta actual ──
   const [vinculando, setVinculando] = React.useState<null | "cliente" | "proyecto">(null);
@@ -193,6 +197,10 @@ export function GaleriaHerramientas({
 
           {puedeEscribir && (
             <span className="ml-auto flex flex-wrap items-center gap-1.5">
+              <input ref={inputRef} type="file" multiple hidden onChange={(e) => void subir(e.target.files)} />
+
+              {/* «Añadir ▾»: crear carpeta y subir viven plegados en un solo botón. Con el
+                  input de nueva carpeta abierto, el menú cede su sitio a ese formulario. */}
               {creando ? (
                 <span className="inline-flex items-center gap-1.5">
                   <input
@@ -214,27 +222,13 @@ export function GaleriaHerramientas({
                   </button>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setCreando(true)}
-                  disabled={!escrituraLista}
-                  title={escrituraLista ? undefined : "La galería está en solo lectura (falta el montaje rw + el centinela en LabTem)"}
-                  className={botonCls}
-                >
-                  <FolderPlus className="size-3.5" /> Nueva carpeta
-                </button>
-              )}
-
-              {/* En la raíz no se sube (el servidor lo rechaza): mejor sin botón que con un
-                  botón apagado que hay que leer para entender por qué no hace nada. */}
-              {rel && (
-                <>
-                  <input ref={inputRef} type="file" multiple hidden onChange={(e) => void subir(e.target.files)} />
+                <span className="relative">
                   <button
                     type="button"
-                    onClick={() => inputRef.current?.click()}
+                    onClick={() => setMenuAdd((v) => !v)}
                     disabled={!escrituraLista || ocupado === "subida"}
-                    title={!escrituraLista ? "La galería está en solo lectura (falta el montaje rw + el centinela en LabTem)" : undefined}
+                    aria-expanded={menuAdd}
+                    title={escrituraLista ? undefined : "La galería está en solo lectura (falta el montaje rw + el centinela en LabTem)"}
                     className={botonCls}
                   >
                     {progreso ? (
@@ -243,11 +237,42 @@ export function GaleriaHerramientas({
                       </>
                     ) : (
                       <>
-                        <Upload className="size-3.5" /> Subir aquí
+                        <Plus className="size-3.5" /> Añadir
+                        <ChevronDown className={cn("size-3 opacity-70 transition-transform", menuAdd && "rotate-180")} />
                       </>
                     )}
                   </button>
-                </>
+                  {menuAdd && (
+                    <>
+                      <span className="fixed inset-0 z-10" onClick={() => setMenuAdd(false)} />
+                      <span className="absolute right-0 top-full z-20 mt-1 flex w-44 flex-col rounded-lg border bg-card p-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuAdd(false);
+                            setCreando(true);
+                          }}
+                          className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                        >
+                          <FolderPlus className="size-3.5 text-muted-foreground" /> Nueva carpeta
+                        </button>
+                        {/* En la raíz no se sube (el servidor lo rechaza): la opción ni aparece. */}
+                        {rel ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuAdd(false);
+                              inputRef.current?.click();
+                            }}
+                            className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                          >
+                            <Upload className="size-3.5 text-muted-foreground" /> Subir archivos…
+                          </button>
+                        ) : null}
+                      </span>
+                    </>
+                  )}
+                </span>
               )}
 
               {rel && vinculos.length === 0 && (
@@ -270,14 +295,39 @@ export function GaleriaHerramientas({
                       ))}
                     </select>
                   ) : (
-                    <>
-                      <button type="button" onClick={() => setVinculando("cliente")} className={botonCls}>
-                        <Link2 className="size-3.5" /> Vincular a cliente
+                    <span className="relative">
+                      <button type="button" onClick={() => setMenuVinc((v) => !v)} aria-expanded={menuVinc} className={botonCls}>
+                        <Link2 className="size-3.5" /> Vincular
+                        <ChevronDown className={cn("size-3 opacity-70 transition-transform", menuVinc && "rotate-180")} />
                       </button>
-                      <button type="button" onClick={() => setVinculando("proyecto")} className={botonCls}>
-                        <Link2 className="size-3.5" /> Vincular a proyecto
-                      </button>
-                    </>
+                      {menuVinc && (
+                        <>
+                          <span className="fixed inset-0 z-10" onClick={() => setMenuVinc(false)} />
+                          <span className="absolute right-0 top-full z-20 mt-1 flex w-44 flex-col rounded-lg border bg-card p-1 shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuVinc(false);
+                                setVinculando("cliente");
+                              }}
+                              className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                            >
+                              <Link2 className="size-3.5 text-muted-foreground" /> A un cliente…
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuVinc(false);
+                                setVinculando("proyecto");
+                              }}
+                              className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                            >
+                              <Link2 className="size-3.5 text-muted-foreground" /> A un proyecto…
+                            </button>
+                          </span>
+                        </>
+                      )}
+                    </span>
                   )}
                 </>
               )}

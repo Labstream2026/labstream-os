@@ -13,7 +13,6 @@ import {
   FileCheck2,
   FolderCheck,
   HardDrive,
-  Images,
   Home,
   Inbox,
   ListTodo,
@@ -239,11 +238,16 @@ export function Sidebar({
     { href: "/revisiones", label: "Proyectos a revisar", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
     { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
-    // Explorador del disco Operaciones_LAB (bind mount del NAS). Solo equipo; nunca clientes.
-    { href: "/operaciones", label: "Operaciones", icon: HardDrive, show: !isCliente && opsEnabled, active: pathname.startsWith("/operaciones") },
-    // Galería de entregas: el material de LabTem (segundo NAS). Solo equipo; el cliente
-    // entra por su enlace firmado, no por el menú.
-    { href: "/galeria", label: "Galería", icon: Images, show: !isCliente && galeriaEnabled, active: pathname.startsWith("/galeria") },
+    // Los dos discos del NAS en UNA entrada (dentro se cambia con pestañas): Operaciones_LAB
+    // (árbol de trabajo) y la galería de entregas de LabTem. Solo equipo; nunca clientes —
+    // el cliente entra a su galería por el enlace firmado, no por el menú.
+    {
+      href: opsEnabled ? "/operaciones" : "/galeria",
+      label: "Discos",
+      icon: HardDrive,
+      show: !isCliente && (opsEnabled || galeriaEnabled),
+      active: pathname.startsWith("/operaciones") || pathname.startsWith("/galeria"),
+    },
   ];
 
   // Archivar un cliente (solo admin): borrado SUAVE (restaurable desde /clientes).

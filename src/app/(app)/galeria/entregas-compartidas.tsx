@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldOff, ShieldCheck, Eye, AlertTriangle, ChevronRight, Trash2 } from "lucide-react";
+import { ShieldOff, ShieldCheck, Eye, AlertTriangle, ChevronDown, Share2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { SubmitButton } from "@/components/submit-button";
@@ -31,25 +31,34 @@ export function EntregasCompartidas({ entregas }: { entregas: EntregaVista[] }) 
   const vivas = entregas.filter((e) => !e.huerfana);
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
+    <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {/* Cabecera con la misma identidad que los desplegables del Resumen del proyecto:
+          tile de color + dato clave legible SIN abrir (cuántas, visitas, huérfanas). */}
       <button
         type="button"
         onClick={() => setAbierto((v) => !v)}
         aria-expanded={abierto}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/40"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/40"
       >
-        <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", abierto && "rotate-90")} />
-        <span className="text-sm font-semibold">Entregas compartidas</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{entregas.length}</span>
-        {huerfanas.length ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600">
-            <AlertTriangle className="size-3" />
-            {huerfanas.length} sin carpeta
-          </span>
-        ) : null}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {entregas.reduce((n, e) => n + e.visitas, 0)} visitas en total
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10">
+          <Share2 className="size-[18px] text-sky-600 dark:text-sky-400" />
         </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight">
+            Entregas compartidas
+            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-bold tabular-nums text-muted-foreground">{entregas.length}</span>
+            {huerfanas.length ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600">
+                <AlertTriangle className="size-3" />
+                {huerfanas.length} sin carpeta
+              </span>
+            ) : null}
+          </span>
+          <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+            {entregas.reduce((n, e) => n + e.visitas, 0)} visitas en total · lo que los clientes tienen (o tuvieron) abierto
+          </span>
+        </span>
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
       </button>
 
       {abierto ? (

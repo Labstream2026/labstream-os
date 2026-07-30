@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   File as FileIcon,
   FileSpreadsheet,
@@ -17,6 +18,7 @@ import {
   Loader2,
   Music,
   Pencil,
+  Plus,
   RefreshCw,
   Search,
   Trash2,
@@ -76,6 +78,7 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   const [moving, setMoving] = React.useState<Entry | null>(null);
   const [uploading, setUploading] = React.useState(0);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [menu, setMenu] = React.useState(false); // desplegable «Añadir»
   const fileInput = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (p: string) => {
@@ -172,63 +175,94 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Cabecera + miga de pan */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => go("")} className="inline-flex items-center gap-2 text-lg font-semibold hover:text-[#F47A20]">
-          <HardDrive className="size-5 text-[#F47A20]" /> Operaciones_LAB
+      {/* Una sola fila: dónde estás (migas) y, a la derecha, buscar y actuar. El nombre del
+          disco ya lo dice la pestaña de arriba, así que la raíz es solo el icono del drive
+          (o «Todo el disco» cuando estás en ella). */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <button
+          onClick={() => go("")}
+          title="Raíz de Operaciones_LAB"
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-muted"
+        >
+          <HardDrive className="size-4 text-[#F47A20]" />
+          {crumbs.length === 0 ? "Todo el disco" : null}
         </button>
         {crumbs.map((seg, i) => {
           const target = crumbs.slice(0, i + 1).join("/");
           const last = i === crumbs.length - 1;
           return (
-            <span key={target} className="flex items-center gap-2 text-sm">
-              <ChevronRight className="size-4 text-muted-foreground" />
+            <span key={target} className="flex min-w-0 items-center gap-2 text-sm">
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
               {last ? (
-                <span className="font-medium">{seg}</span>
+                <span className="truncate font-semibold">{seg}</span>
               ) : (
-                <button onClick={() => go(target)} className="text-muted-foreground hover:text-foreground">{seg}</button>
+                <button onClick={() => go(target)} className="truncate text-muted-foreground hover:text-foreground">{seg}</button>
               )}
             </span>
           );
         })}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {data ? `${data.dirs.length} carpetas · ${data.files.length} archivos` : ""}
-        </span>
-      </div>
 
-      {/* Barra de herramientas */}
-      <div className="flex flex-wrap items-center gap-2">
-        {canWrite ? (
-          <>
-            <button
-              onClick={() => fileInput.current?.click()}
-              disabled={uploading > 0}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-            >
-              {uploading > 0 ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-              {uploading > 0 ? `Subiendo ${uploading}…` : "Subir aquí"}
-            </button>
-            <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => void doUpload(e.target.files)} />
-            <button
-              onClick={() => setNewFolder(newFolder === null ? "" : null)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
-            >
-              <FolderPlus className="size-4" /> Nueva carpeta
-            </button>
-          </>
-        ) : null}
-        <button onClick={refresh} title="Actualizar (lee el disco en vivo)" className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted">
-          <RefreshCw className={`size-4${loading ? " animate-spin" : ""}`} /> Actualizar
-        </button>
-        <label className="relative ml-auto">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filtrar esta carpeta…"
-            className="w-56 rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm outline-none focus:border-[#F47A20]"
-          />
-        </label>
+        <span className="ml-auto flex items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground lg:inline">
+            {data ? `${data.dirs.length} carpetas · ${data.files.length} archivos` : ""}
+          </span>
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filtrar…"
+              className="w-36 rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm outline-none transition-[width] focus:w-52 focus:border-[#F47A20] md:w-44"
+            />
+          </label>
+          <button
+            onClick={refresh}
+            title="Actualizar (lee el disco en vivo)"
+            className="rounded-md border border-border bg-card p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <RefreshCw className={`size-4${loading ? " animate-spin" : ""}`} />
+          </button>
+          {canWrite ? (
+            <span className="relative">
+              <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => void doUpload(e.target.files)} />
+              <button
+                onClick={() => setMenu((v) => !v)}
+                disabled={uploading > 0}
+                aria-expanded={menu}
+                className="inline-flex items-center gap-1 rounded-md bg-primary py-1.5 pl-2.5 pr-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+              >
+                {uploading > 0 ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                {uploading > 0 ? `Subiendo ${uploading}…` : "Añadir"}
+                <ChevronDown className={`size-3.5 opacity-70 transition-transform${menu ? " rotate-180" : ""}`} />
+              </button>
+              {menu ? (
+                <>
+                  <span className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+                  <span className="absolute right-0 top-full z-20 mt-1 flex w-48 flex-col rounded-lg border border-border bg-card p-1 shadow-lg">
+                    <button
+                      onClick={() => {
+                        setMenu(false);
+                        fileInput.current?.click();
+                      }}
+                      className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-muted"
+                    >
+                      <Upload className="size-4 text-muted-foreground" /> Subir archivos…
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMenu(false);
+                        setNewFolder("");
+                      }}
+                      className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-muted"
+                    >
+                      <FolderPlus className="size-4 text-muted-foreground" /> Nueva carpeta
+                    </button>
+                  </span>
+                </>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
       </div>
 
       {notice ? (
@@ -363,9 +397,16 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        Esta vista lee el disco en vivo: lo que el equipo agregue por el Finder o el Explorador (SMB) aparece aquí, y lo que subas aquí aparece allá. Borrar envía a la papelera de la carpeta compartida.
-      </p>
+      {/* La explicación de siempre, plegada: quien ya la sabe no la vuelve a leer nunca. */}
+      <details className="group/como text-xs text-muted-foreground">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="size-3 transition-transform group-open/como:rotate-90" />
+          ¿Cómo funciona este disco?
+        </summary>
+        <p className="mt-1.5 pl-4">
+          Esta vista lee el disco en vivo: lo que el equipo agregue por el Finder o el Explorador (SMB) aparece aquí, y lo que subas aquí aparece allá. Borrar envía a la papelera de la carpeta compartida (#recycle), recuperable desde DSM.
+        </p>
+      </details>
 
       {moving ? (
         <MoveDialog
