@@ -31,6 +31,7 @@ import {
   addStorageDisk,
   deleteStorageDisk,
   markDiskChecked,
+  registrarMontaje,
   toggleDiskStatus,
   updateStorageDisk,
 } from "./disk-actions";
@@ -279,7 +280,42 @@ const ORDEN_LABEL: Record<Orden, string> = {
   capacidad: "Capacidad",
 };
 
-export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRow[]; canManage: boolean; highlightId?: string | null }) {
+export type MontajeLibre = { key: string; label: string; desc: string; totalGB: number; usedGB: number };
+
+// Ofrecer lo que la app ya tiene montado y nadie ha registrado. Es la respuesta al arranque en
+// frío: sin esto, la pestaña sale vacía aunque el NAS del estudio esté conectado y leyéndose.
+function SugerenciaMontaje({ m }: { m: MontajeLibre }) {
+  const libre = Math.max(0, m.totalGB - m.usedGB);
+  return (
+    <form action={registrarMontaje.bind(null, m.key)} className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3">
+      <HardDrive className="size-5 shrink-0 text-primary" />
+      <div className="min-w-48 flex-1">
+        <p className="text-sm font-medium">
+          La app tiene montado <b>{m.label}</b> y ningún disco lo reclama.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {m.desc} {(m.totalGB / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} TB en total ·{" "}
+          {(libre / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} TB libres, leídos del disco.
+        </p>
+      </div>
+      <button className="shrink-0 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+        Registrarlo
+      </button>
+    </form>
+  );
+}
+
+export function Discos({
+  disks,
+  canManage,
+  highlightId = null,
+  montajesLibres = [],
+}: {
+  disks: DiskRow[];
+  canManage: boolean;
+  highlightId?: string | null;
+  montajesLibres?: MontajeLibre[];
+}) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [soloAtencion, setSoloAtencion] = useState(false);
@@ -388,14 +424,22 @@ export function Discos({ disks, canManage, highlightId = null }: { disks: DiskRo
         </div>
       ) : null}
 
-      {disks.length === 0 ? (
-        <div className="mt-8">
-          <EmptyState
-            icon={<HardDrive className="size-6" />}
-            title="Sin discos registrados"
-            description="Registra el NAS, los discos externos y la nube para armar el mapa del material."
-          />
+      {canManage && montajesLibres.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {montajesLibres.map((m) => <SugerenciaMontaje key={m.key} m={m} />)}
         </div>
+      ) : null}
+
+      {disks.length === 0 ? (
+        montajesLibres.length === 0 || !canManage ? (
+          <div className="mt-8">
+            <EmptyState
+              icon={<HardDrive className="size-6" />}
+              title="Sin discos registrados"
+              description="Registra el NAS, los discos externos y la nube para armar el mapa del material."
+            />
+          </div>
+        ) : null
       ) : visibles.length === 0 ? (
         <p className="mt-8 rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
           Ningún disco coincide con el filtro.

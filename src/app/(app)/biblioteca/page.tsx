@@ -12,7 +12,7 @@ import {
   resumenEspacio,
   DISK_FULL_PCT,
 } from "@/lib/material-health";
-import { MOUNT_KEYS, type MountKey } from "@/lib/disco-raiz";
+import { MOUNT_KEYS, MOUNT_LABEL, MOUNT_DESC, type MountKey } from "@/lib/disco-raiz";
 import { mountUsage } from "@/lib/disco-raiz-server";
 import { IconBiblioteca } from "@/components/icons";
 import { PageHeader } from "@/components/ui/page-header";
@@ -310,7 +310,17 @@ async function DiscosTab({ canManage, now, highlightId = null, usoMontajes }: {
     };
   });
 
-  return <Discos disks={rows} canManage={canManage} highlightId={highlightId} />;
+  // Montajes que la app TIENE y que ningún disco reclama todavía. La pestaña nacía vacía
+  // aunque el NAS estuviera delante: esto lo ofrece para registrarlo de un clic.
+  const montajesLibres = MOUNT_KEYS.filter((k) => usoMontajes[k] && !disks.some((d) => d.mountKey === k)).map((k) => ({
+    key: k as string,
+    label: MOUNT_LABEL[k],
+    desc: MOUNT_DESC[k],
+    totalGB: usoMontajes[k]!.totalGB,
+    usedGB: usoMontajes[k]!.usedGB,
+  }));
+
+  return <Discos disks={rows} canManage={canManage} highlightId={highlightId} montajesLibres={montajesLibres} />;
 }
 
 async function MapaTab({ canManage, now, soloRiesgo }: { canManage: boolean; now: Date; soloRiesgo: boolean }) {

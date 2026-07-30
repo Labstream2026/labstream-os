@@ -11,8 +11,10 @@ import {
   materialHealth,
   DISK_FULL_PCT,
   DISK_KIND_LABEL,
+  MATERIAL_ROLES,
   ROLE_LABEL,
 } from "@/lib/material-health";
+import { addMaterialLocation } from "../../disk-actions";
 import { isMountKey, MOUNT_LABEL, MOUNT_DESC, mountHref } from "@/lib/disco-raiz";
 import { listarNivelMontaje, mountDir, mountReady, mountUsage } from "@/lib/disco-raiz-server";
 import { formatBogotaDate } from "@/lib/bogota-time";
@@ -38,15 +40,25 @@ export default async function DiscoPage({ params }: { params: Promise<{ id: stri
   const canManage = hasPermission(session, "gestionar_biblioteca");
 
   const { id } = await params;
-  const disk = await db.storageDisk.findUnique({
-    where: { id },
-    include: {
-      locations: {
-        orderBy: [{ project: { name: "asc" } }, { role: "asc" }],
-        include: { project: { select: { id: true, name: true, finishedAt: true, client: { select: { name: true } } } } },
+  const [disk, proyectosDisponibles] = await Promise.all([
+    db.storageDisk.findUnique({
+      where: { id },
+      include: {
+        locations: {
+          orderBy: [{ project: { name: "asc" } }, { role: "asc" }],
+          include: { project: { select: { id: true, name: true, finishedAt: true, client: { select: { name: true } } } } },
+        },
       },
-    },
-  });
+    }),
+    // Para registrar material sin salir de la ficha: proyectos fuera de la papelera.
+    canManage
+      ? db.project.findMany({
+          where: { archivedAt: null },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, client: { select: { name: true } } },
+        })
+      : Promise.resolve([] as { id: string; name: string; client: { name: string } | null }[]),
+  ]);
   if (!disk) notFound();
 
   const now = new Date();
@@ -238,9 +250,51 @@ export default async function DiscoPage({ params }: { params: Promise<{ id: stri
               : `${proyectos.length} ${proyectos.length === 1 ? "proyecto" : "proyectos"} · ${disk.locations.length} ${disk.locations.length === 1 ? "ubicación" : "ubicaciones"}`}
           </span>
           <Link href="/biblioteca?tab=mapa" className="ml-auto text-xs font-medium text-primary hover:underline">
-            Registrar material en el mapa →
+            Ver el mapa completo →
           </Link>
         </div>
+
+        {/* Registrar material EN ESTE disco sin salir de su ficha: el disco ya está elegido,
+            que es justo lo que obligaba a dar el rodeo por el mapa. */}
+        {canManage && proyectosDisponibles.length > 0 ? (
+          <details className="mb-3 rounded-xl border border-dashed border-border bg-card">
+            <summary className="cursor-pointer list-none px-4 py-2.5 text-sm font-medium text-primary hover:bg-accent/40">
+              + Registrar material en este disco
+            </summary>
+            <form action={addMaterialLocation} className="flex flex-wrap items-end gap-2 border-t border-border p-3">
+              <input type="hidden" name="diskId" value={disk.id} />
+              <label className="flex min-w-52 flex-1 flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">
+                Proyecto
+                <select name="projectId" required className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground">
+                  {proyectosDisponibles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.client ? ` · ${p.client.name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">
+                Qué guarda
+                <select name="role" defaultValue="RESPALDO" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground">
+                  {MATERIAL_ROLES.map((r) => (
+                    <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-w-44 flex-1 flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">
+                Ruta dentro del disco
+                <input name="path" placeholder="/2026/Proyecto/BRUTO" className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              </label>
+              <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">
+                Guardar hasta <span className="font-normal text-muted-foreground/70">· opcional</span>
+                <input type="date" name="expiresAt" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground" />
+              </label>
+              <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                Registrar
+              </button>
+            </form>
+          </details>
+        ) : null}
 
         {proyectos.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">

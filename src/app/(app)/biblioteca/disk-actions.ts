@@ -5,13 +5,25 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { DISK_KINDS, MATERIAL_ROLES } from "@/lib/material-health";
-import { isMountKey } from "@/lib/disco-raiz";
+import { isMountKey, MOUNT_LABEL } from "@/lib/disco-raiz";
 
 // Discos y mapa del material: gestionar requiere gestionar_biblioteca (mismo
 // permiso que los recursos); ver lo controla la página con ver_biblioteca.
 
 // Paleta de etiquetas para los chips del mapa (se asigna sola al crear).
 const DISK_COLORS = ["#2563eb", "#d97706", "#7c3aed", "#16a34a", "#dc2626", "#0891b2", "#db2777", "#65a30d"];
+
+// El color MENOS usado hoy, no `count % 8`: contar incluía los retirados y no se reindexaba al
+// borrar, así que los colores se repetían enseguida (y dos altas a la vez leían el mismo
+// número y salían gemelas). Los chips del mapa son para distinguir discos de un vistazo.
+async function colorLibre(): Promise<string> {
+  const usados = await db.storageDisk.groupBy({ by: ["color"], _count: { color: true } });
+  const cuenta = new Map(DISK_COLORS.map((c) => [c, 0]));
+  for (const u of usados) if (u.color && cuenta.has(u.color)) cuenta.set(u.color, u._count.color);
+  let mejor = DISK_COLORS[0];
+  for (const c of DISK_COLORS) if ((cuenta.get(c) ?? 0) < (cuenta.get(mejor) ?? 0)) mejor = c;
+  return mejor;
+}
 
 function requireManage(session: Awaited<ReturnType<typeof getSession>>) {
   if (!hasPermission(session, "gestionar_biblioteca")) noAutorizado();
@@ -63,12 +75,11 @@ export async function addStorageDisk(formData: FormData) {
   requireManage(session);
   const f = diskFields(formData);
   if (!f.name) return;
-  const count = await db.storageDisk.count();
   await liberarMontaje(f.mountKey);
   await db.storageDisk.create({
     data: {
       ...f,
-      color: DISK_COLORS[count % DISK_COLORS.length],
+      color: await colorLibre(),
       // Quien registra el disco normalmente lo tiene en la mano: nace verificado.
       lastCheckAt: new Date(),
       createdById: session!.id,
@@ -86,6 +97,37 @@ export async function updateStorageDisk(id: string, formData: FormData) {
   await db.storageDisk.update({ where: { id }, data: f });
   revalidatePath("/biblioteca");
   revalidatePath(`/biblioteca/discos/${id}`);
+}
+
+// ── Arranque en frío: registrar un montaje que la app YA tiene, de un clic ──────
+// La app conoce sus montajes (Operaciones_LAB, Entregas_LAB) desde el primer día, pero la
+// pestaña de Discos nacía vacía hasta que alguien tecleaba un alta a mano — con el disco más
+// importante del estudio delante de las narices. Esto lo registra con lo que ya se sabe:
+// nombre, tipo y raíz. La capacidad no se anota porque se lee sola del disco.
+export async function registrarMontaje(mountKey: string) {
+  const session = await getSession();
+  requireManage(session);
+  if (!isMountKey(mountKey)) return;
+  // Idempotente: si otro ya lo reclamó (dos personas a la vez), no se crea un duplicado —
+  // y la columna es @unique, así que la carrera tampoco podría duplicarlo.
+  const ya = await db.storageDisk.findFirst({ where: { mountKey }, select: { id: true } });
+  if (ya) {
+    revalidatePath("/biblioteca");
+    return;
+  }
+  await db.storageDisk.create({
+    data: {
+      name: MOUNT_LABEL[mountKey],
+      kind: "NAS",
+      mountKey,
+      isNas: mountKey === "OPS",
+      color: await colorLibre(),
+      location: "NAS del estudio",
+      lastCheckAt: new Date(), // está montado y respondiendo: eso ES la verificación
+      createdById: session!.id,
+    },
+  });
+  revalidatePath("/biblioteca");
 }
 
 // «Verificado hoy»: conecté el disco y abre. Apaga el aviso pendiente del barrido.
