@@ -43,6 +43,30 @@ Medido aquí, 300 fotogramas de 1080p: **ffmpeg6 por QSV 109 fps · ffmpeg5 por 
 La ventaja real de la GPU no es la velocidad bruta sino que **deja la CPU libre** para servir
 archivos mientras transcodifica.
 
+### Qué va por GPU y qué no (medido en la máquina, 30-jul-2026)
+
+| Pieza | Por GPU | Ahorro de CPU |
+|---|---|---|
+| copia `.mp4` | decodifica **y** codifica | −90 % |
+| escalera `.hls` | una decodificación, tres escalados | +77 % de tiempo sobre el mp4 solo |
+| **tira `.sprite.jpg`** | decodifica y escala | **−94 %** ← la más cara de todas |
+| póster `.poster.jpg` | decodifica y escala | −48 % (poco: el `-ss` ya salta el archivo) |
+| foto `.webp` | **no, y no hay manera** | — |
+
+La **tira** era, sin que nadie lo mirara, la pieza más cara de la fábrica: para repartir 20
+fotogramas a lo largo del video hay que **recorrerlo entero** (`fps=` descarta casi todo, pero
+para descartarlo hay que decodificarlo). Sobre un vertical de 50 min: **948 s de CPU por
+software contra 56 s por GPU**. Era eso lo que disparaba el monitor de DSM al 66 % «sin usar la
+GPU» — la copia ya iba por GPU; la tira no.
+
+Trabajo completo (mp4 + póster + tira) sobre el mismo archivo, antes y después:
+**25,2 s → 12,2 s de CPU (−51 %)**, con el mismo tiempo de reloj.
+
+**Las fotos no tienen GPU posible y no es un fallo de configuración:** no existe codificador
+WebP por hardware —el formato no está en ningún motor de vídeo, ni de Intel ni de nadie— y el
+mosaico propietario de un RAW tampoco lo decodifica la GPU. Da igual: una foto se despacha en
+menos de un segundo, mientras que un video son minutos.
+
 Comprobar la GPU antes de nada:
 
 ```bash
@@ -143,6 +167,20 @@ docker exec labtem-proxies /opt/hacer-proxies.sh "Cliente X/Entrega mayo"
   lleva `group_add: 937`. Un usuario normal falla con `No VA display found` — que parece un problema
   de hardware y es de permisos.
 - **`getent` no existe en DSM** (BusyBox). Para comprobar el GID: `grep videodriver /etc/group`.
+- **El compose monta `hacer-proxies.sh` como archivo suelto, y eso va por inodo.** Sustituirlo
+  con `mv` (o con cualquier escritura atómica) deja al contenedor viendo **el viejo para
+  siempre**, aunque en el host se vea el nuevo. Hay que copiarlo **en el sitio** (`cat >` o
+  `cp -f`, que truncan y reescriben el mismo inodo).
+  Y con una pasada en marcha, **ni eso**: bash lee el guion a medida que lo ejecuta, así que
+  reescribirlo en caliente le desplaza los bytes bajo los pies y acaba ejecutando basura.
+  Se instala **entre pasadas**, o se espera a la línea `Fin en` del registro.
+- **Los RAW de cámara no los abre ningún ffmpeg** (ARW de Sony, CR2/CR3, NEF, RAF…): cada
+  fabricante comprime el sensor a su manera y el error que da —«Invalid data found»— parece un
+  archivo corrupto. Pero **todos llevan dentro un JPEG de vista previa**, a menudo a resolución
+  completa (los ARW de aquí, a 4240×2832), y de ahí sale la copia. Se localiza por sus marcas
+  `FF D8 FF` / `FF D9`; ojo, que esas parejas de bytes **también salen por casualidad entre los
+  datos del sensor**, así que hay que probar los candidatos de mayor a menor y dejar que
+  ffprobe confirme cuál es una imagen de verdad.
 - **No actualizar los paquetes del NAS.** Actualizar FFmpeg puede llevarse por delante la
   aceleración por hardware. Si algo se rompe: reparar o reinstalar la MISMA versión.
 
@@ -160,6 +198,21 @@ Deja dos marcas en `ESTADO` (`/volume5/docker/labtem-proxies/estado`):
 - `.omitido` — se decidió saltarlo a propósito.
 
 Sin esas marcas, cada noche se volverían a intentar (y a fallar) los mismos archivos durante horas.
+
+**Antes de culpar a la fábrica, mira el tamaño del original.** En la revisión del 30-jul-2026,
+los 69 fallos anotados eran, sin excepción, archivos que la fábrica no podía procesar porque no
+había nada que procesar:
+
+- **62** eran ficheros vacíos que Synology Drive dejó en las carpetas de un cliente y que el
+  propio sync borró unas horas después (quedaron sus 186 marcas `.fallo` —tres por archivo— y
+  ni un solo proxy).
+- **6** eran subidas por SMB cortadas a medias: **0 bytes** en disco.
+- **1** era un `.mov` de 68 MB con el índice a medio escribir (`moov atom not found`): en
+  QuickTime el índice va **al final**, así que una grabación o una copia interrumpida deja el
+  vídeo entero pero ilegible.
+
+O sea: `ffprobe no reconoce el archivo` casi nunca significa «códec raro». Significa «aquí no
+hay vídeo». Compruébalo con `stat -c %s`.
 
 ## Cómo llega esto a la app
 
