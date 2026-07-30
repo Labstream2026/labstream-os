@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Search, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks } from "lucide-react";
+import { Plus, Trash2, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter } from "lucide-react";
 import { IconNotas, IconPapelera, IconTareas } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador } from "@/components/ui/barra-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
 import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
@@ -141,6 +142,15 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   const [q, setQ] = React.useState("");
   const [catFilter, setCatFilter] = React.useState<string | null>(null);
   const [groupBy, setGroupBy] = React.useState<GroupBy>("cliente");
+  // Dos filtros nuevos que la lista ya podía dar y no daba: las fijadas suben arriba, pero con
+  // ochenta notas eso no basta; y un recordatorio puesto es justo lo que se quiere repasar.
+  const [soloFijadas, setSoloFijadas] = React.useState(false);
+  const [soloRecordatorio, setSoloRecordatorio] = React.useState(false);
+  // Qué etiquetas del editor se enseñan aunque estén vacías. La regla de la pantalla es que se ve
+  // lo PUESTO y se guarda lo que sirve para ponerlo; al elegir «Ponerle un color» en el menú, el
+  // mando aparece aquí hasta que se cambie de nota.
+  const [reveladas, setReveladas] = React.useState<Set<string>>(() => new Set());
+  const revelar = (k: string) => setReveladas((s) => new Set(s).add(k));
   const [status, setStatus] = React.useState<"idle" | "saving" | "saved">("idle");
   // En móvil: false = se ve la lista; true = se ve el editor. En escritorio se ven ambos.
   const [mobileEditorOpen, setMobileEditorOpen] = React.useState(false);
@@ -176,12 +186,13 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   const filtered = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
     const byCat = catFilter ? notes.filter((n) => (n.category ?? "").trim() === catFilter) : notes;
+    const byFlags = byCat.filter((n) => (!soloFijadas || n.pinned) && (!soloRecordatorio || !!n.remindAt));
     const bySearch = needle
-      ? byCat.filter((n) => (n.title + " " + n.content + " " + (n.category ?? "")).toLowerCase().includes(needle))
-      : byCat;
+      ? byFlags.filter((n) => (n.title + " " + n.content + " " + (n.category ?? "")).toLowerCase().includes(needle))
+      : byFlags;
     // Fijadas arriba; luego por última edición (desc) — ISO compara bien lexicográficamente.
     return [...bySearch].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
-  }, [notes, q, catFilter]);
+  }, [notes, q, catFilter, soloFijadas, soloRecordatorio]);
 
   // Agrupación por cliente o por categoría: los grupos "Sin …" van al final.
   const groups = React.useMemo(() => {
@@ -379,6 +390,9 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
       setSelectedId(n.id);
       setIsNew(false);
       setDraft(draftOf(n));
+      // Al cambiar de nota se olvida qué mandos se habían destapado: la nota nueva vuelve a
+      // enseñar solo SUS etiquetas puestas, no las que se revelaron en la anterior.
+      setReveladas(new Set());
       setMobileEditorOpen(true);
       // La dirección sigue a la nota abierta: se puede copiar y compartir el enlace.
       try { window.history.replaceState(null, "", `/notas?nota=${n.id}`); } catch { /* da igual */ }
@@ -391,6 +405,8 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
       setIsNew(true);
       // Hereda el cliente/categoría del filtro o grupo activo para crear "dentro" de él.
       setDraft({ ...emptyDraft, category: catFilter ?? "" });
+      // Si hereda categoría del filtro, ese chip tiene que verse; el resto, en blanco.
+      setReveladas(catFilter ? new Set(["categoria"]) : new Set());
       setMobileEditorOpen(true);
     });
   }
@@ -510,6 +526,9 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
+      {/* Los mismos atajos que en las demás pantallas: «/» enfoca el buscador y «f» abre el ⋯.
+          El ⌘F de siempre sigue funcionando (lo maneja el atajo propio de más arriba). */}
+      <AtajosBarra />
       {/* ── Lista (izquierda) ── llena todo en móvil; columna fija en escritorio */}
       <aside className={cn("flex min-h-0 w-full flex-col border-r border-border lg:flex lg:w-80 lg:shrink-0", mobileEditorOpen ? "hidden lg:flex" : "flex")}>
         <div className="flex items-center justify-between gap-2 px-4 py-3">
@@ -531,9 +550,58 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
               </button>
             ) : null
           ) : (
-            <button type="button" onClick={newNote} title="Nueva nota" className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-              <Plus className="size-5" />
-            </button>
+            <span className="flex items-center gap-1">
+              <button type="button" onClick={newNote} title="Nueva nota" aria-label="Nueva nota" className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90">
+                <Plus className="size-4" />
+              </button>
+              {/* Todo lo que antes eran DOS filas de mandos (Agrupar + pastillas de categoría) y un
+                  pie de columna (Papelera). En 320 px de ancho el alto es lo que escasea: la
+                  primera nota empezaba a 150 px del borde. */}
+              <MenuBarra
+                clave="filtrar"
+                tono="icono"
+                icono={<MoreHorizontal />}
+                titulo="Agrupar, filtrar y papelera"
+                activos={(catFilter ? 1 : 0) + (soloFijadas ? 1 : 0) + (soloRecordatorio ? 1 : 0)}
+              >
+                <MenuGrupo>Agrupar por</MenuGrupo>
+                <MenuOpcion activa={groupBy === "cliente"} icono={<Building2 />} onClick={() => setGroupBy("cliente")}>Cliente</MenuOpcion>
+                <MenuOpcion activa={groupBy === "categoria"} icono={<Layers />} onClick={() => setGroupBy("categoria")}>Categoría</MenuOpcion>
+                <MenuSeparador />
+                <MenuGrupo>Ver solo</MenuGrupo>
+                <MenuOpcion activa={soloFijadas} icono={<Pin />} onClick={() => setSoloFijadas((v) => !v)} pista={notes.filter((n) => n.pinned).length || undefined}>
+                  Las fijadas
+                </MenuOpcion>
+                <MenuOpcion activa={soloRecordatorio} icono={<Bell />} onClick={() => setSoloRecordatorio((v) => !v)} pista={notes.filter((n) => n.remindAt).length || undefined}>
+                  Con recordatorio
+                </MenuOpcion>
+                {categories.length ? (
+                  <>
+                    <MenuSeparador />
+                    <MenuGrupo>Categoría</MenuGrupo>
+                    <MenuOpcion activa={!catFilter} icono={<Filter />} onClick={() => setCatFilter(null)}>Todas</MenuOpcion>
+                    {categories.map((c) => (
+                      <MenuOpcion
+                        key={c}
+                        activa={catFilter === c}
+                        onClick={() => setCatFilter(catFilter === c ? null : c)}
+                        pista={notes.filter((n) => (n.category ?? "").trim() === c).length}
+                      >
+                        {c}
+                      </MenuOpcion>
+                    ))}
+                  </>
+                ) : null}
+                {trash.length ? (
+                  <>
+                    <MenuSeparador />
+                    <MenuOpcion icono={<IconPapelera />} marca={false} onClick={() => setTrashOpen(true)} pista={trash.length}>
+                      Papelera
+                    </MenuOpcion>
+                  </>
+                ) : null}
+              </MenuBarra>
+            </span>
           )}
         </div>
 
@@ -565,34 +633,17 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
           </div>
         ) : (
         <>
-        <div className="relative px-3 pb-2">
-          <Search className="pointer-events-none absolute left-5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar (⌘F)" className="w-full rounded-md border border-input bg-muted/40 py-2 pl-7 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+        <div className="flex px-3 pb-2">
+          <BuscadorBarra value={q} onChange={setQ} placeholder="Buscar" tecla="⌘F" inputRef={searchRef} />
         </div>
 
-        {/* Agrupar por (tags): cliente o categoría. */}
-        <div className="flex items-center gap-2 px-3 pb-2">
-          <span className="text-[11px] text-muted-foreground">Agrupar:</span>
-          <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
-            {(["cliente", "categoria"] as GroupBy[]).map((g) => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => setGroupBy(g)}
-                className={cn("px-2.5 py-1 font-medium capitalize transition-colors", groupBy === g ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted")}
-              >
-                {g === "cliente" ? "Cliente" : "Categoría"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {categories.length ? (
-          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            <button type="button" onClick={() => setCatFilter(null)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", !catFilter ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground hover:bg-accent")}>Todas</button>
-            {categories.map((c) => (
-              <button key={c} type="button" onClick={() => setCatFilter(catFilter === c ? null : c)} className={cn("rounded-full px-2.5 py-1 text-xs font-medium transition-colors", catFilter === c ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground hover:bg-accent")}>{c}</button>
-            ))}
+        {/* Lo que esté filtrado, a la vista y con equis: es lo que se paga por guardar los mandos
+            dentro del ⋯. Sin esto, un filtro puesto quedaría invisible. */}
+        {catFilter || soloFijadas || soloRecordatorio ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+            {catFilter ? <ChipFiltro onQuitar={() => setCatFilter(null)}>{catFilter}</ChipFiltro> : null}
+            {soloFijadas ? <ChipFiltro onQuitar={() => setSoloFijadas(false)}>Fijadas</ChipFiltro> : null}
+            {soloRecordatorio ? <ChipFiltro onQuitar={() => setSoloRecordatorio(false)}>Con recordatorio</ChipFiltro> : null}
           </div>
         ) : null}
 
@@ -662,16 +713,8 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
         </>
         )}
 
-        {/* Pie: acceso a la papelera (solo si hay algo que recuperar o ya estamos en ella) */}
-        {!trashOpen && trash.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setTrashOpen(true)}
-            className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <IconPapelera className="size-3.5" /> Papelera <span className="text-muted-foreground/70">({trash.length})</span>
-          </button>
-        ) : null}
+        {/* La papelera ya no gasta un pie de columna: vive en el menú ⋯ de la cabecera, con su
+            número al lado. Eran 40 px de alto permanentes por un sitio al que se entra una vez al mes. */}
       </aside>
 
       {/* ── Editor (derecha) ── pantalla completa en móvil cuando hay nota abierta */}
@@ -687,16 +730,8 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                   {readOnly ? <><Eye className="size-3.5" /> Compartida por {currentNote?.ownerName ?? "otro"} · solo lectura</> : status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
                 </span>
               </div>
-              {draft.id && !readOnly ? (
-                <button
-                  type="button"
-                  title="Mandar a la papelera"
-                  onClick={async () => { const id = draft.id as string; if (await confirm({ message: `¿Mandar «${draft.title || "sin título"}» a la papelera? Podrás restaurarla desde ahí.` })) removeNote(id); }}
-                  className="flex size-8 items-center justify-center rounded-md hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              ) : null}
+              {/* La papelera de la nota vive en «＋ Añadir», con el resto de acciones sobre la nota
+                  entera: un icono de basura permanente sobre el editor no hacía falta. */}
             </div>
             {/* Conflicto: la misma nota se editó en otro dispositivo. No se pisa nada sin preguntar. */}
             {conflict ? (
@@ -726,9 +761,14 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                 style={{ outline: "none" }}
                 className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/40 sm:text-3xl"
               />
-              {/* Tags grandes: cliente + categoría (+ proyecto opcional). */}
+              {/* ── Etiquetas de la nota ──
+                  Antes esta fila tenía ONCE mandos —cliente, categoría, proyecto, fecha del
+                  recordatorio, frecuencia, la equis, cinco colores y visibilidad— y envolvía en dos
+                  o tres renglones que empujaban el texto hacia abajo AUNQUE la nota no tuviera ni
+                  cliente ni recordatorio. Ahora se ve lo PUESTO; lo que sirve para ponerlo vive en
+                  «＋ Añadir». Una nota en blanco enseña dos chips en vez de once mandos. */}
               <div className="flex flex-wrap items-center gap-2">
-                {clients.length ? (
+                {clients.length && (draft.clientId || reveladas.has("cliente")) ? (
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:border-primary/40" title="Cliente de la nota">
                     <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: draftClient?.accentColor ?? "hsl(var(--muted-foreground))" }} />
                     <select value={draft.clientId} onChange={(e) => onChange({ clientId: e.target.value })} className="cursor-pointer bg-transparent outline-none">
@@ -737,18 +777,20 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                     </select>
                   </label>
                 ) : null}
-                <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors focus-within:border-primary/40" title="Categoría (escribe para crear o elige una)">
-                  <Tag className="size-3.5 shrink-0 text-muted-foreground" />
-                  <input
-                    list="note-categories"
-                    value={draft.category}
-                    onChange={(e) => onChange({ category: e.target.value })}
-                    placeholder="Categoría"
-                    className="w-28 bg-transparent outline-none placeholder:text-muted-foreground/50"
-                  />
-                </label>
+                {draft.category || reveladas.has("categoria") ? (
+                  <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors focus-within:border-primary/40" title="Categoría (escribe para crear o elige una)">
+                    <Tag className="size-3.5 shrink-0 text-muted-foreground" />
+                    <input
+                      list="note-categories"
+                      value={draft.category}
+                      onChange={(e) => onChange({ category: e.target.value })}
+                      placeholder="Categoría"
+                      className="w-28 bg-transparent outline-none placeholder:text-muted-foreground/50"
+                    />
+                  </label>
+                ) : null}
                 <datalist id="note-categories">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-                {projects.length ? (
+                {projects.length && (draft.projectId || reveladas.has("proyecto")) ? (
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40" title="Vincular a un proyecto">
                     <FolderOpen className="size-3.5 shrink-0" />
                     <select value={draft.projectId} onChange={(e) => onChange({ projectId: e.target.value })} className="max-w-[40vw] cursor-pointer bg-transparent outline-none">
@@ -757,9 +799,9 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                     </select>
                   </label>
                 ) : null}
-                {/* Recordatorio */}
                 {/* Recordatorio DE VERDAD: crea un Reminder atado a la nota (sale en
                     /recordatorios, se pospone, se repite y su aviso abre esta nota). */}
+                {myReminder || reveladas.has("recordatorio") ? (
                 <label className={cn("inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors", myReminder ? "border-primary/40 text-foreground" : "border-border text-muted-foreground hover:border-primary/40")} title={draft.id ? "Recordatorio de esta nota" : "Guarda la nota para poder ponerle un recordatorio"}>
                   {myReminder ? <Bell className="size-3.5 shrink-0 text-primary" /> : <BellOff className="size-3.5 shrink-0" />}
                   <input
@@ -786,29 +828,94 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                     </>
                   ) : null}
                 </label>
-                {/* Color de la nota */}
-                <div className="flex items-center gap-1.5">
-                  {NOTE_COLORS.map((c) => (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={() => onChange({ color: draft.color === c.key ? "" : c.key })}
-                      title={`Color ${c.key}`}
-                      aria-label={`Color ${c.key}`}
-                      className={cn("size-5 rounded-full border border-black/10 transition hover:scale-110", draft.color === c.key && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-background")}
-                      style={{ background: c.hex }}
-                    />
-                  ))}
-                </div>
-                {/* Visibilidad: privada / proyecto / equipo */}
-                <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:border-primary/40" title="Quién puede ver esta nota">
-                  {draft.visibility === "team" ? <Users className="size-3.5 shrink-0 text-muted-foreground" /> : draft.visibility === "project" ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" /> : <Lock className="size-3.5 shrink-0 text-muted-foreground" />}
-                  <select value={draft.visibility} disabled={readOnly} onChange={(e) => onChange({ visibility: e.target.value })} className="cursor-pointer bg-transparent outline-none disabled:cursor-default">
-                    <option value="private">Privada</option>
-                    <option value="project">Proyecto</option>
-                    <option value="team">Equipo</option>
-                  </select>
-                </label>
+                ) : null}
+                {/* Color: los seis círculos eran lo que menos se usa y lo que más ruido metía.
+                    Solo salen cuando la nota YA tiene color o cuando se pide desde el menú. */}
+                {draft.color || reveladas.has("color") ? (
+                  <div className="flex items-center gap-1.5">
+                    {NOTE_COLORS.map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => onChange({ color: draft.color === c.key ? "" : c.key })}
+                        title={`Color ${c.key}`}
+                        aria-label={`Color ${c.key}`}
+                        className={cn("size-5 rounded-full border border-black/10 transition hover:scale-110", draft.color === c.key && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-background")}
+                        style={{ background: c.hex }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {/* Visibilidad: solo se enseña cuando NO es privada (lo normal) — un chip que dice
+                    «Privada» en todas las notas no cuenta nada. Se cambia desde el menú, que marca
+                    con ✓ cuál está puesta, así que sigue siendo visible dónde está. */}
+                {draft.visibility !== "private" || reveladas.has("visibilidad") ? (
+                  <label className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:border-primary/40" title="Quién puede ver esta nota">
+                    {draft.visibility === "team" ? <Users className="size-3.5 shrink-0 text-muted-foreground" /> : draft.visibility === "project" ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" /> : <Lock className="size-3.5 shrink-0 text-muted-foreground" />}
+                    <select value={draft.visibility} disabled={readOnly} onChange={(e) => onChange({ visibility: e.target.value })} className="cursor-pointer bg-transparent outline-none disabled:cursor-default">
+                      <option value="private">Privada</option>
+                      <option value="project">Proyecto</option>
+                      <option value="team">Equipo</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                {/* «＋ Añadir»: todo lo que la nota AÚN no tiene, más las acciones sobre la nota
+                    entera. No sale en las compartidas por otros (ahí no se edita nada). */}
+                {readOnly ? null : (
+                  <MenuBarra etiqueta="Añadir" icono={<Plus />} tono="borde" titulo="Ponerle algo a esta nota">
+                    <MenuGrupo>Ponerle</MenuGrupo>
+                    {clients.length && !draft.clientId && !reveladas.has("cliente") ? (
+                      <MenuOpcion icono={<Building2 />} marca={false} onClick={() => revelar("cliente")}>Un cliente</MenuOpcion>
+                    ) : null}
+                    {!draft.category && !reveladas.has("categoria") ? (
+                      <MenuOpcion icono={<Tag />} marca={false} onClick={() => revelar("categoria")}>Una categoría</MenuOpcion>
+                    ) : null}
+                    {projects.length && !draft.projectId && !reveladas.has("proyecto") ? (
+                      <MenuOpcion icono={<FolderOpen />} marca={false} onClick={() => revelar("proyecto")}>Un proyecto</MenuOpcion>
+                    ) : null}
+                    {!myReminder && !reveladas.has("recordatorio") ? (
+                      <MenuOpcion icono={<Bell />} marca={false} onClick={() => revelar("recordatorio")}>Un recordatorio</MenuOpcion>
+                    ) : null}
+                    {!draft.color && !reveladas.has("color") ? (
+                      <MenuOpcion icono={<Palette />} marca={false} onClick={() => revelar("color")}>Un color</MenuOpcion>
+                    ) : null}
+                    <MenuSeparador />
+                    <MenuGrupo>Quién la ve</MenuGrupo>
+                    <MenuOpcion activa={draft.visibility === "private"} icono={<Lock />} onClick={() => { revelar("visibilidad"); onChange({ visibility: "private" }); }}>Solo yo</MenuOpcion>
+                    <MenuOpcion activa={draft.visibility === "project"} icono={<FolderOpen />} onClick={() => { revelar("visibilidad"); onChange({ visibility: "project" }); }}>El proyecto</MenuOpcion>
+                    <MenuOpcion activa={draft.visibility === "team"} icono={<Users />} onClick={() => { revelar("visibilidad"); onChange({ visibility: "team" }); }}>Todo el equipo</MenuOpcion>
+                    {draft.id ? (
+                      <>
+                        <MenuSeparador />
+                        {canCreateTasks ? (
+                          <MenuOpcion icono={<IconTareas />} marca={false} onClick={makeTaskFromNote}>Convertir en tarea</MenuOpcion>
+                        ) : null}
+                        {currentNote ? (
+                          <MenuOpcion
+                            icono={currentNote.pinned ? <PinOff /> : <Pin />}
+                            marca={false}
+                            onClick={() => togglePin(currentNote)}
+                          >
+                            {currentNote.pinned ? "Desfijar" : "Fijar arriba"}
+                          </MenuOpcion>
+                        ) : null}
+                        <MenuSeparador />
+                        <MenuOpcion
+                          icono={<Trash2 />}
+                          marca={false}
+                          peligro
+                          onClick={async () => {
+                            const id = draft.id as string;
+                            if (await confirm({ message: `¿Mandar «${draft.title || "sin título"}» a la papelera? Podrás restaurarla desde ahí.` })) removeNote(id);
+                          }}
+                        >
+                          Mandar a la papelera
+                        </MenuOpcion>
+                      </>
+                    ) : null}
+                  </MenuBarra>
+                )}
               </div>
               {/* Cuerpo: solo lectura (compartida por otro) o editar/ver Markdown con checkboxes */}
               {readOnly ? (
@@ -826,17 +933,8 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                         {bodyMode === "edit" ? <button type="button" onClick={() => setBodyMode("view")} className="rounded px-1 underline underline-offset-2 hover:text-foreground">marcar</button> : null}
                       </span>
                     ) : null}
-                    {/* La nota entera → una tarea (con sus casillas como checklist). */}
-                    {canCreateTasks && draft.id ? (
-                      <button
-                        type="button"
-                        onClick={makeTaskFromNote}
-                        title="Crea una tarea con el título de la nota; sus casillas quedan como checklist"
-                        className={cn("inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", draftTasks.total > 0 ? "" : "ml-auto")}
-                      >
-                        <IconTareas className="size-3.5" /> Convertir en tarea
-                      </button>
-                    ) : null}
+                    {/* «Convertir en tarea» se fue a «＋ Añadir», con el resto de acciones sobre la
+                        nota entera: aquí solo quedan las dos formas de mirar el cuerpo. */}
                   </div>
                   {/* Resultado de la última acción de tareas (creada, o por qué no se pudo). */}
                   {taskNote ? (
