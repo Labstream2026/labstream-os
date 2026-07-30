@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ClientView = {
@@ -42,15 +43,21 @@ export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[
     return () => window.removeEventListener("hashchange", onHash);
   }, [views]);
 
+  // El menú se cierra al elegir. `open` es estado del DOM: React no lo toca al re-renderizar,
+  // y DetailsAutoClose solo cierra con Escape, clic fuera o envío de formulario — estos son
+  // botones, así que hay que cerrarlo a mano.
+  const menuRef = React.useRef<HTMLDetailsElement>(null);
+
   const pick = (key: string) => {
     setActive(key);
     if (storageKey) window.localStorage.setItem(storageKey, key);
     history.replaceState(null, "", `#${key}`);
+    if (menuRef.current) menuRef.current.open = false;
   };
 
   const current = views.find((v) => v.key === active) ?? views[0];
 
-  const item = (v: ClientView, mobile: boolean) => {
+  const item = (v: ClientView) => {
     const on = v.key === current?.key;
     return (
       <button
@@ -58,13 +65,12 @@ export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[
         type="button"
         onClick={() => pick(v.key)}
         className={cn(
-          "flex items-center gap-2 rounded-lg text-sm font-medium transition-colors",
-          mobile ? "shrink-0 px-3 py-1.5" : "w-full px-2.5 py-1.5 text-left",
-          on ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors",
+          on ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted",
         )}
       >
         {v.icon ? <span className="[&_svg]:size-4 [&_svg]:shrink-0">{v.icon}</span> : null}
-        <span className={cn(!mobile && "min-w-0 flex-1 truncate")}>{v.label}</span>
+        <span className="min-w-0 flex-1 truncate">{v.label}</span>
         {v.badge ? (
           <span className={cn(
             "rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums",
@@ -77,22 +83,38 @@ export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[
     );
   };
 
+  // SELECTOR DE SECCIÓN, no columna. Antes eran dos navegaciones: una barra vertical de 176 px
+  // en escritorio —encima de la barra de la app, o sea dos columnas de menú seguidas— y una fila
+  // con scroll en móvil. Ahora es un solo botón que dice DÓNDE estás; los mismos grupos, los
+  // mismos conteos, a un clic. El contenido se queda con el ancho entero.
   return (
-    <div className="flex flex-col gap-6 md:flex-row">
-      {/* Móvil: fila horizontal con scroll */}
-      <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 md:hidden" aria-label="Secciones del cliente">
-        {views.map((v) => item(v, true))}
-      </nav>
-
-      {/* Escritorio: menú vertical agrupado, fijo al hacer scroll */}
-      <nav className="hidden shrink-0 md:sticky md:top-4 md:block md:w-44 md:self-start" aria-label="Secciones del cliente">
-        {groups.map((g) => (
-          <div key={g.label} className="mb-4">
-            <p className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{g.label}</p>
-            <div className="space-y-0.5">{g.views.map((v) => item(v, false))}</div>
-          </div>
-        ))}
-      </nav>
+    <div className="flex flex-col gap-4">
+      <details ref={menuRef} data-autoclose className="relative self-start">
+        <summary
+          className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium shadow-sm hover:bg-accent"
+          aria-label={`Sección: ${current?.label ?? ""}. Cambiar de sección`}
+        >
+          {current?.icon ? <span className="[&_svg]:size-4 [&_svg]:shrink-0">{current.icon}</span> : null}
+          {current?.label}
+          {current?.badge ? (
+            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold tabular-nums text-muted-foreground">
+              {current.badge > 99 ? "99+" : current.badge}
+            </span>
+          ) : null}
+          <ChevronDown className="size-4 text-muted-foreground" />
+        </summary>
+        <nav
+          className="absolute left-0 z-40 mt-1 max-h-[70vh] w-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
+          aria-label="Secciones del cliente"
+        >
+          {groups.map((g) => (
+            <div key={g.label} className="mb-1 last:mb-0">
+              <p className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{g.label}</p>
+              <div className="space-y-0.5">{g.views.map(item)}</div>
+            </div>
+          ))}
+        </nav>
+      </details>
 
       <div className="min-w-0 flex-1">{current?.node}</div>
     </div>
