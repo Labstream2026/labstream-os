@@ -84,6 +84,21 @@ export function SelectionProvider({
   );
 }
 
+// Estado de selección de UNA pieza, para quien no quiera pintar la casilla. Lo usa el menú ⋯ de
+// la tarjeta: «Seleccionar» marca la pieza y con eso aparece la barra de lote, que ya sabe
+// enviarla al cliente, archivarla o publicarla. Así el menú no duplica ni una acción del servidor.
+// Devuelve null si la pieza no es seleccionable (sin permiso) o no hay proveedor encima.
+export function useSelection(id: string): { marcado: boolean; toggle: () => void } | null {
+  const ctx = React.useContext(SelectionCtx);
+  const seleccionable = !!ctx?.items.has(id);
+  const marcado = !!ctx?.selected.has(id);
+  const toggle = ctx?.toggle;
+  return React.useMemo(
+    () => (seleccionable && toggle ? { marcado, toggle: () => toggle(id) } : null),
+    [seleccionable, marcado, toggle, id],
+  );
+}
+
 // Casilla de una tarjeta. Devuelve null si esa pieza no es seleccionable (sin permiso de
 // gestión) o si la página no está envuelta por el proveedor.
 export function SelectCheck({ id }: { id: string }) {
