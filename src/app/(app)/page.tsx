@@ -13,9 +13,9 @@ import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
 import { RaciMatrix } from "./raci-matrix";
 import { getUserPreference } from "@/lib/user-preference";
-import { StatTile } from "@/components/charts";
+import { FranjaResumen, type TramoResumen } from "@/components/ui/barra-menu";
 import { EntityEmoji } from "@/components/icons/marks";
-import { Rocket, ListChecks, MessageSquare, Users, Clapperboard, Package } from "lucide-react";
+import { Clapperboard, Package } from "lucide-react";
 import { IconCalendario, IconRodaje, IconTareas, IconNotificaciones, IconInicio, IconRaci, IconReportes } from "@/components/icons";
 import { bogotaMinutesOfDay } from "@/lib/bogota-time";
 
@@ -145,24 +145,21 @@ export default async function HomePage() {
     ? await buildSessionTimeline(session, { activeOnly: true })
     : { clients: [], milestones: [], undatedCount: 0 };
 
-  const unreadAccent: "red" | "amber" = unread > 0 ? "red" : "amber";
   // Para un admin, el indicador de tareas refleja TODO el equipo (no solo lo suyo). Se quitó el
   // indicador de Clientes por redundante (sigue la sección Clientes abajo y la página del menú).
-  const stats = [
-    { icon: <Rocket className="size-5" />, value: projects, label: "Proyectos", accent: "primary" as const },
-    { icon: isAdmin ? <Users className="size-5" /> : <ListChecks className="size-5" />, value: myTaskCount, label: isAdmin ? "Tareas del equipo" : "Tus tareas", accent: "green" as const },
-    { icon: <MessageSquare className="size-5" />, value: unread, label: "Sin leer", accent: unreadAccent },
+  //
+  // Eran tres tarjetones de 80 px en su propia fila; ahora son tres pastillas en el renglón del
+  // saludo, con la misma franja que ya usan Revisiones y Mis tareas. Y de paso LLEVAN a alguna
+  // parte: un número que no se puede pulsar obliga a ir a buscarlo al menú.
+  const stats: TramoResumen[] = [
+    { key: "proyectos", label: "Proyectos", valor: projects, tono: "sky", href: "/proyectos" },
+    { key: "tareas", label: isAdmin ? "Tareas del equipo" : "Tus tareas", valor: myTaskCount, tono: "emerald", href: "/mis-tareas" },
+    { key: "sinleer", label: "Sin leer", valor: unread, tono: "rose", href: "/chat" },
   ];
 
   // Contenido personal del Inicio (mi desempeño + mis tareas), reutilizado como pestaña.
   const miInicio = (
     <>
-      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {stats.map((s) => (
-          <StatTile key={s.label} compact icon={s.icon} value={s.value} label={s.label} accent={s.accent} />
-        ))}
-      </div>
-
       {/* Marcebot: resumen en vivo de los pendientes del usuario (y del equipo si es admin). */}
       <MarcebotCard userId={me.id} name={me.name} roleKey={session?.role ?? ""} />
 
@@ -296,12 +293,23 @@ export default async function HomePage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <p className="text-sm text-muted-foreground">{todayLabel()}</p>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
-      <div className="mt-6">
-        <ViewTabs storageKey="inicio-view" views={inicioViews} />
-      </div>
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
+      {/* Saludo, fecha, los tres números y el selector de vista, TODO en un renglón. Antes eran
+          cuatro bloques apilados —saludo, cuatro pestañas, tres tarjetones— y el cronograma, que
+          es a lo que de verdad viene uno cada mañana, empezaba a 663 px del borde: fuera de
+          pantalla en un portátil. */}
+      <ViewTabs
+        storageKey="inicio-view"
+        views={inicioViews}
+        comoMenu
+        titleSlot={
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1.5">
+            <h1 className="text-2xl font-bold tracking-tight">{greeting(me?.name ?? "Equipo")}</h1>
+            <span className="text-xs text-muted-foreground">{todayLabel()}</span>
+            <FranjaResumen tramos={stats} />
+          </div>
+        }
+      />
     </div>
   );
 }

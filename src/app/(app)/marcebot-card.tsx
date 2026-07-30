@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { IconMarcebot } from "@/components/icons";
-import { Megaphone, Clock, Target, AlertTriangle, Briefcase, AlertCircle, UserPlus, Package, Clapperboard, CircleCheck, Mail, Timer, Receipt, CalendarDays, type LucideIcon } from "lucide-react";
+import { Megaphone, Clock, Target, AlertTriangle, Briefcase, AlertCircle, UserPlus, Package, Clapperboard, CircleCheck, Mail, Timer, Receipt, CalendarDays, ChevronDown, type LucideIcon } from "lucide-react";
 import { db } from "@/lib/db";
 import { getUserPendientes, getTeamSummary, getUserChases, getTeamEscalation, getLeadEscalations, chaseCount, openStatusKeys, hasActionable, vocativo, type Gender, type UserChases } from "@/lib/marcebot";
 import { bogotaTime, bogotaShortDate, whenPhrase } from "@/lib/marcebot/time";
@@ -8,15 +8,20 @@ import { bogotaTime, bogotaShortDate, whenPhrase } from "@/lib/marcebot/time";
 const ADMIN_ROLES = ["admin", "gerente", "productor"];
 
 // Un chip desplegable: <details> con el conteo y, al abrir, la lista de ítems enlazados.
-type ChipGroup = { key: string; label: string; Icon: LucideIcon; tone: string; items: { id: string; text: string; href: string }[]; more?: { label: string; href: string } };
+// `count` es el número que ya va dentro de `label`, aparte para poder sumarlos.
+type ChipGroup = { key: string; label: string; count: number; Icon: LucideIcon; tone: string; items: { id: string; text: string; href: string }[]; more?: { label: string; href: string } };
 
 // Chips DESPLEGABLES: tocar el chip abre la lista completa de esos pendientes, y cada
 // uno enlaza a su detalle. Mismo patrón para los pendientes personales y el resumen del equipo.
+//
+// Fluyen en horizontal y no uno debajo de otro: son pastillas de 120 px y apiladas gastaban un
+// renglón cada una (con siete, media tarjeta). El que se abre se lleva la fila entera
+// (`[&[open]]:w-full`), así su lista sale a lo ancho y no en una columna estrecha.
 function ChipList({ groups, className }: { groups: ChipGroup[]; className?: string }) {
   return (
-    <div className={`space-y-1.5 ${className ?? ""}`}>
+    <div className={`flex flex-wrap items-start gap-1.5 ${className ?? ""}`}>
       {groups.map((g) => (
-        <details key={g.key} className="group/pend">
+        <details key={g.key} className="group/pend [&[open]]:w-full">
           <summary className={`inline-flex cursor-pointer list-none items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-opacity hover:opacity-80 ${g.tone}`}>
             <g.Icon className="size-3.5" />
             {g.label}
@@ -91,6 +96,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   if (p.overdue.length) groups.push({
     key: "overdue",
     label: `${p.overdue.length} atrasada${p.overdue.length === 1 ? "" : "s"}`,
+    count: p.overdue.length,
     Icon: AlertCircle,
     tone: TONE.rose,
     items: p.overdue.map((t) => ({ id: t.id, text: `${t.title}${t.due ? ` — venció ${bogotaShortDate(t.due)}` : ""}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
@@ -99,6 +105,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   if (p.today.length) groups.push({
     key: "today",
     label: `${p.today.length} para hoy`,
+    count: p.today.length,
     Icon: Clock,
     tone: TONE.amber,
     items: p.today.map((t) => ({ id: t.id, text: `${t.title}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
@@ -107,6 +114,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   if (p.eventsToday.length) groups.push({
     key: "events",
     label: `${p.eventsToday.length} cita${p.eventsToday.length === 1 ? "" : "s"}`,
+    count: p.eventsToday.length,
     Icon: CalendarDays,
     tone: TONE.sky,
     items: p.eventsToday.map((e) => ({ id: e.id, text: `${bogotaTime(e.start)} — ${e.title}`, href: "/calendario" })),
@@ -115,6 +123,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   if (p.reminders.length) groups.push({
     key: "reminders",
     label: `${p.reminders.length} recordatorio${p.reminders.length === 1 ? "" : "s"}`,
+    count: p.reminders.length,
     Icon: Timer,
     tone: TONE.orange,
     items: p.reminders.map((r) => ({ id: r.id, text: `${whenPhrase(r.at)} — ${r.title}${r.taskTitle ? ` · ${r.taskTitle}` : ""}`, href: "/recordatorios" })),
@@ -123,6 +132,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
   if (p.shootsToday.length) groups.push({
     key: "shoots",
     label: `${p.shootsToday.length} rodaje${p.shootsToday.length === 1 ? "" : "s"}`,
+    count: p.shootsToday.length,
     Icon: Clapperboard,
     tone: TONE.violet,
     items: p.shootsToday.map((t) => ({ id: t.id, text: `${t.title}${t.project ? ` · ${t.project}` : ""}`, href: taskHref(t) })),
@@ -139,6 +149,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (team.overdue.length) teamGroups.push({
       key: "team-overdue",
       label: `${team.overdueTotal} atrasada${team.overdueTotal === 1 ? "" : "s"}`,
+    count: team.overdueTotal,
       Icon: AlertCircle,
       tone: TONE.rose,
       items: team.overdue.slice(0, MAX_TEAM_ITEMS).map((t) => ({ id: t.id, text: `${t.title} — ${t.assignee ?? "sin responsable"}${t.due ? ` · venció ${bogotaShortDate(t.due)}` : ""}${proj(t.project)}`, href: taskHref(t) })),
@@ -147,6 +158,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (team.unassigned.length) teamGroups.push({
       key: "team-unassigned",
       label: `${team.unassigned.length} sin responsable`,
+    count: team.unassigned.length,
       Icon: UserPlus,
       tone: TONE.amber,
       items: team.unassigned.slice(0, MAX_TEAM_ITEMS).map((t) => ({ id: t.id, text: `${t.title}${t.due ? ` — vence ${bogotaShortDate(t.due)}` : ""}${proj(t.project)}`, href: taskHref(t) })),
@@ -154,6 +166,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (team.deliveries.length) teamGroups.push({
       key: "team-deliveries",
       label: `${team.deliveries.length} entrega${team.deliveries.length === 1 ? "" : "s"} esta semana`,
+    count: team.deliveries.length,
       Icon: Package,
       tone: TONE.sky,
       items: team.deliveries.slice(0, MAX_TEAM_ITEMS).map((d) => ({ id: d.id, text: `${d.title}${d.due ? ` — ${bogotaShortDate(d.due)}` : ""}${proj(d.project)}`, href: `/revisiones/${d.id}` })),
@@ -162,6 +175,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (team.shoots.length) teamGroups.push({
       key: "team-shoots",
       label: `${team.shoots.length} rodaje${team.shoots.length === 1 ? "" : "s"}`,
+    count: team.shoots.length,
       Icon: Clapperboard,
       tone: TONE.violet,
       items: team.shoots.slice(0, MAX_TEAM_ITEMS).map((t) => ({ id: t.id, text: `${t.title}${t.due ? ` — ${bogotaShortDate(t.due)}` : ""}${proj(t.project)}`, href: taskHref(t) })),
@@ -172,6 +186,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (esc.awaitingInternal) teamGroups.push({
       key: "esc-internal",
       label: `${esc.awaitingInternal} por pre-aprobar`,
+    count: esc.awaitingInternal,
       Icon: CircleCheck,
       tone: TONE.orange,
       items: esc.awaitingInternalList.slice(0, MAX_TEAM_ITEMS).map((d) => ({ id: d.id, text: `${d.title}${proj(d.project)}`, href: `/revisiones/${d.id}` })),
@@ -180,6 +195,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (esc.awaitingClient) teamGroups.push({
       key: "esc-client",
       label: `${esc.awaitingClient} sin respuesta del cliente`,
+    count: esc.awaitingClient,
       Icon: Mail,
       tone: TONE.amber,
       items: esc.awaitingClientList.slice(0, MAX_TEAM_ITEMS).map((d) => ({ id: d.id, text: `${d.title}${proj(d.project)}`, href: `/revisiones/${d.id}` })),
@@ -188,6 +204,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (esc.staleTasks) teamGroups.push({
       key: "esc-stale",
       label: `${esc.staleTasks} estancada${esc.staleTasks === 1 ? "" : "s"}`,
+    count: esc.staleTasks,
       Icon: Timer,
       tone: TONE.orange,
       items: esc.staleTasksList.slice(0, MAX_TEAM_ITEMS).map((t) => ({ id: t.id, text: `${t.title}${proj(t.project)}`, href: taskHref(t) })),
@@ -195,6 +212,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (esc.proposalsOpen) teamGroups.push({
       key: "esc-proposals",
       label: `${esc.proposalsOpen} propuesta${esc.proposalsOpen === 1 ? "" : "s"}`,
+    count: esc.proposalsOpen,
       Icon: Briefcase,
       tone: TONE.violet,
       items: esc.proposalsOpenList.slice(0, MAX_TEAM_ITEMS).map((pr) => ({ id: pr.id, text: pr.title, href: "/comercial" })),
@@ -203,6 +221,7 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     if (esc.invoicesOverdue) teamGroups.push({
       key: "esc-invoices",
       label: `${esc.invoicesOverdue} por cobrar`,
+    count: esc.invoicesOverdue,
       Icon: Receipt,
       tone: TONE.rose,
       items: esc.invoicesOverdueList.slice(0, MAX_TEAM_ITEMS).map((i) => ({ id: i.id, text: i.title, href: "/facturacion" })),
@@ -210,8 +229,13 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
     });
   }
 
+  // Lo que hay debajo del resumen del equipo cuando está cerrado. Suma cosas de distinta especie
+  // (tareas, entregables, facturas) a propósito: la pregunta que responde es «¿cuánto me espera
+  // ahí dentro?», no «cuántas tareas hay».
+  const totalEquipo = teamGroups.reduce((n, g) => n + g.count, 0);
+
   return (
-    <section className="mt-8">
+    <section className="mt-6">
       <div className="overflow-hidden rounded-2xl border border-[#F47A20]/30 bg-gradient-to-br from-[#F47A20]/10 to-card shadow-sm">
         <div className="flex items-start gap-4 p-5">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#F47A20]/15"><IconMarcebot className="size-6" /></span>
@@ -289,20 +313,31 @@ export async function MarcebotCard({ userId, name, roleKey }: { userId: string; 
               </p>
             )}
 
+            {/* El resumen del equipo, PLEGADO. Es lo que el jefe mira una vez al día, no cada vez
+                que abre el Inicio, y abierto empujaba el cronograma fuera de la pantalla. El total
+                va en el título para que cerrado siga diciendo cuánto hay debajo. */}
             {team ? (
-              <div className="mt-4 rounded-xl border border-border bg-card/60 p-3">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"><Briefcase className="size-4" /> Resumen del equipo</p>
-                {teamGroups.length ? (
-                  <ChipList groups={teamGroups} className="mt-2" />
-                ) : (
-                  <p className="mt-1.5 text-sm text-muted-foreground">Sin pendientes de equipo. Todo al día.</p>
-                )}
-                {team.byPerson.length ? (
-                  <p className="mt-2 truncate text-xs text-muted-foreground">
-                    Más atrasados: {team.byPerson.slice(0, 3).map((b) => `${b.name} (${b.count})`).join(" · ")}
-                  </p>
-                ) : null}
-              </div>
+              <details className="group/eq mt-4 rounded-xl border border-border bg-card/60">
+                <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-xl p-3 text-xs font-semibold text-muted-foreground hover:bg-muted/40">
+                  <Briefcase className="size-4" /> Resumen del equipo
+                  {totalEquipo > 0 ? (
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold tabular-nums">{totalEquipo}</span>
+                  ) : null}
+                  <ChevronDown className="ml-auto size-4 transition-transform group-open/eq:rotate-180" />
+                </summary>
+                <div className="border-t border-border px-3 pb-3 pt-2">
+                  {teamGroups.length ? (
+                    <ChipList groups={teamGroups} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin pendientes de equipo. Todo al día.</p>
+                  )}
+                  {team.byPerson.length ? (
+                    <p className="mt-2 truncate text-xs text-muted-foreground">
+                      Más atrasados: {team.byPerson.slice(0, 3).map((b) => `${b.name} (${b.count})`).join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+              </details>
             ) : null}
           </div>
         </div>
