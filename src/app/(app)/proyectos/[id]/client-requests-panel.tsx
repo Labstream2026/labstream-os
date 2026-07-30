@@ -20,7 +20,9 @@ export type RequestRow = {
 
 // Panel del EQUIPO en el Resumen del proyecto: las solicitudes que el cliente envió desde su
 // portal. Tomar (En curso) avisa al cliente; Resolver cierra con una nota que él ve en su lista.
-export function ClientRequestsPanel({ requests, canWrite }: { requests: RequestRow[]; canWrite: boolean }) {
+// `bare`: sin tarjeta ni cabecera propias — vive dentro de un desplegable del Resumen que ya
+// trae el título y el badge de pendientes.
+export function ClientRequestsPanel({ requests, canWrite, bare = false }: { requests: RequestRow[]; canWrite: boolean; bare?: boolean }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [resolving, setResolving] = React.useState<string | null>(null);
@@ -111,16 +113,18 @@ export function ClientRequestsPanel({ requests, canWrite }: { requests: RequestR
   };
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="mb-2.5 flex items-center gap-2">
-        <Inbox className="size-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Solicitudes del cliente</h3>
-        {open.length ? (
-          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
-            {open.length} abierta{open.length === 1 ? "" : "s"}
-          </span>
-        ) : null}
-      </div>
+    <div className={bare ? undefined : "rounded-xl border border-border bg-card p-4 shadow-sm"}>
+      {!bare ? (
+        <div className="mb-2.5 flex items-center gap-2">
+          <Inbox className="size-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Solicitudes del cliente</h3>
+          {open.length ? (
+            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+              {open.length} abierta{open.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
       <div className="space-y-2">
         {open.map((r) => (

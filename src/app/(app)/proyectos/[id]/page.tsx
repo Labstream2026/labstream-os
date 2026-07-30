@@ -22,7 +22,8 @@ import { ProjectSettings } from "@/components/project-settings";
 import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
-import { Lock, FileText, ChevronDown } from "lucide-react";
+import { Lock, FileText, ChevronDown, Inbox, Megaphone, Users, Settings } from "lucide-react";
+import { ResumenSection } from "./resumen-section";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
 import { ProjectCalendar } from "./project-calendar";
@@ -257,6 +258,12 @@ export default async function ProyectoPage({
           take: 25,
           select: { id: true, type: true, title: true, details: true, status: true, responseNote: true, createdById: true, createdAt: true },
         })
+      : [];
+
+  // Clientes activos para «Mover a otro cliente» (solo admins, dentro de Configuración).
+  const moveClients =
+    tab === "resumen" && session?.role === "admin"
+      ? await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })
       : [];
 
   // Posibles RESPONSABLES de una tarea: SIEMPRE del equipo (nunca usuarios del portal cliente).
@@ -731,124 +738,222 @@ export default async function ProyectoPage({
       <div className="min-w-0 flex-1">
       <div className="mt-0">
         {tab === "resumen" ? (
-          <div className="space-y-5">
-            {/* Portal del cliente: el HÉROE es el viaje del proyecto (fases + «¿Qué sigue?») —
-                en su lenguaje, no en el del equipo. */}
+          <div className="space-y-4">
+            {/* ── PORTAL DEL CLIENTE ── sin cambios: su héroe es el viaje del proyecto. */}
             {isCliente ? (
-              <ClientJourney
-                project={{
-                  status: project.status,
-                  finishedAt: project.finishedAt,
-                  nextForClient: project.nextForClient,
-                  dueDate: project.dueDate,
-                  prevDueDate: project.prevDueDate,
-                  dueDateChangedAt: project.dueDateChangedAt,
-                  deliverables: project.deliverables.map((d) => ({ status: d.status })),
-                  lead: project.lead ? { name: project.lead.name } : null,
-                }}
-              />
-            ) : null}
-            {/* R1+R2 · Salud del proyecto CALCULADA + línea de vida. El cliente ve solo la
-                línea (las señales internas son cocina del equipo). */}
-            <ProjectHealth
-              clientView={isCliente}
-              tasks={project.tasks.map((t) => ({ dueDate: t.dueDate, completedAt: t.completedAt, assigneeName: t.assignee?.name ?? null }))}
-              deliverables={project.deliverables.map((d) => ({ name: d.name, status: d.status, dueDate: d.dueDate, updatedAt: d.updatedAt }))}
-              startDate={project.startDate}
-              dueDate={project.dueDate}
-              lastActivityAt={project.activity[0]?.createdAt ?? null}
-              progress={project.progress}
-            />
-            {/* X2 · Carga del equipo EN ESTE proyecto: abiertas, horas estimadas y atrasadas. */}
-            {!isCliente ? <TeamLoad tasks={project.tasks} team={team} /> : null}
-            {/* Resumen: progreso, prioridad, entrega y responsable (arriba). */}
-            <Resumen project={project} priorities={taskLabels.priorities} />
-            {/* Portal del cliente: su equipo del proyecto, con añadir personas CONOCIDAS
-                (dirección/responsables/equipo de sus clientes) para poder asignarles tareas. */}
-            {isCliente ? (
-              <ClientTeamPanel
-                projectId={project.id}
-                members={project.members.flatMap((m) => {
-                  const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
-                  return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
-                })}
-              />
-            ) : null}
-            {/* R3 · Solicitudes del cliente ARRIBA (son trabajo entrante, no archivo). */}
-            {!isCliente && clientRequests.length > 0 ? (
-              <ClientRequestsPanel
-                canWrite={canWriteProject(project, session)}
-                requests={clientRequests.map((r) => ({
-                  id: r.id,
-                  type: r.type,
-                  title: r.title,
-                  details: r.details,
-                  status: r.status,
-                  responseNote: r.responseNote,
-                  creatorName: team.find((t) => t.id === r.createdById)?.name ?? "Cliente",
-                  createdAtLabel: formatBogota(r.createdAt, { day: "numeric", month: "short" }),
-                }))}
-              />
-            ) : null}
-            {/* «¿Qué sigue?» del portal del cliente: lo edita quien gestiona; el cliente lo ve
-                en su viaje. Vacío = texto automático según la fase. */}
-            {!isCliente && canManageProject(project, session) ? (
-              <NextForClientCard projectId={project.id} note={project.nextForClient} />
-            ) : null}
-            {/* R3 · Propuesta (alcance y entregables): con el proyecto EN MARCHA (ya hay tareas)
-                se pliega sola — es referencia, no trabajo del día. Al crear el proyecto (sin
-                tareas aún) abre expandida, que es cuando se consulta. */}
-            <details open={project.tasks.length === 0} className="group/prop overflow-hidden rounded-xl border border-border bg-card">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                Propuesta del proyecto
-                <span className="text-xs font-normal text-muted-foreground">· alcance y entregables (qué haremos)</span>
-                <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/prop:rotate-180" />
-              </summary>
-              <div className="border-t border-border p-4">
-                <BriefPanel
-                  projectId={id}
-                  scope={project.briefScope}
-                  deliverables={project.briefDeliverables}
-                  canWrite={canWriteProject(project, session)}
+              <>
+                <ClientJourney
+                  project={{
+                    status: project.status,
+                    finishedAt: project.finishedAt,
+                    nextForClient: project.nextForClient,
+                    dueDate: project.dueDate,
+                    prevDueDate: project.prevDueDate,
+                    dueDateChangedAt: project.dueDateChangedAt,
+                    deliverables: project.deliverables.map((d) => ({ status: d.status })),
+                    lead: project.lead ? { name: project.lead.name } : null,
+                  }}
                 />
-              </div>
-            </details>
-            {/* Detalle del proyecto, debajo del resumen. */}
-            {hasPermission(session, "editar_proyectos") ? (
-              <ProjectDetailsForm
-                projectId={project.id}
-                name={project.name}
-                description={project.description}
-                dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
-              />
-            ) : null}
-            {/* R3 · Ajustes del proyecto al FINAL: configuración, no trabajo del día. */}
-            {canManageProject(project, session) ? (
-              <ProjectSettings
-                projectId={project.id}
-                isPrivate={project.isPrivate}
-                leadId={project.leadId}
-                members={project.members.flatMap((m) => {
-                  const u = team.find((t) => t.id === m.userId);
-                  return u
-                    ? [{ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor, role: m.role as string }]
-                    : [];
-                })}
-                team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
-                canArchive={hasPermission(session, "eliminar_proyectos")}
-                canAssignLead={session?.role === "admin" || project.leadId === session?.id}
-                isFinished={!!project.finishedAt}
-              />
-            ) : null}
-            {/* Mover el proyecto a otro cliente: SOLO administradores (gestión de cartera). */}
-            {session?.role === "admin" ? (
-              <MoveProjectClient
-                projectId={project.id}
-                currentClientId={project.clientId}
-                clients={await db.client.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } })}
-              />
-            ) : null}
+                <ProjectHealth
+                  clientView
+                  tasks={project.tasks.map((t) => ({ dueDate: t.dueDate, completedAt: t.completedAt, assigneeName: t.assignee?.name ?? null }))}
+                  deliverables={project.deliverables.map((d) => ({ name: d.name, status: d.status, dueDate: d.dueDate, updatedAt: d.updatedAt }))}
+                  startDate={project.startDate}
+                  dueDate={project.dueDate}
+                  lastActivityAt={project.activity[0]?.createdAt ?? null}
+                  progress={project.progress}
+                />
+                <Resumen project={project} priorities={taskLabels.priorities} />
+                <ClientTeamPanel
+                  projectId={project.id}
+                  members={project.members.flatMap((m) => {
+                    const u = team.find((t) => t.id === m.userId && t.role?.key !== "cliente");
+                    return u ? [{ id: u.id, name: u.name, title: null, initials: u.initials, color: u.avatarColor }] : [];
+                  })}
+                />
+              </>
+            ) : (
+              (() => {
+                // ── EQUIPO · Resumen rediseñado ── el PULSO siempre visible (salud + anillo de
+                // progreso + chips clave) y el resto en DESPLEGABLES con su dato en la cabecera:
+                // una pantalla, se abre solo lo que se necesita.
+                const prioridad = labelMeta(taskLabels.priorities, project.priority);
+                const nowMs = Date.now();
+                const dueLate = !!project.dueDate && project.dueDate.getTime() < nowMs && !project.finishedAt;
+                // Carga por miembro (cabecera y cuerpo del desplegable «Carga del equipo»).
+                const carga = team
+                  .map((m) => {
+                    const abiertas = project.tasks.filter((t) => t.assigneeId === m.id && !t.completedAt);
+                    if (!abiertas.length) return null;
+                    const late = abiertas.filter((t) => t.dueDate && t.dueDate.getTime() < nowMs - 43_200_000).length;
+                    const estH = Math.round(abiertas.reduce((n, t) => n + (t.estimatedMinutes ?? 0), 0) / 60);
+                    return { m, open: abiertas.length, late, estH };
+                  })
+                  .filter(Boolean) as { m: (typeof team)[number]; open: number; late: number; estH: number }[];
+                carga.sort((a, b) => b.open - a.open);
+                const cargaOpen = carga.reduce((n, r) => n + r.open, 0);
+                const cargaLate = carga.reduce((n, r) => n + r.late, 0);
+                const cargaH = carga.reduce((n, r) => n + r.estH, 0);
+                const pendientes = clientRequests.filter((r) => r.status !== "RESUELTA").length;
+                const puedeGestionar = canManageProject(project, session);
+                const puedeEditar = hasPermission(session, "editar_proyectos");
+                const esAdmin = session?.role === "admin";
+                return (
+                  <>
+                    {/* ── El pulso ── siempre a la vista; no se pliega. */}
+                    <ProjectHealth
+                      tasks={project.tasks.map((t) => ({ dueDate: t.dueDate, completedAt: t.completedAt, assigneeName: t.assignee?.name ?? null }))}
+                      deliverables={project.deliverables.map((d) => ({ name: d.name, status: d.status, dueDate: d.dueDate, updatedAt: d.updatedAt }))}
+                      startDate={project.startDate}
+                      dueDate={project.dueDate}
+                      lastActivityAt={project.activity[0]?.createdAt ?? null}
+                      progress={project.progress}
+                      hero={{
+                        priorityLabel: prioridad.label,
+                        priorityChip: prioridad.chip,
+                        dueLabel: formatShortDate(project.dueDate) ?? "—",
+                        dueLate,
+                        leadName: project.lead?.name ?? null,
+                      }}
+                    />
+
+                    {/* ── Solicitudes del cliente ── trabajo entrante: abierta SOLA si hay pendientes. */}
+                    {clientRequests.length > 0 ? (
+                      <ResumenSection
+                        icon={Inbox}
+                        tile="bg-orange-100 dark:bg-orange-500/15"
+                        iconCls="text-orange-700 dark:text-orange-300"
+                        title="Solicitudes del cliente"
+                        titleExtra={pendientes > 0 ? (
+                          <span className="rounded-full bg-orange-600 px-2 py-0.5 text-[10px] font-bold leading-none text-white">{pendientes}</span>
+                        ) : null}
+                        hint={pendientes > 0 ? `${pendientes} por responder — se abre sola mientras haya pendientes` : "todo respondido"}
+                        defaultOpen={pendientes > 0}
+                      >
+                        <ClientRequestsPanel
+                          bare
+                          canWrite={canWriteProject(project, session)}
+                          requests={clientRequests.map((r) => ({
+                            id: r.id,
+                            type: r.type,
+                            title: r.title,
+                            details: r.details,
+                            status: r.status,
+                            responseNote: r.responseNote,
+                            creatorName: team.find((t) => t.id === r.createdById)?.name ?? "Cliente",
+                            createdAtLabel: formatBogota(r.createdAt, { day: "numeric", month: "short" }),
+                          }))}
+                        />
+                      </ResumenSection>
+                    ) : null}
+
+                    {/* ── «¿Qué sigue?» ── la frase del portal se LEE en la cabecera; se abre solo para editarla. */}
+                    {puedeGestionar ? (
+                      <ResumenSection
+                        icon={Megaphone}
+                        tile="bg-violet-100 dark:bg-violet-500/15"
+                        iconCls="text-violet-700 dark:text-violet-300"
+                        title="«¿Qué sigue?» para el cliente"
+                        hint={project.nextForClient?.trim()
+                          ? <span className="italic">«{project.nextForClient.trim()}»</span>
+                          : "vacío — el cliente ve el texto automático de la fase"}
+                      >
+                        <NextForClientCard bare projectId={project.id} note={project.nextForClient} />
+                      </ResumenSection>
+                    ) : null}
+
+                    {/* ── Carga del equipo ── avatares en la cabecera; barras de reparto al abrir. */}
+                    {carga.length >= 2 ? (
+                      <ResumenSection
+                        icon={Users}
+                        tile="bg-emerald-100 dark:bg-emerald-500/15"
+                        iconCls="text-emerald-700 dark:text-emerald-300"
+                        title="Carga del equipo"
+                        titleExtra={
+                          <span className="flex items-center">
+                            {carga.slice(0, 4).map((r, i) => (
+                              <span key={r.m.id} className={cn("rounded-full ring-2 ring-card", i > 0 && "-ml-1.5")}>
+                                <UserAvatar initials={r.m.initials} name={r.m.name} color={r.m.avatarColor} size="sm" />
+                              </span>
+                            ))}
+                          </span>
+                        }
+                        hint={`${cargaOpen} abiertas${cargaH ? ` · ~${cargaH} h estimadas` : ""}${cargaLate ? ` · ${cargaLate} atrasadas` : ""}`}
+                      >
+                        <TeamLoad rows={carga} />
+                      </ResumenSection>
+                    ) : null}
+
+                    {/* ── Propuesta ── referencia (qué haremos); abre expandida solo en proyectos recién creados. */}
+                    <ResumenSection
+                      icon={FileText}
+                      tile="bg-sky-100 dark:bg-sky-500/15"
+                      iconCls="text-sky-700 dark:text-sky-300"
+                      title="Propuesta del proyecto"
+                      hint="alcance y entregables (qué haremos)"
+                      defaultOpen={project.tasks.length === 0}
+                    >
+                      <BriefPanel
+                        projectId={id}
+                        scope={project.briefScope}
+                        deliverables={project.briefDeliverables}
+                        canWrite={canWriteProject(project, session)}
+                      />
+                    </ResumenSection>
+
+                    {/* ── Configuración ── la cocina (detalles, miembros/privacidad, mover de cliente)
+                        junta y plegada al final: estaba aquí mismo, pero en 3 tarjetas abiertas. */}
+                    {puedeEditar || puedeGestionar || esAdmin ? (
+                      <ResumenSection
+                        icon={Settings}
+                        tile="bg-muted"
+                        iconCls="text-muted-foreground"
+                        title="Configuración"
+                        hint={[
+                          project.dueDate ? `entrega ${formatShortDate(project.dueDate)}` : "sin fecha de entrega",
+                          project.isPrivate ? "privado" : "todo el equipo",
+                          project.client?.name ?? null,
+                        ].filter(Boolean).join(" · ")}
+                        bodyClass="space-y-3 bg-muted/30"
+                      >
+                        {puedeEditar ? (
+                          <ProjectDetailsForm
+                            projectId={project.id}
+                            name={project.name}
+                            description={project.description}
+                            dueDate={project.dueDate ? project.dueDate.toISOString().slice(0, 10) : ""}
+                          />
+                        ) : null}
+                        {puedeGestionar ? (
+                          <ProjectSettings
+                            projectId={project.id}
+                            isPrivate={project.isPrivate}
+                            leadId={project.leadId}
+                            members={project.members.flatMap((m) => {
+                              const u = team.find((t) => t.id === m.userId);
+                              return u
+                                ? [{ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor, role: m.role as string }]
+                                : [];
+                            })}
+                            team={team.map((t) => ({ id: t.id, name: t.name, initials: t.initials, color: t.avatarColor }))}
+                            canArchive={hasPermission(session, "eliminar_proyectos")}
+                            canAssignLead={session?.role === "admin" || project.leadId === session?.id}
+                            isFinished={!!project.finishedAt}
+                          />
+                        ) : null}
+                        {esAdmin ? (
+                          <MoveProjectClient
+                            projectId={project.id}
+                            currentClientId={project.clientId}
+                            clients={moveClients}
+                          />
+                        ) : null}
+                      </ResumenSection>
+                    ) : null}
+                  </>
+                );
+              })()
+            )}
           </div>
         ) : null}
         {tab === "tareas" ? (
@@ -1092,35 +1197,31 @@ function Resumen({
 
 // X2 · Carga por miembro DE ESTE proyecto (tareas abiertas + horas estimadas + atrasadas).
 // La Carga global vive en Mis tareas; esta es la lupa local para repartir en contexto.
+// Vive dentro del desplegable «Carga del equipo» (las filas se calculan en la página, que
+// también alimenta la cabecera): barras de reparto — verde al día, ámbar con atrasadas.
 function TeamLoad({
-  tasks,
-  team,
+  rows,
 }: {
-  tasks: { assigneeId: string | null; completedAt: Date | null; dueDate: Date | null; estimatedMinutes: number | null }[];
-  team: { id: string; name: string; initials: string | null; avatarColor: string | null }[];
+  rows: { m: { id: string; name: string; initials: string | null; avatarColor: string | null }; open: number; late: number; estH: number }[];
 }) {
-  const now = Date.now();
-  const rows = team
-    .map((m) => {
-      const open = tasks.filter((t) => t.assigneeId === m.id && !t.completedAt);
-      if (!open.length) return null;
-      const late = open.filter((t) => t.dueDate && t.dueDate.getTime() < now - 43_200_000).length;
-      const estH = Math.round(open.reduce((n, t) => n + (t.estimatedMinutes ?? 0), 0) / 60);
-      return { m, open: open.length, late, estH };
-    })
-    .filter(Boolean) as { m: (typeof team)[number]; open: number; late: number; estH: number }[];
-  if (rows.length < 2) return null; // con 0-1 personas no hay reparto que mirar
-  rows.sort((a, b) => b.open - a.open);
+  const max = Math.max(1, ...rows.map((r) => r.open));
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Carga aquí</span>
+    <div className="space-y-2">
       {rows.map((r) => (
-        <span key={r.m.id} className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs" title={`${r.m.name}: ${r.open} abiertas${r.estH ? ` · ~${r.estH} h` : ""}${r.late ? ` · ${r.late} atrasadas` : ""}`}>
+        <div key={r.m.id} className="flex items-center gap-2.5">
           <UserAvatar initials={r.m.initials} name={r.m.name} color={r.m.avatarColor} size="sm" />
-          <b>{r.open}</b>
-          {r.estH ? <span className="text-muted-foreground">~{r.estH}h</span> : null}
-          {r.late ? <span className="font-bold text-red-600 dark:text-red-400">⚠{r.late}</span> : null}
-        </span>
+          <span className="w-24 truncate text-[13px]">{r.m.name.split(" ")[0]}</span>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn("h-full rounded-full", r.late ? "bg-amber-500" : "bg-emerald-500")}
+              style={{ width: `${Math.max(8, (r.open / max) * 100)}%` }}
+            />
+          </div>
+          <span className="w-32 shrink-0 text-right text-[11px] text-muted-foreground">
+            {r.open} abierta{r.open === 1 ? "" : "s"}{r.estH ? ` · ~${r.estH} h` : ""}
+            {r.late ? <b className="text-red-600 dark:text-red-400"> · ⚠{r.late}</b> : null}
+          </span>
+        </div>
       ))}
     </div>
   );

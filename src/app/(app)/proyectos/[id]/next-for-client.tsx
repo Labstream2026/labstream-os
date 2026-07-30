@@ -7,7 +7,9 @@ import { setNextForClient } from "./next-for-client-actions";
 
 // Tarjeta del EQUIPO (Resumen del proyecto): edita el «¿Qué sigue?» que ve el cliente en su
 // portal. Vacío = el portal deriva un texto automático de la fase (aquí se muestra esa pista).
-export function NextForClientCard({ projectId, note }: { projectId: string; note: string | null }) {
+// `bare`: sin tarjeta ni título propios — vive dentro de un desplegable del Resumen que ya
+// pone la cabecera (y muestra la frase actual sin abrir).
+export function NextForClientCard({ projectId, note, bare = false }: { projectId: string; note: string | null; bare?: boolean }) {
   const [value, setValue] = React.useState(note ?? "");
   const [pending, start] = React.useTransition();
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -31,11 +33,13 @@ export function NextForClientCard({ projectId, note }: { projectId: string; note
   };
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className={bare ? undefined : "rounded-xl border border-border bg-card p-4 shadow-sm"}>
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-          <Megaphone className="size-4 text-muted-foreground" /> «¿Qué sigue?» para el cliente
-        </h3>
+        {bare ? <span /> : (
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+            <Megaphone className="size-4 text-muted-foreground" /> «¿Qué sigue?» para el cliente
+          </h3>
+        )}
         {pending ? (
           <Loader2 className="size-4 animate-spin opacity-60" />
         ) : msg ? (

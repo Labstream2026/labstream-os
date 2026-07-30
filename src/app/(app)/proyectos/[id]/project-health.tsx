@@ -24,6 +24,7 @@ export function ProjectHealth({
   lastActivityAt,
   progress,
   clientView = false,
+  hero,
 }: {
   tasks: TaskLite[];
   deliverables: DelivLite[];
@@ -34,6 +35,16 @@ export function ProjectHealth({
   // Portal del cliente: solo la línea de vida (las señales internas —atrasos, quién debe qué—
   // son cocina del equipo, no comunicación al cliente).
   clientView?: boolean;
+  // Modo HÉROE del Resumen rediseñado: el semáforo absorbe el progreso (anillo teñido por la
+  // salud) y los datos clave (prioridad/entrega/responsable como chips) — antes eran 4 tarjetas
+  // sueltas debajo. Sin `hero` se conserva la tarjeta clásica del punto de color.
+  hero?: {
+    priorityLabel: string;
+    priorityChip: string; // clases de color del catálogo de etiquetas (labelMeta)
+    dueLabel: string;
+    dueLate: boolean;
+    leadName: string | null;
+  };
 }) {
   const now = new Date();
 
@@ -83,9 +94,9 @@ export function ProjectHealth({
   }
 
   const META = {
-    ok: { label: "En buen ritmo", dot: "bg-emerald-500", ring: "ring-emerald-500/25", border: "border-l-emerald-500" },
-    atencion: { label: "Atención", dot: "bg-amber-500", ring: "ring-amber-500/25", border: "border-l-amber-500" },
-    riesgo: { label: "En riesgo", dot: "bg-red-500", ring: "ring-red-500/25", border: "border-l-red-500" },
+    ok: { label: "En buen ritmo", dot: "bg-emerald-500", ring: "ring-emerald-500/25", border: "border-l-emerald-500", tone: "text-emerald-500", toneText: "text-emerald-600 dark:text-emerald-400" },
+    atencion: { label: "Atención", dot: "bg-amber-500", ring: "ring-amber-500/25", border: "border-l-amber-500", tone: "text-amber-500", toneText: "text-amber-600 dark:text-amber-400" },
+    riesgo: { label: "En riesgo", dot: "bg-red-500", ring: "ring-red-500/25", border: "border-l-red-500", tone: "text-red-500", toneText: "text-red-600 dark:text-red-400" },
   }[nivel];
 
   // ── KPIs ──
@@ -105,10 +116,51 @@ export function ProjectHealth({
   const dotColor = (s: string) =>
     DONE_STATES.has(s) ? "bg-emerald-500" : CLIENT_STATES.has(s) ? "bg-[#F47A20]" : "bg-primary/70";
 
+  // Anillo de progreso del modo héroe (teñido por la salud). r=26 → circunferencia ~163.4.
+  const RING_C = 2 * Math.PI * 26;
+  const ringOn = Math.max(0.02, Math.min(1, progress / 100)) * RING_C;
+
   return (
     <div className="space-y-3">
       {/* Semáforo (solo equipo) */}
-      {!clientView ? (
+      {!clientView && hero ? (
+        // ── HÉROE del Resumen ── salud + anillo de progreso + chips clave, en UNA tarjeta.
+        <div className={cn("flex items-center gap-4 rounded-xl border border-border border-l-4 bg-card px-4 py-3.5 shadow-sm", META.border)}>
+          <svg width="68" height="68" viewBox="0 0 68 68" className={cn("shrink-0", META.tone)} role="img" aria-label={`Progreso ${progress}%`}>
+            <circle cx="34" cy="34" r="26" fill="none" strokeWidth="6" className="stroke-muted" />
+            <circle cx="34" cy="34" r="26" fill="none" strokeWidth="6" strokeLinecap="round" stroke="currentColor" strokeDasharray={`${ringOn} ${RING_C}`} transform="rotate(-90 34 34)" />
+            <text x="34" y="39" textAnchor="middle" className="fill-foreground text-sm font-semibold">{progress}%</text>
+          </svg>
+          <div className="min-w-0 flex-1">
+            <p className={cn("text-sm font-semibold", META.toneText)}>
+              {META.label}
+              {señales.length ? <span className="font-normal text-muted-foreground"> · {señales.length} señal{señales.length === 1 ? "" : "es"}</span> : null}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {señales.length ? señales.join(" · ") : "Sin tareas atrasadas, correcciones estancadas ni silencios largos."}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", hero.priorityChip)}>{hero.priorityLabel}</span>
+              <span className={cn(
+                "rounded px-1.5 py-0.5 text-[11px] font-medium",
+                hero.dueLate ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" : "bg-muted text-muted-foreground",
+              )}>
+                Entrega {hero.dueLabel}{hero.dueLate ? " · vencida" : ""}
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {hero.leadName ? `Responsable ${hero.leadName}` : "Sin responsable"}
+              </span>
+            </div>
+          </div>
+          <div className="ml-auto hidden shrink-0 items-center gap-4 sm:flex">
+            <span className="text-right text-xs text-muted-foreground"><b className="block text-sm text-foreground">{tasks.length ? Math.round((doneTasks / tasks.length) * 100) : 0}%</b>tareas</span>
+            <span className="text-right text-xs text-muted-foreground"><b className="block text-sm text-foreground">{daysLeft === null ? "—" : daysLeft < 0 ? `${-daysLeft}d tarde` : `${daysLeft}d`}</b>entrega</span>
+            <span className="text-right text-xs text-muted-foreground"><b className="block text-sm text-foreground">{delivDone}/{deliverables.length}</b>aprobados</span>
+            <span className="text-right text-xs text-muted-foreground"><b className="block text-sm text-foreground">{activityLabel}</b>actividad</span>
+          </div>
+        </div>
+      ) : null}
+      {!clientView && !hero ? (
         <div className={cn("flex items-start gap-3 rounded-xl border border-border border-l-4 bg-card px-4 py-3 shadow-sm", META.border)}>
           <span className={cn("mt-1 size-3.5 shrink-0 rounded-full ring-4", META.dot, META.ring)} />
           <div className="min-w-0">
