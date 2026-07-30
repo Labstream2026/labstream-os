@@ -28,8 +28,12 @@ tar xzf "$TMP/src.tgz" -C "$TMP"
 SRC="$TMP/labstream-os-$BRANCH"
 
 # 2) Copiar al destino SIN tocar secretos (.env) ni datos persistentes.
+#    --delete es OBLIGATORIO: sin él, un archivo BORRADO del repo quedaba fantasma en
+#    $DEST para siempre y el build lo seguía compilando (así nos tumbó el deploy
+#    guiones-panel.tsx, borrado de main pero vivo en el NAS con un import ya inexistente).
+#    Los --exclude protegen doble: ni se copian ni se borran (.env, data, …).
 mkdir -p "$DEST"
-rsync -a \
+rsync -a --delete \
   --exclude '.env' \
   --exclude 'data' \
   --exclude 'node_modules' \
