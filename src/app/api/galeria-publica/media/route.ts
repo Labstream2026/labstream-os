@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { resolverEntrega } from "@/lib/galeria-entrega";
+import { resolverAcceso, alcanceAutoriza } from "@/lib/galeria-seleccion";
 import { resolveGaleriaFile, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import { mimeFor, isInlineSafeMime } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
@@ -17,23 +17,23 @@ export const dynamic = "force-dynamic";
 // Si se pide la copia y todavía no existe, se cae al original en vez de dar error.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const entrega = await resolverEntrega(url.searchParams.get("t") || "");
-  if (!entrega.ok) return new NextResponse("No autorizado", { status: 401 });
+  // Entrega por carpeta o selección de piezas: resolverAcceso distingue el token y devuelve el
+  // ALCANCE; aquí solo se pregunta si la pieza pedida cae dentro.
+  const acceso = await resolverAcceso(url.searchParams.get("t") || "");
+  if (!acceso.ok) return new NextResponse("No autorizado", { status: 401 });
 
   let rel: string;
-  let carpeta: string;
   try {
     rel = normalizeGaleriaRel(url.searchParams.get("rel") || "");
-    carpeta = normalizeGaleriaRel(entrega.folderRel);
   } catch {
     return new NextResponse("Ruta inválida", { status: 400 });
   }
   if (!rel) return new NextResponse("Ruta inválida", { status: 400 });
 
-  // ESTE es el candado de la sala. El token dice UNA carpeta; el navegador dice el archivo.
+  // ESTE es el candado de la sala. El token dice el alcance; el navegador dice el archivo.
   // Sin esta comprobación, un cliente con un enlace bueno se lleva el material de cualquier
   // otro cambiando `rel` a mano.
-  if (!dentroDeLaEntrega(carpeta, rel)) return new NextResponse("Prohibido", { status: 403 });
+  if (!alcanceAutoriza(acceso.alcance, rel)) return new NextResponse("Prohibido", { status: 403 });
 
   const quiereDescargar = Boolean(url.searchParams.get("descargar"));
   // Al descargar mandamos SIEMPRE el original: es lo que el cliente ha venido a buscar.
@@ -53,13 +53,13 @@ export async function GET(req: NextRequest) {
   if (quiereDescargar && (!rangeHeader || /^bytes=0-/.test(rangeHeader))) {
     logActivity({
       action: "file.download",
-      summary: `descargó «${name}» de la entrega «${entrega.titulo}»`,
+      summary: `descargó «${name}» de «${acceso.titulo}»`,
       entityType: "galeria",
       entityId: rel,
       userId: null,
       actorName: "El cliente (enlace de entrega)",
       ip: clientIp(req),
-      meta: { entrega: carpeta },
+      meta: acceso.alcance.tipo === "carpeta" ? { entrega: acceso.alcance.folderRel } : { seleccion: acceso.alcance.id },
       silent: true,
     }).catch(() => {});
   }
@@ -104,19 +104,6 @@ export async function GET(req: NextRequest) {
 
   const stream = Readable.toWeb(createReadStream(file.abs)) as unknown as ReadableStream;
   return new NextResponse(stream, { status: 200, headers: { ...baseHeaders, "Content-Length": String(size) } });
-}
-
-// ¿La pieza pedida cuelga de la carpeta que autoriza el token?
-//
-// Se compara SEGMENTO A SEGMENTO a propósito. Con un `startsWith` pelado, un token para
-// «boda-lopez» abriría también «boda-lopez-2», que es la entrega de otro cliente; y un token
-// para «acme» abriría «acme-privado». El separador tiene que caer donde toca.
-function dentroDeLaEntrega(carpeta: string, rel: string): boolean {
-  if (!carpeta || !rel) return false; // un token sin carpeta no autoriza nada
-  const base = carpeta.split("/");
-  const pieza = rel.split("/");
-  if (pieza.length <= base.length) return false; // la carpeta en sí no es una pieza servible
-  return base.every((seg, i) => seg === pieza[i]);
 }
 
 // IP del cliente (best-effort) para el rastro de auditoría del enlace.

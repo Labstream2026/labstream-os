@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Download, FolderInput, Loader2, Pencil, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Copy, Download, FolderInput, Link2, Loader2, Pencil, ShieldOff, Trash2, X } from "lucide-react";
 import { borrarGaleria, moverGaleria, renombrarGaleria } from "./herramientas-actions";
+import { crearEnlaceSeleccion, revocarEnlaceSeleccion } from "./acciones";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
 
 // ── Barra de selección ─────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ function nombreDe(rel: string): string {
 export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscribir }: Props) {
   const [ocupado, setOcupado] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [dialogo, setDialogo] = React.useState<null | "borrar" | "mover" | "renombrar">(null);
+  const [dialogo, setDialogo] = React.useState<null | "borrar" | "mover" | "renombrar" | "compartir">(null);
 
   if (seleccion.length === 0) return null;
   const uno = seleccion.length === 1;
@@ -92,7 +93,7 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
           </span>
           <span className="mx-0.5 h-5 w-px bg-border" />
 
-          {uno && (
+          {uno ? (
             <a
               href={`/api/galeria/media?rel=${encodeURIComponent(seleccion[0]!)}&descargar=1`}
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-accent"
@@ -100,7 +101,25 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
             >
               <Download className="size-4" /> Descargar
             </a>
+          ) : (
+            // Varias piezas → UN zip. Formulario de verdad, no fetch: la respuesta trae
+            // Content-Disposition y Content-Length exacto, así que el navegador la baja con
+            // su barra de progreso real sin que la página se mueva de donde está.
+            <form method="POST" action="/api/galeria/zip" className="contents">
+              <input type="hidden" name="rels" value={JSON.stringify(seleccion)} />
+              <button type="submit" className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-accent" title="Empaqueta los originales en un solo .zip">
+                <Download className="size-4" /> Descargar .zip{peso ? ` (${peso})` : ""}
+              </button>
+            </form>
           )}
+
+          <button
+            onClick={() => setDialogo("compartir")}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-accent"
+            title="Enlace para que el cliente vea SOLO estas piezas, sin cuenta"
+          >
+            <Link2 className="size-4" /> Compartir
+          </button>
 
           {puedeEscribir && (
             <>
@@ -172,7 +191,113 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
           {error && <Fallo texto={error} />}
         </Modal>
       )}
+
+      {dialogo === "compartir" && <DialogoCompartir rels={seleccion} onCerrar={cerrar} />}
     </>
+  );
+}
+
+// ── Compartir una selección con el cliente ─────────────────────────────────────
+// El diseño aprobado (opción A): caducidad a elegir, UN enlace que abre la sala del cliente
+// acotada a estas piezas, y botón de retirar ahí mismo. Lo usan la barra de selección y el
+// visor (para compartir la pieza abierta sin pasar por la selección).
+
+const DIAS_OPCIONES = [7, 30, 90] as const;
+
+export function DialogoCompartir({ rels, onCerrar }: { rels: string[]; onCerrar: () => void }) {
+  const [dias, setDias] = React.useState<number>(30);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [listo, setListo] = React.useState<{ url: string; id: string } | null>(null);
+  const [copiado, setCopiado] = React.useState(false);
+  const [retirada, setRetirada] = React.useState(false);
+  const una = rels.length === 1;
+
+  const generar = async () => {
+    setOcupado(true);
+    setError(null);
+    const r = await crearEnlaceSeleccion(rels, dias);
+    setOcupado(false);
+    if ("error" in r) return setError(r.error);
+    setListo({ url: `${window.location.origin}${r.url}`, id: r.id ?? "" });
+  };
+
+  const retirar = async () => {
+    if (!listo) return;
+    setOcupado(true);
+    setError(null);
+    const r = await revocarEnlaceSeleccion(listo.id);
+    setOcupado(false);
+    if ("error" in r) return setError(r.error);
+    setRetirada(true);
+  };
+
+  const copiar = async () => {
+    if (!listo) return;
+    try {
+      await navigator.clipboard.writeText(listo.url);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1800);
+    } catch {
+      setError("El navegador no dejó copiar; selecciona el enlace a mano.");
+    }
+  };
+
+  return (
+    <Modal titulo={una ? "Compartir esta pieza" : `Compartir ${rels.length} piezas`} onCerrar={onCerrar}>
+      {retirada ? (
+        <p className="text-sm text-muted-foreground">
+          Enlace retirado: ya no abre. Si hace falta otro, genera uno nuevo desde la selección.
+        </p>
+      ) : listo ? (
+        <>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-background px-2 py-1.5">
+            <input
+              readOnly
+              value={listo.url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 bg-transparent text-xs text-muted-foreground outline-none"
+            />
+            <button onClick={copiar} className="rounded-md p-1 transition hover:bg-accent" title="Copiar enlace">
+              {copiado ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+            </button>
+            <button onClick={retirar} disabled={ocupado} className="rounded-md p-1 transition hover:bg-accent" title="Retirar el acceso ya">
+              <ShieldOff className="size-4 text-destructive" />
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Vence en {dias} días · quedó registrado quién lo generó. Retirarlo lo cierra al instante.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            El cliente ve <strong className="text-foreground">solo {una ? "esta pieza" : "estas piezas"}</strong>, sin cuenta, en su
+            sala de siempre. El enlace se puede retirar cuando quieras.
+          </p>
+          <div className="mt-3 flex items-center gap-1.5">
+            {DIAS_OPCIONES.map((d) => (
+              <button
+                key={d}
+                onClick={() => setDias(d)}
+                className={`rounded-full border px-3 py-1 text-xs transition ${
+                  dias === d ? "border-primary/50 bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {d} días
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Boton onClick={onCerrar}>Cancelar</Boton>
+            <Boton onClick={generar} ocupado={ocupado}>
+              Generar enlace
+            </Boton>
+          </div>
+        </>
+      )}
+      {error && <Fallo texto={error} />}
+    </Modal>
   );
 }
 

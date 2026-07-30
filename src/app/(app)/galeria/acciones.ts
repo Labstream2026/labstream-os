@@ -1,5 +1,6 @@
 "use server";
 
+import { crearSeleccion, revocarSeleccion } from "@/lib/galeria-seleccion";
 import { galeriaSession } from "@/lib/galeria-access";
 import { normalizeGaleriaRel } from "@/lib/nas-galeria";
 import { signGaleriaToken } from "@/lib/galeria-token";
@@ -97,6 +98,48 @@ export async function reactivarEnlaceEntrega(rel: string): Promise<Resultado> {
     return { ok: true, revocada: false };
   } catch (e) {
     return { error: msg(e, "No se pudo reactivar") };
+  }
+}
+
+// ── Selecciones: «mándale SOLO estas piezas» ───────────────────────────────────
+// El enlace de selección es el hermano chico del de entrega: mismo umbral público, pero
+// autoriza una LISTA exacta de piezas en vez de una carpeta. Vive en su propia fila
+// (GaleriaSeleccion) y su token lleva un ámbito aparte — ver lib/galeria-seleccion.ts.
+
+export async function crearEnlaceSeleccion(rels: string[], dias = 30): Promise<Resultado & { id?: string }> {
+  const session = await galeriaSession();
+  if (!session || session.role === "demo") return { error: "Sin permiso" };
+  try {
+    const sel = await crearSeleccion(rels, dias, session.id);
+    await logActivity({
+      action: "galeria.enlace-seleccion",
+      summary: `compartió una selección de ${sel.piezas} ${sel.piezas === 1 ? "pieza" : "piezas"} (${dias} días)`,
+      entityType: "galeria",
+      entityId: sel.id,
+      userId: session.id,
+    });
+    return { ok: true, url: `/galeria/${sel.token}`, id: sel.id };
+  } catch (e) {
+    return { error: msg(e, "No se pudo generar el enlace") };
+  }
+}
+
+export async function revocarEnlaceSeleccion(id: string): Promise<Resultado> {
+  const session = await galeriaSession();
+  if (!session || session.role === "demo") return { error: "Sin permiso" };
+  try {
+    if (!id) return { error: "Falta el enlace que se retira" };
+    await revocarSeleccion(id);
+    await logActivity({
+      action: "galeria.revocar-seleccion",
+      summary: "retiró el enlace de una selección de piezas",
+      entityType: "galeria",
+      entityId: id,
+      userId: session.id,
+    });
+    return { ok: true, revocada: true };
+  } catch (e) {
+    return { error: msg(e, "No se pudo retirar el enlace") };
   }
 }
 

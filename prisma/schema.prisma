@@ -2008,6 +2008,26 @@ model GaleriaEntrega {
   @@index([revokedAt])
 }
 
+// Enlace público de una SELECCIÓN de piezas de la galería (no una carpeta entera): «mándale
+// solo estos tres reels». Hermana de GaleriaEntrega y con su misma filosofía —la fila manda
+// sobre el token— pero con lista de rutas en vez de carpeta, y con caducidad PROPIA en la fila
+// (el token la lleva también, pero revocar y auditar necesitan la fecha consultable).
+// El id es corto y aleatorio; viaja firmado dentro del token con ámbito «galeria-sel».
+model GaleriaSeleccion {
+  id             String    @id
+  rels           Json
+  titulo         String?
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  visitas        Int       @default(0)
+  ultimaVisitaAt DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([expiresAt])
+}
+
 model AppConfig {
   key       String   @id
   value     Json

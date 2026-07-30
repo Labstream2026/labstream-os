@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { resolverEntrega } from "@/lib/galeria-entrega";
+import { resolverAcceso, scanSeleccion } from "@/lib/galeria-seleccion";
 import { galeriaEnabled, galeriaReady, scanGaleria } from "@/lib/nas-galeria";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -33,19 +33,25 @@ export async function GET(req: NextRequest) {
   }
 
   const token = new URL(req.url).searchParams.get("t") || "";
-  const entrega = await resolverEntrega(token);
-  if (!entrega.ok) return new NextResponse("No autorizado", { status: 401 });
+  // Entrega por carpeta o selección de piezas: el mismo guardián decide y aquí solo cambia
+  // QUÉ se escanea (la carpeta entera, o la lista exacta que autoriza el token).
+  const acceso = await resolverAcceso(token);
+  if (!acceso.ok) return new NextResponse("No autorizado", { status: 401 });
 
   // Escanear es lo caro de toda la sala (recorre la carpeta entera y lee EXIF). Esto es una ruta
   // pública: sin freno, recargar en bucle un enlace legítimo pone el NAS de rodillas.
-  if (!rateLimit(`galeria-publica-list:${entrega.folderRel}`, 30, 60_000)) {
+  const claveFreno = acceso.alcance.tipo === "carpeta" ? acceso.alcance.folderRel : `sel:${acceso.alcance.id}`;
+  if (!rateLimit(`galeria-publica-list:${claveFreno}`, 30, 60_000)) {
     return new NextResponse("Demasiadas peticiones", { status: 429, headers: { "Retry-After": "60" } });
   }
 
   try {
-    const scan = await scanGaleria(entrega.folderRel);
+    const scan =
+      acceso.alcance.tipo === "carpeta" ? await scanGaleria(acceso.alcance.folderRel) : await scanSeleccion(acceso.alcance.rels);
     return NextResponse.json(
-      { ok: true, ready: true, rel: entrega.folderRel, titulo: entrega.titulo, scan },
+      // `rel` vacío en la selección a propósito: ese campo es la carpeta del NAS, y una
+      // selección no tiene por qué contarle al cliente de qué carpeta salió cada pieza.
+      { ok: true, ready: true, rel: acceso.alcance.tipo === "carpeta" ? acceso.alcance.folderRel : "", titulo: acceso.titulo, scan },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch {

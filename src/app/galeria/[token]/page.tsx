@@ -1,5 +1,6 @@
 import type * as React from "react";
-import { resolverEntrega, registrarVisita, type EntregaEstado } from "@/lib/galeria-entrega";
+import { registrarVisita, type EntregaEstado } from "@/lib/galeria-entrega";
+import { resolverAcceso, registrarVisitaSeleccion } from "@/lib/galeria-seleccion";
 import { formatBogotaDate } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 import { SalaCliente } from "./sala-cliente";
@@ -91,11 +92,16 @@ function vencimientoDelToken(token: string): { largo: string; corto: string } | 
 
 export default async function GaleriaSalaPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const estado = await resolverEntrega(token);
+  // El mismo umbral atiende dos clases de enlace: la entrega por CARPETA y la SELECCIÓN de
+  // piezas sueltas. resolverAcceso distingue el token; la sala de ahí en adelante es la misma.
+  const estado = await resolverAcceso(token);
   // Que el cliente ABRIÓ la sala. Hasta ahora solo quedaba rastro de las descargas, así que no
   // había forma de saber si el enlace se había mirado siquiera. Va aquí y no en las rutas de
   // material: si fuera allí, una galería de 200 fotos contaría 200 visitas.
-  if (estado.ok) await registrarVisita(estado.folderRel);
+  if (estado.ok) {
+    if (estado.alcance.tipo === "carpeta") await registrarVisita(estado.alcance.folderRel);
+    else await registrarVisitaSeleccion(estado.alcance.id);
+  }
   if (!estado.ok) return <NoDisponible motivo={estado.motivo} mensaje={estado.mensaje} />;
 
   const vence = vencimientoDelToken(token);

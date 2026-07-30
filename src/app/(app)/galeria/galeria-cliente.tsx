@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Copy, Download, Film, FolderTree, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
 import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
 import { IndiceCarpetas, type DuenoIndice } from "./indice-carpetas";
-import { BarraSeleccion } from "./seleccion";
+import { BarraSeleccion, DialogoCompartir } from "./seleccion";
 import { TIRA_FOTOGRAMAS } from "@/lib/galeria-tira";
 import type { GaleriaFolder, GaleriaItem, GaleriaKind, GaleriaScan } from "@/lib/nas-galeria";
 
@@ -805,6 +805,8 @@ function Visor({
   onCambiar: (x: GaleriaItem) => void;
 }) {
   const i = piezas.findIndex((p) => p.rel === item.rel);
+  // El atajo del diseño aprobado: compartir LA PIEZA ABIERTA sin pasar por la selección.
+  const [compartiendo, setCompartiendo] = React.useState(false);
   const mover = React.useCallback(
     (paso: number) => {
       const j = i + paso;
@@ -815,13 +817,14 @@ function Visor({
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (compartiendo) return; // el diálogo de compartir se queda con el teclado
       if (e.key === "Escape") onCerrar();
       else if (e.key === "ArrowRight") mover(1);
       else if (e.key === "ArrowLeft") mover(-1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCerrar, mover]);
+  }, [onCerrar, mover, compartiendo]);
 
   // Se reproduce/mira la COPIA LIGERA (?copia=1). Si LabTem no la ha hecho todavía, la ruta
   // cae sola al original: el cliente ve algo igual, solo que pesa más.
@@ -837,6 +840,13 @@ function Visor({
           {!item.exact && " (fecha del archivo)"}
         </span>
         <span className="text-xs text-white/60">{pesar(item.size)}</span>
+        <button
+          onClick={() => setCompartiendo(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-white/25 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/10"
+          title="Enlace para que el cliente vea SOLO esta pieza"
+        >
+          <Link2 className="size-3.5" /> Compartir
+        </button>
         <a
           href={bajar}
           className="flex items-center gap-1.5 rounded-lg border border-white/25 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/10"
@@ -847,6 +857,8 @@ function Visor({
           <X className="size-5" />
         </button>
       </div>
+
+      {compartiendo && <DialogoCompartir rels={[item.rel]} onCerrar={() => setCompartiendo(false)} />}
 
       {/* Clic en el fondo negro = cerrar (clic en la foto/video no, que ahí se pausa). */}
       <div

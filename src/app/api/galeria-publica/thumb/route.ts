@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { resolverEntrega } from "@/lib/galeria-entrega";
+import { resolverAcceso, alcanceAutoriza } from "@/lib/galeria-seleccion";
 import { galeriaThumb, normalizeGaleriaRel } from "@/lib/nas-galeria";
 
 export const runtime = "nodejs";
@@ -13,21 +13,22 @@ export const dynamic = "force-dynamic";
 // fuerte en el navegador sin quedarse viendo una miniatura vieja.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const entrega = await resolverEntrega(url.searchParams.get("t") || "");
-  if (!entrega.ok) return new NextResponse("No autorizado", { status: 401 });
+  // El acceso puede venir de un enlace de ENTREGA (una carpeta) o de una SELECCIÓN (una lista
+  // de piezas): resolverAcceso distingue el token y alcanceAutoriza hace la única pregunta que
+  // importa aquí — ¿esta pieza está dentro de lo autorizado?
+  const acceso = await resolverAcceso(url.searchParams.get("t") || "");
+  if (!acceso.ok) return new NextResponse("No autorizado", { status: 401 });
 
   let rel: string;
-  let carpeta: string;
   try {
     rel = normalizeGaleriaRel(url.searchParams.get("rel") || "");
-    carpeta = normalizeGaleriaRel(entrega.folderRel);
   } catch {
     return new NextResponse("Ruta inválida", { status: 400 });
   }
 
-  // Mismo candado que en /media: el token manda la carpeta, el navegador solo elige dentro.
+  // Mismo candado que en /media: el token manda el alcance, el navegador solo elige dentro.
   // Una miniatura filtra tanto como el original —se ve la foto—, así que se comprueba igual.
-  if (!dentroDeLaEntrega(carpeta, rel)) return new NextResponse("Prohibido", { status: 403 });
+  if (!alcanceAutoriza(acceso.alcance, rel)) return new NextResponse("Prohibido", { status: 403 });
 
   const grande = url.searchParams.get("grande");
   try {
@@ -43,17 +44,4 @@ export async function GET(req: NextRequest) {
   } catch {
     return new NextResponse("Sin miniatura", { status: 404 });
   }
-}
-
-// ¿La pieza pedida cuelga de la carpeta que autoriza el token?
-//
-// Se compara SEGMENTO A SEGMENTO a propósito. Con un `startsWith` pelado, un token para
-// «boda-lopez» abriría también «boda-lopez-2», que es la entrega de otro cliente; y un token
-// para «acme» abriría «acme-privado». El separador tiene que caer donde toca.
-function dentroDeLaEntrega(carpeta: string, rel: string): boolean {
-  if (!carpeta || !rel) return false; // un token sin carpeta no autoriza nada
-  const base = carpeta.split("/");
-  const pieza = rel.split("/");
-  if (pieza.length <= base.length) return false; // la carpeta en sí no es una pieza servible
-  return base.every((seg, i) => seg === pieza[i]);
 }
