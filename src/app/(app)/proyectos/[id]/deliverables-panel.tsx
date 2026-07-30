@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight, ChevronDown, MoreHorizontal, Plus } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight, ChevronDown, ListFilter, MoreHorizontal, Plus } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
@@ -376,7 +376,11 @@ export function DeliverablesPanel({
                 decidir si abrirla; el detalle y las fases salen al abrir, que es cuando importan.
                 El pr-12 reserva el hueco del menú ⋯, que va fuera del <summary>. */}
             <details className="group/det">
-              <summary className="grid cursor-pointer list-none grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-12 hover:bg-muted/40 group-open/det:rounded-b-none">
+              {/* minmax(7rem,1fr): el NOMBRE tiene suelo. Con `1fr` a secas, en un panel
+                  estrecho la columna derecha (progreso + píldora) se lo comía y el nombre
+                  quedaba en 5 px. Los `sm:` de Tailwind miran la ventana, no este contenedor,
+                  así que no sirven aquí: lo que cede es la píldora, que se recorta. */}
+              <summary className="grid cursor-pointer list-none grid-cols-[auto_minmax(7rem,1fr)_auto] items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-12 hover:bg-muted/40 group-open/det:rounded-b-none">
                 <span
                   className="rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground"
                   title="Consecutivo del entregable en este proyecto"
@@ -385,14 +389,16 @@ export function DeliverablesPanel({
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{d.name}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                  {/* Una sola línea SIEMPRE: en pantallas estrechas el flex-wrap partía la
+                      meta en tres renglones y la fila dejaba de ser una fila. Se recorta. */}
+                  <span className="mt-0.5 flex items-center gap-x-1.5 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground">
                     <span>{DELIVERABLE_TYPE[d.type] ?? d.type}</span>
                     <span aria-hidden>·</span>
                     <span>{mediaBits}</span>
                     <BallChip status={d.status} updatedAtIso={d.updatedAtIso} />
                   </span>
                 </span>
-                <span className="flex items-center gap-2">
+                <span className="flex min-w-0 items-center gap-2">
                   {/* Progreso de correcciones: el dato que de verdad decide si hay que entrar. */}
                   {fixes.length > 0 ? (
                     <span
@@ -406,7 +412,7 @@ export function DeliverablesPanel({
                     </span>
                   ) : null}
                   {/* El estado, UNA sola vez. Cambiarlo vive en el menú ⋯ («Mover a»). */}
-                  <span className={cn("hidden shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline", deliverableStatusMeta(d.status).className)}>
+                  <span className={cn("hidden truncate rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline", deliverableStatusMeta(d.status).className)}>
                     {DELIVERABLE_STATUS[d.status]?.label ?? d.status}
                   </span>
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open/det:rotate-90" />
@@ -781,28 +787,72 @@ export function DeliverablesPanel({
       // E1 · Embudo: conteo por etapa sobre TODOS los entregables (sin filtro), con la etapa
       // activa resaltada. Los enlaces navegan por ?estado= (server-side, sin estado cliente).
       const funnelCounts = FUNNEL.map((f) => ({ ...f, count: deliverables.filter((d) => (f.states as readonly string[]).includes(d.status)).length }));
-      const funnelMax = Math.max(1, ...funnelCounts.map((f) => f.count));
+      // El embudo era un bloque de ~90 px con cinco barras verticales para decir cinco números.
+      // Ahora: un desplegable con esos mismos números (y el que está activo escrito en el
+      // botón), más una barra fina que conserva el vistazo a la distribución en 5 px. Mismo
+      // patrón de menú que el ⋯ de cada fila: <details data-autoclose>, sin JS de cliente.
+      const funnelTotal = funnelCounts.reduce((n, f) => n + f.count, 0);
+      const filtroActivo = funnelCounts.find((f) => f.key === stateFilter) ?? null;
+      const opcionCls = (activa: boolean) =>
+        cn("flex items-center justify-between gap-3 rounded-md px-3 py-2 hover:bg-muted", activa && "bg-muted font-semibold");
       const funnelNode =
         deliverables.length > 0 ? (
-          <div className="mb-4 flex items-end gap-2 rounded-xl border border-border bg-card px-4 pb-2 pt-3">
-            {funnelCounts.map((f) => (
-              <Link
-                key={f.key}
-                href={stateFilter === f.key ? "?tab=entregables" : `?tab=entregables&estado=${f.key}`}
-                title={stateFilter === f.key ? "Quitar filtro" : `Ver solo ${f.label.toLowerCase()}`}
-                className={cn("group flex-1 text-center", f.count === 0 && "opacity-40")}
-              >
-                <div className="mx-auto flex h-12 w-full max-w-16 items-end justify-center">
-                  <div
-                    className={cn("w-full rounded-t-md transition-all", f.bar, stateFilter === f.key ? "opacity-100 ring-2 ring-ring" : "opacity-75 group-hover:opacity-100")}
-                    style={{ height: `${8 + Math.round((f.count / funnelMax) * 40)}px` }}
-                  />
+          <div className="mb-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <details data-autoclose className="relative">
+                <summary
+                  className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium hover:bg-accent"
+                  aria-label="Filtrar por fase"
+                >
+                  <ListFilter className="size-3.5 text-muted-foreground" />
+                  {filtroActivo ? <>Solo <span className="font-semibold">{filtroActivo.label.toLowerCase()}</span></> : "Todas las fases"}
+                  <ChevronDown className="size-3.5 text-muted-foreground" />
+                </summary>
+                <div className="absolute left-0 z-30 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+                  <Link href="?tab=entregables" className={opcionCls(!filtroActivo)}>
+                    <span>Todas las fases</span>
+                    <span className="tabular-nums text-muted-foreground">{funnelTotal}</span>
+                  </Link>
+                  {funnelCounts.map((f) => (
+                    <Link
+                      key={f.key}
+                      href={stateFilter === f.key ? "?tab=entregables" : `?tab=entregables&estado=${f.key}`}
+                      className={cn(opcionCls(stateFilter === f.key), f.count === 0 && "opacity-50")}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", f.bar)} />
+                        {f.label}
+                      </span>
+                      <span className="tabular-nums text-muted-foreground">{f.count}</span>
+                    </Link>
+                  ))}
                 </div>
-                <p className={cn("mt-1 truncate text-[10.5px]", stateFilter === f.key ? "font-bold text-foreground" : "text-muted-foreground")}>
-                  {f.label} · {f.count}
-                </p>
-              </Link>
-            ))}
+              </details>
+              {filtroActivo ? (
+                <Link
+                  href="?tab=entregables"
+                  className="rounded-lg border border-border px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+                  title="Ver todas las fases"
+                >
+                  Quitar filtro
+                </Link>
+              ) : null}
+            </div>
+            {/* La distribución de un vistazo, sin gastar un bloque en ello. */}
+            {funnelTotal > 0 ? (
+              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+                {funnelCounts
+                  .filter((f) => f.count > 0)
+                  .map((f) => (
+                    <span
+                      key={f.key}
+                      className={cn(f.bar, stateFilter && stateFilter !== f.key && "opacity-30")}
+                      style={{ width: `${(f.count / funnelTotal) * 100}%` }}
+                      title={`${f.label} · ${f.count}`}
+                    />
+                  ))}
+              </div>
+            ) : null}
           </div>
         ) : null;
 
