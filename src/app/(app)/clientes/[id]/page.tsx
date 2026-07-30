@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -580,28 +581,15 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: "Ajustes",
               icon: <IconConfiguracion />,
               node: (
-                // AJUSTES POR SECCIONES: cuatro bloques titulados —Presentación · Información y
-                // material · Personas y acceso · Ciclo de vida— con píldoras de salto arriba.
-                // Cada bloque agrupa lo que se toca junto; la zona de peligro CIERRA la página
-                // (nadie la pisa por accidente buscando otra cosa). En móvil todo se apila.
-                <div className="space-y-8">
-                  <nav className="flex flex-wrap gap-1.5" aria-label="Secciones de ajustes">
-                    {[
-                      ...(canEdit ? [["aj-presentacion", "Presentación"]] : []),
-                      ["aj-informacion", "Información y material"],
-                      ["aj-personas", "Personas y acceso"],
-                      ...(canEdit ? [["aj-ciclo", "Ciclo de vida"]] : []),
-                    ].map(([sec, label]) => (
-                      <a
-                        key={sec}
-                        href={`#${sec}`}
-                        className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      >
-                        {label}
-                      </a>
-                    ))}
-                  </nav>
-
+                // AJUSTES POR SECCIONES, ahora PLEGADAS: cuatro bloques —Presentación ·
+                // Información y material · Personas y acceso · Ciclo de vida— que se abren de
+                // uno en uno. Cada bloque agrupa lo que se toca junto; la zona de peligro CIERRA
+                // la página (nadie la pisa por accidente buscando otra cosa).
+                //
+                // Las píldoras de salto que había arriba se retiran: ahora los cuatro títulos
+                // caben en pantalla y SON la navegación, así que repetirlos era ruido —y encima
+                // saltar a una sección cerrada no habría enseñado nada.
+                <div className="space-y-3">
                   {canEdit ? (
                     <AjustesSeccion
                       id="aj-presentacion"
@@ -700,14 +688,22 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 // Bloque titulado de la pestaña Ajustes: ancla (para las píldoras de salto), título y
 // descripción cortos, y dentro la rejilla que cada sección decida. scroll-mt deja aire
 // para la barra superior cuando se llega por ancla.
+// Cada bloque de Ajustes se PLIEGA. Antes eran cuatro secciones encadenadas y abiertas: para
+// cambiar el color del cliente había que pasar por delante de sus datos, de su gente y de la
+// zona de peligro. Ahora se ven cuatro títulos y se abre el que toca. Es un <details> nativo
+// —sin `data-autoclose`, que eso es para los menús: un acordeón no se cierra al clicar fuera—,
+// así que funciona sin una línea de JavaScript.
 function AjustesSeccion({ id, titulo, desc, children }: { id: string; titulo: string; desc: string; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-24">
-      <div className="mb-3">
-        <h2 className="text-base font-semibold tracking-tight">{titulo}</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
-      </div>
-      {children}
-    </section>
+    <details id={id} className="group scroll-mt-24 rounded-xl border border-border bg-card">
+      <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl p-4 hover:bg-muted/40">
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold tracking-tight">{titulo}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">{desc}</span>
+        </span>
+        <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-border p-4">{children}</div>
+    </details>
   );
 }
