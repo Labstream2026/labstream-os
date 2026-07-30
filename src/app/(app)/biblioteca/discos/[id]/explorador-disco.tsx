@@ -191,8 +191,13 @@ export function ExploradorDisco({
         montaje === "GALERIA"
           ? `/api/galeria/media?rel=${encodeURIComponent(e.rel)}&descargar=1`
           : `/api/ops/file?path=${encodeURIComponent(e.rel)}&download=1`,
-      // Solo el disco de LabTem tiene fábrica: allí «sin póster» significa «aún no».
-      preparando: montaje === "GALERIA",
+      // Cuándo se puede prometer «preparando». La misma palabra significa cosas distintas en
+      // cada disco, y confundirlas es prometer lo que no va a llegar:
+      //   · LabTem: la fábrica va por detrás, así que CUALQUIER pieza sin póster está en cola.
+      //   · Operaciones: lo fabrica la app, y solo de lo que ffmpeg abre. Ahí «sin póster» es
+      //     «nunca» (un BRAW, un R3D) salvo que el servidor haya dicho que sí lo tendrá —y
+      //     entonces el 404 de ahora solo quiere decir que está en la cola.
+      preparando: montaje === "GALERIA" ? true : e.miniatura,
     };
   };
 
@@ -388,7 +393,7 @@ export function ExploradorDisco({
                     on ? "bg-primary/10 ring-1 ring-inset ring-primary/30" : "hover:bg-muted/60",
                   )}
                 >
-                  <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} hay={a.miniatura} preparandoSiFalta={montaje === "GALERIA"} />
+                  <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} hay={a.miniatura} preparandoSiFalta={u.preparando} />
                   <span className={cn("min-w-0 flex-1 truncate text-sm", on && "font-medium")}>{a.name}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                     {[tam(a.size), fecha(a.mtimeMs)].filter(Boolean).join(" · ")}

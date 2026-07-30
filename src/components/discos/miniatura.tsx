@@ -25,6 +25,13 @@ import { cn } from "@/lib/utils";
 // 20 fotogramas en UNA fila. Si cambia allí, cambia aquí.
 const TIRA_FOTOGRAMAS = 20;
 
+// Cuándo volver a pedir un póster que salió «todavía no». Dos reintentos y se para: donde el
+// disco tiene fábrica propia el atraso se mide en horas y no hay nada que esperar, y donde lo
+// fabrica la app (Operaciones_LAB) la cola va de dos en dos, así que en medio minuto han
+// entrado las primeras piezas de la carpeta. Lo que no llegue se verá al volver a entrar —ya
+// cacheado—, que es mejor que una pantalla preguntando en bucle.
+const REINTENTOS_MS = [12_000, 30_000];
+
 export type TipoPieza = "video" | "foto" | "doc" | "audio";
 
 function IconoTipo({ tipo, className }: { tipo: TipoPieza; className?: string }) {
@@ -60,6 +67,11 @@ export function Miniatura({
   const [tiraLista, setTiraLista] = React.useState(false);
   const [fotograma, setFotograma] = React.useState(0);
   const caja = React.useRef<HTMLDivElement>(null);
+  // Cuántas veces se ha vuelto a pedir el póster. Va también en la URL: sin cambiarla, el
+  // navegador repetiría su propio 404 cacheado en vez de preguntar de nuevo.
+  const [intento, setIntento] = React.useState(0);
+  const reloj = React.useRef<number | null>(null);
+  React.useEffect(() => () => void (reloj.current && window.clearTimeout(reloj.current)), []);
 
   // Dos preguntas distintas que antes confundí en una: «¿esta pieza es de las que TIENEN
   // fotograma?» (un documento no lo es) y «¿se puede pedir ya?» (el servidor puede haber
@@ -107,11 +119,21 @@ export function Miniatura({
       {pidePoster ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={thumb}
+          src={intento ? `${thumb}${thumb.includes("?") ? "&" : "?"}r=${intento}` : thumb}
           alt=""
           loading="lazy"
           onLoad={() => setEstado("ok")}
-          onError={() => setEstado("sin")}
+          onError={() => {
+            setEstado("sin");
+            // Donde el póster va a existir, un 404 significa «todavía no». Se vuelve a pedir
+            // una o dos veces y se abandona: el bucle infinito sería peor que el hueco.
+            const espera = REINTENTOS_MS[intento];
+            if (!preparandoSiFalta || espera == null) return;
+            reloj.current = window.setTimeout(() => {
+              setIntento((n) => n + 1);
+              setEstado("cargando");
+            }, espera);
+          }}
           className={cn(
             "size-full object-cover transition-opacity",
             estado === "ok" ? "opacity-100" : "opacity-0",

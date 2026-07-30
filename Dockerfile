@@ -33,6 +33,12 @@ ENV PORT=3000
 # El calendario asume hora de pared en UTC; se fija aquí también para que la imagen
 # sea correcta aunque se ejecute fuera de docker-compose.
 ENV TZ=UTC
+# ffmpeg: la app saca el fotograma de un vídeo cuando su disco no tiene fábrica de copias
+# ligeras. Solo hace falta en el runner (el build no toca vídeo). Es un decodificador por CPU:
+# el NAS que sirve esto lleva un kernel sin `i915`, así que su GPU no se puede usar. No importa
+# tanto como suena — cada archivo se procesa UNA vez y el resultado queda cacheado (ver
+# src/lib/video-poster.ts), así que el coste es finito y no se repite en cada visita.
+RUN apk add --no-cache ffmpeg
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
 COPY --from=builder /app/public ./public

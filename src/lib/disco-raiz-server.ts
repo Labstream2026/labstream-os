@@ -33,15 +33,19 @@ export async function mountUsage(key: MountKey): Promise<{ usedGB: number; total
 export async function listarNivelMontaje(key: MountKey, rel: string): Promise<NivelDisco> {
   if (key === "OPS") {
     const r = await listOps(rel);
-    // Operaciones no tiene fábrica: su miniatura la hace la app al vuelo y solo de imágenes
-    // que el navegador entienda. Un vídeo de ahí no tiene fotograma, y decir «preparando»
-    // sería prometer algo que no va a llegar.
-    const map = (e: { rel: string; name: string; size: number | null; mtimeMs: number }, dir: boolean): NivelEntrada => ({
+    // Quién tiene fotograma lo decide `listOps`, que ya miró el disco: las imágenes siempre, y
+    // los vídeos que la app pueda abrir con ffmpeg (los formatos de cámara propietarios, no).
+    // Antes se recalculaba aquí a mano y solo para imágenes, así que un vídeo de este disco se
+    // quedaba con su icono aunque su fotograma existiera.
+    const map = (
+      e: { rel: string; name: string; size: number | null; mtimeMs: number; miniatura?: boolean },
+      dir: boolean,
+    ): NivelEntrada => ({
       rel: e.rel,
       name: e.name,
       size: e.size,
       mtimeMs: e.mtimeMs,
-      miniatura: !dir && opsHasThumb(e.name),
+      miniatura: !dir && (e.miniatura ?? opsHasThumb(e.name)),
     });
     return {
       carpetas: r.dirs.map((d) => map(d, true)),

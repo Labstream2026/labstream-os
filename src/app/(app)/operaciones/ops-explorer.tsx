@@ -380,10 +380,13 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                     tipo={tipoPieza(f.ext)}
                     alto="tarjeta"
                     // Lo dice el SERVIDOR, que miró el disco: una imagen se pinta sola, y un
-                    // vídeo solo si la fábrica ya le dejó su póster. Mientras este disco no
-                    // tenga fábrica, sus vídeos se quedan con el icono —y no se les promete
-                    // «preparando», que sería prometer algo que hoy no puede llegar.
+                    // vídeo si tiene póster o si la app puede sacárselo. Los formatos de cámara
+                    // propietarios (BRAW, R3D) no los abre nadie: esos se quedan con su icono y
+                    // no se les promete «preparando», que sería prometer lo que no va a llegar.
                     hay={f.miniatura ?? THUMB_EXT.has(f.ext)}
+                    // Un vídeo que el servidor dio por bueno y aún no aparece es un fotograma
+                    // en cola, no un fallo: se dice, y la pieza se recoloca sola al salir.
+                    preparandoSiFalta={tipoPieza(f.ext) === "video" && (f.miniatura ?? false)}
                   />
                   <span className="block px-2 py-1.5">
                     <span className="block truncate text-xs font-medium">{f.name}</span>

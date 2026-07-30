@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { writeRelBuffer, readBuffer } from "@/lib/storage";
 import { optimizeToWebp } from "@/lib/image";
+import { posterDeVideo, puedeHacerPoster } from "@/lib/video-poster";
 
 // ── Operaciones_LAB: la carpeta compartida del volumen 5 del NAS, montada DENTRO del
 // contenedor (bind mount → NAS_OPS_DIR). Para la app es una carpeta local: sin credenciales
@@ -157,8 +158,13 @@ export async function listOps(rel: string): Promise<{ dirs: OpsEntry[]; files: O
           size: st.size,
           mtimeMs: st.mtimeMs,
           ext: (d.name.split(".").pop() || "").toLowerCase(),
-          // Una imagen se pinta sola; un vídeo solo si la fábrica ya le dejó su póster.
-          miniatura: opsIsVideo(d.name) ? posters.has(`${d.name}.poster.jpg`) : opsHasThumb(d.name),
+          // Una imagen se pinta sola; un vídeo, si la fábrica ya le dejó su póster O si la app
+          // puede sacárselo ella con ffmpeg. Los formatos de cámara propietarios (BRAW, R3D)
+          // no los abre nadie sin el SDK del fabricante: a esos se les enseña su icono, que es
+          // la verdad, y no se les promete una miniatura que no va a llegar.
+          miniatura: opsIsVideo(d.name)
+            ? posters.has(`${d.name}.poster.jpg`) || puedeHacerPoster(d.name)
+            : opsHasThumb(d.name),
         });
       } catch {
         /* desapareció entre readdir y stat */
@@ -281,10 +287,11 @@ export function opsHasThumb(name: string): boolean {
 }
 
 // ── Póster de un vídeo de esta share ───────────────────────────────────────────
-// Mismo convenio que la galería de LabTem: un hermano dentro de `.proxy/`. La app NO lo
-// fabrica —no lleva ffmpeg dentro— sino que lo hace la misma fábrica de copias ligeras
-// apuntada a este disco (ver deploy/operaciones/). Mientras no exista, un vídeo de aquí se
-// queda con su icono: es la verdad, no una espera.
+// Dos caminos, y se prefiere el barato. Si algún día este disco tiene fábrica de copias
+// ligeras (ver deploy/operaciones/), el póster ya está hecho en un hermano dentro de `.proxy/`
+// y aquí solo se lee. Mientras no la tenga —el NAS de esta share corre un kernel sin `i915`,
+// así que su GPU no se puede encender— lo saca la propia app con ffmpeg y lo guarda en su
+// caché interna: se paga UNA vez por archivo y el disco no vuelve a leerse (ver video-poster).
 const OPS_VIDEO_EXT = /\.(mp4|m4v|mov|mkv|avi|mxf|mts|m2ts|webm|braw|r3d|prores)$/i;
 
 export function opsIsVideo(name: string): boolean {
@@ -304,11 +311,23 @@ export function opsPosterRel(rel: string): string {
 export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | null> {
   const norm = normalizeOpsRel(rel);
   // De qué archivo sale la miniatura: de la imagen misma, o del póster que dejó la fábrica si
-  // la pieza es un vídeo. Sin póster no hay miniatura de vídeo: la app no lo puede fabricar.
+  // la pieza es un vídeo.
   const esVideo = opsIsVideo(norm);
   const fuente = esVideo ? opsPosterRel(norm) : norm;
   if (!esVideo && !opsHasThumb(norm)) return null;
   const st = await statOps(fuente);
+
+  // Vídeo SIN póster de fábrica: lo saca la app del propio vídeo, una vez, y lo guarda en su
+  // caché. Se hace ANTES de rendirse por «no hay fuente»: la fuente que faltaba era el póster,
+  // no el vídeo. El resultado ya viene al tamaño pedido, así que no pasa por la caché de abajo
+  // (tendría dos copias de lo mismo, con dos claves distintas).
+  if (esVideo && (!st || st.dir)) {
+    if (!puedeHacerPoster(norm)) return null;
+    const stVideo = await statOps(norm);
+    if (!stVideo || stVideo.dir || stVideo.size == null) return null;
+    return posterDeVideo(await opsAbs(norm), { mtimeMs: stVideo.mtimeMs, size: stVideo.size }, maxEdge);
+  }
+
   if (!st || st.dir) return null;
   const key = crypto.createHash("sha1").update(fuente).digest("hex");
   const cacheRel = `ops-cache/${key}-${Math.round(st.mtimeMs)}-${maxEdge}.webp`;
