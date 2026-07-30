@@ -426,12 +426,13 @@ function CuerpoDisco({
 export function CrearDesdeDisco({
   projectId,
   tipos,
-  estiloTab,
+  estiloHero,
 }: {
   projectId: string;
   tipos: [string, string][];
-  // true = el disparador se pinta como una pestaña más del grupo «¿De dónde sale el material?»
-  estiloTab?: boolean;
+  // true = el disparador es la puerta GRANDE por defecto del formulario «Subir para revisión»
+  // (tarjeta hero naranja); false = botón normal (donde se use suelto).
+  estiloHero?: boolean;
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = React.useState(false);
@@ -473,18 +474,38 @@ export function CrearDesdeDisco({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setAbierto(true)}
-        title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
-        className={
-          estiloTab
-            ? "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            : "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-        }
-      >
-        <HardDrive className={estiloTab ? "size-3.5" : "size-4"} /> Desde el disco{estiloTab ? "" : " (galería)"}
-      </button>
+      {estiloHero ? (
+        /* La puerta por defecto: una tarjeta, un clic. El modal que abre ya pide nombre, tipo
+           y notas — por eso en modo galería el formulario de fuera no muestra ningún campo. */
+        <button
+          type="button"
+          onClick={() => setAbierto(true)}
+          title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
+          className="group flex w-full items-center gap-3 rounded-xl border border-dashed border-[#F47A20]/50 bg-[#F47A20]/5 px-4 py-3.5 text-left transition-colors hover:border-[#F47A20] hover:bg-[#F47A20]/10"
+        >
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#F47A20]/15">
+            <HardDrive className="size-5 text-[#F47A20]" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Elegir de la galería del cliente</span>
+            <span className="block text-xs text-muted-foreground">
+              El video ya vive en LabTem: se elige, se le pone nombre y arranca al instante — sin subir nada.
+            </span>
+          </span>
+          <span className="hidden shrink-0 items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground group-hover:opacity-90 sm:inline-flex">
+            Abrir la galería
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAbierto(true)}
+          title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+        >
+          <HardDrive className="size-4" /> Desde el disco (galería)
+        </button>
+      )}
 
       <ModalDisco
         abierto={abierto}

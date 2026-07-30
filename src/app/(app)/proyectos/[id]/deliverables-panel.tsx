@@ -285,63 +285,73 @@ export function DeliverablesPanel({
         projectId={projectId}
         className="space-y-3 border-t border-border p-4"
       >
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Nombre
-            <input name="name" required placeholder="Nombre del proyecto o video…" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring" />
-          </label>
-          {/* Tipo + portada (la portada solo aparece si el tipo es reel) */}
-          <TypeAndCoverFields options={DELIVERABLE_TYPE_OPTIONS} />
-        </div>
-        {/* UNA fuente a la vez (Link · Subir archivo · Desde el disco): el ojo va a lo que eligió. */}
-        <SourceFields discoSlot={<CrearDesdeDisco projectId={projectId} tipos={DELIVERABLE_TYPE_OPTIONS} estiloTab />} />
-        {/* Lo que casi nunca se toca, plegado: el formulario respira. */}
-        <details className="rounded-lg border border-dashed border-border px-3 py-2">
-          <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
-            Más opciones <span className="font-normal text-muted-foreground/70">· responsable, caducidad del enlace y plazo de pre-aprobación</span>
-          </summary>
-          <div className="mt-2 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Responsable de la revisión
-            <select name="reviewerId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
-              <option value="">Sin responsable</option>
-              {members.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Caduca el enlace <span className="font-normal text-muted-foreground/70">· opcional</span>
-            <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
-            Pre-aprobación vence <span className="font-normal text-muted-foreground/70">· opcional</span>
-            <span className="flex items-center gap-1">
-              <input name="internalReviewDate" type="date" title="Plazo para que el equipo pre-apruebe. Si vence sin revisar, la tarea del revisor queda como incumplida" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
-              <input name="internalReviewTime" type="time" defaultValue="18:00" title="Hora límite (Bogotá)" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
-            </span>
-          </label>
-          </div>
-        </details>
-        {workTasks.length > 0 ? (
-          <details className="rounded-lg border border-dashed border-border px-3 py-2">
-            <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
-              Tareas de entregable vinculadas <span className="font-normal text-muted-foreground/70">· {workTasks.length} disponible{workTasks.length === 1 ? "" : "s"} · se completan solas al mandar la versión</span>
-            </summary>
-            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-              {workTasks.map((t) => (
-                <label key={t.id} className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" name="workTaskIds" value={t.id} className="size-3.5 accent-[#F47A20]" />
-                  <span className="truncate">{t.title}{t.assignee ? <span className="text-muted-foreground"> · {t.assignee}</span> : null}</span>
-                </label>
-              ))}
+        {/* La GALERÍA por defecto (una tarjeta, un clic — su modal ya pide nombre/tipo/notas);
+            link y archivo viven en «Otras fuentes ▾». Al elegirlos aparecen los campos
+            clásicos: arriba nombre/tipo/portada, abajo lo que casi nunca se toca + Añadir. */}
+        <SourceFields
+          hero={<CrearDesdeDisco projectId={projectId} tipos={DELIVERABLE_TYPE_OPTIONS} estiloHero />}
+          arriba={
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                Nombre
+                <input name="name" required placeholder="Nombre del proyecto o video…" className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring" />
+              </label>
+              {/* Tipo + portada (la portada solo aparece si el tipo es reel) */}
+              <TypeAndCoverFields options={DELIVERABLE_TYPE_OPTIONS} />
             </div>
-          </details>
-        ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <p className="min-w-40 flex-1 text-[11px] text-muted-foreground">
-            Con link o archivo, «Añadir» crea la v1 y la manda a pre-aprobación interna. «Desde el disco» abre el material del cliente en LabTem.
-          </p>
-          <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
-        </div>
+          }
+          abajo={
+            <>
+              {/* Lo que casi nunca se toca, plegado: el formulario respira. */}
+              <details className="rounded-lg border border-dashed border-border px-3 py-2">
+                <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
+                  Más opciones <span className="font-normal text-muted-foreground/70">· responsable, caducidad del enlace y plazo de pre-aprobación</span>
+                </summary>
+                <div className="mt-2 flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                  Responsable de la revisión
+                  <select name="reviewerId" defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground">
+                    <option value="">Sin responsable</option>
+                    {members.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                  Caduca el enlace <span className="font-normal text-muted-foreground/70">· opcional</span>
+                  <input name="reviewExpiresAt" type="date" title="Si lo dejas vacío, el enlace no caduca" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] font-medium text-muted-foreground">
+                  Pre-aprobación vence <span className="font-normal text-muted-foreground/70">· opcional</span>
+                  <span className="flex items-center gap-1">
+                    <input name="internalReviewDate" type="date" title="Plazo para que el equipo pre-apruebe. Si vence sin revisar, la tarea del revisor queda como incumplida" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+                    <input name="internalReviewTime" type="time" defaultValue="18:00" title="Hora límite (Bogotá)" className="rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground" />
+                  </span>
+                </label>
+                </div>
+              </details>
+              {workTasks.length > 0 ? (
+                <details className="rounded-lg border border-dashed border-border px-3 py-2">
+                  <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground">
+                    Tareas de entregable vinculadas <span className="font-normal text-muted-foreground/70">· {workTasks.length} disponible{workTasks.length === 1 ? "" : "s"} · se completan solas al mandar la versión</span>
+                  </summary>
+                  <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    {workTasks.map((t) => (
+                      <label key={t.id} className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" name="workTaskIds" value={t.id} className="size-3.5 accent-[#F47A20]" />
+                        <span className="truncate">{t.title}{t.assignee ? <span className="text-muted-foreground"> · {t.assignee}</span> : null}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <p className="min-w-40 flex-1 text-[11px] text-muted-foreground">
+                  «Añadir» crea la v1 y la manda a pre-aprobación interna.
+                </p>
+                <SubmitButton pendingText="Subiendo…" className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Añadir</SubmitButton>
+              </div>
+            </>
+          }
+        />
       </ChunkedUploadForm>
       </details>
 

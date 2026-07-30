@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Link2, Upload } from "lucide-react";
+import { ChevronDown, HardDrive, Link2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { cerrarMenu } from "@/components/ui/barra-menu";
 import { VideoUploadField } from "./video-upload-field";
 
 // Tipos de entregable que son "reel" (vertical 9:16). La portada solo acompaña a los reels,
@@ -49,13 +50,55 @@ export function TypeAndCoverFields({ options }: { options: [string, string][] })
   );
 }
 
-// ── «¿De dónde sale el material?» — UNA fuente a la vez ──
-// El formulario mostraba link + archivo + disco TODOS a la vez: puro ruido. Ahora es un
-// grupo con pestañas: se ve solo la fuente elegida. Las dos primeras (Link / Subir archivo)
-// viven dentro del <form> y se envían con «Añadir»; la tercera («Desde el disco», llega por
-// `discoSlot`) abre su propio modal autocontenido — por eso es un disparador, no un panel.
-export function SourceFields({ discoSlot }: { discoSlot?: React.ReactNode }) {
-  const [fuente, setFuente] = React.useState<"link" | "archivo">("link");
+// ── «Subir para revisión» — la GALERÍA manda ──
+// El material casi siempre YA vive en la carpeta del cliente en LabTem, así que la puerta
+// por defecto es esa: un solo botón grande («hero», llega por `hero` y abre su modal
+// autocontenido que ya pide nombre, tipo y notas). El resto de fuentes (pegar un link,
+// subir un archivo) viven plegadas en el menú «Otras fuentes ▾» — al elegir una, aparecen
+// los campos clásicos del formulario (`arriba`: nombre/tipo/portada · `abajo`: más
+// opciones, tareas y el botón Añadir) y una fila de pestañas para volver o cambiar.
+export function SourceFields({
+  hero,
+  arriba,
+  abajo,
+}: {
+  hero: React.ReactNode;
+  arriba: React.ReactNode;
+  abajo: React.ReactNode;
+}) {
+  const [fuente, setFuente] = React.useState<"galeria" | "link" | "archivo">("galeria");
+
+  const itemCls = "flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-accent";
+
+  if (fuente === "galeria") {
+    return (
+      <div className="space-y-2.5">
+        {hero}
+        <details data-autoclose className="relative inline-block">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+            Otras fuentes <span className="font-normal text-muted-foreground/70">· link o archivo</span>
+            <ChevronDown className="size-3" />
+          </summary>
+          <div className="absolute left-0 z-20 mt-1 flex w-72 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
+            <button type="button" onClick={(e) => { cerrarMenu(e); setFuente("link"); }} className={itemCls}>
+              <Link2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Pegar un link</span>
+                <span className="block text-[11px] text-muted-foreground">YouTube · Vimeo · Google Drive · MP4</span>
+              </span>
+            </button>
+            <button type="button" onClick={(e) => { cerrarMenu(e); setFuente("archivo"); }} className={itemCls}>
+              <Upload className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Subir un archivo</span>
+                <span className="block text-[11px] text-muted-foreground">se guarda en la app; los pesados viajan por trozos</span>
+              </span>
+            </button>
+          </div>
+        </details>
+      </div>
+    );
+  }
 
   const tabCls = (on: boolean) =>
     cn(
@@ -64,39 +107,45 @@ export function SourceFields({ discoSlot }: { discoSlot?: React.ReactNode }) {
     );
 
   return (
-    <div className="space-y-2.5 rounded-lg border border-border bg-muted/20 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold text-muted-foreground">¿De dónde sale el material?</span>
-        <div className="inline-flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
-          <button type="button" onClick={() => setFuente("link")} className={tabCls(fuente === "link")}>
-            <Link2 className="size-3.5" /> Link
-          </button>
-          <button type="button" onClick={() => setFuente("archivo")} className={tabCls(fuente === "archivo")}>
-            <Upload className="size-3.5" /> Subir archivo
-          </button>
-          {discoSlot}
-        </div>
+    <div className="space-y-3">
+      {/* Volver a la galería o saltar entre link ⇄ archivo sin perder lo escrito abajo. */}
+      <div className="inline-flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+        <button type="button" onClick={() => setFuente("galeria")} className={tabCls(false)}>
+          <HardDrive className="size-3.5" /> Galería
+        </button>
+        <button type="button" onClick={() => setFuente("link")} className={tabCls(fuente === "link")}>
+          <Link2 className="size-3.5" /> Link
+        </button>
+        <button type="button" onClick={() => setFuente("archivo")} className={tabCls(fuente === "archivo")}>
+          <Upload className="size-3.5" /> Subir archivo
+        </button>
       </div>
 
-      {fuente === "link" ? (
-        <>
-          <input
-            name="fileUrl"
-            placeholder="https://…  (Drive · YouTube · Vimeo · MP4)"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-          <p className="text-[11px] text-muted-foreground">Pega el enlace y pulsa «Añadir»: la v1 nace apuntando a ese link.</p>
-        </>
-      ) : (
-        <>
-          <VideoUploadField
-            name="file"
-            title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal"
-            className="w-full text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs"
-          />
-          <p className="text-[11px] text-muted-foreground">Se guarda en la app; los archivos pesados viajan por trozos con reintentos.</p>
-        </>
-      )}
+      {arriba}
+
+      <div className="space-y-2.5 rounded-lg border border-border bg-muted/20 p-3">
+        {fuente === "link" ? (
+          <>
+            <input
+              name="fileUrl"
+              placeholder="https://…  (Drive · YouTube · Vimeo · MP4)"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="text-[11px] text-muted-foreground">Pega el enlace y pulsa «Añadir»: la v1 nace apuntando a ese link.</p>
+          </>
+        ) : (
+          <>
+            <VideoUploadField
+              name="file"
+              title="Sube el material (vídeo, imagen, PDF…) para que el cliente lo vea en el portal"
+              className="w-full text-xs file:mr-2 file:rounded file:border file:border-border file:bg-background file:px-2 file:py-1.5 file:text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">Se guarda en la app; los archivos pesados viajan por trozos con reintentos.</p>
+          </>
+        )}
+      </div>
+
+      {abajo}
     </div>
   );
 }
