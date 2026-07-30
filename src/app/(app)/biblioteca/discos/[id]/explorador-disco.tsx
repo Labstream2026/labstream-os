@@ -80,7 +80,7 @@ function PanelDetalle({
       </div>
 
       <div className="mt-2">
-        <Miniatura thumb={urls.thumb} tira={urls.tira} tipo={urls.tipo} alto="tarjeta" preparandoSiFalta={urls.preparando} />
+        <Miniatura thumb={urls.thumb} tira={urls.tira} tipo={urls.tipo} alto="tarjeta" hay={pieza.miniatura} preparandoSiFalta={urls.preparando} />
       </div>
 
       <p className="mt-2.5 break-words text-sm font-medium">{pieza.name}</p>
@@ -193,6 +193,10 @@ export function ExploradorDisco({
   const q = norm(filtro.trim());
   const cVis = q ? carpetas.filter((c) => norm(c.name).includes(q)) : carpetas;
   const aVis = q ? archivos.filter((a) => norm(a.name).includes(q)) : archivos;
+  // Piezas de ESTA carpeta que la fábrica aún no ha tocado (solo tiene sentido donde hay
+  // fábrica: en Operaciones la falta de miniatura no es una cola, es que no la habrá).
+  const pendientes =
+    montaje === "GALERIA" ? archivos.filter((a) => !a.miniatura && tipoDe(a.name) !== "doc" && tipoDe(a.name) !== "audio").length : 0;
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -308,7 +312,7 @@ export function ExploradorDisco({
                       on ? "border-primary ring-2 ring-primary/25" : "border-border hover:border-border/80 hover:bg-accent/40",
                     )}
                   >
-                    <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} alto="tarjeta" preparandoSiFalta={u.preparando} />
+                    <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} alto="tarjeta" hay={a.miniatura} preparandoSiFalta={u.preparando} />
                     <span className="block px-2 py-1.5">
                       <span className="block truncate text-xs font-medium">{a.name}</span>
                       <span className="block truncate text-[10px] text-muted-foreground">
@@ -347,7 +351,7 @@ export function ExploradorDisco({
                     on ? "bg-primary/10 ring-1 ring-inset ring-primary/30" : "hover:bg-muted/60",
                   )}
                 >
-                  <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} preparandoSiFalta={montaje === "GALERIA"} />
+                  <Miniatura thumb={u.thumb} tira={u.tira} tipo={u.tipo} hay={a.miniatura} preparandoSiFalta={montaje === "GALERIA"} />
                   <span className={cn("min-w-0 flex-1 truncate text-sm", on && "font-medium")}>{a.name}</span>
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                     {[tam(a.size), fecha(a.mtimeMs)].filter(Boolean).join(" · ")}
@@ -365,6 +369,13 @@ export function ExploradorDisco({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
         {truncado ? <span>Esta carpeta tiene más de 2000 elementos: se muestran los primeros.</span> : <span>Se lee el disco en vivo.</span>}
+        {/* Cuántas piezas siguen sin copia ligera. Es la diferencia entre «la app va rara» y
+            «la fábrica va por detrás», y ahora se puede decir sin coste: el dato ya vino. */}
+        {pendientes > 0 ? (
+          <span className="text-amber-600 dark:text-amber-400">
+            {pendientes} {pendientes === 1 ? "pieza" : "piezas"} sin copia ligera todavía
+          </span>
+        ) : null}
         <a href={`${hrefBase}${encodeURIComponent(rel)}`} className="ml-auto font-medium text-primary hover:underline">
           Abrir esta carpeta para trabajar →
         </a>

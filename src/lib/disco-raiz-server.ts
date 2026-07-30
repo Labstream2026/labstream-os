@@ -1,6 +1,6 @@
 import "server-only";
 
-import { OPS_DIR, opsReady, opsDiskUsage, listOps } from "@/lib/nas-ops";
+import { OPS_DIR, opsReady, opsDiskUsage, listOps, opsHasThumb } from "@/lib/nas-ops";
 import { GALERIA_DIR, galeriaReady, galeriaDiskUsage, listGaleriaNivel } from "@/lib/nas-galeria";
 import type { MountKey, NivelDisco, NivelEntrada } from "@/lib/disco-raiz";
 
@@ -33,20 +33,29 @@ export async function mountUsage(key: MountKey): Promise<{ usedGB: number; total
 export async function listarNivelMontaje(key: MountKey, rel: string): Promise<NivelDisco> {
   if (key === "OPS") {
     const r = await listOps(rel);
-    const map = (e: { rel: string; name: string; size: number | null; mtimeMs: number }): NivelEntrada => ({
+    // Operaciones no tiene fábrica: su miniatura la hace la app al vuelo y solo de imágenes
+    // que el navegador entienda. Un vídeo de ahí no tiene fotograma, y decir «preparando»
+    // sería prometer algo que no va a llegar.
+    const map = (e: { rel: string; name: string; size: number | null; mtimeMs: number }, dir: boolean): NivelEntrada => ({
       rel: e.rel,
       name: e.name,
       size: e.size,
       mtimeMs: e.mtimeMs,
+      miniatura: !dir && opsHasThumb(e.name),
     });
-    return { carpetas: r.dirs.map(map), archivos: r.files.map(map), truncado: r.truncated };
+    return {
+      carpetas: r.dirs.map((d) => map(d, true)),
+      archivos: r.files.map((f) => map(f, false)),
+      truncado: r.truncated,
+    };
   }
   // La galería lista con `docs: true` para que los papeles (guiones, PDFs) también se vean:
   // en la ficha del disco se está mirando el disco entero, no la línea de tiempo del cliente.
   const r = await listGaleriaNivel(rel, { docs: true });
   return {
-    carpetas: r.carpetas.map((c) => ({ rel: c.rel, name: c.name, size: null, mtimeMs: c.mtimeMs })),
-    archivos: r.archivos.map((a) => ({ rel: a.rel, name: a.name, size: a.size, mtimeMs: a.mtimeMs })),
+    // Una carpeta no tiene fotograma propio: `miniatura: false` es el hecho, no una carencia.
+    carpetas: r.carpetas.map((c) => ({ rel: c.rel, name: c.name, size: null, mtimeMs: c.mtimeMs, miniatura: false })),
+    archivos: r.archivos.map((a) => ({ rel: a.rel, name: a.name, size: a.size, mtimeMs: a.mtimeMs, miniatura: a.miniatura })),
     truncado: false,
   };
 }

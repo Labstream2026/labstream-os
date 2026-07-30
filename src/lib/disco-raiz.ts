@@ -37,5 +37,7 @@ export function mountHref(key: MountKey, rel?: string): string {
 
 // Un nivel del montaje, con la MISMA forma venga de Operaciones o de la Galería (el tipo vive
 // aquí para que los componentes de cliente puedan nombrarlo sin arrastrar el listador).
-export type NivelEntrada = { rel: string; name: string; size: number | null; mtimeMs: number };
+// `miniatura`: si ya se puede pintar su fotograma. Lo resuelve el servidor mirando el disco,
+// para que el navegador no descubra a base de 404 lo que la fábrica aún no ha hecho.
+export type NivelEntrada = { rel: string; name: string; size: number | null; mtimeMs: number; miniatura: boolean };
 export type NivelDisco = { carpetas: NivelEntrada[]; archivos: NivelEntrada[]; truncado: boolean };

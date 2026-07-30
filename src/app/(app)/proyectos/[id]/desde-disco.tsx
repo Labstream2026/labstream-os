@@ -424,6 +424,7 @@ function CuerpoDisco({
                     thumb={`/api/galeria/thumb?rel=${encodeURIComponent(p.rel)}&v=${v}`}
                     tira={p.video ? `/api/galeria/tira?rel=${encodeURIComponent(p.rel)}&v=${v}` : null}
                     tipo={p.video ? "video" : "foto"}
+                    hay={p.miniatura}
                     preparandoSiFalta
                   />
                   <span className={cn("min-w-0 flex-1 truncate", on && "font-medium")}>{p.name}</span>

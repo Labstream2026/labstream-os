@@ -41,6 +41,10 @@ export function Miniatura({
   // póster significa «aún no fabricado». En un disco sin fábrica significa «no habrá», y
   // prometer «preparando» sería mentir.
   preparandoSiFalta = false,
+  // `false` cuando el SERVIDOR ya miró el disco y sabe que la copia no está. Entonces no se
+  // pide la imagen: se pinta «preparando» de una, sin gastar una petición que va a dar 404 ni
+  // pasar por el parpadeo de «cargando».
+  hay = true,
   className,
 }: {
   thumb: string; // URL del póster (ya con ?v=<mtime> para poder cachear fuerte)
@@ -48,16 +52,21 @@ export function Miniatura({
   tipo: TipoPieza;
   alto?: "fila" | "tarjeta";
   preparandoSiFalta?: boolean;
+  hay?: boolean;
   className?: string;
 }) {
-  const [estado, setEstado] = React.useState<"cargando" | "ok" | "sin">("cargando");
+  const [estado, setEstado] = React.useState<"cargando" | "ok" | "sin">(hay ? "cargando" : "sin");
   const [barriendo, setBarriendo] = React.useState(false);
   const [tiraLista, setTiraLista] = React.useState(false);
   const [fotograma, setFotograma] = React.useState(0);
   const caja = React.useRef<HTMLDivElement>(null);
 
-  // Un documento no tiene póster que esperar: se queda en su icono y no pide nada al servidor.
-  const pidePoster = tipo === "video" || tipo === "foto";
+  // Dos preguntas distintas que antes confundí en una: «¿esta pieza es de las que TIENEN
+  // fotograma?» (un documento no lo es) y «¿se puede pedir ya?» (el servidor puede haber
+  // dicho que la copia no está). La primera decide qué se pinta cuando no hay imagen; la
+  // segunda, si se pide.
+  const esMedio = tipo === "video" || tipo === "foto";
+  const pidePoster = esMedio && hay;
   const puedeBarrer = Boolean(tira) && tipo === "video" && estado === "ok";
 
   // La tira se carga la PRIMERA vez que el ratón entra, y se queda cacheada por el navegador.
@@ -137,7 +146,7 @@ export function Miniatura({
       {/* Estados: cargando · preparando (la fábrica aún no llegó) · sin vista previa. */}
       {estado !== "ok" ? (
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
-          {!pidePoster ? (
+          {!esMedio ? (
             <IconoTipo tipo={tipo} className={esTarjeta ? "size-6" : "size-4"} />
           ) : estado === "cargando" ? (
             <Loader2 className={cn("animate-spin opacity-50", esTarjeta ? "size-5" : "size-3.5")} />

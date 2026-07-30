@@ -483,7 +483,18 @@ export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
 const DOC_EXT = new Set(["pdf", "doc", "docx", "txt", "rtf", "md", "xls", "xlsx", "csv", "ppt", "pptx", "key", "numbers", "pages", "srt", "vtt", "xml", "fcpxml", "drp", "zip"]);
 
 export type GaleriaNivelCarpeta = { rel: string; name: string; mtimeMs: number };
-export type GaleriaNivelArchivo = { rel: string; name: string; kind: GaleriaKind | "doc"; size: number; mtimeMs: number };
+export type GaleriaNivelArchivo = {
+  rel: string;
+  name: string;
+  kind: GaleriaKind | "doc";
+  size: number;
+  mtimeMs: number;
+  // ¿Se puede pintar ya su miniatura? Se resuelve AQUÍ, mirando una vez la carpeta `.proxy`
+  // del nivel, en vez de dejar que el navegador lo descubra pidiendo la imagen y comiéndose
+  // un 404 por cada pieza que LabTem aún no ha fabricado. En una entrega a medio procesar eso
+  // eran decenas de peticiones perdidas y un parpadeo antes de poder decir «preparando».
+  miniatura: boolean;
+};
 export type GaleriaNivel = { carpetas: GaleriaNivelCarpeta[]; archivos: GaleriaNivelArchivo[] };
 
 export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Promise<GaleriaNivel> {
@@ -505,14 +516,40 @@ export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Pro
   // Y los stat van EN PARALELO, no en serie: sobre NFS cada uno es un viaje de red, y en
   // fila se suman hasta pasarse del timeout del proxy inverso (mismo motivo que en
   // listGaleriaFolders). En paralelo el coste es ~un viaje, no la suma.
-  const stats = await Promise.all(utiles.map((u) => fs.stat(path.join(abs, u.name)).catch(() => null)));
+  //
+  // De paso se lee la carpeta `.proxy` del nivel: UNA lectura para saber qué piezas ya tienen
+  // copia hecha, sin importar cuántos archivos haya. La alternativa —un stat por pieza— sería
+  // un viaje de red por archivo, y dejarlo para el navegador (pedir la imagen y ver si da
+  // 404) sale aún más caro y encima parpadea.
+  const [stats, proxies] = await Promise.all([
+    Promise.all(utiles.map((u) => fs.stat(path.join(abs, u.name)).catch(() => null))),
+    fs
+      .readdir(path.join(abs, PROXY_DIR_NAME))
+      .then((n) => new Set(n))
+      .catch(() => new Set<string>()), // sin carpeta .proxy: nada fabricado todavía
+  ]);
+  // ¿Está la miniatura de esta pieza? Depende de qué necesite (ver thumbSourceRel): un JPG se
+  // pinta solo, un RAW necesita su .webp y un video su póster.
+  const tieneMiniatura = (name: string, kind: GaleriaKind | "doc"): boolean => {
+    if (kind === "doc") return false;
+    if (kind === "video") return proxies.has(`${name}.poster.jpg`);
+    return needsProxy(name) ? proxies.has(`${name}.webp`) : true;
+  };
   const carpetas: GaleriaNivelCarpeta[] = [];
   const archivos: GaleriaNivelArchivo[] = [];
   utiles.forEach((u, i) => {
     const st = stats[i];
     if (!st) return; // desapareció entre readdir y stat
     if (u.dir) carpetas.push({ rel: u.rel, name: u.name, mtimeMs: st.mtimeMs });
-    else if (u.kind) archivos.push({ rel: u.rel, name: u.name, kind: u.kind, size: st.size, mtimeMs: st.mtimeMs });
+    else if (u.kind)
+      archivos.push({
+        rel: u.rel,
+        name: u.name,
+        kind: u.kind,
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        miniatura: tieneMiniatura(u.name, u.kind),
+      });
   });
   // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);
   // archivos por fecha, lo más nuevo arriba — el export recién hecho es lo que se busca.

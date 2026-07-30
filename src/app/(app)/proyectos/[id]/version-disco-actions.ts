@@ -38,7 +38,9 @@ const accessSelect = {
 // `doc` = papel del proyecto (guion, PDF, hoja): se ve y se sube, pero no va a revisión
 // (la sala solo reproduce fotos y video; resolveGaleriaFile lo rechaza de todos modos).
 export type NivelCarpeta = { rel: string; name: string };
-export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number };
+// `miniatura`: si su fotograma ya está fabricado. Lo dice el servidor mirando el disco, para
+// que el selector no pida imágenes que van a dar 404 mientras la fábrica va por detrás.
+export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number; miniatura: boolean };
 export type NivelResultado =
   | {
       ok: true;
@@ -95,7 +97,14 @@ export async function nivelDeCarpetaCliente(projectId: string, rel?: string | nu
       base: base.rel,
       rel: destino,
       carpetas: nivel.carpetas.map((c) => ({ rel: c.rel, name: c.name })),
-      piezas: nivel.archivos.map((a) => ({ rel: a.rel, name: a.name, video: a.kind === "video", doc: a.kind === "doc", mtimeMs: a.mtimeMs })),
+      piezas: nivel.archivos.map((a) => ({
+        rel: a.rel,
+        name: a.name,
+        video: a.kind === "video",
+        doc: a.kind === "doc",
+        mtimeMs: a.mtimeMs,
+        miniatura: a.miniatura,
+      })),
       escritura: session.role !== "demo" && hasPermission(session, "escribir_discos"),
       proyecto: proyecto ? { rel: proyecto.rel, existe: proyecto.existe } : null,
     };
