@@ -29,6 +29,7 @@ import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { QuickAdd } from "./quick-add";
 import { NextUpHero, TimerRowButton, type HeroTask, type HeroTimer } from "./next-up";
 import { SwipeTaskRow } from "./swipe-row";
+import { SeleccionProvider, CasillaTarea } from "./seleccion";
 import { Lock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -268,7 +269,10 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
             // «Asignada por». En escritorio (sm+) todo vuelve a UNA línea.
             <div key={t.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4", compacta ? "py-1.5" : "py-3", URGENCY_META[u.state].row)}>
               {/* Renglón 1 (móvil): estrella + título/proyecto a TODO el ancho. */}
-              <div className="flex w-full min-w-0 items-start gap-3 sm:w-auto sm:flex-1 sm:items-center">
+              <div className="flex w-full min-w-0 items-start gap-2.5 sm:w-auto sm:flex-1 sm:items-center">
+              {/* La casilla del lote va antes de la estrella: es el punto de entrada de las
+                  acciones en bloque, así que tiene que verse sin pasar el ratón por encima. */}
+              <CasillaTarea id={t.id} />
               <MyDayToggle taskId={t.id} initial={myDayPos.has(t.id)} />
               <div className="min-w-0 flex-1">
                 {t.project ? (
@@ -416,6 +420,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   );
 
   const list = (
+    // El lote envuelve SOLO la lista y «Mi día»: en Completadas no hay nada que posponer.
+    <SeleccionProvider ids={listTasks.map((t) => t.id)} statusOptions={statusOptions}>
     <div className="space-y-5">
       <QuickAdd />
       <TaskFilters statusOptions={statusOptions} priorityOptions={priorityOptions} projectOptions={projectOptions} clientOptions={clientOptions} hasPersonal={hasPersonal} initialViews={savedViews} />
@@ -434,6 +440,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         ))
       )}
     </div>
+    </SeleccionProvider>
   );
 
   const doneList = fCliente ? doneTasks.filter((t) => t.project?.client?.id === fCliente) : doneTasks;
@@ -501,6 +508,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     .slice(0, 6);
 
   const miDia = (
+    <SeleccionProvider ids={miDayTasks.map((t) => t.id)} statusOptions={statusOptions}>
     <div className="space-y-4">
       <QuickAdd placeholder="Añadir a hoy… «Llamar a LATINOLOGIA 3pm 30m» y Enter" />
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -533,6 +541,7 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
     </div>
+    </SeleccionProvider>
   );
 
   return (

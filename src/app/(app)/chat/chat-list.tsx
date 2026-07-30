@@ -8,7 +8,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { Hash, Lock, Users, Plus, ChevronRight, Building2, BellOff, Pin, MessagesSquare, AtSign, Zap, CheckCircle2, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador } from "@/components/ui/barra-menu";
+import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { createChannel, toggleChannelPin, searchMessages, openDirectMessage, type MessageSearchHit } from "./actions";
 import { CHAT_SECTIONS } from "@/lib/chat-section";
 import type { ChatListData, ChatListRow } from "./list-data";
@@ -42,9 +42,16 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<Filter>("all");
   // Dos opciones del menú ⚙: quitarse de encima los silenciados, y volver al orden puro por fecha
-  // (que apaga el bloque «Requiere respuesta» — es justo lo que lo rompe).
-  const [ocultarSilenciados, setOcultarSilenciados] = React.useState(false);
-  const [ordenPorFecha, setOrdenPorFecha] = React.useState(false);
+  // (que apaga el bloque «Requiere respuesta» — es justo lo que lo rompe). Las dos se RECUERDAN
+  // (extra 2): son preferencias de cómo lees tus chats, no algo que se elija en cada visita.
+  // El tipo se anota: si no, TypeScript deduce el literal "0" del valor inicial y "1" no encaja.
+  const [silenciadosPref, setSilenciadosPref] = usePreferenciaLocal<"0" | "1">("chat:ocultar-silenciados", "0");
+  const [ordenPref, setOrdenPref] = usePreferenciaLocal<"0" | "1">("chat:orden-fecha", "0");
+  const ocultarSilenciados = silenciadosPref === "1";
+  const ordenPorFecha = ordenPref === "1";
+  const setOcultarSilenciados = (v: boolean | ((p: boolean) => boolean)) =>
+    setSilenciadosPref((typeof v === "function" ? v(ocultarSilenciados) : v) ? "1" : "0");
+  const setOrdenPorFecha = (v: boolean) => setOrdenPref(v ? "1" : "0");
   // Búsqueda server-side EN los mensajes (se dispara a mano; el filtro de conversaciones es en vivo).
   const [hits, setHits] = React.useState<MessageSearchHit[] | null>(null);
   const [seeking, setSeeking] = React.useState(false);

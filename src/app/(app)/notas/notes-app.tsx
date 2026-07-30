@@ -4,7 +4,7 @@ import * as React from "react";
 import { Plus, Trash2, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter } from "lucide-react";
 import { IconNotas, IconPapelera, IconTareas } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador } from "@/components/ui/barra-menu";
+import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
 import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
@@ -141,7 +141,9 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   const [isNew, setIsNew] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [catFilter, setCatFilter] = React.useState<string | null>(null);
-  const [groupBy, setGroupBy] = React.useState<GroupBy>("cliente");
+  // La agrupación se RECUERDA (extra 2): es una preferencia de cómo miras tus notas, no algo que
+  // se elija cada vez. Vive en el navegador porque no hay nada que compartir en un enlace.
+  const [groupBy, setGroupBy] = usePreferenciaLocal<GroupBy>("notas:agrupar", "cliente");
   // Dos filtros nuevos que la lista ya podía dar y no daba: las fijadas suben arriba, pero con
   // ochenta notas eso no basta; y un recordatorio puesto es justo lo que se quiere repasar.
   const [soloFijadas, setSoloFijadas] = React.useState(false);
