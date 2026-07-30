@@ -211,8 +211,10 @@ export function PipelineView({ cols, allStatuses, projects }: { cols: StatusCol[
           );
         })}
       </div>
+      {/* Solo en escritorio: el arrastre HTML5 no responde al dedo, así que en el teléfono esta
+          pista miente y encima ocupa. Ahí el camino es la píldora de estado de la Tabla. */}
       {anyMovable ? (
-        <p className="mt-1 text-[11px] text-muted-foreground">Arrastra una tarjeta a otra columna para cambiar su estado (o usa la píldora de estado en la Tabla).</p>
+        <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">Arrastra una tarjeta a otra columna para cambiar su estado (o usa la píldora de estado en la Tabla).</p>
       ) : null}
     </div>
   );

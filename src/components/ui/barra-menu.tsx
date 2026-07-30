@@ -126,6 +126,12 @@ export function MenuBarra({
 // Acepta `href` (navega, para pantallas que filtran en el servidor) u `onClick` (estado de
 // cliente). En los dos casos el menú se cierra al elegir. La marca ✓ ocupa sitio incluso cuando
 // no está puesta, para que las etiquetas queden alineadas y la lista no baile al cambiar de opción.
+//
+// `multiple` cambia el ✓ por una CASILLA cuadrada. No es cosmética: el ✓ significa «de este grupo
+// está elegido este», y en un grupo donde se pueden acumular varios (los estados de /proyectos)
+// diría una mentira — verías dos ✓ en una lista que en las demás pantallas es de uno solo. La
+// casilla cuadrada es la convención de «puedes marcar varias» y la que ya usaba el desplegable
+// de filtros de Proyectos antes de esta barra.
 export function MenuOpcion({
   activa = false,
   icono,
@@ -134,6 +140,7 @@ export function MenuOpcion({
   onClick,
   peligro = false,
   marca = true,
+  multiple = false,
   children,
 }: {
   activa?: boolean;
@@ -145,6 +152,7 @@ export function MenuOpcion({
   onClick?: () => void;
   peligro?: boolean;
   marca?: boolean;
+  multiple?: boolean;
   children: React.ReactNode;
 }) {
   const clase = cn(
@@ -155,7 +163,20 @@ export function MenuOpcion({
   const dentro = (
     <>
       {marca ? (
-        activa ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />
+        multiple ? (
+          <span
+            className={cn(
+              "flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border",
+              activa ? "border-primary bg-primary text-primary-foreground" : "border-border",
+            )}
+          >
+            {activa ? <Check className="size-2.5" /> : null}
+          </span>
+        ) : activa ? (
+          <Check className="size-3.5 shrink-0" />
+        ) : (
+          <span className="size-3.5 shrink-0" />
+        )
       ) : null}
       {icono ? (
         <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icono}</span>
@@ -191,12 +212,18 @@ export function MenuSeparador() {
 // ── Pastilla de filtro puesto ──────────────────────────────────────────────────
 // El precio de esconder los mandos es que un filtro puede quedar activo sin que se vea. Esto lo
 // paga: cada filtro puesto sale como pastilla con ✕, y quitarlo es un clic.
+// `etiqueta` es lo que se ANUNCIA: «Quitar el filtro En revisión». Sin ella el aria-label decía
+// «Quitar este filtro» y, al pisar el contenido visible, un lector de pantalla leía la misma frase
+// tantas veces como filtros hubiera puestos, sin decir cuál era cuál. Se acepta como texto aparte
+// porque `children` puede traer marcado (avatar + nombre) y no siempre se puede leer como cadena.
 export function ChipFiltro({
   children,
+  etiqueta,
   href,
   onQuitar,
 }: {
   children: React.ReactNode;
+  etiqueta?: string;
   href?: string;
   onQuitar?: () => void;
 }) {
@@ -208,10 +235,11 @@ export function ChipFiltro({
   );
   const clase =
     "inline-flex max-w-[14rem] items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/20";
+  const rotulo = etiqueta ? `Quitar el filtro ${etiqueta}` : "Quitar este filtro";
   return href ? (
-    <Link href={href} className={clase} aria-label="Quitar este filtro">{cuerpo}</Link>
+    <Link href={href} className={clase} aria-label={rotulo}>{cuerpo}</Link>
   ) : (
-    <button type="button" className={clase} onClick={onQuitar} aria-label="Quitar este filtro">{cuerpo}</button>
+    <button type="button" className={clase} onClick={onQuitar} aria-label={rotulo}>{cuerpo}</button>
   );
 }
 
@@ -224,6 +252,11 @@ export type TramoResumen = {
   label: string;
   valor: number;
   tono?: "neutro" | "rose" | "amber" | "sky" | "teal" | "violet" | "emerald";
+  // Clases de color PROPIAS, que ganan a `tono`. Existe por los estados de proyecto: su etiqueta y
+  // su color son configurables por el estudio (OrgSettings → statusMeta), así que forzarlos a esta
+  // paleta fija pintaría en la franja un color distinto del que lleva ese mismo estado en la
+  // píldora de al lado. El anillo de «activo» usa currentColor y sigue funcionando con cualquiera.
+  clase?: string;
   href?: string;
   // OJO: `onClick` solo desde componentes de CLIENTE — una función no cruza la frontera
   // servidor→cliente. Una pantalla del servidor (como /revisiones) pasa `href`.
@@ -249,7 +282,7 @@ export function FranjaResumen({ tramos, className }: { tramos: TramoResumen[]; c
       {conAlgo.map((t) => {
         const clase = cn(
           "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium transition-colors",
-          TRAMO_TONO[t.tono ?? "neutro"],
+          t.clase ?? TRAMO_TONO[t.tono ?? "neutro"],
           t.activo && "ring-1 ring-current",
         );
         const cuerpo = (
