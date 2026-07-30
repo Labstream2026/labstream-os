@@ -31,7 +31,8 @@ export function EntregasCompartidas({ entregas }: { entregas: EntregaVista[] }) 
   const vivas = entregas.filter((e) => !e.huerfana);
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    // El id es el ancla del pie del índice («Entregas compartidas →»): un clic baja hasta aquí.
+    <section id="entregas-compartidas" className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       {/* Cabecera con la misma identidad que los desplegables del Resumen del proyecto:
           tile de color + dato clave legible SIN abrir (cuántas, visitas, huérfanas). */}
       <button

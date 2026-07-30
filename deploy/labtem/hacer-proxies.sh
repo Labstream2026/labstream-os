@@ -680,9 +680,19 @@ hacer_tira() { # origen, destino, duración, códec-de-entrada, ancho, alto
 jpeg_incrustado() { # origen, destino  → 0 si dejó un JPEG utilizable
   local src="$1" out="$2" o fin len pares=""
   for o in $(LC_ALL=C grep -aboP '\xff\xd8\xff' "$src" 2>/dev/null | cut -d: -f1); do
-    # `-m1` corta en cuanto encuentra el final: no hay que recorrer el resto del archivo.
-    fin=$(LC_ALL=C tail -c "+$((o + 1))" "$src" 2>/dev/null | LC_ALL=C grep -aboPm1 '\xff\xd9' | cut -d: -f1)
-    [ -n "$fin" ] && pares="${pares}$((fin + 2)) $o
+    # `-m1` corta tras la primera LÍNEA con coincidencia, no tras la primera coincidencia:
+    # con `-o`, si esa línea trae varias, las imprime TODAS. Y en datos binarios apenas hay
+    # saltos de línea, así que una «línea» son megas enteros. Sin el `head -n1` de abajo,
+    # `fin` llegaba a valer «5734\n5959\n6634», la aritmética de la línea siguiente
+    # reventaba y —esto es lo grave— se llevaba por delante el bucle del recorrido: la
+    # pasada terminaba anunciando «Fin» tan tranquila, con 102 de 449 fotos hechas.
+    fin=$(LC_ALL=C tail -c "+$((o + 1))" "$src" 2>/dev/null | LC_ALL=C grep -aboPm1 '\xff\xd9' | cut -d: -f1 | head -n1)
+    # Y aunque ya no debería llegar nada raro, no se hace aritmética con lo que venga de un
+    # archivo sin comprobarlo antes: un original corrupto no puede tumbar la noche entera.
+    case "$fin" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    pares="${pares}$((fin + 2)) $o
 "
   done
   [ -n "$pares" ] || return 1
@@ -789,7 +799,14 @@ OMITIDOS=0; FALLOS_N=0; VISTOS=0; FALLOS_QSV=0
 # basura de Synology/macOS/Windows y TODO lo que empiece por punto — ahí entra
 # `.proxy`, y sin esa poda acabaríamos haciendo copias de las copias.
 # `-mmin +N` deja fuera lo que aún se está copiando por SMB.
-while IFS= read -r -d '' f; do
+#
+# La lista llega por el DESCRIPTOR 9, no por la entrada estándar, y eso no es manía: con
+# `done < <(find …)` la entrada del bucle es la lista, y **la heredan todos los programas
+# que se lancen dentro**. Basta que uno lea de su entrada para que se coma las rutas que
+# quedaban, y el recorrido termina antes de tiempo sin decir ni una palabra —pasó: 449
+# fotos en el disco, `find` las devolvía todas, y la pasada se paraba en 102 con cara de
+# haber acabado bien—. Con un descriptor propio, lo que hagan los hijos da igual.
+while IFS= read -r -d '' -u 9 f; do
   if [ "$LIMITE" -gt 0 ] && [ "$VISTOS" -ge "$LIMITE" ]; then
     log "Tope de $LIMITE archivos alcanzado; el resto queda para la próxima pasada."
     break
@@ -809,7 +826,7 @@ while IFS= read -r -d '' f; do
       procesar_foto "$f" || FALLOS_N=$((FALLOS_N+1))
       continue;;
   esac
-done < <(find "$DESTINO" \
+done 9< <(find "$DESTINO" \
            \( -name '@eaDir' -o -name '#recycle' -o -name '#snapshot' -o -name '.*' \) -prune -o \
            -type f -mmin +"$MIN_EDAD_MIN" -print0 2>/dev/null | sort -z)
 

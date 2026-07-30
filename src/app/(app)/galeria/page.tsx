@@ -4,9 +4,11 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { db } from "@/lib/db";
-import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, normalizeGaleriaRel } from "@/lib/nas-galeria";
+import { galeriaEnabled, galeriaReady, galeriaWritable, galeriaDiskUsage, listGaleriaFolders, normalizeGaleriaRel } from "@/lib/nas-galeria";
 import { opsEnabled } from "@/lib/nas-ops";
+import { daysSince, diskNeedsCheck, DISK_KIND_LABEL } from "@/lib/material-health";
 import { DiscoTabs } from "@/components/discos/disco-tabs";
+import { CabeceraDisco } from "@/components/discos/cabecera-disco";
 import { GaleriaCliente } from "./galeria-cliente";
 import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
 import { EntregasCompartidas } from "./entregas-compartidas";
@@ -104,9 +106,35 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   const niveles = await espinaDelArbol(relNorm);
   const duenosArbol = await duenosDeRamas(niveles);
 
+  // La cabecera del disco: registro de la Biblioteca + ocupación EN VIVO. Solo en la raíz —
+  // dentro de una entrega manda el material, y la cabecera repetida sería ruido.
+  const [disco, uso] = relNorm
+    ? [null, null]
+    : await Promise.all([db.storageDisk.findFirst({ where: { mountKey: "GALERIA" } }).catch(() => null), galeriaDiskUsage()]);
+  const now = new Date();
+
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
       <DiscoTabs activo="galeria" hayOps={opsEnabled()} hayGaleria />
+      {disco ? (
+        <CabeceraDisco
+          nombre={disco.name}
+          color={disco.color}
+          kindLabel={DISK_KIND_LABEL[disco.kind] ?? disco.kind}
+          montado
+          ubicacion={disco.location}
+          lastCheckDays={daysSince(disco.lastCheckAt, now)}
+          pideCheck={diskNeedsCheck({
+            kind: disco.kind,
+            status: disco.status,
+            lastCheckDays: daysSince(disco.lastCheckAt, now),
+            ageDays: daysSince(disco.createdAt, now),
+          })}
+          usedGB={uso?.usedGB ?? disco.usedGB}
+          totalGB={uso?.totalGB ?? disco.capacityGB}
+          enVivo={Boolean(uso)}
+        />
+      ) : null}
       <div className="flex flex-col gap-5 md:flex-row">
       <ArbolGaleria rel={relNorm} niveles={niveles} duenos={duenosArbol} />
       <div className="min-w-0 flex-1">

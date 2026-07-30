@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
 import { HardDrive } from "lucide-react";
 import { getSession } from "@/lib/auth";
-import { opsEnabled, opsReady } from "@/lib/nas-ops";
+import { db } from "@/lib/db";
+import { opsEnabled, opsReady, opsDiskUsage } from "@/lib/nas-ops";
 import { galeriaEnabled } from "@/lib/nas-galeria";
 import { onlyofficeReady } from "@/lib/onlyoffice";
+import { daysSince, diskNeedsCheck, DISK_KIND_LABEL } from "@/lib/material-health";
 import { DiscoTabs } from "@/components/discos/disco-tabs";
+import { CabeceraDisco } from "@/components/discos/cabecera-disco";
 import { OpsExplorer } from "./ops-explorer";
 
 export const dynamic = "force-dynamic";
@@ -36,13 +39,42 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
     );
   }
 
+  // La cabecera del disco: los datos de su registro en la Biblioteca + la ocupación EN VIVO
+  // (statfs del montaje). Si el disco no está dado de alta, la pantalla funciona igual sin
+  // cabecera: el explorador no depende de que exista la fila.
+  const [disco, uso, ooReady] = await Promise.all([
+    db.storageDisk.findFirst({ where: { mountKey: "OPS" } }).catch(() => null),
+    opsDiskUsage(),
+    onlyofficeReady(),
+  ]);
+  const now = new Date();
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
       <DiscoTabs activo="operaciones" hayOps hayGaleria={galeriaEnabled()} />
+      {disco ? (
+        <CabeceraDisco
+          nombre={disco.name}
+          color={disco.color}
+          kindLabel={DISK_KIND_LABEL[disco.kind] ?? disco.kind}
+          montado
+          ubicacion={disco.location}
+          lastCheckDays={daysSince(disco.lastCheckAt, now)}
+          pideCheck={diskNeedsCheck({
+            kind: disco.kind,
+            status: disco.status,
+            lastCheckDays: daysSince(disco.lastCheckAt, now),
+            ageDays: daysSince(disco.createdAt, now),
+          })}
+          usedGB={uso?.usedGB ?? disco.usedGB}
+          totalGB={uso?.totalGB ?? disco.capacityGB}
+          enVivo={Boolean(uso)}
+        />
+      ) : null}
       <OpsExplorer
         initialPath={path || ""}
         canWrite={session.role !== "demo"}
-        ooReady={await onlyofficeReady()}
+        ooReady={ooReady}
       />
     </div>
   );

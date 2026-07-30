@@ -314,9 +314,10 @@ export function GaleriaCliente({
             {nivel.carpetas.length > 0 && (
               <section className="mb-8">
                 <Rotulo texto="Carpetas" n={nivel.carpetas.length} />
-                {/* Las mismas tarjetas que el índice de entregas: portada, cuántas piezas y
-                    cuánto pesa. Una subcarpeta se mira igual que una entrega, a cualquier hondura. */}
-                <IndiceCarpetas folders={nivel.carpetas} duenos={duenos} onAbrir={abrirCarpeta} />
+                {/* Las mismas fichas que el índice de entregas (color del cliente, piezas y
+                    peso), pero SIN su tarjeta ni su buscador: este nivel ya tiene su barra
+                    arriba, y dos buscadores en una pantalla confunden más de lo que ayudan. */}
+                <IndiceCarpetas folders={nivel.carpetas} duenos={duenos} onAbrir={abrirCarpeta} variante="seccion" />
               </section>
             )}
             {itemsNivelVisibles.length > 0 && (
