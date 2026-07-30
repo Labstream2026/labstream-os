@@ -77,6 +77,18 @@ HLS_TROZO="${HLS_TROZO:-6}"
 
 # Poster: al 15 % de la duración, nunca el primer fotograma (negro o claqueta).
 POSTER_ANCHO="${POSTER_ANCHO:-1280}"
+# ── El casting del póster ──────────────────────────────────────────────────────
+# El filtro `thumbnail` elige bien DENTRO de una ventana de dos segundos, pero no sabe qué
+# es una cara: en el material del estudio (busto parlante casi todo) salía el gesto raro, el
+# parpadeo o la espalda. Ahora se reparten varios candidatos POR TODO el video y gana el que
+# tenga la cara más grande — detectada con pigo (github.com/esimov/pigo, MIT), un binario
+# estático que tarda ~0,16 s por imagen. Sin detector a mano (o sin cara en todo el video),
+# se cae al método de siempre: nadie se queda sin póster por esto.
+PIGO="${PIGO:-/estado/bin/pigo}"
+PIGO_CASCADA="${PIGO_CASCADA:-/estado/bin/facefinder}"
+CASTING_CANDIDATOS="${CASTING_CANDIDATOS:-8}"
+# Una cara de menos de esta fracción del alto es un figurante al fondo, no el sujeto.
+CASTING_CARA_MIN_PCT="${CASTING_CARA_MIN_PCT:-9}"
 # Tira de previsualización: 20 fotogramas en UNA fila. Número FIJO a propósito: así
 # el CSS la coloca por porcentaje sin leer un JSON ni saber el tamaño real.
 TIRA_FOTOGRAMAS="${TIRA_FOTOGRAMAS:-20}"
@@ -299,11 +311,21 @@ procesar_video() { # ruta absoluta
 
   # Salida rápida: si las tres piezas están resueltas, el archivo ni se abre. Esto es
   # lo que hace que la segunda noche dure minutos en vez de días.
-  local falta_mp4=0 falta_poster=0 falta_tira=0
+  local hls="$pd/$base.hls"
+  local falta_mp4=0 falta_poster=0 falta_tira=0 falta_hls=0
   al_dia "$mp4"    "$src" || falta_mp4=1
   al_dia "$poster" "$src" || falta_poster=1
   al_dia "$tira"   "$src" || falta_tira=1
-  if [ $falta_mp4 = 0 ] && [ $falta_poster = 0 ] && [ $falta_tira = 0 ]; then
+  # La escalera entra en esta cuenta, y no es un detalle: estaba solo más abajo, DESPUÉS de
+  # esta salida rápida, así que a un video que ya tenía copia, póster y tira no se le
+  # llegaba a mirar nunca. Con la biblioteca ya fabricada eso significa que no se generaría
+  # ni una escalera jamás —solo para material nuevo—, que es justo lo que pasaba.
+  # La marca `.omitido` va HERMANA de la carpeta (`<nombre>.hls.omitido`), no dentro: una
+  # carpeta `.hls` con algo suelto se parece demasiado a una escalera de verdad.
+  if [ "$HACER_HLS" = "1" ]; then
+    al_dia "$hls/master.m3u8" "$src" || al_dia "$hls" "$src" || falta_hls=1
+  fi
+  if [ $falta_mp4 = 0 ] && [ $falta_poster = 0 ] && [ $falta_tira = 0 ] && [ $falta_hls = 0 ]; then
     OMITIDOS=$((OMITIDOS+1)); return 0
   fi
 
@@ -385,18 +407,29 @@ procesar_video() { # ruta absoluta
   # hecho es lo que hace falta para que la galería se vea. El HLS es la mejora, no la base.
   # Se salta en clips cortos (no da tiempo ni a medir la red) y no cuenta como fallo si no
   # sale: el MP4 sigue sirviendo el video igual, solo que sin adaptar.
-  if [ "$HACER_HLS" = "1" ] && [ "$SOLO_LISTAR" != "1" ]; then
-    local hls="$pd/$base.hls"
+  if [ "$HACER_HLS" = "1" ] && [ "$SOLO_LISTAR" != "1" ] && [ $falta_hls = 1 ]; then
     local largo
     largo=$(awk -v d="${dur:-0}" 'BEGIN{printf "%d", d+0}')
-    if [ "$largo" -ge "$HLS_MIN_SEG" ] 2>/dev/null && { [ "$FORZAR" = "1" ] || [ ! -f "$hls/master.m3u8" ] || [ "$src" -nt "$hls/master.m3u8" ]; }; then
-      local gop_hls
+    if [ "$largo" -lt "$HLS_MIN_SEG" ] 2>/dev/null; then
+      # Se deja constancia: sin esto, cada noche se volvería a sondear el mismo clip corto
+      # para volver a decidir lo mismo, y con la biblioteca entera eso son miles de sondeos.
+      marcar "$hls" omitido "clip de ${largo}s: por debajo de ${HLS_MIN_SEG}s no da tiempo ni a medir la red"
+    else
+      local gop_hls rc
       gop_hls=$(awk -v r="${rfr:-25}" -v s="$HLS_TROZO" 'BEGIN{split(r,a,"/"); f=(a[2]&&a[2]+0>0?a[1]/a[2]:a[1]+0); if(f<=0||f>1000)f=25; g=int(f*s+0.5); if(g<24)g=24; if(g>360)g=360; print g}')
       log "  ⇢ escalera HLS de $base"
-      if hacer_hls "$src" "$hls" "$gop_hls" "$vcodec" "$w" "$h"; then
+      hacer_hls "$src" "$hls" "$gop_hls" "$vcodec" "$w" "$h"; rc=$?
+      if [ $rc = 0 ]; then
         CREADOS_HLS=$((CREADOS_HLS+1))
+      elif [ $rc = 2 ]; then
+        # NO APLICA (no da para dos calidades distintas, o es un códec que la GPU no
+        # decodifica). Es una decisión firme sobre este material, no un tropiezo: se marca
+        # para no repetir el análisis cada noche.
+        marcar "$hls" omitido "el original no da para dos calidades distintas; el MP4 lo cubre"
+        log "    ↳ no aplica escalera; el MP4 sigue sirviendo"
       else
-        log "    ↳ sin escalera (no aplica o no salió); el MP4 sigue sirviendo"
+        # Falló de verdad: NO se marca, para que la próxima pasada lo reintente.
+        log "    ↳ la escalera no salió; se reintentará. El MP4 sigue sirviendo"
       fi
     fi
   fi
@@ -514,8 +547,11 @@ hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
 
   # Solo con decodificación por GPU: con decodificación por software, tres escalados y
   # tres codificaciones a la vez ponen la CPU de rodillas y la madrugada no alcanza.
-  case "$vcodec" in h264|hevc|vp9|mpeg2video|vc1) ;; *) return 1 ;; esac
-  [ "$vw" -gt 0 ] 2>/dev/null && [ "$vh" -gt 0 ] 2>/dev/null || return 1
+  # Dos salidas distintas, y quien llama las trata distinto:
+  #   2 = NO APLICA a este material (decisión firme → se marca y no se vuelve a analizar)
+  #   1 = lo intenté y falló (→ no se marca, la próxima pasada lo reintenta)
+  case "$vcodec" in h264|hevc|vp9|mpeg2video|vc1) ;; *) return 2 ;; esac
+  [ "$vw" -gt 0 ] 2>/dev/null && [ "$vh" -gt 0 ] 2>/dev/null || return 2
 
   # Peldaños candidatos: alto objetivo y tasa. El ancho sale de la forma del original.
   local escalones="1080:5000k 720:2500k 480:1000k"
@@ -545,7 +581,7 @@ hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
     n=$((n + 1))
   done
   # Con un solo peldaño no hay nada que adaptar: el MP4 ya cubre ese caso.
-  [ "$n" -ge 2 ] || return 1
+  [ "$n" -ge 2 ] || return 2
 
   # El audio se duplica una vez por variante: cada calidad lleva el suyo, que es lo que
   # espera `var_stream_map`.
@@ -597,8 +633,72 @@ caja_qsv() { # códec, ancho, alto, ancho_max, alto_max
   ANCHO_MAX="$4" ALTO_MAX="$5" caja "$2" "$3" 2>/dev/null
 }
 
+# ── El casting: elegir el fotograma del póster buscando la cara ────────────────
+# Reparte candidatos por TODO el video (esquivando arranque y cierre), detecta la cara más
+# grande de cada uno con pigo y se queda con el mejor. Los candidatos salen por software:
+# casi siempre vienen de la copia .mp4 ya reducida, y ocho fotogramas son baratos. Devuelve
+# 0 si eligió y escribió el póster; 1 si no hay detector, el clip es corto o nadie dio la
+# cara — y entonces el llamador sigue con el método de siempre. Nadie se queda sin póster.
+elegir_poster_con_cara() { # origen, destino, duración
+  local src="$1" dst="$2" dur="${3:-0}"
+  [ -x "$PIGO" ] && [ -s "$PIGO_CASCADA" ] || return 1
+  # Con menos de 8 s no hay dónde repartir candidatos: la ventana única de siempre basta.
+  awk -v d="$dur" 'BEGIN{ exit (d+0 >= 8 ? 0 : 1) }' || return 1
+
+  local esc pref="$ESTADO/.casting.$$" mejor_i="" mejor_cara=0 i t cara alto_img
+  esc=$(escala "$POSTER_ANCHO" "$POSTER_ANCHO")
+  rm -f "$pref".*
+
+  for i in $(seq 0 $((CASTING_CANDIDATOS - 1))); do
+    # Del 10 % al ~87 % de la duración: ni la claqueta del arranque ni el fundido final.
+    t=$(awk -v d="$dur" -v i="$i" -v n="$CASTING_CANDIDATOS" 'BEGIN{ if(n<2){printf "%.3f", d*0.15; exit} printf "%.3f", d*(0.10 + 0.77*i/(n-1)) }')
+    # `thumbnail=12` elige el fotograma más representativo de SU zona: esquiva el barrido
+    # de cámara y el fotograma movido antes de preguntar por caras.
+    if hay timeout; then
+      timeout -k 10 90 "$FFMPEG" -hide_banner -nostdin -y -loglevel error \
+        -ss "$t" -i "$src" -an -sn -dn \
+        -vf "thumbnail=12,${esc}" -frames:v 1 -q:v 3 "$pref.$i.jpg" 2>/dev/null || continue
+    else
+      "$FFMPEG" -hide_banner -nostdin -y -loglevel error \
+        -ss "$t" -i "$src" -an -sn -dn \
+        -vf "thumbnail=12,${esc}" -frames:v 1 -q:v 3 "$pref.$i.jpg" 2>/dev/null || continue
+    fi
+    [ -s "$pref.$i.jpg" ] || continue
+
+    # pigo exige un -out; se escribe a un descartable y fuera. El JSON trae x,y,size por cara.
+    "$PIGO" -in "$pref.$i.jpg" -cf "$PIGO_CASCADA" -json "$pref.$i.json" -out "$pref.$i.marcado.jpg" >/dev/null 2>&1
+    rm -f "$pref.$i.marcado.jpg"
+    cara=$(grep -o '"size":[0-9]*' "$pref.$i.json" 2>/dev/null | cut -d: -f2 | sort -rn | head -1)
+    cara="${cara:-0}"
+    if [ "$cara" -gt "$mejor_cara" ] 2>/dev/null; then
+      mejor_cara=$cara
+      mejor_i=$i
+    fi
+  done
+
+  # ¿La cara ganadora tiene cuerpo? Se mide contra el alto REAL del candidato (un vertical
+  # queda más alto que la caja): una carita al fondo no debe decidir el póster.
+  if [ -n "$mejor_i" ] && [ "$mejor_cara" -gt 0 ]; then
+    alto_img=$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$pref.$mejor_i.jpg" 2>/dev/null)
+    if awk -v c="$mejor_cara" -v h="${alto_img:-0}" -v p="$CASTING_CARA_MIN_PCT" 'BEGIN{ exit (h>0 && c*100 >= h*p ? 0 : 1) }'; then
+      local tmp="${dst}.tmp$$.jpg"
+      if cp "$pref.$mejor_i.jpg" "$tmp" 2>/dev/null && mv "$tmp" "$dst" 2>/dev/null; then
+        rm -f "$pref".*
+        log "  (póster) cara encontrada: candidato $((mejor_i + 1))/$CASTING_CANDIDATOS, ${mejor_cara}px de cara"
+        return 0
+      fi
+      rm -f "$tmp"
+    fi
+  fi
+  rm -f "$pref".*
+  return 1
+}
+
 hacer_poster() { # origen, destino, duración, códec-de-entrada, ancho, alto
   local src="$1" dst="$2" dur="${3:-}" vcodec="${4:-}" vw="${5:-0}" vh="${6:-0}"
+  # Primero el casting: busca la cara por todo el video. Si no puede elegir (sin detector,
+  # clip corto, nadie de frente), se sigue con la ventana única de abajo.
+  if elegir_poster_con_cara "$src" "$dst" "$dur"; then return 0; fi
   # NUNCA el primer fotograma: casi siempre es negro, claqueta o el destello del
   # arranque de cámara. Se entra al 15 % (mínimo 1 s, máximo 60 s) y encima se deja
   # que el filtro `thumbnail` elija el más representativo de los 60 siguientes, que
