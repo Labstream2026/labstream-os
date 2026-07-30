@@ -46,27 +46,27 @@ if [ -s "$NUEVO" ] && ! cmp -s "$NUEVO" "$VIVO"; then
     # se queda apuntando al inodo viejo y huérfano: el host enseña la versión nueva y el
     # contenedor ejecuta la vieja, para siempre y sin avisar. Pasó de verdad.
     if cat "$NUEVO" > "$VIVO"; then
-      # Y aun así se comprueba, porque si el mount venía roto de antes esto tampoco lo
-      # arregla. La única prueba que vale es preguntarle al contenedor qué ve ÉL.
-      aqui=$(md5sum "$VIVO" | cut -d' ' -f1)
-      alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
-      if [ "$aqui" != "$alli" ]; then
-        nota "el contenedor veía otra versión (mount por inodo roto) → reiniciando"
-        "$DOCKER" restart "$CAJA" >/dev/null 2>&1
-        sleep 5
-        alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
-      fi
-      if [ "$aqui" = "$alli" ] && "$DOCKER" exec "$CAJA" bash -n /opt/hacer-proxies.sh 2>/dev/null; then
-        nota "instalado · $aqui"
-        rm -f "$NUEVO"
-      else
-        cat "$PREVIO" > "$VIVO"
-        nota "REVERTIDO: el contenedor no lo ve o no lo pudo analizar"
-      fi
+      nota "relevo escrito · $(md5sum "$VIVO" | cut -d' ' -f1)"
+      rm -f "$NUEVO"
     else
       nota "no se pudo escribir el pendiente (¿permisos?)"
     fi
   fi
+fi
+
+# ── Salud del montaje ────────────────────────────────────────────────────────
+# Esto va SIEMPRE, haya habido relevo o no, y por un caso concreto: si el mount se rompió
+# en algún momento, el host y el pendiente pueden estar ya iguales —nada que relevar— y el
+# contenedor seguir ejecutando la versión huérfana igualmente. Comprobarlo solo al instalar
+# dejaba justo ese agujero. La única prueba que vale es preguntarle al contenedor qué ve ÉL.
+aqui=$(md5sum "$VIVO" 2>/dev/null | cut -d' ' -f1)
+alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
+if [ -n "$aqui" ] && [ -n "$alli" ] && [ "$aqui" != "$alli" ]; then
+  nota "el contenedor ejecutaba otra versión (mount por inodo roto) → reiniciando"
+  "$DOCKER" restart "$CAJA" >/dev/null 2>&1
+  sleep 5
+  alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
+  if [ "$aqui" = "$alli" ]; then nota "arreglado: ya ve $aqui"; else nota "SIGUE SIN CUADRAR (host $aqui · contenedor $alli)"; fi
 fi
 
 # ── La pasada ────────────────────────────────────────────────────────────────
