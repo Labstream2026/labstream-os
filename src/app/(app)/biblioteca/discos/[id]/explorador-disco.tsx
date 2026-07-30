@@ -3,9 +3,11 @@
 import * as React from "react";
 import { Check, ChevronRight, Copy, Download, ExternalLink, Folder, LayoutGrid, List, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 import { usePreferenciaLocal } from "@/components/ui/barra-menu";
+import { tone } from "@/lib/colors";
 import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
-import { nivelDelDisco } from "../../explorar-actions";
+import { nivelDelDisco, type DuenoCarpeta } from "../../explorar-actions";
 import type { NivelEntrada } from "@/lib/disco-raiz";
 
 // Explorador de SOLO LECTURA de un disco montado, dentro de su ficha: se ve qué hay sin salir
@@ -115,6 +117,7 @@ export function ExploradorDisco({
   raizNombre,
   hrefBase,
   inicial,
+  duenosIniciales = {},
 }: {
   diskId: string;
   // Qué disco es, para pedir la miniatura a la ruta que le corresponde. Solo el de LabTem
@@ -128,6 +131,8 @@ export function ExploradorDisco({
   // La raíz ya viene LEÍDA del servidor: la ficha se pinta con contenido, sin el parpadeo de
   // «cargando…» que deja un hueco cada vez que se abre un disco.
   inicial: { carpetas: NivelEntrada[]; archivos: NivelEntrada[]; truncado: boolean };
+  // Los dueños de la raíz también vienen resueltos del servidor, por lo mismo.
+  duenosIniciales?: Record<string, DuenoCarpeta>;
 }) {
   const [rel, setRel] = React.useState("");
   const [carpetas, setCarpetas] = React.useState<NivelEntrada[]>(inicial.carpetas);
@@ -142,6 +147,8 @@ export function ExploradorDisco({
   // Lista para leer nombres, cuadrícula para reconocer fotogramas. Se recuerda por navegador:
   // quien busca material a ojo no debería volver a pedirlo cada vez que entra a un disco.
   const [vista, setVista] = usePreferenciaLocal<"lista" | "cuadricula">("disco-vista", "lista");
+  // De qué cliente es cada carpeta de este nivel (solo el disco de entregas las tiene).
+  const [duenos, setDuenos] = React.useState<Record<string, DuenoCarpeta>>(duenosIniciales);
 
   const cargar = React.useCallback(
     async (destino: string) => {
@@ -158,6 +165,7 @@ export function ExploradorDisco({
       setCarpetas(r.carpetas);
       setArchivos(r.archivos);
       setTruncado(r.truncado);
+      setDuenos(r.duenos);
     },
     [diskId],
   );
@@ -284,17 +292,26 @@ export function ExploradorDisco({
         <div className="space-y-3 p-3">
           {cVis.length > 0 ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-              {cVis.map((c) => (
-                <button
-                  key={c.rel}
-                  type="button"
-                  onClick={() => ir(c.rel)}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-left hover:bg-accent"
-                >
-                  <Folder className="size-4 shrink-0 text-[#F47A20]" />
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{c.name}</span>
-                </button>
-              ))}
+              {cVis.map((c) => {
+                const dueno = duenos[c.rel];
+                return (
+                  <button
+                    key={c.rel}
+                    type="button"
+                    onClick={() => ir(c.rel)}
+                    title={dueno ? `Carpeta de ${dueno.nombre}` : undefined}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left",
+                      dueno
+                        ? cn(tone(dueno.color ?? "slate").chip, "font-medium hover:brightness-95 dark:hover:brightness-110")
+                        : "border-border bg-muted/30 hover:bg-accent",
+                    )}
+                  >
+                    <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium">{c.name}</span>
+                  </button>
+                );
+              })}
             </div>
           ) : null}
           {aVis.length > 0 ? (
@@ -327,15 +344,35 @@ export function ExploradorDisco({
         </div>
       ) : (
         <ul className="divide-y divide-border">
-          {cVis.map((c) => (
-            <li key={c.rel}>
-              <button type="button" onClick={() => ir(c.rel)} className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-muted/60">
-                <Folder className="size-4 shrink-0 text-[#F47A20]" />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
-              </button>
-            </li>
-          ))}
+          {cVis.map((c) => {
+            const dueno = duenos[c.rel];
+            return (
+              <li key={c.rel} className="flex items-center hover:bg-muted/60">
+                <button type="button" onClick={() => ir(c.rel)} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left">
+                  <Folder className={cn("size-4 shrink-0", dueno ? "opacity-80" : "text-[#F47A20]")} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
+                  {/* La carpeta de un cliente se reconoce por SU color, el mismo de su ficha y
+                      sus proyectos: en la raíz del disco de entregas, eso ordena la pantalla
+                      sin leer un solo nombre. */}
+                  {dueno ? (
+                    <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-semibold", tone(dueno.color ?? "slate").chip)}>
+                      {dueno.nombre}
+                    </span>
+                  ) : null}
+                </button>
+                {dueno ? (
+                  <Link
+                    href={`/clientes/${dueno.id}`}
+                    title={`Abrir la ficha de ${dueno.nombre}`}
+                    className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </Link>
+                ) : null}
+                <ChevronRight className="mr-4 size-4 shrink-0 text-muted-foreground/60" />
+              </li>
+            );
+          })}
           {aVis.map((a) => {
             const u = urls(a);
             const on = sel?.rel === a.rel;

@@ -69,6 +69,21 @@ export default async function DiscoPage({ params }: { params: Promise<{ id: stri
   // La raíz del disco se lee AQUÍ, en el servidor: la ficha llega con las carpetas puestas.
   // Si el montaje falla justo ahora, la ficha sigue sirviendo (se cae solo el explorador).
   const nivelRaiz = montaje && montado ? await listarNivelMontaje(montaje, "").catch(() => null) : null;
+  // De qué cliente es cada carpeta de la raíz: en el disco de entregas, la raíz SON los
+  // clientes. Se resuelve aquí para que el primer pintado ya las traiga reconocibles, sin
+  // esperar a que el navegador vuelva a preguntar por lo que el servidor ya tenía delante.
+  const duenosRaiz: Record<string, { id: string; nombre: string; color: string | null }> = {};
+  if (montaje === "GALERIA" && nivelRaiz?.carpetas.length) {
+    const clientes = await db.client
+      .findMany({
+        where: { galeriaFolder: { in: nivelRaiz.carpetas.map((c) => c.rel) } },
+        select: { id: true, name: true, accentColor: true, galeriaFolder: true },
+      })
+      .catch(() => []);
+    for (const c of clientes) {
+      if (c.galeriaFolder) duenosRaiz[c.galeriaFolder] = { id: c.id, nombre: c.name, color: c.accentColor };
+    }
+  }
 
   const capacityGB = uso?.totalGB ?? disk.capacityGB;
   const usedGB = uso?.usedGB ?? disk.usedGB;
@@ -237,6 +252,7 @@ export default async function DiscoPage({ params }: { params: Promise<{ id: stri
             raizNombre={MOUNT_LABEL[montaje]}
             hrefBase={montaje === "OPS" ? "/operaciones?path=" : "/galeria?rel="}
             inicial={nivelRaiz}
+            duenosIniciales={duenosRaiz}
           />
         </section>
       ) : null}

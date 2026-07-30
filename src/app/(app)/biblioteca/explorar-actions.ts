@@ -13,8 +13,20 @@ import { listarNivelMontaje, mountReady } from "@/lib/disco-raiz-server";
 // El `rel` viene del navegador: lo valida el listador del montaje (normalize + realpath
 // contra la raíz), que es el mismo camino por el que pasan Operaciones y la Galería.
 
+// De qué CLIENTE es una carpeta, cuando lo es. En el disco de entregas las carpetas de la
+// raíz SON los clientes, y verlas como carpetas anónimas obliga a reconocerlas por el nombre
+// —que casi nunca coincide con cómo se llama el cliente en la app.
+export type DuenoCarpeta = { id: string; nombre: string; color: string | null };
+
 export type NivelResultado =
-  | { ok: true; rel: string; carpetas: NivelEntrada[]; archivos: NivelEntrada[]; truncado: boolean }
+  | {
+      ok: true;
+      rel: string;
+      carpetas: NivelEntrada[];
+      archivos: NivelEntrada[];
+      truncado: boolean;
+      duenos: Record<string, DuenoCarpeta>;
+    }
   | { error: string };
 
 export async function nivelDelDisco(diskId: string, rel: string): Promise<NivelResultado> {
@@ -30,7 +42,21 @@ export async function nivelDelDisco(diskId: string, rel: string): Promise<NivelR
 
   try {
     const nivel = await listarNivelMontaje(disk.mountKey, rel || "");
-    return { ok: true, rel: rel || "", carpetas: nivel.carpetas, archivos: nivel.archivos, truncado: nivel.truncado };
+    // Solo el disco de entregas tiene carpetas de cliente; en Operaciones la raíz es material
+    // de trabajo del estudio y preguntarle a la base por cada carpeta no devolvería nada.
+    const duenos: Record<string, DuenoCarpeta> = {};
+    if (disk.mountKey === "GALERIA" && nivel.carpetas.length > 0) {
+      const clientes = await db.client
+        .findMany({
+          where: { galeriaFolder: { in: nivel.carpetas.map((c) => c.rel) } },
+          select: { id: true, name: true, accentColor: true, galeriaFolder: true },
+        })
+        .catch(() => []);
+      for (const c of clientes) {
+        if (c.galeriaFolder) duenos[c.galeriaFolder] = { id: c.id, nombre: c.name, color: c.accentColor };
+      }
+    }
+    return { ok: true, rel: rel || "", carpetas: nivel.carpetas, archivos: nivel.archivos, truncado: nivel.truncado, duenos };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "No se pudo leer la carpeta." };
   }
