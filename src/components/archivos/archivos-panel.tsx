@@ -34,6 +34,9 @@ import {
   Pin,
   X,
   Undo2,
+  Plus,
+  ChevronDown,
+  SlidersHorizontal,
 } from "lucide-react";
 import { tone, TONES } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -106,6 +109,19 @@ export type AlcanceArchivos =
 
 type Agrupado = "origen" | "fecha" | "tipo" | "plano";
 
+// Una entrada extra del menú «Añadir», para lo que solo existe en un alcance (p. ej. «Nuevo
+// documento» y «Vincular carpeta del NAS», que son cosa del proyecto). Antes llegaban como
+// BOTONES ya hechos por `slotHerramientas` y se plantaban en la fila; ahora llegan como datos y
+// el panel decide dónde pintarlos — que es lo que permite recogerlos en el menú.
+export type AccionExtra = {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  // `true` = va al final, separada: lo que se usa una vez al año no compite con lo de cada día.
+  ocasional?: boolean;
+};
+
 export function ArchivosPanel({
   alcance,
   items,
@@ -118,7 +134,8 @@ export function ArchivosPanel({
   canEditMarca = false, // editar el material de marca (solo cliente)
   canChunked = false, // subida por trozos (>100 MB): solo equipo, nunca portal ni demo
   papelera = [], // archivos borrados que aún se pueden recuperar (solo alcance proyecto)
-  slotHerramientas = null, // p. ej. «Nuevo documento» + «Vincular carpeta del NAS» del proyecto
+  accionesExtra = [], // entradas EXTRA del menú «Añadir» (p. ej. Nuevo documento, Vincular carpeta del NAS)
+  slotHerramientas = null, // los formularios/paneles que esas acciones despliegan DEBAJO de la barra
   slotPie = null, // p. ej. los enlaces de subida por proyecto en la ficha del cliente
   ahora, // Date.now() del SERVIDOR: mantiene puro el render (filtro «lo último», grupos por fecha)
 }: {
@@ -133,6 +150,7 @@ export function ArchivosPanel({
   canEditMarca?: boolean;
   canChunked?: boolean;
   papelera?: ArchivoItem[];
+  accionesExtra?: AccionExtra[];
   slotHerramientas?: React.ReactNode;
   slotPie?: React.ReactNode;
   ahora: number;
@@ -360,6 +378,9 @@ export function ArchivosPanel({
 
   const inputCls = "min-w-40 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
   const vacio = items.length === 0 && !ops;
+  // ¿Hay algo que este usuario pueda AÑADIR? Si no, el primario no se pinta (un menú con una
+  // sola entrada, o vacío, es peor que no tenerlo).
+  const hayAcciones = canUpload || canLinks || canRutas || (canFolders && alcance.tipo === "proyecto") || accionesExtra.length > 0;
 
   const proyectosSelector = alcance.tipo === "cliente" ? alcance.proyectosEscribibles : [];
 
@@ -374,18 +395,64 @@ export function ArchivosPanel({
         </p>
       ) : null}
 
-      {/* Barra de acciones */}
-      {canUpload || canLinks || canRutas || canFolders || slotHerramientas ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {canUpload ? (
-            <ToolBtn active={tool === "upload"} onClick={() => flip("upload")} icon={Upload}>
-              {esCliente ? "Subir a un proyecto…" : "Subir archivos"}
-            </ToolBtn>
+      {/* ── UNA barra ──────────────────────────────────────────────────────────────
+          Antes había TRES filas apiladas con hasta 15 controles antes del primer
+          archivo: seis botones del mismo peso (subir un archivo pesaba igual que
+          vincular una carpeta del NAS), la fila de vista, y una fila entera de
+          pastillas de filtro ocupada de forma permanente para algo que casi siempre
+          está en «Todo».
+          Ahora: un primario «Añadir», el buscador (lo más usado, no se esconde) y dos
+          menús discretos. Ninguna función se pierde; están todas a un clic dentro. */}
+      {!vacio || hayAcciones ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {hayAcciones ? (
+            <MenuAnadir
+              esCliente={esCliente}
+              canUpload={canUpload}
+              canLinks={canLinks}
+              canRutas={canRutas}
+              canFolders={canFolders && alcance.tipo === "proyecto"}
+              accionesExtra={accionesExtra}
+              activa={tool}
+              onElegir={(t) => flip(t)}
+            />
           ) : null}
-          {canLinks ? <ToolBtn active={tool === "link"} onClick={() => flip("link")} icon={Link2}>Añadir enlace</ToolBtn> : null}
-          {canRutas ? <ToolBtn active={tool === "nas"} onClick={() => flip("nas")} icon={HardDrive}>Ruta de red (SMB)</ToolBtn> : null}
-          {canFolders ? <ToolBtn active={tool === "folder"} onClick={() => flip("folder")} icon={FolderPlus}>Nueva carpeta</ToolBtn> : null}
-          {slotHerramientas}
+
+          {!vacio ? (
+            <div className="relative min-w-40 flex-1 sm:max-w-72">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={esCliente && nProyectos > 0 ? `Buscar en ${nProyectos} ${nProyectos === 1 ? "proyecto" : "proyectos"}…` : "Buscar archivo…"}
+                className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          ) : null}
+
+          {/* Filtro puesto: UN chip con su ✕. Así se ve que estás filtrando sin gastar
+              una fila entera, que es lo que hacía la tira de pastillas. */}
+          {filtro !== "todo" ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/30 bg-primary/10 py-1 pl-2.5 pr-1 text-xs font-semibold text-primary">
+              {pastillas.find((x) => x.key === filtro)?.label ?? filtro}
+              <button type="button" onClick={() => setFiltro("todo")} aria-label="Quitar el filtro" className="rounded-full p-0.5 hover:bg-primary/20">
+                <X className="size-3" />
+              </button>
+            </span>
+          ) : null}
+
+          {!vacio ? (
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <MenuFiltro pastillas={pastillas} cuenta={cuenta} activo={filtro} onElegir={setFiltro} />
+              <MenuVista
+                esCliente={esCliente}
+                agrupado={agrupado}
+                onAgrupar={setAgrupado}
+                vista={vista}
+                onVista={cambiaVista}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -468,69 +535,9 @@ export function ArchivosPanel({
         </form>
       ) : null}
 
-      {/* Controles: buscador + agrupado + vista. UNA fila. */}
-      {!vacio ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-44 flex-1 sm:max-w-64">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={esCliente && nProyectos > 0 ? `Buscar en ${nProyectos} ${nProyectos === 1 ? "proyecto" : "proyectos"}…` : "Buscar archivo…"}
-              className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <select
-            value={agrupado}
-            onChange={(e) => setAgrupado(e.target.value as Agrupado)}
-            aria-label="Agrupar por"
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-muted-foreground"
-          >
-            <option value="origen">{esCliente ? "Agrupar: Proyecto" : "Agrupar: Carpeta"}</option>
-            <option value="fecha">Agrupar: Fecha</option>
-            <option value="tipo">Agrupar: Tipo</option>
-            <option value="plano">Sin agrupar</option>
-          </select>
-          <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border text-xs">
-            {([["lista", ListIcon], ["cuadricula", LayoutGrid]] as const).map(([v, Icon]) => (
-              <button
-                key={v}
-                type="button"
-                title={v === "lista" ? "Lista" : "Cuadrícula (miniaturas)"}
-                aria-pressed={vista === v}
-                onClick={() => cambiaVista(v)}
-                className={cn("px-2.5 py-1.5", vista === v ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted")}
-              >
-                <Icon className="size-4" />
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Pastillas de filtro: una sola fila, las vacías no se pintan. */}
-      {!vacio ? (
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
-          {pastillas.map((p) => {
-            const n = cuenta(p.key);
-            if (!n && p.key !== "todo") return null;
-            return (
-              <button
-                key={p.key}
-                type="button"
-                aria-pressed={filtro === p.key}
-                onClick={() => setFiltro(filtro === p.key ? "todo" : p.key)}
-                className={cn(
-                  "shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                  filtro === p.key ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                {p.label} <span className="opacity-60 tabular-nums">· {n}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {/* Los formularios que abren las acciones del menú se despliegan AQUÍ, debajo de la
+          barra: el menú se cierra al elegir y lo que aparece es el formulario, no otro botón. */}
+      {slotHerramientas}
 
       {/* Carpeta VIVA de Operaciones_LAB — ahora OBEDECE al buscador y a las pastillas. */}
       {ops ? <BloqueOps ops={ops} q={q} oculto={filtro !== "todo" && filtro !== "reciente"} /> : null}
@@ -733,21 +740,220 @@ export function ArchivosPanel({
 
 // ── Piezas ──────────────────────────────────────────────────────────────────────
 
-function ToolBtn({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+// ── Los tres menús de la barra ─────────────────────────────────────────────────
+// Se apoyan en <details data-autoclose>, el mismo patrón que ya usan el menú de carpeta y el de
+// archivo: el cierre al pulsar fuera o con Escape lo pone DetailsAutoClose una sola vez en el
+// shell, así que aquí no hace falta ni un listener ni estado de «abierto».
+
+const MENU_ITEM =
+  "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted";
+const MENU_CAJA =
+  "absolute z-20 mt-1 w-60 rounded-lg border border-border bg-popover p-1 shadow-lg";
+const MENU_GRUPO =
+  "px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70";
+
+// Cierra el <details> que contiene al elemento. Los menús se cierran al elegir: dejarlos
+// abiertos tapando la lista que acabas de filtrar es de las cosas que más molestan.
+function cerrarMenu(e: React.MouseEvent<HTMLElement>) {
+  e.currentTarget.closest("details")?.removeAttribute("open");
+}
+
+function MenuAnadir({
+  esCliente,
+  canUpload,
+  canLinks,
+  canRutas,
+  canFolders,
+  accionesExtra,
+  activa,
+  onElegir,
+}: {
+  esCliente: boolean;
+  canUpload: boolean;
+  canLinks: boolean;
+  canRutas: boolean;
+  canFolders: boolean;
+  accionesExtra: AccionExtra[];
+  activa: null | "upload" | "link" | "nas" | "folder";
+  onElegir: (t: "upload" | "link" | "nas" | "folder") => void;
+}) {
+  const ocasionales = accionesExtra.filter((a) => a.ocasional);
+  const frecuentes = accionesExtra.filter((a) => !a.ocasional);
+  // El grupo «solo la referencia» agrupa lo que NO trae bytes: un enlace y una ruta de red no
+  // suben nada, solo apuntan. Separarlo evita el error de «añadí el enlace pero no el archivo».
+  const hayReferencia = canLinks || canRutas;
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-expanded={active}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-        active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-      )}
-    >
-      <Icon className="size-4" /> {children}
-    </button>
+    <details data-autoclose className="relative shrink-0">
+      <summary
+        className={cn(
+          "flex cursor-pointer list-none items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+          "bg-primary text-primary-foreground hover:bg-primary/90",
+          activa && "ring-2 ring-primary/40",
+        )}
+      >
+        <Plus className="size-4" />
+        Añadir
+        <ChevronDown className="size-3.5 opacity-70" />
+      </summary>
+      <div className={MENU_CAJA}>
+        {canUpload || frecuentes.length ? <p className={MENU_GRUPO}>Traer material</p> : null}
+        {canUpload ? (
+          <button type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); onElegir("upload"); }}>
+            <Upload className="size-4 shrink-0 text-muted-foreground" />
+            {esCliente ? "Subir a un proyecto…" : "Subir archivos"}
+          </button>
+        ) : null}
+        {frecuentes.map((a) => (
+          <button key={a.id} type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); a.onClick(); }}>
+            <a.icon className="size-4 shrink-0 text-muted-foreground" />
+            {a.label}
+          </button>
+        ))}
+
+        {hayReferencia ? (
+          <>
+            <div className="my-1 h-px bg-border" />
+            <p className={MENU_GRUPO}>Solo la referencia</p>
+            {canLinks ? (
+              <button type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); onElegir("link"); }}>
+                <Link2 className="size-4 shrink-0 text-muted-foreground" />
+                Añadir enlace
+              </button>
+            ) : null}
+            {canRutas ? (
+              <button type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); onElegir("nas"); }}>
+                <HardDrive className="size-4 shrink-0 text-muted-foreground" />
+                Ruta de red (SMB)
+              </button>
+            ) : null}
+          </>
+        ) : null}
+
+        {canFolders || ocasionales.length ? (
+          <>
+            <div className="my-1 h-px bg-border" />
+            {canFolders ? (
+              <button type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); onElegir("folder"); }}>
+                <FolderPlus className="size-4 shrink-0 text-muted-foreground" />
+                Nueva carpeta
+              </button>
+            ) : null}
+            {ocasionales.map((a) => (
+              <button key={a.id} type="button" className={MENU_ITEM} onClick={(e) => { cerrarMenu(e); a.onClick(); }}>
+                <a.icon className="size-4 shrink-0 text-muted-foreground" />
+                {a.label}
+              </button>
+            ))}
+          </>
+        ) : null}
+      </div>
+    </details>
   );
 }
+
+function MenuFiltro({
+  pastillas,
+  cuenta,
+  activo,
+  onElegir,
+}: {
+  pastillas: { key: FiltroArchivos; label: string }[];
+  cuenta: (k: FiltroArchivos) => number;
+  activo: FiltroArchivos;
+  onElegir: (k: FiltroArchivos) => void;
+}) {
+  // Los conteos van DENTRO del menú: son útiles al decidir, no mientras trabajas.
+  const conAlgo = pastillas.filter((p) => p.key === "todo" || cuenta(p.key) > 0);
+  if (conAlgo.length <= 1) return null; // sin nada que filtrar, el botón sería decorativo
+  return (
+    <details data-autoclose className="relative shrink-0">
+      <summary
+        className={cn(
+          "flex cursor-pointer list-none items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+          activo !== "todo" ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+        )}
+      >
+        <SlidersHorizontal className="size-3.5" />
+        Filtrar
+        <ChevronDown className="size-3 opacity-70" />
+      </summary>
+      <div className={cn(MENU_CAJA, "right-0")}>
+        {conAlgo.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            className={cn(MENU_ITEM, activo === p.key && "font-semibold text-primary")}
+            onClick={(e) => { cerrarMenu(e); onElegir(p.key); }}
+          >
+            {activo === p.key ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />}
+            <span className="min-w-0 flex-1 truncate">{p.label}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{cuenta(p.key)}</span>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function MenuVista({
+  esCliente,
+  agrupado,
+  onAgrupar,
+  vista,
+  onVista,
+}: {
+  esCliente: boolean;
+  agrupado: Agrupado;
+  onAgrupar: (a: Agrupado) => void;
+  vista: "lista" | "cuadricula";
+  onVista: (v: "lista" | "cuadricula") => void;
+}) {
+  const grupos: { key: Agrupado; label: string }[] = [
+    { key: "origen", label: esCliente ? "Proyecto" : "Carpeta" },
+    { key: "fecha", label: "Fecha" },
+    { key: "tipo", label: "Tipo" },
+    { key: "plano", label: "Sin agrupar" },
+  ];
+  return (
+    <details data-autoclose className="relative shrink-0">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+        {vista === "lista" ? <ListIcon className="size-3.5" /> : <LayoutGrid className="size-3.5" />}
+        Vista
+        <ChevronDown className="size-3 opacity-70" />
+      </summary>
+      <div className={cn(MENU_CAJA, "right-0")}>
+        <p className={MENU_GRUPO}>Agrupar por</p>
+        {grupos.map((g) => (
+          <button
+            key={g.key}
+            type="button"
+            className={cn(MENU_ITEM, agrupado === g.key && "font-semibold text-primary")}
+            onClick={() => onAgrupar(g.key)}
+          >
+            {agrupado === g.key ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />}
+            {g.label}
+          </button>
+        ))}
+        <div className="my-1 h-px bg-border" />
+        <p className={MENU_GRUPO}>Ver como</p>
+        {([["lista", "Lista", ListIcon], ["cuadricula", "Cuadrícula", LayoutGrid]] as const).map(([v, label, Icon]) => (
+          <button
+            key={v}
+            type="button"
+            className={cn(MENU_ITEM, vista === v && "font-semibold text-primary")}
+            onClick={() => onVista(v)}
+          >
+            {vista === v ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />}
+            <Icon className="size-3.5 shrink-0 opacity-70" />
+            {label}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 
 function SelectorCarpeta({ carpetas }: { carpetas: CarpetaItem[] }) {
   if (!carpetas.length) return null;
