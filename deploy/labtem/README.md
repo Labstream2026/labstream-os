@@ -21,33 +21,86 @@ Cliente X/Entrega mayo/foto.dng  →  .proxy/foto.dng.webp         copia que el 
 hecho: la app solo sirve archivos. Los nombres no son negociables — son exactamente los que calcula
 `src/lib/nas-galeria.ts` (`proxyRelFor` / `posterRelFor`). Si cambian ahí, hay que cambiarlos aquí.
 
-## Qué hace falta en LabTem (ya está, verificado el 28-jul-2026)
+## Cómo se entra a LabTem
+
+**SSH en el puerto 20**, no el 22 (está así configurado en DSM). Dos IPs, la misma máquina:
+`192.168.0.223` (la que usa el montaje NFS de producción) y `192.168.0.40`.
+
+```bash
+ssh -p 20 -i ~/.ssh/editorias_nas Labstream@192.168.0.40
+```
+
+## Qué hace falta en LabTem (verificado EN LA MÁQUINA el 30-jul-2026)
 
 | Pieza | Por qué |
 |---|---|
-| **Container Manager** | corre el contenedor |
-| **SynoCli Video Drivers** | es el paquete que expone `/dev/dri` en este DSM |
-| **FFmpeg 5 de SynoCommunity** | trae los parches de jellyfin-ffmpeg (VAAPI/QSV). El contenedor **no instala ffmpeg**: monta el del NAS |
-| **Carpeta compartida `Entregas_LAB`** en el volumen 5 | los 7 TB libres |
+| **Container Manager** | corre el contenedor (Docker 24.0.2) |
+| **SynoCli Video Drivers** | expone `/dev/dri/renderD128` **y trae el driver iHD de Intel** — ver abajo, es la pieza que falta cuando «no funciona la GPU» |
+| **FFmpeg de SynoCommunity** | trae los parches de jellyfin (VAAPI/QSV). Hay tres instalados (`ffmpeg` 4.4, `ffmpeg5`, `ffmpeg6`) y **los tres** traen `h264_qsv`, `libx264`, `mjpeg` y `libwebp`. Se usa el 6 por velocidad |
+| **Carpeta compartida `Entregas_LAB`** en el volumen 5 | los 7 TB |
+
+Medido aquí, 300 fotogramas de 1080p: **ffmpeg6 por QSV 109 fps · ffmpeg5 por QSV 81 fps**.
+La ventaja real de la GPU no es la velocidad bruta sino que **deja la CPU libre** para servir
+archivos mientras transcodifica.
 
 Comprobar la GPU antes de nada:
 
 ```bash
-ls -l /dev/dri && /var/packages/ffmpeg5/target/bin/ffmpeg -hwaccels
+ls -l /dev/dri && grep '^videodriver:' /etc/group
 ```
 
-Tiene que salir `renderD128` y, entre los hwaccels, `qsv`.
+Tiene que salir `renderD128` (grupo `videodriver`, GID **937**).
 
-## Montarlo (Container Manager)
+## La receta de la GPU dentro de Docker (esto es lo que cuesta)
 
-1. Copia `compose.yaml` y `hacer-proxies.sh` a una carpeta de LabTem, por ejemplo
-   `/volume5/docker/labtem-proxies/`.
-2. **Container Manager → Proyecto → Crear**, apuntando a esa carpeta.
-3. Levántalo. El contenedor se queda dormido (`sleep infinity`) — es lo esperado, ver abajo.
+El ffmpeg de Synology **no arranca tal cual** en `debian:12-slim`, y los dos errores que da no
+mencionan ni la GPU ni la pieza que falta:
 
-> **Por la vía «Proyecto», no por el asistente de contenedor.** Container Manager solo respeta
-> `devices:` y `group_add:` cuando el contenedor nace de un compose. Creado con el asistente los
-> ignora **en silencio**: el contenedor arranca, parece sano, y el ffmpeg de dentro no ve la GPU.
+1. `libdrm.so.2: cannot open shared object file` → libdrm existe en DSM pero no en Debian, y el
+   paquete `ffmpeg6` **no la trae**. Está en `synocli-videodriver` (y en el paquete `ffmpeg` 4.4).
+2. `Failed to initialise VAAPI connection: -1 (unknown libva error)` → ya arranca, pero libva
+   busca los drivers en una carpeta `dri/` que aquí **no existe**: el `iHD_drv_video.so` está
+   **suelto** en `synocli-videodriver/target/lib/`.
+
+Por eso el compose monta **dos** carpetas y fija tres variables:
+
+```yaml
+volumes:
+  - /var/packages/ffmpeg6/target:/opt/ffmpeg:ro
+  - /var/packages/synocli-videodriver/target:/opt/vd:ro
+environment:
+  LD_LIBRARY_PATH: /opt/ffmpeg/lib:/opt/vd/lib
+  LIBVA_DRIVERS_PATH: /opt/vd/lib
+  LIBVA_DRIVER_NAME: iHD
+```
+
+Prueba de que la GPU codifica **desde el contenedor** (es la que vale; la del host puede pasar
+y la de dentro fallar):
+
+```bash
+docker exec labtem-proxies sh -c '/opt/ffmpeg/bin/ffmpeg -hide_banner -v error \
+  -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+  -f lavfi -i testsrc=size=1920x1080:rate=30:duration=5 \
+  -vf "format=nv12,hwupload=extra_hw_frames=64" -c:v h264_qsv -f null -' && echo GPU-OK
+```
+
+## Montarlo
+
+Instalado el 30-jul-2026 en **`/volume5/docker/labtem-proxies/`** por SSH:
+
+```bash
+mkdir -p /volume5/docker/labtem-proxies/estado
+# copiar compose.yaml y hacer-proxies.sh ahí
+cd /volume5/docker/labtem-proxies && docker compose up -d
+```
+
+> ⚠️ **Fuera de `Entregas_LAB` a propósito.** Ese share lo sincroniza **Synology Drive** desde un
+> PC externo: una fábrica plantada dentro (en `.labstream/`) fue **revertida por el sync** en
+> cuestión de horas, script y respaldo incluidos. En `/volume5/docker/` el sync no llega.
+
+> Si se prefiere por interfaz: **Container Manager → Proyecto → Crear**, nunca por el asistente
+> de contenedor — ese ignora `devices:` y `group_add:` **en silencio**, y el ffmpeg de dentro se
+> queda sin GPU pareciendo sano.
 
 ## Por qué el contenedor está dormido y no «corriendo un servicio»
 
@@ -55,12 +108,19 @@ No es un servicio: es una caja de herramientas. Si arrancara, trabajara y salier
 quedaría en «detenido» y Container Manager lo reiniciaría en bucle. Duerme, y la tarea programada
 de DSM le grita cada noche.
 
-**Programador de tareas → Crear → Tarea programada → Script definido por usuario** (usuario `root`,
-de madrugada):
+Instalado el 30-jul-2026 como línea en `/etc/crontab` (respaldo previo en
+`/etc/crontab.bak-claude-20260730`), a las **3:00 cada día**:
 
-```bash
-docker exec labtem-proxies /opt/hacer-proxies.sh
 ```
+0	3	*	*	*	root	/usr/local/bin/docker exec labtem-proxies /opt/hacer-proxies.sh
+```
+
+> Los campos van separados por **TAB**, no por espacios: DSM no lee la línea si son espacios.
+> Tras editar: `synoservice --restart crond`.
+>
+> Si algún día DSM regenera `/etc/crontab` (pasa al crear o editar tareas desde el Programador)
+> la línea se pierde. Recrearla ahí mismo es equivalente: **Programador de tareas → Crear →
+> Tarea programada → Script definido por usuario**, usuario `root`, con ese mismo comando.
 
 Pasadas manuales útiles:
 

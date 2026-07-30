@@ -61,21 +61,40 @@ services:
       ESTADO: /estado
       FFMPEG: /opt/ffmpeg/bin/ffmpeg
       FFPROBE: /opt/ffmpeg/bin/ffprobe
-      # El paquete de SynoCommunity lleva sus propias librerías (libva, driver de
-      # Quick Sync, códecs). Sin esto el binario arranca contra las de Debian —o no
-      # arranca— y la GPU desaparece.
-      LD_LIBRARY_PATH: /opt/ffmpeg/lib
       # Los .proxy los crea root: con umask 002 el grupo conserva permiso de
       # escritura y el equipo puede borrarlos por SMB sin pedir ayuda.
       UMASK: "002"
+
+      # ── LA RECETA DE LA GPU (verificada en la máquina el 2026-07-30) ──────────
+      # Costó encontrarla y NO es evidente; no tocar sin leer esto.
+      #
+      # Hacen falta DOS montajes, no uno:
+      #   /opt/ffmpeg → el paquete ffmpeg (binario + sus códecs)
+      #   /opt/vd     → synocli-videodriver, que tiene libdrm Y el driver iHD de Intel
+      #
+      # 1) Sin el segundo, ffmpeg NI ARRANCA dentro de Debian:
+      #      «libdrm.so.2: cannot open shared object file»
+      #    libdrm existe en DSM pero no en debian:12-slim, y el paquete ffmpeg6 NO la
+      #    trae (la tienen synocli-videodriver y el paquete ffmpeg 4.4).
+      # 2) Y aun con libdrm, libva fallaba con «Failed to initialise VAAPI connection:
+      #    -1 (unknown libva error)»: busca los drivers en una carpeta `dri/` que aquí
+      #    NO existe — el `iHD_drv_video.so` está SUELTO en lib/. Las dos variables de
+      #    LIBVA se lo dicen a las claras.
+      LD_LIBRARY_PATH: /opt/ffmpeg/lib:/opt/vd/lib
+      LIBVA_DRIVERS_PATH: /opt/vd/lib
+      LIBVA_DRIVER_NAME: iHD
 
     volumes:
       # El material. ESCRITURA: este contenedor es el ÚNICO que escribe en
       # Entregas_LAB (la app lo monta en solo lectura, a propósito).
       - /volume5/Entregas_LAB:/material
-      # El ffmpeg del NAS (SynoCommunity ffmpeg5, con los parches de jellyfin).
-      # Solo lectura: no se toca el paquete, se usa.
-      - /var/packages/ffmpeg5/target:/opt/ffmpeg:ro
+      # El ffmpeg del NAS (SynoCommunity, con los parches de jellyfin). Se usa el 6:
+      # medido en esta máquina a 109 fps de 1080p por QSV, contra 81 del 5. Solo
+      # lectura: no se toca el paquete, se usa.
+      - /var/packages/ffmpeg6/target:/opt/ffmpeg:ro
+      # El driver de video de Intel (iHD) + libdrm. Ver la nota de LIBVA arriba: sin
+      # esto no hay GPU, y el error que da no menciona ni la GPU ni este paquete.
+      - /var/packages/synocli-videodriver/target:/opt/vd:ro
       # El script y su estado (registros y lista de fallos). `estado` debe existir
       # antes de levantar: Synology NO autocrea los directorios de bind mount.
       - ./hacer-proxies.sh:/opt/hacer-proxies.sh:ro
