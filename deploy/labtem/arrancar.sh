@@ -39,19 +39,32 @@ if [ -s "$NUEVO" ] && ! cmp -s "$NUEVO" "$VIVO"; then
   if ! bash -n "$NUEVO" 2>/dev/null; then
     nota "pendiente DESCARTADO: no se analiza sin errores; sigue el de siempre"
   else
-    cp -f "$VIVO" "$PREVIO" 2>/dev/null
-    if cp -f "$NUEVO" "$VIVO"; then
-      # La prueba que vale es DENTRO del contenedor: si el bind mount no reflejó
-      # el cambio, aquí se nota (y no de madrugada, a mitad de pasada).
-      if "$DOCKER" exec "$CAJA" bash -n /opt/hacer-proxies.sh 2>/dev/null; then
-        nota "instalado · $(md5sum "$VIVO" | cut -c1-32)"
+    cat "$VIVO" > "$PREVIO" 2>/dev/null
+    # `cat >` y NO `cp -f`: hay que truncar y reescribir EL MISMO INODO. Cuando `cp -f` no
+    # puede abrir el destino para escribir —pasa con las ACL de Synology— lo borra y lo crea
+    # de nuevo, con inodo nuevo. Y como el compose monta este archivo suelto, el bind mount
+    # se queda apuntando al inodo viejo y huérfano: el host enseña la versión nueva y el
+    # contenedor ejecuta la vieja, para siempre y sin avisar. Pasó de verdad.
+    if cat "$NUEVO" > "$VIVO"; then
+      # Y aun así se comprueba, porque si el mount venía roto de antes esto tampoco lo
+      # arregla. La única prueba que vale es preguntarle al contenedor qué ve ÉL.
+      aqui=$(md5sum "$VIVO" | cut -d' ' -f1)
+      alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
+      if [ "$aqui" != "$alli" ]; then
+        nota "el contenedor veía otra versión (mount por inodo roto) → reiniciando"
+        "$DOCKER" restart "$CAJA" >/dev/null 2>&1
+        sleep 5
+        alli=$("$DOCKER" exec "$CAJA" md5sum /opt/hacer-proxies.sh 2>/dev/null | cut -d' ' -f1)
+      fi
+      if [ "$aqui" = "$alli" ] && "$DOCKER" exec "$CAJA" bash -n /opt/hacer-proxies.sh 2>/dev/null; then
+        nota "instalado · $aqui"
         rm -f "$NUEVO"
       else
-        cp -f "$PREVIO" "$VIVO"
-        nota "REVERTIDO: el contenedor no pudo analizarlo"
+        cat "$PREVIO" > "$VIVO"
+        nota "REVERTIDO: el contenedor no lo ve o no lo pudo analizar"
       fi
     else
-      nota "no se pudo copiar el pendiente (¿permisos?)"
+      nota "no se pudo escribir el pendiente (¿permisos?)"
     fi
   fi
 fi
