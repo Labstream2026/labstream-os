@@ -10,6 +10,7 @@ import { purgeApprovedReviewCache } from "@/lib/review-cache";
 import { purgeLegacyReviewProxies } from "@/lib/review-proxy-purge";
 import { sweepReviewPrewarm } from "@/lib/review-prewarm";
 import { sweepClientDigest } from "@/lib/client-digest";
+import { purgarPapelera } from "@/lib/archivos/papelera";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,10 @@ async function run(req: NextRequest) {
     const reviewPrewarm = await sweepReviewPrewarm().catch((e) => ({ arrancadas: 0, error: e instanceof Error ? e.message : "error" }));
     // Resumen semanal del portal del cliente (viernes; se auto-limita por usuario y por día).
     const clientDigest = await sweepClientDigest().catch((e) => ({ sent: 0, error: e instanceof Error ? e.message : "error" }));
-    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache, reviewProxies, reviewPrewarm, clientDigest });
+    // Vacía la papelera de archivos (>30 días): borra bytes y fila. Va AQUÍ, el cron garantizado
+    // de 2 h del NAS, para que «30 días» sea verdad sin obligar al usuario a crear una tarea nueva.
+    const papelera = await purgarPapelera().catch((e) => ({ purgados: 0, fallos: 0, error: e instanceof Error ? e.message : "error" }));
+    return NextResponse.json({ ...summary, calendars, recurring, media, reminders, deliverableSla, reviewCache, reviewProxies, reviewPrewarm, clientDigest, papelera });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "error" }, { status: 500 });
   }

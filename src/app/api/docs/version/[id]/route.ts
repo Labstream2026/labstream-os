@@ -23,12 +23,16 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       file: {
         select: {
           name: true,
+          deletedAt: true,
           project: { select: { isPrivate: true, leadId: true, members: { select: { userId: true, role: true } } } },
         },
       },
     },
   });
   if (!v) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  // El archivo padre en la papelera = su historial tampoco se sirve (esta ruta no pasa por
+  // /api/files-asset, así que sería una puerta lateral para bajar una versión de algo borrado).
+  if (v.file.deletedAt) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
   if (!canAccessProject(v.file.project, session)) return NextResponse.json({ error: "Sin acceso" }, { status: 403 });
 
   let buf: Buffer;

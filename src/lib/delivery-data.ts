@@ -81,7 +81,7 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
           where: { internalApproved: true },
           orderBy: { number: "desc" },
           take: 1,
-          select: { number: true, internalApprovedAt: true, fileUrl: true, fileAsset: { select: { id: true } } },
+          select: { number: true, internalApprovedAt: true, fileUrl: true, fileAsset: { select: { id: true, deletedAt: true } } },
         },
         decisions: {
           where: { stage: "CLIENTE", result: "APROBADO" },
@@ -106,7 +106,7 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
 
   const items: DeliveryItem[] = deliverables.map((d) => {
     const v = d.versions[0] ?? null;
-    const download = v?.fileAsset
+    const download = v?.fileAsset && !v.fileAsset.deletedAt
       ? { href: `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id)}&download=1`, external: false }
       : v?.fileUrl
         ? { href: v.fileUrl, external: true }

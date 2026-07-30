@@ -34,9 +34,9 @@ export default async function DocumentosClientePage() {
         finishedAt: true,
         folders: {
           orderBy: { position: "asc" },
-          select: { name: true, files: { select: { id: true, name: true, kind: true, createdAt: true } } },
+          select: { name: true, files: { where: { deletedAt: null }, select: { id: true, name: true, kind: true, createdAt: true } } },
         },
-        files: { where: { folderId: null }, select: { id: true, name: true, kind: true, createdAt: true } },
+        files: { where: { folderId: null, deletedAt: null }, select: { id: true, name: true, kind: true, createdAt: true } },
       },
     }),
     onlyofficeReady(),

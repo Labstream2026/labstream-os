@@ -120,9 +120,12 @@ export async function saveAsDocTemplate(
 
   const file = await db.fileAsset.findUnique({
     where: { id: fileId },
-    select: { name: true, path: true, project: { select: accessSelect } },
+    select: { name: true, path: true, deletedAt: true, project: { select: accessSelect } },
   });
   if (!file?.path) return { ok: false, error: "Ese archivo no está guardado en la app" };
+  // La plantilla es una COPIA nueva que sobreviviría a la purga de la papelera: no se hace desde
+  // un archivo borrado (sería resucitar contenido que el equipo mandó a la papelera).
+  if (file.deletedAt) return { ok: false, error: "Ese archivo está en la papelera" };
   if (!file.project || !canWriteProject(file.project, session)) return { ok: false, error: "Sin acceso a ese proyecto" };
   const ext = extOf(file.name);
   if (!Object.keys(KIND_BY_EXT).includes(ext)) {
