@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { galeriaSession } from "@/lib/galeria-access";
-import { galeriaEnabled, galeriaReady, listGaleriaFolders, scanGaleria, normalizeGaleriaRel } from "@/lib/nas-galeria";
+import { galeriaEnabled, galeriaReady, listGaleriaFolders, listGaleriaNivel, needsProxy, proxyRelFor, scanGaleria, normalizeGaleriaRel } from "@/lib/nas-galeria";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +46,41 @@ export async function GET(req: NextRequest) {
     if (url.searchParams.get("solo") === "carpetas") {
       const folders = await listGaleriaFolders(rel);
       return NextResponse.json({ ok: true, ready: true, rel, folders });
+    }
+    // `?vista=nivel` = el explorador: SOLO lo que hay en esta carpeta —sus subcarpetas y su
+    // material suelto—, sin bajar a los hijos. Es lo que respeta cómo organizó el equipo el
+    // disco; la línea de tiempo (abajo) aplana ocho niveles y esa forma se pierde.
+    if (url.searchParams.get("vista") === "nivel") {
+      const crudo = await listGaleriaNivel(rel);
+      // Las piezas salen con la MISMA forma que las de la línea de tiempo (GaleriaItem), así
+      // la cuadrícula, la selección y el visor se reutilizan tal cual. La fecha es la del
+      // archivo (`exact:false`): aquí se ordena por carpeta y nombre, no por día de disparo,
+      // y leer el EXIF de cada pieza costaría una apertura por archivo sin cambiar nada.
+      const items = crudo.archivos
+        .filter((a): a is typeof a & { kind: Exclude<typeof a.kind, "doc"> } => a.kind !== "doc")
+        .map((a) => ({
+          rel: a.rel,
+          name: a.name,
+          kind: a.kind,
+          size: a.size,
+          ext: (a.name.split(".").pop() || "").toLowerCase(),
+          takenAt: new Date(a.mtimeMs).toISOString(),
+          exact: false,
+          needsProxy: needsProxy(a.name),
+          proxyRel: proxyRelFor(a.rel, a.kind),
+        }));
+      return NextResponse.json({
+        ok: true,
+        ready: true,
+        rel,
+        nivel: {
+          carpetas: crudo.carpetas,
+          items,
+          photos: items.filter((i) => i.kind === "photo").length,
+          videos: items.filter((i) => i.kind === "video").length,
+          bytes: items.reduce((n, i) => n + i.size, 0),
+        },
+      });
     }
     if (!rel) {
       const folders = await listGaleriaFolders("");

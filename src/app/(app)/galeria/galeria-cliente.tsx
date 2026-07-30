@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, Film, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Copy, Download, Film, FolderTree, Image as ImageIcon, Link2, Loader2, RefreshCw, ShieldOff, X } from "lucide-react";
 import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
 import { IndiceCarpetas, type DuenoIndice } from "./indice-carpetas";
 import { BarraSeleccion } from "./seleccion";
@@ -22,10 +22,21 @@ import type { GaleriaFolder, GaleriaItem, GaleriaKind, GaleriaScan } from "@/lib
 // lenta de la carpeta anterior no puede pintar la equivocada, y volver atrás con el
 // navegador no arrastra la selección ni reabre el visor de otra entrega.
 
+// El EXPLORADOR: lo que hay en ESTA carpeta y nada más — sus subcarpetas y su material
+// suelto. La línea de tiempo baja ocho niveles y los aplana en meses y días; eso sirve para
+// entregar, pero borra cómo organizó el equipo el disco (jornadas, cámaras, versiones).
+type Nivel = { carpetas: GaleriaFolder[]; items: GaleriaItem[]; photos: number; videos: number; bytes: number };
+
 type Respuesta =
   | { ok: true; ready: false; motivo: string; mensaje: string }
   | { ok: true; ready: true; rel: ""; folders: GaleriaFolder[] }
+  | { ok: true; ready: true; rel: string; nivel: Nivel }
   | { ok: true; ready: true; rel: string; scan: GaleriaScan };
+
+// Qué se ve dentro de una entrega. Se recuerda entre visitas: quien trabaja por carpetas casi
+// siempre quiere seguir por carpetas.
+type Vista = "carpetas" | "todo";
+const VISTA_KEY = "labstream:galeria:vista";
 
 function pesar(bytes: number): string {
   if (bytes <= 0) return "0 KB";
@@ -50,8 +61,10 @@ function titularDia(iso: string): string {
   return `${DIAS[fecha.getDay()]} ${d}`;
 }
 
-async function pedir(rel: string): Promise<Respuesta> {
-  const res = await fetch(`/api/galeria/list?rel=${encodeURIComponent(rel)}`, { cache: "no-store" });
+async function pedir(rel: string, vista: Vista): Promise<Respuesta> {
+  // En la raíz siempre mandan las carpetas de entrega; el modo solo decide qué se pide DENTRO.
+  const modo = rel && vista === "carpetas" ? "&vista=nivel" : "";
+  const res = await fetch(`/api/galeria/list?rel=${encodeURIComponent(rel)}${modo}`, { cache: "no-store" });
   if (!res.ok) throw new Error((await res.text()) || "No se pudo leer la carpeta");
   return (await res.json()) as Respuesta;
 }
@@ -68,7 +81,15 @@ export function GaleriaCliente({
   duenos: Record<string, DuenoIndice>;
 }) {
   const router = useRouter();
-  const [cargado, setCargado] = React.useState<{ rel: string; datos: Respuesta } | null>(null);
+  // El modo se lee del navegador ya en el primer render. No rompe la hidratación porque
+  // mientras no hay datos se pinta el esqueleto, que no depende del modo.
+  const [vista, setVista] = React.useState<Vista>(() => {
+    if (typeof window === "undefined") return "carpetas";
+    return window.localStorage.getItem(VISTA_KEY) === "todo" ? "todo" : "carpetas";
+  });
+  // Lo cargado se valida contra la carpeta Y el modo: los dos devuelven formas distintas, y
+  // reusar lo de un modo en el otro pintaría la pantalla equivocada.
+  const [cargado, setCargado] = React.useState<{ rel: string; vista: Vista; datos: Respuesta } | null>(null);
   const [fallo, setFallo] = React.useState<{ rel: string; msg: string } | null>(null);
   const [refrescando, setRefrescando] = React.useState(false);
   const [vuelta, setVuelta] = React.useState(0); // subirlo = volver a pedir
@@ -80,16 +101,16 @@ export function GaleriaCliente({
   const anclaRef = React.useRef<string | null>(null);
 
   // Todo lo guardado se valida contra la carpeta ACTUAL; lo de otra carpeta no existe aquí.
-  const datos = cargado?.rel === rel ? cargado.datos : null;
+  const datos = cargado?.rel === rel && cargado.vista === vista ? cargado.datos : null;
   const error = fallo?.rel === rel ? fallo.msg : null;
   const cargando = !datos && !error;
 
   React.useEffect(() => {
     let cancelado = false;
-    pedir(rel)
+    pedir(rel, vista)
       .then((d) => {
         if (cancelado) return;
-        setCargado({ rel, datos: d });
+        setCargado({ rel, vista, datos: d });
         setFallo(null);
       })
       .catch((e: unknown) => {
@@ -103,7 +124,16 @@ export function GaleriaCliente({
     return () => {
       cancelado = true;
     };
-  }, [rel, vuelta]);
+  }, [rel, vista, vuelta]);
+
+  const cambiarVista = (v: Vista) => {
+    setVista(v);
+    try {
+      window.localStorage.setItem(VISTA_KEY, v);
+    } catch {
+      /* navegador sin almacenamiento (incógnito estricto): el modo dura la sesión y ya */
+    }
+  };
 
   // Navegar = cambiar la URL. El servidor re-renderiza la página entera (barra incluida) y
   // este componente recibe el `rel` nuevo: imposible que las dos mitades discrepen.
@@ -117,6 +147,7 @@ export function GaleriaCliente({
   };
 
   const scan = datos && datos.ready && "scan" in datos ? datos.scan : null;
+  const nivel = datos && datos.ready && "nivel" in datos ? datos.nivel : null;
 
   // La vista filtrada (solo fotos / solo videos) se deriva del escaneo: meses y días se
   // recortan y los que quedan vacíos desaparecen. El visor y el Shift trabajan sobre lo
@@ -134,15 +165,25 @@ export function GaleriaCliente({
     return { ...scan, months };
   }, [scan, filtro]);
 
+  // Las piezas del nivel, ya filtradas por tipo igual que la línea de tiempo.
+  const itemsNivelVisibles = React.useMemo(() => {
+    if (!nivel) return [];
+    return filtro === "todo" ? nivel.items : nivel.items.filter((i) => i.kind === filtro);
+  }, [nivel, filtro]);
+
+  // Selección, Shift y visor trabajan sobre ESTAS listas, valga el modo que valga: así las
+  // dos vistas se comportan igual sin duplicar la lógica.
   const piezas = React.useMemo(() => {
+    if (nivel) return nivel.items;
     if (!scan) return [];
     return scan.months.flatMap((m) => m.days.flatMap((d) => d.items));
-  }, [scan]);
+  }, [scan, nivel]);
 
   const piezasVisibles = React.useMemo(() => {
+    if (nivel) return itemsNivelVisibles;
     if (!scanVisible) return [];
     return scanVisible.months.flatMap((m) => m.days.flatMap((d) => d.items));
-  }, [scanVisible]);
+  }, [scanVisible, nivel, itemsNivelVisibles]);
 
   // Selección de ESTA carpeta (la de otra no cuenta ni se arrastra). En useMemo para que
   // el `[]` del caso vacío sea estable y no invalide los memos que cuelgan de él.
@@ -242,60 +283,102 @@ export function GaleriaCliente({
     );
   }
 
+  // ── El explorador: esta carpeta tal y como está en el disco ──────────────────
+  if (nivel) {
+    return (
+      <div>
+        <CabeceraEntrega
+          rel={rel}
+          total={nivel.items.length}
+          photos={nivel.photos}
+          videos={nivel.videos}
+          bytes={nivel.bytes}
+          carpetas={nivel.carpetas.length}
+          filtro={filtro}
+          onFiltro={setFiltro}
+          vista={vista}
+          onVista={cambiarVista}
+          onRecargar={recargar}
+          refrescando={refrescando}
+        />
+
+        {nivel.carpetas.length === 0 && nivel.items.length === 0 ? (
+          <Aviso
+            titulo="Esta carpeta está vacía"
+            texto="No tiene subcarpetas ni material dentro. Si acabas de copiarlo, pulsa Actualizar."
+            onReintentar={recargar}
+          />
+        ) : (
+          <>
+            {nivel.carpetas.length > 0 && (
+              <section className="mb-8">
+                <Rotulo texto="Carpetas" n={nivel.carpetas.length} />
+                {/* Las mismas tarjetas que el índice de entregas: portada, cuántas piezas y
+                    cuánto pesa. Una subcarpeta se mira igual que una entrega, a cualquier hondura. */}
+                <IndiceCarpetas folders={nivel.carpetas} duenos={duenos} onAbrir={abrirCarpeta} />
+              </section>
+            )}
+            {itemsNivelVisibles.length > 0 && (
+              <section>
+                <Rotulo
+                  texto={nivel.carpetas.length > 0 ? "Suelto en esta carpeta" : "Material"}
+                  n={itemsNivelVisibles.length}
+                />
+                <div className="grid grid-cols-3 gap-1 sm:grid-cols-5 lg:grid-cols-8">
+                  {itemsNivelVisibles.map((it) => (
+                    <Ficha
+                      key={it.rel}
+                      item={it}
+                      onAbrir={() => setAbierto({ rel, item: it })}
+                      marcada={marcadas.has(it.rel)}
+                      haySeleccion={rels.length > 0}
+                      onMarcar={(rango) => marcar(it.rel, rango)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        <BarraSeleccion
+          seleccion={rels}
+          peso={rels.length > 0 && pesoSeleccion > 0 ? pesar(pesoSeleccion) : null}
+          onLimpiar={limpiarSeleccion}
+          onHecho={recargar}
+          puedeEscribir={puedeEscribir}
+        />
+
+        {abiertoReal && (
+          <Visor
+            item={abiertoReal}
+            piezas={piezasVisibles}
+            onCerrar={() => setAbierto(null)}
+            onCambiar={(x) => setAbierto({ rel, item: x })}
+          />
+        )}
+      </div>
+    );
+  }
+
   // ── Línea de tiempo de una entrega ───────────────────────────────────────────
   if (!scan || !scanVisible) return null;
 
   return (
     <div>
-      <div className="mb-4">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{(rel.split("/").pop() ?? "").replace(/_/g, " ")}</h1>
-            <p className="text-xs text-muted-foreground">
-              {plural(scan.total, "elemento", "elementos")} · {plural(scan.photos, "foto", "fotos")} ·{" "}
-              {plural(scan.videos, "video", "videos")} · {pesar(scan.bytes)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* key: al cambiar de entrega el componente se remonta y el enlace de la anterior
-                desaparece solo. Enseñar el enlace de otra carpeta sería el peor error aquí. */}
-            <Compartir key={rel} rel={rel} />
-            <button
-              onClick={recargar}
-              className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
-              title="Volver a leer la carpeta"
-            >
-              <RefreshCw className={`size-4 ${refrescando ? "animate-spin" : ""}`} /> Actualizar
-            </button>
-          </div>
-        </div>
-
-        {/* Filtro por tipo: solo aparece cuando la entrega MEZCLA fotos y videos (si es todo
-            del mismo tipo, unos chips que no filtran nada son ruido). */}
-        {scan.photos > 0 && scan.videos > 0 && (
-          <div className="mt-3 flex items-center gap-1">
-            {(
-              [
-                { id: "todo", etiqueta: "Todo", n: scan.total },
-                { id: "photo", etiqueta: "Fotos", n: scan.photos },
-                { id: "video", etiqueta: "Videos", n: scan.videos },
-              ] as { id: Filtro; etiqueta: string; n: number }[]
-            ).map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setFiltro(f.id)}
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  filtro === f.id
-                    ? "border-primary/40 bg-primary/10 font-medium text-primary"
-                    : "text-muted-foreground hover:bg-accent"
-                }`}
-              >
-                {f.etiqueta} · {f.n.toLocaleString("es-CO")}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <CabeceraEntrega
+        rel={rel}
+        total={scan.total}
+        photos={scan.photos}
+        videos={scan.videos}
+        bytes={scan.bytes}
+        filtro={filtro}
+        onFiltro={setFiltro}
+        vista={vista}
+        onVista={cambiarVista}
+        onRecargar={recargar}
+        refrescando={refrescando}
+      />
 
       {scan.truncated && (
         <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -370,6 +453,128 @@ export function GaleriaCliente({
           onCerrar={() => setAbierto(null)}
           onCambiar={(x) => setAbierto({ rel, item: x })}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Rótulo de sección ──────────────────────────────────────────────────────────
+
+function Rotulo({ texto, n }: { texto: string; n: number }) {
+  return (
+    <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+      {texto}
+      <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground">· {n.toLocaleString("es-CO")}</span>
+    </h2>
+  );
+}
+
+// ── Cabecera de una entrega ────────────────────────────────────────────────────
+// La comparten el explorador y la línea de tiempo: mismo título, mismo compartir, mismo
+// actualizar. Lo único que cambia es QUÉ se está contando —este nivel o la entrega entera—
+// y eso lo dice el interruptor de al lado, no un texto distinto en cada vista.
+
+function CabeceraEntrega({
+  rel,
+  total,
+  photos,
+  videos,
+  bytes,
+  carpetas,
+  filtro,
+  onFiltro,
+  vista,
+  onVista,
+  onRecargar,
+  refrescando,
+}: {
+  rel: string;
+  total: number;
+  photos: number;
+  videos: number;
+  bytes: number;
+  carpetas?: number;
+  filtro: Filtro;
+  onFiltro: (f: Filtro) => void;
+  vista: Vista;
+  onVista: (v: Vista) => void;
+  onRecargar: () => void;
+  refrescando: boolean;
+}) {
+  return (
+    <div className="mb-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{(rel.split("/").pop() ?? "").replace(/_/g, " ")}</h1>
+          <p className="text-xs text-muted-foreground">
+            {carpetas ? `${plural(carpetas, "carpeta", "carpetas")} · ` : ""}
+            {plural(total, "elemento", "elementos")} · {plural(photos, "foto", "fotos")} · {plural(videos, "video", "videos")} ·{" "}
+            {pesar(bytes)}
+            {vista === "carpetas" && <span className="ml-1 opacity-70">(en esta carpeta)</span>}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Carpetas / Todo junto. El disco manda: por defecto se ve la forma que el equipo
+              le dio. «Todo junto» sigue ahí porque para ENTREGAR es más cómodo ver la
+              entrega entera por fechas que ir carpeta por carpeta. */}
+          <div className="flex items-center rounded-lg border p-0.5">
+            {(
+              [
+                { id: "carpetas", etiqueta: "Carpetas", Icono: FolderTree, ayuda: "Respeta las carpetas y subcarpetas del disco" },
+                { id: "todo", etiqueta: "Todo junto", Icono: CalendarDays, ayuda: "Todo el material de la entrega, por fecha" },
+              ] as { id: Vista; etiqueta: string; Icono: typeof FolderTree; ayuda: string }[]
+            ).map((v) => (
+              <button
+                key={v.id}
+                onClick={() => onVista(v.id)}
+                title={v.ayuda}
+                aria-pressed={vista === v.id}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition ${
+                  vista === v.id ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                <v.Icono className="size-3.5" />
+                <span className="hidden sm:inline">{v.etiqueta}</span>
+              </button>
+            ))}
+          </div>
+          {/* key: al cambiar de entrega el componente se remonta y el enlace de la anterior
+              desaparece solo. Enseñar el enlace de otra carpeta sería el peor error aquí. */}
+          <Compartir key={rel} rel={rel} />
+          <button
+            onClick={onRecargar}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm text-muted-foreground transition hover:bg-accent"
+            title="Volver a leer la carpeta"
+          >
+            <RefreshCw className={`size-4 ${refrescando ? "animate-spin" : ""}`} /> Actualizar
+          </button>
+        </div>
+      </div>
+
+      {/* Filtro por tipo: solo aparece cuando la entrega MEZCLA fotos y videos (si es todo
+          del mismo tipo, unos chips que no filtran nada son ruido). */}
+      {photos > 0 && videos > 0 && (
+        <div className="mt-3 flex items-center gap-1">
+          {(
+            [
+              { id: "todo", etiqueta: "Todo", n: total },
+              { id: "photo", etiqueta: "Fotos", n: photos },
+              { id: "video", etiqueta: "Videos", n: videos },
+            ] as { id: Filtro; etiqueta: string; n: number }[]
+          ).map((f) => (
+            <button
+              key={f.id}
+              onClick={() => onFiltro(f.id)}
+              className={`rounded-full border px-3 py-1 text-xs transition ${
+                filtro === f.id
+                  ? "border-primary/40 bg-primary/10 font-medium text-primary"
+                  : "text-muted-foreground hover:bg-accent"
+              }`}
+            >
+              {f.etiqueta} · {f.n.toLocaleString("es-CO")}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

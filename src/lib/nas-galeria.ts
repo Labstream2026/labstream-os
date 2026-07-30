@@ -445,22 +445,29 @@ export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Pro
   const abs = await galeriaAbs(norm);
   const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
   if (!raw) return { carpetas: [], archivos: [] };
-  const carpetas: GaleriaNivelCarpeta[] = [];
-  const archivos: GaleriaNivelArchivo[] = [];
+  // QUÉ es cada entrada se decide ANTES de tocar el disco: el tipo sale del nombre. Así una
+  // carpeta con miles de sidecars (.xmp, .thm) no paga un viaje de red por cada uno.
+  const utiles: { name: string; rel: string; dir: boolean; kind: GaleriaKind | "doc" | null }[] = [];
   for (const d of raw) {
     if (isJunkName(d.name)) continue; // incluye .proxy, que es interna
-    const childRel = norm ? `${norm}/${d.name}` : d.name;
-    const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
-    if (!st) continue; // desapareció entre readdir y stat
-    if (d.isDirectory()) {
-      carpetas.push({ rel: childRel, name: d.name, mtimeMs: st.mtimeMs });
-      continue;
-    }
-    if (!d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
-    const kind = galeriaKind(d.name) ?? (opts?.docs && DOC_EXT.has(extOf(d.name)) ? ("doc" as const) : null);
-    if (!kind) continue;
-    archivos.push({ rel: childRel, name: d.name, kind, size: st.size, mtimeMs: st.mtimeMs });
+    const dir = d.isDirectory();
+    if (!dir && !d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
+    const kind = dir ? null : galeriaKind(d.name) ?? (opts?.docs && DOC_EXT.has(extOf(d.name)) ? ("doc" as const) : null);
+    if (!dir && !kind) continue;
+    utiles.push({ name: d.name, rel: norm ? `${norm}/${d.name}` : d.name, dir, kind });
   }
+  // Y los stat van EN PARALELO, no en serie: sobre NFS cada uno es un viaje de red, y en
+  // fila se suman hasta pasarse del timeout del proxy inverso (mismo motivo que en
+  // listGaleriaFolders). En paralelo el coste es ~un viaje, no la suma.
+  const stats = await Promise.all(utiles.map((u) => fs.stat(path.join(abs, u.name)).catch(() => null)));
+  const carpetas: GaleriaNivelCarpeta[] = [];
+  const archivos: GaleriaNivelArchivo[] = [];
+  utiles.forEach((u, i) => {
+    const st = stats[i];
+    if (!st) return; // desapareció entre readdir y stat
+    if (u.dir) carpetas.push({ rel: u.rel, name: u.name, mtimeMs: st.mtimeMs });
+    else if (u.kind) archivos.push({ rel: u.rel, name: u.name, kind: u.kind, size: st.size, mtimeMs: st.mtimeMs });
+  });
   // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);
   // archivos por fecha, lo más nuevo arriba — el export recién hecho es lo que se busca.
   carpetas.sort((a, b) => a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" }));
