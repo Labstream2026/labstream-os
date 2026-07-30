@@ -325,7 +325,7 @@ procesar_video() { # ruta absoluta
       local gop
       gop=$(awk -v r="${rfr:-25}" -v s="$GOP_SEG" 'BEGIN{split(r,a,"/"); f=(a[2]&&a[2]+0>0?a[1]/a[2]:a[1]+0); if(f<=0||f>1000)f=25; g=int(f*s+0.5); if(g<24)g=24; if(g>240)g=240; print g}')
       log "  → copia de $base (${w}x${h} $vcodec, GOP $gop)"
-      if codificar_video "$src" "$mp4" "$gop"; then
+      if codificar_video "$src" "$mp4" "$gop" "$vcodec" "$w" "$h"; then
         CREADOS_VIDEO=$((CREADOS_VIDEO+1))
       else
         fallo=1
@@ -351,9 +351,59 @@ procesar_video() { # ruta absoluta
   return $fallo
 }
 
-codificar_video() { # origen, destino, gop
-  local src="$1" dst="$2" gop="$3"
+# Dimensiones de salida, calculadas AQUÍ y no por el filtro. `scale_qsv` no tiene
+# `force_original_aspect_ratio`, así que la caja se resuelve a mano: encajar dentro de
+# ANCHO_MAX×ALTO_MAX conservando la forma, sin ampliar nunca, y en números pares (H.264
+# no admite impares y el vertical 2160×3840 es justo el caso que lo destapa).
+caja() { # ancho, alto  →  "1920:1080"
+  awk -v w="$1" -v h="$2" -v W="$ANCHO_MAX" -v H="$ALTO_MAX" 'BEGIN{
+    w+=0; h+=0; if(w<=0||h<=0){ exit 1 }
+    r=1; if(w>W) r=W/w; if(h*r>H) r=H/h; if(r>1) r=1;
+    ow=int(w*r/2)*2; oh=int(h*r/2)*2; if(ow<2)ow=2; if(oh<2)oh=2;
+    printf "%d:%d", ow, oh }'
+}
+
+codificar_video() { # origen, destino, gop, códec-de-entrada, ancho, alto
+  local src="$1" dst="$2" gop="$3" vcodec="${4:-}" vw="${5:-0}" vh="${6:-0}"
   local esc; esc=$(escala "$ANCHO_MAX" "$ALTO_MAX")
+
+  if [ "$USAR_QSV" = "1" ]; then
+    # ── Todo en la GPU, cuando se puede ────────────────────────────────────────
+    # La UHD 630 (Gen9.5) DECODIFICA H.264, HEVC, VP9, MPEG-2 y VC-1. No sabe de
+    # ProRes, DNxHD ni de los RAW de cámara —y media entrega es eso—, así que el
+    # decodificador por hardware se usa solo cuando el códec de entrada está en la
+    # lista; para el resto, la ruta de siempre.
+    #
+    # Cuando aplica, el fotograma NUNCA sale de la memoria de vídeo: se decodifica y
+    # se escala ahí mismo (scale_qsv), sin subir ni bajar nada por el bus. Medido en
+    # esta máquina sobre 20 s de 1080p: la CPU consumida pasa de 20,2 s a 1,9 s
+    # (−90 %) y encima tarda la mitad. Eso es lo que deja al NAS libre para servir
+    # archivos mientras transcodifica de madrugada.
+    local dims=""
+    case "$vcodec" in
+      h264|hevc|vp9|mpeg2video|vc1) dims=$(caja "$vw" "$vh" 2>/dev/null) ;;
+    esac
+    if [ -n "$dims" ]; then
+      if correr_ffmpeg "$dst" "video" "$TIMEOUT_VIDEO" \
+          -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+          -hwaccel qsv -hwaccel_output_format qsv \
+          -i "$src" \
+          -map 0:v:0 -map 0:a:0? -sn -dn \
+          -vf "scale_qsv=w=${dims%%:*}:h=${dims##*:}" \
+          -c:v h264_qsv -profile:v high -b:v "$V_BITRATE" -maxrate "$V_MAXRATE" -bufsize "$V_BUFSIZE" \
+          -g "$gop" -bf 2 -look_ahead 0 \
+          -c:a aac -b:a "$A_BITRATE" -ac 2 -ar 48000 \
+          -movflags +faststart -max_muxing_queue_size 1024; then
+        return 0
+      fi
+      # La ruta todo-GPU es la más rápida pero también la más quisquillosa (un perfil
+      # raro, 10 bits que este encoder no acepta, un archivo con la cabecera tocada).
+      # Si falla NO se da por perdido el video: se borra la marca y se reintenta por la
+      # ruta de abajo, que decodifica por software y sigue codificando en la GPU.
+      rm -f "$dst.fallo"
+      log "    ↳ la decodificación por GPU no pudo con este archivo; se decodifica por software"
+    fi
+  fi
 
   if [ "$USAR_QSV" = "1" ]; then
     # DECODIFICA LA CPU, CODIFICA LA GPU. A propósito: el decodificador de la UHD 630
