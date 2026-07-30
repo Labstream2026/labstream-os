@@ -123,8 +123,11 @@ export function GaleriaHerramientas({
     <div className="mb-4 space-y-2">
       {/* Migas: solo DENTRO de una carpeta. En la raíz eran un «Galería» suelto sin nada que
           navegar, compitiendo con el título de la página justo debajo. */}
+      {/* En ESCRITORIO el árbol lateral ya dice dónde estás y deja ir a cualquier nivel de un
+          clic: repetirlo aquí era ruido. En móvil el árbol es un cajón, así que las migas se
+          quedan — son la única pista de ubicación visible sin abrirlo. */}
       {rel && (
-        <div className="flex flex-wrap items-center gap-1 text-sm">
+        <div className="flex flex-wrap items-center gap-1 text-sm md:hidden">
           <button type="button" onClick={() => navegar("")} className="rounded px-1.5 py-0.5 hover:bg-accent">
             Galería
           </button>

@@ -8,6 +8,8 @@ import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, norm
 import { GaleriaCliente } from "./galeria-cliente";
 import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
 import { EntregasCompartidas } from "./entregas-compartidas";
+import { ArbolGaleria } from "./arbol-lateral";
+import { espinaDelArbol, duenosDeRamas } from "@/lib/galeria-arbol";
 import { listarEntregas } from "@/lib/galeria-entrega";
 
 export const dynamic = "force-dynamic";
@@ -91,8 +93,15 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
     : [];
   const duenoPorRel = new Map(duenos.map((c) => [c.galeriaFolder as string, { nombre: c.name, color: c.accentColor }]));
 
+  // Árbol lateral: solo los niveles de la rama donde estás (profundidad + 1 lecturas), ya
+  // desplegados, para que el sitio donde te encuentras no parpadee al cargar.
+  const niveles = await espinaDelArbol(relNorm);
+  const duenosArbol = await duenosDeRamas(niveles);
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 md:flex-row md:px-6">
+      <ArbolGaleria rel={relNorm} niveles={niveles} duenos={duenosArbol} />
+      <div className="min-w-0 flex-1">
       <GaleriaHerramientas
         rel={relNorm}
         subcarpetas={subcarpetas.map((f) => ({ rel: f.rel, name: f.name, dueno: duenoPorRel.get(f.rel) ?? null }))}
@@ -116,6 +125,7 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
           huerfana: e.huerfana,
         }))}
       />
+      </div>
     </div>
   );
 }
