@@ -1,15 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays, Check, ChevronDown, GanttChartSquare, PieChart, Plus, Users } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, GanttChartSquare, Plus, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
 import { WeekView } from "./week-view";
 import { AgendaView } from "./agenda-view";
 import { MiniCalendar } from "./mini-calendar";
-import { CalendarStatsPanel } from "./calendar-stats";
-import { computeCalendarStats } from "./stats-data";
 import { EventModal, type EventModalState } from "./event-modal";
 import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard, emitCalendarCreate, type ColorBy } from "./calendar-detail";
 
@@ -226,7 +224,6 @@ export function CalendarBoard({
 
   // Días con eventos (para el punto del mini-calendario) y estadísticas del rango visible.
   const markers = React.useMemo(() => new Set(shellItems.map((it) => it.date.slice(0, 10))), [shellItems]);
-  const stats = React.useMemo(() => computeCalendarStats(shellItems, anchor), [shellItems, anchor]);
 
   // ── Piezas del calendario EMBEBIDO ──
   // «Ahora» de pared: la app guarda horas de pared en campos UTC, así que la hora local del
@@ -376,12 +373,71 @@ export function CalendarBoard({
           <div className="flex flex-wrap items-center gap-2">
             {cronoSwitch}
             {showingCrono ? null : (
-              <div className="flex items-center gap-1">
-                <button onClick={() => setAnchor(new Date())} className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">Hoy</button>
-                <button onClick={() => navShell(-1)} aria-label="Anterior" className="rounded-md border border-border px-2 py-1.5 text-sm hover:bg-muted">‹</button>
-                <button onClick={() => navShell(1)} aria-label="Siguiente" className="rounded-md border border-border px-2 py-1.5 text-sm hover:bg-muted">›</button>
-                <h3 className="ml-1 text-sm font-semibold capitalize">{shellTitle}</h3>
-              </div>
+              <>
+                {onCreate ? (
+                  <button
+                    onClick={() => emitCalendarCreate(localDateStr(anchor))}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+                  >
+                    <Plus className="size-4" /> Crear
+                  </button>
+                ) : null}
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setAnchor(new Date())} className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">Hoy</button>
+                  <button onClick={() => navShell(-1)} aria-label="Anterior" className="rounded-md border border-border px-2 py-1.5 text-sm hover:bg-muted">‹</button>
+                  <button onClick={() => navShell(1)} aria-label="Siguiente" className="rounded-md border border-border px-2 py-1.5 text-sm hover:bg-muted">›</button>
+                  {/* El TÍTULO abre el mini-calendario. Vivía fijo en la columna izquierda
+                      ocupando ancho todo el rato; saltar de mes es cosa de un momento. */}
+                  <details data-autoclose className="relative ml-1">
+                    <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold capitalize hover:bg-muted">
+                      {shellTitle}
+                      <ChevronDown className="size-3.5 text-muted-foreground" />
+                    </summary>
+                    <div className="absolute left-0 z-40 mt-1 w-64 rounded-lg border border-border bg-popover p-2 shadow-lg">
+                      <MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} />
+                    </div>
+                  </details>
+                </div>
+                {/* Mis calendarios + Personas, juntos. Antes eran dos bloques permanentes de la
+                    columna; se tocan de higos a brevas pero pagaban sitio siempre. El botón
+                    dice cuántas capas están encendidas, para no tener que abrir a comprobar. */}
+                <details data-autoclose className="relative">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">
+                    <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                    Filtros
+                    <span className="tabular-nums text-muted-foreground">
+                      {KIND_LAYERS.length - hiddenKinds.size}/{KIND_LAYERS.length}
+                    </span>
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </summary>
+                  <div className="absolute left-0 z-40 mt-1 w-64 rounded-lg border border-border bg-popover p-2 shadow-lg">
+                    <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Mis calendarios</p>
+                    <div className="space-y-1.5">
+                      {KIND_LAYERS.map((L) => {
+                        const on = !hiddenKinds.has(L.key);
+                        return (
+                          <label key={L.key} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-sm hover:bg-muted">
+                            <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
+                            <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
+                              {on ? <Check className="size-3 text-white" /> : null}
+                            </span>
+                            <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {peopleWithColor.length > 0 ? (
+                      <>
+                        <div className="my-2 border-t border-border" />
+                        <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Personas · {peopleWithColor.length}
+                        </p>
+                        <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">{peopleWithColor.map(personRow)}</div>
+                      </>
+                    ) : null}
+                  </div>
+                </details>
+              </>
             )}
           </div>
           {showingCrono ? null : (
@@ -405,58 +461,11 @@ export function CalendarBoard({
         {showingCrono ? (
           <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
         ) : (
-          <div className="flex min-h-0 flex-1 gap-4">
-            {/* Sidebar: crear + mini-calendario + Mis calendarios + desplegables (Personas y
-                Estadísticas de tiempo). Todo colapsable para aprovechar el espacio; el calendario
-                usa el resto del ancho (ya no hay panel a la derecha). */}
-            <aside className="hidden w-56 shrink-0 flex-col gap-4 overflow-y-auto pr-1 lg:flex">
-              {onCreate ? (
-                <button
-                  onClick={() => emitCalendarCreate(localDateStr(anchor))}
-                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
-                >
-                  <Plus className="size-4" /> Crear
-                </button>
-              ) : null}
-              <div className="shrink-0"><MiniCalendar anchor={anchor} onSelect={setAnchor} markers={markers} /></div>
-              <div className="shrink-0">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mis calendarios</p>
-                <div className="space-y-1.5">
-                  {KIND_LAYERS.map((L) => {
-                    const on = !hiddenKinds.has(L.key);
-                    return (
-                      <label key={L.key} className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input type="checkbox" checked={on} onChange={() => toggleKind(L.key)} className="sr-only" />
-                        <span className="flex size-4 shrink-0 items-center justify-center rounded" style={{ background: on ? L.color : "transparent", border: `1.5px solid ${L.color}` }}>
-                          {on ? <Check className="size-3 text-white" /> : null}
-                        </span>
-                        <span className={cn("truncate", on ? "" : "text-muted-foreground")}>{L.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              {peopleWithColor.length > 0 ? (
-                <details className="group shrink-0" open>
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
-                    <span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /> Personas · {peopleWithColor.length}</span>
-                    <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="mt-2 max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                    {peopleWithColor.map(personRow)}
-                  </div>
-                </details>
-              ) : null}
-              <details className="group shrink-0" open>
-                <summary className="flex cursor-pointer list-none items-center justify-between rounded-md py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
-                  <span className="inline-flex items-center gap-1.5"><PieChart className="size-3.5" /> Estadísticas de tiempo</span>
-                  <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="mt-2"><CalendarStatsPanel data={stats} /></div>
-              </details>
-            </aside>
-
-            {/* Centro: la vista activa (usa todo el ancho restante) */}
+          <div className="flex min-h-0 flex-1">
+            {/* La columna izquierda MURIÓ: eran 224 px fijos con el mini-calendario, las capas,
+                las personas y el donut de estadísticas —cosas que casi no se tocan— quitándole
+                ancho a la rejilla siempre. Ahora viven en los desplegables de la barra y el
+                calendario usa TODO el ancho. El donut se retiró a petición: no se usaba. */}
             <div className="flex min-h-0 flex-1 flex-col">
               {shellView === "mes" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shellItems} canCreate={Boolean(onCreate)} colorBy={colorBy} anchor={anchor} onAnchorChange={setAnchor} /></div>
