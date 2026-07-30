@@ -17,11 +17,7 @@ import { setSavedViews } from "@/app/(app)/perfil/preference-actions";
 
 export type VistaGuardada = { id: string; name: string; query: string };
 
-export function MenuVistasGuardadas({
-  superficie,
-  claves,
-  iniciales,
-}: {
+type Props = {
   // Clave de la superficie: "revisiones", "mis-tareas", "notas", "chat".
   superficie: string;
   // Qué parámetros de la URL forman parte de la vista. Se listan a propósito en vez de copiar la
@@ -29,7 +25,32 @@ export function MenuVistasGuardadas({
   // congelados dentro de una vista guardada.
   claves: readonly string[];
   iniciales: VistaGuardada[];
-}) {
+};
+
+// Botón propio en la barra. Es la forma original y la que sigue usando «Mis tareas».
+// El número del botón sale del estado y no de la prop: al guardar una vista, el servidor no
+// revalida nada, así que leer `iniciales` dejaría el contador una vista por detrás.
+export function MenuVistasGuardadas(props: Props) {
+  const v = useVistasGuardadas(props);
+  return (
+    <MenuBarra etiqueta="Vistas" icono={<Bookmark />} activos={v.vistas.length} alineado="derecha" titulo="Vistas guardadas">
+      <Lista {...v} />
+    </MenuBarra>
+  );
+}
+
+// Las mismas vistas SIN botón propio, para colgarlas dentro de otro menú. «Vista» y «Vistas», uno
+// al lado del otro, se leen como lo mismo y se llevaban 100 px de una barra que quiere caber en
+// una línea; dentro de «Vista» son un grupo más, junto a «Agrupar por» y «Cómo se ve».
+export function VistasGuardadas(props: Props) {
+  return <Lista {...useVistasGuardadas(props)} />;
+}
+
+function useVistasGuardadas({
+  superficie,
+  claves,
+  iniciales,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -70,11 +91,23 @@ export function MenuVistasGuardadas({
   // La vista que coincide con lo que estás viendo ahora mismo sale marcada.
   const actual = queryActual();
 
+  return { vistas, persistir, guardarActual, aplicar, actual };
+}
+
+function Lista({
+  vistas,
+  persistir,
+  guardarActual,
+  aplicar,
+  actual,
+}: ReturnType<typeof useVistasGuardadas>) {
   return (
-    <MenuBarra etiqueta="Vistas" icono={<Bookmark />} activos={vistas.length} alineado="derecha" titulo="Vistas guardadas">
+    <>
+      {/* La cabecera va SIEMPRE, también con la lista vacía: colgado dentro de «Vista», debajo de
+          «Cómo se ve», un «Guardar lo de ahora» suelto no dice de qué habla. */}
+      <MenuGrupo>Vistas guardadas</MenuGrupo>
       {vistas.length ? (
         <>
-          <MenuGrupo>Mis vistas</MenuGrupo>
           {vistas.map((v) => (
             // Fila con dos acciones (aplicar y borrar), así que no es un MenuOpcion: el botón de
             // borrar tiene que quedar FUERA del que aplica, o borrar aplicaría la vista primero.
@@ -109,6 +142,6 @@ export function MenuVistasGuardadas({
           Filtra como quieras y guárdalo con un nombre; vuelve con un clic desde aquí.
         </p>
       ) : null}
-    </MenuBarra>
+    </>
   );
 }

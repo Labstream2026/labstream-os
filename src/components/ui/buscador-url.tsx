@@ -12,11 +12,15 @@ export function BuscadorUrl({
   placeholder = "Buscar",
   tecla = "/",
   espera = 350,
+  className,
 }: {
   clave?: string;
   placeholder?: string;
   tecla?: string | null;
   espera?: number;
+  // Para ajustar el ancho de partida (`basis-*`) en barras apretadas: es ese ancho, y no el que
+  // acaba teniendo, el que decide si la barra se parte en dos filas.
+  className?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -48,5 +52,5 @@ export function BuscadorUrl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [texto, enUrl, clave, espera]);
 
-  return <BuscadorBarra value={texto} onChange={setTexto} placeholder={placeholder} tecla={tecla} />;
+  return <BuscadorBarra value={texto} onChange={setTexto} placeholder={placeholder} tecla={tecla} className={className} />;
 }

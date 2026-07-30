@@ -19,7 +19,7 @@ import { isEmailEnabled } from "@/lib/email";
 import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 import { AtajosBarra, BarraMandos, ChipFiltro, FranjaResumen, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, type TramoResumen } from "@/components/ui/barra-menu";
 import { BuscadorUrl } from "@/components/ui/buscador-url";
-import { MenuVistasGuardadas } from "@/components/ui/menu-vistas-guardadas";
+import { VistasGuardadas } from "@/components/ui/menu-vistas-guardadas";
 import { getUserPreference, parseSavedViews } from "@/lib/user-preference";
 
 const REVIEW_BASE = process.env.NEXTAUTH_URL || "";
@@ -377,12 +377,19 @@ export default async function RevisionesPage({
                 href={hrefFor({ tab: t.key })}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 ${i > 0 ? "border-l border-border" : ""} ${activeTab === t.key ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/50"}`}
               >
-                {t.label} <span className="text-xs tabular-nums text-muted-foreground">{t.count}</span>
+                {t.label}
+                {/* El «0» no cuenta nada que no cuente ya la bandeja vacía, y son 27 px de una
+                    barra que quiere caber en una línea. */}
+                {t.count > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{t.count}</span> : null}
               </Link>
             ))}
           </div>
 
-          <BuscadorUrl placeholder="Buscar pieza, proyecto o cliente" />
+          {/* basis-32 y no el basis-40 de la casa: en una fila con `flex-wrap` lo que decide si
+              algo baja de línea es el ancho DE PARTIDA, no el que acaba teniendo. Con 160 px de
+              partida la barra se rompía en dos a 1280 px de pantalla —justo lo que venía a
+              arreglar— y el buscador igual crece luego hasta llenar el hueco que sobre. */}
+          <BuscadorUrl placeholder="Buscar pieza, proyecto o cliente" className="basis-32" />
 
           <MenuBarra clave="filtrar" etiqueta="Filtrar" icono={<SlidersHorizontal />} activos={filtrosPuestos} alineado="derecha">
             <MenuGrupo>Alcance</MenuGrupo>
@@ -443,9 +450,11 @@ export default async function RevisionesPage({
                 <MenuOpcion marca={false} icono={<EyeOff />} href={hrefFor({ fase: null })}>Quitar el filtro de fase</MenuOpcion>
               </>
             ) : null}
+            {/* Las vistas guardadas, dentro. «Vista» y «Vistas» eran dos botones pegados que se
+                leen como lo mismo, y el segundo era el que rompía la barra en dos filas. */}
+            <MenuSeparador />
+            <VistasGuardadas superficie="revisiones" claves={CLAVES_VISTA} iniciales={vistasGuardadas} />
           </MenuBarra>
-
-          <MenuVistasGuardadas superficie="revisiones" claves={CLAVES_VISTA} iniciales={vistasGuardadas} />
         </BarraMandos>
 
         {/* Lo que está puesto, a la vista y con ✕: el precio de esconder los mandos se paga aquí. */}
