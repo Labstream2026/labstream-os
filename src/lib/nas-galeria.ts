@@ -159,6 +159,36 @@ export function posterRelFor(rel: string): string {
   return dir === "." ? `${PROXY_DIR_NAME}/${base}.poster.jpg` : `${dir}/${PROXY_DIR_NAME}/${base}.poster.jpg`;
 }
 
+// La TIRA DE BARRIDO de un video: una sola fila de 20 fotogramas repartidos por igual a lo
+// largo del clip, que LabTem fabrica junto al póster (`hacer_tira` en hacer-proxies.sh). Sirve
+// para pasar el ratón por encima de la miniatura y ver de qué va el video sin abrirlo.
+//
+// Estuvo fabricándose meses sin que nada la leyera: el script la generaba cada noche —y su
+// comentario ya decía «el CSS cuenta con que siempre son 20»— pero ni esta librería ni la
+// interfaz sabían que existía. Era CPU del NAS gastada en algo invisible.
+//
+// El número de fotogramas vive en `@/lib/galeria-tira` (módulo sin Node dentro) porque la
+// cuadrícula también lo necesita y es un componente cliente: importarlo de aquí le arrastraba
+// `sharp` al navegador.
+export { TIRA_FOTOGRAMAS } from "@/lib/galeria-tira";
+
+export function spriteRelFor(rel: string): string {
+  const dir = path.posix.dirname(rel);
+  const base = path.posix.basename(rel);
+  return dir === "." ? `${PROXY_DIR_NAME}/${base}.sprite.jpg` : `${dir}/${PROXY_DIR_NAME}/${base}.sprite.jpg`;
+}
+
+// Los bytes de la tira, tal cual salieron de ffmpeg (ya es un JPEG pequeño: 20 × 240 px).
+// `null` = todavía no existe, que en la cuadrícula significa «este video no se puede barrear
+// aún», no un error.
+export async function galeriaSprite(rel: string): Promise<Buffer | null> {
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) return null;
+  const abs = await galeriaAbs(spriteRelFor(norm)).catch(() => null);
+  if (!abs) return null;
+  return fs.readFile(abs).catch(() => null);
+}
+
 // ── Fecha de la pieza ──────────────────────────────────────────────────────────
 
 // Lee `DateTimeOriginal` (0x9003) del EXIF de un JPEG sin dependencias: se leen los primeros
@@ -445,29 +475,22 @@ export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Pro
   const abs = await galeriaAbs(norm);
   const raw = await fs.readdir(abs, { withFileTypes: true }).catch(() => null);
   if (!raw) return { carpetas: [], archivos: [] };
-  // QUÉ es cada entrada se decide ANTES de tocar el disco: el tipo sale del nombre. Así una
-  // carpeta con miles de sidecars (.xmp, .thm) no paga un viaje de red por cada uno.
-  const utiles: { name: string; rel: string; dir: boolean; kind: GaleriaKind | "doc" | null }[] = [];
-  for (const d of raw) {
-    if (isJunkName(d.name)) continue; // incluye .proxy, que es interna
-    const dir = d.isDirectory();
-    if (!dir && !d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
-    const kind = dir ? null : galeriaKind(d.name) ?? (opts?.docs && DOC_EXT.has(extOf(d.name)) ? ("doc" as const) : null);
-    if (!dir && !kind) continue;
-    utiles.push({ name: d.name, rel: norm ? `${norm}/${d.name}` : d.name, dir, kind });
-  }
-  // Y los stat van EN PARALELO, no en serie: sobre NFS cada uno es un viaje de red, y en
-  // fila se suman hasta pasarse del timeout del proxy inverso (mismo motivo que en
-  // listGaleriaFolders). En paralelo el coste es ~un viaje, no la suma.
-  const stats = await Promise.all(utiles.map((u) => fs.stat(path.join(abs, u.name)).catch(() => null)));
   const carpetas: GaleriaNivelCarpeta[] = [];
   const archivos: GaleriaNivelArchivo[] = [];
-  utiles.forEach((u, i) => {
-    const st = stats[i];
-    if (!st) return; // desapareció entre readdir y stat
-    if (u.dir) carpetas.push({ rel: u.rel, name: u.name, mtimeMs: st.mtimeMs });
-    else if (u.kind) archivos.push({ rel: u.rel, name: u.name, kind: u.kind, size: st.size, mtimeMs: st.mtimeMs });
-  });
+  for (const d of raw) {
+    if (isJunkName(d.name)) continue; // incluye .proxy, que es interna
+    const childRel = norm ? `${norm}/${d.name}` : d.name;
+    const st = await fs.stat(path.join(abs, d.name)).catch(() => null);
+    if (!st) continue; // desapareció entre readdir y stat
+    if (d.isDirectory()) {
+      carpetas.push({ rel: childRel, name: d.name, mtimeMs: st.mtimeMs });
+      continue;
+    }
+    if (!d.isFile()) continue; // symlinks: no se garantiza a dónde apuntan
+    const kind = galeriaKind(d.name) ?? (opts?.docs && DOC_EXT.has(extOf(d.name)) ? ("doc" as const) : null);
+    if (!kind) continue;
+    archivos.push({ rel: childRel, name: d.name, kind, size: st.size, mtimeMs: st.mtimeMs });
+  }
   // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);
   // archivos por fecha, lo más nuevo arriba — el export recién hecho es lo que se busca.
   carpetas.sort((a, b) => a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" }));
