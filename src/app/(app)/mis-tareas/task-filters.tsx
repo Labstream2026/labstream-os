@@ -3,21 +3,28 @@
 import * as React from "react";
 import { emojiToText } from "@/components/icons/marks";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Search, ChevronDown, X, Bookmark, Plus, Trash2, Filter } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { setSavedViews } from "@/app/(app)/perfil/preference-actions";
+import { SlidersHorizontal, Building2, FolderOpen, Flag, Calendar, List, Rows3, EyeOff } from "lucide-react";
+import { AtajosBarra, BarraMandos, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador } from "@/components/ui/barra-menu";
+import { BuscadorUrl } from "@/components/ui/buscador-url";
+import { MenuVistasGuardadas, type VistaGuardada } from "@/components/ui/menu-vistas-guardadas";
 
 type Opt = { value: string; label: string };
 type Proj = { id: string; name: string; emoji: string | null };
-type SavedView = { id: string; name: string; query: string };
 
-const FILTER_KEYS = ["estado", "prioridad", "cliente", "proyecto", "q", "grupo"] as const;
+// Parámetros que forman una vista guardada de esta superficie. `urg` (el tramo de la franja de
+// resumen) y `d`/`oculta` (cómo se ve) entran también: una vista guardada es «cómo lo tenía
+// puesto», no solo qué filtraba.
+export const CLAVES_VISTA = ["estado", "prioridad", "cliente", "proyecto", "q", "grupo", "urg", "d", "oculta"] as const;
 
-// Barra de filtros + agrupación + vistas guardadas para "Mis tareas". Los filtros viven en la
-// URL (?estado=&prioridad=&proyecto=&q=&grupo=) y el servidor filtra; así el enlace es
-// compartible y las vistas guardadas son solo una cadena de query con nombre. Las vistas se
-// guardan en BD (sincronizan entre dispositivos): llegan en `initialViews` y se persisten con
-// setSavedViews.
+// ── Una barra para «Mis tareas» ────────────────────────────────────────────────
+// Antes: buscador + Estado + Prioridad + Cliente + Proyecto + Agrupar + Limpiar + Guardar vista
+// = ocho mandos en una fila, más OTRA fila debajo con las vistas guardadas. Y todo eso venía
+// después de los cuatro cuadros de resumen y del héroe «Ahora sigue», así que en un portátil la
+// primera tarea salía justo en el borde de la pantalla o ya por debajo.
+//
+// Ahora: buscador + tres menús (Filtrar, Vista, Vistas). Los filtros siguen viviendo en la URL —el
+// enlace es compartible y una vista guardada no es más que una cadena de query con nombre—, así
+// que quien filtra sigue siendo el servidor.
 export function TaskFilters({
   statusOptions,
   priorityOptions,
@@ -31,7 +38,7 @@ export function TaskFilters({
   projectOptions: Proj[];
   clientOptions: { id: string; name: string }[];
   hasPersonal: boolean;
-  initialViews: SavedView[];
+  initialViews: VistaGuardada[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -42,8 +49,12 @@ export function TaskFilters({
   const proyecto = sp.get("proyecto") ?? "";
   const cliente = sp.get("cliente") ?? "";
   const grupo = sp.get("grupo") ?? "urgencia";
+  const compacta = sp.get("d") === "c";
+  const oculta = (sp.get("oculta") ?? "").split(",").filter(Boolean);
   const q = sp.get("q") ?? "";
-  const activeCount = estado.length + prioridad.length + (cliente ? 1 : 0) + (proyecto ? 1 : 0) + (q ? 1 : 0);
+  // Los que tiñen «Filtrar» son los que ESCONDEN tareas. La agrupación y la densidad no cuentan
+  // (no quitan nada de la lista) y por eso viven en «Vista».
+  const filtrosPuestos = estado.length + prioridad.length + (cliente ? 1 : 0) + (proyecto ? 1 : 0);
 
   const pushParams = React.useCallback(
     (next: Record<string, string | null>) => {
@@ -63,143 +74,111 @@ export function TaskFilters({
     const next = cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val];
     pushParams({ [key]: next.join(",") });
   };
-
-  const clearAll = () => pushParams({ estado: null, prioridad: null, cliente: null, proyecto: null, q: null });
-
-  // Búsqueda con debounce para no navegar en cada tecla.
-  const [qLocal, setQLocal] = React.useState(q);
-  React.useEffect(() => setQLocal(q), [q]);
-  React.useEffect(() => {
-    const t = setTimeout(() => { if (qLocal !== q) pushParams({ q: qLocal || null }); }, 400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qLocal]);
-
-  // Vistas guardadas (en BD; sincronizan entre dispositivos).
-  const [views, setViews] = React.useState<SavedView[]>(initialViews);
-  const [, startSave] = React.useTransition();
-  React.useEffect(() => { setViews(initialViews); }, [initialViews]);
-  const persist = (v: SavedView[]) => { setViews(v); startSave(() => { void setSavedViews("mis-tareas", v); }); };
-  const currentQuery = () => {
-    const params = new URLSearchParams();
-    for (const k of FILTER_KEYS) { const val = sp.get(k); if (val) params.set(k, val); }
-    return params.toString();
+  const toggleOculta = (val: string) => {
+    const next = oculta.includes(val) ? oculta.filter((x) => x !== val) : [...oculta, val];
+    pushParams({ oculta: next.join(",") });
   };
-  const saveCurrent = () => {
-    const name = window.prompt("Nombre de la vista guardada:");
-    if (!name?.trim()) return;
-    persist([...views, { id: `${Date.now()}`, name: name.trim(), query: currentQuery() }]);
-  };
-  const applyView = (v: SavedView) => router.push(v.query ? `${pathname}?${v.query}` : pathname, { scroll: false });
-  const deleteView = (id: string) => persist(views.filter((v) => v.id !== id));
+  const limpiar = () => pushParams({ estado: null, prioridad: null, cliente: null, proyecto: null, q: null, urg: null });
+
+  const etiquetaDe = (opts: Opt[], v: string) => opts.find((o) => o.value === v)?.label ?? v;
+  const clienteSel = cliente ? clientOptions.find((c) => c.id === cliente) : null;
+  const proyectoSel = proyecto === "personal" ? { name: "🔒 Personales" } : proyecto ? projectOptions.find((p) => p.id === proyecto) : null;
 
   return (
     <div className="space-y-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Buscar */}
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={qLocal}
-            onChange={(e) => setQLocal(e.target.value)}
-            placeholder="Buscar tarea"
-            className="h-9 w-44 rounded-md border border-input bg-background py-1 pl-8 pr-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
+      {/* Los mismos atajos que en las otras tres: «/» busca, «f» filtra, «v» vista. */}
+      <AtajosBarra />
+      <BarraMandos pegajosa>
+        <BuscadorUrl placeholder="Buscar tarea" />
 
-        <MultiDropdown label="Estado" icon={<Filter className="size-3.5" />} options={statusOptions} selected={estado} onToggle={(v) => toggleMulti("estado", v)} />
-        <MultiDropdown label="Prioridad" options={priorityOptions} selected={prioridad} onToggle={(v) => toggleMulti("prioridad", v)} />
+        <MenuBarra clave="filtrar" etiqueta="Filtrar" icono={<SlidersHorizontal />} activos={filtrosPuestos} alineado="derecha">
+          {statusOptions.length ? (
+            <>
+              <MenuGrupo>Estado</MenuGrupo>
+              {statusOptions.map((o) => (
+                <MenuOpcion key={o.value} activa={estado.includes(o.value)} onClick={() => toggleMulti("estado", o.value)}>
+                  {o.label}
+                </MenuOpcion>
+              ))}
+            </>
+          ) : null}
+          {priorityOptions.length ? (
+            <>
+              <MenuSeparador />
+              <MenuGrupo>Prioridad</MenuGrupo>
+              {priorityOptions.map((o) => (
+                <MenuOpcion key={o.value} activa={prioridad.includes(o.value)} onClick={() => toggleMulti("prioridad", o.value)}>
+                  {o.label}
+                </MenuOpcion>
+              ))}
+            </>
+          ) : null}
+          {clientOptions.length ? (
+            <>
+              <MenuSeparador />
+              <MenuGrupo>Cliente</MenuGrupo>
+              <MenuOpcion activa={!cliente} icono={<Building2 />} onClick={() => pushParams({ cliente: null })}>Todos los clientes</MenuOpcion>
+              {clientOptions.map((c) => (
+                <MenuOpcion key={c.id} activa={cliente === c.id} onClick={() => pushParams({ cliente: c.id })}>{c.name}</MenuOpcion>
+              ))}
+            </>
+          ) : null}
+          {projectOptions.length || hasPersonal ? (
+            <>
+              <MenuSeparador />
+              <MenuGrupo>Proyecto</MenuGrupo>
+              <MenuOpcion activa={!proyecto} icono={<FolderOpen />} onClick={() => pushParams({ proyecto: null })}>Todos los proyectos</MenuOpcion>
+              {hasPersonal ? (
+                <MenuOpcion activa={proyecto === "personal"} onClick={() => pushParams({ proyecto: "personal" })}>🔒 Personales (sin proyecto)</MenuOpcion>
+              ) : null}
+              {projectOptions.map((p) => (
+                <MenuOpcion key={p.id} activa={proyecto === p.id} onClick={() => pushParams({ proyecto: p.id })}>
+                  {p.emoji ? `${emojiToText(p.emoji)} ` : ""}{p.name}
+                </MenuOpcion>
+              ))}
+            </>
+          ) : null}
+          {filtrosPuestos > 0 || q || sp.get("urg") ? (
+            <>
+              <MenuSeparador />
+              <MenuOpcion marca={false} onClick={limpiar}>Limpiar los filtros</MenuOpcion>
+            </>
+          ) : null}
+        </MenuBarra>
 
-        {/* Cliente */}
-        {clientOptions.length > 0 ? (
-          <select
-            value={cliente}
-            onChange={(e) => pushParams({ cliente: e.target.value || null })}
-            className="h-9 cursor-pointer rounded-md border border-input bg-background px-2 text-sm outline-none hover:bg-accent focus:ring-2 focus:ring-ring"
-            title="Filtrar por cliente"
-          >
-            <option value="">Todos los clientes</option>
-            {clientOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        ) : null}
+        <MenuBarra clave="vista" etiqueta="Vista" icono={compacta ? <List /> : <Rows3 />} alineado="derecha">
+          <MenuGrupo>Agrupar por</MenuGrupo>
+          <MenuOpcion activa={grupo === "urgencia"} icono={<Calendar />} onClick={() => pushParams({ grupo: null })}>Urgencia</MenuOpcion>
+          <MenuOpcion activa={grupo === "proyecto"} icono={<FolderOpen />} onClick={() => pushParams({ grupo: "proyecto" })}>Proyecto</MenuOpcion>
+          <MenuOpcion activa={grupo === "prioridad"} icono={<Flag />} onClick={() => pushParams({ grupo: "prioridad" })}>Prioridad</MenuOpcion>
+          <MenuSeparador />
+          <MenuGrupo>Cuánto detalle</MenuGrupo>
+          <MenuOpcion activa={!compacta} icono={<Rows3 />} onClick={() => pushParams({ d: null })}>Cómoda</MenuOpcion>
+          <MenuOpcion activa={compacta} icono={<List />} onClick={() => pushParams({ d: "c" })} pista="una línea">Compacta</MenuOpcion>
+          <MenuSeparador />
+          {/* Quien conoce su día no necesita que se lo resuman: los dos bloques de arriba se
+              pueden apagar y se recuperan del orden de 190 px de alto. */}
+          <MenuOpcion activa={oculta.includes("resumen")} icono={<EyeOff />} onClick={() => toggleOculta("resumen")}>Ocultar el resumen</MenuOpcion>
+          <MenuOpcion activa={oculta.includes("heroe")} icono={<EyeOff />} onClick={() => toggleOculta("heroe")}>Ocultar «Ahora sigue»</MenuOpcion>
+        </MenuBarra>
 
-        {/* Proyecto */}
-        <select
-          value={proyecto}
-          onChange={(e) => pushParams({ proyecto: e.target.value || null })}
-          className="h-9 cursor-pointer rounded-md border border-input bg-background px-2 text-sm outline-none hover:bg-accent focus:ring-2 focus:ring-ring"
-          title="Filtrar por proyecto"
-        >
-          <option value="">Todos los proyectos</option>
-          {hasPersonal ? <option value="personal">🔒 Personales (sin proyecto)</option> : null}
-          {projectOptions.map((p) => <option key={p.id} value={p.id}>{p.emoji ? `${emojiToText(p.emoji)} ` : ""}{p.name}</option>)}
-        </select>
+        <MenuVistasGuardadas superficie="mis-tareas" claves={CLAVES_VISTA} iniciales={initialViews} />
+      </BarraMandos>
 
-        {/* Agrupar */}
-        <label className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-sm">
-          <span className="text-muted-foreground">Agrupar</span>
-          <select value={grupo} onChange={(e) => pushParams({ grupo: e.target.value === "urgencia" ? null : e.target.value })} className="cursor-pointer bg-transparent outline-none">
-            <option value="urgencia">Urgencia</option>
-            <option value="proyecto">Proyecto</option>
-            <option value="prioridad">Prioridad</option>
-          </select>
-        </label>
-
-        {activeCount > 0 ? (
-          <button type="button" onClick={clearAll} className="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
-            <X className="size-3.5" /> Limpiar ({activeCount})
-          </button>
-        ) : null}
-
-        <button type="button" onClick={saveCurrent} title="Guardar los filtros actuales como vista" className="ml-auto flex h-9 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-          <Plus className="size-3.5" /> Guardar vista
-        </button>
-      </div>
-
-      {/* Vistas guardadas */}
-      {views.length ? (
+      {/* Lo que está puesto, con su equis: el precio de guardar los mandos en menús. El tramo de la
+          franja de resumen pone su propia pastilla desde el servidor, que es quien la calcula. */}
+      {filtrosPuestos > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <Bookmark className="size-3.5 text-muted-foreground" />
-          {views.map((v) => (
-            <span key={v.id} className="group inline-flex items-center overflow-hidden rounded-full border border-border text-xs">
-              <button type="button" onClick={() => applyView(v)} className="py-1 pl-2.5 pr-1.5 font-medium hover:bg-accent">{v.name}</button>
-              <button type="button" onClick={() => deleteView(v.id)} aria-label={`Borrar vista ${v.name}`} className="flex size-5 items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                <Trash2 className="size-3" />
-              </button>
-            </span>
+          {estado.map((v) => (
+            <ChipFiltro key={`e-${v}`} onQuitar={() => toggleMulti("estado", v)}>{etiquetaDe(statusOptions, v)}</ChipFiltro>
           ))}
+          {prioridad.map((v) => (
+            <ChipFiltro key={`p-${v}`} onQuitar={() => toggleMulti("prioridad", v)}>{etiquetaDe(priorityOptions, v)}</ChipFiltro>
+          ))}
+          {clienteSel ? <ChipFiltro onQuitar={() => pushParams({ cliente: null })}>{clienteSel.name}</ChipFiltro> : null}
+          {proyectoSel ? <ChipFiltro onQuitar={() => pushParams({ proyecto: null })}>{proyectoSel.name}</ChipFiltro> : null}
         </div>
       ) : null}
     </div>
-  );
-}
-
-// Desplegable de selección múltiple (estado/prioridad) con casillas. Usa <details> nativo;
-// DetailsAutoClose (montado en el layout) lo cierra al hacer clic fuera o con Escape.
-function MultiDropdown({ label, icon, options, selected, onToggle }: { label: string; icon?: React.ReactNode; options: Opt[]; selected: string[]; onToggle: (v: string) => void }) {
-  return (
-    <details data-autoclose className="relative">
-      <summary className={cn("flex h-9 cursor-pointer list-none items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-sm hover:bg-accent", selected.length && "border-primary/50 text-foreground")}>
-        {icon}
-        {label}
-        {selected.length ? <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">{selected.length}</span> : null}
-        <ChevronDown className="size-3.5 text-muted-foreground" />
-      </summary>
-      <div className="absolute left-0 z-30 mt-1 max-h-72 w-52 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg">
-        {options.length === 0 ? (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">Sin opciones</p>
-        ) : options.map((o) => {
-          const on = selected.includes(o.value);
-          return (
-            <button key={o.value} type="button" onClick={() => onToggle(o.value)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
-              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", on ? "border-primary bg-primary text-primary-foreground" : "border-border")}>
-                {on ? <span className="text-[10px] leading-none">✓</span> : null}
-              </span>
-              <span className="truncate">{o.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </details>
   );
 }

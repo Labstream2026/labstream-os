@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, Check } from "lucide-react";
+import { CalendarDays, Check, MoreHorizontal } from "lucide-react";
+import { FranjaResumen, type TramoResumen } from "@/components/ui/barra-menu";
 import { IconTareas, IconMiDia, IconLista, IconCompletadas } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db";
@@ -32,15 +33,6 @@ import { Lock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-function SummaryTile({ count, label, color }: { count: number; label: string; color: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
-      <p className="text-2xl font-bold tabular-nums" style={{ color: count > 0 ? color : undefined }}>{count}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
 export default async function MisTareasPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -54,6 +46,11 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
   const fCliente = getStr("cliente");
   const fQ = getStr("q").toLowerCase().trim();
   const fGrupo = getStr("grupo") || "urgencia";
+  // Tramo de la franja de resumen (la sustituta de los cuatro cuadros): filtra por urgencia.
+  const fUrg = getStr("urg");
+  // Cómo se ve: densidad y qué bloques de arriba se esconden.
+  const compacta = getStr("d") === "c";
+  const ocultos = getStr("oculta").split(",").filter(Boolean);
 
   const { statuses, priorities } = await getTaskLabels();
   const statusOptions = labelOptions(statuses);
@@ -172,9 +169,27 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     ? { taskId: running.taskId, taskTitle: running.task.title, startedAtIso: running.startedAt.toISOString() }
     : null;
 
-  // Resumen rápido por urgencia (tiles arriba): de un vistazo, qué aprieta.
+  // Resumen rápido por urgencia (la franja de arriba): de un vistazo, qué aprieta.
   const counts: Record<string, number> = { vencidas: 0, hoy: 0, semana: 0, despues: 0, sin: 0 };
   for (const t of tasks) counts[bucketOf(t.dueDate)] = (counts[bucketOf(t.dueDate)] ?? 0) + 1;
+  // Enlace de un tramo, conservando el resto de la query. Pulsar el activo lo suelta.
+  const hrefTramo = (key: string) => {
+    const p = new URLSearchParams();
+    for (const k of ["estado", "prioridad", "cliente", "proyecto", "q", "grupo", "d", "oculta"]) {
+      const v = getStr(k);
+      if (v) p.set(k, v);
+    }
+    if (fUrg !== key) p.set("urg", key);
+    const qs = p.toString();
+    return qs ? `/mis-tareas?${qs}` : "/mis-tareas";
+  };
+  const tramosUrgencia: TramoResumen[] = [
+    { key: "vencidas", label: "vencidas", valor: counts.vencidas, tono: "rose" },
+    { key: "hoy", label: "hoy", valor: counts.hoy, tono: "amber" },
+    { key: "semana", label: "esta semana", valor: counts.semana, tono: "sky" },
+    { key: "despues", label: "más adelante", valor: counts.despues, tono: "neutro" },
+    { key: "sin", label: "sin fecha", valor: counts.sin, tono: "neutro" },
+  ].map((t) => ({ ...(t as TramoResumen), activo: fUrg === t.key, href: hrefTramo(t.key) }));
 
   // Opciones de filtro derivadas de las tareas del usuario.
   const projMap = new Map<string, { id: string; name: string; emoji: string | null }>();
@@ -198,6 +213,9 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
     if (fProyecto && fProyecto !== "personal" && t.projectId !== fProyecto) return false;
     if (fCliente && t.project?.client?.id !== fCliente) return false;
     if (fQ && !t.title.toLowerCase().includes(fQ)) return false;
+    // El tramo de la franja: «3 vencidas» pulsado deja en pantalla esas tres. Antes los cuatro
+    // cuadros solo informaban y había que armar el filtro a mano.
+    if (fUrg && bucketOf(t.dueDate) !== fUrg) return false;
     return true;
   });
 
@@ -225,18 +243,30 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
       .filter((s) => s.items.length);
   }
 
+  // ── Una fila de tarea ──
+  // Antes podía llevar hasta DOCE pastillas: prioridad, fecha, urgencia, horas est/reg,
+  // comentarios, adjuntos, «🐢 quieta», bloqueada o desbloquea, cronómetro, estado y detalle. La
+  // lista no descansaba nunca. Ahora fuera quedan las CUATRO que se leen de un golpe —prioridad,
+  // urgencia, estado y el menú— y lo demás vive en el ⋯, que además trae lo que antes obligaba a
+  // abrir el panel: la fecha, el cronómetro y a quién está asignada.
+  const CHIP_MENU = "flex items-center gap-2.5 px-2 py-1.5 text-[12.5px] text-muted-foreground";
   const taskRow = (t: (typeof tasks)[number]) => {
           const u = taskUrgency({ dueDate: t.dueDate, completedAt: null, isDone: false });
           const assignedToMeByOther = t.assigneeId === user.id && t.assignedBy;
           // Solo el dueño (quien la creó) cambia prioridad/fecha; el responsable
           // que la recibió no (se la asignaron con esos datos).
           const canEditMeta = t.ownerId === user.id;
+          const gastado = t.timeEntries.reduce((n, e) => n + e.minutes, 0);
+          const horas = (m: number) => `${Math.round((m / 60) * 10) / 10}h`;
+          const pasado = !!t.estimatedMinutes && gastado > t.estimatedMinutes;
+          const quieta = staleDaysOf(t);
+          const bloqueadoras = openBlockersOfRow(t);
           return (
             // Responsive: en MÓVIL la fila se parte en renglones limpios (título a ancho
-            // completo; luego prioridad+fecha+urgencia; luego estado+detalle) — antes el
-            // flex-wrap plano estrangulaba el título a dos letras y montaba los chips sobre
-            // el avatar de «Asignada por». En escritorio (sm+) todo vuelve a UNA línea.
-            <div key={t.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4 py-3", URGENCY_META[u.state].row)}>
+            // completo; luego las pastillas; luego estado+menú) — antes el flex-wrap plano
+            // estrangulaba el título a dos letras y montaba los chips sobre el avatar de
+            // «Asignada por». En escritorio (sm+) todo vuelve a UNA línea.
+            <div key={t.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4", compacta ? "py-1.5" : "py-3", URGENCY_META[u.state].row)}>
               {/* Renglón 1 (móvil): estrella + título/proyecto a TODO el ancho. */}
               <div className="flex w-full min-w-0 items-start gap-3 sm:w-auto sm:flex-1 sm:items-center">
               <MyDayToggle taskId={t.id} initial={myDayPos.has(t.id)} />
@@ -244,19 +274,24 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 {t.project ? (
                   <Link href={`/proyectos/${t.project.id}?tab=tareas`} className="block min-w-0">
                     <p className="truncate text-sm font-medium">{t.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t.project.client ? `🏢 ${t.project.client.name} · ` : ""}<EntityEmoji value={t.project.emoji} /> {t.project.name}
-                    </p>
+                    {/* En compacta el subtítulo se va: «una línea» tiene que ser una línea. */}
+                    {compacta ? null : (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t.project.client ? `🏢 ${t.project.client.name} · ` : ""}<EntityEmoji value={t.project.emoji} /> {t.project.name}
+                      </p>
+                    )}
                   </Link>
                 ) : (
                   <>
                     <p className="truncate text-sm font-medium">{t.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t.isPrivate ? "🔒 Personal" : "Personal"}
-                    </p>
+                    {compacta ? null : (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t.isPrivate ? "🔒 Personal" : "Personal"}
+                      </p>
+                    )}
                   </>
                 )}
-                {assignedToMeByOther ? (
+                {assignedToMeByOther && !compacta ? (
                   <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                     Asignada por
                     <UserAvatar initials={t.assignedBy!.initials} color={t.assignedBy!.avatarColor} size="sm" />
@@ -265,85 +300,112 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 ) : null}
               </div>
               </div>
-              {/* Renglón 2 (móvil): prioridad + fecha + urgencia, como grupo. */}
-              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+              {/* Renglón 2 (móvil): solo lo que se lee de un golpe. */}
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2">
               <PriorityPill priorities={priorities} value={t.priority} />
-              {canEditMeta ? (
-                <DateInput
-                  name="dueDate"
-                  value={toDateInputValue(t.dueDate)}
-                  action={setTaskDueDate.bind(null, t.id, t.project?.id ?? "")}
-                  title="Fecha de entrega"
-                />
-              ) : (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title="La fecha la fija quien asignó la tarea">
-                  <CalendarDays className="size-3.5" /> {formatShortDate(t.dueDate) ?? "Sin fecha"}
-                </span>
-              )}
               {u.state === "sin" ? null : (
                 <span className={cn("text-xs font-medium", URGENCY_META[u.state].text)}>
                   {urgencyLabel(u.state, u.days)}
                 </span>
               )}
-              {(() => {
-                const spent = t.timeEntries.reduce((n, e) => n + e.minutes, 0);
-                if (!t.estimatedMinutes && !spent) return null;
-                const h = (m: number) => `${Math.round((m / 60) * 10) / 10}h`;
-                const over = !!t.estimatedMinutes && spent > t.estimatedMinutes;
-                return (
-                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums", over ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground")} title="Horas estimadas vs registradas">
-                    ⏱ {t.estimatedMinutes ? `${h(t.estimatedMinutes)} est` : ""}{t.estimatedMinutes && spent ? " · " : ""}{spent ? `${h(spent)} reg` : ""}
-                  </span>
-                );
-              })()}
-              {t._count.comments || t._count.fileAssets ? (
-                <span className="inline-flex items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground" title={`${t._count.comments} comentario(s) · ${t._count.fileAssets} archivo(s)`}>
-                  {t._count.comments ? <>💬 {t._count.comments}</> : null}
-                  {t._count.fileAssets ? <>📎 {t._count.fileAssets}</> : null}
-                </span>
-              ) : null}
-              {staleDaysOf(t) >= 7 ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400" title={`Sin actividad hace ${staleDaysOf(t)} días`}>
-                  🐢 {staleDaysOf(t)} d quieta
-                </span>
-              ) : null}
-              {/* Tareas 2.0: candado de dependencias (el server también lo exige al completar). */}
-              {openBlockersOfRow(t).length ? (
+              {/* El candado se queda FUERA: no es un dato de color, es la razón por la que no
+                  puedes completarla, y esconderlo haría que el rechazo del servidor pareciera un fallo. */}
+              {bloqueadoras.length ? (
                 <span
                   className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-                  title={`Bloqueada por: ${openBlockersOfRow(t).map((b) => b.blocker.title).join(" · ")}`}
+                  title={`Bloqueada por: ${bloqueadoras.map((b) => b.blocker.title).join(" · ")}`}
                 >
                   <Lock className="size-3" /> Bloqueada
                 </span>
-              ) : t._count.blocks ? (
-                <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300" title="Al completarla se desbloquean otras tareas">
-                  desbloquea {t._count.blocks}
-                </span>
               ) : null}
               </div>
-              {/* Renglón 3 (móvil): estado + cronómetro + detalle. */}
+              {/* Renglón 3 (móvil): estado + el menú de la fila. */}
               <div className="flex items-center gap-2">
-              <TimerRowButton taskId={t.id} />
               <StatusSelect value={t.status} options={statusOptions} action={setTaskStatus.bind(null, t.id, t.project?.id ?? "")} />
-              <TaskDetailButton
-                task={{
-                  id: t.id,
-                  title: t.title,
-                  description: t.description,
-                  status: t.status,
-                  priority: t.priority,
-                  dueDateValue: toDateInputValue(t.dueDate) ?? "",
-                  projectId: t.project?.id ?? null,
-                  projectName: t.project?.name ?? null,
-                  projectEmoji: t.project?.emoji ?? null,
-                  assigneeId: t.assigneeId,
-                  checklist: t.checklist,
-                }}
-                team={team}
-                statuses={statuses}
-                priorities={priorities}
-                canEditMeta={canEditMeta}
-              />
+              <details data-autoclose className="relative shrink-0">
+                <summary
+                  className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label={`Más de «${t.title}»`}
+                  title="Fecha, cronómetro, horas y detalle"
+                >
+                  <MoreHorizontal className="size-4" />
+                </summary>
+                <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                  {/* Lo que se puede TOCAR, primero. */}
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
+                    {canEditMeta ? (
+                      <DateInput
+                        name="dueDate"
+                        value={toDateInputValue(t.dueDate)}
+                        action={setTaskDueDate.bind(null, t.id, t.project?.id ?? "")}
+                        title="Fecha de entrega"
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground" title="La fecha la fija quien asignó la tarea">
+                        {formatShortDate(t.dueDate) ?? "Sin fecha"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <TimerRowButton taskId={t.id} />
+                    <span className="text-[12.5px] text-muted-foreground">Cronómetro</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <TaskDetailButton
+                      task={{
+                        id: t.id,
+                        title: t.title,
+                        description: t.description,
+                        status: t.status,
+                        priority: t.priority,
+                        dueDateValue: toDateInputValue(t.dueDate) ?? "",
+                        projectId: t.project?.id ?? null,
+                        projectName: t.project?.name ?? null,
+                        projectEmoji: t.project?.emoji ?? null,
+                        assigneeId: t.assigneeId,
+                        checklist: t.checklist,
+                      }}
+                      team={team}
+                      statuses={statuses}
+                      priorities={priorities}
+                      canEditMeta={canEditMeta}
+                    />
+                    <span className="text-[12.5px] text-muted-foreground">Detalle y responsable</span>
+                  </div>
+
+                  {/* Y lo que solo se LEE, debajo. Antes gritaba desde la fila. */}
+                  {t.estimatedMinutes || gastado || t._count.comments || t._count.fileAssets || quieta >= 7 || t._count.blocks ? (
+                    <>
+                      <div className="my-1 h-px bg-border" />
+                      {t.estimatedMinutes || gastado ? (
+                        <div className={CHIP_MENU} title="Horas estimadas vs registradas">
+                          <span className={cn("tabular-nums", pasado && "font-semibold text-amber-600 dark:text-amber-400")}>
+                            ⏱ {t.estimatedMinutes ? `${horas(t.estimatedMinutes)} estimadas` : ""}{t.estimatedMinutes && gastado ? " · " : ""}{gastado ? `${horas(gastado)} registradas` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                      {t._count.comments || t._count.fileAssets ? (
+                        <div className={CHIP_MENU}>
+                          <span className="tabular-nums">
+                            {t._count.comments ? `💬 ${t._count.comments} comentario${t._count.comments === 1 ? "" : "s"}` : ""}
+                            {t._count.comments && t._count.fileAssets ? " · " : ""}
+                            {t._count.fileAssets ? `📎 ${t._count.fileAssets} archivo${t._count.fileAssets === 1 ? "" : "s"}` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                      {quieta >= 7 ? (
+                        <div className={cn(CHIP_MENU, "text-amber-600 dark:text-amber-400")}>🐢 {quieta} días sin moverse</div>
+                      ) : null}
+                      {t._count.blocks ? (
+                        <div className={cn(CHIP_MENU, "text-indigo-600 dark:text-indigo-300")} title="Al completarla se desbloquean otras tareas">
+                          🔓 desbloquea {t._count.blocks} tarea{t._count.blocks === 1 ? "" : "s"}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              </details>
               </div>
             </div>
     );
@@ -501,13 +563,11 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
             <p className="mt-1 text-sm text-muted-foreground">
               {tasks.length} tarea{tasks.length === 1 ? "" : "s"} abierta{tasks.length === 1 ? "" : "s"} · {user.name}
             </p>
-            <div className="mt-4 grid max-w-2xl grid-cols-2 gap-2.5 sm:grid-cols-4">
-              <SummaryTile count={counts.vencidas} label="Vencidas" color="#e24b4a" />
-              <SummaryTile count={counts.hoy} label="Hoy" color="#ba7517" />
-              <SummaryTile count={counts.semana} label="Esta semana" color="#2a78d6" />
-              <SummaryTile count={counts.despues + counts.sin} label="Más adelante" color="#888780" />
-            </div>
-            <NextUpHero task={heroTask} timer={heroTimer} />
+            {/* Los cuatro cuadros de ~110 px de alto pasan a UNA franja de una línea, y cada
+                tramo FILTRA al pulsarlo (antes solo informaban). El tramo activo se suelta
+                pulsándolo otra vez: el mismo gesto pone y quita. */}
+            {ocultos.includes("resumen") ? null : <FranjaResumen tramos={tramosUrgencia} className="mt-3 max-w-2xl" />}
+            {ocultos.includes("heroe") ? null : <NextUpHero task={heroTask} timer={heroTimer} />}
           </div>
         }
         views={[
