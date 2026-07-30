@@ -494,6 +494,11 @@ export type GaleriaNivelArchivo = {
   // un 404 por cada pieza que LabTem aún no ha fabricado. En una entrega a medio procesar eso
   // eran decenas de peticiones perdidas y un parpadeo antes de poder decir «preparando».
   miniatura: boolean;
+  // ¿Existe ya la copia H.264 que hace la GPU? Es OTRA pregunta que el póster: un video puede
+  // tener su fotograma y no su copia. Importa donde se manda material a revisión — sin copia,
+  // un master (ProRes, MXF, HEVC 10 bits) no lo decodifica el navegador del cliente.
+  // Solo tiene sentido en video; en foto es siempre false y no se mira.
+  copia: boolean;
 };
 export type GaleriaNivel = { carpetas: GaleriaNivelCarpeta[]; archivos: GaleriaNivelArchivo[] };
 
@@ -549,6 +554,7 @@ export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Pro
         size: st.size,
         mtimeMs: st.mtimeMs,
         miniatura: tieneMiniatura(u.name, u.kind),
+        copia: u.kind === "video" && proxies.has(`${u.name}.mp4`),
       });
   });
   // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);

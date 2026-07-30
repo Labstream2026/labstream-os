@@ -130,6 +130,52 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         /* sin miniatura → sigue con el original */
       }
     }
+    // ── DIAGNÓSTICO (?diag=1) ── Lo pide la sala cuando el reproductor ya falló. Sin esto, una
+    // pieza del NAS caía en el consejo genérico «sube un export H.264 como nueva versión» — que
+    // es EXACTAMENTE el trabajo manual que la fábrica de LabTem existe para evitar: ese H.264 lo
+    // hace su GPU sola. Decirle al editor que lo haga a mano es mandarlo a repetir el trabajo
+    // que la máquina ya tiene encargado.
+    if (url.searchParams.get("diag") === "1" && galIsVideo) {
+      const { galeriaAbs, proxyRelFor } = await import("@/lib/nas-galeria");
+      const di = (motivo: string, mensaje: string, consejo: string) =>
+        Response.json({ motivo, mensaje, consejo }, { headers: { "cache-control": "no-store" } });
+      const copia = await galeriaAbs(proxyRelFor(file.path, "video"))
+        .then((abs) => fs.stat(abs))
+        .then((st) => st.isFile())
+        .catch(() => false);
+      if (copia) {
+        return di(
+          "formato",
+          "El servidor sí tiene la copia ligera de esta pieza, y es la que te está sirviendo.",
+          viewer
+            ? "Entonces el problema no es el master: es este navegador con el video ya convertido. Prueba a recargar y, si sigue, ábrelo en otro navegador y avísanos."
+            : "Prueba a recargar la página o a abrirla en otro navegador; si sigue igual, avísale al equipo.",
+        );
+      }
+      const original = await resolveGaleriaFile(file.path, false);
+      if (!original) {
+        return di(
+          "sin_archivo",
+          "El archivo ya no está donde decía el disco.",
+          viewer
+            ? "Puede que lo movieran o renombraran por SMB. Vuelve a elegirlo desde «Desde el disco»."
+            : "Avísale al equipo: el material se movió de sitio y hay que volver a enlazarlo.",
+        );
+      }
+      // El mismo hecho, contado a quien corresponde: al equipo se le nombra la fábrica —le
+      // sirve para saber que no tiene que hacer nada— y al cliente no, que la cocina de
+      // adentro no es asunto suyo ni le ayuda a decidir.
+      return di(
+        "sin_copia",
+        viewer
+          ? "La copia ligera de esta pieza todavía no está hecha, y el master no lo decodifica el navegador."
+          : "La versión optimizada de este video todavía se está preparando.",
+        viewer
+          ? "La fabrica la GPU de LabTem —va por orden y pasa sola cada noche—. No hace falta que subas nada a mano: cuando esté, pulsa «↻ Reintentar» y se verá. Mientras tanto puedes descargar el original."
+          : "Se prepara sola. Vuelve a intentarlo en unos minutos con «↻ Reintentar»; si sigue igual, avísale al equipo.",
+      );
+    }
+
     const info = await resolveGaleriaFile(file.path, wantInline && galIsVideo);
     if (!info) return new NextResponse("El archivo ya no está en el disco (¿movido por SMB o LabTem apagado?)", { status: 404 });
     // ¿Se resolvió la copia ligera? Se sabe por dónde vive (dentro de `.proxy/`), no por el

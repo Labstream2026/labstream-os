@@ -40,7 +40,9 @@ const accessSelect = {
 export type NivelCarpeta = { rel: string; name: string };
 // `miniatura`: si su fotograma ya está fabricado. Lo dice el servidor mirando el disco, para
 // que el selector no pida imágenes que van a dar 404 mientras la fábrica va por detrás.
-export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number; miniatura: boolean };
+// `copia`: si ya existe la versión H.264 que hace la GPU. Sin ella, un master no lo reproduce
+// el navegador del cliente — y esta pantalla es justo desde donde se manda material a revisión.
+export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number; miniatura: boolean; copia: boolean };
 export type NivelResultado =
   | {
       ok: true;
@@ -104,6 +106,7 @@ export async function nivelDeCarpetaCliente(projectId: string, rel?: string | nu
         doc: a.kind === "doc",
         mtimeMs: a.mtimeMs,
         miniatura: a.miniatura,
+        copia: a.copia,
       })),
       escritura: session.role !== "demo" && hasPermission(session, "escribir_discos"),
       proyecto: proyecto ? { rel: proyecto.rel, existe: proyecto.existe } : null,

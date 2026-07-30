@@ -2292,7 +2292,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // ── Diagnóstico REAL ── Un <video> que falla no dice por qué (el evento `error` no distingue
   // «privado» de «cupo agotado» de «códec»), así que la tarjeta se lo pregunta al servidor, que
   // sí lo sabe. Antes se culpaba siempre al formato y el revisor perseguía el problema
-  // equivocado. Solo para piezas de Drive (las del NAS no tienen nada que diagnosticar).
+  // equivocado. Vale para las dos procedencias: Drive (¿privado? ¿cupo? ¿copiándose?) y NAS
+  // (¿está hecha ya la copia ligera que fabrica la GPU de LabTem?). Antes las del NAS caían al
+  // consejo genérico «sube un export H.264», que manda a repetir a mano justo el trabajo que la
+  // fábrica ya tiene encargado.
   const [diag, setDiag] = React.useState<{ mensaje: string; consejo: string } | null>(null);
   React.useEffect(() => {
     setLocalFailed(false);
@@ -2300,9 +2303,12 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   }, [version]);
   const mediaSrc = version?.src;
   React.useEffect(() => {
-    if (!localFailed || !mediaSrc?.startsWith("/api/review-media/")) return;
+    const src = mediaSrc;
+    if (!localFailed || !src) return;
+    if (!src.startsWith("/api/review-media/") && !src.startsWith("/api/files-asset/")) return;
     let cancelled = false;
-    fetch(`${mediaSrc}&diag=1`, { cache: "no-store" })
+    // El separador depende de si la URL ya trae parámetros (las del NAS llevan su token).
+    fetch(`${src}${src.includes("?") ? "&" : "?"}diag=1`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { mensaje?: string; consejo?: string } | null) => {
         if (!cancelled && j?.mensaje) setDiag({ mensaje: j.mensaje, consejo: j.consejo ?? "" });

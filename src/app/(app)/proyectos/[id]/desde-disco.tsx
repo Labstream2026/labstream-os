@@ -428,6 +428,18 @@ function CuerpoDisco({
                     preparandoSiFalta
                   />
                   <span className={cn("min-w-0 flex-1 truncate", on && "font-medium")}>{p.name}</span>
+                  {/* Un video sin su copia H.264 puede no reproducirse en la sala: si el
+                      original es un master (ProRes, MXF, HEVC 10 bits) el navegador del
+                      cliente no lo decodifica. Decirlo AQUÍ evita mandarlo a revisión y
+                      descubrirlo cuando el cliente ya tiene el enlace. */}
+                  {p.video && !p.copia ? (
+                    <span
+                      title="La copia ligera la fabrica la GPU de LabTem. Hasta que esté, un master no se reproduce en el navegador (un H.264 sí)."
+                      className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                    >
+                      sin copia
+                    </span>
+                  ) : null}
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fechaCorta(p.mtimeMs)}</span>
                 </button>
               );
