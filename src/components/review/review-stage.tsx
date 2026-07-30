@@ -190,7 +190,12 @@ export function ReviewStage({
   const [fixDlg, setFixDlg] = React.useState<null | { note: string; date: string; time: string }>(null);
   const [drawOpen, setDrawOpen] = React.useState(false);
   const [drawing, setDrawing] = React.useState<string | null>(null); // dataURL JPEG (anotación manual)
-  const [hideResolved, setHideResolved] = React.useState(false);
+  // ── Repaso de correcciones ── filtro por chips, vista (lista compacta / galería) y lightbox.
+  // La captura ya NO se pinta a lo ancho (una sola llenaba la pantalla y repasar 10 ajustes era
+  // scroll infinito): va de MINIATURA al lado del texto y el clic la amplía en el lightbox.
+  const [momentFilter, setMomentFilter] = React.useState<"all" | "pending" | "done" | "must" | "sugg">("all");
+  const [momentView, setMomentView] = React.useState<"list" | "grid">("list");
+  const [lightboxId, setLightboxId] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
   // Comentarios añadidos en esta sesión (UI optimista): se muestran al instante SIN
   // recargar la página, para que el reproductor de video NO se reinicie al comentar.
@@ -373,10 +378,75 @@ export function ReviewStage({
   const ofVersion = merged.filter((c) => (c.versionNumber == null || c.versionNumber === version?.number) && c.parentId == null);
   const allMoments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
   const resolvedCount = allMoments.filter((c) => c.resolved).length;
-  const moments = hideResolved ? allMoments.filter((c) => !c.resolved) : allMoments;
+  const suggCount = allMoments.filter((c) => c.priority === "SUGERENCIA").length;
+  // Lista según el chip de filtro activo. La exportación (Copiar/CSV) y el contador del título
+  // siguen usando allMoments: el filtro es solo de LECTURA, nunca recorta lo que se exporta.
+  const moments = allMoments.filter((c) =>
+    momentFilter === "pending" ? !c.resolved
+    : momentFilter === "done" ? !!c.resolved
+    : momentFilter === "must" ? (c.priority ?? "OBLIGATORIA") === "OBLIGATORIA"
+    : momentFilter === "sugg" ? c.priority === "SUGERENCIA"
+    : true,
+  );
+  // Capturas visibles con el filtro actual: alimentan la galería y la navegación del lightbox.
+  const captures = moments.filter((c) => !!c.drawing?.image);
+  const anyCaptures = allMoments.some((c) => !!c.drawing?.image);
   const notes = ofVersion.filter((c) => c.isNote);
 
   const seek = (t: number) => playerRef.current?.seek(t);
+
+  // ── Corrección ACTIVA durante la reproducción ── mientras el video corre, se resalta la
+  // corrección cuyo momento está sonando (y se trae a la vista dentro de la lista): repasar
+  // los ajustes viendo el video de corrido se vuelve natural. Solo LEE el player (getTime).
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const momentsBoxRef = React.useRef<HTMLDivElement | null>(null);
+  const allMomentsRef = React.useRef<StageComment[]>([]);
+  React.useEffect(() => { allMomentsRef.current = allMoments; });
+  React.useEffect(() => {
+    if (!caps.time) return;
+    const iv = setInterval(() => {
+      const api = playerRef.current;
+      const t = api?.getTime();
+      if (t == null || api?.isPaused()) { setActiveId(null); return; }
+      // La última corrección cuyo momento ya pasó, con ventana de 5 s (después se apaga sola).
+      let cur: string | null = null;
+      for (const c of allMomentsRef.current) {
+        if (c.timecode != null && c.timecode <= t + 0.3 && t - c.timecode < 5) cur = c.id;
+      }
+      setActiveId(cur);
+    }, 400);
+    return () => clearInterval(iv);
+  }, [caps.time]);
+  // Auto-scroll SUAVE dentro del contenedor de la lista (nunca mueve la página entera): solo
+  // si la tarjeta activa quedó fuera del área visible del contenedor.
+  React.useEffect(() => {
+    if (!activeId) return;
+    const box = momentsBoxRef.current;
+    const el = box?.querySelector<HTMLElement>(`[data-moment="${CSS.escape(activeId)}"]`);
+    if (!box || !el) return;
+    const top = el.offsetTop;
+    if (top < box.scrollTop || top + el.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTo({ top: Math.max(0, top - 8), behavior: "smooth" });
+    }
+  }, [activeId]);
+  // Teclado del lightbox (fase de CAPTURA, antes que los atajos del reproductor): ←/→ pasa
+  // entre capturas y Escape cierra; el resto de atajos del player se traga — con la captura
+  // en grande, espacio/J/L no deben mover un video que no se ve.
+  React.useEffect(() => {
+    if (!lightboxId) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const i = captures.findIndex((c) => c.id === lightboxId);
+      if (e.key === "Escape") { e.stopPropagation(); setLightboxId(null); return; }
+      if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); if (i > 0) setLightboxId(captures[i - 1].id); return; }
+      if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); if (i >= 0 && i < captures.length - 1) setLightboxId(captures[i + 1].id); return; }
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if ([" ", "k", "j", "l", ",", ".", "c", "v"].includes(k)) { e.preventDefault(); e.stopPropagation(); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [lightboxId, captures]);
 
   // ── Comparar versiones conservando el instante ──
   // Cambiar de versión con `pendingSeekRef` cargado salta al MISMO segundo en cuanto el
@@ -811,6 +881,43 @@ export function ReviewStage({
           </div>
         </div>
       ) : null}
+      {/* ── Lightbox de capturas ── la miniatura abre la imagen a TAMAÑO COMPLETO encima de la
+          página, con ←/→ para pasar entre las capturas visibles e «Ir a este momento» para
+          validar el ajuste en el propio video. Así la lista queda compacta sin perder detalle. */}
+      {(() => {
+        if (!lightboxId) return null;
+        const i = captures.findIndex((x) => x.id === lightboxId);
+        const c = i >= 0 ? captures[i] : null;
+        if (!c?.drawing?.image) return null;
+        return (
+          <div className="fixed inset-0 z-[90] flex flex-col bg-black/85 p-3 sm:p-5" role="dialog" aria-modal="true" onClick={() => setLightboxId(null)}>
+            <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+              <p className="min-w-0 truncate text-sm text-white">
+                <span className="font-medium">{c.authorName}</span>
+                <span className="text-white/60"> · captura {i + 1} de {captures.length}</span>
+              </p>
+              <button type="button" onClick={() => setLightboxId(null)} aria-label="Cerrar" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm text-white hover:bg-white/20">✕</button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center gap-2 py-3" onClick={(e) => e.stopPropagation()}>
+              <button type="button" onClick={() => { if (i > 0) setLightboxId(captures[i - 1].id); }} disabled={i <= 0} aria-label="Captura anterior" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30">←</button>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={c.drawing.image} alt="Captura del momento" className="max-h-full min-h-0 min-w-0 max-w-[calc(100%-6rem)] rounded-lg object-contain" />
+              <button type="button" onClick={() => { if (i < captures.length - 1) setLightboxId(captures[i + 1].id); }} disabled={i >= captures.length - 1} aria-label="Captura siguiente" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30">→</button>
+            </div>
+            <div className="mx-auto w-full max-w-xl text-center" onClick={(e) => e.stopPropagation()}>
+              <p className="line-clamp-3 whitespace-pre-wrap text-sm text-white/90">{c.body}</p>
+              <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+                <StatusChip comment={c} />
+                {c.timecode != null ? (
+                  <button type="button" onClick={() => { setLightboxId(null); seek(c.timecode!); }} className="rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                    ▶ Ir a este momento · {fmtTime(c.timecode)}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* ── Material + decisión ── vertical: columna IZQUIERDA (angosta, fija al hacer scroll);
           horizontal: arriba a todo el ancho. */}
       <div className={vertical ? "lg:sticky lg:top-4 lg:w-2/5 lg:max-w-sm lg:shrink-0" : "xl:sticky xl:top-4 xl:min-w-0 xl:flex-1"}>
@@ -1101,48 +1208,73 @@ export function ReviewStage({
           setTimeout(() => URL.revokeObjectURL(a.href), 5000);
         };
         const momentsHeaderNode = (
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">
-              {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
-              <span className="font-normal text-muted-foreground">
-                ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
+          <div className="mb-2 space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">
+                {onResolve ? "Checklist de cambios" : "Comentarios por momento"}{" "}
+                <span className="font-normal text-muted-foreground">
+                  ({onResolve ? `${resolvedCount}/${allMoments.length} hechos` : allMoments.length})
+                </span>
+              </h2>
+              <span className="flex items-center gap-1.5">
+                {allMoments.length > 0 ? (
+                  <>
+                    <button type="button" onClick={copyList} title="Copiar la lista con timecodes (para el editor)" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                      ⧉ Copiar
+                    </button>
+                    <button type="button" onClick={downloadCsv} title="Descargar CSV de correcciones" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
+                      CSV
+                    </button>
+                  </>
+                ) : null}
+                {/* Lista compacta ⇄ galería de capturas (solo si hay alguna captura que ver). */}
+                {anyCaptures ? (
+                  <span className="flex overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                    <button type="button" onClick={() => setMomentView("list")} title="Vista de lista" aria-pressed={momentView === "list"} className={`px-2 py-0.5 ${momentView === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}>☰</button>
+                    <button type="button" onClick={() => setMomentView("grid")} title="Vista de galería (las capturas en cuadrícula)" aria-pressed={momentView === "grid"} className={`px-2 py-0.5 ${momentView === "grid" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}>▦</button>
+                  </span>
+                ) : null}
               </span>
-            </h2>
-            <span className="flex items-center gap-1.5">
-              {allMoments.length > 0 ? (
-                <>
-                  <button type="button" onClick={copyList} title="Copiar la lista con timecodes (para el editor)" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-                    ⧉ Copiar
-                  </button>
-                  <button type="button" onClick={downloadCsv} title="Descargar CSV de correcciones" className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-                    CSV
-                  </button>
-                </>
-              ) : null}
-              {onResolve && resolvedCount > 0 ? (
-                <button onClick={() => setHideResolved((v) => !v)} className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-accent">
-                  {hideResolved ? `Ver hechos (${resolvedCount})` : "Ocultar hechos"}
-                </button>
-              ) : null}
-            </span>
+            </div>
+            {/* Chips de filtro: repasar SOLO lo pendiente (o lo obligatorio) sin leerlo todo.
+                Mismo lenguaje visual que el checklist de la pestaña Entregables. */}
+            {allMoments.length > 1 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <FilterChip active={momentFilter === "all"} onClick={() => setMomentFilter("all")}>Todas · {allMoments.length}</FilterChip>
+                <FilterChip active={momentFilter === "pending"} onClick={() => setMomentFilter("pending")}>Pendientes · {allMoments.length - resolvedCount}</FilterChip>
+                <FilterChip active={momentFilter === "done"} onClick={() => setMomentFilter("done")}>Hechas · {resolvedCount}</FilterChip>
+                {suggCount > 0 ? (
+                  <>
+                    <FilterChip active={momentFilter === "must"} onClick={() => setMomentFilter("must")}>Obligatorias · {allMoments.length - suggCount}</FilterChip>
+                    <FilterChip active={momentFilter === "sugg"} onClick={() => setMomentFilter("sugg")}>Sugerencias · {suggCount}</FilterChip>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         );
         const momentsListNode = (
-          <div className={`mb-3 space-y-2 overflow-y-auto pr-1 ${vertical ? "max-h-[42vh]" : "max-h-[60vh]"}`}>
+          <div ref={momentsBoxRef} className={`relative mb-3 space-y-2 overflow-y-auto pr-1 ${vertical ? "max-h-[56vh]" : "max-h-[60vh]"}`}>
             {moments.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {captureHint
-                  ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
-                  : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
+                {allMoments.length > 0
+                  ? "Ninguna corrección coincide con este filtro."
+                  : captureHint
+                    ? `Pausa el video donde quieras y escribe un comentario: se guarda ${captureHint}.`
+                    : "Escribe un comentario. Para anotar el fotograma, pega o sube una captura del momento con «✏️ Dibujar / anotar»."}
               </p>
             ) : (
               moments.map((c) => {
                 // Respuestas del hilo de ESTA corrección (ya filtradas por el modo en `merged`).
                 const replies = repliesByParent.get(c.id) ?? [];
-                // La tarjeta del comentario es la MISMA en ambos layouts. En vertical la captura va
-                // inline debajo del texto; en horizontal se saca a una columna a la derecha (abajo).
+                // La tarjeta del comentario es la MISMA en ambos layouts, con la captura como
+                // MINIATURA integrada (clic → lightbox). `data-moment` ancla el auto-scroll del
+                // comentario activo y el ring lo resalta mientras su momento suena en el video.
                 const comment = (
-                  <div className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"}`}>
+                  <div
+                    data-moment={c.id}
+                    className={`flex gap-2.5 rounded-lg border bg-card p-3 text-sm ${c.resolved ? "border-emerald-300 bg-emerald-50/40 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-border"} ${activeId === c.id ? "ring-2 ring-primary/40" : ""}`}
+                  >
                     {/* Casilla del checklist: marca el cambio como realizado (avisa al equipo). */}
                     {onResolve ? (
                       <button
@@ -1155,6 +1287,23 @@ export function ReviewStage({
                         className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border text-[12px] font-bold transition-colors disabled:opacity-50 ${c.resolved ? "border-emerald-500 bg-emerald-500 text-white" : "border-muted-foreground/40 text-transparent hover:border-primary"}`}
                       >
                         ✓
+                      </button>
+                    ) : null}
+                    {/* Miniatura de la captura (nunca a lo ancho: lo que se escanea es el TEXTO).
+                        Clic → lightbox a tamaño completo, con «Ir a este momento» para validar. */}
+                    {c.drawing?.image ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxId(c.id)}
+                        title="Ver la captura en grande"
+                        className={`group relative block shrink-0 self-start overflow-hidden rounded-md border border-border ${vertical ? "w-12" : "w-24"}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={c.drawing.image} alt="Captura del momento" className={`w-full object-cover ${vertical ? "aspect-[9/16]" : "aspect-video"}`} />
+                        {c.timecode != null ? (
+                          <span className="absolute bottom-0.5 left-0.5 rounded bg-black/70 px-1 font-mono text-[10px] leading-4 text-white">{fmtTime(c.timecode)}</span>
+                        ) : null}
+                        <span className="absolute inset-0 hidden items-center justify-center bg-black/40 text-base text-white group-hover:flex">🔍</span>
                       </button>
                     ) : null}
                     <div className="min-w-0 flex-1">
@@ -1197,10 +1346,6 @@ export function ReviewStage({
                       ) : (
                         <p className={`mt-1 whitespace-pre-wrap break-words ${c.resolved ? "text-muted-foreground line-through" : "text-foreground/90"}`}>{c.body}</p>
                       )}
-                      {vertical && c.drawing?.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={c.drawing.image} alt="Captura del momento" className="mt-2 w-full rounded-md border border-border" />
-                      ) : null}
                       {rowError?.id === c.id ? <p className="mt-1 text-[11px] text-destructive">{rowError.message}</p> : null}
                       {/* ── Hilo ── respuestas anidadas (sangradas y más pequeñas) + «Responder». */}
                       {replies.length > 0 || onReply ? (
@@ -1263,34 +1408,39 @@ export function ReviewStage({
                     </div>
                   </div>
                 );
-                // Vertical: comportamiento de siempre (Fragment sin envoltura extra → mismo DOM).
-                if (vertical) return <React.Fragment key={c.id}>{comment}</React.Fragment>;
-                // Horizontal: comentario a la izquierda + su captura alineada a la derecha (clic → va al segundo).
-                return (
-                  <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_9rem] items-start gap-2.5">
-                    {comment}
-                    {c.drawing?.image ? (
-                      c.timecode != null ? (
-                        <button type="button" onClick={() => seek(c.timecode!)} title="Ir a este momento" className="relative block overflow-hidden rounded-lg border border-border">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={c.drawing.image} alt="Captura del momento" className="w-full" />
-                          <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[10px] text-white">▶ {fmtTime(c.timecode)}</span>
-                        </button>
-                      ) : (
-                        <div className="relative overflow-hidden rounded-lg border border-border">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={c.drawing.image} alt="Captura del momento" className="w-full" />
-                        </div>
-                      )
-                    ) : (
-                      <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-2 py-4 text-center text-[11px] text-muted-foreground">Sin captura</div>
-                    )}
-                  </div>
-                );
+                // MISMA tarjeta en ambos layouts (la miniatura ya va integrada): sin columna
+                // aparte de capturas ni cajas «Sin captura» que solo metían ruido visual.
+                return <React.Fragment key={c.id}>{comment}</React.Fragment>;
               })
             )}
           </div>
         );
+        // Vista GALERÍA: solo las capturas, en cuadrícula ordenada — para el repaso VISUAL sin
+        // el scroll infinito de las capturas a lo ancho. Clic = lightbox (y de ahí, al video).
+        const galleryNode = (
+          <div className={`mb-3 grid gap-2 overflow-y-auto pr-1 ${vertical ? "max-h-[56vh] grid-cols-3" : "max-h-[60vh] grid-cols-2"}`}>
+            {captures.length === 0 ? (
+              <p className="col-span-full text-sm text-muted-foreground">No hay capturas que mostrar con este filtro.</p>
+            ) : (
+              captures.map((c) => (
+                <button key={c.id} type="button" onClick={() => setLightboxId(c.id)} title="Ver en grande" className="group self-start overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/60">
+                  <span className="relative block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={c.drawing!.image!} alt="Captura del momento" className={`w-full object-cover ${vertical ? "aspect-[9/16]" : "aspect-video"}`} />
+                    {c.timecode != null ? <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">{fmtTime(c.timecode)}</span> : null}
+                    {c.resolved ? <span className="absolute right-1 top-1 rounded bg-emerald-500 px-1 text-[10px] font-bold text-white">✓</span> : null}
+                  </span>
+                  <span className="block px-2 py-1.5">
+                    <span className="block truncate text-[11px] font-medium">{c.authorName}</span>
+                    <span className="line-clamp-2 block text-[11px] text-muted-foreground">{c.body}</span>
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        );
+        // Cuerpo según la vista elegida (el toggle solo aparece si hay capturas).
+        const momentsBodyNode = momentView === "grid" && anyCaptures ? galleryNode : momentsListNode;
         const commentInputNode = (
           <div className="space-y-2 rounded-xl border border-border bg-card p-3">
             {!fixedName ? (
@@ -1345,7 +1495,7 @@ export function ReviewStage({
             <div className="min-w-0 flex-1 space-y-6">
               <div className="flex min-h-0 flex-col">
                 {momentsHeaderNode}
-                {momentsListNode}
+                {momentsBodyNode}
                 {commentInputNode}
               </div>
               {notesNode}
@@ -1360,7 +1510,7 @@ export function ReviewStage({
             {commentInputNode}
             <div>
               {momentsHeaderNode}
-              {momentsListNode}
+              {momentsBodyNode}
             </div>
             {notesNode}
           </div>
@@ -1403,6 +1553,20 @@ function PriorityChip({ priority, onToggle, disabled }: { priority: StagePriorit
       className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-75 disabled:opacity-50 ${s.cls}`}
     >
       {s.label}
+    </button>
+  );
+}
+
+// Chip de FILTRO de la lista de correcciones (Todas/Pendientes/Hechas/Obligatorias/Sugerencias):
+// mismo lenguaje visual que los filtros del checklist de la pestaña Entregables del proyecto.
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${active ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+    >
+      {children}
     </button>
   );
 }
