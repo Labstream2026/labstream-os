@@ -27,15 +27,17 @@ export function DiscoTabs({
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
+      {/* La galería va de primera: es donde el equipo busca material a diario, y es también
+          el disco que abre la entrada «Discos» del menú. */}
       <nav aria-label="Discos" className="inline-flex items-center rounded-full border border-border bg-muted/50 p-1">
-        {hayOps ? (
-          <Link href="/operaciones" aria-current={activo === "operaciones" ? "page" : undefined} className={tab(activo === "operaciones")}>
-            <HardDrive className="size-4 text-[#F47A20]" /> Operaciones_LAB
-          </Link>
-        ) : null}
         {hayGaleria ? (
           <Link href="/galeria" aria-current={activo === "galeria" ? "page" : undefined} className={tab(activo === "galeria")}>
             <Images className="size-4 text-pink-500" /> Galería · LabTem
+          </Link>
+        ) : null}
+        {hayOps ? (
+          <Link href="/operaciones" aria-current={activo === "operaciones" ? "page" : undefined} className={tab(activo === "operaciones")}>
+            <HardDrive className="size-4 text-[#F47A20]" /> Operaciones_LAB
           </Link>
         ) : null}
       </nav>

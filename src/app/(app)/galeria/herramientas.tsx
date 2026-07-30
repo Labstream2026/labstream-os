@@ -122,75 +122,100 @@ export function GaleriaHerramientas({
 
   return (
     <div className="mb-4 space-y-2">
-      {/* Migas: solo DENTRO de una carpeta. En la raíz eran un «Galería» suelto sin nada que
-          navegar, compitiendo con el título de la página justo debajo. */}
-      {/* En ESCRITORIO el árbol lateral ya dice dónde estás y deja ir a cualquier nivel de un
-          clic: repetirlo aquí era ruido. En móvil el árbol es un cajón, así que las migas se
-          quedan — son la única pista de ubicación visible sin abrirlo. */}
-      {rel && (
-        <div className="flex flex-wrap items-center gap-1 text-sm md:hidden">
-          <button type="button" onClick={() => navegar("")} className="rounded px-1.5 py-0.5 hover:bg-accent">
-            Galería
-          </button>
-          {migas.map((seg, i) => {
-            const destino = migas.slice(0, i + 1).join("/");
-            const ultimo = i === migas.length - 1;
-            return (
-              <React.Fragment key={destino}>
-                <ChevronRight className="size-3.5 text-muted-foreground" />
-                <button
-                  type="button"
-                  onClick={() => navegar(destino)}
-                  className={cn("max-w-[16rem] truncate rounded px-1.5 py-0.5 hover:bg-accent", ultimo && "font-semibold")}
-                >
-                  {seg.replace(/_/g, " ")}
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
-      )}
-
       {((rel && subcarpetas.length > 0) || puedeEscribir || vinculos.length > 0) && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Chips de subcarpeta: solo dentro de una carpeta (la línea de tiempo la aplana y
-              esto la devuelve a la vista). En la raíz DUPLICABAN el índice: las mismas 30
-              entregas como chips y como tarjetas, una debajo de la otra. */}
-          {(rel ? subcarpetas : []).map((s) => (
-            <button
-              key={s.rel}
-              type="button"
-              onClick={() => navegar(s.rel)}
-              title={s.dueno ? `Carpeta de ${s.dueno.nombre}` : undefined}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
-                // Carpeta de un cliente → teñida con SU color (hover un pelín más presente vía brightness).
-                s.dueno ? cn(tone(s.dueno.color ?? "slate").chip, "font-medium hover:brightness-95 dark:hover:brightness-110") : "bg-card hover:bg-accent",
-              )}
-            >
-              <Folder className={cn("size-3.5", s.dueno ? "opacity-70" : "text-muted-foreground")} />
-              <span className="max-w-[14rem] truncate">{s.name.replace(/_/g, " ")}</span>
-            </button>
-          ))}
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2",
+            // Dentro de una carpeta la fila es una BARRA de verdad (la misma de los
+            // exploradores de discos): migas a la izquierda, acciones a la derecha. En la
+            // raíz no hay nada que navegar y el índice de abajo ya tiene su tarjeta: solo
+            // queda «Añadir», sin chrome alrededor.
+            rel && "rounded-xl border border-border bg-muted/40 px-3 py-2",
+          )}
+        >
+          {/* Migas: dónde estás, con la raíz por nombre. Antes los nombres salían como chips
+              sueltos —parecían botones de otra cosa— y en escritorio ni había migas. */}
+          {rel ? (
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => navegar("")}
+                className="max-w-[13rem] truncate rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+              >
+                Entregas_LAB
+              </button>
+              {migas.map((seg, i) => {
+                const destino = migas.slice(0, i + 1).join("/");
+                const ultimo = i === migas.length - 1;
+                return (
+                  <React.Fragment key={destino}>
+                    <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+                    <button
+                      type="button"
+                      onClick={() => navegar(destino)}
+                      className={cn("max-w-[13rem] truncate rounded px-1.5 py-0.5 hover:bg-accent", ultimo ? "font-semibold" : "text-muted-foreground")}
+                    >
+                      {seg.replace(/_/g, " ")}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+              {/* El dueño de la carpeta, pegado a las migas: se sabe de quién es sin chips
+                  gigantes. La ✕ de desvincular sigue ahí, chiquita. */}
+              {vinculos.map((v) => (
+                <span
+                  key={`${v.tipo}-${v.id}`}
+                  title={v.tipo === "cliente" ? `Carpeta del cliente ${v.nombre}` : `Vinculada al proyecto ${v.nombre}`}
+                  className={cn(
+                    "ml-1.5 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold",
+                    v.tipo === "cliente" && v.color ? tone(v.color).chip : "border border-primary/30 bg-primary/5",
+                  )}
+                >
+                  {v.nombre}
+                  {puedeEscribir && (
+                    <button type="button" title="Desvincular" onClick={() => desvincular(v)} className="rounded hover:bg-accent">
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
 
-          {vinculos.map((v) => (
-            <span
-              key={`${v.tipo}-${v.id}`}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
-                // El chip del vínculo de cliente también lleva su color: se ve al entrar a la carpeta.
-                v.tipo === "cliente" && v.color ? tone(v.color).chip : "border-primary/30 bg-primary/5",
-              )}
-            >
-              <Link2 className="size-3.5" />
-              {v.tipo === "cliente" ? "Cliente:" : "Proyecto:"} <span className="font-medium">{v.nombre}</span>
-              {puedeEscribir && (
-                <button type="button" title="Desvincular" onClick={() => desvincular(v)} className="ml-0.5 rounded hover:bg-accent">
-                  <X className="size-3" />
-                </button>
-              )}
-            </span>
-          ))}
+          {/* Las subcarpetas, plegadas: son la única forma de bajar cuando el visor está en
+              «Todo junto» (la línea de tiempo las aplana), pero como chips sueltos llenaban
+              la pantalla de nombres. En desplegable navegan igual y no gritan. */}
+          {rel && subcarpetas.length > 0 ? (
+            <details data-autoclose className="group/carp relative shrink-0">
+              <summary className={cn(botonCls, "h-7 cursor-pointer list-none py-0 [&::-webkit-details-marker]:hidden")}>
+                <Folder className="size-3.5 text-[#F47A20]" /> Carpetas
+                <span className="rounded bg-muted px-1 text-[10px] font-semibold text-muted-foreground">{subcarpetas.length}</span>
+                <ChevronDown className="size-3 opacity-70 transition-transform group-open/carp:rotate-180" />
+              </summary>
+              <div className="absolute right-0 z-20 mt-1 flex max-h-72 w-56 flex-col overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
+                {subcarpetas.map((s) => (
+                  <button
+                    key={s.rel}
+                    type="button"
+                    onClick={(e) => {
+                      cerrarMenu(e);
+                      navegar(s.rel);
+                    }}
+                    title={s.dueno ? `Carpeta de ${s.dueno.nombre}` : undefined}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-accent",
+                      s.dueno && cn(tone(s.dueno.color ?? "slate").chip, "font-medium hover:brightness-95 dark:hover:brightness-110"),
+                    )}
+                  >
+                    <Folder className={cn("size-3.5 shrink-0", s.dueno ? "opacity-70" : "text-[#F47A20]")} />
+                    <span className="min-w-0 flex-1 truncate">{s.name.replace(/_/g, " ")}</span>
+                  </button>
+                ))}
+              </div>
+            </details>
+          ) : null}
 
           {puedeEscribir && (
             <span className="ml-auto flex flex-wrap items-center gap-1.5">

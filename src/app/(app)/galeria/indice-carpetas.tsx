@@ -73,6 +73,28 @@ function metaDe(r: Resumen | undefined): string {
   return partes.join(" · ");
 }
 
+// El cuadro de portada de una ficha: la imagen del material más nuevo, cuadrada y discreta.
+// Mientras carga es un hueco quieto (nada parpadea) y si el póster aún no está fabricado el
+// cuadro desaparece — un icono roto diría «error» donde solo hay una fábrica en cola.
+function CuadroPortada({ rel, v }: { rel: string; v: number }) {
+  const [estado, setEstado] = React.useState<"cargando" | "ok" | "sin">("cargando");
+  if (estado === "sin") return null;
+  return (
+    <span className={cn("relative size-11 shrink-0 overflow-hidden rounded-lg", estado !== "ok" && "bg-black/10 dark:bg-white/10")}>
+      {/* La sirve nuestra propia ruta leyendo del NAS: next/image no puede con eso. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/galeria/thumb?rel=${encodeURIComponent(rel)}&v=${v}`}
+        alt=""
+        loading="lazy"
+        onLoad={() => setEstado("ok")}
+        onError={() => setEstado("sin")}
+        className={cn("size-full object-cover", estado === "ok" ? "opacity-100" : "opacity-0")}
+      />
+    </span>
+  );
+}
+
 export function IndiceCarpetas({
   folders,
   duenos,
@@ -142,8 +164,10 @@ export function IndiceCarpetas({
     return lista;
   }, [folders, resumenes, orden, busca]);
 
-  // Una ficha baja por carpeta: nombre arriba, lo que tiene dentro debajo. El color es el
-  // del cliente dueño; sin dueño, la carpeta neutra de siempre.
+  // Una ficha baja por carpeta: nombre y contenido a la izquierda y, cuando la carpeta tiene
+  // material, su portada en un cuadro a la derecha — pequeña a propósito: identifica sin
+  // robarle el protagonismo al nombre. Una carpeta vacía no finge: sin portada no hay cuadro.
+  // El color es el del cliente dueño; sin dueño, la carpeta neutra de siempre.
   const fichas = (
     <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3", variante === "indice" && "p-3")}>
       {visibles.map((f) => {
@@ -156,17 +180,20 @@ export function IndiceCarpetas({
             onClick={() => onAbrir(f.rel)}
             title={dueno ? `Carpeta de ${dueno.nombre}` : undefined}
             className={cn(
-              "flex flex-col gap-0.5 rounded-lg border px-2.5 py-2 text-left",
+              "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
               dueno
                 ? cn(tone(dueno.color ?? "slate").chip, "hover:brightness-95 dark:hover:brightness-110")
                 : "border-border bg-muted/30 hover:bg-accent",
             )}
           >
-            <span className="flex w-full items-center gap-2">
-              <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium">{f.name.replace(/_/g, " ")}</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex w-full items-center gap-2">
+                <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium">{f.name.replace(/_/g, " ")}</span>
+              </span>
+              <span className="block truncate pl-6 text-[10px] opacity-75">{metaDe(r)}</span>
             </span>
-            <span className="truncate pl-6 text-[10px] opacity-75">{metaDe(r)}</span>
+            {r?.portadaRel ? <CuadroPortada rel={r.portadaRel} v={r.ultimoMs} /> : null}
           </button>
         );
       })}

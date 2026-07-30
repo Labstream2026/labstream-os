@@ -238,11 +238,12 @@ export function Sidebar({
     { href: "/revisiones", label: "Proyectos a revisar", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
     { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
-    // Los dos discos del NAS en UNA entrada (dentro se cambia con pestañas): Operaciones_LAB
-    // (árbol de trabajo) y la galería de entregas de LabTem. Solo equipo; nunca clientes —
-    // el cliente entra a su galería por el enlace firmado, no por el menú.
+    // Los dos discos del NAS en UNA entrada (dentro se cambia con pestañas): la galería de
+    // entregas de LabTem PRIMERO —es donde el equipo busca material a diario— y
+    // Operaciones_LAB a un clic. Solo equipo; nunca clientes — el cliente entra a su galería
+    // por el enlace firmado, no por el menú.
     {
-      href: opsEnabled ? "/operaciones" : "/galeria",
+      href: galeriaEnabled ? "/galeria" : "/operaciones",
       label: "Discos",
       icon: HardDrive,
       show: !isCliente && (opsEnabled || galeriaEnabled),
