@@ -969,8 +969,6 @@ export function ReviewStage({
               // Marcas de las correcciones para la pista de la barra propia (video del mismo origen):
               // autor y texto alimentan el popover al pasar el mouse y el salto siguiente/anterior.
               markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved, author: c.authorName, body: c.body }))}
-              // Herramientas del EQUIPO (zonas seguras del reel): el portal del cliente no las ve.
-              teamTools={mode === "internal"}
             />
 
             {immersive ? (
@@ -2178,7 +2176,7 @@ function ImmersiveSheet({
 }
 
 // ── Visor de medios con API de reproductor + captura de fotograma ──
-function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false, markers = [], teamTools = false }: {
+function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = false, onCapabilities, immersive = false, markers = [] }: {
   version: StageVersion | undefined;
   apiRef: React.MutableRefObject<PlayerApi | null>;
   drawOpen: boolean;
@@ -2197,8 +2195,6 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   // Correcciones con timecode: marcas en la pista de la barra propia (ámbar/verde, clic=saltar,
   // popover con autor+texto al pasar el mouse y salto siguiente/anterior).
   markers?: PlayerMarker[];
-  // Herramientas SOLO del equipo (modo interno): hoy, las zonas seguras del reel.
-  teamTools?: boolean;
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const imgRef = React.useRef<HTMLImageElement>(null);
@@ -2565,8 +2561,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             onRate={applyRate}
             compact={vertical}
             safeZone={safeZone}
-            // El botón de zonas seguras solo existe para el EQUIPO y en reels verticales.
-            onSafeZone={teamTools && vertical ? cycleSafeZone : undefined}
+            // Zonas seguras en reels verticales, para AMBOS lados: al equipo le sirve al editar
+            // y al cliente le explica por qué el texto no puede ir donde la app pinta su interfaz.
+            onSafeZone={vertical ? cycleSafeZone : undefined}
           />
         )}
         </div>
