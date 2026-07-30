@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { cerrarMenu } from "@/components/ui/barra-menu";
 import { opsCreateFolder, opsRename, opsMove, opsTrash } from "./actions";
 
 type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string };
@@ -78,7 +79,6 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   const [moving, setMoving] = React.useState<Entry | null>(null);
   const [uploading, setUploading] = React.useState(0);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [menu, setMenu] = React.useState(false); // desplegable «Añadir»
   const fileInput = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (p: string) => {
@@ -225,23 +225,22 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
           {canWrite ? (
             <span className="relative">
               <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => void doUpload(e.target.files)} />
-              <button
-                onClick={() => setMenu((v) => !v)}
-                disabled={uploading > 0}
-                aria-expanded={menu}
-                className="inline-flex items-center gap-1 rounded-md bg-primary py-1.5 pl-2.5 pr-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-              >
-                {uploading > 0 ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                {uploading > 0 ? `Subiendo ${uploading}…` : "Añadir"}
-                <ChevronDown className={`size-3.5 opacity-70 transition-transform${menu ? " rotate-180" : ""}`} />
-              </button>
-              {menu ? (
-                <>
-                  <span className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
-                  <span className="absolute right-0 top-full z-20 mt-1 flex w-48 flex-col rounded-lg border border-border bg-card p-1 shadow-lg">
+              {uploading > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground opacity-60">
+                  <Loader2 className="size-4 animate-spin" /> Subiendo {uploading}…
+                </span>
+              ) : (
+                /* <details data-autoclose>: DetailsAutoClose (en el shell) lo cierra al pulsar
+                   fuera y COLOCA la caja (fixed + volteo si no cabe abajo), como todos los menús. */
+                <details data-autoclose className="group/add relative">
+                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md bg-primary py-1.5 pl-2.5 pr-2 text-sm font-medium text-primary-foreground hover:opacity-90 [&::-webkit-details-marker]:hidden">
+                    <Plus className="size-4" /> Añadir
+                    <ChevronDown className="size-3.5 opacity-70 transition-transform group-open/add:rotate-180" />
+                  </summary>
+                  <div className="absolute right-0 z-20 mt-1 flex w-48 flex-col rounded-lg border border-border bg-popover p-1 shadow-lg">
                     <button
-                      onClick={() => {
-                        setMenu(false);
+                      onClick={(e) => {
+                        cerrarMenu(e);
                         fileInput.current?.click();
                       }}
                       className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-muted"
@@ -249,17 +248,17 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                       <Upload className="size-4 text-muted-foreground" /> Subir archivos…
                     </button>
                     <button
-                      onClick={() => {
-                        setMenu(false);
+                      onClick={(e) => {
+                        cerrarMenu(e);
                         setNewFolder("");
                       }}
                       className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-muted"
                     >
                       <FolderPlus className="size-4 text-muted-foreground" /> Nueva carpeta
                     </button>
-                  </span>
-                </>
-              ) : null}
+                  </div>
+                </details>
+              )}
             </span>
           ) : null}
         </span>
