@@ -135,8 +135,20 @@ services:
       # Higgsfield (generación de imágenes con IA, tool generar_imagen del chat). Formato KEY_ID:KEY_SECRET
       # (credenciales de cloud.higgsfield.ai). Si falta, la tool avisa en vez de fallar en silencio.
       HF_CREDENTIALS: ${HF_CREDENTIALS:-}
+      # ── Los discos del estudio, montados DENTRO del contenedor ──
+      # Para la app son carpetas locales: sin SMB ni credenciales. Sin estas variables los dos
+      # módulos quedan apagados a propósito (el Mac de desarrollo no tiene los discos).
+      NAS_OPS_DIR: ${NAS_OPS_DIR:-/nas/operaciones}
+      NAS_GALERIA_DIR: ${NAS_GALERIA_DIR:-/entregas}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
+      # ── Operaciones_LAB y Entregas_LAB (LabTem) ──
+      # ESTO TIENE QUE VIVIR EN EL REPO. Estuvo solo en el docker-compose.yml del NAS, escrito
+      # a mano, y el deploy lo copia desde aquí encima del suyo: cada despliegue dejaba la
+      # Galería y Operaciones «no conectadas» hasta que alguien volvía a añadirlo a mano.
+      # Las rutas de origen se pueden cambiar en el .env del NAS sin tocar el repo.
+      - ${OPS_HOST_DIR:-/volume5/Operaciones_LAB}:/nas/operaciones
+      - ${GALERIA_HOST_DIR:-/volume1/entregas-labtem}:/entregas
     depends_on:
       postgres:
         condition: service_healthy
