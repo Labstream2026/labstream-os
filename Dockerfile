@@ -11,12 +11,18 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 # Reintentos de red: el deploy purga la caché de build (claude-job.sh), así que `npm ci` vuelve a
 # bajar ~540 paquetes en CADA despliegue, y la salida del NAS al registro de npm corta conexiones a
-# ratos (ECONNRESET → «exit code: 152»), tumbando el deploy a medias. Con reintentos y espera
-# creciente, un corte transitorio ya no obliga a relanzar el despliegue a mano.
+# ratos (ECONNRESET → «exit code: 152»), tumbando el deploy a medias.
+#
+# Dos cinturones, porque el primero solo no bastó (30-jul-2026: dos deploys caídos en una tarde):
+#   1. Los reintentos INTERNOS de npm (por petición, con espera creciente).
+#   2. Si el `npm ci` entero muere igual —hay cortes que agotan sus reintentos—, se vuelve a
+#      intentar el comando completo dos veces más, esperando a que la red se asiente. Solo un
+#      corte de varios minutos sigue tumbando el deploy, y eso ya no es un parpadeo.
 RUN npm config set fetch-retries 5 \
  && npm config set fetch-retry-mintimeout 20000 \
  && npm config set fetch-retry-maxtimeout 120000 \
- && npm ci
+ && (npm ci || (echo '»» npm ci cayó por red; segundo intento en 20 s…' && sleep 20 && npm ci) \
+             || (echo '»» tercer y último intento en 90 s…' && sleep 90 && npm ci))
 
 # ── builder ──
 FROM base AS builder
