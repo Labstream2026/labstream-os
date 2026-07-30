@@ -15,6 +15,8 @@ import {
   FolderPlus,
   HardDrive,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
   Loader2,
   Music,
   Pencil,
@@ -26,7 +28,8 @@ import {
   X,
 } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { cerrarMenu } from "@/components/ui/barra-menu";
+import { cerrarMenu, usePreferenciaLocal } from "@/components/ui/barra-menu";
+import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
 import { opsCreateFolder, opsRename, opsMove, opsTrash } from "./actions";
 
 type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string };
@@ -49,6 +52,15 @@ function fmtSize(n: number | null): string {
 function fmtDate(ms: number): string {
   if (!ms) return "";
   return new Date(ms).toLocaleDateString("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", year: "numeric" });
+}
+
+// Qué es la pieza, para la miniatura compartida (la misma que usan la Galería, la ficha del
+// disco y el selector de entregables: una sola forma de pintar material en toda la app).
+function tipoPieza(ext: string): TipoPieza {
+  if (VIDEO_EXT.has(ext)) return "video";
+  if (THUMB_EXT.has(ext)) return "foto";
+  if (AUDIO_EXT.has(ext)) return "audio";
+  return "doc";
 }
 
 function iconFor(ext: string) {
@@ -74,6 +86,9 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState("");
+  // Vista recordada por navegador, la misma preferencia que la ficha del disco en Biblioteca:
+  // quien busca material a ojo no debería volver a pedir la cuadrícula cada vez que entra.
+  const [vista, setVista] = usePreferenciaLocal<"lista" | "cuadricula">("disco-vista", "lista");
   const [newFolder, setNewFolder] = React.useState<string | null>(null); // null = cerrado; string = valor
   const [renaming, setRenaming] = React.useState<{ rel: string; value: string } | null>(null);
   const [moving, setMoving] = React.useState<Entry | null>(null);
@@ -215,6 +230,22 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
               className="w-36 rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm outline-none transition-[width] focus:w-52 focus:border-[#F47A20] md:w-44"
             />
           </label>
+          {/* Lista para leer nombres, cuadrícula para reconocer material a ojo. La lista sigue
+              siendo la de siempre —con sus acciones al pasar el ratón—; la cuadrícula se suma. */}
+          <span className="inline-flex overflow-hidden rounded-md border border-border bg-card" role="group" aria-label="Vista">
+            {([["lista", List, "Lista"], ["cuadricula", LayoutGrid, "Cuadrícula"]] as const).map(([k, Icono, etiqueta]) => (
+              <button
+                key={k}
+                onClick={() => setVista(k)}
+                title={etiqueta}
+                aria-label={etiqueta}
+                aria-pressed={vista === k}
+                className={`p-2 ${vista === k ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+              >
+                <Icono className="size-4" />
+              </button>
+            ))}
+          </span>
           <button
             onClick={refresh}
             title="Actualizar (lee el disco en vivo)"
@@ -313,6 +344,57 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
       ) : dirs.length === 0 && files.length === 0 ? (
         <div className="rounded-md border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
           {filter ? "Nada coincide con el filtro." : "Carpeta vacía. Lo que agregues aquí (o por el Finder/SMB) aparece en ambos lados al instante."}
+        </div>
+      ) : vista === "cuadricula" ? (
+        // ── Cuadrícula ── Para reconocer material sin leer nombres. Las carpetas van arriba y
+        // en tarjeta baja: son el escalón para llegar al material, no el destino. Las acciones
+        // de cada pieza (renombrar, mover, papelera) siguen viviendo en la lista, que es donde
+        // se trabaja fino; aquí se viene a encontrar.
+        <div className="space-y-3 rounded-lg border border-border bg-card p-3">
+          {dirs.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {dirs.map((d) => (
+                <button
+                  key={d.rel}
+                  onClick={() => go(d.rel)}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-left hover:bg-muted"
+                >
+                  <Folder className="size-4 shrink-0 text-[#F47A20]" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{d.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {files.length > 0 ? (
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+              {files.map((f) => (
+                <a
+                  key={f.rel}
+                  href={fileUrl(f.rel)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-lg border border-border transition hover:border-[#F47A20]/50 hover:bg-muted/40"
+                >
+                  <Miniatura
+                    thumb={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
+                    tipo={tipoPieza(f.ext)}
+                    alto="tarjeta"
+                    // Operaciones_LAB no tiene fábrica de copias ligeras: su miniatura la hace
+                    // la app al vuelo y SOLO de imágenes que el navegador entienda. Por eso a un
+                    // vídeo ni se le pide (daría 404) y no se le promete «preparando»: hoy no
+                    // hay con qué generarlo en este disco.
+                    hay={THUMB_EXT.has(f.ext)}
+                  />
+                  <span className="block px-2 py-1.5">
+                    <span className="block truncate text-xs font-medium">{f.name}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {fmtSize(f.size)}{f.mtimeMs ? ` · ${fmtDate(f.mtimeMs)}` : ""}
+                    </span>
+                  </span>
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-card">
