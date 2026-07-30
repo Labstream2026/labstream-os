@@ -195,6 +195,13 @@ log "════ Pasada iniciada · carpeta: $DESTINO · QSV: $([ "$USAR_QSV" =
 # Fotos que el navegador NO pinta y por eso necesitan copia. Las que sí (jpg, png,
 # webp, avif, gif) se sirven tal cual y aquí no se tocan.
 FOTO_CONVERTIR=" heic heif tif tiff bmp dng cr2 cr3 nef arw raf orf rw2 "
+# RAW con mosaico PROPIETARIO: ningún ffmpeg los decodifica —cada fabricante comprime el
+# sensor a su manera—. Comprobado en la máquina con un ARW de Sony: «Invalid data found
+# when processing input». Para estos se va DIRECTO a la vista previa incrustada (ver
+# `jpeg_incrustado`), sin gastar un intento condenado que además ensuciaría el registro
+# de fallos. El DNG se queda fuera de la lista a propósito: ffmpeg sí trae decodificador
+# de DNG, así que a ese conviene intentarlo de verdad primero.
+FOTO_RAW_PROPIETARIO=" cr2 cr3 nef arw raf orf rw2 srw pef "
 # Todo lo que la app considera video. Se mira a TODOS (mp4 y mov incluidos): un
 # ProRes 4K de 800 Mbps es «reproducible» y aun así inservible por internet. Quién
 # se libra de la copia lo decide `original_ya_sirve`, mirando el archivo de verdad.
@@ -351,17 +358,24 @@ procesar_video() { # ruta absoluta
   fi
 
   # El póster y la tira salen de la copia si existe: decodificar un 1080p H.264 es
-  # muchísimo más barato que volver a abrir el master.
-  local fuente="$src"
-  [ -f "$mp4" ] && fuente="$mp4"
+  # muchísimo más barato que volver a abrir el master. Y de paso se sabe SIN volver a
+  # sondear el archivo qué códec y qué tamaño tiene lo que se va a abrir, que es justo
+  # lo que hace falta para decidir si la GPU puede decodificarlo (ver `hacer_tira`).
+  local fuente="$src" fcodec="$vcodec" fw="$w" fh="$h"
+  if [ -f "$mp4" ]; then
+    fuente="$mp4"
+    fcodec="h264"   # la copia siempre sale H.264, ya encajada en ANCHO_MAX×ALTO_MAX
+    local dcaja
+    dcaja=$(caja "$w" "$h" 2>/dev/null) && { fw="${dcaja%%:*}"; fh="${dcaja##*:}"; }
+  fi
 
   if [ $falta_poster = 1 ]; then
     mkdir -p "$pd"
-    if hacer_poster "$fuente" "$poster" "$dur"; then CREADOS_POSTER=$((CREADOS_POSTER+1)); else fallo=1; fi
+    if hacer_poster "$fuente" "$poster" "$dur" "$fcodec" "$fw" "$fh"; then CREADOS_POSTER=$((CREADOS_POSTER+1)); else fallo=1; fi
   fi
   if [ $falta_tira = 1 ]; then
     mkdir -p "$pd"
-    if hacer_tira "$fuente" "$tira" "$dur"; then CREADOS_TIRA=$((CREADOS_TIRA+1)); fi
+    if hacer_tira "$fuente" "$tira" "$dur" "$fcodec" "$fw" "$fh"; then CREADOS_TIRA=$((CREADOS_TIRA+1)); fi
     # Una tira que no sale no es un fallo que merezca contarse: el póster ya cubre la
     # cuadrícula y los clips de menos de 2 s no tienen nada que barrer.
   fi
@@ -569,23 +583,51 @@ hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
   return 1
 }
 
-hacer_poster() { # origen, destino, duración
-  local src="$1" dst="$2" dur="${3:-}"
+# ¿Puede la GPU decodificar esto y en qué tamaño lo deja? Devuelve "ancho:alto" para la
+# caja pedida, o nada —y entonces se va por software—. La Gen9.5 decodifica H.264, HEVC,
+# VP9, MPEG-2 y VC-1; de ProRes, DNxHD o RAW no sabe. Como el póster y la tira casi
+# siempre se sacan de la copia .mp4 (H.264 y ya reducida), en la práctica esto aplica
+# a casi todo. `scale_qsv` no tiene `force_original_aspect_ratio`: la caja va a mano.
+caja_qsv() { # códec, ancho, alto, ancho_max, alto_max
+  case "$1" in h264|hevc|vp9|mpeg2video|vc1) ;; *) return 1 ;; esac
+  [ "$USAR_QSV" = "1" ] || return 1
+  ANCHO_MAX="$4" ALTO_MAX="$5" caja "$2" "$3" 2>/dev/null
+}
+
+hacer_poster() { # origen, destino, duración, códec-de-entrada, ancho, alto
+  local src="$1" dst="$2" dur="${3:-}" vcodec="${4:-}" vw="${5:-0}" vh="${6:-0}"
   # NUNCA el primer fotograma: casi siempre es negro, claqueta o el destello del
   # arranque de cámara. Se entra al 15 % (mínimo 1 s, máximo 60 s) y encima se deja
   # que el filtro `thumbnail` elija el más representativo de los 60 siguientes, que
   # esquiva fundidos y fotogramas movidos.
-  local pos esc
+  local pos esc dims
   pos=$(awk -v d="${dur:-0}" 'BEGIN{ d=d+0; if(d<=0){print "1"; exit} p=d*0.15; if(p<1)p=(d>2?1:d/2); if(p>60)p=60; printf "%.3f", p}')
   esc=$(escala "$POSTER_ANCHO" "$POSTER_ANCHO")
+
+  # Por GPU se reduce ANTES de bajar el fotograma a memoria normal, así que `thumbnail`
+  # elige ya sobre imágenes pequeñas. Medido: 1,43 s → 0,74 s de CPU. Es la mejora más
+  # pequeña de las tres porque el `-ss` ya salta casi todo el archivo; se hace igual
+  # porque cada segundo de CPU que no se gasta aquí es uno que queda para servir.
+  if dims=$(caja_qsv "$vcodec" "$vw" "$vh" "$POSTER_ANCHO" "$POSTER_ANCHO"); then
+    if correr_ffmpeg "$dst" "poster" "$TIMEOUT_CORTO" \
+        -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+        -hwaccel qsv -hwaccel_output_format qsv \
+        -ss "$pos" -i "$src" -an -sn -dn \
+        -vf "scale_qsv=w=${dims%%:*}:h=${dims##*:},hwdownload,format=nv12,thumbnail=60" \
+        -frames:v 1 -q:v 3; then
+      return 0
+    fi
+    rm -f "$dst.fallo"   # no se da por perdido: se reintenta por software, abajo
+  fi
+
   correr_ffmpeg "$dst" "poster" "$TIMEOUT_CORTO" \
     -ss "$pos" -i "$src" -an -sn -dn \
     -vf "thumbnail=60,${esc}" -frames:v 1 -q:v 3
 }
 
-hacer_tira() { # origen, destino, duración
-  local src="$1" dst="$2" dur="${3:-}"
-  local d rate
+hacer_tira() { # origen, destino, duración, códec-de-entrada, ancho, alto
+  local src="$1" dst="$2" dur="${3:-}" vcodec="${4:-}" vw="${5:-0}" vh="${6:-0}"
+  local d rate dims
   d=$(awk -v x="${dur:-0}" 'BEGIN{printf "%d", x+0}')
   # Menos de 2 s no tiene nada que barrer: el póster ya lo cuenta todo. Queda marcado
   # para no volver a mirarlo cada noche.
@@ -594,6 +636,30 @@ hacer_tira() { # origen, destino, duración
     return 1
   fi
   rate=$(awk -v d="$dur" -v n="$TIRA_FOTOGRAMAS" 'BEGIN{ d=d+0; if(d<=0)exit 1; r=n/d; if(r>60)r=60; printf "%.6f", r}') || return 1
+
+  # ── La pieza MÁS CARA de toda la fábrica, y la que más gana con la GPU ────────────
+  # Para repartir 20 fotogramas a lo largo del video hay que RECORRERLO ENTERO: `fps=`
+  # descarta casi todo, pero para descartarlo hay que decodificarlo. Medido aquí sobre
+  # un vertical de 50 min: por software son 948 s de CPU (≈4,6 núcleos durante 3 min),
+  # por GPU son 56 s. **−94 % de CPU.** Eso era el pico de CPU con «GPU 0 %»: no era la
+  # copia —que ya iba por GPU—, era esta tira.
+  #
+  # `fps=` va ANTES de escalar para tirar los fotogramas cuanto antes, y sí acepta
+  # fotogramas que aún están en la tarjeta. Solo baja a memoria normal (`hwdownload`)
+  # lo que sobrevive: 20 imágenes pequeñas, que es lo único que `tile` sabe pegar.
+  if dims=$(caja_qsv "$vcodec" "$vw" "$vh" "$TIRA_ANCHO" 100000); then
+    if correr_ffmpeg "$dst" "tira" "$TIMEOUT_CORTO" \
+        -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+        -hwaccel qsv -hwaccel_output_format qsv \
+        -i "$src" -an -sn -dn \
+        -vf "fps=${rate},scale_qsv=w=${dims%%:*}:h=${dims##*:},hwdownload,format=nv12,tile=${TIRA_FOTOGRAMAS}x1" \
+        -frames:v 1 -q:v 5; then
+      return 0
+    fi
+    rm -f "$dst.fallo"
+    log "    ↳ la tira por GPU no salió; se rehace por software"
+  fi
+
   # `fps=` reparte los 20 fotogramas por igual a lo largo del video y `tile=20x1` los
   # pega en UNA fila. Si el video se queda corto, tile rellena en negro: preferible a
   # una tira con menos casillas, porque el CSS cuenta con que siempre son 20.
@@ -605,9 +671,41 @@ hacer_tira() { # origen, destino, duración
 
 # ── Foto ──────────────────────────────────────────────────────────────────────
 
+# Los RAW de cámara llevan DENTRO un JPEG de vista previa —en las sin-espejo modernas, a
+# resolución completa— que es un JPEG normal y corriente. Se localiza por sus marcas de
+# inicio (FF D8 FF) y de fin (FF D9). Ojo: esas parejas de bytes también salen por
+# casualidad entre los datos del sensor, así que no basta con encontrarlas —se prueban de
+# mayor a menor y se acepta la primera que ffprobe confirme como imagen de verdad—.
+# Comprobado con un ARW de Sony de 24 MB: saca el previo de 4240×2832 en 0,04 s.
+jpeg_incrustado() { # origen, destino  → 0 si dejó un JPEG utilizable
+  local src="$1" out="$2" o fin len pares=""
+  for o in $(LC_ALL=C grep -aboP '\xff\xd8\xff' "$src" 2>/dev/null | cut -d: -f1); do
+    # `-m1` corta en cuanto encuentra el final: no hay que recorrer el resto del archivo.
+    fin=$(LC_ALL=C tail -c "+$((o + 1))" "$src" 2>/dev/null | LC_ALL=C grep -aboPm1 '\xff\xd9' | cut -d: -f1)
+    [ -n "$fin" ] && pares="${pares}$((fin + 2)) $o
+"
+  done
+  [ -n "$pares" ] || return 1
+
+  while read -r len o; do
+    [ -n "$len" ] || continue
+    # Por debajo de 20 KB es la miniatura de la pantalla trasera de la cámara (160×120):
+    # no sirve para una galería, y aceptarla taparía al previo bueno.
+    [ "$len" -ge 20000 ] 2>/dev/null || continue
+    dd if="$src" of="$out" bs=1M iflag=skip_bytes,count_bytes skip="$o" count="$len" status=none 2>/dev/null || continue
+    case "$("$FFPROBE" -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$out" 2>/dev/null)" in
+      ''|0|*[!0-9]*) ;;      # no era una imagen: siguiente candidato
+      *) return 0 ;;
+    esac
+  done <<< "$(printf '%s' "$pares" | sort -rn)"
+
+  rm -f "$out"
+  return 1
+}
+
 procesar_foto() { # ruta absoluta
   local src="$1"
-  local dir base pd dst esc
+  local dir base pd dst esc ext emb sin_emb=0
   dir=$(dirname "$src"); base=$(basename "$src")
   pd="$dir/.proxy"; dst="$pd/$base.webp"
 
@@ -616,7 +714,34 @@ procesar_foto() { # ruta absoluta
 
   mkdir -p "$pd"
   esc=$(escala "$FOTO_LADO" "$FOTO_LADO")
+  ext=$(ext_de "$base")
+  emb="${TMPDIR:-/tmp}/emb$$.jpg"
   log "  → copia de $base"
+
+  # AQUÍ NO HAY GPU QUE VALGA, y no es un fallo de configuración: NO EXISTE codificador
+  # WebP por hardware —ni en esta tarjeta ni en ninguna, el formato no está en ningún
+  # motor de vídeo— y el mosaico de un RAW tampoco lo decodifica la GPU. Las fotos son y
+  # seguirán siendo trabajo de CPU. Da lo mismo: una foto se despacha en menos de un
+  # segundo, mientras que un video son minutos.
+
+  # Los RAW propietarios (ARW, CR2, NEF…) ni se intentan por las bravas: este ffmpeg no
+  # los abre —comprobado— y el intento solo gastaría tiempo y anotaría un fallo que ya
+  # sabemos. Se va derecho a la vista previa que llevan dentro.
+  case "$FOTO_RAW_PROPIETARIO" in
+    *" $ext "*)
+      if jpeg_incrustado "$src" "$emb"; then
+        log "    ↳ desde la vista previa incrustada en el RAW"
+        if correr_ffmpeg "$dst" "foto-raw" "$TIMEOUT_CORTO" \
+            -i "$emb" -an -vf "$esc" -frames:v 1 \
+            -c:v libwebp -quality "$FOTO_CALIDAD" -compression_level 6 -preset photo; then
+          rm -f "$emb"; CREADOS_FOTO=$((CREADOS_FOTO+1)); return 0
+        fi
+      fi
+      rm -f "$emb"
+      sin_emb=1   # ya se probó: no repetirlo más abajo
+      ;;
+  esac
+
   if correr_ffmpeg "$dst" "foto" "$TIMEOUT_CORTO" \
       -i "$src" -an \
       -vf "$esc" -frames:v 1 \
@@ -625,11 +750,21 @@ procesar_foto() { # ruta absoluta
     return 0
   fi
 
-  # PENDIENTE DE VERIFICAR EN LA MÁQUINA: este ffmpeg abre TIFF/BMP y algunos DNG,
-  # pero los RAW de Canon/Sony/Nikon y el HEIC del iPhone probablemente no. Antes de
-  # rendirse se prueba con la miniatura que DSM ya generó en @eaDir (solo existe si
-  # la carpeta está indexada por Synology Photos): no es el original, pero el cliente
-  # ve la foto en vez de un hueco.
+  # Plan B para todo lo demás (el DNG, un HEIC raro, un TIFF con una variante que este
+  # ffmpeg abre a medias): a lo mejor también lleva un JPEG dentro.
+  if [ "$sin_emb" = 0 ] && jpeg_incrustado "$src" "$emb"; then
+    log "    ↳ reintento desde la vista previa incrustada"
+    if correr_ffmpeg "$dst" "foto-emb" "$TIMEOUT_CORTO" \
+        -i "$emb" -an -vf "$esc" -frames:v 1 \
+        -c:v libwebp -quality "$FOTO_CALIDAD" -compression_level 6 -preset photo; then
+      rm -f "$emb"; CREADOS_FOTO=$((CREADOS_FOTO+1)); return 0
+    fi
+  fi
+  rm -f "$emb"
+
+  # Plan C: la miniatura que DSM ya generó en @eaDir (solo existe si la carpeta está
+  # indexada por Synology Photos). No es el original, pero el cliente ve la foto en vez
+  # de un hueco.
   local eadir="$dir/@eaDir/$base" alt="" cand
   for cand in SYNOPHOTO_THUMB_XL.jpg SYNOPHOTO_THUMB_B.jpg SYNOPHOTO_THUMB_M.jpg; do
     [ -f "$eadir/$cand" ] && { alt="$eadir/$cand"; break; }
