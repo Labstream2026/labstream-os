@@ -333,10 +333,13 @@ export default async function ProyectoPage({
   const guionesFolder = project.folders.find((f) => f.name === "Guiones");
   const guionesFiles = guionesFolder?.files ?? [];
   const otherFolders = project.folders.filter((f) => f.name !== "Guiones");
-  const counts = {
+  // `archivos` NO se calcula aquí: se rellena más abajo con el largo exacto de `archivosItems`,
+  // que es lo que la pestaña va a enseñar. Antes se sumaba a mano e incluía los guiones —que la
+  // lista esconde— y las rutas del NAS —que al cliente se le ocultan—, así que la pastilla
+  // prometía archivos que al entrar no estaban.
+  const counts: Record<string, number> = {
     tareas: project.tasks.length,
     entregables: project.deliverables.length,
-    archivos: otherFolders.reduce((n, f) => n + f.files.length, 0) + project.files.length + guionesFiles.length,
   };
 
   // Vida de los documentos de Office del proyecto: comentarios sin resolver y quién los tiene
@@ -437,6 +440,8 @@ export default async function ProyectoPage({
     ),
     ...project.files.filter((file) => !isCliente || file.kind !== "NAS").map((file) => aArchivoItem(file, null)),
   ];
+  // La pastilla de la pestaña = lo que el panel enseña. Un solo número, sin excepciones.
+  counts.archivos = archivosItems.length;
 
   // Datos de tareas compartidos por las pestañas Tareas y Cronograma (incluye fechas
   // de inicio, horas estimadas y reales para el seguimiento del Gantt).

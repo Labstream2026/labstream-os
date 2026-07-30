@@ -58,6 +58,38 @@ export function categoriaLabel(key: string | null | undefined): string | null {
   return CATEGORIAS_MARCA.find((c) => c.key === key)?.label ?? null;
 }
 
+// ── Cuántos archivos hay ────────────────────────────────────────────────────────────────
+// UNA sola definición, consumida por la pastilla de la pestaña, por la cabecera del panel y
+// por el filtro «Todo». Antes cada sitio contaba lo suyo —uno excluía el material de marca,
+// otro lo incluía, y en el proyecto la pastilla sumaba guiones que la lista no enseñaba— y el
+// resultado era ver «Archivos 8» en el menú y «7 archivos» al entrar.
+//
+// Regla: el número es SIEMPRE el largo del mismo array que recibe el panel.
+export type ResumenArchivos = { total: number; deMarca: number; proyectos: number; ultimo: string | null };
+
+export function resumenArchivos(items: ArchivoItem[]): ResumenArchivos {
+  let deMarca = 0;
+  let ultimo: string | null = null;
+  const proyectos = new Set<string>();
+  for (const f of items) {
+    if (f.esMarca) deMarca++;
+    if (f.proyecto) proyectos.add(f.proyecto.id);
+    if (!ultimo || f.updatedAt > ultimo) ultimo = f.updatedAt;
+  }
+  return { total: items.length, deMarca, proyectos: proyectos.size, ultimo };
+}
+
+// ── Documentos que viven DENTRO de la app ───────────────────────────────────────────────
+// Los Word/Excel/PowerPoint editables no viajan al NAS a propósito: OnlyOffice guarda solo
+// cada pocos segundos y, si alguien tocara el mismo archivo por SMB desde el Finder, acabarían
+// dos versiones peleándose. Se quedan en el almacenamiento de la app —donde además entran en
+// el respaldo diario y conservan su historial— y la fila lo dice con un distintivo.
+const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i;
+
+export function viveEnLaApp(f: Pick<ArchivoItem, "name" | "kind">): boolean {
+  return f.kind === "LOCAL" && OFFICE_EXT.test(f.name);
+}
+
 export type CarpetaItem = { id: string; name: string; icon: string | null; color: string | null };
 
 export type ProyectoRef = { id: string; name: string; emoji: string | null };

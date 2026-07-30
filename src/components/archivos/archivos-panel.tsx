@@ -55,6 +55,8 @@ import {
   pasaFiltro,
   coincide,
   normaliza,
+  resumenArchivos,
+  viveEnLaApp,
   CATEGORIAS_MARCA,
   categoriaLabel,
 } from "@/lib/archivos/tipos";
@@ -184,11 +186,9 @@ export function ArchivosPanel({
   const marca = visibles.filter((f) => f.esMarca);
   const deProyectos = visibles.filter((f) => !f.esMarca);
 
-  // ── Línea de contexto ──
-  const nProyectos = esCliente ? new Set(items.filter((f) => f.proyecto).map((f) => f.proyecto!.id)).size : 0;
-  const masReciente = items.length
-    ? items.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b))
-    : null;
+  // ── Línea de contexto ── (misma fuente que la pastilla de la pestaña, ver `resumenArchivos`)
+  const resumen = resumenArchivos(items);
+  const nProyectos = resumen.proyectos;
 
   // ── Pastillas de filtro: las de conteo 0 no se pintan ──
   const pastillas: { key: FiltroArchivos; label: string }[] = [
@@ -256,15 +256,32 @@ export function ArchivosPanel({
     return lista;
   })();
 
-  // Dentro del grupo: en el cliente, lo último primero; en el proyecto, el orden estable de
+  // Dentro del grupo: lo FIJADO primero —es la curación que antes vivía en una sección aparte
+  // duplicando filas— y luego, en el cliente, lo último; en el proyecto, el orden estable de
   // siempre (createdAt asc), para no descolocar a quien ya conoce su pestaña.
-  const ordenaGrupo = (files: ArchivoItem[]) =>
-    esCliente ? [...files].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : files;
+  const ordenaGrupo = (files: ArchivoItem[]) => {
+    const base = esCliente ? [...files].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [...files];
+    return base.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  };
 
-  // Grupos abiertos: los 3 primeros de entrada, y TODOS cuando se filtra. Default reactivo
-  // (abierto[key] ?? índice < 3): no se congela en el primer render como el useState de antes.
+  // Grupos abiertos de entrada: los que TIENEN material, hasta llenar ~15 filas; y todos cuando
+  // se filtra. Antes se abrían «los tres primeros», que por el orden 01/02/03 de la plantilla
+  // son casi siempre las carpetas vacías — se entraba a la pestaña y lo que había quedaba
+  // plegado. El default es reactivo (abierto[key] ?? …): no se congela en el primer render.
+  const FILAS_DE_ENTRADA = 15;
+  const abiertosPorDefecto = React.useMemo(() => {
+    const set = new Set<string>();
+    let filas = 0;
+    for (const g of grupos) {
+      if (g.files.length === 0) continue;
+      set.add(g.key);
+      filas += g.files.length;
+      if (filas >= FILAS_DE_ENTRADA) break;
+    }
+    return set;
+  }, [grupos]);
   const [abierto, setAbierto] = React.useState<Record<string, boolean>>({});
-  const estaAbierto = (key: string, i: number) => (filtrando ? true : abierto[key] ?? i < 3);
+  const estaAbierto = (key: string, _i: number) => (filtrando ? true : abierto[key] ?? abiertosPorDefecto.has(key));
   const alterna = (key: string, i: number) => setAbierto((o) => ({ ...o, [key]: !estaAbierto(key, i) }));
 
   // ── Subida con acuse — y POR TROZOS para lo grande ──
@@ -386,12 +403,14 @@ export function ArchivosPanel({
 
   return (
     <div className="space-y-3">
-      {/* Línea de contexto: los números de un vistazo, sin caja. */}
-      {items.length > 0 ? (
+      {/* Línea de contexto: los números de un vistazo, sin caja. El total sale de
+          `resumenArchivos`, el MISMO cálculo que alimenta la pastilla de la pestaña: antes cada
+          uno contaba lo suyo y se veía «Archivos 8» en el menú y «7 archivos» aquí. */}
+      {resumen.total > 0 ? (
         <p className="text-xs text-muted-foreground tabular-nums">
-          <b className="font-semibold text-foreground/80">{items.filter((f) => !f.esMarca).length} archivos</b>
-          {esCliente ? <> · {nProyectos} {nProyectos === 1 ? "proyecto" : "proyectos"} · {items.filter((f) => f.esMarca).length} de marca</> : <> · {carpetas.length} {carpetas.length === 1 ? "carpeta" : "carpetas"}</>}
-          {masReciente ? <> — lo último, {fechaRelativa(masReciente.createdAt)}</> : null}
+          <b className="font-semibold text-foreground/80">{resumen.total} {resumen.total === 1 ? "archivo" : "archivos"}</b>
+          {esCliente ? <> · {resumen.proyectos} {resumen.proyectos === 1 ? "proyecto" : "proyectos"}{resumen.deMarca ? <> · {resumen.deMarca} de marca</> : null}</> : <> · {carpetas.length} {carpetas.length === 1 ? "carpeta" : "carpetas"}</>}
+          {resumen.ultimo ? <> — lo último, {fechaRelativa(resumen.ultimo)}</> : null}
         </p>
       ) : null}
 
@@ -570,22 +589,10 @@ export function ArchivosPanel({
         </div>
       ) : (
         <div className="space-y-2.5">
-          {/* 📌 FIJADO (solo cliente): lo que el equipo destacó de esta cuenta. Los archivos
-              también aparecen en su grupo — esto es curación, no una carpeta. */}
-          {esCliente && visibles.some((f) => f.pinned) ? (
-            <section className="overflow-hidden rounded-xl border border-amber-500/40 bg-card">
-              <div className="flex items-center gap-2 border-b border-border bg-amber-500/[0.06] px-3 py-2">
-                <Pin className="size-4 text-amber-600" />
-                <span className="text-sm font-semibold">Fijado</span>
-                <span className="text-xs tabular-nums text-muted-foreground">{visibles.filter((f) => f.pinned).length}</span>
-              </div>
-              <ul className="divide-y divide-border">
-                {visibles.filter((f) => f.pinned).map((f) => (
-                  <FilaArchivo key={`pin-${f.id}`} f={f} conProyecto={!!f.proyecto} alcance={alcance} carpetas={carpetas} canGestionar={f.esMarca ? canEditMarca : canUpload} canMarcar={canEditMarca} onCambio={() => router.refresh()} />
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          {/* Antes había aquí una sección «Fijado» con las filas repetidas: el mismo archivo se
+              pintaba dos veces en la misma pantalla —una arriba y otra en su grupo—, cada copia
+              con su propio botón de eliminar. La curación no se pierde: el 📌 sigue en la fila y
+              esa fila sube al principio de su grupo (ver `ordenaGrupo`). */}
           {/* Grupo FIJO de marca (solo cliente): no pertenece a ningún proyecto. */}
           {marca.length > 0 ? (
             <section className="overflow-hidden rounded-xl border border-primary/30 bg-card">
@@ -596,7 +603,7 @@ export function ArchivosPanel({
                 <span className="text-[10.5px] text-muted-foreground">· No pertenece a ningún proyecto</span>
               </div>
               <ul className="divide-y divide-border">
-                {marca.map((f) => (
+                {ordenaGrupo(marca).map((f) => (
                   <FilaArchivo key={f.id} f={f} conProyecto={false} alcance={alcance} carpetas={carpetas} canGestionar={canEditMarca} canMarcar={canEditMarca} onCambio={() => router.refresh()} />
                 ))}
               </ul>
@@ -1126,6 +1133,17 @@ function FilaArchivo({
         <p className="truncate text-sm font-medium leading-5">
           {f.pinned ? <Pin className="mr-1 inline size-3 text-amber-600" aria-label="Fijado" /> : null}
           {f.name}
+          {/* Los documentos editables se quedan DENTRO de la app a propósito (OnlyOffice guarda
+              solo cada pocos segundos; tocarlos también por SMB acabaría en dos versiones
+              peleándose). No es un problema, es una decisión: basta con poder consultarla. */}
+          {viveEnLaApp(f) ? (
+            <span
+              title="Los documentos de Office se editan y guardan dentro de la app, no en el disco compartido: así el guardado automático no choca con nadie. Además entran en el respaldo diario."
+              className="ml-1.5 rounded bg-muted px-1 py-px align-[1px] text-[10px] font-semibold text-muted-foreground"
+            >
+              en la app
+            </span>
+          ) : null}
         </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
           {conProyecto && f.proyecto ? (
