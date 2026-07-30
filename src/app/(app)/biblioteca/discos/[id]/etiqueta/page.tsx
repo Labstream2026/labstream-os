@@ -7,9 +7,10 @@ import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
 
-// ETIQUETA IMPRIMIBLE del disco: se pega al disco físico; el QR abre la Biblioteca
-// con este disco resaltado, así el teléfono responde «¿qué hay aquí adentro?» sin
-// buscar. Tamaño tarjeta (90×54 mm) para imprimir en papel adhesivo.
+// ETIQUETA IMPRIMIBLE del disco: se pega al disco físico; el QR abre su FICHA, que responde
+// «¿qué hay aquí adentro?» — sus carpetas si la app lo tiene montado, y si no el catálogo de
+// lo que el equipo registró. Antes llevaba a la lista con el disco resaltado, que obligaba a
+// buscarlo en pantalla. Tamaño tarjeta (90×54 mm) para imprimir en papel adhesivo.
 export default async function EtiquetaDiscoPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!hasPermission(session, "ver_biblioteca")) redirect("/");
@@ -22,7 +23,7 @@ export default async function EtiquetaDiscoPage({ params }: { params: Promise<{ 
   if (!disk) notFound();
 
   const base = (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "");
-  const target = `${base}/biblioteca?tab=discos&disco=${disk.id}`;
+  const target = `${base}/biblioteca/discos/${disk.id}`;
   // QR como data-URL (SVG nítido a cualquier tamaño de impresión).
   const qr = await QRCode.toString(target, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
   const qrSrc = `data:image/svg+xml;base64,${Buffer.from(qr).toString("base64")}`;

@@ -48,6 +48,22 @@ export async function galeriaReady(): Promise<boolean> {
   }
 }
 
+// Ocupación EN VIVO del volumen de Entregas_LAB (gemela de opsDiskUsage): el disco de LabTem
+// también es un disco del estudio, y en la Biblioteca se pinta solo si alguien lo registró
+// como tal. Sin montaje devuelve null y la ficha usa lo anotado a mano.
+export async function galeriaDiskUsage(): Promise<{ usedGB: number; totalGB: number } | null> {
+  if (!(await galeriaReady())) return null;
+  try {
+    const s = await fs.statfs(GALERIA_DIR);
+    const total = Number(s.blocks) * Number(s.bsize);
+    const free = Number(s.bavail) * Number(s.bsize); // lo disponible de verdad (no-root)
+    if (!Number.isFinite(total) || total <= 0) return null;
+    return { usedGB: Math.round((total - free) / 1e9), totalGB: Math.round(total / 1e9) };
+  } catch {
+    return null;
+  }
+}
+
 // ── Rutas seguras ──────────────────────────────────────────────────────────────
 
 const JUNK = new Set([

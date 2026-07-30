@@ -4,8 +4,16 @@ import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatShortDate } from "@/lib/ui";
-import { daysSince, expiryTone, materialHealth, MATERIAL_EXPIRY_SOON_DAYS } from "@/lib/material-health";
-import { opsDiskUsage } from "@/lib/nas-ops";
+import {
+  daysSince,
+  diskNeedsCheck,
+  expiryTone,
+  materialHealth,
+  resumenEspacio,
+  DISK_FULL_PCT,
+} from "@/lib/material-health";
+import { MOUNT_KEYS, type MountKey } from "@/lib/disco-raiz";
+import { mountUsage } from "@/lib/disco-raiz-server";
 import { IconBiblioteca } from "@/components/icons";
 import { PageHeader } from "@/components/ui/page-header";
 import { Recursos, type LibRow } from "./recursos";
@@ -29,11 +37,26 @@ type TabKey = (typeof TABS)[number]["key"];
 // Severidad para ordenar el mapa: lo que está en riesgo, arriba.
 const HEALTH_ORDER: Record<string, number> = { SIN_RESPALDO: 0, SIN_REGISTRO: 1, PARCIAL: 2, OK: 3 };
 
-// Un disco lleva demasiado sin verificarse a los seis meses (mismo umbral que el recordatorio).
-const VERIF_DIAS = 180;
-
 function tb(gb: number): string {
   return `${(gb / 1000).toLocaleString("es-CO", { maximumFractionDigits: 1 })} TB`;
+}
+
+// Ocupación EN VIVO de cada montaje (Operaciones_LAB y Entregas_LAB), leída UNA vez por
+// carga y compartida por el resumen y por la ficha de cada disco: así el «Espacio libre» de
+// arriba y la barra del disco no pueden discrepar.
+async function usoDeMontajes(): Promise<Record<MountKey, { usedGB: number; totalGB: number } | null>> {
+  const pares = await Promise.all(MOUNT_KEYS.map(async (k) => [k, await mountUsage(k)] as const));
+  return Object.fromEntries(pares) as Record<MountKey, { usedGB: number; totalGB: number } | null>;
+}
+
+// Capacidad y ocupación EFECTIVAS de un disco: si es un montaje vivo mandan los números del
+// disco real; si no, lo anotado a mano.
+function medidas(
+  d: { capacityGB: number | null; usedGB: number | null; mountKey: string | null },
+  uso: Record<MountKey, { usedGB: number; totalGB: number } | null>,
+) {
+  const live = d.mountKey && d.mountKey in uso ? uso[d.mountKey as MountKey] : null;
+  return { capacityGB: live?.totalGB ?? d.capacityGB, usedGB: live?.usedGB ?? d.usedGB, live: Boolean(live) };
 }
 
 // Date → "YYYY-MM-DD" en hora LOCAL. `toISOString()` no sirve: convierte a UTC y en Bogotá
@@ -61,38 +84,34 @@ export default async function BibliotecaPage({
   // ── Resumen: se calcula SIEMPRE, sea cual sea la pestaña ────────────────────────────────
   // Es la respuesta a las preguntas que antes obligaban a entrar y salir de las tres
   // pestañas: cuánto hay, cuánto espacio queda y qué material está en riesgo.
-  const [nRecursos, discosResumen, proyectosResumen, nasUsage] = await Promise.all([
+  const [nRecursos, discosResumen, proyectosResumen, usoMontajes] = await Promise.all([
     db.libraryAsset.count(),
     db.storageDisk.findMany({
       where: { status: "ACTIVO" },
-      select: { id: true, capacityGB: true, usedGB: true, isNas: true, lastCheckAt: true },
+      select: { id: true, kind: true, status: true, capacityGB: true, usedGB: true, mountKey: true, lastCheckAt: true, createdAt: true },
     }),
     db.project.findMany({
       where: { archivedAt: null },
       select: {
         materialLocations: {
-          select: { role: true, diskId: true, expiresAt: true, disk: { select: { kind: true, offsite: true } } },
+          select: { role: true, diskId: true, expiresAt: true, disk: { select: { kind: true, offsite: true, status: true } } },
         },
       },
     }),
-    opsDiskUsage(),
+    usoDeMontajes(),
   ]);
 
-  let capacidad = 0;
-  let usado = 0;
-  let sinCapacidad = 0;
-  for (const d of discosResumen) {
-    const live = d.isNas && nasUsage ? nasUsage : null;
-    const cap = live?.totalGB ?? d.capacityGB;
-    if (cap == null) { sinCapacidad++; continue; }
-    capacidad += cap;
-    usado += Math.min(cap, live?.usedGB ?? d.usedGB ?? 0);
-  }
-  const libre = Math.max(0, capacidad - usado);
-  const pctUsado = capacidad > 0 ? Math.round((usado / capacidad) * 100) : null;
+  // Espacio: solo cuenta lo que se puede medir (ver resumenEspacio). Un disco con capacidad
+  // pero sin ocupación anotada NO se cuenta como vacío — se dice aparte cuántos faltan.
+  const espacio = resumenEspacio(discosResumen.map((d) => medidas(d, usoMontajes)));
 
-  const porVerificar = discosResumen.filter(
-    (d) => now.getTime() - (d.lastCheckAt?.getTime() ?? 0) > VERIF_DIAS * 86400000,
+  const porVerificar = discosResumen.filter((d) =>
+    diskNeedsCheck({
+      kind: d.kind,
+      status: d.status,
+      lastCheckDays: daysSince(d.lastCheckAt, now),
+      ageDays: daysSince(d.createdAt, now),
+    }),
   ).length;
 
   // Dos preguntas distintas sobre el mismo material: «¿está respaldado?» y «¿hasta cuándo hay
@@ -105,7 +124,13 @@ export default async function BibliotecaPage({
   let nAtencionMapa = 0;
   for (const p of proyectosResumen) {
     const nivel = materialHealth(
-      p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite })),
+      p.materialLocations.map((l) => ({
+        role: l.role,
+        diskId: l.diskId,
+        diskKind: l.disk.kind,
+        offsite: l.disk.offsite,
+        diskRetired: l.disk.status === "RETIRADO",
+      })),
     ).level;
     const enRiesgo = nivel === "SIN_RESPALDO" || nivel === "SIN_REGISTRO";
     const vence = p.materialLocations.some((l) => {
@@ -128,9 +153,14 @@ export default async function BibliotecaPage({
     },
     {
       k: "Espacio libre",
-      v: capacidad > 0 ? tb(libre) : "—",
-      pie: capacidad > 0 ? `${pctUsado} % ocupado${sinCapacidad ? ` · ${sinCapacidad} sin medir` : ""}` : "sin capacidades anotadas",
-      tono: pctUsado != null && pctUsado >= 85 ? "warn" : "ink",
+      v: espacio.pct != null ? tb(espacio.libreGB) : "—",
+      pie:
+        espacio.pct != null
+          ? `${espacio.pct} % ocupado${espacio.sinMedir ? ` · ${espacio.sinMedir} sin medir` : ""}`
+          : espacio.sinMedir
+            ? `${espacio.sinMedir} ${espacio.sinMedir === 1 ? "disco" : "discos"} sin capacidad ni uso anotados`
+            : "sin capacidades anotadas",
+      tono: espacio.pct != null && espacio.pct >= DISK_FULL_PCT ? "warn" : "ink",
       href: "/biblioteca?tab=discos",
     },
     {
@@ -191,7 +221,7 @@ export default async function BibliotecaPage({
       </div>
 
       {tab === "recursos" ? <RecursosTab canManage={canManage} userId={session!.id} initialQ={q ?? ""} /> : null}
-      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} highlightId={disco ?? null} nasUsage={nasUsage} /> : null}
+      {tab === "discos" ? <DiscosTab canManage={canManage} now={now} highlightId={disco ?? null} usoMontajes={usoMontajes} /> : null}
       {tab === "mapa" ? <MapaTab canManage={canManage} now={now} soloRiesgo={riesgo === "1"} /> : null}
     </div>
   );
@@ -242,15 +272,15 @@ async function RecursosTab({ canManage, userId, initialQ }: { canManage: boolean
   );
 }
 
-async function DiscosTab({ canManage, now, highlightId = null, nasUsage }: {
+async function DiscosTab({ canManage, now, highlightId = null, usoMontajes }: {
   canManage: boolean;
   now: Date;
   highlightId?: string | null;
-  // Ocupación EN VIVO de Operaciones_LAB (statfs), ya leída para el resumen: pinta el disco
-  // «Es el NAS» sola. null si el mount no está (dev o deploy sin bind): se usa el valor
-  // anotado a mano. Se recibe en vez de volver a leerla para que la tarjeta del disco y el
-  // «Espacio libre» de arriba no puedan discrepar.
-  nasUsage: { usedGB: number; totalGB: number } | null;
+  // Ocupación EN VIVO de cada montaje (statfs), ya leída para el resumen: pinta sola la barra
+  // del disco que ES ese montaje. null si no está montado (el Mac de desarrollo o un deploy
+  // sin bind): se usa el valor anotado a mano. Se recibe en vez de volver a leerla para que la
+  // fila del disco y el «Espacio libre» de arriba no puedan discrepar.
+  usoMontajes: Record<MountKey, { usedGB: number; totalGB: number } | null>;
 }) {
   const disks = await db.storageDisk.findMany({
     orderBy: [{ status: "asc" }, { createdAt: "asc" }],
@@ -258,21 +288,23 @@ async function DiscosTab({ canManage, now, highlightId = null, nasUsage }: {
   });
 
   const rows: DiskRow[] = disks.map((d) => {
-    const live = d.isNas && nasUsage ? nasUsage : null;
+    const m = medidas(d, usoMontajes);
+    const lastCheckDays = daysSince(d.lastCheckAt, now);
     return {
       id: d.id,
       name: d.name,
       kind: d.kind,
       color: d.color,
-      capacityGB: live?.totalGB ?? d.capacityGB,
-      usedGB: live?.usedGB ?? d.usedGB,
-      liveNas: Boolean(live),
+      capacityGB: m.capacityGB,
+      usedGB: m.usedGB,
+      liveNas: m.live,
+      mountKey: d.mountKey,
       location: d.location,
       offsite: d.offsite,
-      isNas: d.isNas,
       status: d.status,
       notes: d.notes,
-      lastCheckDays: daysSince(d.lastCheckAt, now),
+      lastCheckDays,
+      needsCheck: diskNeedsCheck({ kind: d.kind, status: d.status, lastCheckDays, ageDays: daysSince(d.createdAt, now) }),
       nProjects: new Set(d.locations.map((l) => l.projectId)).size,
       nLocations: d.locations.length,
     };
@@ -293,7 +325,7 @@ async function MapaTab({ canManage, now, soloRiesgo }: { canManage: boolean; now
         finishedAt: true,
         client: { select: { name: true } },
         materialLocations: {
-          include: { disk: { select: { id: true, name: true, color: true, kind: true, offsite: true } } },
+          include: { disk: { select: { id: true, name: true, color: true, kind: true, offsite: true, status: true } } },
         },
       },
     }),
@@ -326,7 +358,14 @@ async function MapaTab({ canManage, now, soloRiesgo }: { canManage: boolean; now
         };
       }),
       health: materialHealth(
-        p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))
+        p.materialLocations.map((l) => ({
+          role: l.role,
+          diskId: l.diskId,
+          diskKind: l.disk.kind,
+          offsite: l.disk.offsite,
+          // Un disco retirado ya no es una copia viva: no debe dar el «3-2-1 ✓».
+          diskRetired: l.disk.status === "RETIRADO",
+        })),
       ),
     }))
     .sort((a, b) => (HEALTH_ORDER[a.health.level] ?? 9) - (HEALTH_ORDER[b.health.level] ?? 9) || a.name.localeCompare(b.name, "es"));

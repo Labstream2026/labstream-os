@@ -2050,8 +2050,20 @@ model StorageDisk {
   // La nube (kind NUBE) siempre cuenta como off-site aunque este flag esté apagado.
   offsite     Boolean   @default(false)
   // Es el NAS con Operaciones_LAB montado: su ocupación se lee del disco (statfs),
-  // sin anotar nada a mano. A lo sumo uno debería tenerlo encendido.
+  // sin anotar nada a mano. DERIVADO de mountKey desde 2026-07-30 (se conserva para no
+  // romper lecturas viejas); la fuente de verdad es mountKey.
   isNas       Boolean   @default(false)
+  // ── La RAÍZ del disco ──
+  // Qué montaje de la app ES este disco: "OPS" (Operaciones_LAB) | "GALERIA" (Entregas_LAB)
+  // | null = disco de cajón (HDD, cinta, nube: nadie puede leerlo desde el navegador, su
+  // contenido es el catálogo del mapa). Con raíz, entrar al disco abre sus carpetas de verdad
+  // y su ocupación se lee sola.
+  //
+  // @unique con NULL: en Postgres varios NULL conviven, así que muchos discos pueden no tener
+  // montaje pero un montaje pertenece a UN disco. Eso mata por construcción el doble conteo
+  // que permitía el viejo isNas (dos discos «son el NAS» → el espacio del NAS se sumaba dos
+  // veces en el resumen).
+  mountKey    String?   @unique
   status      String    @default("ACTIVO") // ACTIVO | RETIRADO (retirado no aparece al registrar)
   notes       String?
   lastCheckAt DateTime? // última verificación física (conectarlo y ver que abre)

@@ -25,7 +25,7 @@ export async function GET() {
       client: { select: { name: true } },
       materialLocations: {
         orderBy: { createdAt: "asc" },
-        include: { disk: { select: { id: true, name: true, kind: true, offsite: true, location: true } } },
+        include: { disk: { select: { id: true, name: true, kind: true, offsite: true, location: true, status: true } } },
       },
     },
   });
@@ -38,15 +38,21 @@ export async function GET() {
   // «Caducidad» y «Notas» llegan de la vieja tabla de Ubicación de la Wiki, fusionada aquí:
   // sin ellas el informe del estudio se quedaba sin lo que justificaba aquella función.
   const lines = [
-    ["Proyecto", "Cliente", "Estado", "Salud", "Rol", "Disco", "Tipo de disco", "Dónde está el disco", "Ruta", "Verificado", "Caducidad", "Notas"].map(esc).join(";"),
+    ["Proyecto", "Cliente", "Estado", "Salud", "Rol", "Disco", "Tipo de disco", "Estado del disco", "Dónde está el disco", "Ruta", "Verificado", "Caducidad", "Notas"].map(esc).join(";"),
   ];
   for (const p of projects) {
     const health = materialHealth(
-      p.materialLocations.map((l) => ({ role: l.role, diskId: l.diskId, diskKind: l.disk.kind, offsite: l.disk.offsite }))
+      p.materialLocations.map((l) => ({
+        role: l.role,
+        diskId: l.diskId,
+        diskKind: l.disk.kind,
+        offsite: l.disk.offsite,
+        diskRetired: l.disk.status === "RETIRADO",
+      })),
     );
     const estado = p.finishedAt ? "Terminado" : "Activo";
     if (p.materialLocations.length === 0) {
-      lines.push([p.name, p.client?.name ?? "", estado, health.label, "", "", "", "", "", "", "", ""].map(esc).join(";"));
+      lines.push([p.name, p.client?.name ?? "", estado, health.label, "", "", "", "", "", "", "", "", ""].map(esc).join(";"));
       continue;
     }
     for (const l of p.materialLocations) {
@@ -59,6 +65,9 @@ export async function GET() {
           ROLE_LABEL[l.role] ?? l.role,
           l.disk.name,
           l.disk.kind,
+          // Que el informe diga si la copia vive en un disco retirado: en el papel del seguro
+          // esa distinción es justo la que importa.
+          l.disk.status === "RETIRADO" ? "Retirado" : "Activo",
           l.disk.location ?? "",
           l.path ?? "",
           l.verifiedAt ? (formatBogota(l.verifiedAt) ?? "") : "Sin verificar",

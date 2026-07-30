@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { DISK_KINDS, MATERIAL_ROLES } from "@/lib/material-health";
+import { isMountKey } from "@/lib/disco-raiz";
 
 // Discos y mapa del material: gestionar requiere gestionar_biblioteca (mismo
 // permiso que los recursos); ver lo controla la página con ver_biblioteca.
@@ -25,6 +26,10 @@ function tbToGB(raw: FormDataEntryValue | null): number | null {
   return Math.round(tb * 1000);
 }
 
+// Campos del formulario. Los de CAPACIDAD son especiales: el formulario los OCULTA cuando el
+// disco es un montaje (su ocupación se lee sola), y un campo oculto no viaja en el FormData.
+// Antes se leía igual y `null` pisaba el dato guardado: editar el nombre del NAS le borraba la
+// ocupación anotada. Ahora solo se escribe lo que el formulario mandó de verdad.
 function diskFields(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const rawKind = String(formData.get("kind") ?? "HDD");
@@ -32,8 +37,25 @@ function diskFields(formData: FormData) {
   const location = String(formData.get("location") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
   const offsite = formData.get("offsite") === "on";
-  const isNas = formData.get("isNas") === "on";
-  return { name, kind, location, notes, offsite, isNas, capacityGB: tbToGB(formData.get("capacityTB")), usedGB: tbToGB(formData.get("usedTB")) };
+  // Raíz del disco: qué montaje ES. "" = disco de cajón (sin lectura en vivo).
+  const rawMount = String(formData.get("mountKey") ?? "").trim();
+  const mountKey = isMountKey(rawMount) ? rawMount : null;
+  const base = { name, kind, location, notes, offsite, mountKey, isNas: mountKey === "OPS" };
+  const cap: { capacityGB?: number | null; usedGB?: number | null } = {};
+  if (formData.has("capacityTB")) cap.capacityGB = tbToGB(formData.get("capacityTB"));
+  if (formData.has("usedTB")) cap.usedGB = tbToGB(formData.get("usedTB"));
+  return { ...base, ...cap };
+}
+
+// Un montaje pertenece a UN disco: la columna es @unique, así que dárselo a otro disco
+// chocaría (P2002). Se le quita al anterior en la misma transacción — el equipo esperaría que
+// «marcar este como Operaciones_LAB» simplemente mueva la etiqueta, no que falle.
+async function liberarMontaje(mountKey: string | null, exceptoId?: string) {
+  if (!mountKey) return;
+  await db.storageDisk.updateMany({
+    where: { mountKey, ...(exceptoId ? { id: { not: exceptoId } } : {}) },
+    data: { mountKey: null, isNas: false },
+  });
 }
 
 export async function addStorageDisk(formData: FormData) {
@@ -42,6 +64,7 @@ export async function addStorageDisk(formData: FormData) {
   const f = diskFields(formData);
   if (!f.name) return;
   const count = await db.storageDisk.count();
+  await liberarMontaje(f.mountKey);
   await db.storageDisk.create({
     data: {
       ...f,
@@ -59,8 +82,10 @@ export async function updateStorageDisk(id: string, formData: FormData) {
   requireManage(session);
   const f = diskFields(formData);
   if (!f.name) return;
+  await liberarMontaje(f.mountKey, id);
   await db.storageDisk.update({ where: { id }, data: f });
   revalidatePath("/biblioteca");
+  revalidatePath(`/biblioteca/discos/${id}`);
 }
 
 // «Verificado hoy»: conecté el disco y abre. Apaga el aviso pendiente del barrido.
@@ -69,6 +94,7 @@ export async function markDiskChecked(id: string) {
   requireManage(session);
   await db.storageDisk.update({ where: { id }, data: { lastCheckAt: new Date(), checkNotifiedAt: null } });
   revalidatePath("/biblioteca");
+  revalidatePath(`/biblioteca/discos/${id}`);
 }
 
 // Retirar/reactivar: un disco retirado conserva su historia en el mapa pero no
@@ -83,6 +109,7 @@ export async function toggleDiskStatus(id: string) {
     data: { status: disk.status === "RETIRADO" ? "ACTIVO" : "RETIRADO" },
   });
   revalidatePath("/biblioteca");
+  revalidatePath(`/biblioteca/discos/${id}`);
 }
 
 // Borrar solo discos VACÍOS: si tiene material registrado, el camino es retirarlo
@@ -90,19 +117,27 @@ export async function toggleDiskStatus(id: string) {
 export async function deleteStorageDisk(id: string) {
   const session = await getSession();
   requireManage(session);
-  const inUse = await db.materialLocation.count({ where: { diskId: id } });
-  if (inUse > 0) throw new Error(`Este disco tiene ${inUse} ubicaciones en el mapa. Retíralo en vez de borrarlo.`);
-  await db.storageDisk.delete({ where: { id } });
+  // Contar y borrar en UNA transacción: entre las dos consultas alguien podía registrar
+  // material en este disco y el `onDelete: Cascade` se lo llevaba por delante en silencio,
+  // justo lo que la comprobación quería evitar.
+  await db.$transaction(async (tx) => {
+    const inUse = await tx.materialLocation.count({ where: { diskId: id } });
+    if (inUse > 0) throw new Error(`Este disco tiene ${inUse} ubicaciones en el mapa. Retíralo en vez de borrarlo.`);
+    await tx.storageDisk.delete({ where: { id } });
+  });
   revalidatePath("/biblioteca");
 }
 
 // ── Mapa del material ──────────────────────────────────────────────────────
 
-// "YYYY-MM-DD" → Date a medianoche local; vacío o basura → null.
+// "YYYY-MM-DD" → medianoche DE BOGOTÁ de ese día; vacío o basura → null.
+// Antes era `T00:00:00` a secas, que el contenedor (UTC) leía como medianoche UTC = 7 de la
+// tarde del día anterior en Bogotá: el CSV imprimía un día menos que la pantalla. Fijando el
+// huso, el día calendario coincide tanto leído en Bogotá como en UTC.
 function fecha(raw: FormDataEntryValue | null): Date | null {
   const s = String(raw ?? "").trim();
-  if (!s) return null;
-  const d = new Date(`${s}T00:00:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000-05:00`);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
