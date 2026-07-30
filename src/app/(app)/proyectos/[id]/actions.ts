@@ -2570,80 +2570,12 @@ export async function uploadProjectFiles(
   return { ok: files.length > 0, subidos: files.length, omitidos };
 }
 
-// ── Guiones (documentos de Word del proyecto) ──
-// Los guiones viven en una carpeta dedicada «Guiones» del proyecto, separada de Archivos,
-// para tener una pestaña enfocada con previsualización/edición en OnlyOffice y copia de texto.
-const GUIONES_FOLDER = "Guiones";
-
-async function ensureGuionesFolder(projectId: string): Promise<string> {
-  const existing = await db.projectFolder.findFirst({ where: { projectId, name: GUIONES_FOLDER }, select: { id: true } });
-  if (existing) return existing.id;
-  const count = await db.projectFolder.count({ where: { projectId } });
-  try {
-    const folder = await db.projectFolder.create({ data: { projectId, name: GUIONES_FOLDER, icon: "🎬", position: count } });
-    return folder.id;
-  } catch (e) {
-    // Carrera con otra subida: si ya existe (unique projectId+name), reúsala.
-    if ((e as { code?: string })?.code === "P2002") {
-      const f = await db.projectFolder.findFirst({ where: { projectId, name: GUIONES_FOLDER }, select: { id: true } });
-      if (f) return f.id;
-    }
-    throw e;
-  }
-}
-
-// Sube uno o varios guiones del proyecto: documentos de Word (editables en OnlyOffice) o PDF
-// (se abren en el visor-editor de PDF de OnlyOffice para ver/anotar y se les puede copiar el texto).
-export async function uploadGuiones(projectId: string, formData: FormData) {
-  const session = await ensureProjectAccess(projectId, "subir_archivos");
-  const files = formData
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0 && f.size <= MAX_UPLOAD && !BLOCKED_EXT.test(f.name))
-    .filter((f) => {
-      const t = officeType(f.name);
-      return t === "word" || t === "pdf";
-    });
-  if (!files.length) return;
-  const folderId = await ensureGuionesFolder(projectId);
-  for (const file of files) {
-    const buf = Buffer.from(await file.arrayBuffer());
-    const asset = await db.fileAsset.create({
-      data: {
-        projectId,
-        name: file.name,
-        kind: "LOCAL",
-        path: "",
-        mime: mimeFor(file.name, file.type),
-        size: buf.length,
-        folderId,
-        uploadedById: session.id,
-      },
-    });
-    const rel = await saveBufferWithPreview(`project/${projectId}`, `${asset.id}-${file.name}`, buf, file.type);
-    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
-    await logActivity({ action: "file.upload", summary: `subió el guion «${file.name}»`, projectId, entityType: "file", entityId: asset.id });
-  }
-  refresh(projectId);
-}
-
-// Crea un documento de Word EN BLANCO como guion del proyecto (sin subir nada): genera
-// un .docx válido y lo guarda en la carpeta «Guiones». Devuelve el id para abrirlo en
-// OnlyOffice y empezar a editar de inmediato.
-export async function createGuion(projectId: string, formData: FormData): Promise<{ ok: boolean; id?: string; error?: string }> {
-  await ensureProjectAccess(projectId, "subir_archivos");
-  // Un guion es un documento de Word en la carpeta Guiones: mismo motor que «Nuevo documento»
-  // de Archivos (`@/lib/doc-create`), que además admite empezar desde una plantilla.
-  const r = await createProjectDoc({
-    projectId,
-    name: String(formData.get("name") ?? "").trim() || "Guion sin título",
-    kind: "word",
-    folderId: await ensureGuionesFolder(projectId),
-    templateId: String(formData.get("templateId") ?? "") || null,
-  });
-  if (!r.ok) return r;
-  refresh(projectId);
-  return { ok: true, id: r.id };
-}
+// ── Guiones ──
+// Ya NO tienen carpeta ni subidor propios: son archivos del proyecto como cualquier otro y se
+// suben por la vía normal. Se eliminaron `ensureGuionesFolder`, `uploadGuiones` y `createGuion`
+// al desmontar su panel — quedaron sin un solo llamador, y `ensureGuionesFolder` seguía creando
+// una carpeta «Guiones» que convivía con la «02 Guiones» de la plantilla del proyecto.
+// Lo único que sobrevive es extraer el texto, que ahora vive en el menú ⋯ de cada archivo.
 
 // Extrae el texto plano de un guion (vía conversión de OnlyOffice) para copiarlo al
 // portapapeles. Requiere acceso de LECTURA al proyecto.

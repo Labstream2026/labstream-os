@@ -296,16 +296,10 @@ export function ArchivosPanel({
   const [progreso, setProgreso] = React.useState<{ nombre: string; pct: number; etaSec: number | null } | null>(null);
   const LIMITE_DIRECTO = 100 * 1024 * 1024;
 
-  async function manejarSubida(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    const projectId = alcance.tipo === "proyecto" ? alcance.projectId : String(fd.get("projectId") ?? "");
-    if (!projectId) {
-      setSubida({ ok: false, subidos: 0, omitidos: [], error: "Elige a qué proyecto va" });
-      return;
-    }
-    const files = fd.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  // El NÚCLEO de la subida, sin formulario: lo comparten el formulario de «Añadir» y el
+  // arrastrar-y-soltar. Antes vivía dentro del onSubmit y por eso soltar archivos sobre el
+  // panel no podía hacer nada.
+  async function subirArchivos(files: File[], projectId: string, folderId?: string | null, alTerminar?: () => void) {
     if (!files.length) return;
     const grandes = canChunked ? files.filter((f) => f.size > LIMITE_DIRECTO) : [];
     const pequenos = files.filter((f) => !grandes.includes(f));
@@ -317,9 +311,7 @@ export function ArchivosPanel({
       if (pequenos.length) {
         const fdP = new FormData();
         for (const f of pequenos) fdP.append("files", f);
-        const folderId = fd.get("folderId");
         if (folderId) fdP.set("folderId", String(folderId));
-        if (fd.get("internal")) fdP.set("internal", "1");
         const r = await uploadProjectFiles(projectId, fdP);
         subidos += r.subidos;
         omitidos.push(...r.omitidos);
@@ -334,7 +326,6 @@ export function ArchivosPanel({
         const fdG = new FormData();
         fdG.set("uploadId", uploadId);
         fdG.set("crc32", crc32);
-        const folderId = fd.get("folderId");
         if (folderId) fdG.set("folderId", String(folderId));
         const r = await finishChunkedArchivo(projectId, fdG);
         if (r.ok) subidos++;
@@ -343,10 +334,7 @@ export function ArchivosPanel({
       }
       setSubida({ ok: subidos > 0, subidos, omitidos });
       router.refresh();
-      if (subidos > 0 && omitidos.length === 0) {
-        form.reset();
-        setTool(null);
-      }
+      if (subidos > 0 && omitidos.length === 0) alTerminar?.();
     } catch (err) {
       setSubida({ ok: false, subidos: 0, omitidos: [], error: err instanceof Error ? err.message : "No se pudo subir. Inténtalo otra vez." });
       setProgreso(null);
@@ -354,6 +342,63 @@ export function ArchivosPanel({
       setSubiendo(false);
     }
   }
+
+  async function manejarSubida(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const projectId = alcance.tipo === "proyecto" ? alcance.projectId : String(fd.get("projectId") ?? "");
+    if (!projectId) {
+      setSubida({ ok: false, subidos: 0, omitidos: [], error: "Elige a qué proyecto va" });
+      return;
+    }
+    const files = fd.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+    const folderId = fd.get("folderId");
+    await subirArchivos(files, projectId, folderId ? String(folderId) : null, () => {
+      form.reset();
+      setTool(null);
+    });
+  }
+
+  // ── Arrastrar y soltar ──
+  // Solo en el alcance PROYECTO: en la ficha del cliente un archivo no tiene destino evidente
+  // (hay que elegir a qué proyecto va), y adivinarlo sería peor que no ofrecerlo.
+  // El contador de arrastre evita el parpadeo: dragleave dispara también al pasar por encima de
+  // cada hijo, así que sin contar entradas y salidas el resaltado se apagaría a mitad del panel.
+  const puedeSoltar = canUpload && alcance.tipo === "proyecto";
+  const [soltarEn, setSoltarEn] = React.useState<string | null | false>(false);
+  const arrastres = React.useRef(0);
+  const traeArchivos = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+  const zonaSoltar = (folderId: string | null) =>
+    !puedeSoltar
+      ? {}
+      : {
+          onDragEnter: (e: React.DragEvent) => {
+            if (!traeArchivos(e)) return;
+            arrastres.current++;
+            setSoltarEn(folderId);
+          },
+          onDragOver: (e: React.DragEvent) => {
+            if (!traeArchivos(e)) return;
+            e.preventDefault(); // sin esto el navegador ABRE el archivo en vez de dejarlo soltar
+            e.dataTransfer.dropEffect = "copy";
+          },
+          onDragLeave: () => {
+            arrastres.current = Math.max(0, arrastres.current - 1);
+            if (arrastres.current === 0) setSoltarEn(false);
+          },
+          onDrop: async (e: React.DragEvent) => {
+            if (!traeArchivos(e)) return;
+            e.preventDefault();
+            e.stopPropagation(); // soltar sobre una carpeta no debe subir TAMBIÉN a la raíz
+            arrastres.current = 0;
+            setSoltarEn(false);
+            const files = Array.from(e.dataTransfer.files).filter((f) => f.size > 0);
+            if (alcance.tipo !== "proyecto" || !files.length) return;
+            await subirArchivos(files, alcance.projectId, folderId);
+          },
+        };
 
   // ── Selección múltiple (solo alcance proyecto: las acciones en lote son por proyecto) ──
   const [sel, setSel] = React.useState<Set<string>>(new Set());
@@ -404,7 +449,22 @@ export function ArchivosPanel({
   const proyectosSelector = alcance.tipo === "cliente" ? alcance.proyectosEscribibles : [];
 
   return (
-    <div className="space-y-3">
+    <div
+      {...zonaSoltar(null)}
+      className={cn(
+        "relative space-y-3 rounded-xl transition-colors",
+        soltarEn === null && arrastres.current > 0 && "outline-dashed outline-2 outline-offset-4 outline-primary/50",
+      )}
+    >
+      {/* Aviso de que se puede soltar: aparece solo mientras hay algo arrastrándose encima. */}
+      {puedeSoltar && soltarEn !== false ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-xl bg-background/70 backdrop-blur-[1px]">
+          <p className="rounded-lg border border-primary/40 bg-card px-4 py-2 text-sm font-medium shadow-sm">
+            Suelta para subir {soltarEn ? <>a «{carpetas.find((c) => c.id === soltarEn)?.name ?? "la carpeta"}»</> : "al proyecto"}
+          </p>
+        </div>
+      ) : null}
+
       {/* Línea de contexto: los números de un vistazo, sin caja. El total sale de
           `resumenArchivos`, el MISMO cálculo que alimenta la pastilla de la pestaña: antes cada
           uno contaba lo suyo y se veía «Archivos 8» en el menú y «7 archivos» aquí. */}
@@ -622,7 +682,14 @@ export function ArchivosPanel({
                 </ul>
               </section>
             ) : (
-              <section key={g.key} className="overflow-hidden rounded-xl border border-border bg-card">
+              <section
+                key={g.key}
+                {...(g.carpetaId ? zonaSoltar(g.carpetaId) : {})}
+                className={cn(
+                  "overflow-hidden rounded-xl border bg-card transition-colors",
+                  soltarEn && soltarEn === g.carpetaId ? "border-primary ring-2 ring-primary/30" : "border-border",
+                )}
+              >
                 <div className="group/row flex items-center gap-1.5 border-b border-border bg-muted/30 px-2 py-1.5">
                   <button type="button" onClick={() => alterna(g.key, i)} className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left" aria-expanded={estaAbierto(g.key, i)}>
                     <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", estaAbierto(g.key, i) && "rotate-90")} />
