@@ -1672,6 +1672,25 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
   const popTimer = React.useRef<number | null>(null);
   const chromeTimer = React.useRef<number | null>(null);
   const scrubbing = React.useRef(false);
+  // ── Desplazarse fácil ── (a) mientras se ARRASTRA la barra: engorda, aparece la perilla y un
+  // timecode GRANDE al centro (isScrubbing); (b) DOBLE TOQUE en los costados del video = ±10 s
+  // (patrón TikTok/YouTube), acumulable con toques seguidos (skipFlash muestra −10 s/+20 s…).
+  const [isScrubbing, setIsScrubbing] = React.useState(false);
+  const [skipFlash, setSkipFlash] = React.useState<{ side: "l" | "r"; secs: number } | null>(null);
+  const knobRef = React.useRef<HTMLDivElement>(null);
+  const bigTcRef = React.useRef<HTMLSpanElement>(null);
+  const tapTimer = React.useRef<number | null>(null);
+  const skipTimer = React.useRef<number | null>(null);
+  // Salta ±10 s con aviso visual; toques seguidos al MISMO lado acumulan (−10, −20, −30…).
+  const doSkip = React.useCallback((side: "l" | "r") => {
+    const api = playerRef.current;
+    if (!api) return;
+    const dir = side === "l" ? -1 : 1;
+    api.seek(Math.max(0, (api.getTime() ?? 0) + dir * 10), false);
+    setSkipFlash((p) => ({ side, secs: p && p.side === side ? p.secs + 10 : 10 }));
+    if (skipTimer.current != null) window.clearTimeout(skipTimer.current);
+    skipTimer.current = window.setTimeout(() => setSkipFlash(null), 800);
+  }, [playerRef]);
 
   // Muestra el chrome y programa su desvanecimiento (solo si el video sigue reproduciendo).
   const poke = React.useCallback(() => {
@@ -1690,9 +1709,13 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
       const t = api?.getTime() ?? 0;
       const d = api?.getDuration() ?? 0;
       // Barra (y el hilo minimalista cuando el chrome está oculto) directo al DOM: fluido y barato.
-      const sx = `scaleX(${d > 0 ? Math.min(1, t / d) : 0})`;
+      const prog = d > 0 ? Math.min(1, t / d) : 0;
+      const sx = `scaleX(${prog})`;
       if (fillRef.current) fillRef.current.style.transform = sx;
       if (miniRef.current) miniRef.current.style.transform = sx;
+      // Perilla de la barra y timecode GRANDE del arrastre: mismo escrito directo al DOM.
+      if (knobRef.current) knobRef.current.style.left = `${prog * 100}%`;
+      if (bigTcRef.current) bigTcRef.current.textContent = `${fmtTime(t)} / ${fmtTime(d)}`;
       const txt = fmtTime(t);
       if (tcRef.current && txt !== lastTc) { lastTc = txt; tcRef.current.textContent = txt; }
       // Estado de React SOLO cuando cambia de verdad (aparece la duración / play↔pausa).
@@ -1719,6 +1742,8 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
   React.useEffect(() => () => {
     if (popTimer.current != null) window.clearTimeout(popTimer.current);
     if (chromeTimer.current != null) window.clearTimeout(chromeTimer.current);
+    if (tapTimer.current != null) window.clearTimeout(tapTimer.current);
+    if (skipTimer.current != null) window.clearTimeout(skipTimer.current);
   }, []);
 
   const showDotPop = (pct: number, author: string, bodyText: string) => {
@@ -1744,22 +1769,52 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
 
   return (
     <>
-      {/* Toque en el video = pausa/reanuda + trae el chrome; también cierra la hoja o la burbujita. */}
+      {/* Toque en el video = pausa/reanuda + trae el chrome; también cierra la hoja o la burbujita.
+          DOBLE toque en el tercio izquierdo/derecho = ±10 s (el toque simple espera un instante
+          para no confundirse con el doble; con el aviso de salto vivo, cada toque al mismo lado
+          acumula otro salto al vuelo, sin esperar). */}
       {canTap && !covered ? (
         <button
           type="button"
           aria-label={paused ? "Reproducir" : "Pausar"}
-          onClick={() => {
+          onClick={(e) => {
             if (sheetOpen) { onCloseSheet(); return; }
             if (dotPop) { setDotPop(null); return; }
             const api = playerRef.current;
-            if (api?.isPaused()) api.play(); else api?.pause();
-            poke();
+            if (!api) return;
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const frac = r.width > 0 ? (e.clientX - r.left) / r.width : 0.5;
+            const side: "l" | "r" | null = frac < 0.35 ? "l" : frac > 0.65 ? "r" : null;
+            // Racha de saltos ya abierta en este lado: cada toque suma otro ±10 s al instante.
+            if (side && skipFlash && skipFlash.side === side) { doSkip(side); poke(); return; }
+            if (tapTimer.current != null) {
+              // Segundo toque rápido: es un DOBLE toque.
+              window.clearTimeout(tapTimer.current);
+              tapTimer.current = null;
+              if (side) { doSkip(side); poke(); return; }
+              // Doble toque al centro: vale como el toque simple que se estaba aguantando.
+              if (api.isPaused()) api.play(); else api.pause();
+              poke();
+              return;
+            }
+            tapTimer.current = window.setTimeout(() => {
+              tapTimer.current = null;
+              if (api.isPaused()) api.play(); else api.pause();
+              poke();
+            }, 260);
           }}
           // iOS: sin selección de texto ni menú de long-press ("Guardar vídeo") al mantener pulsado el video.
           style={{ WebkitTouchCallout: "none", userSelect: "none" }}
           className="absolute inset-0 z-10 cursor-default select-none"
         />
+      ) : null}
+      {/* Aviso del salto por doble toque: −10 s / +10 s (acumula con toques seguidos). */}
+      {skipFlash ? (
+        <div className={`pointer-events-none absolute inset-y-0 z-20 flex w-1/3 items-center justify-center ${skipFlash.side === "l" ? "left-0" : "right-0"}`}>
+          <span className="rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white">
+            {skipFlash.side === "l" ? `« −${skipFlash.secs} s` : `+${skipFlash.secs} s »`}
+          </span>
+        </div>
       ) : null}
       {canTap && paused && !sheetOpen && !covered ? (
         <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-2xl text-white">▶</div>
@@ -1814,23 +1869,31 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
             <span ref={tcRef} className="font-mono text-white/85">0:00</span>
             <span className="font-mono text-white/50">{fmtTime(durT)}</span>
           </div>
-          {/* Zona táctil generosa (h-8) con ARRASTRE: pointer capture + seek en vivo. */}
+          {/* Zona táctil generosa (h-10) con ARRASTRE: pointer capture + seek en vivo. Al tocar,
+              la línea ENGORDA y aparece la perilla (agarrarla deja de ser puntería fina); un
+              timecode GRANDE al centro dice exactamente dónde vas a soltar. */}
           <div
             ref={barRef}
-            className="relative -my-2 h-8 cursor-pointer touch-none"
+            className="relative -my-3 h-10 cursor-pointer touch-none"
             onPointerDown={(e) => {
               scrubbing.current = true;
+              setIsScrubbing(true);
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               seekAt(e.clientX);
               poke();
             }}
             onPointerMove={(e) => { if (scrubbing.current) seekAt(e.clientX); }}
-            onPointerUp={() => { scrubbing.current = false; poke(); }}
-            onPointerCancel={() => { scrubbing.current = false; }}
+            onPointerUp={() => { scrubbing.current = false; setIsScrubbing(false); poke(); }}
+            onPointerCancel={() => { scrubbing.current = false; setIsScrubbing(false); }}
           >
-            <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-full bg-white/25">
+            <div className={`absolute inset-x-0 top-1/2 -translate-y-1/2 overflow-hidden rounded-full bg-white/25 transition-[height] duration-150 ${isScrubbing ? "h-2" : "h-[3px]"}`}>
               <div ref={fillRef} className="h-full w-full origin-left rounded-full bg-primary" style={{ transform: "scaleX(0)" }} />
             </div>
+            <div
+              ref={knobRef}
+              className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-[width,height] duration-150 ${isScrubbing ? "size-4" : "size-2.5"}`}
+              style={{ left: "0%" }}
+            />
             {moments.map((c) => (
               <button
                 key={c.id}
@@ -1850,6 +1913,13 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
               </button>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* Timecode GRANDE mientras se arrastra la barra: dónde vas a soltar, sin entrecerrar los ojos. */}
+      {isScrubbing ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[38%] z-30 flex justify-center">
+          <span ref={bigTcRef} className="rounded-2xl bg-black/70 px-5 py-2.5 font-mono text-3xl font-semibold text-white tabular-nums" />
         </div>
       ) : null}
 
