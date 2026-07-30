@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserAvatar } from "@/components/user-avatar";
 import { StatusSelect } from "@/components/actions/status-select";
 import { DateInput } from "@/components/actions/date-input";
-import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight, ChevronDown, Plus } from "lucide-react";
+import { Check, Clock, ClipboardCheck, Trash2, ImagePlus, ChevronRight, ChevronDown, MoreHorizontal, Plus } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import {
   DELIVERABLE_STATUS,
@@ -264,7 +264,7 @@ export function DeliverablesPanel({
     .filter((d) => APPROVED.has(d.status) && inFilter(d))
     .sort((a, b) => (b.number ?? 0) - (a.number ?? 0));
   return (
-    <div className="space-y-5">
+    <div className="space-y-2">
       {/* Nuevo entregable para revisión: nombre/video, link o archivo, responsable de
           revisión (solo miembros), caducidad opcional del enlace y fecha de entrega.
           PLEGADO por defecto (el trabajo —la lista de entregables— es el foco); se abre con el
@@ -366,87 +366,79 @@ export function DeliverablesPanel({
           : latest
             ? `v${latest.number}`
             : "sin versiones";
+        // Sin overflow-hidden en la tarjeta: recortaba el menú ⋯ contra su borde y solo se veía
+        // la primera opción. Las esquinas las redondea el propio <summary>.
         return (
-          <div key={d.id} id={`entregable-${d.id}`} className="scroll-mt-24 rounded-xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                {d.owner ? <UserAvatar initials={d.owner.initials} color={d.owner.avatarColor} size="md" /> : null}
-                <div>
-                  <h3 className="font-semibold">
-                    {d.number ? <span className="mr-1.5 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground" title="Consecutivo del entregable en este proyecto">#{d.number}</span> : null}
-                    {d.name}
-                  </h3>
-                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    {DELIVERABLE_TYPE[d.type] ?? d.type}
+          <div key={d.id} id={`entregable-${d.id}`} className="relative scroll-mt-24 rounded-xl border border-border bg-card shadow-sm">
+            {/* UNA LÍNEA por entregable. Antes esto eran cuatro franjas —cabecera con avatar y
+                tres botones, línea de fases, y barra-resumen— y el estado se decía tres veces
+                (píldora + «la pelota la tiene» + fases). Ahora la fila dice lo justo para
+                decidir si abrirla; el detalle y las fases salen al abrir, que es cuando importan.
+                El pr-12 reserva el hueco del menú ⋯, que va fuera del <summary>. */}
+            <details className="group/det">
+              <summary className="grid cursor-pointer list-none grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-12 hover:bg-muted/40 group-open/det:rounded-b-none">
+                <span
+                  className="rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground"
+                  title="Consecutivo del entregable en este proyecto"
+                >
+                  {d.number ? `#${d.number}` : "—"}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{d.name}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                    <span>{DELIVERABLE_TYPE[d.type] ?? d.type}</span>
+                    <span aria-hidden>·</span>
+                    <span>{mediaBits}</span>
                     <BallChip status={d.status} updatedAtIso={d.updatedAtIso} />
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {d.versions.length > 0 ? (
-                  <Link href={`/revisiones/${d.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Abrir en la bandeja de revisión (player + comentarios)">
-                    <ClipboardCheck className="size-3.5" /> Revisar
-                  </Link>
-                ) : null}
-                <StatusSelect value={d.status} options={STATUS_OPTIONS} action={setDeliverableStatus.bind(null, d.id, projectId)} className={cn("border-0", deliverableStatusMeta(d.status).className)} />
-                {canManage ? (
-                  <form action={deleteDeliverable.bind(null, d.id, projectId)}>
-                    <ConfirmSubmit message={`¿Eliminar el entregable «${d.name}» con TODAS sus versiones, comentarios y decisiones? No se puede deshacer.`} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Borrar todo">
-                      <Trash2 className="size-4" />
-                    </ConfirmSubmit>
-                  </form>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Línea de fase: ubica el entregable en el flujo (Producción · Revisión · Aprobado)
-                sin abrirlo. Deriva de los 8 estados reales agrupados en 3 fases; el estado exacto
-                lo sigue mostrando la píldora de arriba. */}
-            {(() => {
-              const PHASES = [
-                ["PENDIENTE", "EN_PRODUCCION", "EN_EDICION"],
-                ["REVISION_INTERNA", "ENVIADO_CLIENTE", "CORRECCIONES"],
-                ["APROBADO", "ENTREGADO"],
-              ];
-              const LABELS = ["Producción", "Revisión", "Aprobado"];
-              const cur = PHASES.findIndex((s) => s.includes(d.status));
-              return (
-                <ol className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]" aria-label="Fase del entregable">
-                  {LABELS.map((lab, i) => {
-                    const done = cur > i;
-                    const active = cur === i;
-                    return (
-                      <li key={lab} className="flex items-center gap-1.5">
-                        {i > 0 ? <span aria-hidden className={cn("h-px w-4 shrink-0", cur >= i ? "bg-primary/60" : "bg-border")} /> : null}
-                        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", active ? "bg-primary ring-2 ring-primary/25" : done ? "bg-primary" : "bg-border")} />
-                        <span className={cn(active ? "font-semibold text-foreground" : done ? "text-foreground/70" : "text-muted-foreground")}>{lab}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
-              );
-            })()}
-
-            {/* Contenido PLEGADO por defecto: así se ve de un vistazo qué entregable abrir.
-                El resumen del summary (mini barra de correcciones + versión/fotos + visitas)
-                permite decidir sin desplegar; al abrir, el trabajo se organiza en pestañas. */}
-            <details className="group/det mt-1">
-              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronRight className="size-4 shrink-0 transition-transform group-open/det:rotate-90" />
-                {fixes.length > 0 ? (
-                  <>
-                    {/* Mini barra de progreso de correcciones (hechas/total) */}
-                    <span aria-hidden className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-                      <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${Math.round((fixesDone / fixes.length) * 100)}%` }} />
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  {/* Progreso de correcciones: el dato que de verdad decide si hay que entrar. */}
+                  {fixes.length > 0 ? (
+                    <span
+                      className="hidden items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground sm:flex"
+                      title={`${fixesDone} de ${fixes.length} ${fixes.length === 1 ? "corrección hecha" : "correcciones hechas"}`}
+                    >
+                      <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-muted">
+                        <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${Math.round((fixesDone / fixes.length) * 100)}%` }} />
+                      </span>
+                      {fixesDone}/{fixes.length}
                     </span>
-                    <span>{fixesDone} de {fixes.length} {fixes.length === 1 ? "corrección hecha" : "correcciones hechas"}</span>
-                  </>
-                ) : (
-                  <span>Sin correcciones</span>
-                )}
-                <span className="text-xs font-normal">· {mediaBits} · {d.reviewVisits} visita{d.reviewVisits === 1 ? "" : "s"}</span>
+                  ) : null}
+                  {/* El estado, UNA sola vez. Cambiarlo vive en el menú ⋯ («Mover a»). */}
+                  <span className={cn("hidden shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline", deliverableStatusMeta(d.status).className)}>
+                    {DELIVERABLE_STATUS[d.status]?.label ?? d.status}
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open/det:rotate-90" />
+                </span>
               </summary>
-              <div className="pt-1">
+              <div className="border-t border-border px-3.5 pb-4 pt-3">
+                {/* Las fases, ya abierto: aquí sí aportan, porque se está trabajando la pieza. */}
+                {(() => {
+                  const PHASES = [
+                    ["PENDIENTE", "EN_PRODUCCION", "EN_EDICION"],
+                    ["REVISION_INTERNA", "ENVIADO_CLIENTE", "CORRECCIONES"],
+                    ["APROBADO", "ENTREGADO"],
+                  ];
+                  const LABELS = ["Producción", "Revisión", "Aprobado"];
+                  const cur = PHASES.findIndex((s) => s.includes(d.status));
+                  return (
+                    <ol className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]" aria-label="Fase del entregable">
+                      {LABELS.map((lab, i) => {
+                        const done = cur > i;
+                        const active = cur === i;
+                        return (
+                          <li key={lab} className="flex items-center gap-1.5">
+                            {i > 0 ? <span aria-hidden className={cn("h-px w-4 shrink-0", cur >= i ? "bg-primary/60" : "bg-border")} /> : null}
+                            <span aria-hidden className={cn("size-2 shrink-0 rounded-full", active ? "bg-primary ring-2 ring-primary/25" : done ? "bg-primary" : "bg-border")} />
+                            <span className={cn(active ? "font-semibold text-foreground" : done ? "text-foreground/70" : "text-muted-foreground")}>{lab}</span>
+                          </li>
+                        );
+                      })}
+                      <li className="ml-auto text-muted-foreground">{d.reviewVisits} visita{d.reviewVisits === 1 ? "" : "s"} del cliente</li>
+                    </ol>
+                  );
+                })()}
                 <DeliverableTabs
                   // Si hay correcciones, el editor cae directo a trabajarlas; si no, al contenido.
                   defaultKey={fixes.length > 0 ? "correcciones" : "contenido"}
@@ -676,6 +668,67 @@ export function DeliverablesPanel({
                 />
               </div>
             </details>
+
+            {/* ── El menú ⋯ ────────────────────────────────────────────────────────────
+                Va FUERA del <summary> a propósito: dentro, cualquier clic —incluido el del
+                menú— abriría o cerraría la fila, porque el <details> nativo reacciona a todo
+                lo que cuelga de su summary. Flotando encima de la fila se comporta bien y
+                seguimos sin necesitar JavaScript de cliente: <details data-autoclose> ya se
+                cierra con Escape y al clicar fuera (DetailsAutoClose, montado en el shell).
+                Las opciones CAMBIAN según el estado: quien no tiene versiones ve «Subir la
+                v1»; el aprobado ve «Descargar» — no doce opciones de las que sobran ocho. */}
+            <div className="absolute right-2.5 top-2">
+              <details data-autoclose className="relative">
+                <summary
+                  className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={`Acciones de «${d.name}»`}
+                  title="Acciones"
+                >
+                  <MoreHorizontal className="size-4" />
+                </summary>
+                <div className="absolute right-0 z-30 mt-1 w-60 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+                  {d.versions.length > 0 ? (
+                    <Link href={`/revisiones/${d.id}`} className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-muted">
+                      <ClipboardCheck className="size-4 text-muted-foreground" /> Abrir en revisión
+                    </Link>
+                  ) : (
+                    <span className="flex items-center gap-2 rounded-md px-3 py-2 text-muted-foreground">
+                      <Clock className="size-4" /> Todavía sin versiones
+                    </span>
+                  )}
+
+                  {/* Mover a: los mismos estados del selector de antes, uno por fila. */}
+                  <div className="mt-1 border-t border-border pt-1">
+                    <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Mover a</p>
+                    {STATUS_OPTIONS.filter((o) => o.value !== d.status).map((o) => (
+                      <form key={o.value} action={setDeliverableStatus.bind(null, d.id, projectId, o.value)}>
+                        {/* La opción se pinta con el MISMO color que la píldora de la fila: elegir
+                            aquí enseña de paso qué color va con qué estado. */}
+                        <button className="flex w-full items-center rounded-md px-3 py-1 text-left hover:bg-muted">
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", deliverableStatusMeta(o.value).className)}>
+                            {o.label}
+                          </span>
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+
+                  {canManage ? (
+                    <div className="mt-1 border-t border-border pt-1">
+                      <form action={deleteDeliverable.bind(null, d.id, projectId)}>
+                        <ConfirmSubmit
+                          message={`¿Eliminar el entregable «${d.name}» con TODAS sus versiones, comentarios y decisiones? No se puede deshacer.`}
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-destructive hover:bg-destructive/10"
+                          title="Borrar todo"
+                        >
+                          <Trash2 className="size-4" /> Eliminar
+                        </ConfirmSubmit>
+                      </form>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            </div>
           </div>
         );
       };
@@ -767,12 +820,12 @@ export function DeliverablesPanel({
           coversCount={covers.length}
           photosCount={photoSets.length}
           active={
-            <div className="space-y-5">
+            <div className="space-y-2">
               {activeList.length === 0 ? <p className="text-sm text-muted-foreground">No hay entregables en curso. Crea uno arriba.</p> : activeList.map(renderCard)}
             </div>
           }
           approved={
-            <div className="space-y-5">
+            <div className="space-y-2">
               {approvedList.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Aún no hay entregables aprobados por el cliente. Cuando apruebe uno, se archiva aquí con su consecutivo.</p>
               ) : (
