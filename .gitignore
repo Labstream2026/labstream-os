@@ -49,3 +49,7 @@ next-env.d.ts
 # Claude Code: config local (permisos personales) y worktrees de sesiones — no van al repo.
 .claude/settings.local.json
 .claude/worktrees/
+
+# Lo escribe claude-job.sh en cada deploy (commit + fecha). Jamás se commitea: uno viejo
+# mentiría sobre qué versión está sirviendo, que es justo el problema que viene a resolver.
+public/version.txt

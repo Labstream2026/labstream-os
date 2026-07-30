@@ -18,6 +18,27 @@ TMP="/tmp/lsos-deploy"
 
 # El log nunca debe tumbar el deploy (de ahí el "|| true").
 log() { echo "=== $* $(date) ===" >> "$LOG" 2>/dev/null || true; }
+
+# ── Un deploy a la vez ──
+# En el log se veían DOS formatos de hora mezclados: dos procesos lanzando esto a la vez (la
+# tarea de DSM y una ejecución a mano). Sin candado, uno hace rsync sobre $DEST mientras el otro
+# construye desde ahí — el build lee un árbol a medio copiar. `mkdir` es atómico en todo sistema
+# de archivos, así que sirve de candado sin depender de flock (que en DSM no siempre está).
+LOCK="/tmp/lsos-deploy.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  # Candado huérfano (el proceso murió sin limpiar): a las 2 h se considera muerto y se roba.
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +120 2>/dev/null)" ]; then
+    log "AVISO: candado viejo, se descarta"
+    rm -rf "$LOCK" && mkdir "$LOCK"
+  else
+    log "ABORTA: ya hay un deploy en marcha"
+    echo "Ya hay un deploy en marcha. Espera a que termine."
+    exit 1
+  fi
+fi
+# Se suelta pase lo que pase (incluido el corte de set -e).
+trap 'rm -rf "$LOCK"' EXIT
+
 log "deploy inicio"
 
 # 1) Descargar el código más reciente de GitHub (repo público).
@@ -26,6 +47,19 @@ mkdir -p "$TMP"
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$TMP/src.tgz"
 tar xzf "$TMP/src.tgz" -C "$TMP"
 SRC="$TMP/labstream-os-$BRANCH"
+
+# ── Qué commit queda desplegado ──
+# El tarball de codeload no trae .git, así que el SHA se pregunta a la API de GitHub. Se escribe
+# en public/version.txt, que el Dockerfile hornea en la imagen (el runner copia public/), y así
+# se puede comprobar desde el navegador en /version.txt SIN entrar al NAS ni abrir el log.
+# Antes solo se podía deducir por lo que faltaba en la pantalla, que es como estuvimos un día
+# creyendo que no se desplegaba nada cuando en realidad sí.
+# Si la API falla (sin red, límite de peticiones) NO se tumba el deploy: queda "desconocido".
+SHA=$(curl -fsSL "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null \
+      | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -1)
+[ -n "$SHA" ] || SHA="desconocido"
+printf '%s\n%s\n' "$SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SRC/public/version.txt"
+log "commit $SHA"
 
 # 2) Copiar al destino SIN tocar secretos (.env) ni datos persistentes.
 #    --delete es OBLIGATORIO: sin él, un archivo BORRADO del repo quedaba fantasma en
@@ -53,7 +87,11 @@ fi
 
 # 4) Construir la imagen nueva SIN tocar la app que corre (la vieja sigue sirviendo).
 cd "$DEST"
-docker compose -p "$PROJECT" build
+# La salida del build TAMBIÉN al log. Sin esto, un build fallido dejaba en el log solo la línea
+# "deploy inicio" y nada más: trece intentos seguidos murieron aquí de forma invisible y parecía
+# que el deploy no se ejecutaba. Ahora el motivo queda escrito.
+log "build"
+docker compose -p "$PROJECT" build >> "$LOG" 2>&1
 
 # 5) Aplicar migraciones de Prisma ANTES de cambiar el código, con la imagen nueva.
 #    ORDEN CRÍTICO: antes se hacía `up` primero y `migrate` después; si la migración
@@ -65,7 +103,8 @@ log "migraciones"
 docker compose -p "$PROJECT" run --rm -T -u root app npx prisma migrate deploy >> "$LOG" 2>&1
 
 # 6) Levantar el código nuevo (solo se llega aquí si las migraciones pasaron).
-docker compose -p "$PROJECT" up -d
+log "levantar"
+docker compose -p "$PROJECT" up -d >> "$LOG" 2>&1
 
 # 7) Limpieza: cada rebuild deja la imagen anterior como <none> y capas de caché
 #    sin usar. Sin esto se acumulan gigas con cada deploy. Se purga aquí.
