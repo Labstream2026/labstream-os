@@ -58,6 +58,23 @@ V_BUFSIZE="${V_BUFSIZE:-12M}"     # 1,5 s de pico: absorbe un plano difícil sin
 A_BITRATE="${A_BITRATE:-128k}"
 GOP_SEG="${GOP_SEG:-2}"           # un keyframe cada 2 s → mover la barra cae cerca
 
+# ── HLS: la escalera de calidades que se adapta al ancho de banda ─────────────
+# El MP4 de arriba se sirve entero y NUNCA cambia de calidad: quien lo abre con datos
+# móviles se descarga el 1080p igual, más lento. HLS parte el video en trozos y ofrece
+# varias calidades a la vez; el reproductor mide la red y salta entre ellas.
+#
+# Se fabrica en UNA sola pasada: se decodifica una vez en la GPU y se escala y codifica
+# tres veces ahí mismo. Medido en esta máquina sobre 30 s de 1080p, frente al MP4 solo:
+# +77 % de tiempo y +45 % de disco. No es gratis, pero está lejos del triple que costaría
+# hacer tres pasadas.
+HACER_HLS="${HACER_HLS:-1}"
+# Por debajo de este minutaje no se hace: en un clip corto el reproductor no llega ni a
+# medir la red antes de que termine, y son los que más abundan (reels, cortes de redes).
+HLS_MIN_SEG="${HLS_MIN_SEG:-45}"
+# Trozos de 6 s: el valor que recomienda Apple. Más cortos reaccionan antes al cambio de
+# red pero multiplican las peticiones; más largos tardan en corregir un mal momento.
+HLS_TROZO="${HLS_TROZO:-6}"
+
 # Poster: al 15 % de la duración, nunca el primer fotograma (negro o claqueta).
 POSTER_ANCHO="${POSTER_ANCHO:-1280}"
 # Tira de previsualización: 20 fotogramas en UNA fila. Número FIJO a propósito: así
@@ -348,6 +365,27 @@ procesar_video() { # ruta absoluta
     # Una tira que no sale no es un fallo que merezca contarse: el póster ya cubre la
     # cuadrícula y los clips de menos de 2 s no tienen nada que barrer.
   fi
+
+  # ── Escalera HLS (adaptativa) ──
+  # Va DESPUÉS del MP4 y del póster a propósito: si la madrugada se corta, lo que queda
+  # hecho es lo que hace falta para que la galería se vea. El HLS es la mejora, no la base.
+  # Se salta en clips cortos (no da tiempo ni a medir la red) y no cuenta como fallo si no
+  # sale: el MP4 sigue sirviendo el video igual, solo que sin adaptar.
+  if [ "$HACER_HLS" = "1" ] && [ "$SOLO_LISTAR" != "1" ]; then
+    local hls="$pd/$base.hls"
+    local largo
+    largo=$(awk -v d="${dur:-0}" 'BEGIN{printf "%d", d+0}')
+    if [ "$largo" -ge "$HLS_MIN_SEG" ] 2>/dev/null && { [ "$FORZAR" = "1" ] || [ ! -f "$hls/master.m3u8" ] || [ "$src" -nt "$hls/master.m3u8" ]; }; then
+      local gop_hls
+      gop_hls=$(awk -v r="${rfr:-25}" -v s="$HLS_TROZO" 'BEGIN{split(r,a,"/"); f=(a[2]&&a[2]+0>0?a[1]/a[2]:a[1]+0); if(f<=0||f>1000)f=25; g=int(f*s+0.5); if(g<24)g=24; if(g>360)g=360; print g}')
+      log "  ⇢ escalera HLS de $base"
+      if hacer_hls "$src" "$hls" "$gop_hls" "$vcodec" "$w" "$h"; then
+        CREADOS_HLS=$((CREADOS_HLS+1))
+      else
+        log "    ↳ sin escalera (no aplica o no salió); el MP4 sigue sirviendo"
+      fi
+    fi
+  fi
   return $fallo
 }
 
@@ -447,6 +485,90 @@ codificar_video() { # origen, destino, gop, códec-de-entrada, ancho, alto
     -movflags +faststart -max_muxing_queue_size 1024
 }
 
+# ── HLS ───────────────────────────────────────────────────────────────────────
+
+# Fabrica la escalera de calidades. El destino es una CARPETA hermana del mp4:
+#   <carpeta>/.proxy/toma.mxf.hls/master.m3u8   (+ v0/ v1/ v2/ con los trozos)
+#
+# Los peldaños se eligen según el original: no tiene sentido ofrecer 1080p de un 720p
+# —sería ampliar— ni 480p de un vertical estrecho. Se construyen de mayor a menor y se
+# descarta el que no aporte. Si solo queda un peldaño, no se hace HLS: para eso ya está
+# el MP4, y un HLS de una sola calidad no adapta nada.
+hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
+  local src="$1" dir="$2" gop="$3" vcodec="${4:-}" vw="${5:-0}" vh="${6:-0}"
+  local maestro="$dir/master.m3u8"
+
+  # Solo con decodificación por GPU: con decodificación por software, tres escalados y
+  # tres codificaciones a la vez ponen la CPU de rodillas y la madrugada no alcanza.
+  case "$vcodec" in h264|hevc|vp9|mpeg2video|vc1) ;; *) return 1 ;; esac
+  [ "$vw" -gt 0 ] 2>/dev/null && [ "$vh" -gt 0 ] 2>/dev/null || return 1
+
+  # Peldaños candidatos: alto objetivo y tasa. El ancho sale de la forma del original.
+  local escalones="1080:5000k 720:2500k 480:1000k"
+  local filtros="" mapas="" varmap="" n=0 lado
+  # En vertical manda el ancho; en horizontal, el alto. Se compara contra el lado corto
+  # para que un 1080×1920 no se considere «menor que 1080».
+  lado=$([ "$vh" -ge "$vw" ] && echo "$vw" || echo "$vh")
+
+  local partes="" ultimo=0
+  for e in $escalones; do
+    local alto="${e%%:*}" tasa="${e##*:}"
+    local dims oh
+    # El ancho se deja holgado (4× el alto) para no recortar formatos de cine: manda el
+    # ALTO del peldaño, y `caja` conserva la forma y no amplía jamás.
+    dims=$(ANCHO_MAX=$((alto * 4)) ALTO_MAX="$alto" caja "$vw" "$vh") || continue
+    oh="${dims##*:}"
+    # `caja` limita al tamaño del original, así que dos peldaños seguidos pueden acabar
+    # dando lo MISMO: en un 720p, el peldaño de 1080 y el de 720 salen ambos 1280×720, y
+    # se ofrecerían dos calidades idénticas. Si este no baja al menos un 10 % respecto al
+    # anterior, no aporta nada y se descarta.
+    if [ "$ultimo" -gt 0 ] && [ $((oh * 100)) -ge $((ultimo * 90)) ]; then continue; fi
+    ultimo="$oh"
+    filtros="${filtros}[s$n]scale_qsv=w=${dims%%:*}:h=${oh}[v$n];"
+    mapas="$mapas -map [v$n] -c:v:$n h264_qsv -b:v:$n $tasa -maxrate:v:$n $tasa -bufsize:v:$n $tasa"
+    varmap="$varmap v:$n,a:$n"
+    partes="$partes[s$n]"
+    n=$((n + 1))
+  done
+  # Con un solo peldaño no hay nada que adaptar: el MP4 ya cubre ese caso.
+  [ "$n" -ge 2 ] || return 1
+
+  mkdir -p "$dir" || return 1
+  local i=0
+  while [ $i -lt $n ]; do mkdir -p "$dir/v$i"; i=$((i + 1)); done
+
+  # El audio se duplica una vez por variante: cada calidad lleva el suyo, que es lo que
+  # espera `var_stream_map`.
+  local audios="" j=0
+  while [ $j -lt $n ]; do audios="$audios -map a:0?"; j=$((j + 1)); done
+
+  local tmp="$dir/.parcial"
+  rm -rf "$tmp"; mkdir -p "$tmp" || return 1
+  j=0; while [ $j -lt $n ]; do mkdir -p "$tmp/v$j"; j=$((j + 1)); done
+
+  # shellcheck disable=SC2086 -- $mapas y $audios son listas de argumentos, no una cadena
+  if timeout -k 30 "$TIMEOUT_VIDEO" "$FFMPEG" -hide_banner -nostdin -y -loglevel error \
+      -init_hw_device qsv=hw:/dev/dri/renderD128 -filter_hw_device hw \
+      -hwaccel qsv -hwaccel_output_format qsv \
+      -i "$src" \
+      -filter_complex "[0:v]split=$n${partes};${filtros%;}" \
+      $mapas $audios -c:a aac -b:a "$A_BITRATE" -ac 2 -ar 48000 \
+      -g "$gop" -bf 2 -look_ahead 0 -sn -dn \
+      -f hls -hls_time "$HLS_TROZO" -hls_playlist_type vod -hls_flags independent_segments \
+      -var_stream_map "${varmap# }" -master_pl_name master.m3u8 \
+      -hls_segment_filename "$tmp/v%v/seg%03d.ts" "$tmp/v%v/index.m3u8" 2>>"$LOG"; then
+    # Atómico como el resto: la app nunca puede toparse media escalera. Se cambia la
+    # carpeta entera de golpe.
+    rm -rf "$dir.viejo"
+    [ -f "$maestro" ] && mv "$dir" "$dir.viejo" 2>/dev/null && mkdir -p "$(dirname "$dir")"
+    mv "$tmp" "$dir" 2>/dev/null || { mv "$dir.viejo" "$dir" 2>/dev/null; return 1; }
+    rm -rf "$dir.viejo"
+    return 0
+  fi
+  rm -rf "$tmp"
+  return 1
+}
+
 hacer_poster() { # origen, destino, duración
   local src="$1" dst="$2" dur="${3:-}"
   # NUNCA el primer fotograma: casi siempre es negro, claqueta o el destello del
@@ -525,7 +647,7 @@ procesar_foto() { # ruta absoluta
 
 # ── Recorrido ─────────────────────────────────────────────────────────────────
 
-CREADOS_VIDEO=0; CREADOS_POSTER=0; CREADOS_TIRA=0; CREADOS_FOTO=0
+CREADOS_VIDEO=0; CREADOS_POSTER=0; CREADOS_TIRA=0; CREADOS_FOTO=0; CREADOS_HLS=0
 OMITIDOS=0; FALLOS_N=0; VISTOS=0; FALLOS_QSV=0
 
 # Se podan las mismas carpetas que ignora la app (nas-galeria.ts → isJunkName): la
@@ -559,7 +681,7 @@ done < <(find "$DESTINO" \
 # ── Cierre ────────────────────────────────────────────────────────────────────
 
 SEGS=$(( $(date +%s) - INICIO ))
-log "════ Fin en $((SEGS/3600))h $(((SEGS%3600)/60))m · vistos:$VISTOS · videos:$CREADOS_VIDEO · pósters:$CREADOS_POSTER · tiras:$CREADOS_TIRA · fotos:$CREADOS_FOTO · al día:$OMITIDOS · fallos:$FALLOS_N"
+log "════ Fin en $((SEGS/3600))h $(((SEGS%3600)/60))m · vistos:$VISTOS · videos:$CREADOS_VIDEO · pósters:$CREADOS_POSTER · tiras:$CREADOS_TIRA · escaleras:$CREADOS_HLS · fotos:$CREADOS_FOTO · al día:$OMITIDOS · fallos:$FALLOS_N"
 [ "$FALLOS_N" -gt 0 ] && log "Detalle de los fallos: $FALLOS"
 
 # Registros: 14 días. Más no sirve de nada y el volumen del material no es sitio
