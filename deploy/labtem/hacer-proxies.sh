@@ -547,16 +547,19 @@ hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
   # Con un solo peldaño no hay nada que adaptar: el MP4 ya cubre ese caso.
   [ "$n" -ge 2 ] || return 1
 
-  mkdir -p "$dir" || return 1
-  local i=0
-  while [ $i -lt $n ]; do mkdir -p "$dir/v$i"; i=$((i + 1)); done
-
   # El audio se duplica una vez por variante: cada calidad lleva el suyo, que es lo que
   # espera `var_stream_map`.
   local audios="" j=0
   while [ $j -lt $n ]; do audios="$audios -map a:0?"; j=$((j + 1)); done
 
-  local tmp="$dir/.parcial"
+  # El temporal va AL LADO de la carpeta final, jamás dentro. Estuvo dentro
+  # (`$dir/.parcial`) y por eso la escalera no llegó a existir NI UNA VEZ: ffmpeg la
+  # generaba entera y bien, y el paso final —`mv "$dir/.parcial" "$dir"`— es mover un
+  # directorio dentro de sí mismo, que falla siempre. La función devolvía 1 y el registro
+  # decía «no aplica o no salió», con lo que parecía que el material no daba para escalera.
+  # Tampoco se crea ya `$dir` antes de tiempo: si ffmpeg falla no debe quedar una carpeta
+  # `.hls` vacía haciéndose pasar por una escalera.
+  local tmp="$dir.parcial"
   rm -rf "$tmp"; mkdir -p "$tmp" || return 1
   j=0; while [ $j -lt $n ]; do mkdir -p "$tmp/v$j"; j=$((j + 1)); done
 
@@ -574,8 +577,8 @@ hacer_hls() { # origen, carpeta-destino, gop, códec, ancho, alto
     # Atómico como el resto: la app nunca puede toparse media escalera. Se cambia la
     # carpeta entera de golpe.
     rm -rf "$dir.viejo"
-    [ -f "$maestro" ] && mv "$dir" "$dir.viejo" 2>/dev/null && mkdir -p "$(dirname "$dir")"
-    mv "$tmp" "$dir" 2>/dev/null || { mv "$dir.viejo" "$dir" 2>/dev/null; return 1; }
+    [ -d "$dir" ] && mv "$dir" "$dir.viejo" 2>/dev/null
+    mv "$tmp" "$dir" 2>/dev/null || { rm -rf "$dir"; mv "$dir.viejo" "$dir" 2>/dev/null; rm -rf "$tmp"; return 1; }
     rm -rf "$dir.viejo"
     return 0
   fi
