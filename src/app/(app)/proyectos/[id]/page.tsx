@@ -43,7 +43,6 @@ import { ClientRequestsPanel } from "./client-requests-panel";
 import { formatBogota } from "@/lib/bogota-time";
 import { FilesPanel } from "./files-panel";
 import { MaterialCard } from "./material-card";
-import { GuionesPanel } from "./guiones-panel";
 import { ActivityFeed } from "./activity-feed";
 import { ProjectChatBubble } from "./project-chat-bubble";
 import { BriefPanel } from "./brief-panel";
@@ -330,9 +329,12 @@ export default async function ProyectoPage({
   const status = statusMeta(project.status);
   // Los guiones viven en una carpeta dedicada «Guiones»; se separan de Archivos para
   // tener su propia pestaña enfocada (y no contarlos dos veces).
-  const guionesFolder = project.folders.find((f) => f.name === "Guiones");
-  const guionesFiles = guionesFolder?.files ?? [];
-  const otherFolders = project.folders.filter((f) => f.name !== "Guiones");
+  // La carpeta «Guiones» ya NO se aparta: sus archivos son archivos del proyecto como los demás
+  // y aparecen en la lista, en su carpeta. Antes vivían en una sección propia de 900 px y, por
+  // estar fuera de `otherFolders`, ni siquiera contaban igual que lo que la lista enseñaba.
+  // Lo único que aquella sección sabía hacer y la lista no —copiar el texto del guion— baja al
+  // menú ⋯ de la fila.
+  const otherFolders = project.folders;
   // `archivos` NO se calcula aquí: se rellena más abajo con el largo exacto de `archivosItems`,
   // que es lo que la pestaña va a enseñar. Antes se sumaba a mano e incluía los guiones —que la
   // lista esconde— y las rutas del NAS —que al cliente se le ocultan—, así que la pastilla
@@ -344,7 +346,7 @@ export default async function ProyectoPage({
 
   // Vida de los documentos de Office del proyecto: comentarios sin resolver y quién los tiene
   // abiertos ahora mismo. Se ve en la lista, ANTES de abrir nada.
-  const docIds = [...guionesFiles, ...otherFolders.flatMap((f) => f.files), ...project.files]
+  const docIds = [...otherFolders.flatMap((f) => f.files), ...project.files]
     .filter((f) => isEditableOffice(f.name))
     .map((f) => f.id);
   const docComentarios = docIds.length
@@ -937,41 +939,44 @@ export default async function ProyectoPage({
           )
         ) : null}
         {tab === "archivos" ? (
-          <div className="space-y-6">
-            {/* Guiones: sección destacada arriba para adjuntar/ver guiones rápido (fusionada en Archivos). */}
-            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="text-base">📝</span>
-                <h3 className="text-sm font-semibold">Guiones</h3>
-                {guionesFiles.length ? <span className="text-xs text-muted-foreground">· {guionesFiles.length}</span> : null}
-              </div>
-              <GuionesPanel
-                projectId={id}
-                files={guionesFiles.map((file) => ({ id: file.id, name: file.name, editable: isEditableOffice(file.name), ...docLive(file.id) }))}
-                canWrite={canUploadFiles}
-                onlyoffice={ooReady}
-              />
-            </section>
-
-            {/* ¿Dónde está el material? — discos y respaldos del proyecto (solo equipo:
-                los discos internos no se exponen al cliente, como las rutas NAS). */}
-            {!isCliente ? (
-              <MaterialCard projectId={id} canManage={hasPermission(session, "gestionar_biblioteca")} />
-            ) : null}
-
-            {/* Resto de archivos del proyecto (carpetas, subidas, enlaces, rutas de red). */}
-            <section>
-              <h3 className="mb-3 text-sm font-semibold">Archivos del proyecto</h3>
-              {/* Solo quien GESTIONA el proyecto ve/comparte el enlace público de subida (la URL en vivo
-                  no se expone a todo el equipo) y elige la carpeta del NAS. */}
-              {canManageProject(project, session) ? (
-                <UploadShare
-                  projectId={id}
-                  initialLink={project.uploadRevokedAt || !project.uploadNonce ? null : `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/subir/${signUploadToken(id, project.uploadNonce)}`}
-                  uploadDir={project.uploadDir}
-                  emailEnabled={emailEnabled}
-                />
+          <div className="space-y-3">
+            {/* La pestaña abría con TRES bloques desplegados que no son archivos —Guiones con su
+                propia zona de arrastre y su vacío (900 px medidos), el mapa de discos y el banner
+                del enlace público— así que el primer archivo caía fuera de la pantalla.
+                Ahora: los guiones son archivos de su carpeta como cualquier otro (con «Copiar el
+                texto» en su menú ⋯), y lo demás vive PLEGADO en una fila de una línea. Nada se
+                pierde; deja de estar abierto de oficio. */}
+            <div className="flex flex-wrap gap-2">
+              {!isCliente ? (
+                <details className="min-w-56 flex-1 rounded-lg border border-border bg-card">
+                  <summary className="cursor-pointer list-none px-3 py-2 text-sm text-muted-foreground marker:content-none">
+                    💾 <b className="font-semibold text-foreground">¿Dónde está el material?</b>
+                  </summary>
+                  <div className="border-t border-border p-3">
+                    <MaterialCard projectId={id} canManage={hasPermission(session, "gestionar_biblioteca")} />
+                  </div>
+                </details>
               ) : null}
+              {/* Solo quien GESTIONA el proyecto ve/comparte el enlace público de subida (la URL en
+                  vivo no se expone a todo el equipo). */}
+              {canManageProject(project, session) ? (
+                <details className="min-w-56 flex-1 rounded-lg border border-border bg-card">
+                  <summary className="cursor-pointer list-none px-3 py-2 text-sm text-muted-foreground marker:content-none">
+                    🔗 <b className="font-semibold text-foreground">Link de subida para el cliente</b>
+                  </summary>
+                  <div className="border-t border-border p-3">
+                    <UploadShare
+                      projectId={id}
+                      initialLink={project.uploadRevokedAt || !project.uploadNonce ? null : `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/subir/${signUploadToken(id, project.uploadNonce)}`}
+                      uploadDir={project.uploadDir}
+                      emailEnabled={emailEnabled}
+                    />
+                  </div>
+                </details>
+              ) : null}
+            </div>
+
+            <section>
               <FilesPanel
                 projectId={id}
                 items={archivosItems}

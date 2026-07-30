@@ -16,6 +16,7 @@ import {
   Upload,
   FolderPlus,
   MoreHorizontal,
+  ClipboardCopy,
   Trash2,
   Download,
   Eye,
@@ -74,6 +75,7 @@ import {
   moverArchivosLote,
   fijarArchivosLote,
   quitarArchivosLote,
+  copyGuionText,
   finishChunkedArchivo,
   restaurarArchivo,
   purgarArchivo,
@@ -1270,6 +1272,46 @@ function FilaArchivo({
 
 // Menú ⋯ del archivo: renombrar y mover (archivos de proyecto), categoría y nota (marca),
 // y 📌 fijar/soltar en ambos. Mismo patrón details que el menú de la carpeta.
+// Copia al portapapeles el TEXTO de un documento (el guion, normalmente): la extracción la hace
+// el servidor, que es quien sabe abrir un .docx o un PDF.
+function CopiarTextoGuion({ fileId }: { fileId: string }) {
+  const [estado, setEstado] = React.useState<"" | "copiando" | "hecho">("");
+  // El motivo REAL del servidor («OnlyOffice no está conectado…»), no un «no se pudo» genérico:
+  // la extracción depende del Document Server y saberlo ahorra el viaje a preguntar.
+  const [error, setError] = React.useState<string | null>(null);
+  return (
+    <div>
+      <button
+        type="button"
+        disabled={estado === "copiando"}
+        onClick={async () => {
+          setEstado("copiando");
+          setError(null);
+          try {
+            const r = await copyGuionText(fileId);
+            if (r.ok && r.text) {
+              await navigator.clipboard.writeText(r.text);
+              setEstado("hecho");
+              setTimeout(() => setEstado(""), 2200);
+            } else {
+              setEstado("");
+              setError(r.error ?? "No se pudo extraer el texto.");
+            }
+          } catch {
+            setEstado("");
+            setError("No se pudo extraer el texto.");
+          }
+        }}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-60"
+      >
+        <ClipboardCopy className="size-4 shrink-0 text-muted-foreground" />
+        {estado === "copiando" ? "Extrayendo el texto…" : estado === "hecho" ? "Texto copiado" : "Copiar el texto"}
+      </button>
+      {error ? <p className="px-2 pb-1 text-[11px] text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
 function MenuArchivo({
   f,
   alcance,
@@ -1319,6 +1361,10 @@ function MenuArchivo({
           ) : null
         ) : (
           <>
+            {/* «Copiar el texto» era lo ÚNICO que sabía hacer la sección Guiones y la lista no.
+                Vive aquí, en el menú del archivo, que es donde se busca — y así aparece en
+                cualquier guion, esté en la carpeta que esté. */}
+            {f.editable ? <CopiarTextoGuion fileId={f.id} /> : null}
             <form
               action={async (fd) => {
                 await renameFile(f.id, projectId, fd);
