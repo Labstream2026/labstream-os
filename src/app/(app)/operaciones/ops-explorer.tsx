@@ -32,7 +32,7 @@ import { cerrarMenu, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
 import { opsCreateFolder, opsRename, opsMove, opsTrash } from "./actions";
 
-type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string };
+type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string; miniatura?: boolean };
 type Listing = { path: string; dirs: Entry[]; files: Entry[]; truncated: boolean };
 
 // Tipos que OnlyOffice abre/edita (mismo catálogo que la pestaña Archivos).
@@ -379,11 +379,11 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                     thumb={`/api/ops/thumb?path=${encodeURIComponent(f.rel)}&v=${Math.round(f.mtimeMs)}`}
                     tipo={tipoPieza(f.ext)}
                     alto="tarjeta"
-                    // Operaciones_LAB no tiene fábrica de copias ligeras: su miniatura la hace
-                    // la app al vuelo y SOLO de imágenes que el navegador entienda. Por eso a un
-                    // vídeo ni se le pide (daría 404) y no se le promete «preparando»: hoy no
-                    // hay con qué generarlo en este disco.
-                    hay={THUMB_EXT.has(f.ext)}
+                    // Lo dice el SERVIDOR, que miró el disco: una imagen se pinta sola, y un
+                    // vídeo solo si la fábrica ya le dejó su póster. Mientras este disco no
+                    // tenga fábrica, sus vídeos se quedan con el icono —y no se les promete
+                    // «preparando», que sería prometer algo que hoy no puede llegar.
+                    hay={f.miniatura ?? THUMB_EXT.has(f.ext)}
                   />
                   <span className="block px-2 py-1.5">
                     <span className="block truncate text-xs font-medium">{f.name}</span>

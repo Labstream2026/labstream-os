@@ -111,6 +111,11 @@ export type OpsEntry = {
   size: number | null;
   mtimeMs: number;
   ext: string;
+  // ¿Se puede pintar ya su miniatura? Una imagen, siempre; un vídeo, solo si la fábrica de
+  // copias ligeras apuntada a este disco le dejó su póster. Lo resuelve el servidor mirando
+  // una vez la carpeta `.proxy` del nivel. Opcional para no romper a quien construya un
+  // OpsEntry a mano (statOps, el selector de carpetas).
+  miniatura?: boolean;
 };
 
 const MAX_ENTRIES = 2000;
@@ -120,6 +125,14 @@ export async function listOps(rel: string): Promise<{ dirs: OpsEntry[]; files: O
   const norm = normalizeOpsRel(rel);
   const abs = await opsAbs(norm);
   const raw = await fs.readdir(abs, { withFileTypes: true });
+  // UNA lectura de la carpeta `.proxy` para saber qué vídeos ya tienen póster, sin importar
+  // cuántos archivos haya. Mismo criterio que la galería: que el navegador no descubra a base
+  // de 404 lo que el servidor puede mirar de una vez. Sin fábrica en este disco no existe la
+  // carpeta y el Set queda vacío, que es la respuesta correcta.
+  const posters = await fs
+    .readdir(path.join(abs, ".proxy"))
+    .then((n) => new Set(n))
+    .catch(() => new Set<string>());
   const coll = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
   const dirs: OpsEntry[] = [];
   const files: OpsEntry[] = [];
@@ -144,6 +157,8 @@ export async function listOps(rel: string): Promise<{ dirs: OpsEntry[]; files: O
           size: st.size,
           mtimeMs: st.mtimeMs,
           ext: (d.name.split(".").pop() || "").toLowerCase(),
+          // Una imagen se pinta sola; un vídeo solo si la fábrica ya le dejó su póster.
+          miniatura: opsIsVideo(d.name) ? posters.has(`${d.name}.poster.jpg`) : opsHasThumb(d.name),
         });
       } catch {
         /* desapareció entre readdir y stat */
@@ -265,22 +280,44 @@ export function opsHasThumb(name: string): boolean {
   return THUMB_EXT.test(name);
 }
 
+// ── Póster de un vídeo de esta share ───────────────────────────────────────────
+// Mismo convenio que la galería de LabTem: un hermano dentro de `.proxy/`. La app NO lo
+// fabrica —no lleva ffmpeg dentro— sino que lo hace la misma fábrica de copias ligeras
+// apuntada a este disco (ver deploy/operaciones/). Mientras no exista, un vídeo de aquí se
+// queda con su icono: es la verdad, no una espera.
+const OPS_VIDEO_EXT = /\.(mp4|m4v|mov|mkv|avi|mxf|mts|m2ts|webm|braw|r3d|prores)$/i;
+
+export function opsIsVideo(name: string): boolean {
+  return OPS_VIDEO_EXT.test(name);
+}
+
+export function opsPosterRel(rel: string): string {
+  const i = rel.lastIndexOf("/");
+  const dir = i >= 0 ? rel.slice(0, i) : "";
+  const base = i >= 0 ? rel.slice(i + 1) : rel;
+  return dir ? `${dir}/.proxy/${base}.poster.jpg` : `.proxy/${base}.poster.jpg`;
+}
+
 // Miniatura webp de una imagen de la share. Clave de caché = sha1(ruta) + mtime + tamaño: si
 // el archivo cambia por el Finder, la clave cambia y se regenera. maxEdge 640 para las listas;
 // 1600 para «Ver» la imagen (mismo trato que la preview de los archivos locales).
 export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | null> {
   const norm = normalizeOpsRel(rel);
-  if (!opsHasThumb(norm)) return null;
-  const st = await statOps(norm);
+  // De qué archivo sale la miniatura: de la imagen misma, o del póster que dejó la fábrica si
+  // la pieza es un vídeo. Sin póster no hay miniatura de vídeo: la app no lo puede fabricar.
+  const esVideo = opsIsVideo(norm);
+  const fuente = esVideo ? opsPosterRel(norm) : norm;
+  if (!esVideo && !opsHasThumb(norm)) return null;
+  const st = await statOps(fuente);
   if (!st || st.dir) return null;
-  const key = crypto.createHash("sha1").update(norm).digest("hex");
+  const key = crypto.createHash("sha1").update(fuente).digest("hex");
   const cacheRel = `ops-cache/${key}-${Math.round(st.mtimeMs)}-${maxEdge}.webp`;
   try {
     return await readBuffer(cacheRel);
   } catch {
     /* no está cacheada aún */
   }
-  const buf = await readOps(norm);
+  const buf = await readOps(fuente);
   const webp = await optimizeToWebp(buf, { maxEdge });
   if (!webp) return null;
   await writeRelBuffer(cacheRel, webp);

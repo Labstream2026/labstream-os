@@ -1,0 +1,69 @@
+# ── Fábrica de copias ligeras para Operaciones_LAB (NAS PRINCIPAL) ──────────────
+#
+# Gemela de la de LabTem (deploy/labtem/), apuntada al OTRO disco y corriendo en la OTRA
+# máquina. Se escribió porque la app no puede fabricar nada: no lleva ffmpeg dentro, así que
+# un vídeo de Operaciones_LAB no tiene fotograma que enseñar — se queda con su icono.
+#
+# Reutiliza `hacer-proxies.sh` TAL CUAL, sin tocar una línea: su raíz ya es configurable
+# (`RAIZ="${RAIZ:-/material}"`), así que basta montar aquí otro disco. Copiar el script de
+# deploy/labtem/ al lado de este archivo — si algún día mejora allí, se vuelve a copiar y
+# esta fábrica se beneficia igual.
+#
+# ⚠️ ANTES DE LEVANTARLO hacen falta DOS paquetes de SynoCommunity en el NAS principal.
+#    Hoy (30-jul-2026) NO están: no hay /dev/dri y el grupo `videodriver` está vacío.
+#      · SynoCli Video Drivers  → expone /dev/dri/renderD128 Y trae el driver iHD de Intel
+#      · FFmpeg 6               → el binario con los parches de jellyfin (VAAPI/QSV)
+#    Ver README.md, que explica por qué hacen falta los DOS montajes y no uno.
+#
+# La CPU de este NAS es un Intel i5-10400: lleva UHD Graphics 630, así que hay Quick Sync.
+# La ventaja real no es la velocidad bruta sino que la GPU deja los 12 hilos libres para
+# servir la app mientras transcodifica — en la máquina que ADEMÁS atiende a todo el equipo,
+# eso importa más que en LabTem.
+
+services:
+  proxies:
+    image: debian:12-slim
+    container_name: ops-proxies
+    # Duerme y la tarea programada lo despierta. Si arrancara, trabajara y saliera, Container
+    # Manager lo daría por caído y lo reiniciaría en bucle (misma razón que en LabTem).
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+
+    # OJO: Container Manager solo respeta `devices:` y `group_add:` cuando el contenedor se
+    # crea como PROYECTO. Por el asistente de contenedor los ignora EN SILENCIO y el ffmpeg
+    # de dentro se queda sin GPU pareciendo sano.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "937" # videodriver
+
+    environment:
+      RAIZ: /material
+      ESTADO: /estado
+      FFMPEG: /opt/ffmpeg/bin/ffmpeg
+      FFPROBE: /opt/ffmpeg/bin/ffprobe
+      # Los .proxy los crea root: con umask 002 el grupo conserva permiso de escritura y el
+      # equipo puede borrarlos por SMB sin pedir ayuda.
+      UMASK: "002"
+
+      # ── La receta de la GPU (la misma que costó encontrar en LabTem) ──
+      # Hacen falta DOS montajes, no uno:
+      #   /opt/ffmpeg → el paquete ffmpeg (binario + sus códecs)
+      #   /opt/vd     → synocli-videodriver, que trae libdrm Y el driver iHD
+      # Sin el segundo, ffmpeg NI ARRANCA en Debian («libdrm.so.2: cannot open shared object
+      # file») y, aun con libdrm, libva busca los drivers en una carpeta `dri/` que aquí no
+      # existe: el iHD_drv_video.so está SUELTO en lib/. De ahí las tres variables.
+      LD_LIBRARY_PATH: /opt/ffmpeg/lib:/opt/vd/lib
+      LIBVA_DRIVERS_PATH: /opt/vd/lib
+      LIBVA_DRIVER_NAME: iHD
+
+    volumes:
+      # El disco de trabajo del equipo. Lectura y escritura: la fábrica deja los `.proxy`
+      # DENTRO, al lado de cada pieza (mismo convenio que la galería).
+      - /volume5/Operaciones_LAB:/material
+      # Estado y registro FUERA del disco de trabajo, por la misma razón que en LabTem: lo que
+      # se planta dentro de una share sincronizada puede volatilizarse.
+      - /volume1/docker/ops-proxies/estado:/estado
+      - /volume1/docker/ops-proxies/hacer-proxies.sh:/opt/hacer-proxies.sh:ro
+      - /var/packages/ffmpeg6/target:/opt/ffmpeg:ro
+      - /var/packages/synocli-videodriver/target:/opt/vd:ro
