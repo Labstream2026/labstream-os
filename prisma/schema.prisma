@@ -620,6 +620,13 @@ model Project {
   // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
   // cae en ESTE proyecto SIN cuenta. Como el enlace de revisión: revocable + caducidad opcional.
   uploadDir       String?   // subcarpeta bajo STORAGE_DIR donde cae el material. Null = "project/<id>".
+  // Carpeta de la GALERÍA (relativa a NAS_GALERIA_DIR) donde cae lo que sube el cliente por el
+  // enlace público. Se elige con un navegador de carpetas y SIEMPRE tiene que colgar de la carpeta
+  // del cliente o del proyecto (se valida en el servidor con relPerteneceAlClienteOProyecto).
+  // Null = comportamiento de antes: el material va al disco de la app (uploadDir / STORAGE_DIR).
+  // Es un campo APARTE de galeriaFolder a propósito: esa es la carpeta de ENTREGAS del proyecto, y
+  // lo que el cliente manda no debe mezclarse con lo que le entregamos.
+  uploadGaleriaFolder String?
   // Nonce del enlace: va DENTRO del token firmado y debe coincidir con éste. Null = sin enlace
   // (hay que generarlo). Revocar lo ROTA → cualquier URL filtrada antes queda muerta para siempre,
   // aunque luego se regenere (el nuevo enlace lleva otro nonce).

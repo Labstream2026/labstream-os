@@ -43,6 +43,8 @@ import { NextForClientCard } from "./next-for-client";
 import { ClientRequestsPanel } from "./client-requests-panel";
 import { formatBogota } from "@/lib/bogota-time";
 import { FilesPanel } from "./files-panel";
+import { carpetaGaleriaClienteDelProyecto, carpetaGaleriaProyecto } from "@/lib/galeria-vinculos";
+import { galeriaWritable } from "@/lib/nas-galeria";
 import { MaterialCard } from "./material-card";
 import { ActivityFeed } from "./activity-feed";
 import { ProjectChatBubble } from "./project-chat-bubble";
@@ -507,6 +509,16 @@ export default async function ProyectoPage({
 
   // Panel de entregables, definido una vez y reutilizado en Resumen y en la pestaña Entregables.
   const emailEnabled = await isEmailEnabled();
+  // Raíz del navegador de carpetas del enlace de subida: la carpeta del CLIENTE en la galería (y si
+  // no tiene, la del proyecto). `catch` porque toca el disco: sin NAS montado devuelve null y el
+  // panel enseña el aviso en vez de tumbar la página entera del proyecto.
+  const raizSubida =
+    (await carpetaGaleriaClienteDelProyecto(id).catch(() => null)) ??
+    (await carpetaGaleriaProyecto(id).catch(() => null));
+  // ¿La galería acepta escritura AHORA? Si no (montaje en solo lectura o sin el centinela), elegir
+  // una carpeta y mandarle el enlace al cliente acabaría en que sus subidas fallan una por una.
+  // Vale más decirlo aquí que descubrirlo cuando el cliente ya lo intentó.
+  const galeriaEscribible = raizSubida ? await galeriaWritable().catch(() => false) : false;
   // Se construye SOLO en su pestaña: armarlo mapea versiones, decisiones, comentarios y fotos
   // de cada entregable, y además serializa todo ese árbol en el payload RSC. En las otras
   // pestañas no se pinta, así que era trabajo y bytes tirados.
@@ -1074,6 +1086,10 @@ export default async function ProyectoPage({
                       projectId={id}
                       initialLink={project.uploadRevokedAt || !project.uploadNonce ? null : `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/subir/${signUploadToken(id, project.uploadNonce)}`}
                       uploadDir={project.uploadDir}
+                      uploadGaleriaFolder={project.uploadGaleriaFolder}
+                      galeriaRaiz={raizSubida?.rel ?? null}
+                      galeriaRaizLabel={project.client?.name ?? project.name}
+                      galeriaEscribible={galeriaEscribible}
                       emailEnabled={emailEnabled}
                     />
                   </div>

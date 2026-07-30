@@ -6,6 +6,7 @@ import { saveBuffer, deleteRel, mimeFor } from "@/lib/storage";
 import { saveBufferWithPreview, previewRel } from "@/lib/image";
 import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
+import { writeGaleria, galeriaEnabled } from "@/lib/nas-galeria";
 import {
   MAX_CLIENT_UPLOAD,
   isAllowedClientUpload,
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, routeCtx: unknown) {
 
   const project = await db.project.findUnique({
     where: { id: projectId },
-    select: { id: true, name: true, uploadDir: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true, finishedAt: true },
+    select: { id: true, name: true, uploadDir: true, uploadGaleriaFolder: true, uploadNonce: true, uploadRevokedAt: true, uploadExpiresAt: true, archivedAt: true, finishedAt: true },
   });
   // Papelera O terminado: el endpoint tampoco acepta material de un proyecto que ya no está activo.
   if (!project || project.archivedAt || project.finishedAt) return NextResponse.json({ ok: false, error: "El enlace ya no está disponible." }, { status: 404 });
@@ -106,26 +107,49 @@ export async function POST(req: NextRequest, routeCtx: unknown) {
   }
   if (!folder) return NextResponse.json({ ok: false, error: "No se pudo preparar la carpeta. Inténtalo de nuevo." }, { status: 500 });
 
+  // ── Dónde caen los bytes ──
+  // Si el equipo eligió una carpeta de la GALERÍA con el navegador, el archivo se escribe VIVO ahí
+  // (kind GALERIA) y se ve por SMB al instante. Si no, va al disco de la app como siempre
+  // (kind LOCAL). La carpeta ya se validó al guardarla (relPerteneceAlClienteOProyecto), así que
+  // aquí no puede apuntar fuera de la del cliente.
+  const aGaleria = !!project.uploadGaleriaFolder && galeriaEnabled();
   const relDir = projectUploadRelDir(project);
   const mime = mimeFor(rawName);
   const asset = await db.fileAsset.create({
-    data: { projectId, name: rawName, kind: "LOCAL", path: "", mime, size: buf.length, folderId: folder.id, viaClientLink: true, uploaderName },
+    data: { projectId, name: rawName, kind: aGaleria ? "GALERIA" : "LOCAL", path: "", mime, size: buf.length, folderId: folder.id, viaClientLink: true, uploaderName },
   });
   let rel: string | null = null;
+  let enGaleria = false;
   try {
-    rel = isImageUpload(rawName)
-      ? await saveBufferWithPreview(relDir, `${asset.id}-${rawName}`, buf, mime)
-      : await saveBuffer(relDir, `${asset.id}-${rawName}`, buf);
-    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+    if (aGaleria) {
+      // writeGaleria estrena el nombre con link(2): dos clientes subiendo «IMG_001.jpg» a la vez no
+      // se pisan, cada uno se queda con su «(2)». Por eso NO se le prefija el id del asset — el
+      // nombre en el disco tiene que ser legible para quien abra la carpeta por SMB.
+      rel = await writeGaleria(project.uploadGaleriaFolder as string, rawName, buf);
+      enGaleria = true;
+    } else {
+      rel = isImageUpload(rawName)
+        ? await saveBufferWithPreview(relDir, `${asset.id}-${rawName}`, buf, mime)
+        : await saveBuffer(relDir, `${asset.id}-${rawName}`, buf);
+    }
+    // El nombre de la fila sigue al del disco: si hubo colisión y quedó «IMG_001 (2).jpg», que en
+    // Archivos se lea igual que en la carpeta.
+    const nombreFinal = enGaleria ? rel.slice(rel.lastIndexOf("/") + 1) : rawName;
+    await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel, name: nombreFinal } });
   } catch (e) {
     // No dejar ni fila fantasma (sin archivo) ni bytes huérfanos (sin fila) si algo falla a medias.
     await db.fileAsset.delete({ where: { id: asset.id } }).catch(() => {});
-    if (rel) {
+    if (rel && !enGaleria) {
       await deleteRel(rel).catch(() => {});
       await deleteRel(previewRel(rel)).catch(() => {});
     }
     console.error("[upload] guardar material del cliente falló:", e instanceof Error ? e.message : e);
-    return NextResponse.json({ ok: false, error: "No se pudo guardar el archivo. Inténtalo de nuevo." }, { status: 500 });
+    // El fallo típico de la galería es de PERMISOS o de montaje (el NAS no está o el contenedor no
+    // puede escribir). Se dice sin tecnicismos pero sin mentir: el cliente no tiene que adivinar.
+    return NextResponse.json(
+      { ok: false, error: aGaleria ? "No se pudo guardar en el disco del equipo. Avísanos e inténtalo en un rato." : "No se pudo guardar el archivo. Inténtalo de nuevo." },
+      { status: 500 },
+    );
   }
 
   // Aviso al equipo (in-app), con tope de 1 cada 10 min por proyecto para que una tanda de archivos
