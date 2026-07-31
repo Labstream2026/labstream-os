@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -9,17 +10,28 @@ import { IconFacturacion } from "@/components/icons";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { cn } from "@/lib/utils";
+import { siigoEnabled, datosSiigo } from "@/lib/siigo";
+import { PanelSiigo } from "./siigo-panel";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
 
 export const dynamic = "force-dynamic";
 
-export default async function FacturacionPage() {
+// Con Siigo conectado, Facturación abre en LO CONTABLE (lo que de verdad se emitió y se
+// cobró, leído de Siigo en solo lectura) y la cola interna queda en su pestaña. Sin
+// credenciales de Siigo, la página es la interna de siempre — nada cambia.
+export default async function FacturacionPage({ searchParams }: { searchParams: Promise<{ t?: string; f?: string }> }) {
   const session = await getSession();
   // Los valores y resúmenes de cobro son sensibles: requieren el permiso de finanzas.
   if (!hasPermission(session, "ver_finanzas")) redirect("/");
   const canCreate = hasPermission(session, "crear_cotizaciones");
 
-  const [invoices, billableQuotes] = await Promise.all([
+  const { t, f } = await searchParams;
+  const siigoOn = siigoEnabled();
+  const pestana: "siigo" | "movs" | "interno" = !siigoOn ? "interno" : t === "interno" ? "interno" : t === "movs" ? "movs" : "siigo";
+  const filtro: "saldo" | "todas" = f === "todas" ? "todas" : "saldo";
+
+  const [invoices, billableQuotes, siigo] = await Promise.all([
     db.invoice.findMany({
       where: { client: accessibleClientWhere(session) },
       orderBy: { createdAt: "desc" },
@@ -40,6 +52,9 @@ export default async function FacturacionPage() {
         items: { select: { quantity: true, unitPrice: true } },
       },
     }),
+    // La lectura de Siigo va en paralelo con la base: con caché caliente no cuesta nada y
+    // fría tarda lo que tarde Siigo, sin sumarse a las consultas propias.
+    siigoOn ? datosSiigo() : Promise.resolve(null),
   ]);
 
   const rows = invoices.map((inv) => ({
@@ -104,10 +119,29 @@ export default async function FacturacionPage() {
       <PageHeader
         icon={<IconFacturacion />}
         title="Facturación"
-        description="Cotizaciones y facturas de tus clientes."
+        description={siigoOn ? "Lo contable en vivo desde Siigo (solo lectura) y tu cola interna." : "Cotizaciones y facturas de tus clientes."}
         actions={<Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
       />
 
+      {/* Las pestañas solo existen con Siigo conectado: sin credenciales, la página interna
+          de siempre, sin ruido nuevo. */}
+      {siigoOn ? (
+        <div className="mb-5 flex flex-wrap items-center gap-1.5">
+          <Pestana href="/facturacion?t=siigo" activa={pestana === "siigo"}>Facturas · Siigo</Pestana>
+          <Pestana href="/facturacion?t=movs" activa={pestana === "movs"}>Movimientos</Pestana>
+          <Pestana href="/facturacion?t=interno" activa={pestana === "interno"}>Por facturar · interno</Pestana>
+        </div>
+      ) : null}
+
+      {siigoOn && pestana !== "interno" && siigo ? (
+        <PanelSiigo
+          resultado={siigo}
+          vista={pestana === "movs" ? "movs" : "facturas"}
+          filtro={filtro}
+          minDesdeLectura={siigo.ok ? siigo.minDesdeLectura : 0}
+        />
+      ) : (
+        <>
       {/* Resumen: primero lo accionable (por facturar / por cobrar / vencido), luego lo cobrado */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Money label="Por facturar" value={formatMoney(porFacturarTotal, currency)} tone="text-sky-600 dark:text-sky-400" hint={`${porFacturar.length} pendiente${porFacturar.length === 1 ? "" : "s"}`} />
@@ -167,7 +201,23 @@ export default async function FacturacionPage() {
           </table>
         </div>
       )}
+        </>
+      )}
     </div>
+  );
+}
+
+function Pestana({ href, activa, children }: { href: string; activa: boolean; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+        activa ? "bg-primary text-primary-foreground shadow-sm" : "border border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {children}
+    </Link>
   );
 }
 

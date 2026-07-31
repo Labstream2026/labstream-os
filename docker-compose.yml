@@ -103,6 +103,12 @@ services:
       # Se recomienda base64 (`base64 -w0 clave.json`): el JSON de Google trae saltos de línea en
       # la clave privada que un .env parte en varias líneas.
       GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      # Siigo (software contable) en SOLO LECTURA: la pestaña contable de /facturacion.
+      # Credenciales de la API (Siigo Nube → Configuración → Credenciales API). Si faltan,
+      # la pestaña ni aparece y Facturación sigue siendo la interna de siempre.
+      SIIGO_USERNAME: ${SIIGO_USERNAME:-}
+      SIIGO_ACCESS_KEY: ${SIIGO_ACCESS_KEY:-}
+      SIIGO_PARTNER_ID: ${SIIGO_PARTNER_ID:-LabstreamOS}
       # Correo por Resend (API HTTP por 443) — esquiva el bloqueo de puertos SMTP.
       # Si está RESEND_API_KEY, se usa Resend en vez de SMTP.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
