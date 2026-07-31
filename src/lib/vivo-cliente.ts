@@ -88,6 +88,21 @@ export function vivoSoportado(codecs: string): boolean {
 const GUARDAR_ATRAS = 30;
 const GUARDAR_ADELANTE = 180;
 
+// Hasta dónde se adelanta la conversión antes de PARAR DE LEER. Esto es lo que sujeta todo lo
+// demás, y su falta se ve en una prueba y no en la otra: sin freno, el navegador vacía el chorro
+// a la velocidad a la que la GPU convierte —diecisiete veces más rápido que la reproducción— y
+// se descarga el vídeo ENTERO en cuanto alguien le da al play. En 360p pasa desapercibido; un
+// 1080p de 48 minutos son 1,8 GB bajados para tirar casi todos, porque el navegador solo guarda
+// un rato y va soltando el resto.
+//
+// Al dejar de leer, el tubo de ffmpeg se llena y la conversión se para sola: la GPU trabaja al
+// ritmo de quien mira, ni más ni despacio. Queda por debajo de GUARDAR_ADELANTE a propósito, para
+// que el freno y el liberador de memoria no se peleen por el mismo margen.
+const ADELANTE_MAX = 120;
+// Y un techo de trozos sin colocar, para el arranque: hasta que existe el primer rango en
+// memoria no hay nada que medir, y sin esto esos primeros segundos leen sin freno.
+const COLA_MAX = 8;
+
 export class ReproductorVivo {
   private op: OpcionesVivo;
   private ms: MediaSource | null = null;
@@ -209,6 +224,29 @@ export class ReproductorVivo {
     return false;
   }
 
+  // Cuántos segundos hay ya convertidos por delante del punto que se está viendo. Es la medida
+  // que gobierna el freno: si sobra material, se deja de pedir.
+  private porDelante(): number {
+    const b = this.sb?.buffered;
+    if (!b || !b.length) return 0;
+    const t = this.op.video.currentTime;
+    for (let i = 0; i < b.length; i++) {
+      if (t >= b.start(i) && t <= b.end(i)) return b.end(i) - t;
+    }
+    return 0; // el punto actual no está cubierto: hace falta material ya
+  }
+
+  // Espera a que haga falta más vídeo. Mientras tanto no se lee del chorro, el tubo de ffmpeg se
+  // llena al otro lado y la conversión se detiene sola — que es como se consigue que la GPU
+  // trabaje al ritmo de quien mira y no a toda velocidad contra un cubo sin fondo.
+  private async esperarHueco(ctrl: AbortController): Promise<void> {
+    for (;;) {
+      if (ctrl.signal.aborted || this.muerto) return;
+      if (this.cola.length < COLA_MAX && this.porDelante() < ADELANTE_MAX) return;
+      await new Promise((sigue) => setTimeout(sigue, 250));
+    }
+  }
+
   private async esperarLibre(): Promise<void> {
     const sb = this.sb;
     if (!sb || !sb.updating) return;
@@ -261,6 +299,10 @@ export class ReproductorVivo {
     const lector = r.body.getReader();
     try {
       for (;;) {
+        // El freno. Va ANTES de leer, no después: leer y luego descartar sería exactamente lo
+        // que esto evita.
+        await this.esperarHueco(ctrl);
+        if (ctrl.signal.aborted || this.muerto) return;
         const { done, value } = await lector.read();
         if (done) break;
         if (ctrl.signal.aborted || this.muerto) return;

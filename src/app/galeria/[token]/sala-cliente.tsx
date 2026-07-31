@@ -693,16 +693,18 @@ function Visor({
             </button>
             {menuCalidad ? (
               <div className="mt-1 overflow-hidden rounded-lg bg-black/85 backdrop-blur">
-                {calidades.length > 1 ? (
-                  <>
-                    <button
-                      onClick={() => fijarCalidad(-1)}
-                      className={`block w-full px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad == null && calidadFijada === -1 ? "font-semibold text-white" : "text-white/70"}`}
-                    >
-                      Automática
-                    </button>
-                    {/* De mayor a menor, que es como se piensa en calidad. */}
-                    {calidades.map((c, i) => (
+                {/* La VUELTA va siempre la primera, haya escalera o no. Sin ella, en una pieza
+                    sin escalera el modo al vuelo era una puerta de un solo sentido: se entraba
+                    y no había forma de volver a la copia de disco sin cerrar el visor. */}
+                <button
+                  onClick={() => fijarCalidad(-1)}
+                  className={`block w-full px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad == null && calidadFijada === -1 ? "font-semibold text-white" : "text-white/70"}`}
+                >
+                  {calidades.length > 1 ? "Automática" : "La de siempre"}
+                </button>
+                {/* De mayor a menor, que es como se piensa en calidad. */}
+                {calidades.length > 1
+                  ? calidades.map((c, i) => (
                       <button
                         key={i}
                         onClick={() => fijarCalidad(i)}
@@ -710,9 +712,8 @@ function Visor({
                       >
                         {c.alto}p · {c.kbps >= 1000 ? `${(c.kbps / 1000).toFixed(1)} Mbps` : `${c.kbps} kbps`}
                       </button>
-                    ))}
-                  </>
-                ) : null}
+                    ))
+                  : null}
                 {vivoCalidades.length > 0 ? (
                   <>
                     {/* La separación importa: son dos cosas distintas y conviene que se note.
