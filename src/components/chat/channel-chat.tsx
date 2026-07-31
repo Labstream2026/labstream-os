@@ -6,6 +6,7 @@ import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation
 import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
+import { avatarHex } from "@/lib/ui";
 import { formatBogota } from "@/lib/bogota-time";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, markThreadRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, createTaskFromMessage, type ChannelReader } from "@/app/(app)/chat/actions";
 import { useRouter } from "next/navigation";
@@ -1680,10 +1681,20 @@ export function ChannelChat({
     scrollToBottom();
   }
 
-  function statusTag(s?: string) {
+  // `sobrePrimario`: el chip vive DENTRO de la burbuja propia, que va en color. El gris de
+  // muted-foreground y el rojo de destructive sobre ese fondo no se leen; ahí se pinta en blanco
+  // (y el error, además, en negrita, que es el único aviso que tiene ese mensaje).
+  function statusTag(s?: string, sobrePrimario = false) {
     if (!s || s === "sent") return null;
     return (
-      <span className={cn("text-[10px]", s === "error" ? "text-destructive" : "text-muted-foreground")}>
+      <span
+        className={cn(
+          "text-[10px]",
+          sobrePrimario
+            ? cn("text-primary-foreground/80", s === "error" && "font-bold text-primary-foreground")
+            : s === "error" ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
         {s === "sending" && "· enviando…"}
         {s === "pending" && "· pendiente"}
         {s === "error" && "· error"}
@@ -1905,6 +1916,9 @@ export function ChannelChat({
             && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60_000
             && m.id !== firstUnreadId;
           const hasFooter = (m.reactions?.length ?? 0) > 0 || replies.length > 0;
+          // Mensaje de solo texto: la hora cabe flotando en la esquina de la burbuja. Con adjunto,
+          // encuesta o sin cuerpo, se pone en su propio renglón para no pisar nada.
+          const soloTexto = !!m.body && m.body !== ATTACH_PLACEHOLDER && !m.poll && (m.attachments?.length ?? 0) === 0;
           const toggleThread = () => {
             if (openThreads.has(m.id)) {
               // Colapsar: si el hilo tenía una nota de voz a medias, la limpia la RED DE SEGURIDAD
@@ -1936,40 +1950,57 @@ export function ChannelChat({
               </div>
             ) : null}
             {m.deleted ? (
-              <div id={`msg-${m.id}`} className="mt-3 flex gap-2.5">
-                <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-sm font-semibold text-muted-foreground">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
-                    <span suppressHydrationWarning className="text-xs text-muted-foreground">{hhmm(m.createdAt)}</span>
-                    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"><Trash2 className="size-3" /> Borrado · visible solo para admin</span>
-                  </div>
-                  <div className="mt-0.5 inline-block max-w-2xl rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-sm italic text-muted-foreground">
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{m.body || "(sin texto)"}</p>
-                  </div>
+              <div id={`msg-${m.id}`} className={cn("mt-3 flex items-end gap-2", mine && "flex-row-reverse")}>
+                {mine ? null : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
+                <div className="min-w-0 max-w-[min(85%,42rem)] rounded-2xl border border-dashed border-border bg-muted/40 px-3 py-2">
+                  <span className="mb-0.5 flex flex-wrap items-baseline gap-2 text-[11px] text-muted-foreground">
+                    <b className="font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</b>
+                    <span suppressHydrationWarning>{hhmm(m.createdAt)}</span>
+                    <span className="inline-flex items-center gap-1"><Trash2 className="size-3" /> Borrado · visible solo para admin</span>
+                  </span>
+                  <p className="whitespace-pre-wrap break-words text-sm italic text-muted-foreground [overflow-wrap:anywhere]">{m.body || "(sin texto)"}</p>
                 </div>
               </div>
             ) : (
-            <div id={`msg-${m.id}`} className={cn("group relative -mx-2 flex gap-2.5 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/40", cont ? "mt-px" : "mt-3", highlighted === m.id && "bg-primary/5 ring-2 ring-primary/60")}>
-              {cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
-              <div className="min-w-0 flex-1">
-                {!cont ? (
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-sm font-semibold">{mine ? "Tú" : m.author?.name ?? "Sistema"}</span>
-                    <span suppressHydrationWarning className="text-xs text-muted-foreground">{hhmm(m.createdAt)}</span>
-                    {m.pinned ? <Pin className="size-3 self-center text-muted-foreground" aria-label="Fijado" /> : null}
-                    {statusTag(m.status)}
-                  </div>
-                ) : m.pinned || m.status ? (
-                  <div className="flex items-baseline gap-2">
-                    {m.pinned ? <Pin className="size-3 self-center text-muted-foreground" aria-label="Fijado" /> : null}
-                    {statusTag(m.status)}
+            // ── Burbuja ──────────────────────────────────────────────────────────────────
+            // Lo mío a la derecha y con el color de la app; lo de los demás a la izquierda sobre
+            // tarjeta. En los míos NO va avatar ni nombre: el lado y el color ya dicen quién soy, y
+            // eso devuelve un renglón por mensaje. El nombre ajeno sí se queda —un canal de cuatro
+            // no es un chat de dos— y va con el color que esa persona ya tiene en su avatar.
+            //
+            // La columna se ensancha a todo el ancho cuando hay encuesta o hilo abierto: son piezas
+            // anchas y dentro de una burbuja al 85 % se estrujan.
+            <div id={`msg-${m.id}`} className={cn("group relative flex items-end gap-2", mine && "flex-row-reverse", cont ? "mt-0.5" : "mt-3")}>
+              {mine ? null : cont ? <div className="w-8 shrink-0" aria-hidden /> : <UserAvatar initials={m.author?.initials} name={m.author?.name} color={m.author?.color} size="md" />}
+              {/* `items-*` explícito y no el `stretch` que trae `flex-col` de fábrica: sin esto la
+                  burbuja se estiraba al ancho ENTERO de la columna y un «ok» ocupaba media pantalla. */}
+              <div className={cn("flex min-w-0 flex-col", mine ? "items-end" : "items-start", open || m.poll ? "w-full" : "max-w-[min(85%,42rem)]")}>
+              <div
+                className={cn(
+                  "relative min-w-0 max-w-full rounded-2xl px-3 py-2 shadow-sm ring-1 transition-colors",
+                  mine ? "bg-primary text-primary-foreground ring-primary/50" : "bg-card ring-border",
+                  // La esquina «pico» solo en el primero del grupo: los seguidos quedan redondos.
+                  !cont && (mine ? "rounded-tr-md" : "rounded-tl-md"),
+                  highlighted === m.id && "ring-2 ring-primary",
+                )}
+              >
+                {!cont && !mine ? (
+                  <span className="mb-0.5 block text-xs font-bold" style={{ color: avatarHex(m.author?.color) }}>
+                    {m.author?.name ?? "Sistema"}
+                  </span>
+                ) : null}
+                {m.pinned || m.status ? (
+                  <div className={cn("mb-0.5 flex items-baseline gap-2", mine && "justify-end")}>
+                    {m.pinned ? <Pin className={cn("size-3 self-center", mine ? "text-primary-foreground/70" : "text-muted-foreground")} aria-label="Fijado" /> : null}
+                    {statusTag(m.status, mine)}
                   </div>
                 ) : null}
                 {/* Barra de acciones flotante (reaccionar · hilo · fijar · más): superpuesta,
-                    nunca desplaza el layout; en escritorio aparece al pasar el mouse. */}
+                    nunca desplaza el layout; en escritorio aparece al pasar el mouse. Se asoma por
+                    el lado LIBRE de la burbuja —fuera en los ajenos, dentro en los míos— para no
+                    taparle el texto a nadie. */}
                 {!readOnly && (!m.status || m.status === "sent") && editing !== m.id ? (
-                  <div data-quickreact className="absolute right-1 top-0 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 opacity-100 shadow-sm transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 md:-top-3 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
+                  <div data-quickreact className={cn("absolute top-0 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 opacity-100 shadow-sm transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 md:-top-3 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100", mine ? "left-1 md:-left-2" : "right-1 md:-right-2")}>
                     <div className="relative">
                       <button type="button" onClick={() => setQuickFor((cur) => (cur === m.id ? null : m.id))} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" title="Reaccionar">
                         <SmilePlus className="size-3.5" />
@@ -2083,36 +2114,64 @@ export function ChannelChat({
                   <button
                     type="button"
                     onClick={() => m.quoted && jumpToMessage(m.quoted.id)}
-                    className="mb-1 flex w-full max-w-2xl items-start gap-1.5 rounded-md border-l-2 border-primary/60 bg-muted/40 px-2 py-1 text-left text-xs hover:bg-muted/70"
+                    className={cn(
+                      "mb-1 flex w-full items-start gap-1.5 rounded-md border-l-2 px-2 py-1 text-left text-xs",
+                      mine ? "border-primary-foreground/70 bg-primary-foreground/15 hover:bg-primary-foreground/25" : "border-primary/60 bg-muted/60 hover:bg-muted",
+                    )}
                     title="Ir al mensaje citado"
                   >
-                    <CornerUpLeft className="mt-0.5 size-3 shrink-0 text-primary/70" />
+                    <CornerUpLeft className={cn("mt-0.5 size-3 shrink-0", mine ? "text-primary-foreground/80" : "text-primary/70")} />
                     <span className="min-w-0">
-                      <span className="font-medium text-foreground/80">{m.quoted.author ?? "Alguien"}</span>
-                      <span className="ml-1 text-muted-foreground">{m.quoted.body}</span>
+                      <span className={cn("font-medium", mine ? "text-primary-foreground" : "text-foreground/80")}>{m.quoted.author ?? "Alguien"}</span>
+                      <span className={cn("ml-1", mine ? "text-primary-foreground/80" : "text-muted-foreground")}>{m.quoted.body}</span>
                     </span>
                   </button>
                 ) : null}
                 {editing === m.id ? (
-                  <div className="mt-0.5 w-full max-w-2xl">
-                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring" />
+                  <div className="mt-0.5 w-full">
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
                     <div className="mt-1 flex gap-2">
                       <button onClick={() => saveEdit(m.id)} className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"><Check className="size-3" /> Guardar</button>
-                      <button onClick={() => setEditing(null)} className="text-xs text-muted-foreground">Cancelar</button>
+                      <button onClick={() => setEditing(null)} className={cn("text-xs", mine ? "text-primary-foreground/80" : "text-muted-foreground")}>Cancelar</button>
                     </div>
                   </div>
                 ) : m.body && m.body !== ATTACH_PLACEHOLDER ? (
                   <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
-                    {renderBody(m.body, highlightPool)}
-                    {m.editedAt ? <span className="ml-1 text-xs text-muted-foreground">(editado)</span> : null}
+                    {/* `mine` cambia el chip de la @mención a blanco sobre el color: sobre la burbuja
+                        primaria el azul del chip normal es ilegible. */}
+                    {renderBody(m.body, highlightPool, mine)}
+                    {/* Hueco invisible del ancho de la hora, para que la última línea le deje sitio
+                        y el reloj no se monte encima del texto (el truco de WhatsApp). Solo cuando
+                        no hay adjunto ni encuesta: en esos casos la hora va en su propio renglón. */}
+                    {soloTexto ? <span aria-hidden className={cn("inline-block select-none", mine ? "w-[4.6rem]" : "w-[3.4rem]", m.editedAt && "w-[7.6rem]")} /> : null}
                   </p>
                 ) : null}
                 <Attachments items={m.attachments} author={m.author} projectId={projectId} readOnly={readOnly} canArchive={canArchive} onArchived={markArchived} />
                 {m.poll ? (
                   <PollWidget poll={m.poll} myOptionId={myVotes[m.poll.id] ?? null} onVote={(opt) => vote(m.poll!.id, opt)} />
                 ) : null}
-                {/* Feedback de «Crear tarea» desde este mensaje. */}
-                {taskFrom?.id === m.id ? (
+                {/* Hora (y el doble check en las mías) DENTRO de la burbuja, abajo a la derecha. */}
+                {editing !== m.id ? (
+                  <span
+                    suppressHydrationWarning
+                    className={cn(
+                      "flex items-center justify-end gap-1 text-[10px] leading-none",
+                      soloTexto ? "absolute bottom-1.5 right-3" : "mt-1",
+                      mine ? "text-primary-foreground/75" : "text-muted-foreground",
+                    )}
+                  >
+                    {m.editedAt ? <span>(editado)</span> : null}
+                    {hhmm(m.createdAt)}
+                    {mine ? <Check className="-ml-0.5 size-3" aria-label="Enviado" /> : null}
+                  </span>
+                ) : null}
+              </div>
+              {/* ── Fuera de la burbuja ───────────────────────────────────────────────────
+                  Reacciones, hilo y avisos cuelgan DEBAJO, alineados al lado de la burbuja.
+                  Dentro apretarían el texto y, en las mías, tendrían que repintarse todos
+                  sobre el color primario. */}
+              {/* Feedback de «Crear tarea» desde este mensaje. */}
+              {taskFrom?.id === m.id ? (
                   <div className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
                     <ListChecks className="size-3.5 text-primary" />
                     {taskFrom.state === "loading" ? (
@@ -2131,7 +2190,7 @@ export function ChannelChat({
                 {/* Pie SOLO cuando hay contenido real (reacciones o respuestas): nunca aparece
                     ni desaparece con el mouse — reaccionar/responder viven en la barra flotante. */}
                 {hasFooter ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <div className={cn("mt-1 flex flex-wrap items-center gap-2", mine && "justify-end")}>
                     {(m.reactions?.length ?? 0) > 0 || !readOnly ? (
                       <Reactions reactions={m.reactions} meId={me.id} onToggle={(e) => react(m.id, e)} />
                     ) : null}
@@ -2252,7 +2311,8 @@ export function ChannelChat({
             )}
             {/* «Visto por N» bajo mi último mensaje: quién del canal ya lo vio (lastReadAt). */}
             {m.id === lastMineId && seenByForLast.length > 0 ? (
-              <div className="mt-0.5 flex items-center gap-1.5 pl-11 text-[11px] text-muted-foreground" title={`Visto por ${seenByForLast.map((r) => r.name).join(", ")}`}>
+              // Va bajo MI último mensaje, así que se alinea a la derecha como la burbuja.
+              <div className="mt-0.5 flex items-center justify-end gap-1.5 pr-1 text-[11px] text-muted-foreground" title={`Visto por ${seenByForLast.map((r) => r.name).join(", ")}`}>
                 <span className="flex -space-x-1.5">
                   {seenByForLast.slice(0, 5).map((r) => (
                     <UserAvatar key={r.id} initials={r.initials} name={r.name} color={r.color} size="sm" ring />
