@@ -394,8 +394,28 @@ function Visor({
   // sin escalera, con la librería caída o en un navegador que no puede, se ve igual que antes.
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const hlsRef = React.useRef<HlsPlayer | null>(null);
+  // Las calidades que ofrece la escalera y cuál se está viendo. Automático es el modo normal
+  // —el reproductor mide la red y decide—, pero poder fijarla a mano importa por dos razones:
+  // comprobar que la escalera funciona de verdad (en automático con buena red nunca baja, así
+  // que no se ve), y dejar que quien está con datos limitados elija gastar menos.
+  const [calidades, setCalidades] = React.useState<{ alto: number; kbps: number }[]>([]);
+  const [calidadFijada, setCalidadFijada] = React.useState(-1); // -1 = automática
+  const [calidadEnUso, setCalidadEnUso] = React.useState<number | null>(null);
+  const [menuCalidad, setMenuCalidad] = React.useState(false);
+
+  const fijarCalidad = React.useCallback((n: number) => {
+    setCalidadFijada(n);
+    setMenuCalidad(false);
+    // -1 le devuelve el mando al algoritmo; cualquier otro lo clava en ese peldaño.
+    if (hlsRef.current) hlsRef.current.currentLevel = n;
+  }, []);
+
   React.useEffect(() => {
     if (item.kind !== "video") return;
+    setCalidades([]);
+    setCalidadEnUso(null);
+    setCalidadFijada(-1);
+    setMenuCalidad(false);
     const maestro = api("media", token, { rel: item.rel, hls: "master.m3u8" });
     const ctrl = new AbortController();
     let vivo = true;
@@ -435,6 +455,17 @@ function Visor({
           try { hls.destroy(); } catch { /* noop */ }
           if (hlsRef.current === hls) hlsRef.current = null;
           alMp4();
+        });
+        // Qué calidades trae la escalera. Se leen del maestro, no se dan por sabidas: LabTem
+        // decide los peldaños según el original (un vertical no da los mismos que un 4K, y un
+        // 720p puede traer solo dos), así que el menú enseña lo que hay de verdad.
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!vivo) return;
+          setCalidades(hls.levels.map((l) => ({ alto: l.height, kbps: Math.round(l.bitrate / 1000) })));
+        });
+        // Y cuál se está viendo AHORA, que en automático va cambiando sola.
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_evento, datos) => {
+          if (vivo) setCalidadEnUso(datos.level);
         });
         hls.loadSource(maestro);
         hls.attachMedia(destino);
@@ -525,6 +556,43 @@ function Visor({
         ) : (
           <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" onError={() => setSinVista(true)} />
         )}
+
+        {/* Selector de calidad. Solo aparece cuando hay escalera con más de un peldaño: en una
+            pieza sin escalera no hay nada que elegir y un menú vacío solo confunde.
+            Va sobre el vídeo y no en la barra de abajo porque los controles nativos ocupan
+            esa franja entera y no se pueden ampliar. */}
+        {calidades.length > 1 ? (
+          <div className="absolute right-4 top-3 z-10 text-right">
+            <button
+              onClick={() => setMenuCalidad((m) => !m)}
+              className="rounded-full bg-black/60 px-3 py-1 text-[11px] font-medium text-white backdrop-blur transition hover:bg-black/75"
+            >
+              {calidadFijada === -1
+                ? `Auto${calidadEnUso != null && calidades[calidadEnUso] ? ` · ${calidades[calidadEnUso].alto}p` : ""}`
+                : `${calidades[calidadFijada]?.alto}p`}
+            </button>
+            {menuCalidad ? (
+              <div className="mt-1 overflow-hidden rounded-lg bg-black/85 backdrop-blur">
+                <button
+                  onClick={() => fijarCalidad(-1)}
+                  className={`block w-full px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${calidadFijada === -1 ? "font-semibold text-white" : "text-white/70"}`}
+                >
+                  Automática
+                </button>
+                {/* De mayor a menor, que es como se piensa en calidad. */}
+                {calidades.map((c, i) => (
+                  <button
+                    key={i}
+                    onClick={() => fijarCalidad(i)}
+                    className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${calidadFijada === i ? "font-semibold text-white" : "text-white/70"}`}
+                  >
+                    {c.alto}p · {c.kbps >= 1000 ? `${(c.kbps / 1000).toFixed(1)} Mbps` : `${c.kbps} kbps`}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Flechas laterales grandes: cómodas con ratón, y en el teléfono el pase se hace con el dedo. */}
         <button
