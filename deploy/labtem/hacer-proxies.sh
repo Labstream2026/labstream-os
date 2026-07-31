@@ -229,17 +229,50 @@ ext_de() { local n="${1##*.}"; printf '%s' "${n,,}"; }
 # que impiden que la pasada de cada noche repita lo que ya se sabe que no toca.
 al_dia() { # destino, origen
   [ "$FORZAR" = "1" ] && return 1
-  [ -f "$1" ]          && [ ! "$2" -nt "$1" ]          && return 0
-  [ -f "$1.omitido" ]  && [ ! "$2" -nt "$1.omitido" ]  && return 0
+  [ -f "$1" ] && [ ! "$2" -nt "$1" ] && return 0
+  marca_vigente "$1.omitido" "$2" && return 0
   if [ "$REINTENTAR_FALLOS" != "1" ]; then
-    [ -f "$1.fallo" ] && [ ! "$2" -nt "$1.fallo" ] && return 0
+    marca_vigente "$1.fallo" "$2" && return 0
   fi
   return 1
 }
 
-marcar() { # destino, sufijo (fallo|omitido), motivo
+# ¿Sigue valiendo lo que decidimos la última vez? Solo si el original NO ha cambiado desde
+# entonces — y «no ha cambiado» es fecha **y tamaño**.
+#
+# Con la fecha sola no basta, y costó 62 vídeos: Synology Drive conserva la fecha ORIGINAL al
+# sincronizar, así que un archivo que llegó a medias (ffprobe no lo abría), se marcó como
+# fallido y terminó de bajarse después SIGUE teniendo una fecha más vieja que su propia marca.
+# Con la regla vieja quedaba condenado: cada noche se daba por «al día» y no se reintentaba
+# jamás. Están ahí, enteros y perfectamente legibles, sin copia desde hace una semana.
+#
+# Una marca del formato ANTIGUO —sin tamaño anotado— se da por caducada a propósito: se
+# reintenta una vez y se vuelve a marcar ya con el tamaño. Eso desatasca de golpe lo que quedó
+# bloqueado, y lo que de verdad esté roto se vuelve a marcar y se calla para siempre.
+marca_vigente() { # marca, origen
+  [ -f "$1" ] || return 1
+  [ "$2" -nt "$1" ] && return 1
+  local anotado actual
+  anotado=$(sed -n 's/^tamano=//p' "$1" 2>/dev/null | head -1)
+  [ -n "$anotado" ] || return 1
+  actual=$(stat -c %s "$2" 2>/dev/null) || return 1
+  [ "$anotado" = "$actual" ]
+}
+
+# El archivo que se está procesando ahora mismo. `marcar` lo usa para anotar su tamaño sin que
+# haya que arrastrarlo como parámetro por toda la cadena (`correr_ffmpeg` solo conoce el
+# destino). Lo fijan `procesar_video` y `procesar_foto` al empezar con cada pieza.
+ORIGEN_ACTUAL=""
+
+marcar() { # destino, sufijo (fallo|omitido), motivo, [origen]
+  local origen="${4:-$ORIGEN_ACTUAL}"
   mkdir -p "$(dirname "$1")" 2>/dev/null
-  printf '%s\n' "$3" > "$1.$2" 2>/dev/null
+  {
+    printf '%s\n' "$3"
+    if [ -n "$origen" ] && [ -e "$origen" ]; then
+      printf 'tamano=%s\n' "$(stat -c %s "$origen" 2>/dev/null || echo 0)"
+    fi
+  } > "$1.$2" 2>/dev/null
 }
 
 # ── Lanzar ffmpeg ─────────────────────────────────────────────────────────────
@@ -304,6 +337,7 @@ original_ya_sirve() { # ext, vcodec, ancho, tasa_bits, acodec
 
 procesar_video() { # ruta absoluta
   local src="$1"
+  ORIGEN_ACTUAL="$src"   # para que `marcar` pueda anotar su tamaño (ver `marca_vigente`)
   local dir base pd mp4 poster tira
   dir=$(dirname "$src"); base=$(basename "$src")
   pd="$dir/.proxy"
@@ -818,6 +852,7 @@ jpeg_incrustado() { # origen, destino  → 0 si dejó un JPEG utilizable
 
 procesar_foto() { # ruta absoluta
   local src="$1"
+  ORIGEN_ACTUAL="$src"   # para que `marcar` pueda anotar su tamaño (ver `marca_vigente`)
   local dir base pd dst esc ext emb sin_emb=0
   dir=$(dirname "$src"); base=$(basename "$src")
   pd="$dir/.proxy"; dst="$pd/$base.webp"

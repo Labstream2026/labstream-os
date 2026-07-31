@@ -239,6 +239,28 @@ export function carpetaDeTrozoHls(sub: string): string {
   return corte === -1 ? "" : sub.slice(0, corte + 1);
 }
 
+// Lo que la fábrica anotó cuando NO pudo con una pieza. La marca vive junto a la copia que no
+// llegó a existir (`<copia>.fallo`) y su primera línea es el motivo en claro.
+//
+// Importa para lo que se le cuenta a quien está mirando: sin esto, una pieza que la fábrica ya
+// intentó y descartó se presenta igual que una que aún tiene turno —«se está preparando, vuelve
+// en un rato»— y esa espera no termina nunca. Son dos situaciones distintas y piden cosas
+// distintas de quien las lee.
+export async function galeriaMotivoFallo(rel: string): Promise<string | null> {
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) return null;
+  const kind = galeriaKind(norm.split("/").pop() || "");
+  if (!kind) return null;
+  try {
+    const abs = await galeriaAbs(`${proxyRelFor(norm, kind)}.fallo`);
+    const texto = await fs.readFile(abs, "utf8");
+    const motivo = texto.split("\n")[0]?.trim();
+    return motivo || null;
+  } catch {
+    return null; // sin marca: o está hecha, o todavía tiene turno
+  }
+}
+
 // ¿Tiene esta pieza escalera fabricada? Basta con que exista su maestro: LabTem monta la
 // carpeta entera de una vez (escribe en un temporal hermano y la cambia de golpe), así que un
 // maestro presente significa escalera completa, nunca a medias.

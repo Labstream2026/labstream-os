@@ -162,6 +162,34 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
             : "Avísale al equipo: el material se movió de sitio y hay que volver a enlazarlo.",
         );
       }
+      // ── Antes de decir «espera», comprobar que la espera sirve de algo ──────────────────
+      // Estos dos casos se presentaban igual que una pieza que simplemente aún tiene turno, y
+      // el consejo era «vuelve más tarde con ↻ Reintentar». Pero aquí no va a llegar nunca:
+      // mandar a esperar algo que no va a pasar es peor que no decir nada, porque el editor
+      // deja de buscar la causa real.
+      if (original.size === 0) {
+        return di(
+          "vacio",
+          "El archivo está en el disco, pero no tiene contenido: pesa 0 bytes.",
+          viewer
+            ? "Es una copia al NAS que se cortó a medias. No hay nada que la fábrica pueda convertir —esperar no lo va a arreglar—: hay que volver a copiar el archivo."
+            : "El material no llegó completo al servidor. Avísale al equipo para que lo vuelva a subir.",
+        );
+      }
+      const { galeriaMotivoFallo } = await import("@/lib/nas-galeria");
+      const motivo = await galeriaMotivoFallo(file.path);
+      if (motivo) {
+        return di(
+          "fallo",
+          viewer
+            ? `La fábrica ya lo intentó y no pudo: «${motivo}».`
+            : "Este video no se pudo preparar para verse en el navegador.",
+          viewer
+            ? "Esto NO se arregla solo esperando. Lo más común es un archivo que llegó a medias por SMB o con el índice a medio escribir (una grabación o una copia interrumpida): compruébalo abriéndolo en local. Si se abre bien, avísanos y lo reintentamos."
+            : "No se resuelve solo. Avísale al equipo para que revise ese archivo.",
+        );
+      }
+
       // El mismo hecho, contado a quien corresponde: al equipo se le nombra la fábrica —le
       // sirve para saber que no tiene que hacer nada— y al cliente no, que la cocina de
       // adentro no es asunto suyo ni le ayuda a decidir.

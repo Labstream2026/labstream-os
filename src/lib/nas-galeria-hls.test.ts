@@ -28,6 +28,13 @@ beforeAll(async () => {
   // una pieza serviría para sacar otra.
   await fs.writeFile(path.join(raiz, "Cliente", ".proxy", "toma.mp4.mp4"), "la copia entera");
   await fs.writeFile(path.join(raiz, "secreto.txt"), "esto no puede salir nunca");
+  // Una pieza que la fábrica intentó y descartó: su marca queda junto a la copia que no llegó
+  // a existir, con el motivo en la primera línea y el tamaño que tenía el original debajo.
+  await fs.writeFile(path.join(raiz, "Cliente", "rota.mp4"), "cabecera a medias");
+  await fs.writeFile(
+    path.join(raiz, "Cliente", ".proxy", "rota.mp4.mp4.fallo"),
+    "moov atom not found\ntamano=17\n",
+  );
 
   process.env.NAS_GALERIA_DIR = raiz;
   galeria = await import("./nas-galeria");
@@ -112,6 +119,28 @@ describe("no se puede salir de la escalera", () => {
 
   it("tampoco sirve pedir la escalera de una foto", async () => {
     await expect(galeria.resolveGaleriaHls("Cliente/foto.dng", "master.m3u8")).resolves.toBeNull();
+  });
+});
+
+describe("qué anotó la fábrica al no poder con una pieza", () => {
+  // De esto depende que a quien mira se le diga la verdad. Sin distinguir «lo intenté y no
+  // pude» de «todavía tiene turno», ambas salían como «se está preparando, vuelve luego» — y
+  // en la primera esa espera no termina nunca.
+  it("devuelve el motivo, en una línea legible", async () => {
+    await expect(galeria.galeriaMotivoFallo("Cliente/rota.mp4")).resolves.toBe("moov atom not found");
+  });
+
+  it("no inventa motivo cuando la pieza simplemente aún tiene turno", async () => {
+    await expect(galeria.galeriaMotivoFallo("Cliente/sin-escalera.mp4")).resolves.toBeNull();
+  });
+
+  it("no devuelve nada para una pieza que sí se fabricó", async () => {
+    await expect(galeria.galeriaMotivoFallo("Cliente/toma.mp4")).resolves.toBeNull();
+  });
+
+  it("ignora el tamaño anotado: el motivo es solo la primera línea", async () => {
+    const motivo = await galeria.galeriaMotivoFallo("Cliente/rota.mp4");
+    expect(motivo).not.toContain("tamano");
   });
 });
 
