@@ -11,6 +11,7 @@ import { formatTimecode } from "@/lib/ui";
 // esta línea. La librería se carga con `import()` y únicamente cuando hay escalera que
 // reproducir (ver el efecto de la escalera adaptativa, más abajo).
 import type HlsPlayer from "hls.js";
+import { ReproductorVivo, alturasUtiles, type VivoDatos } from "@/lib/vivo-cliente";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -36,6 +37,10 @@ export type StageVersion = {
   // mida; cuando no, `src` (el MP4 de una sola calidad) sigue sirviendo igual que siempre.
   // No sustituye a `src`: es una mejora encima, y `src` es el suelo del que nunca se cae.
   hlsSrc?: string | null;
+  // ¿La pieza vive en el disco de LabTem? Entonces su GPU puede convertirla AL VUELO a la
+  // calidad que se pida, exista o no una copia fabricada. Es la tabla de salvación de una pieza
+  // recién subida: sin copia y sin escalera, hasta hoy solo se podía esperar a la noche.
+  enDisco?: boolean;
   openUrl: string | null;
   fileName: string | null;
   timecodeCapable: boolean;
@@ -2351,9 +2356,92 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const hlsRef = React.useRef<HlsPlayer | null>(null);
   const hlsSrc = version?.hlsSrc ?? null;
   const mp4Src = version?.src ?? null;
+
+  // ── Al vuelo ───────────────────────────────────────────────────────────────────────────
+  // Pedirle a la GPU de LabTem que convierta la pieza MIENTRAS se revisa, en vez de reproducir
+  // una copia hecha de antemano. Cubre exactamente el hueco que la fábrica nocturna no puede:
+  // material subido hace un rato, que todavía no tiene copia y cuyo master no decodifica el
+  // navegador. Hasta hoy eso era «vuelve mañana» —y a un editor esperando una aprobación, un
+  // día entero—. Se paga por espectador y por minuto, así que no sustituye a nada: es la
+  // respuesta cuando no hay copia, o cuando hace falta una calidad que nadie fabricó.
+  //
+  // Todo lo del modo al vuelo va ATADO a la versión a la que pertenece, en vez de vaciarse
+  // desde un efecto al cambiar de pieza. Cambiar de versión (v1 → v2) deja los tres valores en
+  // null en el MISMO render, no uno después: sin eso quedaba un instante ofreciendo las
+  // calidades de la versión anterior sobre la nueva, y ese instante basta para un clic.
+  const [vivoRes, setVivoRes] = React.useState<{ src: string; datos: VivoDatos | null } | null>(null);
+  const [vivoSel, setVivoSel] = React.useState<{ src: string; alto: number } | null>(null);
+  const [menuEn, setMenuEn] = React.useState<string | null>(null);
+  const vivoDatos = vivoRes?.src === mp4Src ? vivoRes.datos : null;
+  const vivoAlto = vivoSel?.src === mp4Src ? vivoSel.alto : null;
+  const menuCalidad = menuEn != null && menuEn === mp4Src;
+  const setVivoAlto = React.useCallback(
+    (alto: number | null) => setVivoSel(alto == null || !mp4Src ? null : { src: mp4Src, alto }),
+    [mp4Src],
+  );
+  const abrirMenu = React.useCallback(
+    (abierto: boolean) => setMenuEn(abierto && mp4Src ? mp4Src : null),
+    [mp4Src],
+  );
+  const vivoOpciones = React.useMemo(() => alturasUtiles(vivoDatos), [vivoDatos]);
+  const enDisco = version?.enDisco ?? false;
+
+  // Se pregunta solo por las piezas del disco de LabTem: son las únicas que su GPU alcanza, y
+  // en las demás la ruta ignora `?vivo=` y devolvería el vídeo entero en vez de una ficha.
+  React.useEffect(() => {
+    if (!enDisco || !mp4Src) return;
+    const src = mp4Src;
+    const ctrl = new AbortController();
+    fetch(`${src}&vivo=info`, { signal: ctrl.signal, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: VivoDatos | null) => setVivoRes({ src, datos: d }))
+      .catch(() => {
+        /* sin servicio: el modo al vuelo no aparece y todo sigue como estaba */
+      });
+    return () => ctrl.abort();
+  }, [enDisco, mp4Src]);
+
+  const vivoMotor = React.useRef<ReproductorVivo | null>(null);
+  React.useEffect(() => {
+    if (vivoAlto == null || !mp4Src) return;
+    const el = videoRef.current;
+    const elegida = vivoOpciones.find((a) => a.alto === vivoAlto);
+    if (!el || !elegida || !vivoDatos?.duracion) return;
+    const punto = el.currentTime || 0;
+    const motor = new ReproductorVivo({
+      video: el,
+      duracion: vivoDatos.duracion,
+      codecs: elegida.codecs,
+      url: (desde) => `${mp4Src}&vivo=${vivoAlto}&desde=${desde}`,
+      // La GPU llena o el chorro caído no pueden dejar al revisor mirando un reproductor
+      // parado: se vuelve solo a la fuente de siempre.
+      alFallar: () => setVivoAlto(null),
+    });
+    vivoMotor.current = motor;
+    motor.arrancar(punto);
+    void el.play().catch(() => {});
+    return () => {
+      vivoMotor.current = null;
+      const seguia = motor.puntoActual;
+      motor.destruir();
+      // `el`, el elemento capturado al montar el motor, y no `videoRef.current`: cuando corre
+      // la limpieza el ref puede apuntar ya a otra versión, y le devolveríamos a ESA la fuente
+      // de esta.
+      el.src = mp4Src;
+      el.load();
+      const alCargar = () => {
+        el.currentTime = seguia;
+        el.removeEventListener("loadedmetadata", alCargar);
+      };
+      el.addEventListener("loadedmetadata", alCargar);
+    };
+  }, [vivoAlto, vivoOpciones, vivoDatos, mp4Src, setVivoAlto]);
+
   React.useEffect(() => {
     const v = videoRef.current;
-    if (!v || !hlsSrc) return;
+    // Con el modo al vuelo puesto, la escalera no se toca: el <video> ya tiene dueño y los dos
+    // peleándose por él dejarían al revisor sin ninguno.
+    if (!v || !hlsSrc || vivoAlto != null) return;
     let vivo = true;
     const volverAlMp4 = () => {
       const el = videoRef.current;
@@ -2399,7 +2487,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       hlsRef.current = null;
       try { h?.destroy(); } catch { /* noop */ }
     };
-  }, [hlsSrc, mp4Src]);
+  }, [hlsSrc, mp4Src, vivoAlto]);
 
   // ── Zonas seguras del reel (solo equipo) ── overlay-guía sobre el video vertical con las
   // franjas donde TikTok/Instagram pintan SU interfaz encima; ciclo off → TikTok → Reels → off.
@@ -2650,10 +2738,11 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             // llegando, una red inestable) y solo después se explica lo que pasa. NUNCA se salta
             // solo al visor de Google: allí se pierden el segundo y la captura sin avisar.
             onError={() => {
-              // Con la escalera puesta, los tropiezos los lleva hls.js: tiene su propia
-              // recuperación y su caída al MP4. Reintentar aquí a la vez sería pelearse con
-              // ella por el mismo <video> —y el `src` que restauraría es su blob interno—.
-              if (hlsRef.current) return;
+              // Con la escalera o el modo al vuelo puestos, los tropiezos los lleva su propio
+              // motor: cada uno tiene su recuperación y su caída a la fuente de siempre.
+              // Reintentar aquí a la vez sería pelearse con ellos por el mismo <video> —y el
+              // `src` que restauraría es su blob interno—.
+              if (hlsRef.current || vivoMotor.current) return;
               const v = videoRef.current;
               if (v && proxyRetries.current < 2) {
                 proxyRetries.current += 1;
@@ -2680,6 +2769,45 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
           />
           {liveCaption}
           {overlay}
+          {/* Selector de calidad AL VUELO. Solo sale si hay algo que elegir de verdad: la pieza
+              vive en el disco de LabTem, su GPU sabe decodificar ese códec y este navegador
+              sabe reproducir lo que saldría. Con que falle una de las tres, no aparece — una
+              opción que al pulsarla no hace nada es peor que no tenerla. */}
+          {vivoOpciones.length > 0 && !localFailed ? (
+            <div className="absolute right-2 top-2 z-20 text-right">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); abrirMenu(!menuCalidad); }}
+                className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur transition hover:bg-black/80"
+              >
+                {vivoAlto != null ? `Al vuelo · ${vivoAlto}p` : "Calidad"}
+              </button>
+              {menuCalidad ? (
+                <div className="mt-1 overflow-hidden rounded-lg bg-black/85 backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setVivoAlto(null); abrirMenu(false); }}
+                    className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto == null ? "font-semibold text-white" : "text-white/70"}`}
+                  >
+                    {hlsSrc ? "Automática" : "La de siempre"}
+                  </button>
+                  <p className="border-t border-white/15 px-4 pb-1 pt-2 text-left text-[9px] uppercase tracking-wide text-white/40">
+                    Al vuelo
+                  </p>
+                  {vivoOpciones.map((a) => (
+                    <button
+                      key={`vivo-${a.alto}`}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setVivoAlto(a.alto); abrirMenu(false); }}
+                      className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto === a.alto ? "font-semibold text-white" : "text-white/70"}`}
+                    >
+                      {a.alto}p · {a.kbps >= 1000 ? `${(a.kbps / 1000).toFixed(1)} Mbps` : `${a.kbps} kbps`}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {/* Zonas seguras del reel: guía visual del equipo (no se guarda, el cliente no la ve).
               pointer-events-none → el clic sigue pausando/reanudando el video debajo. */}
           {safeZone && !immersive && vertical ? <SafeZonesOverlay preset={safeZone} /> : null}
@@ -2697,6 +2825,27 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
                     ? "Comprobando con el servidor qué está pasando…"
                     : "Suele ser el formato del master (ProRes, MKV, HEVC de 10 bits). Vuelve a intentarlo, o sube un export H.264 como nueva versión para poder comentar con el segundo y la captura."}
               </p>
+              {/* LA SALIDA REAL, cuando la hay. Esta tarjeta lleva meses diciendo «vuelve más
+                  tarde» o «sube un export H.264 a mano» —que es justo el trabajo que la fábrica
+                  existe para evitar—. Si la GPU de LabTem puede con esta pieza, aquí ya no hay
+                  nada que esperar: se convierte mientras se mira, ahora. */}
+              {vivoOpciones.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 720p es el punto dulce: se ve bien en la revisión y ocupa la tarjeta una
+                    // dieciseisava parte. Si la pieza no llega a tanto, la mayor que dé.
+                    const elegida = vivoOpciones.find((a) => a.alto === 720) ?? vivoOpciones[0];
+                    setLocalFailed(false);
+                    setDiag(null);
+                    proxyRetries.current = 0;
+                    setVivoAlto(elegida.alto);
+                  }}
+                  className="mt-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:opacity-90"
+                >
+                  ▶ Verla ahora · la convierte la GPU al vuelo
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => { setLocalFailed(false); setDiag(null); proxyRetries.current = 0; const v = videoRef.current; if (v) { v.load(); } }}

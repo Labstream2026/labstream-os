@@ -64,7 +64,13 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
       }
     }
 
-    return { number: v.number, notes: v.notes, kind, src: url, hlsSrc, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
+    // ¿Vive en el disco de LabTem? Es la condición para que su GPU pueda convertirlo al vuelo:
+    // solo tiene montado ese disco. Un archivo subido a la app vive en el almacén interno, que
+    // LabTem no ve, así que ahí ni se pregunta —preguntarlo devolvería el vídeo entero en vez
+    // de la ficha de calidades, porque la ruta ignora `?vivo=` fuera de la galería—.
+    const enDisco = v.fileAsset.kind === "GALERIA";
+
+    return { number: v.number, notes: v.notes, kind, src: url, hlsSrc, enDisco, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
   }
 
   const s = detectSource(v.fileUrl);

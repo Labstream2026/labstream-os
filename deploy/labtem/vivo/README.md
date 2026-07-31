@@ -40,17 +40,36 @@ todo el mundo a tirones.
 ## Cómo se usa
 
 ```
-GET http://192.168.0.40:8099/vivo?rel=<ruta>&alto=<720>&desde=<segundos>
-     cabecera:  x-labtem-secreto: <el del .env>
+GET /salud                                              → { ok, enCurso, max }
+GET /info?rel=<ruta>                                    → qué admite esta pieza
+GET /vivo?rel=<ruta>&alto=<720>&desde=<segundos>        → el chorro
+     cabecera (en /info y /vivo):  x-labtem-secreto: <el del .env>
 ```
 
-Devuelve **MP4 fragmentado** (`frag_keyframe+empty_moov`), que es el que se puede enviar
-mientras se genera — un MP4 normal guarda su índice al final y no serviría.
-
-`GET /salud` → `{ ok, enCurso, max }` para saber si hay plaza antes de intentarlo.
+`/vivo` devuelve **MP4 fragmentado** (`frag_keyframe+empty_moov`), que es el que se puede
+enviar mientras se genera — un MP4 normal guarda su índice al final y no serviría.
 
 `desde` va **antes** de la entrada en la orden de ffmpeg, así que saltar al minuto 20 es
-inmediato: busca el punto en vez de decodificar y tirar todo lo anterior.
+inmediato: busca el punto en vez de decodificar y tirar todo lo anterior. De ahí que buscar en
+la barra se implemente reconvirtiendo desde el punto pedido, y no se note.
+
+### Por qué existe `/info`
+
+Devuelve `{ codec, w, h, duracion, audio, gpu, alturas[], libres }` tras un ffprobe. Hacen falta
+las cuatro cosas y ninguna se puede adivinar desde la app:
+
+- **`gpu`** — si esta tarjeta no decodifica ese códec (ProRes, DNxHD, RAW) no hay tiempo real
+  que valga. Sin preguntarlo, la única forma de saberlo sería que alguien eligiera una calidad,
+  ocupara una plaza y recibiera un error.
+- **`duracion`** — un chorro que se genera sobre la marcha no sabe dónde termina, así que el
+  reproductor no puede pintar una barra de tiempo. Con la duración del original, sí.
+- **`audio` y `alturas[].codecs`** — al otro lado quien reproduce es MediaSource, y **exige que
+  se le declare el códec exacto antes del primer byte**. Por eso el nivel de salida está clavado
+  (`-level 41` hasta 1080p, `51` por encima) y la cadena que le corresponde se publica aquí: las
+  dos se calculan en la misma función para que no puedan separarse. Si la declaración no acierta,
+  el navegador rechaza el chorro entero sin reproducir nada y sin decir por qué.
+- **`alturas[]`** nunca ofrece más de lo que el material da: subir un 720p a 1080p pesa el doble
+  y no enseña un detalle más.
 
 ## Montarlo
 
@@ -77,9 +96,40 @@ curl -s http://192.168.0.40:8099/salud
   línea de órdenes de ffmpeg.
 - El material se monta **en solo lectura**. La única que escribe en `Entregas_LAB` es la fábrica.
 
-## Lo que queda por hacer
+## El lado de la app
 
-Falta el lado de la app: una ruta que autorice (sesión o token de entrega, como ya hacen
-`/api/files-asset` y `/api/galeria-publica/media`) y reenvíe la petición aquí con el secreto,
-más el control en el reproductor para elegirlo. Mientras tanto el servicio está montado,
-probado y esperando.
+No hay una ruta nueva: se colgó de las **dos que ya servían el vídeo**, con su mismo permiso.
+
+| Quién mira | Ruta |
+|---|---|
+| Equipo, sala de revisión | `/api/files-asset/<id>?t=…&vivo=720&desde=90` |
+| Cliente, sala de entrega | `/api/galeria-publica/media?t=…&rel=…&vivo=720&desde=90` |
+
+Eso importa más de lo que parece: **esto no solo entrega bytes, pone a trabajar la GPU**. Una
+puerta propia habría sido una forma cómoda de dejar el NAS sin tarjeta desde fuera. Y la ruta
+del archivo nunca la elige el navegador — en revisión sale de la base de datos, y en la sala del
+cliente ya pasó por `alcanceAutoriza` antes de llegar aquí.
+
+`src/lib/labtem-vivo.ts` es lo único que habla con este servicio (config, salud con memoria de
+15 s, `/info` con memoria de 5 min por pieza, y el chorro). `src/lib/vivo-cliente.ts` es el motor
+del navegador. **Sin las variables `LABTEM_VIVO_URL` y `LABTEM_VIVO_SECRETO` el modo no existe** y
+la app se comporta exactamente como antes.
+
+### Cómo se reproduce algo que aún no existe
+
+Puesto tal cual en el `src` de un `<video>`, el chorro se reproduce pero la barra queda vacía:
+sin índice no hay duración ni forma de buscar. Así que se le da de comer por **MediaSource**, que
+sí deja declarar la duración de antemano. A partir de ahí el `<video>` es uno normal, con sus
+controles de siempre — y **buscar** se implementa reconvirtiendo desde el punto pedido, que en
+esta máquina es instantáneo. La pieza que lo cuadra es `timestampOffset`: el chorro nuevo llega
+numerado desde cero y se le suma el punto de partida, así que aterriza en su sitio.
+
+Lo ya visto **no se tira**: retroceder a un trozo que sigue en memoria se reproduce al instante
+y sin volver a molestar a la GPU.
+
+Y si algo falla —las seis plazas llenas, el chorro cortado, el navegador sin memoria de vídeo—
+el motor se apaga solo y devuelve el reproductor a la copia de disco. Una mejora no puede costar
+la reproducción.
+
+**En iOS no hay modo al vuelo**: Safari del móvil no trae MediaSource. Allí quedan la copia y la
+escalera, que es justo lo que había antes de todo esto.

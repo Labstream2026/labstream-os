@@ -37,6 +37,46 @@ export async function GET(req: NextRequest) {
 
   const quiereDescargar = Boolean(url.searchParams.get("descargar"));
 
+  // ── TRANSCODIFICACIÓN EN VIVO ──────────────────────────────────────────────────────────
+  // `?vivo=info` y `?vivo=480&desde=90`. Va DESPUÉS del candado de arriba, y aquí eso pesa más
+  // que en ninguna otra rama: esto no solo entrega bytes, pone a trabajar la GPU de LabTem. Un
+  // enlace de entrega que pudiera pedir conversiones de cualquier ruta sería una forma cómoda
+  // de dejar el NAS sin tarjeta. Para llegar hasta aquí, `rel` ya pasó por `alcanceAutoriza`.
+  //
+  // Para el cliente esto es lo que convierte «la versión optimizada se está preparando» en un
+  // vídeo que se ve: material subido hoy, sin copia todavía, reproduciéndose igual.
+  const vivoParam = url.searchParams.get("vivo");
+  if (vivoParam && !quiereDescargar) {
+    const { vivoInfo, vivoChorro, cabecerasVivo, vivoConfigurado } = await import("@/lib/labtem-vivo");
+    if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
+
+    if (vivoParam === "info") {
+      const info = await vivoInfo(rel);
+      return Response.json(info ?? { gpu: false, alturas: [] }, { headers: { "cache-control": "no-store" } });
+    }
+
+    const alto = Number(vivoParam);
+    const desde = Number(url.searchParams.get("desde") || 0);
+    // La señal del navegador llega encadenada hasta ffmpeg: si el cliente cierra la pestaña o
+    // salta a otro punto, la conversión se aborta y la plaza vuelve al montón.
+    const arriba = await vivoChorro(rel, alto, desde, req.signal);
+    if (!arriba) return new NextResponse("Altura no admitida o LabTem no responde", { status: 502 });
+    if (!arriba.ok || !arriba.body) {
+      return new NextResponse(await arriba.text().catch(() => "No disponible"), {
+        status: arriba.status,
+        headers: arriba.headers.get("retry-after") ? { "Retry-After": arriba.headers.get("retry-after")! } : undefined,
+      });
+    }
+    return new NextResponse(arriba.body, {
+      headers: {
+        "Content-Type": "video/mp4",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        ...cabecerasVivo(arriba.headers),
+      },
+    });
+  }
+
   // ── Un trozo de la ESCALERA ADAPTATIVA ─────────────────────────────────────────────────
   // Va DESPUÉS del candado de arriba, y ahí está lo importante: la escalera no abre ninguna
   // puerta nueva. Para llegar aquí, la pieza ya ha pasado por `alcanceAutoriza` con el mismo

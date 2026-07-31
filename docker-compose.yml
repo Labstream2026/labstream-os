@@ -146,6 +146,14 @@ services:
       # módulos quedan apagados a propósito (el Mac de desarrollo no tiene los discos).
       NAS_OPS_DIR: ${NAS_OPS_DIR:-/nas/operaciones}
       NAS_GALERIA_DIR: ${NAS_GALERIA_DIR:-/entregas}
+      # ── La GPU de LabTem, convirtiendo vídeo AL VUELO ──
+      # Este NAS tiene una UHD 630 física pero su DSM no trae el driver (cero módulos i915 en
+      # disco), así que la conversión en tiempo real se le pide por la red al otro NAS, que sí
+      # lo tiene. Servicio en `deploy/labtem/vivo/`, solo escucha en la LAN.
+      # El SECRETO viaja en cabecera y vive únicamente en el .env del NAS. Sin estas dos
+      # variables el modo al vuelo no existe y la app se comporta igual que antes.
+      LABTEM_VIVO_URL: ${LABTEM_VIVO_URL:-}
+      LABTEM_VIVO_SECRETO: ${LABTEM_VIVO_SECRETO:-}
     volumes:
       - ./data/storage:/app/storage # archivos subidos (fase 2)
       # ── Operaciones_LAB y Entregas_LAB (LabTem) ──

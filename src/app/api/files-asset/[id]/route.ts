@@ -190,6 +190,22 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         );
       }
 
+      // ¿Hay salida AHORA? Si la GPU de LabTem sabe decodificar esta pieza, la puede convertir
+      // mientras se mira y no hay nada que esperar. Se comprueba aquí, en el mismo sitio donde
+      // se iba a redactar un «vuelve mañana»: mandar a esperar a quien no tiene por qué es el
+      // fallo más caro de esta tarjeta, porque el editor se va y no vuelve.
+      const { vivoInfo, vivoConfigurado } = await import("@/lib/labtem-vivo");
+      const alVuelo = vivoConfigurado() ? await vivoInfo(file.path) : null;
+      if (alVuelo?.gpu && alVuelo.duracion) {
+        return di(
+          "sin_copia_al_vuelo",
+          viewer
+            ? "La copia ligera todavía no está hecha, pero esta pieza se puede ver igual: la convierte la GPU mientras la miras."
+            : "La versión optimizada aún se está preparando, pero este video se puede ver ya.",
+          "Pulsa «Verla ahora» y empieza a reproducirse. No hay que esperar a nada ni subir nada a mano.",
+        );
+      }
+
       // El mismo hecho, contado a quien corresponde: al equipo se le nombra la fábrica —le
       // sirve para saber que no tiene que hacer nada— y al cliente no, que la cocina de
       // adentro no es asunto suyo ni le ayuda a decidir.
@@ -202,6 +218,51 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           ? "La fabrica la GPU de LabTem —va por orden y pasa sola cada noche—. No hace falta que subas nada a mano: cuando esté, pulsa «↻ Reintentar» y se verá. Mientras tanto puedes descargar el original."
           : "Se prepara sola. Vuelve a intentarlo en unos minutos con «↻ Reintentar»; si sigue igual, avísale al equipo.",
       );
+    }
+
+    // ── TRANSCODIFICACIÓN EN VIVO ───────────────────────────────────────────────────────
+    // `?vivo=info` (qué calidades admite esta pieza) y `?vivo=720&desde=90` (el chorro).
+    // Misma puerta y mismo permiso que todo lo de arriba: quien no puede ver el video tampoco
+    // puede mandar a la GPU de LabTem a trabajar en él. Eso último importa el doble aquí,
+    // porque esto no solo entrega bytes: consume una de las seis plazas de la tarjeta.
+    //
+    // La ruta que se le manda a LabTem es `file.path`, que sale de la BASE DE DATOS, no de la
+    // URL. El navegador no elige qué archivo se convierte: elige la calidad de un archivo que
+    // ya tenía derecho a ver.
+    const vivoParam = url.searchParams.get("vivo");
+    if (vivoParam && galIsVideo) {
+      const { vivoInfo, vivoChorro, cabecerasVivo, vivoConfigurado } = await import("@/lib/labtem-vivo");
+      if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
+
+      if (vivoParam === "info") {
+        const info = await vivoInfo(file.path);
+        return Response.json(info ?? { gpu: false, alturas: [] }, { headers: { "cache-control": "no-store" } });
+      }
+
+      const alto = Number(vivoParam);
+      const desde = Number(url.searchParams.get("desde") || 0);
+      // La señal del navegador se encadena hasta ffmpeg: cerrar la pestaña mata la conversión
+      // y devuelve la plaza. Sin esto, seis pestañas cerradas dejan la GPU ocupada para nadie.
+      const arriba = await vivoChorro(file.path, alto, desde, req.signal);
+      if (!arriba) return new NextResponse("Altura no admitida o LabTem no responde", { status: 502 });
+      if (!arriba.ok || !arriba.body) {
+        // 503 = las seis plazas ocupadas; 415 = la GPU no decodifica este códec. Los dos se
+        // pasan tal cual: quien llama sabe distinguir «espera un momento» de «esta pieza no».
+        return new NextResponse(await arriba.text().catch(() => "No disponible"), {
+          status: arriba.status,
+          headers: arriba.headers.get("retry-after") ? { "Retry-After": arriba.headers.get("retry-after")! } : undefined,
+        });
+      }
+      return new NextResponse(arriba.body, {
+        headers: {
+          "Content-Type": "video/mp4",
+          // Nunca en caché: es un chorro distinto en cada petición, y guardarlo sería guardar
+          // medio vídeo sin índice que no sirve para nada.
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          ...cabecerasVivo(arriba.headers),
+        },
+      });
     }
 
     // ── Un trozo de la ESCALERA ADAPTATIVA ──────────────────────────────────────────────
