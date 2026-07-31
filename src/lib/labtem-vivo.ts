@@ -53,6 +53,9 @@ export type VivoInfo = {
   // ORIGINAL ya sirve tal cual en el navegador, sin gastar GPU (ver `originalApto`).
   tasa: number | null;
   acodec: string;
+  // ¿El índice (moov) va adelante? Sin esto el navegador rastrea gigas antes del primer
+  // fotograma (los exports de Resolve traen el índice al final). Lo mide LabTem.
+  rapido?: boolean;
   gpu: boolean;
   calidades: { calidad: number; w: number; h: number; kbps: number; codecs: string }[];
   libres: number;
@@ -70,6 +73,10 @@ export function originalApto(rel: string, info: VivoInfo | null): boolean {
   if (info.codec !== "h264") return false;
   if (!(info.w > 0 && info.h > 0) || info.w * info.h > 1920 * 1080) return false;
   if (!(typeof info.tasa === "number" && info.tasa > 0 && info.tasa <= 9_000_000)) return false;
+  // Y tiene que ARRANCAR rápido: un «apto» con el índice al final (export de Resolve) se
+  // queda 20+ s en negro mientras el navegador rastrea el moov — medido con uno de 2,9 GB.
+  // Ese va al vivo aunque el códec sea perfecto.
+  if (info.rapido !== true) return false;
   return ["", "aac", "mp3"].includes(info.acodec);
 }
 

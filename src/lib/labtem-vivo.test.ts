@@ -187,6 +187,7 @@ describe("labtem-vivo · el original ya sirve tal cual (directo)", () => {
     audio: true,
     tasa: 5_000_000,
     acodec: "aac",
+    rapido: true,
     gpu: true,
     calidades: [],
     libres: 6,
@@ -211,6 +212,15 @@ describe("labtem-vivo · el original ya sirve tal cual (directo)", () => {
     expect(originalApto("Cliente/toma.mp4", { ...info, tasa: null })).toBe(false); // tasa desconocida = no
     expect(originalApto("Cliente/toma.mp4", { ...info, acodec: "pcm_s16le" })).toBe(false);
     expect(originalApto("Cliente/toma.mp4", null)).toBe(false);
+  });
+
+  it("con el índice al final NO hay directo: el navegador se quedaría en negro", async () => {
+    const { originalApto } = await import("@/lib/labtem-vivo");
+    // Medido en producción: un vertical h264 de 2,9 GB, perfecto de códec y tasa, tardó más
+    // de 20 s sin entregar ni la metadata — el moov estaba al final (export de Resolve).
+    expect(originalApto("Cliente/toma.mp4", { ...info, rapido: false })).toBe(false);
+    // Un LabTem viejo que no manda el campo tampoco habilita el directo: ante la duda, vivo.
+    expect(originalApto("Cliente/toma.mp4", { ...info, rapido: undefined })).toBe(false);
   });
 });
 
