@@ -1,0 +1,67 @@
+# ── LabTem · servicio de transcodificación EN VIVO ───────────────────────────────────────
+#
+# Hermano del contenedor de la fábrica (`../compose.yaml`), pero con una diferencia grande:
+# ESTE SÍ TIENE RED. La fábrica corre con `network_mode: none` porque solo lee y escribe disco;
+# este tiene que atender peticiones del NAS de producción, así que abre un puerto en la LAN.
+#
+# Comparte con la fábrica la receta de la GPU, que costó encontrarla y NO es evidente: hacen
+# falta DOS montajes (el ffmpeg del NAS y el paquete de drivers, que es donde viven libdrm y el
+# driver iHD de Intel) y tres variables de LIBVA. Ver el README de al lado antes de tocar nada.
+#
+# Levantar:
+#   cd /volume5/docker/labtem-vivo && docker compose up -d
+#
+# Comprobar:
+#   curl -s http://192.168.0.40:8099/salud
+
+services:
+  vivo:
+    # Node solo para el servidor HTTP; el ffmpeg es el del NAS, montado abajo — el mismo binario
+    # ya probado con Quick Sync en esta máquina.
+    image: node:20-slim
+    container_name: labtem-vivo
+    restart: unless-stopped
+    command: ["node", "/opt/servidor.mjs"]
+
+    # La GPU. Mismo GID que la fábrica: 937 es `videodriver` en DSM 7.2.2. Si tras una
+    # actualización de DSM deja de verse la tarjeta, esto es lo PRIMERO que hay que mirar.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "937"
+
+    ports:
+      # Solo la LAN. LabTem no se expone a internet NUNCA: quien habla con esto es el NAS de
+      # producción, y además manda un secreto compartido en cabecera.
+      - "192.168.0.40:8099:8099"
+
+    # Una conversión 1080p ocupa poco más de 200 MB, pero tres a la vez más los búferes de
+    # salida suben. El tope evita que un pico se lleve por delante a la fábrica nocturna.
+    mem_limit: 2g
+
+    environment:
+      TZ: America/Bogota
+      RAIZ: /material
+      FFMPEG: /opt/ffmpeg/bin/ffmpeg
+      FFPROBE: /opt/ffmpeg/bin/ffprobe
+      PUERTO: "8099"
+      # Cuántos espectadores a la vez. Medido aquí: 14,1× tiempo real en 1080p, 16,3× en 720p,
+      # 17,8× en 480p — un espectador de 1080p ocupa una catorceava parte de la tarjeta. El tope
+      # no lo pone la GPU sino el dejarle aire a la fábrica nocturna; al llenarse se contesta
+      # 503 y quien llama cae a la copia de disco, mejor que servir a todos a tirones.
+      MAX_A_LA_VEZ: "6"
+      # SECRETO se inyecta desde el .env de al lado — nunca en el compose, que va al repositorio.
+      SECRETO: ${LABTEM_VIVO_SECRETO}
+      LD_LIBRARY_PATH: /opt/ffmpeg/lib:/opt/vd/lib
+      LIBVA_DRIVERS_PATH: /opt/vd/lib
+      LIBVA_DRIVER_NAME: iHD
+
+    volumes:
+      # El material, en SOLO LECTURA: este servicio nunca escribe. La única que escribe en
+      # Entregas_LAB es la fábrica.
+      - /volume5/Entregas_LAB:/material:ro
+      - /var/packages/ffmpeg6/target:/opt/ffmpeg:ro
+      - /var/packages/synocli-videodriver/target:/opt/vd:ro
+      - ./servidor.mjs:/opt/servidor.mjs:ro
+
+    stop_grace_period: 10s
