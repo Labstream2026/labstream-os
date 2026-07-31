@@ -216,16 +216,29 @@ hay vídeo». Compruébalo con `stat -c %s`.
 
 ## Cómo llega esto a la app
 
-LabTem **nunca se expone a internet**. Producción (192.168.0.22) monta `Entregas_LAB` por NFS en
-**solo lectura**, y la app sirve la galería por su propio origen:
+LabTem **nunca se expone a internet**. Producción (192.168.0.22) monta `Entregas_LAB` por NFS y
+la app sirve la galería por su propio origen:
 
 ```bash
-sudo mount -t nfs -o ro,nolock,vers=3 192.168.0.223:/volume5/Entregas_LAB /volume1/entregas-labtem
+sudo mount -t nfs -o rw,nolock,vers=3 192.168.0.223:/volume5/Entregas_LAB /volume1/entregas-labtem
 ```
 
-El montaje **no sobrevive al reinicio** (en Synology DSM reescribe `/etc/fstab`): hay que fijarlo con
-una tarea de arranque **en el NAS de producción**, no en LabTem. Es el error fácil — compruébalo con
-`hostname`, tiene que decir `Labstream`.
+**En LECTURA-ESCRITURA, y no es un descuido.** Este montaje nació `ro` («material entregable, se
+toca solo desde el NAS»), pero desde el 30-jul-2026 la app SÍ escribe ahí: subir material, crear
+la carpeta del cliente, mover a `#recycle`. Remontarlo `ro` siguiendo una versión vieja de este
+párrafo —por ejemplo tras un reinicio— deja todas las subidas fallando con EROFS, y el síntoma
+aparece lejos de la causa. Las guardas que sustituyen al `ro` están en `nas-galeria.ts`: permiso
+`escribir_discos` + el centinela `.labstream-escritura` en la raíz de la share (sin ese archivo la
+app no escribe ni un byte, lo que además distingue el disco real de la carpeta local vacía que
+queda si el montaje se cae). Los contenedores de LabTem sí siguen montando el material `:ro` —
+la única que escribe allí es la fábrica.
+
+El montaje **no sobrevive al reinicio** (en Synology DSM reescribe `/etc/fstab`). Desde el
+31-jul-2026 lo repone solo un vigilante: `deploy/synology/asegurar-montaje.sh`, instalado en
+`/volume1/docker/labstream-os/deploy/` **del NAS de producción** y llamado cada 5 minutos desde
+`/etc/crontab` (campos con TAB). Si el montaje está, no hace nada; si no, lo monta y lo anota en
+`/var/log/asegurar-montaje.log`. También recupera una caída del NFS, no solo reinicios.
+Comprueba en qué máquina estás con `hostname`: tiene que decir `Labstream`.
 
 La sección `/galeria` de la app solo aparece si existe la variable `NAS_GALERIA_DIR` apuntando a ese
 montaje. Sin ella, la app se comporta como si LabTem no existiera.

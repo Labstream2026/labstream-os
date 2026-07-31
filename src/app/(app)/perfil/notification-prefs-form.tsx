@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Bell } from "lucide-react";
+import { Bell, BellRing, Loader2 } from "lucide-react";
 import { notificationEventsByCategory } from "@/lib/notification-types";
+import { ensureNotifyPermission, isTauri, notifyPermission, subscribeBrowserPush } from "@/lib/native-notify";
 import { setNotifPref } from "./preference-actions";
 
 type Channels = { inApp: boolean; push: boolean; email: boolean };
@@ -12,6 +13,117 @@ const CHANNELS: { key: "inApp" | "push" | "email"; label: string }[] = [
   { key: "push", label: "Push" },
   { key: "email", label: "Correo" },
 ];
+
+// ── El push de ESTE navegador: estado, activar y probar ────────────────────────────────────
+// Vive aquí y no solo en la campana por una razón concreta: la oferta de la campana se hace UNA
+// vez y no se repite, así que quien dijo «ahora no» aquel día no tenía después ningún sitio al
+// que volver. Y «probar» existe porque la entrega real no se puede verificar de otra manera:
+// el service worker enseña una notificación siempre, así que la única prueba honesta es que
+// cada quien se mande una a sí mismo y la vea llegar.
+function PushEstado() {
+  // El estado se lee al montar (en el servidor no existe `Notification`) y llega ENTERO en una
+  // sola pieza: permiso, si es la app de escritorio, y si hay suscripción de verdad — esto
+  // último contra el service worker, porque el permiso puede estar concedido y aun así no haber
+  // suscripción (se concedió en otra pestaña, el servidor no tenía claves ese día…).
+  // Hasta que se sabe, no se pinta nada: mejor un parpadeo de nada que uno de texto equivocado.
+  const [estado, setEstado] = React.useState<{ perm: ReturnType<typeof notifyPermission>; tauri: boolean; suscrito: boolean } | null>(null);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [resultado, setResultado] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const tauri = isTauri();
+      const perm = notifyPermission();
+      let suscrito = false;
+      try {
+        // En Tauri no hay service worker: el opcional deja `reg` en undefined y `suscrito` en falso.
+        const reg = await navigator.serviceWorker?.ready;
+        suscrito = Boolean(await reg?.pushManager?.getSubscription());
+      } catch {
+        /* sin service worker o sin push: queda como no suscrito */
+      }
+      if (vivo) setEstado({ perm, tauri, suscrito });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const activar = async () => {
+    setOcupado(true);
+    setResultado(null);
+    try {
+      const ok = await ensureNotifyPermission();
+      let suscrito = false;
+      if (ok) {
+        suscrito = await subscribeBrowserPush();
+        setResultado(suscrito ? "Listo: este navegador ya recibe avisos." : "El permiso está, pero la suscripción no se pudo crear. Recarga e intenta de nuevo.");
+      }
+      setEstado((e) => (e ? { ...e, perm: notifyPermission(), suscrito } : e));
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const probar = async () => {
+    setOcupado(true);
+    setResultado(null);
+    try {
+      const r = await fetch("/api/push/test", { method: "POST" });
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; motivo?: string; enviados?: number; fallidos?: number } | null;
+      if (j?.ok) setResultado("Enviada. Debe aparecerte una notificación del sistema en unos segundos.");
+      else setResultado(j?.motivo ?? (j?.fallidos ? "El servidor no pudo entregarla; revisa el registro." : "No se pudo enviar la prueba."));
+    } catch {
+      setResultado("No se pudo enviar la prueba.");
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  if (!estado) return null; // todavía leyendo el estado del navegador
+
+  // En la app de escritorio no hay Web Push ni falta que hace: los avisos nativos llegan
+  // empujados por el stream que la app mantiene abierto, incluso escondida en la bandeja.
+  if (estado.tauri) {
+    return (
+      <div className="mt-4 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+        En la app de escritorio los avisos llegan solos como notificaciones del sistema, también con la ventana cerrada en la bandeja. No hay nada que activar aquí.
+      </div>
+    );
+  }
+  const { perm, suscrito } = estado;
+  if (perm === "unsupported") return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Avisos en este navegador</p>
+          <p className="text-xs text-muted-foreground">
+            {perm === "denied"
+              ? "Este navegador tiene el permiso bloqueado: se cambia en el candado de la barra de direcciones, junto a la URL."
+              : suscrito
+                ? "Activados: te avisa aunque no tengas la pestaña abierta."
+                : "Sin activar: los avisos solo se ven con la app abierta."}
+          </p>
+        </div>
+        {perm === "denied" ? null : (
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={suscrito ? probar : activar}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-60"
+          >
+            {ocupado ? <Loader2 className="size-3.5 animate-spin" /> : <BellRing className="size-3.5" />}
+            {suscrito ? "Enviar prueba" : "Activar"}
+          </button>
+        )}
+      </div>
+      {resultado ? <p className="mt-1.5 text-xs text-muted-foreground">{resultado}</p> : null}
+    </div>
+  );
+}
 
 // Preferencias PERSONALES de notificación (control del usuario): por cada evento, qué canales
 // quiere (campana in-app, push del navegador, correo). Optimista; el admin puede apagar tipos
@@ -35,6 +147,8 @@ export function NotificationPrefsForm({ prefs: initial }: { prefs: Record<string
       <p className="mt-1 text-sm text-muted-foreground">
         Elige qué te avisa y por dónde. El administrador puede desactivar tipos para todo el equipo, y eso manda sobre esto.
       </p>
+
+      <PushEstado />
 
       <div className="mt-4 space-y-5">
         {groups.map((g) => (

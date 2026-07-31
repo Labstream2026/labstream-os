@@ -653,7 +653,23 @@ function Visor({
           <div className="max-w-sm px-6 text-center">
             {item.kind === "video" ? <Film className="mx-auto size-8 text-white/40" /> : <ImageIcon className="mx-auto size-8 text-white/40" />}
             <p className="mt-3 text-sm text-white/85">Todavía estamos preparando esta pieza para verse aquí.</p>
-            <p className="mt-1 text-xs text-white/50">Puedes descargar el original ahora mismo; la vista rápida aparecerá en un rato.</p>
+            {/* Si la GPU puede con el original, no hay nada que esperar: se convierte mientras
+                se ve. Es el caso del master HEVC que el navegador no decodifica pero la
+                tarjeta sí — antes esta pantalla mandaba a esperar una noche entera. */}
+            {item.kind === "video" && vivoCalidades.length > 0 ? (
+              <button
+                onClick={() => {
+                  setSinVista(false);
+                  // 720p es el punto dulce en un teléfono; si la pieza no llega, la mayor que dé.
+                  fijarVivo((vivoCalidades.find((c) => c.calidad === 720) ?? vivoCalidades[0]).calidad);
+                }}
+                className="mt-3 rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-black transition hover:bg-white/85"
+              >
+                ▶ Verla ahora
+              </button>
+            ) : (
+              <p className="mt-1 text-xs text-white/50">Puedes descargar el original ahora mismo; la vista rápida aparecerá en un rato.</p>
+            )}
           </div>
         ) : item.kind === "video" ? (
           <video
@@ -664,9 +680,11 @@ function Visor({
             autoPlay
             playsInline
             className="max-h-full max-w-full"
-            // Con la escalera puesta los fallos los lleva hls.js (tiene su propia recuperación
-            // y su caída al MP4): dar la pieza por no reproducible aquí sería adelantarse.
-            onError={() => { if (!hlsRef.current) setSinVista(true); }}
+            // Con la escalera o el modo al vuelo puestos, los fallos los lleva su propio motor
+            // (cada uno tiene su recuperación y su caída): dar la pieza por no reproducible
+            // aquí sería adelantarse — y con el motor al vuelo sería además un bucle, porque
+            // esta tarjeta es justo desde donde se entra a ese modo.
+            onError={() => { if (!hlsRef.current && !vivoRef.current) setSinVista(true); }}
           />
         ) : (
           <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" onError={() => setSinVista(true)} />
