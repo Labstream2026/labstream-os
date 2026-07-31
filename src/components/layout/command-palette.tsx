@@ -64,6 +64,7 @@ const PAGES: Item[] = [
   { id: "p-cal", label: "Calendario", href: "/calendario", icon: IconCalendario, group: "Ir a" },
   { id: "p-tpl", label: "Plantillas", href: "/plantillas", icon: IconProyectos, group: "Ir a" },
   { id: "p-quote", label: "Cotizaciones", href: "/cotizaciones", icon: IconCotizacion, group: "Ir a" },
+  { id: "p-fact", label: "Facturación", href: "/facturacion", icon: IconFacturacion, group: "Ir a" },
   { id: "p-wiki", label: "Wiki", href: "/wiki", icon: IconWiki, group: "Ir a" },
   { id: "p-inv", label: "Inventario", sub: "Wiki", href: "/wiki/inventario", icon: IconArchivo, group: "Ir a" },
   { id: "p-pass", label: "Usuarios y contraseñas", sub: "Wiki", href: "/wiki/contrasenas", icon: IconConfiguracion, group: "Ir a" },

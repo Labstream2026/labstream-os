@@ -524,7 +524,7 @@ export function Sidebar({
               {canBiblioteca ? adminRow("/biblioteca", "Biblioteca", IconBiblioteca, pathname.startsWith("/biblioteca")) : null}
               {canReports ? adminRow("/reportes", "Reportes", IconReportes, pathname.startsWith("/reportes")) : null}
               {canComercial ? adminRow("/comercial", "Comercial", IconComercial, pathname.startsWith("/comercial")) : null}
-              {canQuotes ? adminRow("/cotizaciones", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
+              {canQuotes ? adminRow("/facturacion", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
               {canPapelera ? adminRow("/papelera", "Papelera", IconPapelera, pathname.startsWith("/papelera")) : null}
             </div>
           ) : null}
@@ -553,7 +553,10 @@ export function Sidebar({
     { href: "/wiki", label: "Wiki", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") },
     { href: "/reportes", label: "Reportes", icon: BarChart3, show: canReports, active: pathname.startsWith("/reportes") },
     { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
-    { href: "/cotizaciones", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
+    // «Facturación» lleva A FACTURACIÓN (con Siigo conectado, ahí vive lo contable en vivo).
+    // Antes llevaba a /cotizaciones y el usuario «no encontraba» Siigo: el botón prometía una
+    // cosa y abría otra. Cotizaciones queda a un clic («Ver cotizaciones →» en la cabecera).
+    { href: "/facturacion", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
     { href: "/papelera", label: "Papelera", icon: Trash2, show: canPapelera, active: pathname.startsWith("/papelera") },
   ].filter((r) => r.show && !isCliente);
 
