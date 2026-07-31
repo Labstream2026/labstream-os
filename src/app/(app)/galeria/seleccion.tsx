@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, Copy, Download, FolderInput, Link2, Loader2, Pencil, ShieldOff, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Copy, Download, FolderInput, Link2, Loader2, MoreVertical, Pencil, ShieldOff, Trash2, X } from "lucide-react";
+import { cerrarMenu } from "@/components/ui/barra-menu";
 import { borrarGaleria, moverGaleria, copiarGaleria, renombrarGaleria } from "./herramientas-actions";
 import { crearEnlaceSeleccion, revocarEnlaceSeleccion } from "./acciones";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
@@ -206,7 +207,7 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeOrgan
       {dialogo === "copiar" && (
         <Modal titulo={uno ? "Copiar a…" : `Copiar ${seleccion.length} elementos a…`} onCerrar={cerrar}>
           {/* El mismo selector que Mover: la única diferencia es que el original se queda. */}
-          <SelectorCarpeta ocupado={ocupado} onElegir={copiarA} />
+          <SelectorCarpeta ocupado={ocupado} onElegir={copiarA} etiqueta="Copiar aquí" />
           {error && <Fallo texto={error} />}
           <div className="mt-4 flex justify-end">
             <Boton onClick={cerrar}>Cancelar</Boton>
@@ -334,7 +335,7 @@ export function DialogoCompartir({ rels, onCerrar }: { rels: string[]; onCerrar:
 // Un navegador, no un desplegable: el árbol tiene varios niveles y una lista plana con
 // «Cliente/Entrega/Jornada 2» no se lee. Se entra carpeta a carpeta y se suelta donde toque.
 
-function SelectorCarpeta({ onElegir, ocupado }: { onElegir: (rel: string) => void; ocupado: boolean }) {
+function SelectorCarpeta({ onElegir, ocupado, etiqueta = "Mover aquí" }: { onElegir: (rel: string) => void; ocupado: boolean; etiqueta?: string }) {
   const [dir, setDir] = React.useState("");
   // Lo cargado se guarda CON la carpeta a la que pertenece, y «cargando» se deduce de que
   // esa carpeta no sea la actual. Así no hace falta un setState de reseteo dentro del
@@ -405,10 +406,160 @@ function SelectorCarpeta({ onElegir, ocupado }: { onElegir: (rel: string) => voi
           {dir ? <>Destino: <strong className="text-foreground">{dir}</strong></> : "Elige una carpeta: en la raíz no se sueltan archivos."}
         </p>
         <Boton onClick={() => onElegir(dir)} ocupado={ocupado} disabled={!dir}>
-          Mover aquí
+          {etiqueta}
         </Boton>
       </div>
     </div>
+  );
+}
+
+// ── Menú de opciones de UNA carpeta (⋮) ────────────────────────────────────────
+// Lo que la barra de selección hace con lo marcado, pero a un clic sobre una carpeta del
+// índice: antes una carpeta solo se podía ABRIR y cualquier gestión obligaba a entrar y
+// seleccionar. Enseña solo lo que las llaves de esta persona permiten; sin llaves, ni sale.
+
+export function MenuCarpeta({
+  rel,
+  nombre,
+  puedeOrganizar,
+  puedeBorrar,
+  onHecho,
+}: {
+  rel: string;
+  nombre: string;
+  puedeOrganizar: boolean;
+  puedeBorrar: boolean;
+  onHecho: () => void;
+}) {
+  const [dialogo, setDialogo] = React.useState<null | "renombrar" | "mover" | "copiar" | "borrar">(null);
+  const [ocupado, setOcupado] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  if (!puedeOrganizar && !puedeBorrar) return null;
+
+  const cerrar = () => {
+    setDialogo(null);
+    setError(null);
+  };
+
+  const tras = (r: { ok: true; hechos: number; fallos: string[] } | { error: string }) => {
+    setOcupado(false);
+    if ("error" in r) return setError(r.error);
+    if (r.fallos.length > 0) return setError(r.fallos[0]!);
+    cerrar();
+    onHecho();
+  };
+
+  const renombrar = async (n: string) => {
+    setOcupado(true);
+    setError(null);
+    const r = await renombrarGaleria(rel, n);
+    setOcupado(false);
+    if ("error" in r) return setError(r.error);
+    cerrar();
+    onHecho();
+  };
+
+  const mover = async (destino: string) => {
+    setOcupado(true);
+    setError(null);
+    tras(await moverGaleria([rel], destino));
+  };
+
+  const copiar = async (destino: string) => {
+    setOcupado(true);
+    setError(null);
+    tras(await copiarGaleria([rel], destino));
+  };
+
+  const borrar = async () => {
+    setOcupado(true);
+    setError(null);
+    tras(await borrarGaleria([rel]));
+  };
+
+  const abrir = (e: React.MouseEvent<HTMLElement>, cual: "renombrar" | "mover" | "copiar" | "borrar") => {
+    cerrarMenu(e);
+    setDialogo(cual);
+  };
+
+  const entrada = "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-muted";
+
+  return (
+    <>
+      <details data-autoclose className="relative shrink-0">
+        <summary
+          title="Opciones de la carpeta"
+          className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground transition hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10 [&::-webkit-details-marker]:hidden"
+        >
+          <MoreVertical className="size-4" />
+        </summary>
+        <div className="absolute right-0 z-20 mt-1 flex w-44 flex-col rounded-lg border border-border bg-popover p-1 text-foreground shadow-lg">
+          {puedeOrganizar && (
+            <>
+              <button type="button" onClick={(e) => abrir(e, "renombrar")} className={entrada}>
+                <Pencil className="size-3.5" /> Cambiar nombre
+              </button>
+              <button type="button" onClick={(e) => abrir(e, "mover")} className={entrada}>
+                <FolderInput className="size-3.5" /> Mover a…
+              </button>
+              <button type="button" onClick={(e) => abrir(e, "copiar")} className={entrada}>
+                <Copy className="size-3.5" /> Copiar a…
+              </button>
+            </>
+          )}
+          {puedeBorrar && (
+            <button
+              type="button"
+              onClick={(e) => abrir(e, "borrar")}
+              className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-3.5" /> Borrar
+            </button>
+          )}
+        </div>
+      </details>
+
+      {dialogo === "renombrar" && (
+        <Modal titulo={`Renombrar «${nombre}»`} onCerrar={cerrar}>
+          <FormRenombrar actual={nombre} ocupado={ocupado} onGuardar={renombrar} />
+          {error && <Fallo texto={error} />}
+        </Modal>
+      )}
+      {dialogo === "mover" && (
+        <Modal titulo={`Mover «${nombre}» a…`} onCerrar={cerrar}>
+          <SelectorCarpeta ocupado={ocupado} onElegir={mover} />
+          {error && <Fallo texto={error} />}
+          <div className="mt-4 flex justify-end">
+            <Boton onClick={cerrar}>Cancelar</Boton>
+          </div>
+        </Modal>
+      )}
+      {dialogo === "copiar" && (
+        <Modal titulo={`Copiar «${nombre}» a…`} onCerrar={cerrar}>
+          <SelectorCarpeta ocupado={ocupado} onElegir={copiar} etiqueta="Copiar aquí" />
+          {error && <Fallo texto={error} />}
+          <div className="mt-4 flex justify-end">
+            <Boton onClick={cerrar}>Cancelar</Boton>
+          </div>
+        </Modal>
+      )}
+      {dialogo === "borrar" && (
+        <Modal titulo={`Borrar «${nombre}»`} onCerrar={cerrar}>
+          <p className="text-sm text-muted-foreground">
+            Se moverá la carpeta <strong className="text-foreground">{nombre}</strong>, con todo lo que tiene dentro, a la papelera de
+            red del NAS. No se borra de verdad: se puede recuperar desde File Station.
+          </p>
+          {error && <Fallo texto={error} />}
+          <div className="mt-4 flex justify-end gap-2">
+            <Boton onClick={cerrar}>Cancelar</Boton>
+            <Boton onClick={borrar} ocupado={ocupado} destructivo>
+              Mover a la papelera
+            </Boton>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 

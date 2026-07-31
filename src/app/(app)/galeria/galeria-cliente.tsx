@@ -286,7 +286,16 @@ export function GaleriaCliente({
             onReintentar={recargar}
           />
         ) : (
-          <IndiceCarpetas folders={datos.folders} duenos={duenos} onAbrir={abrirCarpeta} vistaInicial={prefs?.vista} ordenInicial={prefs?.orden} />
+          <IndiceCarpetas
+            folders={datos.folders}
+            duenos={duenos}
+            onAbrir={abrirCarpeta}
+            vistaInicial={prefs?.vista}
+            ordenInicial={prefs?.orden}
+            puedeOrganizar={puedeOrganizar}
+            puedeBorrar={puedeBorrar}
+            onHecho={recargar}
+          />
         )}
       </div>
     );
@@ -325,7 +334,15 @@ export function GaleriaCliente({
                 {/* Las mismas fichas que el índice de entregas (color del cliente, piezas y
                     peso), pero SIN su tarjeta ni su buscador: este nivel ya tiene su barra
                     arriba, y dos buscadores en una pantalla confunden más de lo que ayudan. */}
-                <IndiceCarpetas folders={nivel.carpetas} duenos={duenos} onAbrir={abrirCarpeta} variante="seccion" />
+                <IndiceCarpetas
+                  folders={nivel.carpetas}
+                  duenos={duenos}
+                  onAbrir={abrirCarpeta}
+                  variante="seccion"
+                  puedeOrganizar={puedeOrganizar}
+                  puedeBorrar={puedeBorrar}
+                  onHecho={recargar}
+                />
               </section>
             )}
             {itemsNivelVisibles.length > 0 && (

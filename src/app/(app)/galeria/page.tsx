@@ -153,17 +153,21 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
           orden: prefsUI["galeria.orden"] as "reciente" | "nombre" | "tamano" | undefined,
         }}
       />
-      <EntregasCompartidas
-        entregas={(await listarEntregas()).map((e) => ({
-          folderRel: e.folderRel,
-          titulo: e.titulo,
-          version: e.version,
-          revocada: e.revocada,
-          visitas: e.visitas,
-          ultimaVisita: e.ultimaVisitaAt ? e.ultimaVisitaAt.toISOString() : null,
-          huerfana: e.huerfana,
-        }))}
-      />
+      {/* El registro de lo compartido vive SOLO en la raíz: dentro de una entrega manda su
+          material, y esta lista global ahí confundía (parecía parte de la carpeta). */}
+      {relNorm ? null : (
+        <EntregasCompartidas
+          entregas={(await listarEntregas()).map((e) => ({
+            folderRel: e.folderRel,
+            titulo: e.titulo,
+            version: e.version,
+            revocada: e.revocada,
+            visitas: e.visitas,
+            ultimaVisita: e.ultimaVisitaAt ? e.ultimaVisitaAt.toISOString() : null,
+            huerfana: e.huerfana,
+          }))}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { tone } from "@/lib/colors";
 import { cerrarMenu } from "@/components/ui/barra-menu";
 import { usePreferenciaUsuario } from "@/components/ui/pref-usuario";
 import { Miniatura } from "@/components/discos/miniatura";
+import { MenuCarpeta } from "./seleccion";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
 
 // El CLIENTE al que está vinculada una carpeta: su tarjeta se tiñe con su color (la misma
@@ -106,6 +107,9 @@ export function IndiceCarpetas({
   variante = "indice",
   vistaInicial,
   ordenInicial,
+  puedeOrganizar = false,
+  puedeBorrar = false,
+  onHecho,
 }: {
   folders: GaleriaFolder[];
   duenos?: Record<string, DuenoIndice>;
@@ -115,7 +119,13 @@ export function IndiceCarpetas({
   // «a mí me gusta por nombre» la sigue a cualquier equipo.
   vistaInicial?: "lista" | "cuadricula";
   ordenInicial?: Orden;
+  // Las llaves del menú ⋮ de cada carpeta (renombrar/mover/copiar y borrar). Sin llaves no
+  // hay menú y la ficha queda como siempre: solo abrir.
+  puedeOrganizar?: boolean;
+  puedeBorrar?: boolean;
+  onHecho?: () => void; // releer la carpeta tras renombrar/mover/copiar/borrar
 }) {
+  const conMenu = puedeOrganizar || puedeBorrar;
   const [resumenes, setResumenes] = React.useState<Record<string, Resumen>>({});
   const [busca, setBusca] = React.useState("");
   // Vista y orden se guardan en el PERFIL de quien elige, no en el navegador.
@@ -180,28 +190,35 @@ export function IndiceCarpetas({
       {visibles.map((f) => {
         const r = resumenes[f.rel];
         const dueno = duenos?.[f.rel];
+        // La ficha entera era un <button>; con el menú dentro serían botones anidados (HTML
+        // inválido). Ahora la tarjeta es un div y ABRIR es el botón grande de dentro, con el
+        // ⋮ como hermano — el mismo reparto que las filas del explorador de Operaciones.
         return (
-          <button
+          <div
             key={f.rel}
-            type="button"
-            onClick={() => onAbrir(f.rel)}
             title={dueno ? `Carpeta de ${dueno.nombre}` : undefined}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
+              "flex items-center gap-1 rounded-lg border py-2",
+              conMenu ? "pl-2.5 pr-1" : "px-2.5",
               dueno
                 ? cn(tone(dueno.color ?? "slate").chip, "hover:brightness-95 dark:hover:brightness-110")
                 : "border-border bg-muted/30 hover:bg-accent",
             )}
           >
-            <span className="min-w-0 flex-1">
-              <span className="flex w-full items-center gap-2">
-                <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold">{f.name.replace(/_/g, " ")}</span>
+            <button type="button" onClick={() => onAbrir(f.rel)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+              <span className="min-w-0 flex-1">
+                <span className="flex w-full items-center gap-2">
+                  <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">{f.name.replace(/_/g, " ")}</span>
+                </span>
+                <span className="block truncate pl-6 text-[10px] opacity-75">{metaDe(r)}</span>
               </span>
-              <span className="block truncate pl-6 text-[10px] opacity-75">{metaDe(r)}</span>
-            </span>
-            {r?.portadaRel ? <CuadroPortada rel={r.portadaRel} v={r.ultimoMs} /> : null}
-          </button>
+              {r?.portadaRel ? <CuadroPortada rel={r.portadaRel} v={r.ultimoMs} /> : null}
+            </button>
+            {conMenu ? (
+              <MenuCarpeta rel={f.rel} nombre={f.name} puedeOrganizar={puedeOrganizar} puedeBorrar={puedeBorrar} onHecho={onHecho ?? (() => {})} />
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -279,8 +296,8 @@ export function IndiceCarpetas({
             const r = resumenes[f.rel];
             const dueno = duenos?.[f.rel];
             return (
-              <li key={f.rel}>
-                <button type="button" onClick={() => onAbrir(f.rel)} className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-muted/60">
+              <li key={f.rel} className="flex items-center gap-3 px-4 py-2 hover:bg-muted/60">
+                <button type="button" onClick={() => onAbrir(f.rel)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                   {/* La portada del material más nuevo, a tamaño de fila. Si la carpeta tiene
                       portada pero LabTem aún no fabricó su póster, dice «preparando» en vez
                       de fingir un icono roto. */}
@@ -303,8 +320,11 @@ export function IndiceCarpetas({
                     </span>
                   ) : null}
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{metaDe(r)}</span>
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
                 </button>
+                {conMenu ? (
+                  <MenuCarpeta rel={f.rel} nombre={f.name} puedeOrganizar={puedeOrganizar} puedeBorrar={puedeBorrar} onHecho={onHecho ?? (() => {})} />
+                ) : null}
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
               </li>
             );
           })}
