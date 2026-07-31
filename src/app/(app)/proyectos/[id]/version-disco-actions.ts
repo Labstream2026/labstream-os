@@ -42,7 +42,11 @@ export type NivelCarpeta = { rel: string; name: string };
 // que el selector no pida imágenes que van a dar 404 mientras la fábrica va por detrás.
 // `copia`: si ya existe la versión H.264 que hace la GPU. Sin ella, un master no lo reproduce
 // el navegador del cliente — y esta pantalla es justo desde donde se manda material a revisión.
-export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number; miniatura: boolean; copia: boolean };
+// `problema` distingue lo que NO se va a poder ver nunca de lo que solo está en cola: un
+// archivo de 0 bytes o uno que la fábrica ya descartó no mejoran esperando. Se enseña al
+// ELEGIR la pieza, que es el único momento en que sale barato — después ya hay un enlace en
+// manos del cliente. Ver `GaleriaNivelArchivo` en nas-galeria.
+export type NivelPieza = { rel: string; name: string; video: boolean; doc: boolean; mtimeMs: number; miniatura: boolean; copia: boolean; problema: "vacio" | "fallo" | null };
 export type NivelResultado =
   | {
       ok: true;
@@ -107,6 +111,7 @@ export async function nivelDeCarpetaCliente(projectId: string, rel?: string | nu
         mtimeMs: a.mtimeMs,
         miniatura: a.miniatura,
         copia: a.copia,
+        problema: a.problema,
       })),
       escritura: session.role !== "demo" && hasPermission(session, "escribir_discos"),
       proyecto: proyecto ? { rel: proyecto.rel, existe: proyecto.existe } : null,

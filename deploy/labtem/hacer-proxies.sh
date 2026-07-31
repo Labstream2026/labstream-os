@@ -376,12 +376,27 @@ procesar_video() { # ruta absoluta
 
   if [ -z "$vcodec" ]; then
     if [ "$SOLO_LISTAR" != "1" ]; then
+      # POR QUÉ no se pudo, no solo QUE no se pudo. «ffprobe no reconoce el archivo» es cierto
+      # para las tres causas de abajo y no ayuda con ninguna: manda a buscar un problema de
+      # códec cuando lo normal es que no haya vídeo que abrir. Con el motivo bien dicho, el
+      # registro se lee de un vistazo y el aviso que ve el equipo en la app dice algo útil.
+      local motivo bytes
+      bytes=$(stat -c %s "$src" 2>/dev/null || echo 0)
+      if [ "$bytes" -eq 0 ] 2>/dev/null; then
+        motivo="el archivo está vacío (0 bytes): la copia al NAS se cortó al empezar"
+      elif head -c 4096 "$src" 2>/dev/null | grep -qa 'ftyp'; then
+        # Tiene cabecera de MP4/MOV pero ffprobe no lo abre: casi siempre el índice, que en
+        # estos formatos se escribe AL FINAL. Grabación o copia interrumpida antes de cerrar.
+        motivo="contenedor a medio escribir: tiene los datos pero le falta el índice del final (grabación o copia interrumpida)"
+      else
+        motivo="formato que este ffmpeg no abre"
+      fi
       # Se marcan las TRES piezas: si solo se marcara la copia, cada noche se volvería
       # a sondear el archivo por el póster y la tira, y a anotar el mismo fallo.
-      marcar "$mp4"    fallo "ffprobe no reconoce el archivo"
-      marcar "$poster" fallo "ffprobe no reconoce el archivo"
-      marcar "$tira"   fallo "ffprobe no reconoce el archivo"
-      anotar_fallo "$src" "video" "ffprobe no reconoce el archivo (formato que este ffmpeg no abre)"
+      marcar "$mp4"    fallo "$motivo"
+      marcar "$poster" fallo "$motivo"
+      marcar "$tira"   fallo "$motivo"
+      anotar_fallo "$src" "video" "$motivo"   # ya escribe la línea del registro; no repetirla
     fi
     return 1
   fi

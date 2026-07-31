@@ -31,6 +31,8 @@ beforeAll(async () => {
   // Una pieza que la fábrica intentó y descartó: su marca queda junto a la copia que no llegó
   // a existir, con el motivo en la primera línea y el tamaño que tenía el original debajo.
   await fs.writeFile(path.join(raiz, "Cliente", "rota.mp4"), "cabecera a medias");
+  // Una copia al NAS que se cortó al empezar: el nombre está, dentro no hay nada.
+  await fs.writeFile(path.join(raiz, "Cliente", "vacia.mp4"), "");
   await fs.writeFile(
     path.join(raiz, "Cliente", ".proxy", "rota.mp4.mp4.fallo"),
     "moov atom not found\ntamano=17\n",
@@ -119,6 +121,37 @@ describe("no se puede salir de la escalera", () => {
 
   it("tampoco sirve pedir la escalera de una foto", async () => {
     await expect(galeria.resolveGaleriaHls("Cliente/foto.dng", "master.m3u8")).resolves.toBeNull();
+  });
+});
+
+describe("avisar al ELEGIR la pieza, no cuando el cliente ya tiene el enlace", () => {
+  // «Sin copia» es una cola con turno y se resuelve sola. Las otras dos NO mejoran esperando.
+  // Verlas iguales es lo que hacía que se mandaran a revisión piezas que nunca iban a poder
+  // reproducirse — y el problema aparecía con el enlace ya enviado.
+  const buscar = async (nombre: string) => {
+    const nivel = await galeria.listGaleriaNivel("Cliente");
+    return nivel.archivos.find((a) => a.name === nombre);
+  };
+
+  it("marca como «vacío» el archivo de 0 bytes", async () => {
+    expect((await buscar("vacia.mp4"))?.problema).toBe("vacio");
+  });
+
+  it("marca como «fallo» la pieza que la fábrica ya descartó", async () => {
+    expect((await buscar("rota.mp4"))?.problema).toBe("fallo");
+  });
+
+  it("no marca nada en una pieza sana", async () => {
+    expect((await buscar("toma.mp4"))?.problema).toBeNull();
+  });
+
+  it("una pieza que solo espera turno NO se marca como problema", async () => {
+    // Tiene contenido y ninguna marca: la fábrica simplemente no ha llegado a ella. Confundir
+    // esto con un fallo sería el error contrario, y igual de caro: haría desconfiar de
+    // material que está perfectamente bien.
+    const p = await buscar("sin-escalera.mp4");
+    expect(p?.problema).toBeNull();
+    expect(p?.copia).toBe(false);
   });
 });
 

@@ -569,8 +569,12 @@ export async function listGaleriaFolders(rel = ""): Promise<GaleriaFolder[]> {
       return { rel: childRel, name: d.name, mtimeMs: st?.mtimeMs ?? 0 };
     }),
   );
-  // Lo más reciente primero: la entrega en la que se está trabajando suele ser la última.
-  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  // ALFABÉTICO, no por fecha: la mtime de una carpeta es un dato envenenado (cualquier
+  // escritura dentro —incluida una pasada de la fábrica— la actualiza), así que «lo más
+  // reciente primero» barajaba el árbol y los desplegables cada noche. El desorden era eso.
+  // Quien quiera «lo último arriba» lo tiene en el índice, que ordena por la fecha del
+  // MATERIAL más nuevo (el dato de verdad) y es una preferencia por persona.
+  out.sort((a, b) => a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" }));
   return out;
 }
 
@@ -601,6 +605,17 @@ export type GaleriaNivelArchivo = {
   // un master (ProRes, MXF, HEVC 10 bits) no lo decodifica el navegador del cliente.
   // Solo tiene sentido en video; en foto es siempre false y no se mira.
   copia: boolean;
+  // Piezas que NO van a poder verse nunca, por más que se espere. Es distinto de «sin copia»:
+  // sin copia es una cola con turno; esto es una puerta cerrada.
+  //   "vacio" → el archivo pesa 0 bytes: la copia al NAS se cortó al empezar
+  //   "fallo" → la fábrica lo intentó y no pudo (índice a medio escribir, formato ilegible)
+  // Se sabe con lo que YA se está leyendo —el tamaño del stat y el listado de `.proxy`—, así
+  // que no cuesta ni un viaje de red más.
+  //
+  // Existe porque el 30-jul-2026 había 21 piezas así en el disco y nadie lo sabía: se
+  // descubrió cuando un cliente no pudo reproducir su entrega. El momento de avisar es cuando
+  // alguien ELIGE el archivo, no cuando el enlace ya está enviado.
+  problema: "vacio" | "fallo" | null;
 };
 export type GaleriaNivel = { carpetas: GaleriaNivelCarpeta[]; archivos: GaleriaNivelArchivo[] };
 
@@ -657,6 +672,15 @@ export async function listGaleriaNivel(rel = "", opts?: { docs?: boolean }): Pro
         mtimeMs: st.mtimeMs,
         miniatura: tieneMiniatura(u.name, u.kind),
         copia: u.kind === "video" && proxies.has(`${u.name}.mp4`),
+        // Un archivo vacío no es «pendiente», es que no llegó. Y una marca de la fábrica
+        // significa que ya lo intentó: esperar no lo va a arreglar. Ambas cosas se leen de lo
+        // que ya está en la mano (el stat y el listado de `.proxy`), sin pedir nada más.
+        problema:
+          st.size === 0
+            ? "vacio"
+            : proxies.has(`${u.name}${u.kind === "photo" ? ".webp" : ".mp4"}.fallo`)
+              ? "fallo"
+              : null,
       });
   });
   // Carpetas por nombre (con orden numérico natural: «Semana 2» antes que «Semana 10»);
@@ -931,6 +955,33 @@ export async function moveGaleria(rel: string, relDirDestino: string): Promise<s
     if (!(await fs.stat(absDir)).isDirectory()) throw new Error("el destino no es una carpeta");
     const libre = await freeGaleriaName(absDir, nombre);
     await fs.rename(absOrigen, path.join(absDir, libre));
+    return destinoDir ? `${destinoDir}/${libre}` : libre;
+  } catch (e) {
+    throw galeriaFsError(e);
+  }
+}
+
+// Copia una pieza o carpeta (recursiva) a otra carpeta del disco. El original no se toca;
+// ante choque de nombre la copia llega como «nombre (2)» (freeGaleriaName), igual que al
+// mover. Una PIEZA suelta llega sin sus copias ligeras (su .proxy queda atrás y la fábrica
+// se las hace de noche, como a una recién subida); una CARPETA llega con los .proxy que
+// tenía dentro — sus piezas se ven al instante.
+export async function copyGaleria(rel: string, relDirDestino: string): Promise<string> {
+  await assertGaleriaEscritura();
+  const origen = normalizeGaleriaRel(rel);
+  const destinoDir = normalizeGaleriaRel(relDirDestino);
+  if (!origen) throw new Error("no se puede copiar la raíz");
+  // Copiar una carpeta dentro de sí misma se clonaría sin fin hasta llenar el disco.
+  if (destinoDir === origen || destinoDir.startsWith(`${origen}/`)) {
+    throw new Error("no se puede copiar una carpeta dentro de sí misma");
+  }
+  const nombre = origen.split("/").pop() ?? "";
+  try {
+    const absOrigen = await galeriaAbs(origen);
+    const absDir = await galeriaAbs(destinoDir);
+    if (!(await fs.stat(absDir)).isDirectory()) throw new Error("el destino no es una carpeta");
+    const libre = await freeGaleriaName(absDir, nombre);
+    await fs.cp(absOrigen, path.join(absDir, libre), { recursive: true, force: false, errorOnExist: true });
     return destinoDir ? `${destinoDir}/${libre}` : libre;
   } catch (e) {
     throw galeriaFsError(e);

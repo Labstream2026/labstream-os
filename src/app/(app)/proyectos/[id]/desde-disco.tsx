@@ -428,11 +428,26 @@ function CuerpoDisco({
                     preparandoSiFalta
                   />
                   <span className={cn("min-w-0 flex-1 truncate", on && "font-medium")}>{p.name}</span>
-                  {/* Un video sin su copia H.264 puede no reproducirse en la sala: si el
-                      original es un master (ProRes, MXF, HEVC 10 bits) el navegador del
-                      cliente no lo decodifica. Decirlo AQUÍ evita mandarlo a revisión y
-                      descubrirlo cuando el cliente ya tiene el enlace. */}
-                  {p.video && !p.copia ? (
+                  {/* Tres estados distintos, y la diferencia importa mucho más de lo que
+                      parece. «Sin copia» es una cola con turno: se manda a revisión y para
+                      cuando el cliente abra, estará. Los otros dos NO mejoran esperando —y
+                      hasta hoy se veían igual, así que se enviaban a revisión y el problema
+                      aparecía con el enlace ya en manos del cliente. */}
+                  {p.problema === "vacio" ? (
+                    <span
+                      title="El archivo pesa 0 bytes: la copia al NAS se cortó al empezar y no hay nada dentro. Hay que volver a copiarlo."
+                      className="shrink-0 rounded bg-red-100 px-1.5 py-px text-[10px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300"
+                    >
+                      vacío
+                    </span>
+                  ) : p.problema === "fallo" ? (
+                    <span
+                      title="La fábrica ya lo intentó y no pudo (lo más común: el índice a medio escribir, de una grabación o una copia interrumpida). Esperar no lo arregla."
+                      className="shrink-0 rounded bg-red-100 px-1.5 py-px text-[10px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300"
+                    >
+                      no se pudo
+                    </span>
+                  ) : p.video && !p.copia ? (
                     <span
                       title="La copia ligera la fabrica la GPU de LabTem. Hasta que esté, un master no se reproduce en el navegador (un H.264 sí)."
                       className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
