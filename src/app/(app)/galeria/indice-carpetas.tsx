@@ -4,7 +4,8 @@ import * as React from "react";
 import { Check, ChevronDown, ChevronRight, Folder, LayoutGrid, List, Search, SortAsc } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
-import { cerrarMenu, usePreferenciaLocal } from "@/components/ui/barra-menu";
+import { cerrarMenu } from "@/components/ui/barra-menu";
+import { usePreferenciaUsuario } from "@/components/ui/pref-usuario";
 import { Miniatura } from "@/components/discos/miniatura";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
 
@@ -103,17 +104,23 @@ export function IndiceCarpetas({
   // subcarpetas dentro de una entrega: solo las fichas, porque el nivel ya tiene su barra
   // (CabeceraEntrega) y duplicar buscadores confunde más de lo que ayuda.
   variante = "indice",
+  vistaInicial,
+  ordenInicial,
 }: {
   folders: GaleriaFolder[];
   duenos?: Record<string, DuenoIndice>;
   onAbrir: (rel: string) => void;
   variante?: "indice" | "seccion";
+  // Lo que ESTA persona dejó elegido la última vez (viene de su perfil, no del navegador):
+  // «a mí me gusta por nombre» la sigue a cualquier equipo.
+  vistaInicial?: "lista" | "cuadricula";
+  ordenInicial?: Orden;
 }) {
   const [resumenes, setResumenes] = React.useState<Record<string, Resumen>>({});
-  const [orden, setOrden] = React.useState<Orden>("reciente");
   const [busca, setBusca] = React.useState("");
-  // La misma preferencia por navegador que el resto de exploradores de discos.
-  const [vista, setVista] = usePreferenciaLocal<"lista" | "cuadricula">("galeria-indice-vista", "cuadricula");
+  // Vista y orden se guardan en el PERFIL de quien elige, no en el navegador.
+  const [orden, setOrden] = usePreferenciaUsuario<Orden>("galeria.orden", ordenInicial, "reciente");
+  const [vista, setVista] = usePreferenciaUsuario<"lista" | "cuadricula">("galeria.vista", vistaInicial, "cuadricula");
 
   // Los resúmenes se piden en tandas y el resultado se guarda por carpeta. `vivo` corta el
   // goteo si se sale de la pantalla a media carga: sin él, seguiría pidiendo carpeta a
@@ -189,7 +196,7 @@ export function IndiceCarpetas({
             <span className="min-w-0 flex-1">
               <span className="flex w-full items-center gap-2">
                 <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
-                <span className="min-w-0 flex-1 truncate text-xs font-medium">{f.name.replace(/_/g, " ")}</span>
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold">{f.name.replace(/_/g, " ")}</span>
               </span>
               <span className="block truncate pl-6 text-[10px] opacity-75">{metaDe(r)}</span>
             </span>
@@ -289,7 +296,7 @@ export function IndiceCarpetas({
                       <Folder className="size-4 text-[#F47A20]" />
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{f.name.replace(/_/g, " ")}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold">{f.name.replace(/_/g, " ")}</span>
                   {dueno ? (
                     <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-semibold", tone(dueno.color ?? "slate").chip)}>
                       {dueno.nombre}

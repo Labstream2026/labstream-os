@@ -89,6 +89,10 @@ model User {
   // Token secreto del feed de suscripción de calendario (webcal/ics de solo lectura para
   // Google/Apple/Outlook). null = feed sin generar; rotarlo revoca el enlace anterior.
   calendarFeedToken String? @unique
+  // Preferencias de interfaz de ESTA persona (vista lista/cuadrícula, orden del índice…),
+  // como objeto plano {clave: valor}. En la base y no en localStorage: siguen a la persona
+  // de un equipo a otro. Claves permitidas en prefs-actions (allowlist).
+  uiPrefs Json?
   // Última vez que se le envió el resumen semanal del portal del cliente (correo del viernes).
   // Solo aplica a usuarios con rol cliente; null = nunca se le ha enviado.
   clientDigestAt DateTime?

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Check, ChevronRight, Copy, Download, FolderInput, Link2, Loader2, Pencil, ShieldOff, Trash2, X } from "lucide-react";
-import { borrarGaleria, moverGaleria, renombrarGaleria } from "./herramientas-actions";
+import { borrarGaleria, moverGaleria, copiarGaleria, renombrarGaleria } from "./herramientas-actions";
 import { crearEnlaceSeleccion, revocarEnlaceSeleccion } from "./acciones";
 import type { GaleriaFolder } from "@/lib/nas-galeria";
 
@@ -21,17 +21,20 @@ type Props = {
   peso?: string | null;
   onLimpiar: () => void;
   onHecho: () => void; // releer la carpeta: el material cambió
-  puedeEscribir: boolean;
+  // Dos llaves, no una: reorganizar (mover/copiar/renombrar) y borrar son confianzas
+  // distintas — un practicante puede ordenar sin poder mandar nada a la papelera.
+  puedeOrganizar: boolean;
+  puedeBorrar: boolean;
 };
 
 function nombreDe(rel: string): string {
   return rel.split("/").pop() || rel;
 }
 
-export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscribir }: Props) {
+export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeOrganizar, puedeBorrar }: Props) {
   const [ocupado, setOcupado] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [dialogo, setDialogo] = React.useState<null | "borrar" | "mover" | "renombrar" | "compartir">(null);
+  const [dialogo, setDialogo] = React.useState<null | "borrar" | "mover" | "copiar" | "renombrar" | "compartir">(null);
 
   if (seleccion.length === 0) return null;
   const uno = seleccion.length === 1;
@@ -67,6 +70,12 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
     setOcupado(true);
     setError(null);
     tras(await moverGaleria(seleccion, destino));
+  };
+
+  const copiarA = async (destino: string) => {
+    setOcupado(true);
+    setError(null);
+    tras(await copiarGaleria(seleccion, destino));
   };
 
   const renombrar = async (nombre: string) => {
@@ -121,7 +130,7 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
             <Link2 className="size-4" /> Compartir
           </button>
 
-          {puedeEscribir && (
+          {puedeOrganizar && (
             <>
               {uno && (
                 <button
@@ -138,12 +147,21 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
                 <FolderInput className="size-4" /> Mover
               </button>
               <button
-                onClick={() => setDialogo("borrar")}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-destructive transition hover:bg-destructive/10"
+                onClick={() => setDialogo("copiar")}
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition hover:bg-accent"
+                title="Duplicar en otra carpeta; el original se queda donde está"
               >
-                <Trash2 className="size-4" /> Borrar
+                <Copy className="size-4" /> Copiar a…
               </button>
             </>
+          )}
+          {puedeBorrar && (
+            <button
+              onClick={() => setDialogo("borrar")}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-destructive transition hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" /> Borrar
+            </button>
           )}
 
           <span className="mx-0.5 h-5 w-px bg-border" />
@@ -178,6 +196,17 @@ export function BarraSeleccion({ seleccion, peso, onLimpiar, onHecho, puedeEscri
       {dialogo === "mover" && (
         <Modal titulo={uno ? "Mover a…" : `Mover ${seleccion.length} elementos a…`} onCerrar={cerrar}>
           <SelectorCarpeta ocupado={ocupado} onElegir={mover} />
+          {error && <Fallo texto={error} />}
+          <div className="mt-4 flex justify-end">
+            <Boton onClick={cerrar}>Cancelar</Boton>
+          </div>
+        </Modal>
+      )}
+
+      {dialogo === "copiar" && (
+        <Modal titulo={uno ? "Copiar a…" : `Copiar ${seleccion.length} elementos a…`} onCerrar={cerrar}>
+          {/* El mismo selector que Mover: la única diferencia es que el original se queda. */}
+          <SelectorCarpeta ocupado={ocupado} onElegir={copiarA} />
           {error && <Fallo texto={error} />}
           <div className="mt-4 flex justify-end">
             <Boton onClick={cerrar}>Cancelar</Boton>

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Images } from "lucide-react";
 import { getSession, hasPermission } from "@/lib/auth";
+import { leerPreferenciasUI } from "@/app/(app)/prefs-actions";
 import { canAccessProject } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { db } from "@/lib/db";
@@ -105,6 +106,8 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   // desplegados, para que el sitio donde te encuentras no parpadee al cargar.
   const niveles = await espinaDelArbol(relNorm);
   const duenosArbol = await duenosDeRamas(niveles);
+  // Vista y orden que ESTA persona dejó elegidos (de su perfil): el índice abre como le gusta.
+  const prefsUI = await leerPreferenciasUI();
 
   // La cabecera del disco: registro de la Biblioteca + ocupación EN VIVO. Solo en la raíz —
   // dentro de una entrega manda el material, y la cabecera repetida sería ruido.
@@ -149,7 +152,16 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
       />
       {/* `rel` viene del servidor y es LA fuente de verdad: el visor navega con router.push
           y las dos mitades (barra y cuadrícula) siempre ven la misma carpeta. */}
-      <GaleriaCliente rel={relNorm} puedeEscribir={puedeEscribir && escrituraLista} duenos={Object.fromEntries(duenoPorRel)} />
+      <GaleriaCliente
+        rel={relNorm}
+        puedeOrganizar={session.role !== "demo" && escrituraLista && hasPermission(session, "organizar_discos")}
+        puedeBorrar={session.role !== "demo" && escrituraLista && hasPermission(session, "borrar_discos")}
+        duenos={Object.fromEntries(duenoPorRel)}
+        prefs={{
+          vista: prefsUI["galeria.vista"] as "lista" | "cuadricula" | undefined,
+          orden: prefsUI["galeria.orden"] as "reciente" | "nombre" | "tamano" | undefined,
+        }}
+      />
       <EntregasCompartidas
         entregas={(await listarEntregas()).map((e) => ({
           folderRel: e.folderRel,

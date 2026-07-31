@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { HardDrive } from "lucide-react";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
+import { leerPreferenciasUI } from "@/app/(app)/prefs-actions";
 import { db } from "@/lib/db";
 import { opsEnabled, opsReady, opsDiskUsage } from "@/lib/nas-ops";
 import { galeriaEnabled } from "@/lib/nas-galeria";
@@ -42,12 +43,18 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
   // La cabecera del disco: los datos de su registro en la Biblioteca + la ocupación EN VIVO
   // (statfs del montaje). Si el disco no está dado de alta, la pantalla funciona igual sin
   // cabecera: el explorador no depende de que exista la fila.
-  const [disco, uso, ooReady] = await Promise.all([
+  const [disco, uso, ooReady, prefs] = await Promise.all([
     db.storageDisk.findFirst({ where: { mountKey: "OPS" } }).catch(() => null),
     opsDiskUsage(),
     onlyofficeReady(),
+    leerPreferenciasUI(),
   ]);
   const now = new Date();
+  // Las tres llaves de los discos, cada botón con la suya (el servidor las vuelve a exigir).
+  const esDemo = session.role === "demo";
+  const canWrite = !esDemo && hasPermission(session, "escribir_discos");
+  const canOrganizar = !esDemo && hasPermission(session, "organizar_discos");
+  const canBorrar = !esDemo && hasPermission(session, "borrar_discos");
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
@@ -73,7 +80,10 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
       ) : null}
       <OpsExplorer
         initialPath={path || ""}
-        canWrite={session.role !== "demo"}
+        canWrite={canWrite}
+        canOrganizar={canOrganizar}
+        canBorrar={canBorrar}
+        vistaInicial={prefs["discos.vista"] as "lista" | "cuadricula" | undefined}
         ooReady={ooReady}
       />
     </div>

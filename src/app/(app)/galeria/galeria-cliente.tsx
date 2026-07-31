@@ -74,12 +74,20 @@ type Filtro = "todo" | GaleriaKind;
 
 export function GaleriaCliente({
   rel,
-  puedeEscribir,
+  puedeOrganizar,
+  puedeBorrar,
   duenos,
+  prefs,
 }: {
   rel: string;
-  puedeEscribir: boolean;
+  // Las llaves de la barra de selección: reorganizar (mover/copiar/renombrar) y borrar son
+  // permisos distintos — la barra enseña solo lo que esta persona puede hacer.
+  puedeOrganizar: boolean;
+  puedeBorrar: boolean;
   duenos: Record<string, DuenoIndice>;
+  // Preferencias de ESTA persona leídas de su perfil (vista y orden del índice): la elección
+  // la sigue a cualquier navegador.
+  prefs?: { vista?: "lista" | "cuadricula"; orden?: "reciente" | "nombre" | "tamano" };
 }) {
   const router = useRouter();
   // El modo se lee del navegador ya en el primer render. No rompe la hidratación porque
@@ -278,7 +286,7 @@ export function GaleriaCliente({
             onReintentar={recargar}
           />
         ) : (
-          <IndiceCarpetas folders={datos.folders} duenos={duenos} onAbrir={abrirCarpeta} />
+          <IndiceCarpetas folders={datos.folders} duenos={duenos} onAbrir={abrirCarpeta} vistaInicial={prefs?.vista} ordenInicial={prefs?.orden} />
         )}
       </div>
     );
@@ -348,7 +356,8 @@ export function GaleriaCliente({
           peso={rels.length > 0 && pesoSeleccion > 0 ? pesar(pesoSeleccion) : null}
           onLimpiar={limpiarSeleccion}
           onHecho={recargar}
-          puedeEscribir={puedeEscribir}
+          puedeOrganizar={puedeOrganizar}
+          puedeBorrar={puedeBorrar}
         />
 
         {abiertoReal && (
@@ -445,7 +454,8 @@ export function GaleriaCliente({
         peso={rels.length > 0 && pesoSeleccion > 0 ? pesar(pesoSeleccion) : null}
         onLimpiar={limpiarSeleccion}
         onHecho={recargar}
-        puedeEscribir={puedeEscribir}
+        puedeOrganizar={puedeOrganizar}
+        puedeBorrar={puedeBorrar}
       />
 
       {abiertoReal && (

@@ -51,7 +51,11 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // crear carpetas, subir material y mandar a la papelera de red. Aparte de subir_archivos
   // porque aquí se toca la carpeta compartida real del equipo (visible por SMB), no el
   // storage interno de la app — un descuido pesa mucho más.
-  { key: "escribir_discos", label: "Escribir en los discos (Operaciones y Galería)", category: "Archivos" },
+  { key: "escribir_discos", label: "Escribir en los discos (subir y crear carpetas)", category: "Archivos" },
+  // Tres llaves y no una: subir material, reorganizarlo y borrarlo son confianzas distintas.
+  // Un practicante puede subir sin poder borrar; un editor reorganiza sin tocar la papelera.
+  { key: "organizar_discos", label: "Organizar los discos (mover, copiar y renombrar)", category: "Archivos" },
+  { key: "borrar_discos", label: "Borrar en los discos (papelera del NAS)", category: "Archivos" },
   // Cotizaciones
   { key: "ver_cotizaciones", label: "Ver cotizaciones", category: "Cotizaciones" },
   { key: "crear_cotizaciones", label: "Crear cotizaciones", category: "Cotizaciones" },
@@ -265,6 +269,29 @@ export async function ensureDiscosDefault(): Promise<void> {
   if (conSubir.length) {
     await db.rolePermission.createMany({
       data: [...new Set(conSubir.map((r) => r.roleId))].map((roleId) => ({ roleId, permissionId: perm.id })),
+      skipDuplicates: true,
+    });
+  }
+}
+
+// `organizar_discos` y `borrar_discos` desgajan de `escribir_discos` el mover/copiar/renombrar
+// y la papelera. Para no quitarle a nadie lo que ya hacía, la primera vez se conceden a todos
+// los roles que hoy tienen `escribir_discos`; después el admin recorta persona a persona.
+// Idempotente por permiso: si alguien ya lo tiene, ese backfill ya corrió.
+export async function ensureDiscosGranularDefault(): Promise<void> {
+  const conEscribir = await db.rolePermission.findMany({
+    where: { permission: { key: "escribir_discos" } },
+    select: { roleId: true },
+  });
+  if (conEscribir.length === 0) return; // el backfill de escribir_discos aún no corrió
+  const roleIds = [...new Set(conEscribir.map((r) => r.roleId))];
+  for (const key of ["organizar_discos", "borrar_discos"]) {
+    const perm = await db.permission.findUnique({ where: { key }, select: { id: true } });
+    if (!perm) continue;
+    const already = await db.rolePermission.count({ where: { permissionId: perm.id } });
+    if (already > 0) continue;
+    await db.rolePermission.createMany({
+      data: roleIds.map((roleId) => ({ roleId, permissionId: perm.id })),
       skipDuplicates: true,
     });
   }

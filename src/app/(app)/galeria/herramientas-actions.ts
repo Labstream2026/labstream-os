@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/auth";
 import { canWriteProject } from "@/lib/project-access";
-import { galeriaWriteSession } from "@/lib/galeria-access";
+import { galeriaWriteSession, galeriaPermSession } from "@/lib/galeria-access";
 import {
   createGaleriaFolder,
   writeGaleria,
@@ -13,6 +13,7 @@ import {
   sanitizeGaleriaName,
   trashGaleria,
   moveGaleria,
+  copyGaleria,
   renameGaleria,
 } from "@/lib/nas-galeria";
 import { conflictoDeVinculo } from "@/lib/galeria-vinculos";
@@ -121,8 +122,8 @@ async function porLotes(rels: string[], hacer: (rel: string) => Promise<unknown>
 }
 
 export async function borrarGaleria(rels: string[]): Promise<ResultadoLote> {
-  const session = await galeriaWriteSession();
-  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  const session = await galeriaPermSession("borrar_discos");
+  if (!session) return { error: "Necesitas el permiso «Borrar en los discos»." };
   if (!Array.isArray(rels) || rels.length === 0) return { error: "No se indicó qué borrar." };
   if (rels.length > MAX_LOTE) return { error: `Demasiados elementos de una vez (máximo ${MAX_LOTE}).` };
 
@@ -144,8 +145,8 @@ export async function borrarGaleria(rels: string[]): Promise<ResultadoLote> {
 }
 
 export async function moverGaleria(rels: string[], destino: string): Promise<ResultadoLote> {
-  const session = await galeriaWriteSession();
-  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  const session = await galeriaPermSession("organizar_discos");
+  if (!session) return { error: "Necesitas el permiso «Organizar los discos»." };
   if (!Array.isArray(rels) || rels.length === 0) return { error: "No se indicó qué mover." };
   if (rels.length > MAX_LOTE) return { error: `Demasiados elementos de una vez (máximo ${MAX_LOTE}).` };
 
@@ -177,9 +178,44 @@ export async function moverGaleria(rels: string[], destino: string): Promise<Res
   return { ok: true, hechos, fallos };
 }
 
+// Copiar (pegar) piezas o carpetas en otra carpeta del disco: mismo contrato que mover,
+// pero el original se queda. Llave: organizar_discos.
+export async function copiarGaleria(rels: string[], destino: string): Promise<ResultadoLote> {
+  const session = await galeriaPermSession("organizar_discos");
+  if (!session) return { error: "Necesitas el permiso «Organizar los discos»." };
+  if (!Array.isArray(rels) || rels.length === 0) return { error: "No se indicó qué copiar." };
+  if (rels.length > MAX_LOTE) return { error: `Demasiados elementos de una vez (máximo ${MAX_LOTE}).` };
+
+  let destinoNorm: string;
+  try {
+    destinoNorm = normalizeGaleriaRel(destino);
+  } catch {
+    return { error: "La carpeta de destino no es válida." };
+  }
+  if (!destinoNorm) return { error: "Elige una carpeta de destino: en la raíz no se sueltan archivos." };
+  const st = await statGaleria(destinoNorm);
+  if (!st?.dir) return { error: "La carpeta de destino ya no existe en el disco." };
+
+  const { hechos, fallos } = await porLotes(rels, (rel) => copyGaleria(rel, destinoNorm));
+  if (hechos > 0) {
+    await logActivity({
+      action: "galeria.copiado",
+      summary:
+        hechos === 1
+          ? `copió «${nombreDe(rels[0]!)}» a «${destinoNorm}» en la galería`
+          : `copió ${hechos} elementos de la galería a «${destinoNorm}»`,
+      entityType: "galeria",
+      entityId: destinoNorm,
+      userId: session.id,
+    });
+    revalidatePath("/galeria");
+  }
+  return { ok: true, hechos, fallos };
+}
+
 export async function renombrarGaleria(rel: string, nombre: string): Promise<Resultado> {
-  const session = await galeriaWriteSession();
-  if (!session) return { error: "Necesitas el permiso «Escribir en los discos»." };
+  const session = await galeriaPermSession("organizar_discos");
+  if (!session) return { error: "Necesitas el permiso «Organizar los discos»." };
   if (!nombre.trim()) return { error: "Escribe un nombre." };
   try {
     const antes = nombreDe(normalizeGaleriaRel(rel));

@@ -214,8 +214,10 @@ function Rama({
                 onClick={() => ir(f.rel)}
                 title={dueno ? `Carpeta de ${dueno.nombre}` : f.name.replace(/_/g, " ")}
                 className={cn(
-                  "flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left",
-                  activa ? "font-semibold text-primary" : "text-foreground/80",
+                  // El nombre de la carpeta SIEMPRE en negrilla (pedido del estudio: se lee
+                  // de un golpe); la activa se distingue por el color, no por el peso.
+                  "flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left font-semibold",
+                  activa ? "text-primary" : "text-foreground/80",
                 )}
               >
                 {t ? <span className={cn("size-1.5 shrink-0 rounded-full", t.dot)} /> : null}

@@ -265,6 +265,22 @@ export async function moveOps(rel: string, destDir: string): Promise<string> {
   return dest ? `${dest}/${name}` : name;
 }
 
+// Copiar un archivo o una carpeta (recursiva) a otra carpeta del disco. El original no se
+// toca; si en el destino ya hay algo con ese nombre, la copia llega como «nombre (2)», igual
+// que al mover. Copiarse DENTRO de sí misma se rechaza: se clonaría hasta llenar el disco.
+export async function copyOps(rel: string, destDir: string): Promise<string> {
+  const norm = normalizeOpsRel(rel);
+  if (!norm) throw new Error("no se puede copiar la raíz");
+  const dest = normalizeOpsRel(destDir);
+  if (dest === norm || dest.startsWith(norm + "/")) throw new Error("no se puede copiar dentro de sí misma");
+  const abs = await opsAbs(norm);
+  const absDest = await opsAbs(dest);
+  if (!(await fs.stat(absDest)).isDirectory()) throw new Error("el destino no es una carpeta");
+  const name = await freeName(absDest, path.basename(abs));
+  await fs.cp(abs, path.join(absDest, name), { recursive: true, force: false, errorOnExist: true });
+  return dest ? `${dest}/${name}` : name;
+}
+
 // «Borrar» = mover a la papelera de la carpeta compartida (#recycle), conservando la subruta,
 // como hace DSM. Recuperable desde File Station; si la papelera no existía, se crea.
 export async function trashOps(rel: string): Promise<void> {

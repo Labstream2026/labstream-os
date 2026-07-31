@@ -6,6 +6,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ClipboardPaste,
+  Copy,
   File as FileIcon,
   FileSpreadsheet,
   FileText,
@@ -28,11 +30,12 @@ import {
   X,
 } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { cerrarMenu, usePreferenciaLocal } from "@/components/ui/barra-menu";
+import { cerrarMenu } from "@/components/ui/barra-menu";
+import { usePreferenciaUsuario } from "@/components/ui/pref-usuario";
 import { Miniatura, type TipoPieza } from "@/components/discos/miniatura";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
-import { opsCreateFolder, opsRename, opsMove, opsTrash } from "./actions";
+import { opsCreateFolder, opsRename, opsMove, opsCopy, opsTrash } from "./actions";
 
 type Entry = { name: string; rel: string; dir: boolean; size: number | null; mtimeMs: number; ext: string; miniatura?: boolean };
 // El dueño de una carpeta, cuando su nombre delata al cliente (lo resuelve el servidor con
@@ -83,7 +86,25 @@ function fileUrl(rel: string, download = false) {
 
 // Explorador EN VIVO de Operaciones_LAB: cada navegación lee el disco real, así que lo que
 // alguien suelte por el Finder/SMB aparece aquí al refrescar, sin sincronizar nada.
-export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: string; canWrite: boolean; ooReady: boolean }) {
+export function OpsExplorer({
+  initialPath,
+  canWrite,
+  canOrganizar,
+  canBorrar,
+  vistaInicial,
+  ooReady,
+}: {
+  initialPath: string;
+  // Tres llaves, no una: subir/crear (escribir_discos), mover/copiar/renombrar
+  // (organizar_discos) y papelera (borrar_discos). Cada botón sale solo con su llave — y el
+  // servidor vuelve a comprobarla, que los botones se pueden fabricar.
+  canWrite: boolean;
+  canOrganizar: boolean;
+  canBorrar: boolean;
+  // La vista que esta persona dejó elegida (de su perfil, no del navegador).
+  vistaInicial?: "lista" | "cuadricula";
+  ooReady: boolean;
+}) {
   const router = useRouter();
   const { confirm, dialog } = useConfirmDialog();
   const [path, setPath] = React.useState(initialPath);
@@ -91,14 +112,18 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState("");
-  // Vista recordada por navegador, la misma preferencia que la ficha del disco en Biblioteca:
-  // quien busca material a ojo no debería volver a pedir la cuadrícula cada vez que entra.
-  const [vista, setVista] = usePreferenciaLocal<"lista" | "cuadricula">("disco-vista", "lista");
+  // La vista se guarda en el PERFIL de quien la elige: lo sigue a cualquier navegador.
+  const [vista, setVista] = usePreferenciaUsuario<"lista" | "cuadricula">("discos.vista", vistaInicial, "lista");
   const [newFolder, setNewFolder] = React.useState<string | null>(null); // null = cerrado; string = valor
   const [renaming, setRenaming] = React.useState<{ rel: string; value: string } | null>(null);
   const [moving, setMoving] = React.useState<Entry | null>(null);
   const [uploading, setUploading] = React.useState(0);
   const [notice, setNotice] = React.useState<string | null>(null);
+  // El portapapeles del disco: «Copiar» guarda la pieza aquí y «Pegar» la duplica donde
+  // estés parado. Vive en la pantalla (no cruza discos ni pestañas), y se queda cargado
+  // después de pegar: la misma pieza se puede soltar en varias carpetas seguidas.
+  const [porta, setPorta] = React.useState<{ rel: string; name: string } | null>(null);
+  const [pegando, setPegando] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async (p: string) => {
@@ -173,6 +198,16 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
       setRenaming(null);
       refresh();
     }
+  }
+
+  async function doPaste() {
+    if (!porta || pegando) return;
+    setPegando(true);
+    setNotice(null);
+    const r = await opsCopy(porta.rel, path);
+    setPegando(false);
+    if ("error" in r) setNotice(r.error);
+    else refresh();
   }
 
   async function doTrash(e: Entry) {
@@ -270,6 +305,24 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
           >
             <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
           </button>
+          {/* El portapapeles cargado: pega en la carpeta donde estés parado. La ✕ lo vacía. */}
+          {porta && canOrganizar ? (
+            <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-primary/40 bg-primary/5 pl-2 pr-1">
+              <button
+                type="button"
+                onClick={() => void doPaste()}
+                disabled={pegando}
+                title={`Duplicar «${porta.name}» dentro de esta carpeta`}
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+              >
+                {pegando ? <Loader2 className="size-3.5 animate-spin" /> : <ClipboardPaste className="size-3.5" />}
+                Pegar «{porta.name.length > 16 ? `${porta.name.slice(0, 15)}…` : porta.name}»
+              </button>
+              <button type="button" onClick={() => setPorta(null)} aria-label="Vaciar el portapapeles" className="rounded p-0.5 text-muted-foreground hover:bg-accent">
+                <X className="size-3" />
+              </button>
+            </span>
+          ) : null}
           {canWrite ? (
             <span className="relative shrink-0">
               <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => void doUpload(e.target.files)} />
@@ -382,7 +435,7 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                       )}
                     >
                       <Folder className={cn("size-4 shrink-0", dueno ? "opacity-70" : "text-[#F47A20]")} />
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium">{d.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">{d.name}</span>
                     </button>
                   );
                 })}
@@ -434,7 +487,7 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                     <>
                       <button onClick={() => go(d.rel)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                         <Folder className={cn("size-4 shrink-0", dueno ? "opacity-80" : "text-[#F47A20]")} />
-                        <span className="min-w-0 truncate text-sm font-medium">{d.name}</span>
+                        <span className="min-w-0 truncate text-sm font-semibold">{d.name}</span>
                         {/* La carpeta de un cliente se reconoce por SU color —el mismo de su
                             ficha y sus proyectos—, sin leer un solo nombre. */}
                         {dueno ? (
@@ -443,11 +496,12 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                           </span>
                         ) : null}
                       </button>
-                      {canWrite ? (
+                      {canOrganizar || canBorrar ? (
                         <RowActions
-                          onRename={() => setRenaming({ rel: d.rel, value: d.name })}
-                          onMove={() => setMoving(d)}
-                          onTrash={() => void doTrash(d)}
+                          onRename={canOrganizar ? () => setRenaming({ rel: d.rel, value: d.name }) : undefined}
+                          onMove={canOrganizar ? () => setMoving(d) : undefined}
+                          onCopy={canOrganizar ? () => setPorta({ rel: d.rel, name: d.name }) : undefined}
+                          onTrash={canBorrar ? () => void doTrash(d) : undefined}
                         />
                       ) : null}
                       <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
@@ -501,11 +555,12 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
                       >
                         Descargar
                       </a>
-                      {canWrite ? (
+                      {canOrganizar || canBorrar ? (
                         <RowActions
-                          onRename={() => setRenaming({ rel: f.rel, value: f.name })}
-                          onMove={() => setMoving(f)}
-                          onTrash={() => void doTrash(f)}
+                          onRename={canOrganizar ? () => setRenaming({ rel: f.rel, value: f.name }) : undefined}
+                          onMove={canOrganizar ? () => setMoving(f) : undefined}
+                          onCopy={canOrganizar ? () => setPorta({ rel: f.rel, name: f.name }) : undefined}
+                          onTrash={canBorrar ? () => void doTrash(f) : undefined}
                         />
                       ) : null}
                     </>
@@ -552,12 +607,15 @@ export function OpsExplorer({ initialPath, canWrite, ooReady }: { initialPath: s
   );
 }
 
-function RowActions({ onRename, onMove, onTrash }: { onRename: () => void; onMove: () => void; onTrash: () => void }) {
+// Cada botón sale solo si llega su handler: el llamador los pasa según las LLAVES de la
+// persona (organizar_discos para renombrar/mover/copiar, borrar_discos para la papelera).
+function RowActions({ onRename, onMove, onCopy, onTrash }: { onRename?: () => void; onMove?: () => void; onCopy?: () => void; onTrash?: () => void }) {
   return (
     <span className="hidden items-center gap-1 group-hover:flex">
-      <button onClick={onRename} title="Renombrar" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="size-4" /></button>
-      <button onClick={onMove} title="Mover a otra carpeta" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><FolderInput className="size-4" /></button>
-      <button onClick={onTrash} title="Mover a la papelera" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-red-500"><Trash2 className="size-4" /></button>
+      {onRename ? <button onClick={onRename} title="Renombrar" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="size-4" /></button> : null}
+      {onMove ? <button onClick={onMove} title="Mover a otra carpeta" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><FolderInput className="size-4" /></button> : null}
+      {onCopy ? <button onClick={onCopy} title="Copiar (después pegas donde quieras)" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><Copy className="size-4" /></button> : null}
+      {onTrash ? <button onClick={onTrash} title="Mover a la papelera" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-red-500"><Trash2 className="size-4" /></button> : null}
     </span>
   );
 }

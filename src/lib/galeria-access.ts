@@ -14,11 +14,17 @@ export async function galeriaSession(): Promise<SessionUser | null> {
   return session;
 }
 
-// ESCRIBIR en la galería (crear carpetas, subir, papelera, vincular): equipo interno con el
-// permiso `escribir_discos`. Misma vara que Operaciones — la carpeta compartida real del
-// equipo no se toca «porque tengo cuenta».
+// ESCRIBIR en la galería (crear carpetas, subir, vincular): equipo interno con el permiso
+// `escribir_discos`. Misma vara que Operaciones — la carpeta compartida real del equipo no
+// se toca «porque tengo cuenta».
 export async function galeriaWriteSession(): Promise<SessionUser | null> {
+  return galeriaPermSession("escribir_discos");
+}
+
+// La versión con la llave explícita: mover/copiar/renombrar piden `organizar_discos` y la
+// papelera pide `borrar_discos`. Tres confianzas distintas, tres llaves (ver permissions).
+export async function galeriaPermSession(permiso: string): Promise<SessionUser | null> {
   const session = await galeriaSession();
-  if (!session || session.role === "demo" || !hasPermission(session, "escribir_discos")) return null;
+  if (!session || session.role === "demo" || !hasPermission(session, permiso)) return null;
   return session;
 }
