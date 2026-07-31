@@ -43,10 +43,12 @@ export type SiigoFactura = {
   nombre: string; // «FV-1-2311»
   fecha: string; // YYYY-MM-DD
   cliente: string;
-  total: number;
-  saldo: number;
+  total: number; // SIEMPRE en pesos (si la factura es en divisa, convertido con su tasa)
+  saldo: number; // en pesos (el libro de cartera de Siigo es COP)
   vence: string | null; // YYYY-MM-DD (del plazo de pago); null = sin plazo anotado
   dian: string | null; // estado del timbre electrónico, tal cual lo dice Siigo
+  moneda: string | null; // divisa del documento si NO es COP («EUR», «USD»…)
+  totalMoneda: number | null; // el total en esa divisa, para decirlo en la fila
 };
 
 export type SiigoMovimiento = {
@@ -196,11 +198,22 @@ function hoyBogota(): string {
 
 // ── Armar los datos ────────────────────────────────────────────────────────────
 
+// Documentos en OTRA moneda: Siigo manda el total en la divisa del documento y el balance
+// en pesos (el libro de cartera es COP) — sin convertir, una factura de 5.643 EUR salía
+// con «saldo mayor que el total». Todo a COP con la tasa del propio documento.
+function monedaDe(v: J): { codigo: string | null; tasa: number } {
+  const d = obj(v.currency);
+  const codigo = texto(d.code);
+  return { codigo: codigo && codigo !== "COP" ? codigo : null, tasa: num(d.exchange_rate) };
+}
+
 function parseFactura(f: J, clientes: Map<string, string>): SiigoFactura | null {
   const id = texto(f.id);
   const fecha = texto(f.date).slice(0, 10);
   if (!id || !fecha) return null;
   const cli = obj(f.customer);
+  const { codigo: moneda, tasa } = monedaDe(f);
+  const totalDoc = num(f.total);
   const pagos = lista(f.payments).map(obj);
   // El plazo: la fecha de vencimiento más lejana de sus formas de pago (crédito a 30, etc.).
   const vence = pagos
@@ -217,10 +230,12 @@ function parseFactura(f: J, clientes: Map<string, string>): SiigoFactura | null 
     nombre: texto(f.name) || `FV ${texto(f.number) || id.slice(0, 6)}`,
     fecha,
     cliente: clientes.get(texto(cli.id)) || texto(cli.identification) || "—",
-    total: num(f.total),
+    total: moneda && tasa > 0 ? totalDoc * tasa : totalDoc,
     saldo: saldoCrudo < 1 ? 0 : saldoCrudo,
     vence,
     dian: texto(obj(f.stamp).status) || null,
+    moneda,
+    totalMoneda: moneda ? totalDoc : null,
   };
 }
 
@@ -262,26 +277,30 @@ export async function datosSiigo(): Promise<SiigoResultado> {
         .filter((f): f is SiigoFactura => f !== null)
         .sort((a, b) => (a.fecha === b.fecha ? b.nombre.localeCompare(a.nombre) : b.fecha.localeCompare(a.fecha)));
 
-      // Recibos de caja: la plata que ENTRÓ. El valor puede venir en payment o en items.
+      // Recibos de caja: la plata que ENTRÓ. El valor puede venir en payment o en items,
+      // y si el documento es en divisa, a COP con su tasa (misma regla que las facturas).
       const recibos = crudosRecibos.map((r) => {
         const v = obj(r);
         const items = lista(v.items).map(obj);
-        const valor = num(obj(v.payment).value) || items.reduce((n, i) => n + num(i.value), 0) || num(v.total);
+        const { codigo, tasa } = monedaDe(v);
+        const valorDoc = num(obj(v.payment).value) || items.reduce((n, i) => n + num(i.value), 0) || num(v.total);
         return {
           nombre: texto(v.name) || "RC",
           fecha: texto(v.date).slice(0, 10),
           cliente: clientes.get(texto(obj(v.customer).id)) || texto(obj(v.customer).identification) || "—",
-          valor,
+          valor: codigo && tasa > 0 ? valorDoc * tasa : valorDoc,
         };
       }).filter((r) => r.fecha);
 
       const notas = crudasNotas.map((n) => {
         const v = obj(n);
+        const { codigo, tasa } = monedaDe(v);
+        const valorDoc = num(v.total);
         return {
           nombre: texto(v.name) || "NC",
           fecha: texto(v.date).slice(0, 10),
           cliente: clientes.get(texto(obj(v.customer).id)) || texto(obj(v.customer).identification) || "—",
-          valor: num(v.total),
+          valor: codigo && tasa > 0 ? valorDoc * tasa : valorDoc,
         };
       }).filter((n) => n.fecha);
 

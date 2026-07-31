@@ -197,6 +197,16 @@ function TablaFacturas({ facturas, filtro, hoy }: { facturas: SiigoFactura[]; fi
                   <tr key={f.id} className="border-b border-border last:border-0 hover:bg-muted/20">
                     <td className="px-4 py-2.5">
                       <span className="font-mono text-xs font-medium">{f.nombre}</span>
+                      {/* Factura en divisa: el total de la fila ya está en pesos (tasa del
+                          documento) y el chip dice la moneda original. */}
+                      {f.moneda ? (
+                        <span
+                          className="ml-1.5 rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold text-muted-foreground"
+                          title={`Emitida en ${f.moneda}${f.totalMoneda != null ? ` (${f.totalMoneda.toLocaleString("es-CO")} ${f.moneda})` : ""} · el total se muestra en pesos con la tasa del documento`}
+                        >
+                          {f.moneda}
+                        </span>
+                      ) : null}
                       {/* El timbre electrónico solo habla cuando algo NO está aceptado. */}
                       {f.dian && f.dian.toLowerCase() !== "accepted" ? (
                         <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Estado del documento electrónico ante la DIAN, según Siigo">
