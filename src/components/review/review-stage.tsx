@@ -11,7 +11,7 @@ import { formatTimecode } from "@/lib/ui";
 // esta línea. La librería se carga con `import()` y únicamente cuando hay escalera que
 // reproducir (ver el efecto de la escalera adaptativa, más abajo).
 import type HlsPlayer from "hls.js";
-import { ReproductorVivo, alturasUtiles, type VivoDatos } from "@/lib/vivo-cliente";
+import { ReproductorVivo, calidadesUtiles, type VivoDatos } from "@/lib/vivo-cliente";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -2373,9 +2373,9 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
   const [vivoSel, setVivoSel] = React.useState<{ src: string; alto: number } | null>(null);
   const [menuEn, setMenuEn] = React.useState<string | null>(null);
   const vivoDatos = vivoRes?.src === mp4Src ? vivoRes.datos : null;
-  const vivoAlto = vivoSel?.src === mp4Src ? vivoSel.alto : null;
+  const vivoCalidad = vivoSel?.src === mp4Src ? vivoSel.alto : null;
   const menuCalidad = menuEn != null && menuEn === mp4Src;
-  const setVivoAlto = React.useCallback(
+  const setVivoCalidad = React.useCallback(
     (alto: number | null) => setVivoSel(alto == null || !mp4Src ? null : { src: mp4Src, alto }),
     [mp4Src],
   );
@@ -2383,7 +2383,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     (abierto: boolean) => setMenuEn(abierto && mp4Src ? mp4Src : null),
     [mp4Src],
   );
-  const vivoOpciones = React.useMemo(() => alturasUtiles(vivoDatos), [vivoDatos]);
+  const vivoCalidades = React.useMemo(() => calidadesUtiles(vivoDatos), [vivoDatos]);
   const enDisco = version?.enDisco ?? false;
 
   // Se pregunta solo por las piezas del disco de LabTem: son las únicas que su GPU alcanza, y
@@ -2403,19 +2403,19 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
 
   const vivoMotor = React.useRef<ReproductorVivo | null>(null);
   React.useEffect(() => {
-    if (vivoAlto == null || !mp4Src) return;
+    if (vivoCalidad == null || !mp4Src) return;
     const el = videoRef.current;
-    const elegida = vivoOpciones.find((a) => a.alto === vivoAlto);
+    const elegida = vivoCalidades.find((c) => c.calidad === vivoCalidad);
     if (!el || !elegida || !vivoDatos?.duracion) return;
     const punto = el.currentTime || 0;
     const motor = new ReproductorVivo({
       video: el,
       duracion: vivoDatos.duracion,
       codecs: elegida.codecs,
-      url: (desde) => `${mp4Src}&vivo=${vivoAlto}&desde=${desde}`,
+      url: (desde) => `${mp4Src}&vivo=${vivoCalidad}&desde=${desde}`,
       // La GPU llena o el chorro caído no pueden dejar al revisor mirando un reproductor
       // parado: se vuelve solo a la fuente de siempre.
-      alFallar: () => setVivoAlto(null),
+      alFallar: () => setVivoCalidad(null),
     });
     vivoMotor.current = motor;
     motor.arrancar(punto);
@@ -2435,13 +2435,13 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       };
       el.addEventListener("loadedmetadata", alCargar);
     };
-  }, [vivoAlto, vivoOpciones, vivoDatos, mp4Src, setVivoAlto]);
+  }, [vivoCalidad, vivoCalidades, vivoDatos, mp4Src, setVivoCalidad]);
 
   React.useEffect(() => {
     const v = videoRef.current;
     // Con el modo al vuelo puesto, la escalera no se toca: el <video> ya tiene dueño y los dos
     // peleándose por él dejarían al revisor sin ninguno.
-    if (!v || !hlsSrc || vivoAlto != null) return;
+    if (!v || !hlsSrc || vivoCalidad != null) return;
     let vivo = true;
     const volverAlMp4 = () => {
       const el = videoRef.current;
@@ -2487,7 +2487,7 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       hlsRef.current = null;
       try { h?.destroy(); } catch { /* noop */ }
     };
-  }, [hlsSrc, mp4Src, vivoAlto]);
+  }, [hlsSrc, mp4Src, vivoCalidad]);
 
   // ── Zonas seguras del reel (solo equipo) ── overlay-guía sobre el video vertical con las
   // franjas donde TikTok/Instagram pintan SU interfaz encima; ciclo off → TikTok → Reels → off.
@@ -2773,35 +2773,35 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
               vive en el disco de LabTem, su GPU sabe decodificar ese códec y este navegador
               sabe reproducir lo que saldría. Con que falle una de las tres, no aparece — una
               opción que al pulsarla no hace nada es peor que no tenerla. */}
-          {vivoOpciones.length > 0 && !localFailed ? (
+          {vivoCalidades.length > 0 && !localFailed ? (
             <div className="absolute right-2 top-2 z-20 text-right">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); abrirMenu(!menuCalidad); }}
                 className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur transition hover:bg-black/80"
               >
-                {vivoAlto != null ? `Al vuelo · ${vivoAlto}p` : "Calidad"}
+                {vivoCalidad != null ? `Al vuelo · ${vivoCalidad}p` : "Calidad"}
               </button>
               {menuCalidad ? (
                 <div className="mt-1 overflow-hidden rounded-lg bg-black/85 backdrop-blur">
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setVivoAlto(null); abrirMenu(false); }}
-                    className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto == null ? "font-semibold text-white" : "text-white/70"}`}
+                    onClick={(e) => { e.stopPropagation(); setVivoCalidad(null); abrirMenu(false); }}
+                    className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad == null ? "font-semibold text-white" : "text-white/70"}`}
                   >
                     {hlsSrc ? "Automática" : "La de siempre"}
                   </button>
                   <p className="border-t border-white/15 px-4 pb-1 pt-2 text-left text-[9px] uppercase tracking-wide text-white/40">
                     Al vuelo
                   </p>
-                  {vivoOpciones.map((a) => (
+                  {vivoCalidades.map((a) => (
                     <button
-                      key={`vivo-${a.alto}`}
+                      key={`vivo-${a.calidad}`}
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setVivoAlto(a.alto); abrirMenu(false); }}
-                      className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto === a.alto ? "font-semibold text-white" : "text-white/70"}`}
+                      onClick={(e) => { e.stopPropagation(); setVivoCalidad(a.calidad); abrirMenu(false); }}
+                      className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad === a.calidad ? "font-semibold text-white" : "text-white/70"}`}
                     >
-                      {a.alto}p · {a.kbps >= 1000 ? `${(a.kbps / 1000).toFixed(1)} Mbps` : `${a.kbps} kbps`}
+                      {a.calidad}p · {a.kbps >= 1000 ? `${(a.kbps / 1000).toFixed(1)} Mbps` : `${a.kbps} kbps`}
                     </button>
                   ))}
                 </div>
@@ -2829,17 +2829,17 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
                   tarde» o «sube un export H.264 a mano» —que es justo el trabajo que la fábrica
                   existe para evitar—. Si la GPU de LabTem puede con esta pieza, aquí ya no hay
                   nada que esperar: se convierte mientras se mira, ahora. */}
-              {vivoOpciones.length > 0 ? (
+              {vivoCalidades.length > 0 ? (
                 <button
                   type="button"
                   onClick={() => {
                     // 720p es el punto dulce: se ve bien en la revisión y ocupa la tarjeta una
                     // dieciseisava parte. Si la pieza no llega a tanto, la mayor que dé.
-                    const elegida = vivoOpciones.find((a) => a.alto === 720) ?? vivoOpciones[0];
+                    const elegida = vivoCalidades.find((c) => c.calidad === 720) ?? vivoCalidades[0];
                     setLocalFailed(false);
                     setDiag(null);
                     proxyRetries.current = 0;
-                    setVivoAlto(elegida.alto);
+                    setVivoCalidad(elegida.calidad);
                   }}
                   className="mt-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:opacity-90"
                 >

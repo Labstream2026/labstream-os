@@ -36,7 +36,7 @@ describe("labtem-vivo · configuración", () => {
   });
 });
 
-describe("labtem-vivo · alturas", () => {
+describe("labtem-vivo · calidades", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -45,16 +45,16 @@ describe("labtem-vivo · alturas", () => {
     vi.restoreAllMocks();
   });
 
-  it("solo pasan las alturas de la lista cerrada", async () => {
-    const { esAlturaViva } = await import("@/lib/labtem-vivo");
-    for (const buena of [2160, 1440, 1080, 720, 480, 360]) expect(esAlturaViva(buena)).toBe(true);
-    // Lo que importa de verdad: el alto llega por la URL y termina en la orden de ffmpeg. Un
+  it("solo pasan las calidades de la lista cerrada", async () => {
+    const { esCalidadViva } = await import("@/lib/labtem-vivo");
+    for (const buena of [2160, 1440, 1080, 720, 480, 360]) expect(esCalidadViva(buena)).toBe(true);
+    // Lo que importa de verdad: el valor llega por la URL y termina en la orden de ffmpeg. Un
     // número raro no se «sanea», se rechaza.
-    for (const mala of [0, -1, 721, 1081, 99999, 1.5, NaN, Infinity]) expect(esAlturaViva(mala)).toBe(false);
-    for (const mala of ["720", "720; rm -rf /", null, undefined, {}, []]) expect(esAlturaViva(mala)).toBe(false);
+    for (const mala of [0, -1, 721, 1081, 99999, 1.5, NaN, Infinity]) expect(esCalidadViva(mala)).toBe(false);
+    for (const mala of ["720", "720; rm -rf /", null, undefined, {}, []]) expect(esCalidadViva(mala)).toBe(false);
   });
 
-  it("una altura fuera de lista no llega a pedir nada por la red", async () => {
+  it("una calidad fuera de lista no llega a pedir nada por la red", async () => {
     vi.stubEnv("LABTEM_VIVO_URL", "http://labtem.invalido:8099");
     vi.stubEnv("LABTEM_VIVO_SECRETO", "secreto-de-prueba");
     const m = await import("@/lib/labtem-vivo");
@@ -98,9 +98,9 @@ describe("vivo-cliente · qué calidades se ofrecen", () => {
     duracion: 120,
     audio: true,
     gpu: true,
-    alturas: [
-      { alto: 1080, kbps: 5000, codecs: "avc1.640029,mp4a.40.2" },
-      { alto: 720, kbps: 2500, codecs: "avc1.640029,mp4a.40.2" },
+    calidades: [
+      { calidad: 1080, w: 1920, h: 1080, kbps: 5000, codecs: "avc1.640029,mp4a.40.2" },
+      { calidad: 720, w: 1280, h: 720, kbps: 2500, codecs: "avc1.640029,mp4a.40.2" },
     ],
   };
 
@@ -117,40 +117,59 @@ describe("vivo-cliente · qué calidades se ofrecen", () => {
   }
 
   it("sin GPU que decodifique el original, no se ofrece nada", async () => {
-    const { alturasUtiles } = await conMediaSource(() => true);
-    expect(alturasUtiles({ ...base, gpu: false })).toEqual([]);
+    const { calidadesUtiles } = await conMediaSource(() => true);
+    expect(calidadesUtiles({ ...base, gpu: false })).toEqual([]);
   });
 
   it("sin duración tampoco, porque la barra de tiempo sería mentira", async () => {
-    const { alturasUtiles } = await conMediaSource(() => true);
+    const { calidadesUtiles } = await conMediaSource(() => true);
     // Un chorro que se genera sobre la marcha no sabe dónde termina: la duración sale del
     // original. Sin ella el reproductor tendría barra pero no significaría nada, y eso es peor
     // que no tener modo al vuelo.
-    expect(alturasUtiles({ ...base, duracion: null })).toEqual([]);
-    expect(alturasUtiles({ ...base, duracion: 0 })).toEqual([]);
+    expect(calidadesUtiles({ ...base, duracion: null })).toEqual([]);
+    expect(calidadesUtiles({ ...base, duracion: 0 })).toEqual([]);
   });
 
   it("se descartan las calidades que este navegador no sabe reproducir", async () => {
     // El caso real: un 4K ofrecería avc1.640033 (nivel 5.1) y hay equipos que no lo admiten.
     // Enseñarlo igualmente daría un botón que al pulsarlo deja el vídeo negro.
-    const { alturasUtiles } = await conMediaSource((t) => !t.includes("640033"));
+    const { calidadesUtiles } = await conMediaSource((t) => !t.includes("640033"));
     const con4k = {
       ...base,
-      alturas: [{ alto: 2160, kbps: 16000, codecs: "avc1.640033,mp4a.40.2" }, ...base.alturas],
+      calidades: [{ calidad: 2160, w: 3840, h: 2160, kbps: 16000, codecs: "avc1.640033,mp4a.40.2" }, ...base.calidades],
     };
-    expect(alturasUtiles(con4k).map((a) => a.alto)).toEqual([1080, 720]);
+    expect(calidadesUtiles(con4k).map((c) => c.calidad)).toEqual([1080, 720]);
+  });
+
+  it("en un vertical la calidad se mide por el lado corto", async () => {
+    // La trampa que esto vigila: en un 1080×1920, medir la calidad por la ALTURA ofrecía un
+    // «1440p» que no significa nada —la pieza es la que todo el mundo llama 1080p— y hacía que
+    // «1080p» diera 607 px de ancho. Lo calcula LabTem, pero el contrato se comprueba aquí
+    // porque es lo que acaba escrito en el menú que alguien pulsa.
+    const { calidadesUtiles } = await conMediaSource(() => true);
+    const vertical = {
+      ...base,
+      calidades: [
+        { calidad: 1080, w: 1080, h: 1920, kbps: 5000, codecs: "avc1.640029,mp4a.40.2" },
+        { calidad: 720, w: 720, h: 1280, kbps: 2500, codecs: "avc1.640029,mp4a.40.2" },
+      ],
+    };
+    const salida = calidadesUtiles(vertical);
+    expect(salida.map((c) => c.calidad)).toEqual([1080, 720]);
+    // «720p» en vertical son 720 de ANCHO, no de alto: lo mismo que significa tumbado.
+    expect(salida[1]).toMatchObject({ calidad: 720, w: 720, h: 1280 });
   });
 
   it("sin MediaSource no hay modo al vuelo (es iOS)", async () => {
     vi.resetModules();
     vi.stubGlobal("window", {});
-    const { alturasUtiles, vivoSoportado } = await import("@/lib/vivo-cliente");
+    const { calidadesUtiles, vivoSoportado } = await import("@/lib/vivo-cliente");
     expect(vivoSoportado("avc1.640029")).toBe(false);
-    expect(alturasUtiles(base)).toEqual([]);
+    expect(calidadesUtiles(base)).toEqual([]);
   });
 
   it("nada que ofrecer si no hay datos", async () => {
-    const { alturasUtiles } = await conMediaSource(() => true);
-    expect(alturasUtiles(null)).toEqual([]);
+    const { calidadesUtiles } = await conMediaSource(() => true);
+    expect(calidadesUtiles(null)).toEqual([]);
   });
 });

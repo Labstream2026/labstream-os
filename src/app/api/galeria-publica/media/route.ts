@@ -52,15 +52,15 @@ export async function GET(req: NextRequest) {
 
     if (vivoParam === "info") {
       const info = await vivoInfo(rel);
-      return Response.json(info ?? { gpu: false, alturas: [] }, { headers: { "cache-control": "no-store" } });
+      return Response.json(info ?? { gpu: false, calidades: [] }, { headers: { "cache-control": "no-store" } });
     }
 
-    const alto = Number(vivoParam);
+    const calidad = Number(vivoParam);
     const desde = Number(url.searchParams.get("desde") || 0);
     // La señal del navegador llega encadenada hasta ffmpeg: si el cliente cierra la pestaña o
     // salta a otro punto, la conversión se aborta y la plaza vuelve al montón.
-    const arriba = await vivoChorro(rel, alto, desde, req.signal);
-    if (!arriba) return new NextResponse("Altura no admitida o LabTem no responde", { status: 502 });
+    const arriba = await vivoChorro(rel, calidad, desde, req.signal);
+    if (!arriba) return new NextResponse("Calidad no admitida o LabTem no responde", { status: 502 });
     if (!arriba.ok || !arriba.body) {
       return new NextResponse(await arriba.text().catch(() => "No disponible"), {
         status: arriba.status,

@@ -6,7 +6,7 @@ import type { GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
 // Solo el TIPO: `import type` desaparece al compilar. La librería se carga con `import()` y
 // únicamente cuando esta pieza tiene escalera (ver el efecto de la escalera adaptativa).
 import type HlsPlayer from "hls.js";
-import { ReproductorVivo, alturasUtiles, type VivoDatos } from "@/lib/vivo-cliente";
+import { ReproductorVivo, calidadesUtiles, type VivoDatos } from "@/lib/vivo-cliente";
 import { formatBogota } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 
@@ -438,31 +438,31 @@ function Visor({
   const [vivoRes, setVivoRes] = React.useState<{ rel: string; datos: VivoDatos | null } | null>(null);
   const [vivoSel, setVivoSel] = React.useState<{ rel: string; alto: number } | null>(null);
   const vivoDatos = vivoRes?.rel === item.rel ? vivoRes.datos : null;
-  const vivoAlto = vivoSel?.rel === item.rel ? vivoSel.alto : null;
-  const setVivoAlto = React.useCallback(
+  const vivoCalidad = vivoSel?.rel === item.rel ? vivoSel.alto : null;
+  const setVivoCalidad = React.useCallback(
     (alto: number | null) => setVivoSel(alto == null ? null : { rel: item.rel, alto }),
     [item.rel],
   );
   const vivoRef = React.useRef<ReproductorVivo | null>(null);
-  const vivoOpciones = React.useMemo(() => alturasUtiles(vivoDatos), [vivoDatos]);
+  const vivoCalidades = React.useMemo(() => calidadesUtiles(vivoDatos), [vivoDatos]);
 
   const fijarCalidad = React.useCallback(
     (n: number) => {
       setEscalera((e) => (e && e.rel === item.rel ? { ...e, fijada: n } : e));
       setMenuCalidad(false);
-      setVivoAlto(null); // volver a la escalera apaga el modo al vuelo
+      setVivoCalidad(null); // volver a la escalera apaga el modo al vuelo
       // -1 le devuelve el mando al algoritmo; cualquier otro lo clava en ese peldaño.
       if (hlsRef.current) hlsRef.current.currentLevel = n;
     },
-    [item.rel, setMenuCalidad, setVivoAlto],
+    [item.rel, setMenuCalidad, setVivoCalidad],
   );
 
   const fijarVivo = React.useCallback(
     (alto: number) => {
       setMenuCalidad(false);
-      setVivoAlto(alto);
+      setVivoCalidad(alto);
     },
-    [setMenuCalidad, setVivoAlto],
+    [setMenuCalidad, setVivoCalidad],
   );
 
   // ¿Qué admite esta pieza al vuelo? Se pregunta al abrirla, en paralelo con la escalera: son
@@ -485,9 +485,9 @@ function Visor({
   // la vez: cada uno se apaga entero al entrar el otro, en vez de compartir el `<video>` y
   // pelearse por él.
   React.useEffect(() => {
-    if (vivoAlto == null) return;
+    if (vivoCalidad == null) return;
     const el = videoRef.current;
-    const elegida = vivoOpciones.find((a) => a.alto === vivoAlto);
+    const elegida = vivoCalidades.find((c) => c.calidad === vivoCalidad);
     if (!el || !elegida || !vivoDatos?.duracion) return;
     // Se retoma donde se estaba: cambiar de calidad no debería costar volver a buscar el punto.
     const punto = el.currentTime || 0;
@@ -495,10 +495,10 @@ function Visor({
       video: el,
       duracion: vivoDatos.duracion,
       codecs: elegida.codecs,
-      url: (desde) => api("media", token, { rel: item.rel, vivo: String(vivoAlto), desde: String(desde) }),
+      url: (desde) => api("media", token, { rel: item.rel, vivo: String(vivoCalidad), desde: String(desde) }),
       // Si la GPU está llena o el chorro se cae, no se deja al cliente mirando un reproductor
       // parado: se vuelve solo a la copia de disco, que es lo que había antes de elegir esto.
-      alFallar: () => setVivoAlto(null),
+      alFallar: () => setVivoCalidad(null),
     });
     vivoRef.current = motor;
     motor.arrancar(punto);
@@ -520,11 +520,11 @@ function Visor({
       };
       el.addEventListener("loadedmetadata", alCargar);
     };
-  }, [vivoAlto, vivoOpciones, vivoDatos, token, item.rel, ver, setVivoAlto]);
+  }, [vivoCalidad, vivoCalidades, vivoDatos, token, item.rel, ver, setVivoCalidad]);
 
   React.useEffect(() => {
     // Con el modo al vuelo puesto, la escalera no se toca: el `<video>` ya tiene dueño.
-    if (item.kind !== "video" || vivoAlto != null) return;
+    if (item.kind !== "video" || vivoCalidad != null) return;
     const rel = item.rel;
     const maestro = api("media", token, { rel, hls: "master.m3u8" });
     const ctrl = new AbortController();
@@ -596,7 +596,7 @@ function Visor({
       hlsRef.current = null;
       try { h?.destroy(); } catch { /* noop */ }
     };
-  }, [token, item.rel, item.kind, ver, vivoAlto]);
+  }, [token, item.rel, item.kind, ver, vivoCalidad]);
 
   // Nombre de archivo de la copia: «toma.mxf» → «toma (ligero).mp4». El del original lo pone el
   // servidor; este lo ponemos nosotros porque el enlace es de vista y lo fuerza el navegador.
@@ -677,14 +677,14 @@ function Visor({
             las dos no hay nada que ofrecer y un menú vacío solo confunde.
             Va sobre el vídeo y no en la barra de abajo porque los controles nativos ocupan
             esa franja entera y no se pueden ampliar. */}
-        {calidades.length > 1 || vivoOpciones.length > 0 ? (
+        {calidades.length > 1 || vivoCalidades.length > 0 ? (
           <div className="absolute right-4 top-3 z-10 text-right">
             <button
               onClick={() => setMenuCalidad(!menuCalidad)}
               className="rounded-full bg-black/60 px-3 py-1 text-[11px] font-medium text-white backdrop-blur transition hover:bg-black/75"
             >
-              {vivoAlto != null
-                ? `Al vuelo · ${vivoAlto}p`
+              {vivoCalidad != null
+                ? `Al vuelo · ${vivoCalidad}p`
                 : calidades.length > 1
                   ? calidadFijada === -1
                     ? `Auto${calidadEnUso != null && calidades[calidadEnUso] ? ` · ${calidades[calidadEnUso].alto}p` : ""}`
@@ -697,7 +697,7 @@ function Visor({
                   <>
                     <button
                       onClick={() => fijarCalidad(-1)}
-                      className={`block w-full px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto == null && calidadFijada === -1 ? "font-semibold text-white" : "text-white/70"}`}
+                      className={`block w-full px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad == null && calidadFijada === -1 ? "font-semibold text-white" : "text-white/70"}`}
                     >
                       Automática
                     </button>
@@ -706,14 +706,14 @@ function Visor({
                       <button
                         key={i}
                         onClick={() => fijarCalidad(i)}
-                        className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto == null && calidadFijada === i ? "font-semibold text-white" : "text-white/70"}`}
+                        className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad == null && calidadFijada === i ? "font-semibold text-white" : "text-white/70"}`}
                       >
                         {c.alto}p · {c.kbps >= 1000 ? `${(c.kbps / 1000).toFixed(1)} Mbps` : `${c.kbps} kbps`}
                       </button>
                     ))}
                   </>
                 ) : null}
-                {vivoOpciones.length > 0 ? (
+                {vivoCalidades.length > 0 ? (
                   <>
                     {/* La separación importa: son dos cosas distintas y conviene que se note.
                         Arriba, calidades que ya existen hechas. Aquí, calidades que no existen
@@ -721,13 +721,13 @@ function Visor({
                     <p className="border-t border-white/15 px-4 pb-1 pt-2 text-left text-[9px] uppercase tracking-wide text-white/40">
                       Al vuelo
                     </p>
-                    {vivoOpciones.map((a) => (
+                    {vivoCalidades.map((a) => (
                       <button
-                        key={`vivo-${a.alto}`}
-                        onClick={() => fijarVivo(a.alto)}
-                        className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoAlto === a.alto ? "font-semibold text-white" : "text-white/70"}`}
+                        key={`vivo-${a.calidad}`}
+                        onClick={() => fijarVivo(a.calidad)}
+                        className={`block w-full whitespace-nowrap px-4 py-1.5 text-left text-[11px] transition hover:bg-white/15 ${vivoCalidad === a.calidad ? "font-semibold text-white" : "text-white/70"}`}
                       >
-                        {a.alto}p · {a.kbps >= 1000 ? `${(a.kbps / 1000).toFixed(1)} Mbps` : `${a.kbps} kbps`}
+                        {a.calidad}p · {a.kbps >= 1000 ? `${(a.kbps / 1000).toFixed(1)} Mbps` : `${a.kbps} kbps`}
                       </button>
                     ))}
                   </>

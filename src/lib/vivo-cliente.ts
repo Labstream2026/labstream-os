@@ -24,14 +24,19 @@
 
 /**
  * Lo que contesta `?vivo=info`: qué se puede hacer con esta pieza. Lo compone LabTem tras un
- * ffprobe del original, así que `alturas` nunca ofrece más de lo que el material da (subir un
+ * ffprobe del original, así que `calidades` nunca ofrece más de lo que el material da (subir un
  * 720p a 1080p pesa el doble y no enseña un detalle más).
+ *
+ * `calidad` es el LADO CORTO —«720p» significa lo mismo en horizontal que en vertical—, y `w`/`h`
+ * son las dimensiones reales que saldrían, por si hay que enseñarlas.
  */
+export type CalidadViva = { calidad: number; w: number; h: number; kbps: number; codecs: string };
+
 export type VivoDatos = {
   duracion: number | null;
   audio: boolean;
   gpu: boolean;
-  alturas: { alto: number; kbps: number; codecs: string }[];
+  calidades: CalidadViva[];
   libres?: number;
 };
 
@@ -43,9 +48,9 @@ export type VivoDatos = {
  * Devuelve vacío —y con eso el modo desaparece— si falta la duración: sin ella la barra de
  * tiempo sería una mentira, y un reproductor con la barra rota es peor que uno sin barra.
  */
-export function alturasUtiles(datos: VivoDatos | null): { alto: number; kbps: number; codecs: string }[] {
+export function calidadesUtiles(datos: VivoDatos | null): CalidadViva[] {
   if (!datos?.gpu || !datos.duracion || datos.duracion <= 0) return [];
-  return datos.alturas.filter((a) => vivoSoportado(a.codecs));
+  return datos.calidades.filter((c) => vivoSoportado(c.codecs));
 }
 
 export type OpcionesVivo = {

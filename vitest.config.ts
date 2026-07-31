@@ -9,4 +9,12 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
+  test: {
+    // `next build` con salida standalone COPIA el árbol de src dentro de .next, y vitest
+    // encontraba ahí una segunda copia —congelada en el momento de la compilación— de cada
+    // prueba. El síntoma es de los que hacen perder una tarde: la prueba falla señalando una
+    // función «que no existe» mientras el archivo de verdad, abierto al lado, sí la exporta.
+    // La pista está en la ruta del fallo, que empieza por `.next/standalone`.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**"],
+  },
 });

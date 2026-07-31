@@ -236,15 +236,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
       if (vivoParam === "info") {
         const info = await vivoInfo(file.path);
-        return Response.json(info ?? { gpu: false, alturas: [] }, { headers: { "cache-control": "no-store" } });
+        return Response.json(info ?? { gpu: false, calidades: [] }, { headers: { "cache-control": "no-store" } });
       }
 
-      const alto = Number(vivoParam);
+      const calidad = Number(vivoParam);
       const desde = Number(url.searchParams.get("desde") || 0);
       // La señal del navegador se encadena hasta ffmpeg: cerrar la pestaña mata la conversión
       // y devuelve la plaza. Sin esto, seis pestañas cerradas dejan la GPU ocupada para nadie.
-      const arriba = await vivoChorro(file.path, alto, desde, req.signal);
-      if (!arriba) return new NextResponse("Altura no admitida o LabTem no responde", { status: 502 });
+      const arriba = await vivoChorro(file.path, calidad, desde, req.signal);
+      if (!arriba) return new NextResponse("Calidad no admitida o LabTem no responde", { status: 502 });
       if (!arriba.ok || !arriba.body) {
         // 503 = las seis plazas ocupadas; 415 = la GPU no decodifica este códec. Los dos se
         // pasan tal cual: quien llama sabe distinguir «espera un momento» de «esta pieza no».

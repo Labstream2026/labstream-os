@@ -29,14 +29,18 @@ export function vivoConfigurado(): boolean {
   return Boolean(BASE && SECRETO);
 }
 
-// Las alturas que el servicio admite. Se repite aquí a propósito, aunque LabTem también lo
+// Las calidades que el servicio admite. Se repite aquí a propósito, aunque LabTem también lo
 // valide: así un valor inventado se corta con un 400 inmediato en vez de gastar un viaje de red
 // para que lo rechacen al otro lado. Dos cerrojos para la misma puerta, ninguno de adorno.
-export const ALTURAS_VIVO = [2160, 1440, 1080, 720, 480, 360] as const;
-export type AlturaViva = (typeof ALTURAS_VIVO)[number];
+//
+// La calidad se mide por el LADO CORTO, no por la altura: en un vertical de 1080×1920 medir por
+// altura ofrecía «1440p» sobre una pieza que todo el mundo llama 1080p. Por el lado corto,
+// «720p» significa lo mismo tumbado que de pie.
+export const CALIDADES_VIVO = [2160, 1440, 1080, 720, 480, 360] as const;
+export type CalidadViva = (typeof CALIDADES_VIVO)[number];
 
-export function esAlturaViva(n: unknown): n is AlturaViva {
-  return typeof n === "number" && (ALTURAS_VIVO as readonly number[]).includes(n);
+export function esCalidadViva(n: unknown): n is CalidadViva {
+  return typeof n === "number" && (CALIDADES_VIVO as readonly number[]).includes(n);
 }
 
 export type VivoInfo = {
@@ -46,7 +50,7 @@ export type VivoInfo = {
   duracion: number | null;
   audio: boolean;
   gpu: boolean;
-  alturas: { alto: number; kbps: number; codecs: string }[];
+  calidades: { calidad: number; w: number; h: number; kbps: number; codecs: string }[];
   libres: number;
 };
 
@@ -115,9 +119,15 @@ export async function vivoInfo(rel: string): Promise<VivoInfo | null> {
           gpu: Boolean(j.gpu),
           // Se filtra contra NUESTRA lista además de la suya: lo que salga de aquí acaba en un
           // menú y en una URL, y no se hereda la lista de otro proceso sin mirarla.
-          alturas: (Array.isArray(j.alturas) ? j.alturas : [])
-            .filter((a) => esAlturaViva(Number(a?.alto)))
-            .map((a) => ({ alto: Number(a.alto), kbps: Number(a.kbps) || 0, codecs: String(a.codecs || "") })),
+          calidades: (Array.isArray(j.calidades) ? j.calidades : [])
+            .filter((c) => esCalidadViva(Number(c?.calidad)))
+            .map((c) => ({
+              calidad: Number(c.calidad),
+              w: Number(c.w) || 0,
+              h: Number(c.h) || 0,
+              kbps: Number(c.kbps) || 0,
+              codecs: String(c.codecs || ""),
+            })),
           libres: Number(j.libres ?? 0),
         };
       }
@@ -140,13 +150,13 @@ export async function vivoInfo(rel: string): Promise<VivoInfo | null> {
 // seis plazas se llenarían de fantasmas en una tarde.
 export async function vivoChorro(
   rel: string,
-  alto: number,
+  calidad: number,
   desde: number,
   señal?: AbortSignal,
 ): Promise<Response | null> {
-  if (!vivoConfigurado() || !rel || !esAlturaViva(alto)) return null;
+  if (!vivoConfigurado() || !rel || !esCalidadViva(calidad)) return null;
   const segundos = Number.isFinite(desde) && desde > 0 ? Math.floor(desde) : 0;
-  const url = `${BASE}/vivo?rel=${encodeURIComponent(rel)}&alto=${alto}&desde=${segundos}`;
+  const url = `${BASE}/vivo?rel=${encodeURIComponent(rel)}&calidad=${calidad}&desde=${segundos}`;
   try {
     return await fetch(url, { headers: { [CABECERA]: SECRETO }, cache: "no-store", signal: señal });
   } catch {
