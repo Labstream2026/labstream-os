@@ -6,7 +6,7 @@ import { Send, MessageSquare, Paperclip, FileText, FileSpreadsheet, Presentation
 import { ActivityFeed, type ActivityItem } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
-import { avatarHex } from "@/lib/ui";
+import { avatarHexSoft } from "@/lib/ui";
 import { formatBogota } from "@/lib/bogota-time";
 import { sendMessage, sendMessageWithAttachments, createPoll, votePoll, toggleReaction, editMessage, deleteMessage, togglePin, notifyTyping, markChannelRead, markThreadRead, clearConversation, forwardMessage, getForwardTargets, archiveChatAttachment, getChannelReaders, createTaskFromMessage, type ChannelReader } from "@/app/(app)/chat/actions";
 import { useRouter } from "next/navigation";
@@ -43,10 +43,12 @@ function hhmm(iso: string) {
   return formatBogota(iso, { hour: "2-digit", minute: "2-digit" });
 }
 
-// Resalta @menciones conocidas y convierte URLs en enlaces clicables. `mine` indica si el
-// mensaje es propio (burbuja primaria): el chip cambia de color para seguir siendo legible
-// (antes usaba text-primary → azul sobre azul = invisible en la burbuja propia).
-function highlightMentions(text: string, members: Member[], keyBase: string, mine = false): React.ReactNode[] {
+// Resalta @menciones conocidas y convierte URLs en enlaces clicables. `enColor` indica que el
+// texto va DENTRO de una burbuja de color (propia o ajena: las dos lo son): el chip pasa a
+// blanco sobre velo blanco, porque el `text-primary` normal es invisible ahí. Fuera de la
+// burbuja —las respuestas del hilo— sigue el chip de siempre. La mención va en NEGRITA en
+// los dos casos: es un aviso, tiene que saltar a la vista.
+function highlightMentions(text: string, members: Member[], keyBase: string, enColor = false): React.ReactNode[] {
   if (!members.length || !text.includes("@")) return [text];
   const names = members.map((m) => m.name).sort((a, b) => b.length - a.length);
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -60,7 +62,7 @@ function highlightMentions(text: string, members: Member[], keyBase: string, min
     out.push(
       <span
         key={`${keyBase}m${i++}`}
-        className={cn("rounded px-1 font-semibold", mine ? "bg-primary-foreground/25 text-primary-foreground" : "bg-primary/15 text-primary")}
+        className={cn("rounded px-1 font-bold", enColor ? "bg-white/25 text-white" : "bg-primary/15 text-primary")}
         title={`@${m[1]}`}
       >
         @{mentionLabel(m[1])}
@@ -97,7 +99,7 @@ function formatInline(text: string, keyBase: string, render: (chunk: string, key
   if (idx < text.length) out.push(render(text.slice(idx), `${keyBase}p${i++}`));
   return out;
 }
-function renderBody(text: string, members: Member[], mine = false): React.ReactNode {
+function renderBody(text: string, members: Member[], enColor = false): React.ReactNode {
   const urlRe = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRe);
   return parts.map((part, idx) => {
@@ -110,7 +112,7 @@ function renderBody(text: string, members: Member[], mine = false): React.ReactN
     }
     return (
       <React.Fragment key={`t${idx}`}>
-        {formatInline(part, `${idx}`, (chunk, key) => highlightMentions(chunk, members, key, mine))}
+        {formatInline(part, `${idx}`, (chunk, key) => highlightMentions(chunk, members, key, enColor))}
       </React.Fragment>
     );
   });
@@ -210,18 +212,20 @@ function Attachments({ items, author, projectId = null, readOnly = false, canArc
     if (!projectId) return null;
     if (inArchive(a)) {
       return (
-        <Link href={`/proyectos/${projectId}?tab=archivos`} className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary" title="Está en la pestaña Archivos del proyecto">
+        <Link href={`/proyectos/${projectId}?tab=archivos`} className="mt-0.5 inline-flex items-center gap-1 text-xs opacity-70 hover:opacity-100" title="Está en la pestaña Archivos del proyecto">
           <Check className="size-3" /> En Archivos del proyecto
         </Link>
       );
     }
     if (readOnly || !canArchive) return null;
+    // Estos dos van SOBRE la burbuja de color, así que heredan su letra y solo bajan opacidad:
+    // `text-muted-foreground` sería gris sobre color y no se leería.
     return (
       <span className="mt-0.5 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => void save(a)} disabled={savingId === a.id} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50" title="Copiarlo a la pestaña Archivos del proyecto">
+        <button type="button" onClick={() => void save(a)} disabled={savingId === a.id} className="inline-flex items-center gap-1 text-xs opacity-70 hover:opacity-100 disabled:opacity-40" title="Copiarlo a la pestaña Archivos del proyecto">
           <FolderPlus className="size-3" /> {savingId === a.id ? "Guardando…" : "Guardar en Archivos"}
         </button>
-        {saveErr[a.id] ? <span className="text-xs text-destructive">{saveErr[a.id]}</span> : null}
+        {saveErr[a.id] ? <span className="text-xs font-medium text-red-300">{saveErr[a.id]}</span> : null}
       </span>
     );
   };
@@ -243,7 +247,7 @@ function Attachments({ items, author, projectId = null, readOnly = false, canArc
                   onLoad={() => window.dispatchEvent(new Event("chat-media-loaded"))}
                   onError={(e) => { e.currentTarget.style.display = "none"; }}
                 />
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{a.name}</span>
+                <span className="mt-0.5 block truncate text-xs opacity-70">{a.name}</span>
               </a>
               {archiveRow(a)}
             </div>
@@ -1684,17 +1688,12 @@ export function ChannelChat({
   // `sobrePrimario`: el chip vive DENTRO de la burbuja propia, que va en color. El gris de
   // muted-foreground y el rojo de destructive sobre ese fondo no se leen; ahí se pinta en blanco
   // (y el error, además, en negrita, que es el único aviso que tiene ese mensaje).
-  function statusTag(s?: string, sobrePrimario = false) {
+  // Siempre va DENTRO de una burbuja de color, así que hereda su letra y solo baja opacidad:
+  // con `text-muted-foreground` el «enviando…» quedaba gris sobre color y no se leía.
+  function statusTag(s?: string) {
     if (!s || s === "sent") return null;
     return (
-      <span
-        className={cn(
-          "text-[10px]",
-          sobrePrimario
-            ? cn("text-primary-foreground/80", s === "error" && "font-bold text-primary-foreground")
-            : s === "error" ? "text-destructive" : "text-muted-foreground",
-        )}
-      >
+      <span className={cn("text-[10px] opacity-80", s === "error" && "font-bold opacity-100")}>
         {s === "sending" && "· enviando…"}
         {s === "pending" && "· pendiente"}
         {s === "error" && "· error"}
@@ -1963,8 +1962,10 @@ export function ChannelChat({
               </div>
             ) : (
             // ── Burbuja ──────────────────────────────────────────────────────────────────
-            // Lo mío a la derecha y con el color de la app; lo de los demás a la izquierda sobre
-            // tarjeta. En los míos NO va avatar ni nombre: el lado y el color ya dicen quién soy, y
+            // Lo mío a la derecha con el color de la app; lo de los demás a la izquierda en
+            // pizarra. Las DOS van en color con letra blanca: la ajena era blanca sobre fondo
+            // blanco y el hilo se leía como una hoja en blanco. En los míos NO va avatar ni
+            // nombre: el lado y el color ya dicen quién soy, y
             // eso devuelve un renglón por mensaje. El nombre ajeno sí se queda —un canal de cuatro
             // no es un chat de dos— y va con el color que esa persona ya tiene en su avatar.
             //
@@ -1978,21 +1979,25 @@ export function ChannelChat({
               <div
                 className={cn(
                   "relative min-w-0 max-w-full rounded-2xl px-3 py-2 shadow-sm ring-1 transition-colors",
-                  mine ? "bg-primary text-primary-foreground ring-primary/50" : "bg-card ring-border",
+                  mine
+                    ? "bg-primary text-primary-foreground ring-primary/50"
+                    : "bg-chat-bubble text-chat-bubble-foreground ring-white/10",
                   // La esquina «pico» solo en el primero del grupo: los seguidos quedan redondos.
                   !cont && (mine ? "rounded-tr-md" : "rounded-tl-md"),
                   highlighted === m.id && "ring-2 ring-primary",
                 )}
               >
+                {/* El color de la persona, pero en su versión CLARA: dentro de la burbuja el
+                    fondo ya no es blanco y los tonos 500 se apagan (ver avatarHexSoft). */}
                 {!cont && !mine ? (
-                  <span className="mb-0.5 block text-xs font-bold" style={{ color: avatarHex(m.author?.color) }}>
+                  <span className="mb-0.5 block text-xs font-bold" style={{ color: avatarHexSoft(m.author?.color) }}>
                     {m.author?.name ?? "Sistema"}
                   </span>
                 ) : null}
                 {m.pinned || m.status ? (
                   <div className={cn("mb-0.5 flex items-baseline gap-2", mine && "justify-end")}>
-                    {m.pinned ? <Pin className={cn("size-3 self-center", mine ? "text-primary-foreground/70" : "text-muted-foreground")} aria-label="Fijado" /> : null}
-                    {statusTag(m.status, mine)}
+                    {m.pinned ? <Pin className="size-3 self-center opacity-70" aria-label="Fijado" /> : null}
+                    {statusTag(m.status)}
                   </div>
                 ) : null}
                 {/* Barra de acciones flotante (reaccionar · hilo · fijar · más): superpuesta,
@@ -2114,16 +2119,13 @@ export function ChannelChat({
                   <button
                     type="button"
                     onClick={() => m.quoted && jumpToMessage(m.quoted.id)}
-                    className={cn(
-                      "mb-1 flex w-full items-start gap-1.5 rounded-md border-l-2 px-2 py-1 text-left text-xs",
-                      mine ? "border-primary-foreground/70 bg-primary-foreground/15 hover:bg-primary-foreground/25" : "border-primary/60 bg-muted/60 hover:bg-muted",
-                    )}
+                    className="mb-1 flex w-full items-start gap-1.5 rounded-md border-l-2 border-white/60 bg-white/15 px-2 py-1 text-left text-xs hover:bg-white/25"
                     title="Ir al mensaje citado"
                   >
-                    <CornerUpLeft className={cn("mt-0.5 size-3 shrink-0", mine ? "text-primary-foreground/80" : "text-primary/70")} />
+                    <CornerUpLeft className="mt-0.5 size-3 shrink-0 opacity-80" />
                     <span className="min-w-0">
-                      <span className={cn("font-medium", mine ? "text-primary-foreground" : "text-foreground/80")}>{m.quoted.author ?? "Alguien"}</span>
-                      <span className={cn("ml-1", mine ? "text-primary-foreground/80" : "text-muted-foreground")}>{m.quoted.body}</span>
+                      <span className="font-medium">{m.quoted.author ?? "Alguien"}</span>
+                      <span className="ml-1 opacity-80">{m.quoted.body}</span>
                     </span>
                   </button>
                 ) : null}
@@ -2132,14 +2134,14 @@ export function ChannelChat({
                     <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={2} className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
                     <div className="mt-1 flex gap-2">
                       <button onClick={() => saveEdit(m.id)} className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"><Check className="size-3" /> Guardar</button>
-                      <button onClick={() => setEditing(null)} className={cn("text-xs", mine ? "text-primary-foreground/80" : "text-muted-foreground")}>Cancelar</button>
+                      <button onClick={() => setEditing(null)} className="text-xs opacity-80">Cancelar</button>
                     </div>
                   </div>
                 ) : m.body && m.body !== ATTACH_PLACEHOLDER ? (
                   <p className="whitespace-pre-wrap break-words text-sm leading-relaxed [overflow-wrap:anywhere]">
-                    {/* `mine` cambia el chip de la @mención a blanco sobre el color: sobre la burbuja
-                        primaria el azul del chip normal es ilegible. */}
-                    {renderBody(m.body, highlightPool, mine)}
+                    {/* `true`: el cuerpo va sobre color en las DOS burbujas, así que el chip de la
+                        @mención se pinta en blanco (el azul del chip normal sería ilegible). */}
+                    {renderBody(m.body, highlightPool, true)}
                     {/* Hueco invisible del ancho de la hora, para que la última línea le deje sitio
                         y el reloj no se monte encima del texto (el truco de WhatsApp). Solo cuando
                         no hay adjunto ni encuesta: en esos casos la hora va en su propio renglón. */}
@@ -2155,9 +2157,8 @@ export function ChannelChat({
                   <span
                     suppressHydrationWarning
                     className={cn(
-                      "flex items-center justify-end gap-1 text-[10px] leading-none",
+                      "flex items-center justify-end gap-1 text-[10px] leading-none opacity-75",
                       soloTexto ? "absolute bottom-1.5 right-3" : "mt-1",
-                      mine ? "text-primary-foreground/75" : "text-muted-foreground",
                     )}
                   >
                     {m.editedAt ? <span>(editado)</span> : null}

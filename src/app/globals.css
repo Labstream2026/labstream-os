@@ -41,8 +41,17 @@
   --sidebar-accent: 221 92% 95%;
   --sidebar-accent-foreground: 221 83% 47%;
 
+  /* ── Chat ──
+     Lienzo de la conversación y burbuja AJENA. Antes la burbuja era `--card` (blanco puro)
+     sobre un fondo también blanco: el hilo se leía como una hoja en blanco con rayitas. Ahora
+     la ajena va en color con letra blanca, igual que la propia. Es un gris pizarra a propósito
+     —el acento de la marca ya lo lleva la burbuja propia y dos colores fuertes se pelearían—
+     y el lienzo baja un punto para que las burbujas se despeguen del fondo. */
+  --chat-canvas: 222 14% 93%;
+  --chat-bubble: 222 17% 30%;
+  --chat-bubble-foreground: 0 0% 100%;
   /* Punto de la retícula del chat (ver .chat-dots al final del archivo). */
-  --chat-dot: 240 6% 84%;
+  --chat-dot: 222 12% 82%;
 }
 
 .dark {
@@ -81,6 +90,10 @@
   --sidebar-accent: 221 60% 18%;
   --sidebar-accent-foreground: 217 91% 78%;
 
+  /* En oscuro la burbuja ajena sube (no baja): tiene que despegarse del lienzo, no fundirse. */
+  --chat-canvas: 240 9% 6%;
+  --chat-bubble: 240 6% 21%;
+  --chat-bubble-foreground: 0 0% 96%;
   --chat-dot: 240 6% 20%;
 }
 
@@ -111,6 +124,10 @@
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-accent: hsl(var(--sidebar-accent));
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+
+  --color-chat-canvas: hsl(var(--chat-canvas));
+  --color-chat-bubble: hsl(var(--chat-bubble));
+  --color-chat-bubble-foreground: hsl(var(--chat-bubble-foreground));
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -257,6 +274,7 @@ html.density-compact {
    el chat (la página en /chat, la tarjeta en el dock y en la burbuja del proyecto). Al imprimir
    desaparecen. */
 .chat-dots {
+  background-color: hsl(var(--chat-canvas));
   background-image: radial-gradient(circle at 1px 1px, hsl(var(--chat-dot)) 1px, transparent 0);
   background-size: 22px 22px;
   background-position: -1px -1px;

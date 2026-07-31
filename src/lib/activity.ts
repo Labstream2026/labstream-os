@@ -4,6 +4,7 @@ import { ensureMarcebot, postBotTextMessage } from "@/lib/marcebot/bot";
 import { getOrCreateClientChannel } from "@/lib/client-chat";
 import { rateLimit } from "@/lib/rate-limit";
 import { publishActivity } from "@/lib/chat-bus";
+import { MARCEBOT_CHAT_SILENCIO, getAppConfigBool } from "@/lib/app-config";
 
 // Registra un cambio en el log de actividad (fecha/hora automática + autor de la sesión).
 // Best-effort: nunca rompe la acción principal si el log falla.
@@ -138,7 +139,12 @@ async function mirrorToChat(
   // proyectos en un solo chat), NO una conversación que seguir → ahí el evento SÍ se mantiene como
   // mensaje del bot, con tope anti-inundación (algunas acciones son alcanzables por token público:
   // sin tope, un enlace filtrado podría meter decenas de mensajes por minuto). 6/acción/proy/10min.
-  if (project.clientId && rateLimit(`chat-mirror:${input.projectId}:${input.action}`, 6, 10 * 60_000)) {
+  //
+  // …salvo con el SILENCIO puesto (por defecto lo está): es el único sitio donde el bot todavía
+  // escribía en un canal, y de nada sirve barrer el histórico si al minuto siguiente vuelve a
+  // llenarse. El interruptor vive en /configuracion. La notificación y el registro siguen igual.
+  const silencio = await getAppConfigBool(MARCEBOT_CHAT_SILENCIO, true);
+  if (!silencio && project.clientId && rateLimit(`chat-mirror:${input.projectId}:${input.action}`, 6, 10 * 60_000)) {
     // Lookup BARATO primero; solo si el canal no existe aún se llama getOrCreateClientChannel (que
     // además re-sincroniza TODA la membresía — queda para ese primer evento).
     let account = await db.chatChannel.findFirst({ where: { clientId: project.clientId }, select: { id: true } });

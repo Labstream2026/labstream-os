@@ -44,7 +44,7 @@ import { getAllUserNotifPrefs } from "@/lib/user-notif-prefs";
 import { Mail } from "lucide-react";
 import { IconConfiguracion, IconUsuarios, IconEtiquetas, IconRoles, IconNotificaciones, IconAuditoria, IconMarcebot, IconIntegraciones, IconApi, IconMarca, IconFlujo, IconPersonalizacion, IconCalendario, IconBiblioteca } from "@/components/icons";
 import { BibliotecaSettings } from "./biblioteca-settings";
-import { getAppConfigBool, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
+import { getAppConfigBool, MARCEBOT_CHAT_SILENCIO, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
 import { AjustesShell, type AjustesSection } from "./ajustes-shell";
 
 export const dynamic = "force-dynamic";
@@ -425,11 +425,12 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
 
   // Mantenimiento: utilidades de limpieza y el usuario DEMO (antes incrustadas en Usuarios).
   const demoUser = users.find((u) => u.email === "demo@labstream.co");
+  const marcebotCallado = await getAppConfigBool(MARCEBOT_CHAT_SILENCIO, true);
   const mantenimientoNode = (
     <div className="space-y-4">
       <ReviewCachePanel />
       <CleanupNamesButton />
-      <MarcebotCleanupButton />
+      <MarcebotCleanupButton silencio={marcebotCallado} />
       <DemoPanel exists={!!demoUser} active={demoUser?.active ?? false} />
     </div>
   );

@@ -461,6 +461,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         {pinned.length > 0 ? (
           <Collapsible
             storeId="pinned"
+            fuerte
             title="Fijados"
             leading={<Pin className="size-4 text-muted-foreground" />}
             count={pinned.length}
@@ -502,6 +503,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         {clientGroups.length > 0 ? (
           <Collapsible
             storeId="clients-section"
+            fuerte
             title="Clientes"
             leading={<Building2 className="size-4 text-muted-foreground" />}
             count={clientGroups.length}
@@ -556,6 +558,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         {!searching || dms.length > 0 ? (
           <Collapsible
             storeId="dms"
+            fuerte
             title="Mensajes directos"
             leading={<Users className="size-4 text-muted-foreground" />}
             count={dms.length}
@@ -573,6 +576,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         {groups.length > 0 ? (
           <Collapsible
             storeId="groups"
+            fuerte
             title="Grupos"
             leading={<Hash className="size-4 text-muted-foreground" />}
             count={groups.length}
@@ -587,7 +591,7 @@ export function ChatList({ data, canCreate = false, onNavigate }: { data: ChatLi
         ) : null}
 
         {explore.length > 0 ? (
-          <Collapsible storeId="explore" title="Canales del equipo" leading={<Hash className="size-4 text-muted-foreground" />} count={explore.length} forceOpen={searching}>
+          <Collapsible fuerte storeId="explore" title="Canales del equipo" leading={<Hash className="size-4 text-muted-foreground" />} count={explore.length} forceOpen={searching}>
             {explore.map((c) => (
               <Link
                 key={c.id}
@@ -723,6 +727,7 @@ function Collapsible({
   unread = 0,
   defaultOpen = false,
   forceOpen = false,
+  fuerte = false,
   open: openProp,
   onToggle,
   children,
@@ -734,6 +739,9 @@ function Collapsible({
   unread?: number;
   defaultOpen?: boolean;
   forceOpen?: boolean;
+  /** Sección de primer nivel (Clientes, Mensajes directos…): el título va en negrita. Las
+   *  anidadas —cada cliente, «Terminados»— se quedan en medio, o el rail se vuelve un muro. */
+  fuerte?: boolean;
   open?: boolean;
   onToggle?: () => void;
   children: React.ReactNode;
@@ -767,7 +775,7 @@ function Collapsible({
       >
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", shown && "rotate-90")} />
         {leading}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+        <span className={cn("min-w-0 flex-1 truncate text-sm", fuerte ? "font-bold" : "font-medium")}>{title}</span>
         {count != null ? <span className="text-[11px] text-muted-foreground">{count}</span> : null}
         {unread > 0 ? (
           <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{unread}</span>
