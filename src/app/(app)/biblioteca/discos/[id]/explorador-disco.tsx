@@ -411,11 +411,13 @@ export function ExploradorDisco({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
         {truncado ? <span>Esta carpeta tiene más de 2000 elementos: se muestran los primeros.</span> : <span>Se lee el disco en vivo.</span>}
-        {/* Cuántas piezas siguen sin copia ligera. Es la diferencia entre «la app va rara» y
-            «la fábrica va por detrás», y ahora se puede decir sin coste: el dato ya vino. */}
+        {/* Cuántas piezas siguen sin MINIATURA (póster/tira). Es la diferencia entre «la app
+            va rara» y «la fábrica va por detrás», y se puede decir sin coste: el dato ya vino.
+            La reproducción no espera a nadie — se convierte al vuelo—; esto es solo la cara
+            de la cuadrícula. */}
         {pendientes > 0 ? (
           <span className="text-amber-600 dark:text-amber-400">
-            {pendientes} {pendientes === 1 ? "pieza" : "piezas"} sin copia ligera todavía
+            {pendientes} {pendientes === 1 ? "pieza" : "piezas"} sin miniatura todavía (la fábrica pasa esta noche)
           </span>
         ) : null}
         <a href={`${hrefBase}${encodeURIComponent(rel)}`} className="ml-auto font-medium text-primary hover:underline">

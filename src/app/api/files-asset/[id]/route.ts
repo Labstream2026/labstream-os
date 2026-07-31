@@ -200,23 +200,23 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         return di(
           "sin_copia_al_vuelo",
           viewer
-            ? "La copia ligera todavía no está hecha, pero esta pieza se puede ver igual: la convierte la GPU mientras la miras."
-            : "La versión optimizada aún se está preparando, pero este video se puede ver ya.",
-          "Pulsa «Verla ahora» y empieza a reproducirse. No hay que esperar a nada ni subir nada a mano.",
+            ? "Esta pieza se convierte al vuelo: la GPU de LabTem la transcodifica mientras la miras (1080p por defecto)."
+            : "Este video se convierte solo al reproducirlo; no hay nada que preparar.",
+          "Dale a «↻ Reintentar» y reproduce. Si justo ahora no arranca, puede que las plazas de conversión estén llenas: espera un momento y vuelve a darle al play.",
         );
       }
 
-      // El mismo hecho, contado a quien corresponde: al equipo se le nombra la fábrica —le
-      // sirve para saber que no tiene que hacer nada— y al cliente no, que la cocina de
-      // adentro no es asunto suyo ni le ayuda a decidir.
+      // El mismo hecho, contado a quien corresponde: al equipo se le dice el límite técnico
+      // real —para que no espere una copia nocturna que ya no existe— y al cliente solo lo
+      // que puede hacer.
       return di(
         "sin_copia",
         viewer
-          ? "La copia ligera de esta pieza todavía no está hecha, y el master no lo decodifica el navegador."
-          : "La versión optimizada de este video todavía se está preparando.",
+          ? "Este máster no lo decodifica el navegador, y su formato queda fuera de la conversión en tiempo real (la GPU convierte H.264/HEVC/VP9/MPEG-2; ProRes, DNxHD o RAW no)."
+          : "Este video está en un formato que el navegador no reproduce.",
         viewer
-          ? "La fabrica la GPU de LabTem —va por orden y pasa sola cada noche—. No hace falta que subas nada a mano: cuando esté, pulsa «↻ Reintentar» y se verá. Mientras tanto puedes descargar el original."
-          : "Se prepara sola. Vuelve a intentarlo en unos minutos con «↻ Reintentar»; si sigue igual, avísale al equipo.",
+          ? "Esto no se arregla esperando: descarga el original para verlo en local, o deja en la carpeta un export H.264/HEVC y vuelve a enlazarlo."
+          : "Puedes descargar el original para verlo en tu equipo; si necesitas verlo aquí, pídele al equipo un export en otro formato.",
       );
     }
 
@@ -235,8 +235,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
 
       if (vivoParam === "info") {
+        const { originalApto } = await import("@/lib/labtem-vivo");
         const info = await vivoInfo(file.path);
-        return Response.json(info ?? { gpu: false, calidades: [] }, { headers: { "cache-control": "no-store" } });
+        // `directo` lo decide el SERVIDOR (conoce la extensión y el criterio es el que usaba
+        // la fábrica): si el original ya sirve tal cual, el reproductor ni pide conversión.
+        return Response.json(
+          info ? { ...info, directo: originalApto(file.path, info) } : { gpu: false, calidades: [] },
+          { headers: { "cache-control": "no-store" } },
+        );
       }
 
       const calidad = Number(vivoParam);
@@ -266,6 +272,64 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
           ...cabecerasVivo(arriba.headers),
+        },
+      });
+    }
+
+    // ── HLS EN VIVO (iPhone/iPad) ───────────────────────────────────────────────────────
+    // `?vivohls=lista&cal=1080` y `?vivohls=trozo&cal=1080&seg=seg0004.ts`. Safari móvil no
+    // trae MediaSource, así que el chorro de `?vivo=` allí no reproduce: se le da una lista
+    // HLS que LabTem genera al vuelo. Mismo permiso que el video; la app pone el secreto.
+    const vivoHlsParam = url.searchParams.get("vivohls");
+    if (vivoHlsParam && galIsVideo) {
+      const { vivoHls, esCalidadViva, vivoConfigurado } = await import("@/lib/labtem-vivo");
+      if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
+      const cal = Number(url.searchParams.get("cal"));
+      if (!esCalidadViva(cal)) return new NextResponse("Calidad no admitida", { status: 400 });
+
+      if (vivoHlsParam === "lista") {
+        const arriba = await vivoHls(file.path, cal, null, req.signal);
+        if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
+        if (!arriba.ok) {
+          return new NextResponse(await arriba.text().catch(() => "No disponible"), {
+            status: arriba.status,
+            headers: arriba.headers.get("retry-after") ? { "Retry-After": arriba.headers.get("retry-after")! } : undefined,
+          });
+        }
+        // Los trozos de la lista vienen como nombres pelados (seg0004.ts): se reescriben a
+        // esta misma ruta, con el mismo token — el reproductor nativo no sabe de secretos.
+        const texto = await arriba.text();
+        const base = `${url.pathname}?t=${encodeURIComponent(token ?? "")}&vivohls=trozo&cal=${cal}&seg=`;
+        const reescrito = texto
+          .split("\n")
+          .map((linea) => {
+            const s = linea.trim();
+            return !s || s.startsWith("#") ? linea : base + encodeURIComponent(s);
+          })
+          .join("\n");
+        return new NextResponse(reescrito, {
+          headers: {
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "X-Content-Type-Options": "nosniff",
+            // La lista CRECE mientras la GPU convierte: el reproductor la relee cada pocos
+            // segundos, y una copia en caché lo congelaría a la mitad.
+            "Cache-Control": "private, no-store",
+          },
+        });
+      }
+
+      const seg = url.searchParams.get("seg") || "";
+      if (!/^seg\d{3,5}\.ts$/.test(seg)) return new NextResponse("Trozo inválido", { status: 400 });
+      const arriba = await vivoHls(file.path, cal, seg, req.signal);
+      if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
+      if (!arriba.ok || !arriba.body) {
+        return new NextResponse(await arriba.text().catch(() => "No disponible"), { status: arriba.status });
+      }
+      return new NextResponse(arriba.body, {
+        headers: {
+          "Content-Type": "video/mp2t",
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "private, max-age=300",
         },
       });
     }

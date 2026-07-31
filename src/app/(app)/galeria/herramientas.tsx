@@ -93,7 +93,7 @@ export function GaleriaHerramientas({
     setOcupado(null);
     setProgreso(null);
     if (inputRef.current) inputRef.current.value = "";
-    setAviso(errores.length ? errores.join(" · ") : `Subid${hecho === 1 ? "o 1 archivo" : `os ${hecho} archivos`}. Los videos salen como «preparando» hasta que LabTem fabrique su copia ligera.`);
+    setAviso(errores.length ? errores.join(" · ") : `Subid${hecho === 1 ? "o 1 archivo" : `os ${hecho} archivos`}. Los videos salen como «preparando» hasta que LabTem fabrique su miniatura (pasa sola cada noche); reproducirlos ya se puede: se convierten al vuelo.`);
     router.refresh();
   };
 

@@ -31,6 +31,97 @@ export async function GET(req: NextRequest) {
   if (!rel) return new NextResponse("Ruta inválida", { status: 400 });
 
   const quiereDescargar = Boolean(url.searchParams.get("descargar"));
+
+  // ── TRANSCODIFICACIÓN EN VIVO ──────────────────────────────────────────────────────────
+  // `?vivo=info`, `?vivo=1080&desde=90` y el HLS en vivo para iOS (`?vivohls=`). Desde que no
+  // hay copias pregeneradas, así es como la galería interna reproduce lo que el navegador no
+  // decodifica solo. Mismo permiso que la pieza (la sesión de arriba ya pasó).
+  const vivoParam = url.searchParams.get("vivo");
+  if (vivoParam && !quiereDescargar) {
+    const { vivoInfo, vivoChorro, cabecerasVivo, vivoConfigurado, originalApto, esCalidadViva } = await import("@/lib/labtem-vivo");
+    if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
+
+    if (vivoParam === "info") {
+      const info = await vivoInfo(rel);
+      return Response.json(
+        info ? { ...info, directo: originalApto(rel, info) } : { gpu: false, calidades: [] },
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
+
+    const calidad = Number(vivoParam);
+    if (!esCalidadViva(calidad)) return new NextResponse("Calidad no admitida", { status: 400 });
+    const desde = Number(url.searchParams.get("desde") || 0);
+    const arriba = await vivoChorro(rel, calidad, desde, req.signal);
+    if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
+    if (!arriba.ok || !arriba.body) {
+      return new NextResponse(await arriba.text().catch(() => "No disponible"), {
+        status: arriba.status,
+        headers: arriba.headers.get("retry-after") ? { "Retry-After": arriba.headers.get("retry-after")! } : undefined,
+      });
+    }
+    return new NextResponse(arriba.body, {
+      headers: {
+        "Content-Type": "video/mp4",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        ...cabecerasVivo(arriba.headers),
+      },
+    });
+  }
+
+  const vivoHlsParam = url.searchParams.get("vivohls");
+  if (vivoHlsParam && !quiereDescargar) {
+    const { vivoHls, esCalidadViva, vivoConfigurado } = await import("@/lib/labtem-vivo");
+    if (!vivoConfigurado()) return new NextResponse("Sin servicio de conversión en vivo", { status: 503 });
+    const cal = Number(url.searchParams.get("cal"));
+    if (!esCalidadViva(cal)) return new NextResponse("Calidad no admitida", { status: 400 });
+
+    if (vivoHlsParam === "lista") {
+      const arriba = await vivoHls(rel, cal, null, req.signal);
+      if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
+      if (!arriba.ok) {
+        return new NextResponse(await arriba.text().catch(() => "No disponible"), {
+          status: arriba.status,
+          headers: arriba.headers.get("retry-after") ? { "Retry-After": arriba.headers.get("retry-after")! } : undefined,
+        });
+      }
+      // Los trozos vienen como nombres pelados: se reescriben a esta misma ruta (la sesión
+      // interna viaja en la cookie, así que no hace falta token).
+      const texto = await arriba.text();
+      const base = `${url.pathname}?rel=${encodeURIComponent(rel)}&vivohls=trozo&cal=${cal}&seg=`;
+      const reescrito = texto
+        .split("\n")
+        .map((linea) => {
+          const s = linea.trim();
+          return !s || s.startsWith("#") ? linea : base + encodeURIComponent(s);
+        })
+        .join("\n");
+      return new NextResponse(reescrito, {
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+
+    const seg = url.searchParams.get("seg") || "";
+    if (!/^seg\d{3,5}\.ts$/.test(seg)) return new NextResponse("Trozo inválido", { status: 400 });
+    const arriba = await vivoHls(rel, cal, seg, req.signal);
+    if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
+    if (!arriba.ok || !arriba.body) {
+      return new NextResponse(await arriba.text().catch(() => "No disponible"), { status: arriba.status });
+    }
+    return new NextResponse(arriba.body, {
+      headers: {
+        "Content-Type": "video/mp2t",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=300",
+      },
+    });
+  }
+
   // Al descargar mandamos SIEMPRE el original: es lo que el cliente ha venido a buscar.
   const preferProxy = !quiereDescargar && Boolean(url.searchParams.get("copia"));
 

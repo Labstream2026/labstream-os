@@ -173,3 +173,56 @@ describe("vivo-cliente · qué calidades se ofrecen", () => {
     expect(calidadesUtiles(null)).toEqual([]);
   });
 });
+
+// Desde que no hay copias pregeneradas, estas dos reglas deciden QUÉ se reproduce por defecto.
+// Un error aquí no da error: da un 4K entero bajando por la red del cliente, o una GPU
+// trabajando en una pieza que el navegador abría gratis.
+
+describe("labtem-vivo · el original ya sirve tal cual (directo)", () => {
+  const info = {
+    codec: "h264",
+    w: 1920,
+    h: 1080,
+    duracion: 60,
+    audio: true,
+    tasa: 5_000_000,
+    acodec: "aac",
+    gpu: true,
+    calidades: [],
+    libres: 6,
+  };
+
+  it("un H.264 1080p razonable en mp4/mov va directo", async () => {
+    const { originalApto } = await import("@/lib/labtem-vivo");
+    expect(originalApto("Cliente/toma.mp4", info)).toBe(true);
+    expect(originalApto("Cliente/toma.mov", info)).toBe(true);
+    // El vertical 1080×1920 es 1080p por PÍXELES: medir por altura lo mandaría a convertir.
+    expect(originalApto("Cliente/reel.mp4", { ...info, w: 1080, h: 1920 })).toBe(true);
+    // Mudo también sirve (el criterio del audio es «AAC/MP3 o nada»).
+    expect(originalApto("Cliente/toma.mp4", { ...info, acodec: "" })).toBe(true);
+  });
+
+  it("todo lo que la fábrica mandaba a copia, aquí manda a convertir", async () => {
+    const { originalApto } = await import("@/lib/labtem-vivo");
+    expect(originalApto("Cliente/toma.mkv", info)).toBe(false); // contenedor que el navegador no abre
+    expect(originalApto("Cliente/toma.mp4", { ...info, codec: "hevc" })).toBe(false);
+    expect(originalApto("Cliente/toma.mp4", { ...info, w: 3840, h: 2160 })).toBe(false); // 4K
+    expect(originalApto("Cliente/toma.mp4", { ...info, tasa: 80_000_000 })).toBe(false); // tasa de máster
+    expect(originalApto("Cliente/toma.mp4", { ...info, tasa: null })).toBe(false); // tasa desconocida = no
+    expect(originalApto("Cliente/toma.mp4", { ...info, acodec: "pcm_s16le" })).toBe(false);
+    expect(originalApto("Cliente/toma.mp4", null)).toBe(false);
+  });
+});
+
+describe("vivo-cliente · la calidad con la que se arranca", () => {
+  it("1080 por defecto aunque el original sea 4K; nunca por encima", async () => {
+    const { calidadInicial } = await import("@/lib/vivo-cliente");
+    const c = (calidad: number) => ({ calidad, w: 0, h: 0, kbps: 0, codecs: "avc1.640029" });
+    // La lista llega de mayor a menor, como la publica LabTem.
+    expect(calidadInicial([2160, 1440, 1080, 720, 480, 360].map(c))).toBe(1080);
+    expect(calidadInicial([720, 480, 360].map(c))).toBe(720);
+    // Una pieza chiquita solo trae su peldaño y es el que toca.
+    expect(calidadInicial([360].map(c))).toBe(360);
+    expect(calidadInicial([])).toBeNull();
+  });
+});

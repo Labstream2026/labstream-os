@@ -38,7 +38,30 @@ export type VivoDatos = {
   gpu: boolean;
   calidades: CalidadViva[];
   libres?: number;
+  // Lo pone el servidor de la app: el ORIGINAL ya sirve tal cual (H.264 razonable a 1080p o
+  // menos). Entonces no se convierte nada: reproducir directo es gratis y la GPU queda libre.
+  directo?: boolean;
 };
+
+/**
+ * La calidad con la que ARRANCAR: 1080 por defecto —aunque el original sea 4K—, o la mayor
+ * disponible por debajo. Es la regla de la casa: nadie descarga un 4K entero para verlo en un
+ * portátil; quien quiera más (o menos) lo elige en el menú.
+ */
+export function calidadInicial(lista: CalidadViva[]): number | null {
+  for (const c of lista) if (c.calidad <= 1080) return c.calidad;
+  return lista.length ? lista[lista.length - 1]!.calidad : null;
+}
+
+/**
+ * Las calidades para el reproductor NATIVO (iOS/iPadOS, donde no hay MediaSource): allí el HLS
+ * en vivo lo reproduce Safari directamente, así que no se filtra por códec soportado — H.264
+ * con AAC lo abre cualquier Safari. Sin duración tampoco hay modo: la sesión no arrancaría.
+ */
+export function calidadesNativas(datos: VivoDatos | null): CalidadViva[] {
+  if (!datos?.gpu || !datos.duracion || datos.duracion <= 0) return [];
+  return datos.calidades;
+}
 
 /**
  * Las calidades que de verdad se pueden ofrecer aquí: las que LabTem sabe hacer Y este
@@ -63,6 +86,12 @@ export type OpcionesVivo = {
   codecs: string;
   /** Se llama cuando esto ya no puede seguir; quien escuche debe volver a la copia de disco. */
   alFallar?: (motivo: string) => void;
+  /**
+   * La red no da para esta calidad: el chorro está VIVO y aun así el búfer se secó varias
+   * veces seguidas. Quien escuche debe bajar un peldaño (1080 → 720 → 480) — el motor no
+   * decide la calidad, solo avisa de que esta no se sostiene.
+   */
+  alAhogarse?: () => void;
 };
 
 function tipoMime(codecs: string): string {
@@ -114,6 +143,11 @@ export class ReproductorVivo {
   private desde = 0;
   private terminado = false; // el chorro llegó hasta el final del vídeo
   private reanudando = false;
+  // El detector de ahogo: marcas de tiempo de los cortes recientes. Se cuentan solo los que
+  // pasan con el chorro VIVO (la red trae menos de lo que se reproduce, no un tropiezo del
+  // arranque ni una reconexión).
+  private ahogos: number[] = [];
+  private chorroDesdeMs = 0;
 
   constructor(op: OpcionesVivo) {
     this.op = op;
@@ -208,11 +242,33 @@ export class ReproductorVivo {
   // exactamente eso: nadie consume, ffmpeg se bloquea, la conexión enmudece). Se vuelve a pedir
   // desde donde se estaba, que además es barato. Sin esto, pausar un minuto mataba la sesión.
   private alEsperar = (): void => {
-    if (this.muerto || this.ctrl || this.terminado) return;
+    if (this.muerto || this.terminado) return;
     const t = this.op.video.currentTime;
     if (t >= this.op.duracion - 0.5 || this.enMemoria(t)) return;
+    if (this.ctrl) {
+      // El chorro está VIVO y aun así no hay vídeo que reproducir: la red trae menos de lo
+      // que se consume. Esto no se arregla reconectando — se arregla bajando de calidad.
+      this.anotarAhogo();
+      return;
+    }
     void this.bombear(t);
   };
+
+  private anotarAhogo(): void {
+    const ahora = Date.now();
+    // El arranque y el salto siempre esperan un poco: eso no es la red, es la GPU poniéndose.
+    if (ahora - this.chorroDesdeMs < 5_000) return;
+    if (this.op.video.paused) return;
+    this.ahogos = this.ahogos.filter((x) => ahora - x < 45_000);
+    this.ahogos.push(ahora);
+    // Tres cortes en 45 s ya no son mala suerte. Se avisa UNA vez y se limpia: si quien
+    // escucha baja la calidad, este motor se reconstruye; si no hay más peldaños, no hay que
+    // repetir el aviso en bucle.
+    if (this.ahogos.length >= 3) {
+      this.ahogos = [];
+      this.op.alAhogarse?.();
+    }
+  }
 
   private enMemoria(t: number): boolean {
     const b = this.sb?.buffered;
@@ -270,6 +326,7 @@ export class ReproductorVivo {
     this.desde = segundos;
     this.terminado = false;
     this.cola = [];
+    this.chorroDesdeMs = Date.now();
 
     let r: Response;
     try {

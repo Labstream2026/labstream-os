@@ -49,10 +49,29 @@ export type VivoInfo = {
   h: number;
   duracion: number | null;
   audio: boolean;
+  // La tasa total del archivo y el códec del audio: lo que hace falta para decidir si el
+  // ORIGINAL ya sirve tal cual en el navegador, sin gastar GPU (ver `originalApto`).
+  tasa: number | null;
+  acodec: string;
   gpu: boolean;
   calidades: { calidad: number; w: number; h: number; kbps: number; codecs: string }[];
   libres: number;
 };
+
+// ¿El original ya es apto para el navegador tal cual? El MISMO criterio que usaba la fábrica
+// para saltarse la copia («el original ya es apto»): contenedor que el navegador abre, H.264,
+// 1080p o menos (por PÍXELES, no por altura: un vertical 1080×1920 cuenta como 1080p), tasa
+// razonable y audio AAC/MP3 o mudo. Si cumple todo, se reproduce DIRECTO y la GPU ni se entera
+// — que con seis plazas es la diferencia entre sobrar y faltar.
+export function originalApto(rel: string, info: VivoInfo | null): boolean {
+  if (!info) return false;
+  const ext = (rel.split(".").pop() || "").toLowerCase();
+  if (!["mp4", "m4v", "mov"].includes(ext)) return false;
+  if (info.codec !== "h264") return false;
+  if (!(info.w > 0 && info.h > 0) || info.w * info.h > 1920 * 1080) return false;
+  if (!(typeof info.tasa === "number" && info.tasa > 0 && info.tasa <= 9_000_000)) return false;
+  return ["", "aac", "mp3"].includes(info.acodec);
+}
 
 // ── Salud, con memoria corta ───────────────────────────────────────────────────────────────
 // El reproductor pregunta «¿puedo?» antes de ofrecer el menú, y eso pasa en cada apertura de
@@ -116,6 +135,8 @@ export async function vivoInfo(rel: string): Promise<VivoInfo | null> {
           h: Number(j.h || 0),
           duracion: typeof j.duracion === "number" && j.duracion > 0 ? j.duracion : null,
           audio: Boolean(j.audio),
+          tasa: typeof j.tasa === "number" && j.tasa > 0 ? j.tasa : null,
+          acodec: typeof j.acodec === "string" ? j.acodec : "",
           gpu: Boolean(j.gpu),
           // Se filtra contra NUESTRA lista además de la suya: lo que salga de aquí acaba en un
           // menú y en una URL, y no se hereda la lista de otro proceso sin mirarla.
@@ -161,6 +182,26 @@ export async function vivoChorro(
     return await fetch(url, { headers: { [CABECERA]: SECRETO }, cache: "no-store", signal: señal });
   } catch {
     return null; // LabTem no contesta: quien llama cae a la copia de disco
+  }
+}
+
+// ── HLS en vivo (iPhone/iPad) ──────────────────────────────────────────────────────────────
+// Safari móvil no trae MediaSource, así que el chorro MP4 de `vivoChorro` allí no existe. Para
+// iOS, LabTem genera una lista HLS que crece y sus trozos; aquí solo se reenvía la petición con
+// el secreto puesto. `seg` en null pide la LISTA; con nombre, ese trozo.
+export async function vivoHls(
+  rel: string,
+  calidad: number,
+  seg: string | null,
+  señal?: AbortSignal,
+): Promise<Response | null> {
+  if (!vivoConfigurado() || !rel || !esCalidadViva(calidad)) return null;
+  const base = `${BASE}/hls/${seg ? "trozo" : "lista"}?rel=${encodeURIComponent(rel)}&calidad=${calidad}`;
+  const url = seg ? `${base}&seg=${encodeURIComponent(seg)}` : base;
+  try {
+    return await fetch(url, { headers: { [CABECERA]: SECRETO }, cache: "no-store", signal: señal });
+  } catch {
+    return null; // LabTem no contesta: el iPhone se queda con el original directo
   }
 }
 

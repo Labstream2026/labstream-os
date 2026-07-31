@@ -6,7 +6,7 @@ import type { GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
 // Solo el TIPO: `import type` desaparece al compilar. La librería se carga con `import()` y
 // únicamente cuando esta pieza tiene escalera (ver el efecto de la escalera adaptativa).
 import type HlsPlayer from "hls.js";
-import { ReproductorVivo, calidadesUtiles, type VivoDatos } from "@/lib/vivo-cliente";
+import { ReproductorVivo, calidadesUtiles, calidadesNativas, calidadInicial, type VivoDatos } from "@/lib/vivo-cliente";
 import { formatBogota } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 
@@ -445,6 +445,9 @@ function Visor({
   );
   const vivoRef = React.useRef<ReproductorVivo | null>(null);
   const vivoCalidades = React.useMemo(() => calidadesUtiles(vivoDatos), [vivoDatos]);
+  // Para iPhone/iPad (sin MediaSource): el HLS en vivo lo reproduce el Safari nativo, así que
+  // la lista no se filtra por códec soportado.
+  const vivoNativas = React.useMemo(() => calidadesNativas(vivoDatos), [vivoDatos]);
 
   const fijarCalidad = React.useCallback(
     (n: number) => {
@@ -468,13 +471,24 @@ function Visor({
   // ¿Qué admite esta pieza al vuelo? Se pregunta al abrirla, en paralelo con la escalera: son
   // dos preguntas independientes y encadenarlas solo añadiría espera. La respuesta la guarda el
   // servidor unos minutos por pieza, así que pasar dos veces por el mismo vídeo no cuesta nada.
+  // Y AQUÍ MISMO se decide el modo por defecto en cuanto llega la respuesta: desde que no hay
+  // copias pregeneradas, lo normal es convertir AL VUELO a 1080 (aunque el original sea 4K),
+  // salvo que el servidor diga `directo` (el original ya sirve tal cual y reproducirlo es
+  // gratis). La decisión va en el `.then` y corre UNA vez por pieza: si el cliente después
+  // elige otra cosa en el menú, nadie se lo pisa.
   React.useEffect(() => {
     if (item.kind !== "video") return;
     const rel = item.rel;
     const ctrl = new AbortController();
     fetch(api("media", token, { rel, vivo: "info" }), { signal: ctrl.signal, cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: VivoDatos | null) => setVivoRes({ rel, datos: d }))
+      .then((d: VivoDatos | null) => {
+        setVivoRes({ rel, datos: d });
+        if (!d || d.directo) return;
+        const lista = "MediaSource" in window ? calidadesUtiles(d) : calidadesNativas(d);
+        const alto = calidadInicial(lista);
+        if (alto != null) setVivoSel((previo) => (previo?.rel === rel ? previo : { rel, alto }));
+      })
       .catch(() => {
         /* sin servicio de conversión: el menú simplemente no ofrece esta parte */
       });
@@ -485,6 +499,9 @@ function Visor({
   // la vez: cada uno se apaga entero al entrar el otro, en vez de compartir el `<video>` y
   // pelearse por él.
   React.useEffect(() => {
+    // Sin MediaSource (iOS/iPadOS) este motor no puede trabajar: allí manda el efecto del HLS
+    // en vivo, más abajo.
+    if (typeof window === "undefined" || !("MediaSource" in window)) return;
     if (vivoCalidad == null) return;
     const el = videoRef.current;
     const elegida = vivoCalidades.find((c) => c.calidad === vivoCalidad);
@@ -499,6 +516,13 @@ function Visor({
       // Si la GPU está llena o el chorro se cae, no se deja al cliente mirando un reproductor
       // parado: se vuelve solo a la copia de disco, que es lo que había antes de elegir esto.
       alFallar: () => setVivoCalidad(null),
+      // La red del cliente no sostiene esta calidad: un peldaño abajo (1080 → 720 → 480),
+      // desde el mismo segundo. Subir de vuelta lo decide él en el menú.
+      alAhogarse: () => {
+        const i = vivoCalidades.findIndex((c) => c.calidad === vivoCalidad);
+        const menor = i >= 0 ? vivoCalidades[i + 1] : undefined;
+        if (menor) setVivoCalidad(menor.calidad);
+      },
     });
     vivoRef.current = motor;
     motor.arrancar(punto);
@@ -521,6 +545,30 @@ function Visor({
       el.addEventListener("loadedmetadata", alCargar);
     };
   }, [vivoCalidad, vivoCalidades, vivoDatos, token, item.rel, ver, setVivoCalidad]);
+
+  // ── Al vuelo en iPhone/iPad: HLS EN VIVO ───────────────────────────────────────────────
+  // Safari móvil no trae MediaSource. La calidad elegida (o la automática del arranque) se
+  // pide como lista HLS que crece mientras la GPU convierte, y la reproduce el HLS nativo.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || "MediaSource" in window) return;
+    if (vivoCalidad == null) return;
+    const el = videoRef.current;
+    if (!el || !vivoNativas.some((c) => c.calidad === vivoCalidad)) return;
+    const punto = el.currentTime || 0;
+    el.src = api("media", token, { rel: item.rel, vivohls: "lista", cal: String(vivoCalidad) });
+    el.load();
+    const alCargar = () => {
+      if (punto > 0.5) el.currentTime = punto;
+      el.removeEventListener("loadedmetadata", alCargar);
+    };
+    el.addEventListener("loadedmetadata", alCargar);
+    void el.play().catch(() => {});
+    return () => {
+      el.removeEventListener("loadedmetadata", alCargar);
+      el.src = ver;
+      el.load();
+    };
+  }, [vivoCalidad, vivoNativas, token, item.rel, ver]);
 
   React.useEffect(() => {
     // Con el modo al vuelo puesto, la escalera no se toca: el `<video>` ya tiene dueño.

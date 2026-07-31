@@ -1,14 +1,17 @@
 #!/bin/bash
-# ── LabTem · fabrica las copias ligeras de la galería de entregas ──────────────
+# ── LabTem · fabrica los FIJOS de la galería de entregas ──────────────────────
 #
 # Recorre el material y, junto a cada pieza, deja en la carpeta hermana `.proxy` lo
-# que el cliente verá desde el navegador. Los nombres NO son negociables: son los
-# que calcula src/lib/nas-galeria.ts (proxyRelFor / posterRelFor).
+# que la galería necesita tener HECHO de antemano. Los nombres NO son negociables:
+# son los que calcula src/lib/nas-galeria.ts (proxyRelFor / posterRelFor).
 #
-#   <carpeta>/toma.mxf   →  <carpeta>/.proxy/toma.mxf.mp4         copia para reproducir
-#                           <carpeta>/.proxy/toma.mxf.poster.jpg  fotograma de la cuadrícula
+#   <carpeta>/toma.mxf   →  <carpeta>/.proxy/toma.mxf.poster.jpg  fotograma de la cuadrícula
 #                           <carpeta>/.proxy/toma.mxf.sprite.jpg  tira para el barrido con el ratón
 #   <carpeta>/foto.dng   →  <carpeta>/.proxy/foto.dng.webp        copia que el navegador sí pinta
+#
+# La copia MP4 y la escalera HLS se APAGARON el 2026-07-31 (interruptores HACER_COPIA
+# y HACER_HLS, abajo): la reproducción pasó a TRANSCODIFICACIÓN EN VIVO (labtem-vivo),
+# por decisión del estudio. El código sigue aquí por si hay que volver atrás.
 #
 # Principios (por qué está escrito así):
 #   - IDEMPOTENTE. Corre cada noche sobre los mismos 7 TB: si la copia ya está y es
@@ -48,6 +51,10 @@ ESTADO="${ESTADO:-/estado}"
 FFMPEG="${FFMPEG:-/opt/ffmpeg/bin/ffmpeg}"
 FFPROBE="${FFPROBE:-/opt/ffmpeg/bin/ffprobe}"
 
+# La copia MP4 pregenerada: APAGADA desde que la reproducción va por labtem-vivo
+# (transcodifica al vuelo a 1080/720/480). Reencender = exportar HACER_COPIA=1.
+HACER_COPIA="${HACER_COPIA:-0}"
+
 # Video: el destino es un cliente mirando en portátil o móvil. El 4K se queda en el
 # original (que sigue ahí para descargar); la copia se topa en 1080p y NUNCA amplía.
 ANCHO_MAX="${ANCHO_MAX:-1920}"
@@ -67,7 +74,9 @@ GOP_SEG="${GOP_SEG:-2}"           # un keyframe cada 2 s → mover la barra cae 
 # tres veces ahí mismo. Medido en esta máquina sobre 30 s de 1080p, frente al MP4 solo:
 # +77 % de tiempo y +45 % de disco. No es gratis, pero está lejos del triple que costaría
 # hacer tres pasadas.
-HACER_HLS="${HACER_HLS:-1}"
+# APAGADA desde 2026-07-31: la adaptación al ancho de banda la hace ahora labtem-vivo
+# bajando de calidad al vuelo; la escalera pregenerada sobra (y eran 41 mil archivitos).
+HACER_HLS="${HACER_HLS:-0}"
 # Por debajo de este minutaje no se hace: en un clip corto el reproductor no llega ni a
 # medir la red antes de que termine, y son los que más abundan (reels, cortes de redes).
 HLS_MIN_SEG="${HLS_MIN_SEG:-45}"
@@ -347,7 +356,11 @@ procesar_video() { # ruta absoluta
   # lo que hace que la segunda noche dure minutos en vez de días.
   local hls="$pd/$base.hls"
   local falta_mp4=0 falta_poster=0 falta_tira=0 falta_hls=0
-  al_dia "$mp4"    "$src" || falta_mp4=1
+  # Con la copia apagada ni se pregunta por ella: el video queda «al día» con solo
+  # el póster y la tira, que es todo lo que la galería necesita pregenerado.
+  if [ "$HACER_COPIA" = "1" ]; then
+    al_dia "$mp4" "$src" || falta_mp4=1
+  fi
   al_dia "$poster" "$src" || falta_poster=1
   al_dia "$tira"   "$src" || falta_tira=1
   # La escalera entra en esta cuenta, y no es un detalle: estaba solo más abajo, DESPUÉS de
@@ -391,9 +404,9 @@ procesar_video() { # ruta absoluta
       else
         motivo="formato que este ffmpeg no abre"
       fi
-      # Se marcan las TRES piezas: si solo se marcara la copia, cada noche se volvería
-      # a sondear el archivo por el póster y la tira, y a anotar el mismo fallo.
-      marcar "$mp4"    fallo "$motivo"
+      # Se marcan TODAS las piezas que esta pasada busca: si faltara una marca, cada
+      # noche se volvería a sondear el archivo por esa pieza y a anotar el mismo fallo.
+      [ "$HACER_COPIA" = "1" ] && marcar "$mp4" fallo "$motivo"
       marcar "$poster" fallo "$motivo"
       marcar "$tira"   fallo "$motivo"
       anotar_fallo "$src" "video" "$motivo"   # ya escribe la línea del registro; no repetirla

@@ -52,6 +52,10 @@ services:
       MAX_A_LA_VEZ: "6"
       # SECRETO se inyecta desde el .env de al lado — nunca en el compose, que va al repositorio.
       SECRETO: ${LABTEM_VIVO_SECRETO}
+      # Donde viven las sesiones del HLS en vivo (los trozos para iPhone/iPad). Es disco de
+      # verdad, no memoria: una sesión de 1080p puede pesar gigas. Se limpia solo (TTL + al
+      # arrancar el servicio).
+      SESIONES: /sesiones
       LD_LIBRARY_PATH: /opt/ffmpeg/lib:/opt/vd/lib
       LIBVA_DRIVERS_PATH: /opt/vd/lib
       LIBVA_DRIVER_NAME: iHD
@@ -63,5 +67,8 @@ services:
       - /var/packages/ffmpeg6/target:/opt/ffmpeg:ro
       - /var/packages/synocli-videodriver/target:/opt/vd:ro
       - ./servidor.mjs:/opt/servidor.mjs:ro
+      # Sesiones del HLS en vivo: fuera del share del material (que este servicio monta en
+      # solo lectura) y fuera de la capa del contenedor (que no está para gigas).
+      - ./sesiones:/sesiones
 
     stop_grace_period: 10s

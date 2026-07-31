@@ -1,9 +1,10 @@
 # ── LabTem · fábrica de copias ligeras (proxies) de la galería de entregas ──
 #
 # LabTem es el SEGUNDO NAS (i3-10105 + UHD 630). Guarda los originales en
-# /volume5/Entregas_LAB y, de madrugada, fabrica al lado de cada pieza la copia que
-# el cliente verá en el navegador (carpeta hermana `.proxy`). Nunca se transcodifica
-# al vuelo: cuando el cliente abre la sala, el trabajo pesado ya está hecho.
+# /volume5/Entregas_LAB y, de madrugada, deja al lado de cada pieza los FIJOS de la
+# galería (póster, tira y fotos, en la carpeta hermana `.proxy`). Desde el 2026-07-31
+# ya NO se fabrican copias MP4 ni escaleras HLS: la reproducción va por
+# transcodificación EN VIVO (labtem-vivo, ver vivo/), que baja de calidad al vuelo.
 #
 # Este contenedor NO es un servicio: es una caja de herramientas que se queda
 # dormida (`sleep infinity`) y a la que la tarea programada de DSM le grita cada

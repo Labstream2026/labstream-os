@@ -11,7 +11,7 @@ import { formatTimecode } from "@/lib/ui";
 // esta línea. La librería se carga con `import()` y únicamente cuando hay escalera que
 // reproducir (ver el efecto de la escalera adaptativa, más abajo).
 import type HlsPlayer from "hls.js";
-import { ReproductorVivo, calidadesUtiles, type VivoDatos } from "@/lib/vivo-cliente";
+import { ReproductorVivo, calidadesUtiles, calidadesNativas, calidadInicial, type VivoDatos } from "@/lib/vivo-cliente";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -2384,17 +2384,33 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     [mp4Src],
   );
   const vivoCalidades = React.useMemo(() => calidadesUtiles(vivoDatos), [vivoDatos]);
+  // Para iOS/iPadOS (sin MediaSource): allí reproduce el HLS nativo de Safari y la lista no
+  // se filtra por códec soportado.
+  const vivoNativas = React.useMemo(() => calidadesNativas(vivoDatos), [vivoDatos]);
   const enDisco = version?.enDisco ?? false;
 
   // Se pregunta solo por las piezas del disco de LabTem: son las únicas que su GPU alcanza, y
   // en las demás la ruta ignora `?vivo=` y devolvería el vídeo entero en vez de una ficha.
+  //
+  // Y AQUÍ MISMO se decide el modo por defecto, en cuanto llega la respuesta: desde que no hay
+  // copias pregeneradas, lo normal es CONVERTIR AL VUELO a 1080 (aunque el original sea 4K) —
+  // salvo que el servidor diga `directo` (el original ya sirve tal cual, reproducirlo es
+  // gratis). La decisión va en el `.then` y no en otro efecto: corre UNA vez por pieza, y si
+  // el revisor luego elige «original» en el menú, nadie se lo vuelve a pisar.
   React.useEffect(() => {
     if (!enDisco || !mp4Src) return;
     const src = mp4Src;
     const ctrl = new AbortController();
     fetch(`${src}&vivo=info`, { signal: ctrl.signal, cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: VivoDatos | null) => setVivoRes({ src, datos: d }))
+      .then((d: VivoDatos | null) => {
+        setVivoRes({ src, datos: d });
+        if (!d || d.directo) return;
+        // En iOS no hay MediaSource y la lista útil se mide distinto (HLS nativo).
+        const lista = "MediaSource" in window ? calidadesUtiles(d) : calidadesNativas(d);
+        const alto = calidadInicial(lista);
+        if (alto != null) setVivoSel((previo) => (previo?.src === src ? previo : { src, alto }));
+      })
       .catch(() => {
         /* sin servicio: el modo al vuelo no aparece y todo sigue como estaba */
       });
@@ -2403,6 +2419,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
 
   const vivoMotor = React.useRef<ReproductorVivo | null>(null);
   React.useEffect(() => {
+    // Sin MediaSource (iOS/iPadOS) este motor no puede trabajar: allí manda el efecto del
+    // HLS en vivo, más abajo. Sin este guarda, el constructor fallaría y `alFallar` apagaría
+    // el modo al vuelo en bucle.
+    if (typeof window === "undefined" || !("MediaSource" in window)) return;
     if (vivoCalidad == null || !mp4Src) return;
     const el = videoRef.current;
     const elegida = vivoCalidades.find((c) => c.calidad === vivoCalidad);
@@ -2416,6 +2436,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       // La GPU llena o el chorro caído no pueden dejar al revisor mirando un reproductor
       // parado: se vuelve solo a la fuente de siempre.
       alFallar: () => setVivoCalidad(null),
+      // La red no sostiene esta calidad (el chorro vivo y el búfer secándose una y otra
+      // vez): se baja un peldaño — 1080 → 720 → 480 — desde el mismo segundo. Nunca se
+      // vuelve a subir solo: eso lo decide el revisor en el menú.
+      alAhogarse: () => {
+        const i = vivoCalidades.findIndex((c) => c.calidad === vivoCalidad);
+        const menor = i >= 0 ? vivoCalidades[i + 1] : undefined;
+        if (menor) setVivoCalidad(menor.calidad);
+      },
     });
     vivoMotor.current = motor;
     motor.arrancar(punto);
@@ -2436,6 +2464,31 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       el.addEventListener("loadedmetadata", alCargar);
     };
   }, [vivoCalidad, vivoCalidades, vivoDatos, mp4Src, setVivoCalidad]);
+
+  // ── Al vuelo en iOS/iPadOS: HLS EN VIVO ────────────────────────────────────────────────
+  // Safari móvil no trae MediaSource, así que el chorro MP4 no reproduce allí. La misma
+  // calidad elegida (o la automática de arranque) se pide como lista HLS que crece mientras
+  // la GPU convierte, y la reproduce el HLS nativo — que en iOS sí es de verdad.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || "MediaSource" in window) return;
+    if (vivoCalidad == null || !mp4Src) return;
+    const el = videoRef.current;
+    if (!el || !vivoNativas.some((c) => c.calidad === vivoCalidad)) return;
+    const punto = el.currentTime || 0;
+    el.src = `${mp4Src}&vivohls=lista&cal=${vivoCalidad}`;
+    el.load();
+    const alCargar = () => {
+      if (punto > 0.5) el.currentTime = punto;
+      el.removeEventListener("loadedmetadata", alCargar);
+    };
+    el.addEventListener("loadedmetadata", alCargar);
+    void el.play().catch(() => {});
+    return () => {
+      el.removeEventListener("loadedmetadata", alCargar);
+      el.src = mp4Src;
+      el.load();
+    };
+  }, [vivoCalidad, vivoNativas, mp4Src]);
 
   React.useEffect(() => {
     const v = videoRef.current;

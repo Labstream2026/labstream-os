@@ -428,11 +428,11 @@ function CuerpoDisco({
                     preparandoSiFalta
                   />
                   <span className={cn("min-w-0 flex-1 truncate", on && "font-medium")}>{p.name}</span>
-                  {/* Tres estados distintos, y la diferencia importa mucho más de lo que
-                      parece. «Sin copia» es una cola con turno: se manda a revisión y para
-                      cuando el cliente abra, estará. Los otros dos NO mejoran esperando —y
-                      hasta hoy se veían igual, así que se enviaban a revisión y el problema
-                      aparecía con el enlace ya en manos del cliente. */}
+                  {/* Solo se marcan los problemas REALES, los que no mejoran esperando —hasta
+                      hoy se veían igual que una pieza sana, así que se enviaban a revisión y
+                      el problema aparecía con el enlace ya en manos del cliente—. Que una
+                      pieza no tenga copia YA NO es un estado: todo se convierte al vuelo al
+                      reproducirlo (o va directo si el original ya es H.264 ligero). */}
                   {p.problema === "vacio" ? (
                     <span
                       title="El archivo pesa 0 bytes: la copia al NAS se cortó al empezar y no hay nada dentro. Hay que volver a copiarlo."
@@ -446,13 +446,6 @@ function CuerpoDisco({
                       className="shrink-0 rounded bg-red-100 px-1.5 py-px text-[10px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300"
                     >
                       no se pudo
-                    </span>
-                  ) : p.video && !p.copia ? (
-                    <span
-                      title="La copia ligera la fabrica la GPU de LabTem. Hasta que esté, un master no se reproduce en el navegador (un H.264 sí)."
-                      className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                    >
-                      sin copia
                     </span>
                   ) : null}
                   <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fechaCorta(p.mtimeMs)}</span>

@@ -193,7 +193,7 @@ export function Miniatura({
 export function EtiquetaPreparando({ className }: { className?: string }) {
   return (
     <span
-      title="LabTem todavía no ha fabricado la copia ligera de esta pieza"
+      title="LabTem todavía no ha fabricado la miniatura de esta pieza (la fábrica pasa sola cada noche). Reproducirla no espera a nada: se convierte al vuelo."
       className={cn(
         "shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
         className,

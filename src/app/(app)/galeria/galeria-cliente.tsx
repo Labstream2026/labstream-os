@@ -7,6 +7,7 @@ import { crearEnlaceEntrega, revocarEnlaceEntrega } from "./acciones";
 import { IndiceCarpetas, type DuenoIndice } from "./indice-carpetas";
 import { BarraSeleccion, DialogoCompartir } from "./seleccion";
 import { TIRA_FOTOGRAMAS } from "@/lib/galeria-tira";
+import { ReproductorVivo, calidadesUtiles, calidadesNativas, calidadInicial, type VivoDatos } from "@/lib/vivo-cliente";
 import type { GaleriaFolder, GaleriaItem, GaleriaKind, GaleriaScan } from "@/lib/nas-galeria";
 
 // Galería de entregas: la línea de tiempo del material que hay en LabTem.
@@ -905,7 +906,7 @@ function Visor({
           </button>
         )}
         {item.kind === "video" ? (
-          <video key={item.rel} src={ver} controls autoPlay playsInline className="max-h-full max-w-full" />
+          <VideoVisor key={item.rel} rel={item.rel} src={ver} />
         ) : (
           <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" />
         )}
@@ -932,6 +933,103 @@ function Visor({
         </button>
       </div>
     </div>
+  );
+}
+
+// ── El video del visor: convierte AL VUELO por defecto ────────────────────────
+// Desde que no hay copias pregeneradas, esta es la regla de la casa: si el original ya sirve
+// tal cual (`directo`), se reproduce directo y la GPU ni se entera; si no, la GPU de LabTem lo
+// convierte mientras se mira, arrancando en 1080 y bajando sola a 720/480 si la red se ahoga.
+// Sin menú de calidades a propósito: esto se ve casi siempre desde la LAN del estudio, donde
+// el ahogo no existe — el menú completo vive en la sala de revisión y en la del cliente.
+function VideoVisor({ rel, src }: { rel: string; src: string }) {
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  // Todo ATADO a la pieza (rel) en un solo estado: al pasar a la siguiente vale lo que debe
+  // en ese mismo render. `alto` null = reproducir el original tal cual.
+  const [vivoRes, setVivoRes] = React.useState<{ rel: string; datos: VivoDatos | null; alto: number | null } | null>(null);
+  const [caida, setCaida] = React.useState<string | null>(null); // el vivo falló → original
+  const datos = vivoRes?.rel === rel ? vivoRes.datos : null;
+  const alto = vivoRes?.rel === rel ? vivoRes.alto : null;
+  const activo = alto != null && caida !== rel;
+
+  React.useEffect(() => {
+    const ctrl = new AbortController();
+    fetch(`/api/galeria/media?rel=${encodeURIComponent(rel)}&vivo=info`, { signal: ctrl.signal, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: VivoDatos | null) => {
+        if (!d || d.directo) {
+          setVivoRes({ rel, datos: d, alto: null });
+          return;
+        }
+        const lista = "MediaSource" in window ? calidadesUtiles(d) : calidadesNativas(d);
+        setVivoRes({ rel, datos: d, alto: calidadInicial(lista) });
+      })
+      .catch(() => {
+        /* sin servicio de conversión: el original directo, como siempre */
+      });
+    return () => ctrl.abort();
+  }, [rel]);
+
+  // El motor MediaSource (escritorio).
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !("MediaSource" in window)) return;
+    if (!activo || !datos?.duracion) return;
+    const el = videoRef.current;
+    const lista = calidadesUtiles(datos);
+    const elegida = lista.find((c) => c.calidad === alto);
+    if (!el || !elegida) return;
+    const punto = el.currentTime || 0;
+    const motor = new ReproductorVivo({
+      video: el,
+      duracion: datos.duracion,
+      codecs: elegida.codecs,
+      url: (desde) => `/api/galeria/media?rel=${encodeURIComponent(rel)}&vivo=${alto}&desde=${desde}`,
+      alFallar: () => setCaida(rel),
+      alAhogarse: () => {
+        const i = lista.findIndex((c) => c.calidad === alto);
+        const menor = i >= 0 ? lista[i + 1] : undefined;
+        if (menor) setVivoRes((p) => (p && p.rel === rel ? { ...p, alto: menor.calidad } : p));
+      },
+    });
+    motor.arrancar(punto);
+    void el.play().catch(() => {});
+    return () => {
+      const seguia = motor.puntoActual;
+      motor.destruir();
+      el.src = src;
+      el.load();
+      const alCargar = () => {
+        el.currentTime = seguia;
+        el.removeEventListener("loadedmetadata", alCargar);
+      };
+      el.addEventListener("loadedmetadata", alCargar);
+    };
+  }, [activo, alto, datos, rel, src]);
+
+  // iPhone/iPad: HLS en vivo con el reproductor nativo (no hay MediaSource).
+  React.useEffect(() => {
+    if (typeof window === "undefined" || "MediaSource" in window) return;
+    if (!activo) return;
+    const el = videoRef.current;
+    if (!el) return;
+    el.src = `/api/galeria/media?rel=${encodeURIComponent(rel)}&vivohls=lista&cal=${alto}`;
+    el.load();
+    void el.play().catch(() => {});
+    return () => {
+      el.src = src;
+      el.load();
+    };
+  }, [activo, alto, rel, src]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={activo ? undefined : src}
+      controls
+      autoPlay
+      playsInline
+      className="max-h-full max-w-full"
+    />
   );
 }
 
