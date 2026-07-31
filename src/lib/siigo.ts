@@ -208,13 +208,17 @@ function parseFactura(f: J, clientes: Map<string, string>): SiigoFactura | null 
     .filter(Boolean)
     .sort()
     .pop() ?? null;
+  // Siigo deja residuos de CENTAVOS en el balance (0,0x) de facturas ya pagadas: sin este
+  // redondeo salían «Vencida · $0» en la lista de pendientes y hasta mandaban la fecha de
+  // «la más vieja». Menos de un peso NO es deuda.
+  const saldoCrudo = num(f.balance);
   return {
     id,
     nombre: texto(f.name) || `FV ${texto(f.number) || id.slice(0, 6)}`,
     fecha,
     cliente: clientes.get(texto(cli.id)) || texto(cli.identification) || "—",
     total: num(f.total),
-    saldo: num(f.balance),
+    saldo: saldoCrudo < 1 ? 0 : saldoCrudo,
     vence,
     dian: texto(obj(f.stamp).status) || null,
   };
