@@ -166,6 +166,79 @@ export function proxyRelFor(rel: string, kind: GaleriaKind): string {
   return dir === "." ? `${PROXY_DIR_NAME}/${base}${suffix}` : `${dir}/${PROXY_DIR_NAME}/${base}${suffix}`;
 }
 
+// La ESCALERA ADAPTATIVA de un video: una carpeta hermana con el MISMO material en varias
+// calidades, troceado en fragmentos de 6 s, para que el reproductor salte de una a otra según
+// la red que tenga el cliente delante. La fabrica LabTem con su GPU (`hacer_hls`).
+// `toma.mxf` → `.proxy/toma.mxf.hls`  ·  dentro: `master.m3u8` + `v0/ v1/ v2/`
+export function hlsRelFor(rel: string): string {
+  const dir = path.posix.dirname(rel);
+  const base = path.posix.basename(rel);
+  return dir === "." ? `${PROXY_DIR_NAME}/${base}.hls` : `${dir}/${PROXY_DIR_NAME}/${base}.hls`;
+}
+
+// Un trozo de la escalera: el maestro, la lista de una calidad o un fragmento suelto. `sub`
+// llega desde la URL, así que se comprueba a mano ANTES de tocar el disco: como mucho un nivel
+// de carpeta (`v0/`), nombres corrientes y ni un `..`. `galeriaAbs` vuelve a validar por su
+// cuenta contra fugas fuera de la raíz, pero un filtro estrecho aquí evita que siquiera se
+// intente resolver algo que no tiene forma de trozo.
+const HLS_SUB = /^(?:v\d{1,2}\/)?[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+export async function resolveGaleriaHls(rel: string, sub: string): Promise<GaleriaFileInfo | null> {
+  if (!HLS_SUB.test(sub) || sub.includes("..")) return null;
+  const norm = normalizeGaleriaRel(rel);
+  if (!norm) return null;
+  if (galeriaKind(norm.split("/").pop() || "") !== "video") return null;
+  try {
+    const abs = await galeriaAbs(`${hlsRelFor(norm)}/${sub}`);
+    const st = await fs.stat(abs);
+    if (st.isFile()) return { abs, size: st.size, mtimeMs: st.mtimeMs, name: path.basename(sub) };
+  } catch {
+    /* sin escalera para esta pieza, o trozo que no existe */
+  }
+  return null;
+}
+
+// Las listas que escribe ffmpeg apuntan a rutas RELATIVAS: el maestro nombra `v0/index.m3u8` y
+// cada lista nombra `seg000.ts`. Servidas desde una ruta con parámetros
+// (`/api/files-asset/<id>?t=…&hls=…`), el navegador resolvería esos nombres contra
+// `/api/files-asset/` y pediría cualquier cosa menos el fragmento. Así que se reescriben a
+// nuestra propia URL, arrastrando el mismo token.
+//
+// Solo se tocan las líneas que son una RUTA: todo lo que empieza por `#` son etiquetas del
+// formato (`#EXT-X-STREAM-INF` lleva el ancho de banda y la resolución, que es justo lo que el
+// reproductor mira para decidir la calidad) y se dejan intactas.
+export function reescribirListaHls(
+  texto: string,
+  opciones: { ruta: string; token?: string | null; carpeta?: string },
+): string {
+  const carpeta = opciones.carpeta ?? "";
+  return texto
+    .split("\n")
+    .map((linea) => {
+      const t = linea.trim();
+      if (!t || t.startsWith("#")) return linea;
+      const qs = new URLSearchParams();
+      if (opciones.token) qs.set("t", opciones.token);
+      qs.set("hls", `${carpeta}${t}`);
+      return `${opciones.ruta}?${qs.toString()}`;
+    })
+    .join("\n");
+}
+
+// La carpeta de la que cuelga un trozo, para resolver contra ella los nombres de dentro:
+// `v0/index.m3u8` → `v0/`  ·  `master.m3u8` → `` (la raíz de la escalera).
+export function carpetaDeTrozoHls(sub: string): string {
+  const corte = sub.lastIndexOf("/");
+  return corte === -1 ? "" : sub.slice(0, corte + 1);
+}
+
+// ¿Tiene esta pieza escalera fabricada? Basta con que exista su maestro: LabTem monta la
+// carpeta entera de una vez (escribe en un temporal hermano y la cambia de golpe), así que un
+// maestro presente significa escalera completa, nunca a medias.
+export async function galeriaHasHls(rel: string): Promise<boolean> {
+  return (await resolveGaleriaHls(rel, "master.m3u8")) !== null;
+}
+
 // El póster de un video (el fotograma que se ve en la cuadrícula) también lo fabrica LabTem:
 // la app ya no lleva ffmpeg dentro, así que un video sin póster sale con marcador y su nombre.
 // `toma.mxf` → `.proxy/toma.mxf.poster.jpg`

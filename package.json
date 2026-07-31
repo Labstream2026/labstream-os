@@ -31,6 +31,7 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "hls.js": "^1.6.16",
     "jose": "^6.2.3",
     "lucide-react": "^1.18.0",
     "mammoth": "^1.12.0",

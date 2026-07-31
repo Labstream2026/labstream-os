@@ -176,6 +176,43 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       );
     }
 
+    // ── Un trozo de la ESCALERA ADAPTATIVA ──────────────────────────────────────────────
+    // `?hls=master.m3u8`, `?hls=v0/index.m3u8`, `?hls=v0/seg003.ts`. Mismo archivo, mismo
+    // permiso, misma comprobación de arriba: la escalera no abre una puerta nueva, es otra
+    // forma de servir la misma pieza. Quien no puede ver el video tampoco puede pedir sus
+    // fragmentos.
+    const hlsSub = url.searchParams.get("hls");
+    if (hlsSub && galIsVideo) {
+      const { resolveGaleriaHls, reescribirListaHls, carpetaDeTrozoHls } = await import("@/lib/nas-galeria");
+      const parte = await resolveGaleriaHls(file.path, hlsSub);
+      if (!parte) return new NextResponse("Esta pieza no tiene escalera (o no ese trozo)", { status: 404 });
+
+      if (hlsSub.endsWith(".m3u8")) {
+        const texto = await fs.readFile(parte.abs, "utf8");
+        const reescrito = reescribirListaHls(texto, {
+          ruta: url.pathname,
+          token,
+          carpeta: carpetaDeTrozoHls(hlsSub),
+        });
+        return new NextResponse(reescrito, {
+          headers: {
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "X-Content-Type-Options": "nosniff",
+            // Sin caché: la escalera puede rehacerse si el original cambia, y una lista vieja
+            // apuntaría a fragmentos que ya no están.
+            "Cache-Control": "private, no-store",
+          },
+        });
+      }
+
+      // Un fragmento. Son inmutables mientras exista la escalera —si se rehace, cambia la
+      // carpeta entera de golpe—, así que se pueden guardar un rato: es lo que evita volver a
+      // pedir por la red lo que el revisor ya vio al retroceder unos segundos.
+      const res = await serveDisk(req, parte.abs, parte.name, "video/mp2t", true, true);
+      res.headers.set("Cache-Control", "private, max-age=600");
+      return res;
+    }
+
     const info = await resolveGaleriaFile(file.path, wantInline && galIsVideo);
     if (!info) return new NextResponse("El archivo ya no está en el disco (¿movido por SMB o LabTem apagado?)", { status: 404 });
     // ¿Se resolvió la copia ligera? Se sabe por dónde vive (dentro de `.proxy/`), no por el

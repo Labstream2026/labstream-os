@@ -33,7 +33,9 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     include: {
       project: { select: { id: true, name: true, emoji: true, isPrivate: true, leadId: true, members: { select: { userId: true, role: true } }, client: { select: { name: true } } } },
       reviewers: { select: { userId: true } },
-      versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
+      // `kind`/`path` del archivo: con ellos se sabe si la pieza vive en el disco de LabTem y
+      // ya tiene escalera adaptativa fabricada (ver `buildStageVersions`).
+      versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true, kind: true, path: true } } } },
       // resolvedBy: quién dio por hecha cada corrección (se muestra junto al chip «Hecho»).
       reviewComments: { orderBy: { createdAt: "asc" }, include: { resolvedBy: { select: { name: true } } } },
     },

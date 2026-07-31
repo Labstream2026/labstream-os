@@ -71,7 +71,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     where: { id: deliverableId },
     include: {
       project: { select: { name: true, emoji: true, archivedAt: true, client: { select: { name: true } } } },
-      versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true } } } },
+      // `kind`/`path` del archivo: con ellos se sabe si la pieza vive en el disco de LabTem y
+      // ya tiene escalera adaptativa fabricada (ver `buildStageVersions`).
+      versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true, kind: true, path: true } } } },
       // El portal del cliente SOLO carga los comentarios del cliente (fromClient) y las
       // RESPUESTAS del equipo dirigidas a él (visibleToClient, las de «Responder al cliente»).
       // Los comentarios INTERNOS de pre-aprobación nunca salen del servidor por este enlace.

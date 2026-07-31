@@ -7,6 +7,10 @@ import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
 import { formatBogota } from "@/lib/bogota-time";
 import { formatTimecode } from "@/lib/ui";
+// Solo el TIPO: `import type` se borra al compilar, así que hls.js no entra en el paquete por
+// esta línea. La librería se carga con `import()` y únicamente cuando hay escalera que
+// reproducir (ver el efecto de la escalera adaptativa, más abajo).
+import type HlsPlayer from "hls.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Escenario de revisión compartido (estilo Frame.io). Lo usan DOS vistas:
@@ -27,6 +31,11 @@ export type StageVersion = {
   // ¿Es una pieza que vive en Google Drive? Solo para adaptar los avisos (la primera apertura
   // trae la copia): NO cambia cómo se reproduce — todo pasa por nuestro reproductor.
   fromDrive?: boolean;
+  // La ESCALERA ADAPTATIVA, si LabTem ya la fabricó para esta pieza. Cuando existe, el
+  // reproductor la usa en vez de `src` y va cambiando de calidad según el ancho de banda que
+  // mida; cuando no, `src` (el MP4 de una sola calidad) sigue sirviendo igual que siempre.
+  // No sustituye a `src`: es una mejora encima, y `src` es el suelo del que nunca se cae.
+  hlsSrc?: string | null;
   openUrl: string | null;
   fileName: string | null;
   timecodeCapable: boolean;
@@ -2326,6 +2335,67 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
     if (retryTimer.current != null) { window.clearTimeout(retryTimer.current); retryTimer.current = null; }
   }, [version]);
 
+  // ── Escalera adaptativa (HLS) ──────────────────────────────────────────────────────────
+  // Cuando LabTem ya fabricó la escalera de esta pieza, el <video> deja de tirar de un MP4 de
+  // calidad fija y pasa a pedir fragmentos de 6 s, saltando de calidad según el ancho de banda
+  // que vaya midiendo. El revisor no elige nada y no ve el cambio: solo deja de cortarse
+  // cuando la red va justa —que es el caso del cliente mirando la entrega desde el móvil—.
+  //
+  // Safari y iOS reproducen HLS de fábrica. Chrome y Firefox no, y para ellos hace falta
+  // hls.js: por eso se carga con `import()` DENTRO del efecto y solo si hay escalera que
+  // reproducir, en vez de ir en el paquete que se descarga siempre.
+  //
+  // El MP4 se queda puesto en `src` pase lo que pase, y eso es deliberado: es el suelo. Si no
+  // hay escalera, si el navegador no puede, si la librería no carga o se atraganta, se sigue
+  // reproduciendo por donde se reproducía ayer. Una mejora no puede costar la reproducción.
+  const hlsRef = React.useRef<HlsPlayer | null>(null);
+  const hlsSrc = version?.hlsSrc ?? null;
+  const mp4Src = version?.src ?? null;
+  React.useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !hlsSrc) return;
+    let vivo = true;
+    const volverAlMp4 = () => {
+      const el = videoRef.current;
+      if (!vivo || !el || !mp4Src) return;
+      el.src = mp4Src;
+      el.load();
+    };
+
+    // Safari/iOS: se le da la lista y él solo. Nada que cargar.
+    if (v.canPlayType("application/vnd.apple.mpegurl")) {
+      v.src = hlsSrc;
+      return () => { vivo = false; };
+    }
+
+    void import("hls.js")
+      .then(({ default: Hls }) => {
+        const el = videoRef.current;
+        if (!vivo || !el) return;
+        if (!Hls.isSupported()) { volverAlMp4(); return; }
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.on(Hls.Events.ERROR, (_evento, datos) => {
+          // Los tropiezos normales (un fragmento que tarda) los remonta hls.js solo. Solo se
+          // suelta la escalera cuando el fallo es FATAL, y entonces sin pelear: al MP4.
+          if (!datos.fatal) return;
+          try { hls.destroy(); } catch { /* noop */ }
+          if (hlsRef.current === hls) hlsRef.current = null;
+          volverAlMp4();
+        });
+        hls.loadSource(hlsSrc);
+        hls.attachMedia(el);
+      })
+      .catch(volverAlMp4);
+
+    return () => {
+      vivo = false;
+      const h = hlsRef.current;
+      hlsRef.current = null;
+      try { h?.destroy(); } catch { /* noop */ }
+    };
+  }, [hlsSrc, mp4Src]);
+
   // ── Zonas seguras del reel (solo equipo) ── overlay-guía sobre el video vertical con las
   // franjas donde TikTok/Instagram pintan SU interfaz encima; ciclo off → TikTok → Reels → off.
   const [safeZone, setSafeZone] = React.useState<SafeZonePreset | null>(null);
@@ -2575,6 +2645,10 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
             // llegando, una red inestable) y solo después se explica lo que pasa. NUNCA se salta
             // solo al visor de Google: allí se pierden el segundo y la captura sin avisar.
             onError={() => {
+              // Con la escalera puesta, los tropiezos los lleva hls.js: tiene su propia
+              // recuperación y su caída al MP4. Reintentar aquí a la vez sería pelearse con
+              // ella por el mismo <video> —y el `src` que restauraría es su blob interno—.
+              if (hlsRef.current) return;
               const v = videoRef.current;
               if (v && proxyRetries.current < 2) {
                 proxyRetries.current += 1;

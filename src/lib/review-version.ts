@@ -27,7 +27,10 @@ type VersionRow = {
   number: number;
   notes: string | null;
   fileUrl: string | null;
-  fileAsset: { id: string; name: string } | null;
+  // `kind`/`path` solo hacen falta para las piezas que viven en el disco de LabTem (kind
+  // GALERIA): con ellas se sabe si ya tienen escalera adaptativa fabricada. Opcionales para no
+  // obligar a cambiar a la vez todas las consultas que construyen versiones.
+  fileAsset: { id: string; name: string; kind?: string | null; path?: string | null } | null;
 };
 
 export async function buildStageVersions(rows: VersionRow[]): Promise<StageVersion[]> {
@@ -44,7 +47,24 @@ async function buildOne(v: VersionRow): Promise<StageVersion> {
     const url = `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id, 12 * 3600)}`;
     const name = v.fileAsset.name;
     const kind = IMG.test(name) ? "image" : VID.test(name) ? "video" : "other";
-    return { number: v.number, notes: v.notes, kind, src: url, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
+
+    // ¿Vive en el disco de LabTem y ya tiene escalera? Entonces el reproductor puede adaptar la
+    // calidad al ancho de banda del cliente. Se comprueba AQUÍ, en el servidor, mirando si
+    // existe el maestro: preguntárselo al navegador significaría dejarle intentar una fuente
+    // que a lo mejor no está y tener que recular a la vista de todos. La escalera es opcional
+    // —material recién subido aún no la tiene—, así que un fallo aquí no puede costar la
+    // reproducción: si algo va mal, se sigue con el MP4 de siempre.
+    let hlsSrc: string | null = null;
+    if (kind === "video" && v.fileAsset.kind === "GALERIA" && v.fileAsset.path) {
+      try {
+        const { galeriaHasHls } = await import("@/lib/nas-galeria");
+        if (await galeriaHasHls(v.fileAsset.path)) hlsSrc = `${url}&hls=master.m3u8`;
+      } catch {
+        /* sin escalera: el MP4 sigue sirviendo igual */
+      }
+    }
+
+    return { number: v.number, notes: v.notes, kind, src: url, hlsSrc, openUrl: url, fileName: name, timecodeCapable: kind === "video" };
   }
 
   const s = detectSource(v.fileUrl);
