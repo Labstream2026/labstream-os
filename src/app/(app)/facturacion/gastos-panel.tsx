@@ -3,15 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Loader2, Lock, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import { CATEGORIAS_GASTO, categoriaGasto } from "@/lib/gastos";
 import { crearGasto, borrarGasto } from "./finanzas-actions";
 
-// ── La pestaña Gastos ─────────────────────────────────────────────────────────
-// Dos fuentes, bien separadas: los gastos PROPIOS (se registran aquí, viven en nuestra
-// base) y las COMPRAS de Siigo (solo lectura, las anota la contadora). Mes por mes.
+// ── La pestaña Gastos: las finanzas PROPIAS de la app ─────────────────────────
+// Una mini-app de finanzas para Labstream: registrar, ver el mes, y saber en qué se fue
+// la plata (desglose por categoría). NO lee ni toca a Siigo — son dos mundos separados
+// por pedido del usuario: lo contable vive en las pestañas de Siigo, esto es nuestro.
 
 export type GastoFila = {
   id: string;
@@ -22,8 +23,6 @@ export type GastoFila = {
   nota: string | null;
   creadoPor: string;
 };
-
-export type CompraFila = { nombre: string; fecha: string; proveedor: string; total: number };
 
 const FECHA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short" });
 
@@ -38,14 +37,12 @@ function hoyISO(): string {
 
 export function PanelGastos({
   gastos,
-  compras,
   mesLabel,
   hrefMesAnterior,
   hrefMesSiguiente,
   esMesActual,
 }: {
   gastos: GastoFila[];
-  compras: CompraFila[];
   mesLabel: string; // «julio de 2026»
   hrefMesAnterior: string;
   hrefMesSiguiente: string | null; // null en el mes actual (el futuro no existe)
@@ -62,8 +59,21 @@ export function PanelGastos({
   const [pendiente, start] = React.useTransition();
   const [porBorrar, setPorBorrar] = React.useState<string | null>(null); // dos pasos: clic y confirmar
 
-  const totalManual = gastos.reduce((n, g) => n + g.monto, 0);
-  const totalCompras = compras.reduce((n, c) => n + c.total, 0);
+  const totalMes = gastos.reduce((n, g) => n + g.monto, 0);
+
+  // Desglose por categoría (la segmentación de una app de finanzas): cuánto se fue en
+  // cada cosa este mes, de mayor a menor.
+  const porCategoria = React.useMemo(() => {
+    const mapa = new Map<string, { monto: number; n: number }>();
+    for (const g of gastos) {
+      const previo = mapa.get(g.categoria) ?? { monto: 0, n: 0 };
+      mapa.set(g.categoria, { monto: previo.monto + g.monto, n: previo.n + 1 });
+    }
+    return Array.from(mapa.entries())
+      .map(([key, v]) => ({ ...categoriaGasto(key), ...v }))
+      .sort((a, b) => b.monto - a.monto);
+  }, [gastos]);
+  const maxCategoria = Math.max(1, ...porCategoria.map((c) => c.monto));
 
   const registrar = () => {
     setError(null);
@@ -107,8 +117,8 @@ export function PanelGastos({
           </span>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          Propios <b className="font-semibold text-foreground">{formatMoney(totalManual, "COP")}</b> · Compras Siigo{" "}
-          <b className="font-semibold text-foreground">{formatMoney(totalCompras, "COP")}</b>
+          Total del mes <b className="font-semibold text-foreground">{formatMoney(totalMes, "COP")}</b>
+          {gastos.length > 0 ? ` · ${gastos.length} registro${gastos.length === 1 ? "" : "s"}` : ""}
         </span>
         <button
           onClick={() => setAbierto((v) => !v)}
@@ -156,10 +166,34 @@ export function PanelGastos({
         </div>
       ) : null}
 
-      {/* Gastos propios del mes. */}
+      {/* En qué se fue el mes: el desglose por categoría, la vista de app de finanzas. */}
+      {porCategoria.length > 0 ? (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="mb-2.5 text-sm font-semibold">
+            Por categoría <span className="font-normal text-muted-foreground">— en qué se fue el mes</span>
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {porCategoria.map((c) => (
+              <div key={c.key} className="flex items-center gap-2.5">
+                <span className={cn("size-2.5 shrink-0 rounded-full", c.dot)} />
+                <span className="w-40 truncate text-xs text-muted-foreground">{c.label}</span>
+                <span className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <span className={cn("block h-full rounded-full", c.dot)} style={{ width: `${Math.max(4, Math.round((c.monto / maxCategoria) * 100))}%` }} />
+                </span>
+                <span className="shrink-0 text-xs font-semibold tabular-nums">{formatMoney(c.monto, "COP")}</span>
+                <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                  {totalMes > 0 ? `${Math.round((c.monto / totalMes) * 100)} %` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Los gastos del mes, uno a uno. */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold">
-          Gastos propios <span className="font-normal text-muted-foreground">— registrados en la app</span>
+          Registro del mes <span className="font-normal text-muted-foreground">— de la app, sin tocar a Siigo</span>
         </p>
         {gastos.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">
@@ -197,27 +231,9 @@ export function PanelGastos({
         )}
       </div>
 
-      {/* Compras de Siigo del mes: lo contable, en solo lectura. */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <p className="flex items-center gap-1.5 border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold">
-          Compras en Siigo <span className="font-normal text-muted-foreground">— facturas de proveedor, las anota contabilidad</span>
-          <Lock className="ml-auto size-3 text-muted-foreground" />
-        </p>
-        {compras.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin compras contabilizadas ese mes.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {compras.map((c, i) => (
-              <li key={`${c.nombre}-${i}`} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">{c.nombre}</span>
-                <span className="min-w-0 flex-1 truncate">{c.proveedor}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{fechaCorta(c.fecha)}</span>
-                <span className="shrink-0 font-semibold tabular-nums">{formatMoney(c.total, "COP")}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Este registro es de la app y no lee ni afecta a Siigo. Las compras contables (facturas de proveedor) viven en Movimientos, con su chip FC.
+      </p>
     </div>
   );
 }

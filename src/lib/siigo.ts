@@ -53,11 +53,11 @@ export type SiigoFactura = {
 };
 
 export type SiigoMovimiento = {
-  tipo: "FV" | "RC" | "NC";
+  tipo: "FV" | "RC" | "NC" | "FC";
   nombre: string;
   fecha: string;
-  cliente: string;
-  valor: number; // RC en positivo, NC en negativo, FV el total emitido
+  cliente: string; // en FC es el proveedor
+  valor: number; // RC en positivo; NC y FC (plata que sale) en negativo; FV el total emitido
 };
 
 export type SiigoResumen = {
@@ -427,13 +427,16 @@ export async function datosSiigo(): Promise<SiigoResultado> {
         nComprasMes: comprasMes.length,
       };
 
+      // Las COMPRAS también son movimientos (plata que sale): viven aquí, en el mundo Siigo,
+      // no en la pestaña de gastos propios — son dos cosas distintas por pedido del usuario.
       const movimientos: SiigoMovimiento[] = [
         ...facturas.map((f) => ({ tipo: "FV" as const, nombre: f.nombre, fecha: f.fecha, cliente: f.cliente, valor: f.total })),
         ...recibos.map((r) => ({ tipo: "RC" as const, nombre: r.nombre, fecha: r.fecha, cliente: r.cliente, valor: r.valor })),
         ...notas.map((n) => ({ tipo: "NC" as const, nombre: n.nombre, fecha: n.fecha, cliente: n.cliente, valor: -n.valor })),
+        ...compras.map((c) => ({ tipo: "FC" as const, nombre: c.nombre, fecha: c.fecha, cliente: c.proveedor, valor: -c.total })),
       ]
         .sort((a, b) => (a.fecha === b.fecha ? b.nombre.localeCompare(a.nombre) : b.fecha.localeCompare(a.fecha)))
-        .slice(0, 40);
+        .slice(0, 80);
 
       const datos: SiigoDatos = { facturas, movimientos, compras, edades, serieMeses, topSaldos, resumen, actualizadoMs: Date.now() };
       datosCache = { datos, vence: Date.now() + CACHE_DATOS_MS };

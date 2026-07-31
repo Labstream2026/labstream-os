@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { siigoEnabled, datosSiigo } from "@/lib/siigo";
 import { PanelSiigo, BarraSiigo, FalloSiigo } from "./siigo-panel";
 import { PanelResumen } from "./resumen-panel";
-import { PanelGastos, type GastoFila, type CompraFila } from "./gastos-panel";
+import { PanelGastos, type GastoFila } from "./gastos-panel";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
 
 export const dynamic = "force-dynamic";
@@ -77,9 +77,8 @@ export default async function FacturacionPage({
   const mesActual = mesActualBogota();
   const mesSel = typeof mesParam === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mesParam) && mesParam <= mesActual ? mesParam : mesActual;
   const rangoSel = rangoMes(mesSel);
-  const rangoActual = rangoMes(mesActual);
 
-  const [invoices, billableQuotes, siigo, org, gastosSel, gastosActualAgg] = await Promise.all([
+  const [invoices, billableQuotes, siigo, org, gastosSel] = await Promise.all([
     db.invoice.findMany({
       where: { client: accessibleClientWhere(session) },
       orderBy: { createdAt: "desc" },
@@ -103,7 +102,7 @@ export default async function FacturacionPage({
     // La lectura de Siigo va en paralelo con la base: con caché caliente no cuesta nada.
     siigoOn ? datosSiigo() : Promise.resolve(null),
     siigoOn ? db.orgSettings.findUnique({ where: { id: "default" }, select: { metaFacturacion: true } }).catch(() => null) : Promise.resolve(null),
-    // Gastos del mes que se está MIRANDO en la pestaña Gastos…
+    // Gastos del mes que se está mirando en la pestaña Gastos (mundo de la APP, sin Siigo).
     siigoOn
       ? db.gasto.findMany({
           where: { fecha: { gte: rangoSel.desde, lt: rangoSel.hasta } },
@@ -111,10 +110,6 @@ export default async function FacturacionPage({
           include: { creadoPor: { select: { name: true } } },
         })
       : Promise.resolve([]),
-    // …y la suma del mes ACTUAL para el Resumen (pueden ser meses distintos).
-    siigoOn
-      ? db.gasto.aggregate({ where: { fecha: { gte: rangoActual.desde, lt: rangoActual.hasta } }, _sum: { monto: true }, _count: true })
-      : Promise.resolve(null),
   ]);
 
   const rows = invoices.map((inv) => ({
@@ -184,7 +179,6 @@ export default async function FacturacionPage({
     nota: g.nota,
     creadoPor: g.creadoPor.name,
   }));
-  const comprasMesSel: CompraFila[] = siigo?.ok ? siigo.datos.compras.filter((x) => x.fecha.slice(0, 7) === mesSel) : [];
   const mesLabel = MES_LARGO.format(new Date(`${mesSel}-15T12:00:00Z`));
 
   return (
@@ -196,13 +190,17 @@ export default async function FacturacionPage({
         actions={siigoOn ? undefined : <Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
       />
 
-      {/* Las píldoras del centro: solo existen con Siigo conectado. La de Cotizaciones es el
-          conmutador dinámico — mismo sitio, otra página, un clic de ida y otro de vuelta. */}
+      {/* Las píldoras, en DOS mundos rotulados y separados (pedido del usuario): lo contable
+          de Siigo (solo lectura) y lo propio de la app — que ni se leen ni se mezclan. La de
+          Cotizaciones es el conmutador dinámico hacia la otra página. */}
       {siigoOn ? (
-        <div className="mb-5 flex flex-wrap items-center gap-1.5">
+        <div className="mb-5 flex flex-wrap items-center gap-x-1.5 gap-y-2">
+          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Siigo</span>
           <Pestana href="/facturacion" activa={pestana === "resumen"}>Resumen</Pestana>
           <Pestana href="/facturacion?t=facturas" activa={pestana === "facturas"}>Facturas</Pestana>
           <Pestana href="/facturacion?t=movs" activa={pestana === "movs"}>Movimientos</Pestana>
+          <span className="mx-2 h-5 w-px bg-border" aria-hidden />
+          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">La app</span>
           <Pestana href="/facturacion?t=gastos" activa={pestana === "gastos"}>Gastos</Pestana>
           <Pestana href="/facturacion?t=interno" activa={pestana === "interno"}>Por facturar{porFacturar.length > 0 ? ` · ${porFacturar.length}` : ""}</Pestana>
           <Link
@@ -219,13 +217,7 @@ export default async function FacturacionPage({
         siigo.ok ? (
           <>
             <BarraSiigo min={siigo.minDesdeLectura} aviso={siigo.aviso} />
-            <PanelResumen
-              datos={siigo.datos}
-              meta={org?.metaFacturacion ?? null}
-              gastosManualMes={gastosActualAgg?._sum.monto ?? 0}
-              nGastosManualMes={gastosActualAgg?._count ?? 0}
-              porFacturar={porFacturar.length > 0 ? { n: porFacturar.length, total: porFacturarTotal } : null}
-            />
+            <PanelResumen datos={siigo.datos} meta={org?.metaFacturacion ?? null} />
           </>
         ) : (
           <FalloSiigo error={siigo.error} />
@@ -245,7 +237,6 @@ export default async function FacturacionPage({
       {siigoOn && pestana === "gastos" ? (
         <PanelGastos
           gastos={gastosFilas}
-          compras={comprasMesSel}
           mesLabel={mesLabel}
           hrefMesAnterior={`/facturacion?t=gastos&mes=${mesVecino(mesSel, -1)}`}
           hrefMesSiguiente={mesSel === mesActual ? null : `/facturacion?t=gastos&mes=${mesVecino(mesSel, 1)}`}

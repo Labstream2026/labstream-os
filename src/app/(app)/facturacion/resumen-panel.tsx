@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { ArrowRight, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import type { SiigoDatos } from "@/lib/siigo";
 import { MetaEditor } from "./meta-editor";
 
-// ── El Resumen del centro Finanzas ────────────────────────────────────────────
+// ── El Resumen CONTABLE (Siigo, solo lectura) ─────────────────────────────────
 // La pantalla para «tener la facturación al día» de un vistazo: cifras del mes, la meta,
 // la cartera por EDADES (el gráfico que manda), el ritmo facturado vs recaudado y quién
 // debe más. Los gráficos son divs y nada más: planos, del idioma de la app, sin librerías.
+// AQUÍ SOLO HAY SIIGO: los gastos propios de la app son otro mundo (pestaña Gastos) y no
+// se mezclan con lo contable — pedido expreso del usuario.
 
 const MES_CORTO = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", month: "short" });
 
@@ -43,26 +44,11 @@ function Cifra({ label, value, hint, tone }: { label: string; value: string; hin
   );
 }
 
-export function PanelResumen({
-  datos,
-  meta,
-  gastosManualMes,
-  nGastosManualMes,
-  porFacturar,
-}: {
-  datos: SiigoDatos;
-  meta: number | null;
-  gastosManualMes: number;
-  nGastosManualMes: number;
-  // La cola interna «por facturar» (cotizaciones aprobadas sin factura): null si está vacía.
-  porFacturar: { n: number; total: number } | null;
-}) {
+export function PanelResumen({ datos, meta }: { datos: SiigoDatos; meta: number | null }) {
   const { resumen, edades, serieMeses, topSaldos } = datos;
   const totalEdades = TRAMOS.reduce((n, t) => n + edades[t.key], 0);
   const maxMes = Math.max(1, ...serieMeses.flatMap((m) => [m.facturado, m.recaudado]));
   const maxSaldo = Math.max(1, ...topSaldos.map((t) => t.saldo));
-  const gastosTotales = gastosManualMes + resumen.comprasMes;
-  const utilidad = resumen.recaudadoMes - gastosTotales;
 
   return (
     <div className="flex flex-col gap-4">
@@ -81,10 +67,9 @@ export function PanelResumen({
         />
         <Cifra label="Recaudado este mes" value={formatMoney(resumen.recaudadoMes, "COP")} hint={`${resumen.nRecibosMes} recibo${resumen.nRecibosMes === 1 ? "" : "s"} de caja`} tone="text-emerald-600 dark:text-emerald-400" />
         <Cifra
-          label="Gastos este mes"
-          value={formatMoney(gastosTotales, "COP")}
-          hint={`utilidad de caja ${utilidad >= 0 ? "+" : "−"}${compacto(Math.abs(utilidad)).replace("$", "$")}`}
-          tone={utilidad < 0 ? "text-destructive" : undefined}
+          label="Facturado este mes"
+          value={formatMoney(resumen.facturadoMes, "COP")}
+          hint={`${resumen.nFacturadoMes} emitida${resumen.nFacturadoMes === 1 ? "" : "s"}${resumen.nComprasMes > 0 ? ` · compras ${compacto(resumen.comprasMes)}` : ""}`}
         />
       </div>
 
@@ -183,23 +168,6 @@ export function PanelResumen({
         </div>
       </div>
 
-      {/* La cola interna que ya existía: sin factura emitida no hay cobro que perseguir. */}
-      {porFacturar ? (
-        <Link
-          href="/facturacion?t=interno"
-          className="flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm transition-colors hover:bg-sky-500/10"
-        >
-          <TrendingDown className="size-4 shrink-0 rotate-180 text-sky-600 dark:text-sky-400" />
-          <span className="min-w-0 flex-1">
-            <b className="font-semibold">Por facturar:</b> {porFacturar.n} pendiente{porFacturar.n === 1 ? "" : "s"} por {formatMoney(porFacturar.total, "COP")} — trabajo terminado sin factura emitida.
-          </span>
-          <ArrowRight className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
-        </Link>
-      ) : null}
-
-      <p className="text-[11px] text-muted-foreground">
-        Gastos del mes = {formatMoney(gastosManualMes, "COP")} propios ({nGastosManualMes}) + {formatMoney(datos.resumen.comprasMes, "COP")} en compras de Siigo ({datos.resumen.nComprasMes}). La utilidad de caja compara lo recaudado contra ambos.
-      </p>
     </div>
   );
 }

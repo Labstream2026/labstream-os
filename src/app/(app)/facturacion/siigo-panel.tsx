@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { AlertTriangle, ExternalLink, Lock, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/lib/ui";
 import { SubmitButton } from "@/components/submit-button";
-import type { SiigoFactura, SiigoMovimiento, SiigoResultado } from "@/lib/siigo";
+import type { SiigoFactura, SiigoResultado } from "@/lib/siigo";
 import { refrescarSiigo } from "./siigo-actions";
 import { FacturasTabla, type FilaFactura } from "./facturas-tabla";
+import { MovimientosLista } from "./movimientos-lista";
 
 // ── Las pestañas de Siigo del centro Finanzas: Facturas y Movimientos ─────────
 // Solo lectura de punta a punta. Las CIFRAS del mes viven en la pestaña Resumen; aquí
@@ -105,7 +105,7 @@ export function PanelSiigo({
       {vista === "facturas" ? (
         <TablaFacturas facturas={facturas} filtro={filtro} filtroCliente={filtroCliente} hoy={hoy} />
       ) : (
-        <Movimientos movs={movimientos} />
+        <MovimientosLista movs={movimientos} />
       )}
       <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <Lock className="size-3" /> Solo lectura: aquí no se crea ni se toca nada — la fuente de verdad contable es Siigo.
@@ -209,39 +209,3 @@ function TablaFacturas({
   );
 }
 
-const MOV_META: Record<SiigoMovimiento["tipo"], { chip: string; texto: (m: SiigoMovimiento) => string }> = {
-  FV: { chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300", texto: (m) => `Factura emitida a ${m.cliente}` },
-  RC: { chip: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", texto: (m) => `Pago recibido de ${m.cliente}` },
-  NC: { chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", texto: (m) => `Nota crédito a ${m.cliente}` },
-};
-
-function Movimientos({ movs }: { movs: SiigoMovimiento[] }) {
-  if (movs.length === 0) {
-    return <p className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">Sin movimientos que mostrar.</p>;
-  }
-  return (
-    <section>
-      <h2 className="mb-2 text-sm font-semibold">
-        Movimientos recientes <span className="font-normal text-muted-foreground">— facturas, pagos y notas crédito, en orden</span>
-      </h2>
-      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-        {movs.map((m, i) => {
-          const meta = MOV_META[m.tipo];
-          return (
-            <li key={`${m.tipo}-${m.nombre}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-              <span className={cn("w-9 shrink-0 rounded-full py-0.5 text-center text-[10px] font-bold", meta.chip)}>{m.tipo}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {meta.texto(m)} <span className="font-mono text-xs text-muted-foreground">· {m.nombre}</span>
-              </span>
-              <span className={cn("shrink-0 font-medium tabular-nums", m.tipo === "RC" && "text-emerald-600 dark:text-emerald-400", m.tipo === "NC" && "text-amber-600 dark:text-amber-400")}>
-                {m.tipo === "RC" ? "+" : ""}
-                {formatMoney(m.valor, "COP")}
-              </span>
-              <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{fecha(m.fecha)}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}

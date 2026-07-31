@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/ui";
 import type { SiigoFacturaDetalle } from "@/lib/siigo";
@@ -61,8 +61,55 @@ export function FacturasTabla({ filas }: { filas: FilaFactura[] }) {
     };
   }, [abierta]);
 
+  // ── Segmentación al instante (en el navegador, sin recargar) ──
+  // Buscar por cliente o número y acotar por estado: con 200 filas servidas, filtrar aquí
+  // es inmediato y no le cuesta una petición ni a la app ni a Siigo.
+  const [busca, setBusca] = React.useState("");
+  const [estado, setEstado] = React.useState<string | null>(null);
+
+  const plano = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const q = plano(busca.trim());
+  const visibles = filas.filter((f) => {
+    if (estado && f.etiqueta !== estado) return false;
+    if (q && !plano(`${f.cliente} ${f.nombre}`).includes(q)) return false;
+    return true;
+  });
+
+  const ESTADOS = ["Pendiente", "Pago parcial", "Vencida", "Pagada"] as const;
+  const conteo = (e: string) => filas.filter((f) => f.etiqueta === e).length;
+
   return (
     <>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <label className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar cliente o número…"
+            className="w-52 rounded-md border border-border bg-background py-1 pl-8 pr-2 text-xs outline-none focus:border-primary"
+          />
+        </label>
+        {ESTADOS.filter((e) => conteo(e) > 0).map((e) => (
+          <button
+            key={e}
+            type="button"
+            onClick={() => setEstado(estado === e ? null : e)}
+            className={cn(
+              "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              estado === e ? "bg-primary/10 text-primary" : "border border-border text-muted-foreground hover:bg-accent",
+            )}
+          >
+            {e} · {conteo(e)}
+          </button>
+        ))}
+        {(estado || q) && visibles.length !== filas.length ? (
+          <span className="text-[11px] text-muted-foreground">
+            {visibles.length} de {filas.length}
+          </span>
+        ) : null}
+      </div>
+
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full min-w-[560px] text-sm">
           <thead>
@@ -77,7 +124,7 @@ export function FacturasTabla({ filas }: { filas: FilaFactura[] }) {
             </tr>
           </thead>
           <tbody>
-            {filas.map((f) => (
+            {visibles.map((f) => (
               <tr
                 key={f.id}
                 onClick={() => setAbierta(f)}
