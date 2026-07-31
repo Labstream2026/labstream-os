@@ -7,7 +7,10 @@ import {
   AlarmClock,
   Archive,
   BarChart3,
+  Bell,
+  BellRing,
   BookOpen,
+  Bot,
   CalendarDays,
   ChevronRight,
   FileCheck2,
@@ -15,19 +18,31 @@ import {
   HardDrive,
   Home,
   Inbox,
+  KeyRound,
+  Library,
   ListTodo,
   LogOut,
   MessageCircle,
   MessageSquarePlus,
+  Paintbrush,
+  Palette,
+  Plug,
   Plus,
   Receipt,
   Rocket,
+  ScrollText,
   Search,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
   Star,
   StickyNote,
+  Tags,
   Trash2,
   TrendingUp,
+  Users,
+  Workflow,
+  Wrench,
 } from "lucide-react";
 import {
   IconFacturacion,
@@ -43,7 +58,8 @@ import { TONE_MAP } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { PresencePicker } from "@/components/layout/presence-picker";
-import { Logo, LogoMark } from "@/components/brand/logo";
+import { Logo } from "@/components/brand/logo";
+import { cerrarMenu } from "@/components/ui/barra-menu";
 import { logout } from "@/lib/auth-actions";
 import { archiveClient } from "@/app/(app)/clientes/actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -227,28 +243,19 @@ export function Sidebar({
     { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, show: isCliente, active: pathname.startsWith("/mis-entregas") },
     { href: "/entregas-finales", label: "Entregas finales", icon: FolderCheck, show: isCliente, active: pathname.startsWith("/entregas-finales") },
     { href: "/solicitudes", label: "Solicitudes", icon: MessageSquarePlus, show: isCliente, active: pathname.startsWith("/solicitudes") },
+    // El orden de arriba es el que fijó el usuario (2026-07-31): del día a día personal
+    // (tareas, agenda, notas) hacia el trabajo compartido (proyectos, revisiones, chat).
     { href: "/", label: "Inicio", icon: Home, show: !isCliente, active: pathname === "/" },
     { href: "/mis-tareas", label: "Mis tareas", icon: ListTodo, show: !isCliente, active: pathname === "/mis-tareas" },
+    { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
+    { href: "/recordatorios", label: "Recordatorios", icon: AlarmClock, badge: remindersToday || undefined, show: !isCliente, active: pathname === "/recordatorios" },
+    { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
     // Acceso directo a TODOS los proyectos (el panel de Producción navega por cliente; esta
     // entrada da la vista global que se había perdido). El cliente del portal también la ve.
     { href: "/proyectos", label: "Proyectos", icon: Rocket, show: true, active: pathname === "/proyectos" || pathname.startsWith("/proyectos/") },
-    { href: "/recordatorios", label: "Recordatorios", icon: AlarmClock, badge: remindersToday || undefined, show: !isCliente, active: pathname === "/recordatorios" },
+    { href: "/revisiones", label: "Revisiones", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
     // El cliente (portal) no tiene chat: sin entrada en su menú.
     { href: "/chat", label: "Chats", icon: MessageCircle, badge: chatBadge || undefined, show: !isCliente, active: pathname === "/chat" || pathname.startsWith("/chat/") },
-    { href: "/revisiones", label: "Proyectos a revisar", icon: FileCheck2, badge: reviewPending || undefined, show: !isCliente, active: pathname.startsWith("/revisiones") },
-    { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
-    { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
-    // Los dos discos del NAS en UNA entrada (dentro se cambia con pestañas): la galería de
-    // entregas de LabTem PRIMERO —es donde el equipo busca material a diario— y
-    // Operaciones_LAB a un clic. Solo equipo; nunca clientes — el cliente entra a su galería
-    // por el enlace firmado, no por el menú.
-    {
-      href: galeriaEnabled ? "/galeria" : "/operaciones",
-      label: "Discos",
-      icon: HardDrive,
-      show: !isCliente && (opsEnabled || galeriaEnabled),
-      active: pathname.startsWith("/operaciones") || pathname.startsWith("/galeria"),
-    },
   ];
 
   // Archivar un cliente (solo admin): borrado SUAVE (restaurable desde /clientes).
@@ -507,11 +514,17 @@ export function Sidebar({
           </button>
           {showAdminItems ? (
             <div className="animate-in fade-in slide-in-from-top-1 duration-150">
-              {canQuotes ? adminRow("/cotizaciones", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
-              {canComercial ? adminRow("/comercial", "Comercial", IconComercial, pathname.startsWith("/comercial")) : null}
-              {canWiki ? adminRow("/wiki", "Wiki del equipo", IconWiki, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
+              {/* Mismo orden que el grupo de abajo del rail: Discos, Wiki, Reportes, Comercial,
+                  Facturación, Papelera (la Biblioteca solo existe aquí: en el rail vive dentro
+                  del espacio de la Wiki). */}
+              {opsEnabled || galeriaEnabled
+                ? adminRow(galeriaEnabled ? "/galeria" : "/operaciones", "Discos", HardDrive, pathname.startsWith("/operaciones") || pathname.startsWith("/galeria"))
+                : null}
+              {canWiki ? adminRow("/wiki", "Wiki", IconWiki, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
               {canBiblioteca ? adminRow("/biblioteca", "Biblioteca", IconBiblioteca, pathname.startsWith("/biblioteca")) : null}
               {canReports ? adminRow("/reportes", "Reportes", IconReportes, pathname.startsWith("/reportes")) : null}
+              {canComercial ? adminRow("/comercial", "Comercial", IconComercial, pathname.startsWith("/comercial")) : null}
+              {canQuotes ? adminRow("/cotizaciones", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
               {canPapelera ? adminRow("/papelera", "Papelera", IconPapelera, pathname.startsWith("/papelera")) : null}
             </div>
           ) : null}
@@ -524,14 +537,76 @@ export function Sidebar({
   // Usan iconos de LÍNEA monocromos (lucide) para tener EXACTAMENTE el mismo estilo que los de
   // arriba (mismo trazo, tamaño y estados activo/hover) — antes eran iconos duotono de colores.
   const RAIL_ADMIN = [
-    { href: "/cotizaciones", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
-    { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
+    // Los dos discos del NAS en UNA entrada (dentro se cambia con pestañas): la galería de
+    // entregas de LabTem PRIMERO —es donde el equipo busca material a diario— y
+    // Operaciones_LAB a un clic. Solo equipo; nunca clientes — el cliente entra a su galería
+    // por el enlace firmado, no por el menú. Vive en el grupo de abajo por pedido del usuario.
+    {
+      href: galeriaEnabled ? "/galeria" : "/operaciones",
+      label: "Discos",
+      icon: HardDrive,
+      show: opsEnabled || galeriaEnabled,
+      active: pathname.startsWith("/operaciones") || pathname.startsWith("/galeria"),
+    },
     // La Biblioteca YA NO tiene icono propio: vive dentro del espacio de la Wiki (en sus
     // Herramientas), así que enciende esta misma fila. Un icono menos en el rail.
-    { href: "/wiki", label: "Wiki del equipo", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") },
+    { href: "/wiki", label: "Wiki", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") },
     { href: "/reportes", label: "Reportes", icon: BarChart3, show: canReports, active: pathname.startsWith("/reportes") },
+    { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
+    { href: "/cotizaciones", label: "Facturación", icon: Receipt, show: canQuotes, active: pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") },
     { href: "/papelera", label: "Papelera", icon: Trash2, show: canPapelera, active: pathname.startsWith("/papelera") },
   ].filter((r) => r.show && !isCliente);
+
+  // ── El menú de la cuenta (avatar del rail): las pestañas de Ajustes a un clic ──
+  // El avatar ya no NAVEGA de una (te sacaba de donde estabas): despliega este menú y desde
+  // aquí entras directo a la sección que quieras. Las claves `s` son las mismas secciones
+  // que pinta /ajustes; EQUIPO y SISTEMA solo existen para admins (misma vara que la página,
+  // que además re-verifica en el servidor — esto es un atajo, no la puerta).
+  const CUENTA_MENU: { grupo: string; items: { s: string; label: string; icon: React.ComponentType<{ className?: string }> }[] }[] = [
+    {
+      grupo: "Mi cuenta",
+      items: isCliente
+        ? [
+            { s: "perfil", label: "Perfil", icon: Palette },
+            { s: "notificaciones", label: "Notificaciones y silencio", icon: Bell },
+          ]
+        : [
+            { s: "perfil", label: "Perfil", icon: Palette },
+            { s: "preferencias", label: "Preferencias", icon: SlidersHorizontal },
+            { s: "notificaciones", label: "Notificaciones y silencio", icon: Bell },
+            // «Mi calendario» solo existe como sección propia para el colaborador NO admin
+            // (el admin gestiona los calendarios desde Integraciones).
+            ...(canAdmin ? [] : [{ s: "calendario", label: "Mi calendario", icon: CalendarDays }]),
+          ],
+    },
+    ...(canAdmin && !isCliente
+      ? [
+          {
+            grupo: "Equipo",
+            items: [
+              { s: "usuarios", label: "Usuarios", icon: Users },
+              { s: "roles", label: "Roles y permisos", icon: ShieldCheck },
+              { s: "labels", label: "Estados y prioridades", icon: Tags },
+              { s: "estados-proyecto", label: "Estados de proyecto", icon: Workflow },
+              { s: "marca", label: "Marca", icon: Paintbrush },
+            ],
+          },
+          {
+            grupo: "Sistema",
+            items: [
+              { s: "integraciones", label: "Integraciones", icon: Plug },
+              { s: "api", label: "API y agentes", icon: KeyRound },
+              { s: "marcebot", label: "Marcebot", icon: Bot },
+              { s: "notificaciones-sistema", label: "Notificaciones del sistema", icon: BellRing },
+              { s: "auditoria", label: "Auditoría", icon: ScrollText },
+              { s: "biblioteca", label: "Biblioteca", icon: Library },
+              { s: "demo", label: "Modo demo", icon: Settings },
+              { s: "mantenimiento", label: "Mantenimiento", icon: Wrench },
+            ],
+          },
+        ]
+      : []),
+  ];
 
   function adminRow(href: string, label: string, Icon: React.ComponentType<{ className?: string }>, active: boolean) {
     return (
@@ -644,9 +719,68 @@ export function Sidebar({
 
       {/* RAIL: navegación principal con badges, SIEMPRE visible */}
       <div className="relative z-20 flex w-[58px] shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3">
-        <Link href={isCliente ? "/inicio" : "/"} onClick={onNavigate} title="Labstream OS" className="mb-2 transition-transform hover:scale-105">
-          <LogoMark className="h-8 w-8 text-sm" />
-        </Link>
+        {/* Tu avatar, arriba del todo (donde vivía la marca compacta, que nadie reconocía como
+            logo): ES la puerta de Ajustes. Clic = menú con las pestañas y entras directo a la
+            sección — ya no te saca de donde estás para caer en la portada de Ajustes. La caja
+            la coloca DetailsAutoClose (fixed + tope de alto con scroll si el menú es largo). */}
+        <details data-autoclose className="relative mb-2">
+          <summary
+            aria-label={`${user.name} · Ajustes`}
+            title={`${user.name} · Ajustes`}
+            className={cn(
+              "grid cursor-pointer list-none place-items-center rounded-full transition-transform hover:scale-105 [&::-webkit-details-marker]:hidden",
+              (pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion") || pathname.startsWith("/perfil")) &&
+                "ring-2 ring-primary ring-offset-2 ring-offset-sidebar",
+            )}
+          >
+            <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" presence={user.presence} dnd={user.dnd} />
+          </summary>
+          <div className="absolute left-[calc(100%+8px)] top-0 z-40 w-64 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl">
+            <Link
+              href="/ajustes?s=perfil"
+              onClick={(e) => {
+                cerrarMenu(e);
+                onNavigate?.();
+              }}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-muted"
+            >
+              <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" />
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-semibold leading-tight">{user.name}</span>
+                {user.title ? <span className="block truncate text-[11px] text-muted-foreground">{user.title}</span> : null}
+              </span>
+            </Link>
+            <div className="my-1 h-px bg-border" />
+            {CUENTA_MENU.map((g) => (
+              <React.Fragment key={g.grupo}>
+                <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{g.grupo}</p>
+                {g.items.map((it) => (
+                  <Link
+                    key={it.s}
+                    href={`/ajustes?s=${it.s}`}
+                    onClick={(e) => {
+                      cerrarMenu(e);
+                      onNavigate?.();
+                    }}
+                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] hover:bg-muted"
+                  >
+                    <it.icon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{it.label}</span>
+                  </Link>
+                ))}
+              </React.Fragment>
+            ))}
+            <div className="my-1 h-px bg-border" />
+            <form action={logout}>
+              <button
+                type="submit"
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left text-[13px] text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="size-4" /> Cerrar sesión
+              </button>
+            </form>
+          </div>
+        </details>
         {NAV.filter((n) => n.show).map((n) => (
           <Link
             key={n.href}
@@ -694,23 +828,7 @@ export function Sidebar({
           </>
         ) : null}
         <div className="mb-1 mt-1 h-px w-7 bg-sidebar-border" />
-        {/* Tu avatar HACE de Ajustes: el engranaje desaparece y con solo tu foto/iniciales entras a
-            Ajustes (un aro de acento marca cuando ya estás dentro). Menos ruido, un solo destino. */}
-        <Link
-          href={isCliente ? "/ajustes?s=perfil" : "/ajustes"}
-          onClick={onNavigate}
-          aria-label="Ajustes"
-          className={cn(
-            "group relative mt-1 grid shrink-0 place-items-center rounded-full transition-transform hover:scale-105",
-            (pathname.startsWith("/ajustes") || pathname.startsWith("/configuracion") || pathname.startsWith("/perfil")) &&
-              "ring-2 ring-primary ring-offset-2 ring-offset-sidebar",
-          )}
-        >
-          <UserAvatar initials={user.initials} color={user.color} url={user.avatarUrl} size="md" presence={user.presence} dnd={user.dnd} />
-          <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-            {user.name} · Ajustes
-          </span>
-        </Link>
+        {/* El avatar (y con él Ajustes) vive ARRIBA del rail; aquí abajo solo queda salir. */}
         <form action={logout} className="mt-1">
           <button
             type="submit"
@@ -741,14 +859,12 @@ export function Sidebar({
         {/* Contenido de ancho FIJO (no se reacomoda mientras el contenedor se cierra/abre). Al estar
             retraído se marca `inert`: sigue en el DOM para la animación, pero no recibe foco ni clics. */}
         <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width }} inert={collapsed || undefined}>
-          {/* Cabecera del panel: el LOGO real de Labstream (subible en Ajustes → Marca) + buscar. */}
-          <div className="flex items-center gap-2 px-3 pb-1 pt-3.5">
-            <Link href={isCliente ? "/inicio" : "/"} onClick={onNavigate} title="Ir a Inicio" className="min-w-0 flex-1">
-              <Logo className="h-[22px]" />
-              <span className="mt-0.5 block truncate text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted">
-                {isCliente ? "Mis proyectos" : "Producción"}
-              </span>
-            </Link>
+          {/* Cabecera del panel: solo el rótulo y buscar — el logo se mudó a la barra superior
+              (esquina derecha) y este espacio se lo ganó el menú. */}
+          <div className="flex items-center gap-2 px-3 pb-1 pt-3">
+            <span className="min-w-0 flex-1 truncate text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted">
+              {isCliente ? "Mis proyectos" : "Producción"}
+            </span>
             <button
               onClick={onSearch}
               title="Buscar (⌘K)"

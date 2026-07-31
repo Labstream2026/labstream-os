@@ -348,7 +348,7 @@ export default async function RevisionesPage({
 
   const TAB_META: Record<TabKey, { title: string; desc: string }> = {
     "por-aprobar": {
-      title: "Proyectos a revisar",
+      title: "Revisiones",
       desc: total > 0 ? `${total} entregable${total === 1 ? "" : "s"} esperan una acción. Abre uno para ver el video, comentar y decidir.` : "Todo al día.",
     },
     aprobados: { title: "Aprobados por el cliente", desc: "Ya aprobados y aún sin publicar. Cuando salgan al aire, márcalos como publicados." },

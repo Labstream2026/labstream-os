@@ -4,12 +4,13 @@ import * as React from "react";
 import { IconCalendario, IconConfiguracion } from "@/components/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft, ChevronDown, Link2, UserPlus, Users, Loader2 } from "lucide-react";
+import { PanelLeft, MoreHorizontal, Share2, Check, Menu, User, LogOut, ChevronLeft, Link2, UserPlus, Users, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell, type NotificationItem } from "@/components/layout/notifications-bell";
+import { Logo } from "@/components/brand/logo";
 import { logout } from "@/lib/auth-actions";
 import { routeMeta } from "@/lib/nav-meta";
 import { LABSTREAM_ICONS } from "@/components/icons";
@@ -75,11 +76,15 @@ function ShareMenu({ canAdmin }: { canAdmin: boolean }) {
         }
       }}
     >
-      <summary className="flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+      {/* Solo el icono (pedido del usuario): el naranja ya lo hace inconfundible y la palabra
+          se la lleva el tooltip. Al copiar, el icono se vuelve un check como confirmación. */}
+      <summary
+        className="flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden"
+        aria-label="Compartir"
+        title={copied ? "¡Enlace copiado!" : "Compartir"}
+      >
+        <span className="inline-flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow hover:bg-primary/90">
           {copied ? <Check className="size-4" /> : <Share2 className="size-4" />}
-          {copied ? "¡Enlace copiado!" : "Compartir"}
-          <ChevronDown className="size-3.5 opacity-80" />
         </span>
       </summary>
       <div className="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-border bg-popover p-1.5 text-sm shadow-xl">
@@ -272,6 +277,13 @@ export function Topbar({
             </form>
           </div>
         </details>
+        {/* La marca cierra la barra por la derecha (antes vivía en el panel lateral, donde
+            nadie la reconocía): el logo REAL de Ajustes → Marca, como firma de la esquina.
+            Solo escritorio — en móvil la barra no da y el cajón conserva el suyo. */}
+        <span className="mx-0.5 hidden h-6 w-px bg-border md:block" aria-hidden />
+        <Link href="/" title="Labstream OS" className="hidden shrink-0 transition-opacity hover:opacity-80 md:block">
+          <Logo className="h-6" />
+        </Link>
       </div>
     </header>
   );

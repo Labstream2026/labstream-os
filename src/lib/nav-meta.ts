@@ -21,7 +21,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/proyectos")) return { icon: "proyectos", label: "Proyectos", desc: "Toda la producción del estudio" };
   if (pathname.startsWith("/plantillas")) return { icon: "tarjetas", label: "Plantillas", desc: "Documentos y flujos reutilizables" };
   if (pathname.startsWith("/calendario")) return { icon: "calendario", label: "Calendario del equipo", desc: "Citas, rodajes y entregas de todo el estudio" };
-  if (pathname.startsWith("/wiki")) return { icon: "wiki", label: "Wiki del equipo", desc: "Documentación, inventario y accesos" };
+  if (pathname.startsWith("/wiki")) return { icon: "wiki", label: "Wiki", desc: "Documentación, inventario y accesos" };
   if (pathname.startsWith("/clientes/nuevo")) return { icon: "propuestas", label: "Nuevo cliente", desc: "Da de alta un cliente del estudio" };
   if (pathname === "/clientes") return { icon: "cliente", label: "Clientes", desc: "Las cuentas del estudio y sus proyectos" };
   if (pathname.startsWith("/clientes")) return { icon: "cliente", label: "Cliente", desc: "Ficha, proyectos y facturación de la cuenta" };

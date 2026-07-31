@@ -113,7 +113,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     >
       <div className="mb-4">
         <Link href="/revisiones" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-3.5" /> Proyectos a revisar
+          <ArrowLeft className="size-3.5" /> Revisiones
         </Link>
       </div>
 
