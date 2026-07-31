@@ -8,6 +8,7 @@ import { signReviewToken } from "@/lib/review-token";
 import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { sendWhatsappText, toWhatsappNumber } from "@/lib/whatsapp/send";
 import { logActivity } from "@/lib/activity";
+import { textoWhatsapp, textoCorreo, asuntoCorreo, proyectoComun } from "@/lib/review-share";
 
 // ── Trabajar con VARIAS piezas de una vez en la bandeja de revisiones ──
 // Una campaña sale en tanda: 8 reels que se mandan juntos al cliente, se archivan juntos y se
@@ -168,19 +169,14 @@ export async function bulkSendReviewLinks(
     url: `${baseUrl()}/review/${signReviewToken(d.id)}`,
   }));
   // Con piezas de un solo proyecto se nombra; con varias se dice el proyecto en cada línea.
-  const unProyecto = new Set(vivos.map((d) => d.projectId)).size === 1 ? vivos[0].project.name : null;
+  // El armado del texto vive en lib/review-share: lo comparte con la vista previa que se le
+  // enseña a quien envía, para que lo que ve y lo que sale sean literalmente lo mismo.
+  const unProyecto = proyectoComun(piezas);
 
   if (input.channel === "whatsapp") {
     const phone = toWhatsappNumber(input.to.trim());
     if (!phone) return { ok: false, error: "Número inválido. Escríbelo con indicativo, p. ej. 573001234567." };
-    const cabecera =
-      piezas.length === 1
-        ? `Hola 👋 Te comparto «${piezas[0].titulo}»${unProyecto ? ` de «${unProyecto}»` : ""} para tu revisión.`
-        : `Hola 👋 Te comparto ${piezas.length} piezas${unProyecto ? ` de «${unProyecto}»` : ""} para tu revisión.`;
-    const cuerpo = piezas
-      .map((p) => `• ${p.titulo}${unProyecto ? "" : ` (${p.proyecto})`}\n${p.url}`)
-      .join("\n\n");
-    const r = await sendWhatsappText(phone, `${cabecera}\n\n${cuerpo}${nota ? `\n\n${nota}` : ""}`);
+    const r = await sendWhatsappText(phone, textoWhatsapp(piezas, nota));
     if (!r.ok) return { ok: false, error: r.error };
     // Recuerda el número para la próxima (igual que los enlaces de portadas y entrega).
     const clientId = vivos.find((d) => d.project.clientId)?.project.clientId;
@@ -204,14 +200,12 @@ export async function bulkSendReviewLinks(
       (nota ? `<p>${esc(nota)}</p>` : "") +
       `<table style="border-collapse:collapse">${lista}</table>` +
       `<p style="color:#666;font-size:12px">Labstream Studio</p>`;
-    const texto = `${session.name} te comparte ${piezas.length === 1 ? "una pieza" : `${piezas.length} piezas`} para revisión:\n\n${piezas
-      .map((p) => `${p.titulo}: ${p.url}`)
-      .join("\n")}${nota ? `\n\n${nota}` : ""}`;
+    const texto = textoCorreo(piezas, session.name, nota);
     const r = await sendEmail({
       to,
       from: session.email ? `${session.name} <${session.email}>` : undefined,
       replyTo: session.email,
-      subject: piezas.length === 1 ? `Revisión: ${piezas[0].titulo}` : `Revisión: ${piezas.length} piezas${unProyecto ? ` de ${unProyecto}` : ""}`,
+      subject: asuntoCorreo(piezas),
       html,
       text: texto,
     });

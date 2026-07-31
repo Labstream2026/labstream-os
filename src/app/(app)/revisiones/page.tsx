@@ -10,6 +10,7 @@ import { deliverableStatusMeta } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { signReviewToken } from "@/lib/review-token";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
+import { CopiarEnlace } from "./copiar-enlace";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { IconRevisiones } from "@/components/icons";
@@ -530,6 +531,11 @@ type Item = {
   archived: boolean;
 };
 
+// Piezas que YA están en manos del cliente (esperándolo o abiertas por él): son las únicas
+// donde el enlace es lo que uno viene a buscar, así que son las únicas que enseñan «Copiar
+// enlace» al frente. En lo que aún se revisa, el enlace todavía no significa nada.
+const conElCliente = (d: Item) => d.status === "ENVIADO_CLIENTE";
+
 const ACCENT: Record<string, string> = {
   amber: "text-amber-600 dark:text-amber-400",
   sky: "text-sky-600 dark:text-sky-400",
@@ -700,6 +706,9 @@ function Fila({ d, primera, neutral, showStatus }: { d: Item; primera: boolean; 
           {neutral ? sinceLabel(u) : <><UrgencyIcon className="mr-0.5 inline size-3 align-[-2px]" />{teamChip(u)}</>}
         </span>
       </Link>
+      {/* Mismo botón que en la tarjeta. En pantallas estrechas se cae: la fila ya va apretada y
+          el ⋯ de al lado lo sigue teniendo. */}
+      {conElCliente(d) ? <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="hidden shrink-0 lg:inline-flex" /> : null}
       {d.manage ? (
         <span className="flex shrink-0 items-center gap-1.5">
           <SelectCheck id={d.id} />
@@ -800,6 +809,9 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
               {cta} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
             </span>
           </div>
+          {/* Ya está con el cliente: copiar su enlace es lo que uno viene a hacer aquí, así que
+              sale al frente en vez de vivir dentro del menú ⋯. */}
+          {conElCliente(d) ? <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="w-full" /> : null}
         </div>
       </Link>
       </div>

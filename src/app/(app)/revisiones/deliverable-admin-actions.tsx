@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore, Trash2, Link2, Link2Off, Rocket, RotateCcw, Mo
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { MENU_CAJA, MENU_ITEM, MenuSeparador, cerrarMenu } from "@/components/ui/barra-menu";
 import { cn } from "@/lib/utils";
+import { copiarAlPortapapeles } from "@/lib/copiar";
 import { setDeliverableArchived, deleteDeliverable, setDeliverablePublished } from "../proyectos/[id]/actions";
 import { useSelection } from "./selection";
 
@@ -69,11 +70,12 @@ export function DeliverableAdminActions({
   // casilla suelta encima de la miniatura, donde ya viven el chip de urgencia y el de comentarios.
   const seleccion = useSelection(deliverableId);
 
-  function copiar() {
-    navigator.clipboard?.writeText(reviewUrl).then(() => {
-      setCopiado(true);
-      setTimeout(() => setCopiado(false), 1500);
-    });
+  // Con `navigator.clipboard` a secas, en contexto no seguro o sin permiso la promesa se
+  // rechazaba, nadie la atrapaba y el menú NO cambiaba: pulsabas y no pasaba nada.
+  async function copiar() {
+    const ok = await copiarAlPortapapeles(reviewUrl);
+    setCopiado(ok);
+    setTimeout(() => setCopiado(false), 1500);
   }
 
   return (

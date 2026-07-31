@@ -10,6 +10,7 @@ import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { EmailReviewButton } from "@/app/(app)/proyectos/[id]/email-review-button";
 import { isEmailEnabled } from "@/lib/email";
+import { formatBogotaDate } from "@/lib/bogota-time";
 import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
 import type { StageComment } from "@/components/review/review-stage";
@@ -80,6 +81,25 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
   const hasApproved = deliverable.versions.some((v) => v.internalApproved);
   const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(deliverable.id)}`;
 
+  // Datos de la ventana que sale al pre-aprobar. `puedeEnviar` repite EXACTAMENTE la puerta de
+  // la server action (gestionar + aprobar_entregables, o ser revisor asignado) en vez del
+  // `canDecide` de arriba, que es más flojo: ofrecer un botón que el servidor va a rechazar es
+  // peor que no ofrecerlo.
+  const puedeEnviar =
+    (canManage && hasPermission(session, "aprobar_entregables")) ||
+    deliverable.reviewers.some((r) => r.userId === session.id) ||
+    deliverable.reviewerId === session.id;
+  const envio = {
+    titulo: `${deliverable.number ? `#${deliverable.number} ` : ""}${deliverable.name}`,
+    proyecto: deliverable.project.name,
+    cliente: deliverable.project.client?.name ?? null,
+    url: reviewUrl,
+    // Formateada en el SERVIDOR: en hora de Bogotá, no en la del navegador de quien revisa.
+    venceLabel: deliverable.reviewExpiresAt ? formatBogotaDate(deliverable.reviewExpiresAt, { day: "numeric", month: "long" }) : null,
+    puedeEnviar,
+    correoActivo: await isEmailEnabled(),
+  };
+
   return (
     // El ancho de la sala se adapta a la pieza: las horizontales sueltan el corsé de 5xl en
     // pantallas grandes (el player crece hasta 80vh y los comentarios van al rail derecho);
@@ -134,6 +154,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
             meName={session.name}
             canDecide={canDecide}
             orientation={orientation}
+            envio={envio}
           />
 
           {/* Enlace para el cliente (revocar / modo dibujos del portal) */}
