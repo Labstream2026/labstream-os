@@ -2362,9 +2362,14 @@ function MediaViewer({ version, apiRef, drawOpen, onDrawn, caption, vertical = f
       el.load();
     };
 
-    // Safari/iOS: se le da la lista y él solo. Nada que cargar.
-    if (v.canPlayType("application/vnd.apple.mpegurl")) {
-      v.src = hlsSrc;
+    // QUIÉN reproduce se decide por MediaSource, NO por `canPlayType`. Chrome y Edge
+    // contestan «maybe» a `application/vnd.apple.mpegurl` y NO es verdad: el vídeo se queda
+    // parado y, como no lanza `error`, tampoco salta la caída al MP4 — el reproductor se
+    // queda mudo. Comprobado en el navegador; sin abrirlo no se veía, porque el servidor
+    // respondía perfecto. Donde no hay MediaSource (iOS Safari) hls.js no puede trabajar y la
+    // única vía es el HLS nativo, que allí sí es de verdad.
+    if (!("MediaSource" in window)) {
+      if (v.canPlayType("application/vnd.apple.mpegurl")) v.src = hlsSrc;
       return () => { vivo = false; };
     }
 

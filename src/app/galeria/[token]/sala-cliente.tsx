@@ -413,8 +413,15 @@ function Visor({
         if (!vivo || !r.ok) return; // 404 = esta pieza todavía no tiene escalera
         const el = videoRef.current;
         if (!el) return;
-        if (el.canPlayType("application/vnd.apple.mpegurl")) {
-          el.src = maestro;
+        // QUIÉN reproduce se decide por MediaSource, NO por `canPlayType`. Chrome y Edge
+        // contestan «maybe» a `application/vnd.apple.mpegurl` y no es verdad: el vídeo se
+        // queda parado, y como NO lanza `error`, tampoco salta la caída al MP4 — la sala se
+        // queda muda y el cliente ve un reproductor que no arranca. Comprobado en el
+        // navegador; sin abrirlo esto no se veía, porque el servidor respondía perfecto.
+        // Donde no hay MediaSource (iOS Safari) hls.js no puede trabajar y la única vía es
+        // el HLS nativo, que ahí sí es de verdad.
+        if (!("MediaSource" in window)) {
+          if (el.canPlayType("application/vnd.apple.mpegurl")) el.src = maestro;
           return;
         }
         const { default: Hls } = await import("hls.js");
