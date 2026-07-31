@@ -207,9 +207,14 @@ export async function resolveGaleriaHls(rel: string, sub: string): Promise<Galer
 // Solo se tocan las líneas que son una RUTA: todo lo que empieza por `#` son etiquetas del
 // formato (`#EXT-X-STREAM-INF` lleva el ancho de banda y la resolución, que es justo lo que el
 // reproductor mira para decidir la calidad) y se dejan intactas.
+// `parametros` son los que identifican la pieza en cada ruta, y no son los mismos en las dos
+// salas: la de revisión lleva el token del archivo (`?t=`), y la de entrega del cliente lleva
+// además QUÉ pieza es (`?rel=`), porque su token abre una entrega entera y no un archivo suelto.
+// Por eso el reescritor recibe los parámetros en vez de darlos por sabidos. `hls` va siempre el
+// último, para que la url quede legible cuando haya que mirarla en un registro.
 export function reescribirListaHls(
   texto: string,
-  opciones: { ruta: string; token?: string | null; carpeta?: string },
+  opciones: { ruta: string; parametros?: Record<string, string | null | undefined>; carpeta?: string },
 ): string {
   const carpeta = opciones.carpeta ?? "";
   return texto
@@ -218,7 +223,9 @@ export function reescribirListaHls(
       const t = linea.trim();
       if (!t || t.startsWith("#")) return linea;
       const qs = new URLSearchParams();
-      if (opciones.token) qs.set("t", opciones.token);
+      for (const [clave, valor] of Object.entries(opciones.parametros ?? {})) {
+        if (valor) qs.set(clave, valor);
+      }
       qs.set("hls", `${carpeta}${t}`);
       return `${opciones.ruta}?${qs.toString()}`;
     })

@@ -36,6 +36,59 @@ export async function GET(req: NextRequest) {
   if (!alcanceAutoriza(acceso.alcance, rel)) return new NextResponse("Prohibido", { status: 403 });
 
   const quiereDescargar = Boolean(url.searchParams.get("descargar"));
+
+  // ── Un trozo de la ESCALERA ADAPTATIVA ─────────────────────────────────────────────────
+  // Va DESPUÉS del candado de arriba, y ahí está lo importante: la escalera no abre ninguna
+  // puerta nueva. Para llegar aquí, la pieza ya ha pasado por `alcanceAutoriza` con el mismo
+  // `rel`, así que quien no puede verla tampoco puede pedir sus fragmentos.
+  //
+  // Esto es lo que hace que un cliente abriendo su entrega con datos móviles deje de
+  // descargarse el 1080p entero para verlo a tirones: el reproductor mide la red y baja de
+  // calidad solo. Si la pieza todavía no tiene escalera, esta rama no contesta y se sigue por
+  // abajo con la copia de siempre.
+  const hlsSub = url.searchParams.get("hls");
+  if (hlsSub && !quiereDescargar) {
+    const { resolveGaleriaHls, reescribirListaHls, carpetaDeTrozoHls } = await import("@/lib/nas-galeria");
+    const parte = await resolveGaleriaHls(rel, hlsSub);
+    if (!parte) return new NextResponse("Esta pieza no tiene escalera (o no ese trozo)", { status: 404 });
+
+    if (hlsSub.endsWith(".m3u8")) {
+      const { readFile } = await import("node:fs/promises");
+      const texto = await readFile(parte.abs, "utf8");
+      return new NextResponse(
+        reescribirListaHls(texto, {
+          ruta: url.pathname,
+          // Aquí el token abre la ENTREGA, no un archivo suelto: cada trozo tiene que seguir
+          // diciendo de qué pieza es, o el servidor no sabría qué escalera abrir.
+          parametros: { t: url.searchParams.get("t"), rel },
+          carpeta: carpetaDeTrozoHls(hlsSub),
+        }),
+        {
+          headers: {
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "X-Content-Type-Options": "nosniff",
+            // Sin caché: si el original cambia, LabTem rehace la escalera y una lista vieja
+            // apuntaría a fragmentos que ya no existen.
+            "Cache-Control": "private, no-store",
+          },
+        },
+      );
+    }
+
+    // Un fragmento. Mientras la escalera exista son inmutables —si se rehace, se cambia la
+    // carpeta entera de golpe—, así que se pueden guardar un rato: es lo que evita volver a
+    // pedir por la red lo que el cliente acaba de ver al retroceder unos segundos.
+    const trozo = Readable.toWeb(createReadStream(parte.abs)) as unknown as ReadableStream;
+    return new NextResponse(trozo, {
+      headers: {
+        "Content-Type": "video/mp2t",
+        "Content-Length": String(parte.size),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=600",
+      },
+    });
+  }
+
   // Al descargar mandamos SIEMPRE el original: es lo que el cliente ha venido a buscar.
   const preferProxy = !quiereDescargar && Boolean(url.searchParams.get("copia"));
 

@@ -3,6 +3,9 @@
 import * as React from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, Download, Film, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
 import type { GaleriaItem, GaleriaScan } from "@/lib/nas-galeria";
+// Solo el TIPO: `import type` desaparece al compilar. La librería se carga con `import()` y
+// únicamente cuando esta pieza tiene escalera (ver el efecto de la escalera adaptativa).
+import type HlsPlayer from "hls.js";
 import { formatBogota } from "@/lib/bogota-time";
 import { Logo } from "@/components/brand/logo";
 
@@ -378,6 +381,70 @@ function Visor({
     return () => ctrl.abort();
   }, [token, item.rel, item.size]);
 
+  // ── Escalera adaptativa ─────────────────────────────────────────────────────────────────
+  // Si LabTem ya fabricó la escalera de esta pieza, el video se sirve troceado en varias
+  // calidades y el reproductor va cambiando según la red que tenga delante. Aquí es donde más
+  // se nota de toda la app: es la pantalla en la que un cliente abre su entrega desde el móvil.
+  //
+  // Primero se PREGUNTA si la escalera existe —medio kilobyte— y solo entonces se carga hls.js.
+  // Sin esa pregunta, una pieza que la fábrica aún no ha procesado haría que el teléfono se
+  // bajara medio mega de librería para acabar reproduciendo el MP4 de todas formas.
+  //
+  // Safari y iOS reproducen HLS de fábrica. Y pase lo que pase, el MP4 sigue puesto en `src`:
+  // sin escalera, con la librería caída o en un navegador que no puede, se ve igual que antes.
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const hlsRef = React.useRef<HlsPlayer | null>(null);
+  React.useEffect(() => {
+    if (item.kind !== "video") return;
+    const maestro = api("media", token, { rel: item.rel, hls: "master.m3u8" });
+    const ctrl = new AbortController();
+    let vivo = true;
+
+    const alMp4 = () => {
+      const el = videoRef.current;
+      if (vivo && el && el.src !== ver) {
+        el.src = ver;
+        el.load();
+      }
+    };
+
+    fetch(maestro, { signal: ctrl.signal })
+      .then(async (r) => {
+        if (!vivo || !r.ok) return; // 404 = esta pieza todavía no tiene escalera
+        const el = videoRef.current;
+        if (!el) return;
+        if (el.canPlayType("application/vnd.apple.mpegurl")) {
+          el.src = maestro;
+          return;
+        }
+        const { default: Hls } = await import("hls.js");
+        const destino = videoRef.current;
+        if (!vivo || !destino || !Hls.isSupported()) return;
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.on(Hls.Events.ERROR, (_evento, datos) => {
+          // Los tropiezos normales los remonta hls.js solo; solo se suelta si es FATAL.
+          if (!datos.fatal) return;
+          try { hls.destroy(); } catch { /* noop */ }
+          if (hlsRef.current === hls) hlsRef.current = null;
+          alMp4();
+        });
+        hls.loadSource(maestro);
+        hls.attachMedia(destino);
+      })
+      .catch(() => {
+        /* sin escalera o sin red para preguntarlo: el MP4 sigue sirviendo igual */
+      });
+
+    return () => {
+      vivo = false;
+      ctrl.abort();
+      const h = hlsRef.current;
+      hlsRef.current = null;
+      try { h?.destroy(); } catch { /* noop */ }
+    };
+  }, [token, item.rel, item.kind, ver]);
+
   // Nombre de archivo de la copia: «toma.mxf» → «toma (ligero).mp4». El del original lo pone el
   // servidor; este lo ponemos nosotros porque el enlace es de vista y lo fuerza el navegador.
   const nombreCopia = React.useMemo(() => {
@@ -436,7 +503,18 @@ function Visor({
             <p className="mt-1 text-xs text-white/50">Puedes descargar el original ahora mismo; la vista rápida aparecerá en un rato.</p>
           </div>
         ) : item.kind === "video" ? (
-          <video key={item.rel} src={ver} controls autoPlay playsInline className="max-h-full max-w-full" onError={() => setSinVista(true)} />
+          <video
+            key={item.rel}
+            ref={videoRef}
+            src={ver}
+            controls
+            autoPlay
+            playsInline
+            className="max-h-full max-w-full"
+            // Con la escalera puesta los fallos los lleva hls.js (tiene su propia recuperación
+            // y su caída al MP4): dar la pieza por no reproducible aquí sería adelantarse.
+            onError={() => { if (!hlsRef.current) setSinVista(true); }}
+          />
         ) : (
           <img key={item.rel} src={ver} alt={item.name} className="max-h-full max-w-full object-contain" onError={() => setSinVista(true)} />
         )}

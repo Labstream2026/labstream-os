@@ -127,7 +127,7 @@ describe("reescribir las listas", () => {
       "v2/index.m3u8",
       "",
     ].join("\n");
-    const salida = galeria.reescribirListaHls(maestro, { ruta: RUTA, token: "tok" });
+    const salida = galeria.reescribirListaHls(maestro, { ruta: RUTA, parametros: { t: "tok" } });
     expect(salida.split("\n")).toEqual([
       "#EXTM3U",
       "#EXT-X-STREAM-INF:BANDWIDTH=5640800,RESOLUTION=1920x1080",
@@ -144,7 +144,7 @@ describe("reescribir las listas", () => {
     const lista = "#EXTINF:6.000,\nseg000.ts\n#EXTINF:6.000,\nseg001.ts\n#EXT-X-ENDLIST\n";
     const salida = galeria.reescribirListaHls(lista, {
       ruta: RUTA,
-      token: "tok",
+      parametros: { t: "tok" },
       carpeta: galeria.carpetaDeTrozoHls("v0/index.m3u8"),
     });
     expect(salida).toContain(`${RUTA}?t=tok&hls=v0%2Fseg000.ts`);
@@ -157,16 +157,29 @@ describe("reescribir las listas", () => {
     // resolución, que es exactamente lo que el reproductor mira para elegir calidad: seguiría
     // reproduciendo, pero habría dejado de adaptarse. Un fallo mudo.
     const etiquetas = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-INDEPENDENT-SEGMENTS\n";
-    expect(galeria.reescribirListaHls(etiquetas, { ruta: RUTA, token: "tok" })).toBe(etiquetas);
+    expect(galeria.reescribirListaHls(etiquetas, { ruta: RUTA, parametros: { t: "tok" } })).toBe(etiquetas);
   });
 
   it("funciona sin token (sesión del equipo, sin enlace firmado)", () => {
-    const salida = galeria.reescribirListaHls("v1/index.m3u8\n", { ruta: RUTA, token: null });
+    const salida = galeria.reescribirListaHls("v1/index.m3u8\n", { ruta: RUTA, parametros: { t: null } });
     expect(salida).toBe(`${RUTA}?hls=v1%2Findex.m3u8\n`);
   });
 
   it("sabe de qué carpeta cuelga cada trozo", () => {
     expect(galeria.carpetaDeTrozoHls("master.m3u8")).toBe("");
     expect(galeria.carpetaDeTrozoHls("v0/index.m3u8")).toBe("v0/");
+  });
+
+  it("arrastra también QUÉ pieza es, para la sala de entrega del cliente", () => {
+    // Ahí el token abre una entrega ENTERA, no un archivo suelto, así que cada petición tiene
+    // que decir además de qué pieza es el trozo. Si `rel` se perdiera al reescribir, el
+    // servidor no sabría qué escalera abrir y la sala se quedaría en negro.
+    const salida = galeria.reescribirListaHls("v0/index.m3u8\n", {
+      ruta: "/api/galeria-publica/media",
+      parametros: { t: "tokEntrega", rel: "Cliente/Entrega/toma.mp4" },
+    });
+    expect(salida.trim()).toBe(
+      "/api/galeria-publica/media?t=tokEntrega&rel=Cliente%2FEntrega%2Ftoma.mp4&hls=v0%2Findex.m3u8",
+    );
   });
 });

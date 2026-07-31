@@ -191,7 +191,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         const texto = await fs.readFile(parte.abs, "utf8");
         const reescrito = reescribirListaHls(texto, {
           ruta: url.pathname,
-          token,
+          parametros: { t: token },
           carpeta: carpetaDeTrozoHls(hlsSub),
         });
         return new NextResponse(reescrito, {
