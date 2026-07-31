@@ -111,6 +111,27 @@ type Tab = "parati" | "todas" | "persona";
 // tipo. Esa línea ya existía en los datos; solo no se estaba usando para nada.
 const esDirecto = (n: { type?: string | null }) => n.type !== "activity";
 
+// Dónde se recuerda que ya se ofreció activar los avisos de fuera de la app (por navegador).
+const OFERTA_PUSH_KEY = "ls-oferta-push";
+
+// Los textos vienen del REGISTRO DE ACTIVIDAD, que se escribe para auditoría y por eso lo dice
+// todo: «…añadió la v1 de «Prime 2026 Ingles V2» desde el disco (Camilo Ortega/VSL/Primer
+// Performan/Prime 2026 Ingles V2.mp4)». Correcto en un log, excesivo en una campana que se lee
+// de un vistazo.
+//
+// No se tocan los cien sitios que los generan —el log SÍ los necesita completos—: se acorta al
+// mostrarlos. El paréntesis final es justo donde vive el detalle prescindible («(revisión
+// directa)», «(pendiente de pre-aprobación interna)», la ruta entera del archivo), así que cae
+// primero. El texto íntegro sigue en el `title` del elemento, a un segundo de distancia.
+export function corto(texto: string, max = 96): string {
+  const sinCola = texto.replace(/\s*\([^()]*\)\s*$/, "").trim() || texto.trim();
+  if (sinCola.length <= max) return sinCola;
+  // Se corta en el último espacio para no partir una palabra por la mitad.
+  const recorte = sinCola.slice(0, max);
+  const esp = recorte.lastIndexOf(" ");
+  return `${(esp > max * 0.6 ? recorte.slice(0, esp) : recorte).trimEnd()}…`;
+}
+
 // Unidad de render: un aviso suelto o un grupo colapsado (ráfaga del mismo groupKey).
 type Unit = { kind: "one"; n: NotificationItem } | { kind: "group"; key: string; items: NotificationItem[] };
 
@@ -229,8 +250,10 @@ function NotifRow({ n, nuevo, onPick, onDelete }: { n: NotificationItem; nuevo?:
         <NotifAvatar n={n} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className={cn("text-sm leading-snug", isNew ? "font-semibold" : "font-normal text-foreground/90")}>
-              <PriorityChip p={n.priority} /> {n.title}
+            {/* `title` con el texto íntegro: se acorta para leer de un vistazo, no para
+                esconder nada — el detalle completo está a un segundo de distancia. */}
+            <p title={n.title} className={cn("text-sm leading-snug", isNew ? "font-semibold" : "font-normal text-foreground/90")}>
+              <PriorityChip p={n.priority} /> {corto(n.title)}
             </p>
             <span suppressHydrationWarning title={timeExact(n.createdAt)} className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
           </div>
@@ -278,7 +301,7 @@ function GroupRow({ items, nuevos, onOpen, onDeleteGroup }: { items: Notificatio
             </p>
             <span suppressHydrationWarning className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{timeAgo(latest.createdAt)}</span>
           </div>
-          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{latest.title}{latest.body ? ` — ${latest.body}` : ""}</p>
+          <p title={latest.title} className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{corto(latest.title, 70)}{latest.body ? ` — ${latest.body}` : ""}</p>
         </div>
         {unread ? <span className="mt-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">{unread}</span> : null}
         <button type="button" aria-label="Borrar grupo" onClick={(e) => { e.stopPropagation(); onDeleteGroup(items); }} className="absolute right-1.5 bottom-1.5 hidden size-7 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover/row:opacity-100 md:flex">
@@ -301,6 +324,18 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   // significar algo y se aprende a ignorar, que es justo lo contrario de para lo que está.
   const [directos, setDirectos] = React.useState(items.filter((n) => !n.read && esDirecto(n)).length);
   const [perm, setPerm] = React.useState<ReturnType<typeof notifyPermission>>("default");
+  // ¿Ya se ofreció avisar fuera de la app? Se recuerda en el navegador y no en el servidor a
+  // propósito: el permiso es DEL NAVEGADOR, no de la cuenta. La misma persona en el portátil y
+  // en el móvil tiene dos respuestas distintas, y guardarlo en su ficha haría que decir «ahora
+  // no» en un sitio le apagara la oferta en el otro, donde quizá sí quería.
+  const [ofertaOculta, setOfertaOculta] = React.useState(true); // se decide al montar
+  React.useEffect(() => {
+    try { setOfertaOculta(localStorage.getItem(OFERTA_PUSH_KEY) === "1"); } catch { setOfertaOculta(false); }
+  }, []);
+  const ocultarOferta = React.useCallback(() => {
+    setOfertaOculta(true);
+    try { localStorage.setItem(OFERTA_PUSH_KEY, "1"); } catch { /* modo privado: se volverá a ofrecer */ }
+  }, []);
   // "No molestar": instante ISO hasta el que está activo, o null. Silencia push/correo; la
   // campana in-app sigue acumulando.
   const [dndUntil, setDndUntil] = React.useState<string | null>(null);
@@ -499,21 +534,49 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                     <CheckCheck className="size-3.5" /> Marcar todas
                   </button>
                 ) : null}
-                {notificationsSupported() && perm === "default" ? (
-                  <button
-                    type="button"
-                    className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-                    onClick={async () => {
-                      const ok = await ensureNotifyPermission();
-                      setPerm(ok ? "granted" : notifyPermission());
-                      if (ok) void subscribeBrowserPush();
-                    }}
-                  >
-                    Activar avisos
-                  </button>
-                ) : null}
               </div>
             </div>
+
+            {/* ── Ofrecer el aviso fuera de la app ──────────────────────────────────────────
+                Esto era un botón pequeño («Activar avisos») entre los demás controles de la
+                cabecera, y el resultado predecible: nadie lo veía y el push no llegaba nunca.
+                Ahora se ofrece UNA vez, en su propia franja, la primera vez que se abre la
+                campana — y si se dice que no, no se vuelve a preguntar.
+                No se puede pedir el permiso al cargar la página: los navegadores exigen un
+                gesto del usuario, y un aviso disparado sin contexto se deniega casi siempre.
+                Una denegación es pegajosa y difícil de deshacer, así que preguntar en mal
+                momento es peor que no preguntar. Abrir la campana ES ese gesto: se está
+                mirando esto justamente. */}
+            {notificationsSupported() && perm === "default" && !ofertaOculta ? (
+              <div className="flex items-start gap-2 border-b border-border bg-primary/5 px-3 py-2.5">
+                <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] leading-snug text-foreground">Avisarte aunque no tengas la app abierta</p>
+                  <div className="mt-1.5 flex gap-1.5">
+                    <button
+                      type="button"
+                      className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
+                      onClick={async () => {
+                        const ok = await ensureNotifyPermission();
+                        setPerm(ok ? "granted" : notifyPermission());
+                        if (ok) void subscribeBrowserPush();
+                        // Se haya concedido o no, la oferta ya se hizo: no se insiste.
+                        ocultarOferta();
+                      }}
+                    >
+                      Activar
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent"
+                      onClick={ocultarOferta}
+                    >
+                      Ahora no
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex gap-1 border-b border-border px-2 py-1.5">
               {TABS.map((t) => {
