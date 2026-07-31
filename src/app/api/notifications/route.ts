@@ -27,7 +27,7 @@ export async function GET() {
   void sweepDiskChecks().catch(() => {});
   void sweepDeliveryReminders().catch(() => {});
 
-  const [rows, unread, me] = await Promise.all([
+  const [rows, unread, me, unreadDirecto] = await Promise.all([
     db.notification.findMany({
       where: { userId: session.id },
       orderBy: { createdAt: "desc" },
@@ -40,6 +40,13 @@ export async function GET() {
     }),
     db.notification.count({ where: { userId: session.id, read: false } }),
     db.user.findUnique({ where: { id: session.id }, select: { dndUntil: true } }),
+    // Lo que de verdad TE PIDE algo, separado del ruido de fondo. La actividad de un proyecto
+    // se difunde a todos sus miembros (y a los administradores, a todos los proyectos), así que
+    // contarla en la campana hacía que el número gritara por cosas en las que no había que
+    // hacer nada — y enterraba las tres que sí. El aviso directo (te asignaron, te mencionaron,
+    // te pidieron cambios) nace de una llamada a `notify` con su propio tipo; la actividad
+    // difundida siempre es `type: "activity"`. Esa es la línea, y ya existía.
+    db.notification.count({ where: { userId: session.id, read: false, type: { not: "activity" } } }),
   ]);
 
   // "No molestar" vigente (para el control de la campana). Se limpia solo al pasar la hora.
@@ -48,6 +55,8 @@ export async function GET() {
   return new NextResponse(
     JSON.stringify({
       unread,
+      // El que pinta el número de la campana: solo lo que pide algo de ti.
+      unreadDirecto,
       dndUntil,
       items: rows.map((n) => ({
         id: n.id,

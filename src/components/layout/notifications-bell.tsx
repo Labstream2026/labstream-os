@@ -3,7 +3,7 @@
 import * as React from "react";
 import { IconNotificaciones } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, CheckSquare, Eye, MessageSquare, Calendar, Clock, Shield, Bot, Users, X, Trash2, Moon } from "lucide-react";
+import { Bell, CheckCheck, CheckSquare, Eye, Inbox, MessageSquare, Calendar, Clock, Shield, Bot, Users, X, Trash2, Moon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/user-avatar";
@@ -100,7 +100,16 @@ function bucketOf(iso: string): (typeof BUCKET_ORDER)[number] {
   return "Antes";
 }
 
-type Tab = "todas" | "sinleer" | "persona";
+// «Para ti» es la pestaña por defecto, y ese es el cambio de fondo: la campana deja de abrirse
+// mostrando TODO lo que pasa en la empresa para abrirse mostrando lo que te pide algo. Lo demás
+// no se pierde —sigue en «Todo»—, deja de ser lo primero que ves.
+type Tab = "parati" | "todas" | "persona";
+
+// La actividad de un proyecto se difunde a todos sus miembros (y a los administradores, a todos
+// los proyectos). Nunca pide nada de nadie en concreto: es contexto. Un aviso DIRECTO —te
+// asignaron, te mencionaron, te pidieron cambios— nace de una llamada a `notify` con su propio
+// tipo. Esa línea ya existía en los datos; solo no se estaba usando para nada.
+const esDirecto = (n: { type?: string | null }) => n.type !== "activity";
 
 // Unidad de render: un aviso suelto o un grupo colapsado (ráfaga del mismo groupKey).
 type Unit = { kind: "one"; n: NotificationItem } | { kind: "group"; key: string; items: NotificationItem[] };
@@ -283,9 +292,14 @@ function GroupRow({ items, nuevos, onOpen, onDeleteGroup }: { items: Notificatio
 export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [tab, setTab] = React.useState<Tab>("todas");
+  const [tab, setTab] = React.useState<Tab>("parati");
   const [list, setList] = React.useState<NotificationItem[]>(items);
   const [unread, setUnread] = React.useState(items.filter((n) => !n.read).length);
+  // El número de la campana cuenta SOLO lo directo. Antes contaba todo, y como la actividad del
+  // equipo se difunde a todos los miembros —y a los administradores, la de todos los proyectos—
+  // el contador vivía en dos dígitos permanentemente. Un número que nunca baja deja de
+  // significar algo y se aprende a ignorar, que es justo lo contrario de para lo que está.
+  const [directos, setDirectos] = React.useState(items.filter((n) => !n.read && esDirecto(n)).length);
   const [perm, setPerm] = React.useState<ReturnType<typeof notifyPermission>>("default");
   // "No molestar": instante ISO hasta el que está activo, o null. Silencia push/correo; la
   // campana in-app sigue acumulando.
@@ -306,7 +320,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     try {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (!res.ok) return;
-      const data = (await res.json()) as { items: NotificationItem[]; unread: number; dndUntil?: string | null };
+      const data = (await res.json()) as { items: NotificationItem[]; unread: number; unreadDirecto?: number; dndUntil?: string | null };
       const focused = typeof document !== "undefined" && document.hasFocus();
       const fresh = data.items.filter((n) => !n.read && !seen.current.has(n.id));
       if (!focused) {
@@ -315,6 +329,9 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
       for (const n of data.items) seen.current.add(n.id);
       setList(data.items);
       setUnread(data.unread);
+      // Si el servidor todavía no manda el contador nuevo (despliegue a medias), se calcula
+      // aquí con lo que hay: la campana nunca debe quedarse sin número por eso.
+      setDirectos(data.unreadDirecto ?? data.items.filter((n) => !n.read && esDirecto(n)).length);
       setDndUntil(data.dndUntil ?? null);
     } catch { /* sin red: reintenta en el siguiente ciclo */ }
   }, []);
@@ -402,7 +419,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
     groupItems.forEach((x) => void deleteNotification(x.id).catch(() => {}));
   }, []);
 
-  const filtered = React.useMemo(() => (tab === "sinleer" ? list.filter(esNuevo) : list), [tab, list, esNuevo]);
+  const filtered = React.useMemo(() => (tab === "parati" ? list.filter(esDirecto) : list), [tab, list]);
 
   const buckets = React.useMemo(() => {
     if (tab === "persona") return [];
@@ -431,18 +448,26 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   }, [filtered, tab]);
 
   const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
-    { key: "todas", label: "Todas", icon: Bell },
-    { key: "sinleer", label: "Sin leer", icon: CheckCheck },
-    { key: "persona", label: "Por persona", icon: Users },
+    // TRES pestañas, no cuatro, y está medido: con la tipografía real de la app, cuatro con
+    // icono piden 96 px por pestaña y solo hay 81 → la fila se parte en dos. Tres caben con
+    // holgura (90 de 109) y aguantan hasta una ventana de 320 px, que es justo donde las
+    // etiquetas largas se rompían antes.
+    //
+    // «Sin leer» desaparece porque «Para ti» hace su trabajo mejor: lo que se quería al pulsarla
+    // era triar, y lo que hay que triar es lo que te pide algo, no lo que aún no has abierto.
+    // Lo no leído sigue marcado en negrita con su punto, y «Marcar todas» sigue donde estaba.
+    { key: "parati", label: "Para ti", icon: Inbox },
+    { key: "todas", label: "Todo", icon: Bell },
+    { key: "persona", label: "Personas", icon: Users },
   ];
 
   return (
     <div className="relative">
       <Button variant="ghost" size="icon" className="relative text-muted-foreground" aria-label="Notificaciones" onClick={toggle}>
         <IconNotificaciones className="size-5" />
-        {unread > 0 ? (
+        {directos > 0 ? (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-white">
-            {unread > 9 ? "9+" : unread}
+            {directos > 9 ? "9+" : directos}
           </span>
         ) : null}
       </Button>
@@ -504,10 +529,12 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
                       active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60",
                     )}
                   >
-                    <Icon className="size-3.5" />
-                    {t.label}
-                    {t.key === "sinleer" && pendientes > 0 ? (
-                      <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">{pendientes > 9 ? "9+" : pendientes}</span>
+                    <Icon className="size-3.5 shrink-0" />
+                    {/* Sin `whitespace-nowrap` la etiqueta se parte en dos líneas y la fila
+                        entera crece torcida en cuanto la ventana se estrecha. */}
+                    <span className="whitespace-nowrap">{t.label}</span>
+                    {t.key === "parati" && directos > 0 ? (
+                      <span className="ml-0.5 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-white">{directos > 9 ? "9+" : directos}</span>
                     ) : null}
                   </button>
                 );
@@ -517,7 +544,7 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
             <div className="max-h-[28rem] overflow-y-auto">
               {filtered.length === 0 ? (
                 <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  {tab === "sinleer" ? "Estás al día. Sin pendientes. 🎉" : "Sin notificaciones"}
+                  {tab === "parati" ? "Nada que te pida algo. Lo del equipo está en «Todo»." : "Sin notificaciones"}
                 </p>
               ) : tab === "persona" ? (
                 personGroups.map((g, i) => {

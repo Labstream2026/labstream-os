@@ -184,7 +184,7 @@ const TAB_BY_ENTITY: Record<string, string> = {
 // pertenecen (líder + miembros, o miembros del cliente y de sus proyectos) y a
 // los administradores. Se excluye a quien hizo el cambio. Solo en la app.
 async function notifyActivity(
-  input: { summary: string; projectId?: string | null; clientId?: string | null; entityType?: string; exclude?: string[]; actorName?: string },
+  input: { summary: string; projectId?: string | null; clientId?: string | null; entityType?: string; entityId?: string; exclude?: string[]; actorName?: string },
   actorId: string | null,
 ): Promise<void> {
   const ids = new Set<string>();
@@ -235,8 +235,18 @@ async function notifyActivity(
   const who = actor?.name ?? input.actorName ?? "Alguien";
   const title = `${who} ${input.summary}`.slice(0, 180);
 
+  // Agrupador: todo lo que le pasa a la MISMA pieza se colapsa en una sola fila de la campana.
+  // La maquinaria de agrupar ya existía y la usaba el chat, pero a los eventos de actividad
+  // nadie se la enchufó nunca: por eso crear un entregable, subirle una versión, enlazarla
+  // desde el disco y liberarla al cliente llegaban como CUATRO avisos de lo mismo.
+  const groupKey = input.entityType && input.entityId ? `act:${input.entityType}:${input.entityId}` : null;
+
   // Una sola consulta para todas las notificaciones (evita N inserts).
+  //
+  // `actorId` faltaba, y no es cosmético: sin él la campana no sabe de quién es el aviso, así
+  // que la pestaña «Por persona» metía TODA la actividad del equipo bajo «Sistema» y ninguna
+  // salía con el color de quien la hizo.
   await db.notification.createMany({
-    data: [...ids].map((userId) => ({ userId, type: "activity", title, body: name, link })),
+    data: [...ids].map((userId) => ({ userId, actorId, type: "activity", title, body: name, link, groupKey })),
   });
 }
