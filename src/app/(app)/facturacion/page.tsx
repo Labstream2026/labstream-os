@@ -12,26 +12,74 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { siigoEnabled, datosSiigo } from "@/lib/siigo";
-import { PanelSiigo } from "./siigo-panel";
+import { PanelSiigo, BarraSiigo, FalloSiigo } from "./siigo-panel";
+import { PanelResumen } from "./resumen-panel";
+import { PanelGastos, type GastoFila, type CompraFila } from "./gastos-panel";
 import { PorFacturarList, type PorFacturarItem } from "./por-facturar";
 
 export const dynamic = "force-dynamic";
 
-// Con Siigo conectado, Facturación abre en LO CONTABLE (lo que de verdad se emitió y se
-// cobró, leído de Siigo en solo lectura) y la cola interna queda en su pestaña. Sin
-// credenciales de Siigo, la página es la interna de siempre — nada cambia.
-export default async function FacturacionPage({ searchParams }: { searchParams: Promise<{ t?: string; f?: string }> }) {
+// ── El centro Finanzas ────────────────────────────────────────────────────────
+// Con Siigo conectado, /facturacion es el tablero financiero completo: Resumen (cifras y
+// gráficos), Facturas y Movimientos (Siigo, solo lectura), Gastos (registro propio +
+// compras contables) y Por facturar (la cola interna de siempre) — con Cotizaciones a un
+// clic. Sin credenciales de Siigo, la página interna clásica, sin ruido nuevo.
+
+const MES_LARGO = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", month: "long", year: "numeric" });
+
+function mesActualBogota(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota", year: "numeric", month: "2-digit" }).format(new Date()); // YYYY-MM
+}
+
+function mesVecino(m: string, delta: number): string {
+  let anio = Number(m.slice(0, 4));
+  let mes = Number(m.slice(5, 7)) + delta;
+  while (mes < 1) { mes += 12; anio--; }
+  while (mes > 12) { mes -= 12; anio++; }
+  return `${anio}-${String(mes).padStart(2, "0")}`;
+}
+
+// Rango [desde, hasta) del mes en UTC. Los gastos se guardan anclados a mediodía UTC del
+// día elegido, así que los bordes de mes en UTC coinciden con el mes de calendario.
+function rangoMes(m: string): { desde: Date; hasta: Date } {
+  return { desde: new Date(`${m}-01T00:00:00Z`), hasta: new Date(`${mesVecino(m, 1)}-01T00:00:00Z`) };
+}
+
+type Tab = "resumen" | "facturas" | "movs" | "gastos" | "interno";
+
+export default async function FacturacionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ t?: string; f?: string; c?: string; mes?: string }>;
+}) {
   const session = await getSession();
   // Los valores y resúmenes de cobro son sensibles: requieren el permiso de finanzas.
   if (!hasPermission(session, "ver_finanzas")) redirect("/");
   const canCreate = hasPermission(session, "crear_cotizaciones");
 
-  const { t, f } = await searchParams;
+  const { t, f, c, mes: mesParam } = await searchParams;
   const siigoOn = siigoEnabled();
-  const pestana: "siigo" | "movs" | "interno" = !siigoOn ? "interno" : t === "interno" ? "interno" : t === "movs" ? "movs" : "siigo";
+  // «siigo» queda como alias de «facturas» (enlaces viejos y avisos ya repartidos).
+  const pestana: Tab = !siigoOn
+    ? "interno"
+    : t === "interno"
+      ? "interno"
+      : t === "movs"
+        ? "movs"
+        : t === "facturas" || t === "siigo"
+          ? "facturas"
+          : t === "gastos"
+            ? "gastos"
+            : "resumen";
   const filtro: "saldo" | "todas" = f === "todas" ? "todas" : "saldo";
+  const filtroCliente = typeof c === "string" && c.trim() ? c.trim().slice(0, 80) : null;
 
-  const [invoices, billableQuotes, siigo] = await Promise.all([
+  const mesActual = mesActualBogota();
+  const mesSel = typeof mesParam === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mesParam) && mesParam <= mesActual ? mesParam : mesActual;
+  const rangoSel = rangoMes(mesSel);
+  const rangoActual = rangoMes(mesActual);
+
+  const [invoices, billableQuotes, siigo, org, gastosSel, gastosActualAgg] = await Promise.all([
     db.invoice.findMany({
       where: { client: accessibleClientWhere(session) },
       orderBy: { createdAt: "desc" },
@@ -52,9 +100,21 @@ export default async function FacturacionPage({ searchParams }: { searchParams: 
         items: { select: { quantity: true, unitPrice: true } },
       },
     }),
-    // La lectura de Siigo va en paralelo con la base: con caché caliente no cuesta nada y
-    // fría tarda lo que tarde Siigo, sin sumarse a las consultas propias.
+    // La lectura de Siigo va en paralelo con la base: con caché caliente no cuesta nada.
     siigoOn ? datosSiigo() : Promise.resolve(null),
+    siigoOn ? db.orgSettings.findUnique({ where: { id: "default" }, select: { metaFacturacion: true } }).catch(() => null) : Promise.resolve(null),
+    // Gastos del mes que se está MIRANDO en la pestaña Gastos…
+    siigoOn
+      ? db.gasto.findMany({
+          where: { fecha: { gte: rangoSel.desde, lt: rangoSel.hasta } },
+          orderBy: [{ fecha: "desc" }, { createdAt: "desc" }],
+          include: { creadoPor: { select: { name: true } } },
+        })
+      : Promise.resolve([]),
+    // …y la suma del mes ACTUAL para el Resumen (pueden ser meses distintos).
+    siigoOn
+      ? db.gasto.aggregate({ where: { fecha: { gte: rangoActual.desde, lt: rangoActual.hasta } }, _sum: { monto: true }, _count: true })
+      : Promise.resolve(null),
   ]);
 
   const rows = invoices.map((inv) => ({
@@ -114,33 +174,86 @@ export default async function FacturacionPage({ searchParams }: { searchParams: 
   const cobrado = sum((r) => r.status === "PAGADA");
   const currency = rows[0]?.currency ?? "COP";
 
+  // ── Piezas para las pestañas nuevas ──
+  const gastosFilas: GastoFila[] = gastosSel.map((g) => ({
+    id: g.id,
+    fecha: g.fecha.toISOString().slice(0, 10),
+    concepto: g.concepto,
+    categoria: g.categoria,
+    monto: g.monto,
+    nota: g.nota,
+    creadoPor: g.creadoPor.name,
+  }));
+  const comprasMesSel: CompraFila[] = siigo?.ok ? siigo.datos.compras.filter((x) => x.fecha.slice(0, 7) === mesSel) : [];
+  const mesLabel = MES_LARGO.format(new Date(`${mesSel}-15T12:00:00Z`));
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         icon={<IconFacturacion />}
         title="Facturación"
-        description={siigoOn ? "Lo contable en vivo desde Siigo (solo lectura) y tu cola interna." : "Cotizaciones y facturas de tus clientes."}
-        actions={<Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
+        description={siigoOn ? "El centro financiero: Siigo en solo lectura, tus gastos y tu cola interna." : "Cotizaciones y facturas de tus clientes."}
+        actions={siigoOn ? undefined : <Link href="/cotizaciones" className="text-sm font-medium text-primary hover:underline">Ver cotizaciones →</Link>}
       />
 
-      {/* Las pestañas solo existen con Siigo conectado: sin credenciales, la página interna
-          de siempre, sin ruido nuevo. */}
+      {/* Las píldoras del centro: solo existen con Siigo conectado. La de Cotizaciones es el
+          conmutador dinámico — mismo sitio, otra página, un clic de ida y otro de vuelta. */}
       {siigoOn ? (
         <div className="mb-5 flex flex-wrap items-center gap-1.5">
-          <Pestana href="/facturacion?t=siigo" activa={pestana === "siigo"}>Facturas · Siigo</Pestana>
+          <Pestana href="/facturacion" activa={pestana === "resumen"}>Resumen</Pestana>
+          <Pestana href="/facturacion?t=facturas" activa={pestana === "facturas"}>Facturas</Pestana>
           <Pestana href="/facturacion?t=movs" activa={pestana === "movs"}>Movimientos</Pestana>
-          <Pestana href="/facturacion?t=interno" activa={pestana === "interno"}>Por facturar · interno</Pestana>
+          <Pestana href="/facturacion?t=gastos" activa={pestana === "gastos"}>Gastos</Pestana>
+          <Pestana href="/facturacion?t=interno" activa={pestana === "interno"}>Por facturar{porFacturar.length > 0 ? ` · ${porFacturar.length}` : ""}</Pestana>
+          <Link
+            href="/cotizaciones"
+            className="rounded-full border border-dashed border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            title="Cambiar a Cotizaciones (allá hay una píldora de vuelta)"
+          >
+            Cotizaciones ⇄
+          </Link>
         </div>
       ) : null}
 
-      {siigoOn && pestana !== "interno" && siigo ? (
+      {siigoOn && pestana === "resumen" && siigo ? (
+        siigo.ok ? (
+          <>
+            <BarraSiigo min={siigo.minDesdeLectura} aviso={siigo.aviso} />
+            <PanelResumen
+              datos={siigo.datos}
+              meta={org?.metaFacturacion ?? null}
+              gastosManualMes={gastosActualAgg?._sum.monto ?? 0}
+              nGastosManualMes={gastosActualAgg?._count ?? 0}
+              porFacturar={porFacturar.length > 0 ? { n: porFacturar.length, total: porFacturarTotal } : null}
+            />
+          </>
+        ) : (
+          <FalloSiigo error={siigo.error} />
+        )
+      ) : null}
+
+      {siigoOn && (pestana === "facturas" || pestana === "movs") && siigo ? (
         <PanelSiigo
           resultado={siigo}
           vista={pestana === "movs" ? "movs" : "facturas"}
           filtro={filtro}
+          filtroCliente={filtroCliente}
           minDesdeLectura={siigo.ok ? siigo.minDesdeLectura : 0}
         />
-      ) : (
+      ) : null}
+
+      {siigoOn && pestana === "gastos" ? (
+        <PanelGastos
+          gastos={gastosFilas}
+          compras={comprasMesSel}
+          mesLabel={mesLabel}
+          hrefMesAnterior={`/facturacion?t=gastos&mes=${mesVecino(mesSel, -1)}`}
+          hrefMesSiguiente={mesSel === mesActual ? null : `/facturacion?t=gastos&mes=${mesVecino(mesSel, 1)}`}
+          esMesActual={mesSel === mesActual}
+        />
+      ) : null}
+
+      {pestana === "interno" ? (
         <>
       {/* Resumen: primero lo accionable (por facturar / por cobrar / vencido), luego lo cobrado */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -202,7 +315,7 @@ export default async function FacturacionPage({ searchParams }: { searchParams: 
         </div>
       )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

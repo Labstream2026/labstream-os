@@ -6,6 +6,9 @@ export async function register() {
     registerProcessDiagnostics();
     const { startCalendarScheduler } = await import("@/lib/calendar-scheduler");
     startCalendarScheduler();
+    // Aviso diario de cartera (Siigo): facturas por vencer y recién vencidas.
+    const { startCarteraScheduler } = await import("@/lib/cartera-scheduler");
+    startCarteraScheduler();
   }
 }
 

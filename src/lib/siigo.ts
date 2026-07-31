@@ -26,6 +26,7 @@ const CACHE_CLIENTES_MS = 12 * 60 * 60_000; // el catálogo de clientes casi no 
 const PAGINAS_FACTURAS = 8;
 const PAGINAS_RECIBOS = 4;
 const PAGINAS_NOTAS = 2;
+const PAGINAS_COMPRAS = 4;
 const PAGINAS_CLIENTES = 10;
 
 export function siigoEnabled(): boolean {
@@ -69,11 +70,31 @@ export type SiigoResumen = {
   nFacturadoMes: number;
   recaudadoMes: number;
   nRecibosMes: number;
+  // Lo que vence en los próximos 7 días (aún no vencido): anticipar, no solo reportar.
+  porVencer7: number;
+  nPorVencer7: number;
+  // Compras (facturas de proveedor) del mes, leídas de Siigo — el gasto contable.
+  comprasMes: number;
+  nComprasMes: number;
 };
+
+// Compras de Siigo (FC): el gasto que SÍ pasó por contabilidad, en solo lectura.
+export type SiigoCompra = { nombre: string; fecha: string; proveedor: string; total: number };
+
+// Cartera por edades: cuánta plata pendiente hay en cada tramo de vejez.
+export type SiigoEdades = { alDia: number; d1a30: number; d31a60: number; d61a90: number; mas90: number };
+
+export type SiigoMes = { mes: string; facturado: number; recaudado: number }; // mes = YYYY-MM
+
+export type SiigoDeudor = { cliente: string; saldo: number; n: number };
 
 export type SiigoDatos = {
   facturas: SiigoFactura[];
   movimientos: SiigoMovimiento[];
+  compras: SiigoCompra[];
+  edades: SiigoEdades;
+  serieMeses: SiigoMes[];
+  topSaldos: SiigoDeudor[];
   resumen: SiigoResumen;
   actualizadoMs: number;
 };
@@ -196,6 +217,28 @@ function hoyBogota(): string {
   return DIA_BOGOTA.format(new Date()); // YYYY-MM-DD (en-CA da ese orden)
 }
 
+function sumarDias(iso: string, dias: number): string {
+  const t = Date.parse(`${iso}T12:00:00Z`) + dias * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+// Los últimos n meses (incluido el actual) como YYYY-MM, en el reloj de Bogotá.
+function ultimosMeses(n: number): string[] {
+  const hoy = hoyBogota();
+  let anio = Number(hoy.slice(0, 4));
+  let mes = Number(hoy.slice(5, 7));
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    out.unshift(`${anio}-${String(mes).padStart(2, "0")}`);
+    mes--;
+    if (mes === 0) {
+      mes = 12;
+      anio--;
+    }
+  }
+  return out;
+}
+
 // ── Armar los datos ────────────────────────────────────────────────────────────
 
 // Documentos en OTRA moneda: Siigo manda el total en la divisa del documento y el balance
@@ -266,10 +309,11 @@ export async function datosSiigo(): Promise<SiigoResultado> {
   enVuelo = (async (): Promise<SiigoResultado> => {
     try {
       const clientes = await mapaClientes();
-      const [crudasFacturas, crudosRecibos, crudasNotas] = await Promise.all([
+      const [crudasFacturas, crudosRecibos, crudasNotas, crudasCompras] = await Promise.all([
         ultimasPaginas("/v1/invoices", PAGINAS_FACTURAS),
         ultimasPaginas("/v1/vouchers", PAGINAS_RECIBOS).catch(() => [] as unknown[]),
         ultimasPaginas("/v1/credit-notes", PAGINAS_NOTAS).catch(() => [] as unknown[]),
+        ultimasPaginas("/v1/purchases", PAGINAS_COMPRAS).catch(() => [] as unknown[]),
       ]);
 
       const facturas = crudasFacturas
@@ -304,14 +348,68 @@ export async function datosSiigo(): Promise<SiigoResultado> {
         };
       }).filter((n) => n.fecha);
 
+      // Compras (FC): el proveedor no viene con nombre embebido — se intenta el catálogo de
+      // terceros y, si no está, queda su identificación (mejor un NIT honesto que un «—»).
+      const compras: SiigoCompra[] = crudasCompras
+        .map((c) => {
+          const v = obj(c);
+          const { codigo, tasa } = monedaDe(v);
+          const totalDoc = num(v.total);
+          const tercero = obj(v.supplier ?? v.provider ?? v.customer);
+          return {
+            nombre: texto(v.name) || "FC",
+            fecha: texto(v.date).slice(0, 10),
+            proveedor: clientes.get(texto(tercero.id)) || texto(tercero.identification) || "—",
+            total: codigo && tasa > 0 ? totalDoc * tasa : totalDoc,
+          };
+        })
+        .filter((c) => c.fecha)
+        .sort((a, b) => (a.fecha === b.fecha ? b.nombre.localeCompare(a.nombre) : b.fecha.localeCompare(a.fecha)));
+
       const hoy = hoyBogota();
       const mes = hoy.slice(0, 7);
+      const hoyMas7 = sumarDias(hoy, 7);
 
       const conSaldo = facturas.filter((f) => f.saldo > 0);
       const vencidas = conSaldo.filter((f) => f.vence !== null && f.vence < hoy);
+      const porVencer = conSaldo.filter((f) => f.vence !== null && f.vence >= hoy && f.vence <= hoyMas7);
       const delMes = facturas.filter((f) => f.fecha.slice(0, 7) === mes);
       const recibosMes = recibos.filter((r) => r.fecha.slice(0, 7) === mes);
+      const comprasMes = compras.filter((c) => c.fecha.slice(0, 7) === mes);
       const masVieja = vencidas.map((f) => f.vence as string).sort()[0];
+
+      // Cartera por edades: al día (con saldo pero sin vencer) y tramos por días de vencida.
+      const edades: SiigoEdades = { alDia: 0, d1a30: 0, d31a60: 0, d61a90: 0, mas90: 0 };
+      for (const f of conSaldo) {
+        if (f.vence === null || f.vence >= hoy) {
+          edades.alDia += f.saldo;
+          continue;
+        }
+        const d = diasEntre(f.vence, hoy);
+        if (d <= 30) edades.d1a30 += f.saldo;
+        else if (d <= 60) edades.d31a60 += f.saldo;
+        else if (d <= 90) edades.d61a90 += f.saldo;
+        else edades.mas90 += f.saldo;
+      }
+
+      // Facturado vs recaudado, últimos 6 meses (con la ventana de lectura alcanza de sobra).
+      const meses = ultimosMeses(6);
+      const serieMeses: SiigoMes[] = meses.map((m) => ({
+        mes: m,
+        facturado: facturas.filter((f) => f.fecha.slice(0, 7) === m).reduce((n, f) => n + f.total, 0),
+        recaudado: recibos.filter((r) => r.fecha.slice(0, 7) === m).reduce((n, r) => n + r.valor, 0),
+      }));
+
+      // Quién debe más: saldo agrupado por cliente, los 5 primeros.
+      const porCliente = new Map<string, { saldo: number; n: number }>();
+      for (const f of conSaldo) {
+        const previo = porCliente.get(f.cliente) ?? { saldo: 0, n: 0 };
+        porCliente.set(f.cliente, { saldo: previo.saldo + f.saldo, n: previo.n + 1 });
+      }
+      const topSaldos: SiigoDeudor[] = Array.from(porCliente.entries())
+        .map(([cliente, v]) => ({ cliente, saldo: v.saldo, n: v.n }))
+        .sort((a, b) => b.saldo - a.saldo)
+        .slice(0, 5);
 
       const resumen: SiigoResumen = {
         pendiente: conSaldo.reduce((n, f) => n + f.saldo, 0),
@@ -323,6 +421,10 @@ export async function datosSiigo(): Promise<SiigoResultado> {
         nFacturadoMes: delMes.length,
         recaudadoMes: recibosMes.reduce((n, r) => n + r.valor, 0),
         nRecibosMes: recibosMes.length,
+        porVencer7: porVencer.reduce((n, f) => n + f.saldo, 0),
+        nPorVencer7: porVencer.length,
+        comprasMes: comprasMes.reduce((n, c) => n + c.total, 0),
+        nComprasMes: comprasMes.length,
       };
 
       const movimientos: SiigoMovimiento[] = [
@@ -333,7 +435,7 @@ export async function datosSiigo(): Promise<SiigoResultado> {
         .sort((a, b) => (a.fecha === b.fecha ? b.nombre.localeCompare(a.nombre) : b.fecha.localeCompare(a.fecha)))
         .slice(0, 40);
 
-      const datos: SiigoDatos = { facturas, movimientos, resumen, actualizadoMs: Date.now() };
+      const datos: SiigoDatos = { facturas, movimientos, compras, edades, serieMeses, topSaldos, resumen, actualizadoMs: Date.now() };
       datosCache = { datos, vence: Date.now() + CACHE_DATOS_MS };
       ultimoBueno = datos;
       return { ok: true, datos, minDesdeLectura: 0 };
@@ -347,4 +449,53 @@ export async function datosSiigo(): Promise<SiigoResultado> {
     }
   })();
   return enVuelo;
+}
+
+// ── Detalle de UNA factura (ítems y pagos) ─────────────────────────────────────
+// Para el panel que se abre al hacer clic en la fila. Lectura puntual con su propia caché
+// corta: mirar tres veces la misma factura no debe costar tres peticiones.
+
+export type SiigoFacturaDetalle = SiigoFactura & {
+  items: { descripcion: string; cantidad: number; precio: number; total: number }[];
+  pagos: { nombre: string; valor: number; vence: string | null }[];
+  observaciones: string | null;
+};
+
+const detalleCache = new Map<string, { d: SiigoFacturaDetalle; vence: number }>();
+const DETALLE_TTL_MS = 10 * 60_000;
+const DETALLE_TOPE = 60;
+
+export async function facturaDetalleSiigo(id: string): Promise<SiigoFacturaDetalle | null> {
+  // El id viaja por URL desde el navegador: solo se acepta un identificador con pinta de tal.
+  if (!siigoEnabled() || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return null;
+  const hit = detalleCache.get(id);
+  if (hit && Date.now() < hit.vence) return hit.d;
+  try {
+    const f = await siigoGet(`/v1/invoices/${id}`);
+    const clientes = await mapaClientes();
+    const base = parseFactura(f, clientes);
+    if (!base) return null;
+    const { codigo, tasa } = monedaDe(f);
+    const aCOP = (v: number) => (codigo && tasa > 0 ? v * tasa : v);
+    const items = lista(f.items)
+      .map(obj)
+      .map((i) => ({
+        descripcion: texto(i.description) || texto(i.code) || "—",
+        cantidad: num(i.quantity),
+        precio: aCOP(num(i.price)),
+        total: aCOP(num(i.total)),
+      }));
+    const pagos = lista(f.payments)
+      .map(obj)
+      .map((p) => ({ nombre: texto(p.name) || "Pago", valor: aCOP(num(p.value)), vence: texto(p.due_date).slice(0, 10) || null }));
+    const d: SiigoFacturaDetalle = { ...base, items, pagos, observaciones: texto(f.observations) || null };
+    detalleCache.set(id, { d, vence: Date.now() + DETALLE_TTL_MS });
+    if (detalleCache.size > DETALLE_TOPE) {
+      const primero = detalleCache.keys().next().value;
+      if (primero) detalleCache.delete(primero);
+    }
+    return d;
+  } catch {
+    return null;
+  }
 }

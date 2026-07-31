@@ -93,6 +93,8 @@ model User {
   // como objeto plano {clave: valor}. En la base y no en localStorage: siguen a la persona
   // de un equipo a otro. Claves permitidas en prefs-actions (allowlist).
   uiPrefs Json?
+  // Gastos de Labstream que ESTA persona registró (centro Finanzas).
+  gastosRegistrados Gasto[] @relation("GastosRegistrados")
   // Última vez que se le envió el resumen semanal del portal del cliente (correo del viernes).
   // Solo aplica a usuarios con rol cliente; null = nunca se le ha enviado.
   clientDigestAt DateTime?
@@ -283,7 +285,29 @@ model OrgSettings {
   // Personalización de los estados de proyecto: JSON { CLAVE_ENUM: { label, color } }. Solo
   // sobrescribe etiqueta/color de los estados existentes (no migra el enum). null = por defecto.
   projectStatuses String?
+  // Meta mensual de facturación (COP) para la barra de progreso del centro Finanzas. null = sin meta.
+  metaFacturacion Int?
+  // Última fecha (YYYY-MM-DD, Bogotá) en que corrió el aviso diario de cartera: el planificador
+  // la reclama ANTES de notificar para que dos ticks (o un reinicio) no dupliquen el aviso.
+  carteraAvisadaEl String?
   updatedAt    DateTime @updatedAt
+}
+
+// ── Gastos de Labstream (centro Finanzas) ──
+// Registro PROPIO de la app — Siigo ni se entera (allá viven las compras contables, que la
+// pestaña Gastos también enseña, en solo lectura). Montos en PESOS enteros.
+model Gasto {
+  id          String   @id @default(cuid())
+  fecha       DateTime // día del gasto (se usa solo la fecha, hora ignorada)
+  concepto    String
+  categoria   String // clave del catálogo CATEGORIAS_GASTO (lib/gastos)
+  monto       Int // COP
+  nota        String?
+  creadoPor   User     @relation("GastosRegistrados", fields: [creadoPorId], references: [id])
+  creadoPorId String
+  createdAt   DateTime @default(now())
+
+  @@index([fecha])
 }
 
 // Conexión al agente de IA OpenClaw (gateway autohospedado, API compatible con OpenAI).

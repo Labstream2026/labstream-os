@@ -78,7 +78,7 @@ export default async function CotizacionesPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
       <PageHeader
         icon={<IconCotizacion />}
-        title="Facturación"
+        title="Cotizaciones"
         description={`${proposals.length} propuestas · ${quotes.length} cotizaciones`}
         actions={canCreate ? (
           <>
@@ -91,6 +91,19 @@ export default async function CotizacionesPage() {
           </>
         ) : undefined}
       />
+      {/* Conmutador con el centro Finanzas: la píldora gemela de la de /facturacion — un
+          clic de ida y otro de vuelta, sin pasar por el menú. (De paso, esta página deja
+          de titularse «Facturación»: eso ya es otro sitio de verdad.) */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <Link
+          href="/facturacion"
+          className="rounded-full border border-dashed border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+          title="Cambiar al centro Finanzas"
+        >
+          Finanzas ⇄
+        </Link>
+        <span className="rounded-full bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-sm">Cotizaciones</span>
+      </div>
       <div className="-mt-2 mb-6"><SectionChatCard section="cotizaciones" /></div>
 
       {/* Balance de facturación: medidor de % cobrado + reparto cobrado / por cobrar / vencido. */}
