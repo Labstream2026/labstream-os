@@ -13,8 +13,6 @@ import { CabeceraDisco } from "@/components/discos/cabecera-disco";
 import { GaleriaCliente } from "./galeria-cliente";
 import { GaleriaHerramientas, type VinculoChip } from "./herramientas";
 import { EntregasCompartidas } from "./entregas-compartidas";
-import { ArbolGaleria } from "./arbol-lateral";
-import { espinaDelArbol, duenosDeRamas } from "@/lib/galeria-arbol";
 import { listarEntregas } from "@/lib/galeria-entrega";
 
 export const dynamic = "force-dynamic";
@@ -102,10 +100,6 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
     : [];
   const duenoPorRel = new Map(duenos.map((c) => [c.galeriaFolder as string, { nombre: c.name, color: c.accentColor }]));
 
-  // Árbol lateral: solo los niveles de la rama donde estás (profundidad + 1 lecturas), ya
-  // desplegados, para que el sitio donde te encuentras no parpadee al cargar.
-  const niveles = await espinaDelArbol(relNorm);
-  const duenosArbol = await duenosDeRamas(niveles);
   // Vista y orden que ESTA persona dejó elegidos (de su perfil): el índice abre como le gusta.
   const prefsUI = await leerPreferenciasUI();
 
@@ -138,9 +132,6 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
           enVivo={Boolean(uso)}
         />
       ) : null}
-      <div className="flex flex-col gap-5 md:flex-row">
-      <ArbolGaleria rel={relNorm} niveles={niveles} duenos={duenosArbol} />
-      <div className="min-w-0 flex-1">
       <GaleriaHerramientas
         rel={relNorm}
         subcarpetas={subcarpetas.map((f) => ({ rel: f.rel, name: f.name, dueno: duenoPorRel.get(f.rel) ?? null }))}
@@ -173,8 +164,6 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
           huerfana: e.huerfana,
         }))}
       />
-      </div>
-      </div>
     </div>
   );
 }

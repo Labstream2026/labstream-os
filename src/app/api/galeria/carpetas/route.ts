@@ -5,11 +5,11 @@ import { galeriaEnabled, galeriaReady, listGaleriaFolders, normalizeGaleriaRel }
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// UN nivel de subcarpetas, para expandir una rama del árbol lateral.
+// UN nivel de subcarpetas de la galería, bajo demanda.
 //
-// El servidor ya manda desplegada la rama donde estás (ver espinaDelArbol); esto es solo para
-// cuando alguien abre OTRA rama a mano. Devuelve nombres, nada de material: es una lectura de
-// directorio, no un escaneo — abrir una rama no puede costar lo que abrir la carpeta.
+// Lo usa el selector de carpeta de «Subir para revisión» (proyectos) para navegar la galería
+// rama a rama. Devuelve nombres, nada de material: es una lectura de directorio, no un
+// escaneo — abrir una rama no puede costar lo que abrir la carpeta.
 export async function GET(req: NextRequest) {
   const session = await galeriaSession();
   if (!session) return new NextResponse("No autorizado", { status: 401 });
