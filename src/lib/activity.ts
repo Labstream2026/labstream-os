@@ -249,4 +249,7 @@ async function notifyActivity(
   await db.notification.createMany({
     data: [...ids].map((userId) => ({ userId, actorId, type: "activity", title, body: name, link, groupKey })),
   });
+  // Aviso por el stream abierto, para que la campana no dependa de su temporizador.
+  const { publishNotification } = await import("@/lib/chat-bus");
+  for (const userId of ids) publishNotification(userId);
 }

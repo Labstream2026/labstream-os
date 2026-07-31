@@ -77,6 +77,13 @@ export function ChatLiveProvider({ enabled = true, children }: { enabled?: boole
           /* ignore */
         }
       });
+      // Notificación nueva. Se reenvía como evento del navegador en vez de por el contexto de
+      // React: la campana vive en otra rama del árbol y no consume este proveedor, y meterla
+      // aquí ataría dos cosas que no tienen por qué conocerse. Además el aviso no lleva datos
+      // —quien lo escucha pregunta por su lista—, así que un evento suelto basta.
+      es.addEventListener("notif", () => {
+        try { window.dispatchEvent(new CustomEvent("ls-notif")); } catch { /* noop */ }
+      });
       // El servidor corta con `revoked` si el usuario fue desactivado: no reintentar en bucle.
       es.addEventListener("revoked", () => {
         stopped = true;

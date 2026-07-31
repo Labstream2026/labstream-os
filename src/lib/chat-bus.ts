@@ -64,6 +64,19 @@ export function publishChannelRead(userId: string, channelId: string) {
   chatBus.emit(userReadEvent(userId), { channelId });
 }
 
+// Notificación nueva para un usuario. Viaja por el MISMO stream que ya mantiene abierto el
+// chat, y eso es lo que resuelve el problema de fondo: la campana se enteraba por un
+// `setInterval` de 20 s, y un temporizador en una ventana OCULTA lo estrangula el motor del
+// navegador (y acaba congelándolo del todo). En la app de escritorio eso es lo normal —vive en
+// la bandeja con la ventana escondida—, así que justamente donde más falta hacía el aviso, era
+// donde menos llegaba. Un evento del servidor no depende de temporizadores: despierta la página.
+export function userNotifEvent(userId: string) {
+  return `notif:${userId}`;
+}
+export function publishNotification(userId: string) {
+  chatBus.emit(userNotifEvent(userId), {});
+}
+
 export function publishMessage(msg: ChatMessagePayload) {
   chatBus.emit(channelEvent(msg.channelId), msg);
   chatBus.emit(ANY_MESSAGE_EVENT, msg);

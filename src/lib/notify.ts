@@ -1,3 +1,4 @@
+import { publishNotification } from "@/lib/chat-bus";
 import { db } from "@/lib/db";
 import { isEmailEnabled, sendEmail, emailButton } from "@/lib/email";
 import { sendPushToUser } from "@/lib/web-push";
@@ -111,6 +112,10 @@ export async function notify(
         link: n.link ?? null, category, priority, groupKey: n.groupKey ?? null,
       },
     });
+    // Avisa por el stream que la app ya tiene abierto: la campana se entera al instante en vez
+    // de esperar al siguiente sondeo. Ver `publishNotification` — importa sobre todo con la
+    // ventana oculta, que es como vive la app de escritorio en la bandeja.
+    publishNotification(userId);
   }
   // Web Push al navegador (best-effort; sin claves VAPID es no-op). No se manda en silencio.
   if (pref.push && !silenced) {
@@ -200,6 +205,7 @@ export async function notifyMany(
         body: n.body ?? null, link: n.link ?? null, category, priority, groupKey: n.groupKey ?? null,
       })),
     });
+    for (const userId of inAppIds) publishNotification(userId);
   }
   // Web Push a cada uno que lo tenga activo y NO esté en silencio. Tag por groupKey → las
   // ráfagas del mismo canal se reemplazan en la bandeja en vez de apilarse.

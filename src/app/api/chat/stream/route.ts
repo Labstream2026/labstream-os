@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { chatBus, ANY_MESSAGE_EVENT, ANY_RECOUNT_EVENT, userReadEvent, type ChatMessagePayload } from "@/lib/chat-bus";
+import { chatBus, ANY_MESSAGE_EVENT, ANY_RECOUNT_EVENT, userReadEvent, userNotifEvent, type ChatMessagePayload } from "@/lib/chat-bus";
 import { getSession } from "@/lib/auth";
 import { getChatUnreadSummary } from "@/lib/chat-unread";
 
@@ -106,9 +106,17 @@ export async function GET(req: NextRequest) {
       };
       const onRead = () => scheduleRecount();
 
+      // Notificación nueva para ESTE usuario: se avisa por el stream y la campana se refresca
+      // sola. Sin esto dependía de su `setInterval` de 20 s, y un temporizador en una ventana
+      // oculta lo estrangula el motor del navegador — justo el caso de la app de escritorio,
+      // que vive en la bandeja. El evento va vacío a propósito: quien lo recibe pregunta por
+      // la lista, que es una consulta que ya existe y que sabe filtrar y ordenar.
+      const onNotif = () => send("event: notif\ndata: {}\n\n");
+
       chatBus.on(ANY_MESSAGE_EVENT, onMessage);
       chatBus.on(ANY_RECOUNT_EVENT, onRecount);
       chatBus.on(userReadEvent(session.id), onRead);
+      chatBus.on(userNotifEvent(session.id), onNotif);
 
       send(": connected\n\n");
       void sendUnread();
@@ -130,6 +138,7 @@ export async function GET(req: NextRequest) {
         chatBus.off(ANY_MESSAGE_EVENT, onMessage);
         chatBus.off(ANY_RECOUNT_EVENT, onRecount);
         chatBus.off(userReadEvent(session.id), onRead);
+        chatBus.off(userNotifEvent(session.id), onNotif);
         try {
           controller.close();
         } catch {

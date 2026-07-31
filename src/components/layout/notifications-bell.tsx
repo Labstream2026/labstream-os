@@ -382,9 +382,21 @@ export function NotificationsBell({ items }: { items: NotificationItem[] }) {
   React.useEffect(() => {
     const id = setInterval(refresh, POLL_MS);
     const onVisible = () => { if (document.visibilityState === "visible") refreshIfStale(); };
+    // Aviso empujado por el servidor a través del stream que la app ya mantiene abierto. El
+    // temporizador de arriba se queda como red de seguridad —si el stream se cae, la campana
+    // sigue enterándose—, pero deja de ser la vía principal: en una ventana OCULTA el motor del
+    // navegador lo estrangula y acaba congelándolo, que es exactamente la situación de la app
+    // de escritorio viviendo en la bandeja. Un evento del servidor no depende de eso.
+    const onEmpuje = () => refreshIfStale();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", refreshIfStale);
-    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refreshIfStale); };
+    window.addEventListener("ls-notif", onEmpuje);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refreshIfStale);
+      window.removeEventListener("ls-notif", onEmpuje);
+    };
   }, [refresh, refreshIfStale]);
 
   // Abrir el panel = verlas: el contador vuelve a CERO (se marcan leídas en el servidor). Las
