@@ -56,11 +56,16 @@ export async function GET(req: NextRequest) {
     }
 
     const calidad = Number(vivoParam);
+    // Una calidad fuera de lista es un error de QUIEN PIDE, no del otro servicio: 400 aquí, sin
+    // gastar un viaje de red. Junto con «LabTem no contesta» daba un 502, que manda a buscar la
+    // avería donde no está.
+    const { esCalidadViva } = await import("@/lib/labtem-vivo");
+    if (!esCalidadViva(calidad)) return new NextResponse("Calidad no admitida", { status: 400 });
     const desde = Number(url.searchParams.get("desde") || 0);
     // La señal del navegador llega encadenada hasta ffmpeg: si el cliente cierra la pestaña o
     // salta a otro punto, la conversión se aborta y la plaza vuelve al montón.
     const arriba = await vivoChorro(rel, calidad, desde, req.signal);
-    if (!arriba) return new NextResponse("Calidad no admitida o LabTem no responde", { status: 502 });
+    if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
     if (!arriba.ok || !arriba.body) {
       return new NextResponse(await arriba.text().catch(() => "No disponible"), {
         status: arriba.status,

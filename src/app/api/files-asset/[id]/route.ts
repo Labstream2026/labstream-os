@@ -240,11 +240,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       }
 
       const calidad = Number(vivoParam);
+      // Una calidad que no está en la lista es un error de QUIEN PIDE, no del otro servicio:
+      // se corta con un 400 aquí, sin gastar un viaje de red. Metido en el mismo saco que «LabTem
+      // no contesta» daba un 502, que manda a buscar la avería justo donde no está.
+      const { esCalidadViva } = await import("@/lib/labtem-vivo");
+      if (!esCalidadViva(calidad)) return new NextResponse("Calidad no admitida", { status: 400 });
       const desde = Number(url.searchParams.get("desde") || 0);
       // La señal del navegador se encadena hasta ffmpeg: cerrar la pestaña mata la conversión
       // y devuelve la plaza. Sin esto, seis pestañas cerradas dejan la GPU ocupada para nadie.
       const arriba = await vivoChorro(file.path, calidad, desde, req.signal);
-      if (!arriba) return new NextResponse("Calidad no admitida o LabTem no responde", { status: 502 });
+      if (!arriba) return new NextResponse("LabTem no responde", { status: 502 });
       if (!arriba.ok || !arriba.body) {
         // 503 = las seis plazas ocupadas; 415 = la GPU no decodifica este códec. Los dos se
         // pasan tal cual: quien llama sabe distinguir «espera un momento» de «esta pieza no».
