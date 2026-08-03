@@ -117,6 +117,12 @@ model User {
   // sus mensajes entrantes). Así el equipo recibe avisos pero no puede darle órdenes al bot.
   whatsappPhone   String?
   whatsappCommand Boolean  @default(false)
+  // Puede MODIFICAR a través de un agente EXTERNO que entra por una llave de pasarela (el Hermes
+  // de WhatsApp). Por defecto NADIE: el equipo consulta por el bot, pero no escribe. Es un freno
+  // aparte de sus permisos en la app —alguien puede crear proyectos sentado en su escritorio y
+  // aun así no poder hacerlo dictándoselo a un bot—, porque la identidad de un mensaje de
+  // WhatsApp es más débil que la de una sesión con contraseña.
+  agentWrite      Boolean  @default(false)
   // Usuario de sistema (Marcebot): no inicia sesión y se oculta de los listados.
   isSystemBot  Boolean   @default(false)
   role         Role      @relation(fields: [roleId], references: [id])
@@ -395,6 +401,14 @@ model AppKey {
   secretHash      String // sha256(secretoCompleto) en hex — verificación, nunca recuperación
   scopes          String[]  @default([]) // subconjunto de ALL_PERMISSION_KEYS; [] = todos los del usuario
   readOnly        Boolean   @default(false) // true = solo herramientas/endpoints de consulta
+  // Llave de PASARELA (agentes que atienden a VARIAS personas, p. ej. el bot de WhatsApp): puede
+  // actuar EN NOMBRE del miembro del equipo que escribe, si la petición trae su número en la
+  // cabecera del remitente. Solo puede suplantar a quien YA tenga ese número registrado en su
+  // ficha (`User.whatsappPhone`) y esté activo — nunca a un id arbitrario. Sin este interruptor,
+  // la cabecera se ignora por completo: una llave normal jamás suplanta a nadie.
+  // OJO: quien tenga el secreto de una llave de pasarela puede actuar como CUALQUIER número
+  // registrado. Es una credencial de alto valor; el freno de las ESCRITURAS es `User.agentWrite`.
+  gateway         Boolean   @default(false)
   user            User      @relation("AppKeyUser", fields: [userId], references: [id], onDelete: Cascade)
   userId          String
   createdById     String? // admin que la creó

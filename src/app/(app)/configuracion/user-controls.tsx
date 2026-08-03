@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Trash2, MessageCircle, Check } from "lucide-react";
-import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, setUserColor, deleteUser } from "./actions";
+import { setUserRole, setUserActive, setUserGuest, setUserGender, setUserWhatsapp, setUserAgentWrite, setUserColor, deleteUser } from "./actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AVATAR_COLORS } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ export function UserControls({
   color,
   whatsappPhone,
   whatsappCommand,
+  agentWrite,
   roles,
   isSelf,
 }: {
@@ -29,6 +30,7 @@ export function UserControls({
   color: string | null;
   whatsappPhone: string | null;
   whatsappCommand: boolean;
+  agentWrite: boolean;
   roles: { key: string; name: string }[];
   isSelf: boolean;
 }) {
@@ -40,6 +42,17 @@ export function UserControls({
   // Estado local de los campos de WhatsApp (número + permiso de comandar).
   const [phone, setPhone] = useState(whatsappPhone ?? "");
   const [command, setCommand] = useState(whatsappCommand);
+  // Escribir a través del asistente externo (Hermes por WhatsApp): se concede persona a persona.
+  const [escribeAgente, setEscribeAgente] = useState(agentWrite);
+  const toggleAgentWrite = () => {
+    const next = !escribeAgente;
+    setEscribeAgente(next);
+    run(async () => {
+      const r = await setUserAgentWrite(userId, next);
+      if (!r.ok) setEscribeAgente(!next); // el servidor mandó: se revierte el interruptor
+      return r;
+    });
+  };
   const savePhone = () => {
     const v = phone.trim();
     if (v === (whatsappPhone ?? "")) return; // sin cambios
@@ -182,6 +195,34 @@ export function UserControls({
             </span>
           ) : (
             "No comanda"
+          )}
+        </button>
+        {/* Escritura por el asistente EXTERNO (Hermes/WhatsApp, vía llave de pasarela). Vinculado
+            = consulta lo suyo; esto además le deja MODIFICAR. Apagado por defecto para todos. */}
+        <button
+          type="button"
+          disabled={pending || !phone.trim()}
+          onClick={toggleAgentWrite}
+          title={
+            !phone.trim()
+              ? "Vincula primero un número: el asistente identifica a la persona por ahí"
+              : escribeAgente
+                ? "Puede MODIFICAR (crear, editar) hablándole al asistente de WhatsApp. Clic para dejarlo en solo consulta."
+                : "Solo consulta lo suyo por el asistente de WhatsApp. Clic para permitirle modificar."
+          }
+          className={
+            "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 " +
+            (escribeAgente
+              ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+              : "border-border bg-card text-muted-foreground hover:bg-accent")
+          }
+        >
+          {escribeAgente ? (
+            <span className="inline-flex items-center gap-1">
+              Modifica por el bot <Check className="size-3.5" />
+            </span>
+          ) : (
+            "Solo consulta"
           )}
         </button>
       </div>

@@ -638,6 +638,25 @@ export async function setUserWhatsapp(
   return { ok: true };
 }
 
+// ¿Puede esta persona MODIFICAR a través de un agente externo (el asistente de WhatsApp que entra
+// por una llave de pasarela)? Consultar lo puede hacer cualquiera con su número vinculado; escribir
+// se concede aquí, uno por uno. Es un freno APARTE de sus permisos en la app: la identidad de un
+// mensaje de WhatsApp es más débil que la de una sesión con contraseña, así que hay gente que
+// legítimamente crea proyectos en su escritorio y aun así no debería poder dictárselos a un bot.
+// Sin número vinculado no aplica (el agente no sabría a quién atiende) y se guarda en false.
+export async function setUserAgentWrite(userId: string, allow: boolean): Promise<AdminActionResult> {
+  const session = await requireAdmin();
+  if (!session) return { ok: false, error: "No autorizado" };
+  const u = await db.user.findUnique({ where: { id: userId }, select: { whatsappPhone: true } });
+  if (!u) return { ok: false, error: "Usuario no encontrado." };
+  if (allow && !u.whatsappPhone) {
+    return { ok: false, error: "Vincula primero su número de WhatsApp: el agente identifica a la persona por ahí." };
+  }
+  await db.user.update({ where: { id: userId }, data: { agentWrite: allow && !!u.whatsappPhone } });
+  revalidatePath("/configuracion");
+  return { ok: true };
+}
+
 // Configuración de Marcebot: encendido, días laborales (0=Dom … 6=Sáb) y franja horaria.
 export async function setMarcebotConfig(input: {
   enabled: boolean;

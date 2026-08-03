@@ -13,6 +13,7 @@ type ApiKeyRow = {
   prefix: string;
   scopes: string[];
   readOnly: boolean;
+  gateway: boolean;
   userName: string;
   lastUsedAt: string | null;
   revoked: boolean;
@@ -139,6 +140,12 @@ export function ApiKeysPanel({ keys, users, roles, perms }: { keys: ApiKeyRow[];
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="readOnly" value="1" className="size-4" /> Solo lectura</label>
+            <label
+              className="inline-flex items-center gap-2 text-sm"
+              title="Para un agente que atiende a VARIAS personas (el asistente de WhatsApp): habla en nombre de quien le escribe, con los permisos de esa persona. Solo puede ser alguien con su número ya vinculado en Equipo; modificar exige además habilitárselo a esa persona. Quien tenga este secreto puede actuar como cualquier número registrado."
+            >
+              <input type="checkbox" name="gateway" value="1" className="size-4" /> Pasarela (actúa como el equipo)
+            </label>
             <label className="inline-flex items-center gap-2 text-sm">Límite/min <input type="number" name="rateLimitPerMin" defaultValue={120} min={1} max={6000} className={cn(inputCls, "w-24")} /></label>
           </div>
           <div>
@@ -169,6 +176,7 @@ export function ApiKeysPanel({ keys, users, roles, perms }: { keys: ApiKeyRow[];
                     <span className="text-sm font-medium">{k.name}</span>
                     <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{k.prefix}…</code>
                     {k.readOnly ? <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">solo lectura</span> : null}
+                    {k.gateway ? <span title="Actúa en nombre del miembro del equipo que le escribe al agente" className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">pasarela</span> : null}
                     {k.scopes.length ? <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"><ShieldCheck className="size-3" />{k.scopes.length} scope{k.scopes.length === 1 ? "" : "s"}</span> : null}
                     {k.revoked ? <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">revocada</span> : null}
                   </div>

@@ -260,6 +260,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
                 color={u.avatarColor}
                 whatsappPhone={u.whatsappPhone}
                 whatsappCommand={u.whatsappCommand}
+                agentWrite={u.agentWrite}
                 roles={roleOptions}
                 isSelf={u.email === session!.email}
               />
@@ -350,7 +351,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
     : [];
   const apiNode = (
     <ApiKeysPanel
-      keys={apiKeyRows.map((k) => ({ id: k.id, name: k.name, prefix: k.prefixVisible, scopes: k.scopes, readOnly: k.readOnly, userName: k.user.name, lastUsedAt: k.lastUsedAt?.toISOString() ?? null, revoked: k.revoked }))}
+      keys={apiKeyRows.map((k) => ({ id: k.id, name: k.name, prefix: k.prefixVisible, scopes: k.scopes, readOnly: k.readOnly, gateway: k.gateway, userName: k.user.name, lastUsedAt: k.lastUsedAt?.toISOString() ?? null, revoked: k.revoked }))}
       users={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))}
       roles={roleOptions}
       perms={catalog}

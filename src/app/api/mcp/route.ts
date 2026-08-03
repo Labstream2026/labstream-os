@@ -1,5 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { resolveApiKey } from "@/lib/api-key-auth";
+import { applyAgentGateway } from "@/lib/agent-gateway";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { toolsForApi, executeAgentTool } from "@/lib/openclaw/tools";
@@ -185,7 +186,15 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "WWW-Authenticate": 'Bearer realm="labstream-os-mcp"' },
     });
   }
-  const { session, key, readOnly } = auth.ctx;
+  // Pasarela: si la llave lo permite y la petición dice a QUIÉN está atendiendo el agente, la
+  // sesión pasa a ser la de esa persona (sus permisos, sus proyectos). Sin cabecera o sin llave de
+  // pasarela, esto no hace nada y la llave habla como su titular, igual que antes.
+  const gw = await applyAgentGateway(req, auth.ctx);
+  if (!gw.ok) {
+    return json(rpcError(null, -32001, gw.error), gw.status);
+  }
+  const { session, key, readOnly } = gw.ctx;
+  const actor = gw.actor;
 
   // Rate-limit y registro de uso, igual que withApiKey (soporta múltiples agentes).
   if (!rateLimit(`mcp:${key.prefixVisible}`, key.rateLimitPerMin, 60_000)) {
@@ -206,10 +215,14 @@ export async function POST(req: NextRequest) {
         const tool = typeof m.params?.name === "string" ? m.params.name : "(sin nombre)";
         await logActivity({
           action: "api.tool",
-          summary: `la llave «${key.name}» usó ${tool}`,
+          // Con pasarela, el autor del registro ES la persona atendida (userId), así que el
+          // resumen deja claro que fue POR el bot y no ella sentada en la app.
+          summary: actor
+            ? `${actor.name} usó ${tool} por el asistente de WhatsApp (llave «${key.name}»)`
+            : `la llave «${key.name}» usó ${tool}`,
           userId: session.id,
           ip,
-          meta: { tool, key: key.name, via: "mcp" },
+          meta: { tool, key: key.name, via: actor ? "mcp-gateway" : "mcp", ...(actor ? { comoPersona: actor.name, telefono: actor.phone } : {}) },
           silent: true,
         }).catch(() => {});
       }

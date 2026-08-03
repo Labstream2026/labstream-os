@@ -23,6 +23,10 @@ export async function createAppKey(formData: FormData): Promise<Result & { secre
   if (!user?.active) return { ok: false, error: "El usuario titular no existe o está inactivo." };
 
   const readOnly = String(formData.get("readOnly") ?? "") === "1";
+  // Pasarela: la llave puede hablar EN NOMBRE del miembro del equipo que le escribe al agente
+  // (resuelto por su número de WhatsApp). Es una credencial de alto valor — quien la tenga puede
+  // actuar como cualquier número registrado —, por eso es una casilla aparte y explícita.
+  const gateway = String(formData.get("gateway") ?? "") === "1";
   // Scopes: subconjunto válido del catálogo; vacío = hereda todos los permisos del usuario.
   const scopes = formData.getAll("scopes").map(String).filter((s) => ALL_PERMISSION_KEYS.includes(s));
   const rateRaw = Number(formData.get("rateLimitPerMin"));
@@ -36,12 +40,17 @@ export async function createAppKey(formData: FormData): Promise<Result & { secre
       secretHash: gen.secretHash,
       scopes,
       readOnly,
+      gateway,
       userId,
       createdById: session.id,
       rateLimitPerMin,
     },
   });
-  await logActivity({ action: "apikey.create", summary: `creó la credencial de API «${name}»`, entityType: "appkey" });
+  await logActivity({
+    action: "apikey.create",
+    summary: `creó la credencial de API «${name}»${gateway ? " (de pasarela: puede actuar en nombre del equipo)" : ""}`,
+    entityType: "appkey",
+  });
   revalidatePath("/configuracion");
   // El secreto solo se devuelve aquí; nunca más se puede leer.
   return { ok: true, secret: gen.raw, prefix: gen.prefixVisible };
