@@ -12,6 +12,31 @@ export function verifyReviewToken(token: string): string | null {
   return verifyScopedToken("review", token);
 }
 
+// Enlace de BORRADOR: la misma sala, pero mostrando la pieza AÚN sin pre-aprobar y sin dejar
+// aprobar ni descargar. Es un scope APARTE a propósito: así el enlace oficial no puede filtrar
+// material sin aprobar, y apagar el borrador (Deliverable.draftShareAt = NULL) no toca el
+// oficial. La vigencia real la manda `draftShareExpiresAt`; el token se firma con vida larga.
+export function signDraftToken(deliverableId: string): string {
+  return signScopedToken("draft", deliverableId, 3650);
+}
+
+export function verifyDraftToken(token: string): string | null {
+  return verifyScopedToken("draft", token);
+}
+
+export type ReviewMode = "final" | "draft";
+
+// Resuelve un token de la ruta /review/[token] sin saber de antemano cuál de los dos es.
+// El scope viaja FIRMADO dentro del token: un enlace oficial no puede hacerse pasar por
+// borrador (ni al revés) porque la firma cubre el prefijo.
+export function resolveReviewToken(token: string): { deliverableId: string; mode: ReviewMode } | null {
+  const final = verifyReviewToken(token);
+  if (final) return { deliverableId: final, mode: "final" };
+  const draft = verifyDraftToken(token);
+  if (draft) return { deliverableId: draft, mode: "draft" };
+  return null;
+}
+
 // Token (con caducidad) para servir el video de una VERSIÓN proxiado desde Google Drive
 // por el mismo origen, de modo que el player pueda capturar el fotograma (CORS). Sirve
 // tanto en la bandeja interna como en el portal del cliente (sin sesión).

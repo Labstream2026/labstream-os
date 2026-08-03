@@ -227,6 +227,7 @@ export function ReviewClient({
   renditions = [],
   downloadUrl,
   immersiveEligible = false,
+  draftMode = false,
 }: {
   token: string;
   versions: StageVersion[];
@@ -259,6 +260,9 @@ export function ReviewClient({
   // Archivos finales por formato (centro de descargas del cliente).
   renditions?: Rendition[];
   downloadUrl: string | null;
+  // Enlace de BORRADOR: la pieza aún se está editando. Se ve y se comenta; no se aprueba ni se
+  // descarga. El servidor rechaza esas acciones igual (actions.ts), esto solo evita ofrecerlas.
+  draftMode?: boolean;
 }) {
   const [name, setName] = React.useState<string | null>(null); // null = aún cargando
   const [entered, setEntered] = React.useState(false);
@@ -373,8 +377,9 @@ export function ReviewClient({
         defaultName={name || "Cliente"}
         fixedName
         // El usuario INVITADO usa su propia barra de decisión (doble botón + reabrir), así que aquí
-        // no pintamos los botones del escenario; el cliente FINAL por enlace sí los usa.
-        decision={invited ? null : { approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
+        // no pintamos los botones del escenario; el cliente FINAL por enlace sí los usa. En
+        // BORRADOR no hay decisión que tomar: solo comentarios.
+        decision={invited || draftMode ? null : { approveLabel: "Aprobar entregable", changesLabel: "Solicitar cambios" }}
         mediaTabs={mediaTabs.length ? mediaTabs : undefined}
         onComment={(fd) => addReviewComment(token, fd)}
         // El cliente responde en el hilo de una corrección. Su respuesta siempre es suya
@@ -393,8 +398,8 @@ export function ReviewClient({
           onRequestChanges={() => onDecisionIntent("CAMBIOS")}
         />
       ) : null}
-      <DownloadCenter renditions={renditions} />
-      <ReviewOnboarding />
+      {draftMode ? null : <DownloadCenter renditions={renditions} />}
+      <ReviewOnboarding draftMode={draftMode} />
       {modal ? (
         <DecisionModal
           state={modal}

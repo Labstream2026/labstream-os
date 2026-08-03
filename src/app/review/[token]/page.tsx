@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { verifyReviewToken, signReviewToken } from "@/lib/review-token";
+import { resolveReviewToken, signReviewToken } from "@/lib/review-token";
 import { isEmailEnabled } from "@/lib/email";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
@@ -24,6 +24,10 @@ const CLIENT_STATUS: Record<string, { label: string; className: string }> = {
   APROBADO: { label: "Aprobado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
   ENTREGADO: { label: "Entregado", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
 };
+
+// La misma cabecera para el enlace de BORRADOR, en cualquier estado del entregable: lo que el
+// externo necesita saber no es la etiqueta interna del equipo, sino que esto todavía se mueve.
+const DRAFT_PILL = { label: "Borrador — versión de trabajo", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
 
 // ── Tema «Estudio» de la sala del cliente ──
 // SOLO esta ruta: gris casi negro elegante + acento en el naranja de la marca. Se aplica con la
@@ -64,8 +68,12 @@ export const runtime = "nodejs";
 
 export default async function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const deliverableId = verifyReviewToken(token);
-  if (!deliverableId) return <PublicLinkInvalid />;
+  // Un mismo /review/[token] atiende los DOS enlaces: el oficial y el de borrador. El scope
+  // viaja firmado dentro del token, así que aquí solo hay que preguntar cuál es.
+  const resolved = resolveReviewToken(token);
+  if (!resolved) return <PublicLinkInvalid />;
+  const { deliverableId, mode } = resolved;
+  const isDraft = mode === "draft";
 
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
@@ -94,9 +102,14 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // TERMINADOS sí siguen: el cliente conserva su centro de descargas del material aprobado.)
   if (deliverable.project.archivedAt) return <PublicLinkInvalid />;
 
-  // Enlace revocado o caducado: estado inválido (no se muestra el material).
-  const expired = deliverable.reviewExpiresAt ? deliverable.reviewExpiresAt.getTime() < Date.now() : false;
-  if (deliverable.reviewRevokedAt || expired) {
+  // Vigencia: cada enlace con la suya. El oficial se apaga con reviewRevokedAt/reviewExpiresAt;
+  // el borrador vive mientras draftShareAt esté puesto y no haya vencido. Apagar uno NO toca al
+  // otro — que es justo la razón de que sean tokens distintos.
+  const expired = isDraft
+    ? !!deliverable.draftShareExpiresAt && deliverable.draftShareExpiresAt.getTime() < Date.now()
+    : !!deliverable.reviewExpiresAt && deliverable.reviewExpiresAt.getTime() < Date.now();
+  const revoked = isDraft ? !deliverable.draftShareAt : !!deliverable.reviewRevokedAt;
+  if (revoked || expired) {
     return (
       <RoomShell>
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
@@ -104,7 +117,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             <Logo className="mx-auto h-6" />
             <h1 className="mt-4 text-xl font-bold">Enlace no disponible</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {expired ? "Este enlace de revisión ha caducado. Pide uno nuevo a tu productor." : "Este enlace de revisión fue revocado por el equipo. Pide uno nuevo a tu productor."}
+              {expired
+                ? `Este enlace de ${isDraft ? "borrador" : "revisión"} ha caducado. Pide uno nuevo a tu productor.`
+                : `Este enlace de ${isDraft ? "borrador" : "revisión"} fue ${isDraft ? "apagado" : "revocado"} por el equipo. Pide uno nuevo a tu productor.`}
             </p>
           </div>
         </div>
@@ -115,7 +130,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // Compuerta de ESTADO: el cliente solo ve la pieza cuando está de cara a él (enviada,
   // con cambios, aprobada o entregada). Si el equipo la regresó a producción/edición/revisión
   // interna, el enlace muestra un aviso amable en vez del material (y sin etiquetas internas).
-  if (!CLIENT_STATUS[deliverable.status]) {
+  // El BORRADOR se salta esta compuerta a propósito: existe justo para enseñar la pieza en
+  // pre-producción, y a cambio no deja aprobar ni descargar (ver más abajo).
+  if (!isDraft && !CLIENT_STATUS[deliverable.status]) {
     return (
       <RoomShell>
         <div className="flex min-h-screen items-center justify-center px-6 text-center">
@@ -131,12 +148,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     );
   }
 
-  // Cuenta una visita (no bloquea el render si falla).
-  await db.deliverable.update({ where: { id: deliverableId }, data: { reviewVisits: { increment: 1 } } }).catch(() => {});
+  // Cuenta una visita (no bloquea el render si falla). Cada enlace lleva su propio contador:
+  // así el productor distingue quién entró al borrador de quién entró al oficial.
+  await db.deliverable
+    .update({ where: { id: deliverableId }, data: isDraft ? { draftShareVisits: { increment: 1 } } : { reviewVisits: { increment: 1 } } })
+    .catch(() => {});
 
-  // Compuerta bloqueante: el cliente solo ve versiones aprobadas internamente.
-  const approved = deliverable.versions.filter((v) => v.internalApproved);
-  const statusPill = CLIENT_STATUS[deliverable.status];
+  // Compuerta bloqueante: el cliente solo ve versiones aprobadas internamente. En BORRADOR es
+  // exactamente la compuerta que se levanta —de eso se trata—: se muestra el material tal como
+  // está, y la cabecera lo dice sin rodeos.
+  const approved = isDraft ? deliverable.versions : deliverable.versions.filter((v) => v.internalApproved);
+  const statusPill = isDraft ? DRAFT_PILL : CLIENT_STATUS[deliverable.status];
   // Si quien visita tiene sesión de cliente (usuario invitado de la app), le ofrecemos volver a
   // su sala y le evitamos el paso de "¿cómo te llamas?" (ya sabemos quién es).
   const session = await getSession();
@@ -147,7 +169,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // proyecto del entregable). Solo a él le damos la ventana de doble botón (Pre-aprobar + Aprobar)
   // y la posibilidad de reabrir un aprobado; el cliente FINAL por enlace (sin sesión) ve la sala
   // normal (Aprobar / Solicitar cambios).
+  // En BORRADOR nadie estrena la ventana de doble botón: ahí no se aprueba, ni el invitado.
   const isInvited =
+    !isDraft &&
     session?.role === "cliente" &&
     hasPermission(session, "aprobar_cliente") &&
     !!(await db.projectMember
@@ -162,7 +186,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
 
   const versions = await buildStageVersions(approved);
   // Enlace de descarga al aprobar: la fuente de la última versión aprobada (Drive o archivo).
-  const downloadUrl = versions[0]?.openUrl ?? null;
+  // En BORRADOR no hay descarga: material sin pre-aprobar se ve, no se lleva.
+  const downloadUrl = isDraft ? null : (versions[0]?.openUrl ?? null);
+  // Los archivos finales por formato son del entregable terminado; el borrador no los ofrece.
+  const renditions = isDraft ? [] : deliverable.renditions;
 
   // Entregable de FOTOGRAFIA: en vez del reproductor, una galería de selección. Las URLs de
   // visualización se calculan en el servidor (token de archivo para las locales, Drive para enlaces).
@@ -173,7 +200,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const coverSrc = isReel && deliverable.coverFileAssetId ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null }) : null;
   // Estado de la decisión de portada, atado al archivo actual (una portada nueva vuelve a "pendiente").
   const coverDecided = coverSrc && deliverable.coverDecisionFor && deliverable.coverDecisionFor === deliverable.coverFileAssetId;
-  const coverStatus = !coverSrc ? null : coverDecided ? (deliverable.coverDecision === "APROBADA" ? "APROBADA" : "CAMBIOS") : "PENDIENTE";
+  // La pestaña de portada ES un panel de aprobación: en borrador no se pinta (coverStatus null
+  // la esconde), igual que el resto de decisiones.
+  const coverStatus = isDraft || !coverSrc ? null : coverDecided ? (deliverable.coverDecision === "APROBADA" ? "APROBADA" : "CAMBIOS") : "PENDIENTE";
   const coverDecisionBy = coverDecided ? deliverable.coverDecisionBy : null;
   const coverDecisionNote = coverDecided && deliverable.coverDecision === "CAMBIOS" ? deliverable.coverDecisionNote : null;
 
@@ -210,6 +239,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       </header>
 
       <main className={`relative mx-auto max-w-5xl px-6 py-6${shellW}`}>
+        {/* Aviso de BORRADOR: quien abre este enlace tiene que saber, antes de mirar nada, que
+            está viendo trabajo en curso y que lo que se espera de él son comentarios. */}
+        {isDraft ? (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <p className="font-semibold">Esto todavía está en edición</p>
+            <p className="mt-1 text-amber-200/80">
+              Te lo compartimos antes de tiempo para que puedas opinar mientras aún es fácil cambiarlo. Deja tus comentarios
+              {isPhoto ? " en cada foto" : " sobre el minuto exacto"} y el equipo los recibe al instante. La aprobación final llega después, en otro enlace.
+            </p>
+          </div>
+        ) : null}
         {isPhoto ? (
           photos.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
@@ -219,15 +259,22 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             <>
               <p className="mb-4 text-sm text-muted-foreground">Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una.</p>
               <PhotoGallery token={token} photos={photos} />
-              {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato. */}
-              <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} invited={invited} />
-              <DownloadCenter renditions={deliverable.renditions} />
-              <ReviewOnboarding isPhoto />
+              {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato.
+                  En BORRADOR no: ahí se elige y se comenta, pero no se aprueba ni se descarga. */}
+              {isDraft ? null : (
+                <>
+                  <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} invited={invited} />
+                  <DownloadCenter renditions={renditions} />
+                </>
+              )}
+              <ReviewOnboarding isPhoto draftMode={isDraft} />
             </>
           )
         ) : versions.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-            El material aún está en revisión interna del equipo. En cuanto esté listo, lo verás aquí.
+            {isDraft
+              ? "Aún no hay ninguna versión subida. En cuanto el equipo suba la primera, aparecerá aquí."
+              : "El material aún está en revisión interna del equipo. En cuanto esté listo, lo verás aquí."}
           </div>
         ) : (
           <ReviewClient
@@ -250,8 +297,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             coverForId={deliverable.coverFileAssetId}
             coverDecisionBy={coverDecisionBy}
             coverDecisionNote={coverDecisionNote}
-            renditions={deliverable.renditions}
+            renditions={renditions}
             downloadUrl={downloadUrl}
+            draftMode={isDraft}
             comments={deliverable.reviewComments.map((c) => ({
               id: c.id,
               authorName: c.authorName,

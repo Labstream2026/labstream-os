@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Check, X, Eye, Link2Off, Link2, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, X, Eye, Link2Off, Link2, Loader2, CheckCircle2, Circle, Send, ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTimecode } from "@/lib/ui";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, resolveReviewComment, replyToReview } from "./actions";
+import { crearEnlaceBorrador, apagarEnlaceBorrador, extenderEnlaceBorrador } from "./draft-share-actions";
+// Estado del enlace de borrador: lo arma el servidor (lib/draft-share) y aquí solo se pinta.
+import type { DraftShareInfo } from "@/lib/draft-share";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
 
 // Controles de pre-aprobación interna de una versión (solo equipo gestor).
@@ -34,6 +37,86 @@ export function PreApproval({ deliverableId, projectId, versionNumber }: { deliv
   );
 }
 
+// Bloque del enlace de BORRADOR: mostrarle la pieza a un externo mientras sigue en edición, sin
+// pre-aprobarla ni moverle el estado. Vive DENTRO de la barra del enlace oficial —justo debajo—
+// porque es donde el productor ya viene a buscar «el link»; y se ve claramente como otra cosa
+// (ámbar) para que nadie confunda el borrador con la entrega.
+function DraftLinkBlock({ deliverableId, draft }: { deliverableId: string; draft: DraftShareInfo }) {
+  const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
+    setError(null);
+    start(async () => {
+      const r = await fn();
+      if (!r.ok) setError(r.error ?? "No se pudo. Inténtalo de nuevo.");
+    });
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <FlaskConical className="size-4 text-amber-700 dark:text-amber-300" />
+        <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">Enlace de borrador</span>
+        {draft.active ? (
+          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-black/20 dark:text-amber-200">
+            activo · {draft.visits} visita{draft.visits === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+
+      {!draft.active ? (
+        <>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-200/80">
+            Para enseñarle la pieza a un externo mientras sigue en edición. No cambia el estado ni necesita pre-aprobación:
+            el externo ve el corte tal como está, comenta, y no puede aprobar ni descargar.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => run(() => crearEnlaceBorrador(deliverableId))}
+              disabled={pending}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-transparent dark:text-amber-200 dark:hover:bg-amber-500/20"
+            >
+              {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />} Crear enlace de borrador
+            </button>
+            <span className="text-[11px] text-amber-700 dark:text-amber-300/80">caduca a los 14 días</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <CopyLink url={draft.url} />
+            <a href={draft.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-amber-800 hover:underline dark:text-amber-200">
+              Ver como externo ↗
+            </a>
+            <button
+              onClick={() => run(() => apagarEnlaceBorrador(deliverableId))}
+              disabled={pending}
+              className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+            >
+              <Link2Off className="size-3.5" /> Apagar
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-amber-800/90 dark:text-amber-200/80">
+            {draft.expired ? (
+              <span className="font-medium text-rose-700 dark:text-rose-300">Caducó{draft.expiresLabel ? ` el ${draft.expiresLabel}` : ""} — ya no abre.</span>
+            ) : draft.expiresLabel ? (
+              <>Vence el {draft.expiresLabel}.</>
+            ) : null}{" "}
+            <button onClick={() => run(() => extenderEnlaceBorrador(deliverableId))} disabled={pending} className="font-medium underline underline-offset-2 disabled:opacity-50">
+              Dar 14 días más
+            </button>
+          </p>
+          <p className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/70">
+            Al apagarlo deja de abrir para quien lo tenga. Si lo vuelves a crear es el mismo enlace, no uno nuevo.
+          </p>
+        </>
+      )}
+      {error ? <p className="mt-2 text-[11px] font-medium text-rose-700 dark:text-rose-300">{error}</p> : null}
+    </div>
+  );
+}
+
 // Barra del enlace de revisión del cliente: copiar/abrir, visitas, revocar, modo dibujos.
 export function ReviewLinkBar({
   deliverableId,
@@ -42,6 +125,7 @@ export function ReviewLinkBar({
   visits,
   revoked,
   hasApproved,
+  draft = null,
   children,
 }: {
   deliverableId: string;
@@ -51,6 +135,8 @@ export function ReviewLinkBar({
   revoked: boolean;
   allowDrawings?: boolean; // (obsoleto) el "modo dibujos" se quitó del enlace; el prop se acepta sin usar
   hasApproved: boolean;
+  // Enlace de borrador (revisión temprana). `null` = no se ofrece a quien está mirando.
+  draft?: DraftShareInfo | null;
   children?: React.ReactNode;
 }) {
   const [pending, start] = React.useTransition();
@@ -87,8 +173,10 @@ export function ReviewLinkBar({
       {!hasApproved ? (
         <p className="rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
           ⚠ Ninguna versión está aprobada internamente: el cliente verá «en revisión interna» hasta que el equipo apruebe una versión.
+          {draft ? " Si quieres que lo vea igual para opinar, usa el enlace de borrador." : ""}
         </p>
       ) : null}
+      {draft ? <DraftLinkBlock deliverableId={deliverableId} draft={draft} /> : null}
     </div>
   );
 }

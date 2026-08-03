@@ -60,6 +60,9 @@ export type StageComment = {
   // Respuesta del equipo DIRIGIDA al cliente («Responder al cliente»): pasa la defensa del
   // modo cliente, a diferencia de los comentarios internos de pre-aprobación.
   visibleToClient?: boolean;
+  // Llegó por el enlace de BORRADOR (la pieza aún se estaba editando). Se muestra etiquetado
+  // en la bandeja interna: no es lo mismo una nota de fase temprana que una corrección formal.
+  fromDraft?: boolean;
   resolved?: boolean;
   // Prioridad de la corrección: OBLIGATORIA (bloqueante) o SUGERENCIA (opcional), para que el
   // editor sepa qué es imprescindible. Por defecto OBLIGATORIA (todo cuenta, como siempre).
@@ -1338,6 +1341,7 @@ export function ReviewStage({
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{c.authorName}</span>
                         {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                        {mode === "internal" && c.fromDraft ? <DraftMark /> : null}
                         {c.timecode != null ? (
                           <button onClick={() => seek(c.timecode!)} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-primary hover:bg-primary/20">{fmtTime(c.timecode)}</button>
                         ) : null}
@@ -1383,6 +1387,7 @@ export function ReviewStage({
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="text-xs font-medium">{r.authorName}</span>
                                 {!r.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                                {mode === "internal" && r.fromDraft ? <DraftMark /> : null}
                                 {/* Solo para el equipo: de un vistazo, qué respuestas ve el cliente
                                     y cuáles son discusión interna (al cliente nunca le llegan). */}
                                 {mode === "internal" && !r.fromClient ? (
@@ -1499,6 +1504,7 @@ export function ReviewStage({
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium">{c.authorName}</span>
                       {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
+                      {mode === "internal" && c.fromDraft ? <DraftMark /> : null}
                       {c.editedAt ? <EditedMark /> : null}
                       {canMutate(c) ? <span className="ml-auto"><CommentActions onEdit={onEdit ? () => startEdit(c) : undefined} onDelete={onDelete ? () => removeComment(c.id) : undefined} disabled={pending} /></span> : null}
                     </div>
@@ -1603,6 +1609,16 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
 // no es literalmente lo que se envió).
 function EditedMark() {
   return <span title="El texto se editó después de enviarse" className="text-[10px] italic text-muted-foreground">editado</span>;
+}
+
+// Chip «borrador»: la nota llegó por el enlace de revisión temprana, con la pieza aún en edición.
+// Solo se pinta en la bandeja interna — al cliente esa distinción no le dice nada.
+function DraftMark() {
+  return (
+    <span title="Llegó por el enlace de borrador, con la pieza aún en edición" className="rounded bg-amber-500/15 px-1.5 text-[10px] text-amber-700 dark:text-amber-300">
+      borrador
+    </span>
+  );
 }
 
 // Botones compactos de editar/retirar un comentario del equipo (modo interno).

@@ -11,6 +11,7 @@ import { ReviewLinkBar } from "@/app/(app)/proyectos/[id]/deliverable-review";
 import { EmailReviewButton } from "@/app/(app)/proyectos/[id]/email-review-button";
 import { isEmailEnabled } from "@/lib/email";
 import { formatBogotaDate } from "@/lib/bogota-time";
+import { draftShareInfo } from "@/lib/draft-share";
 import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
 import type { StageComment } from "@/components/review/review-stage";
@@ -68,6 +69,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     isNote: c.isNote,
     fromClient: c.fromClient,
     visibleToClient: c.visibleToClient,
+    fromDraft: c.fromDraft,
     resolved: c.resolved,
     priority: c.priority,
     resolvedAt: c.resolvedAt?.toISOString() ?? null,
@@ -80,6 +82,9 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
 
   const hasApproved = deliverable.versions.some((v) => v.internalApproved);
   const reviewUrl = `${REVIEW_BASE}/review/${signReviewToken(deliverable.id)}`;
+  // Enlace de BORRADOR: mismo criterio que la server action (gestionar + compartir_cliente).
+  // Sin permiso, el bloque no se pinta — no ofrecemos un botón que el servidor va a rechazar.
+  const draft = canManage && hasPermission(session, "compartir_cliente") ? draftShareInfo(deliverable, REVIEW_BASE) : null;
 
   // Datos de la ventana que sale al pre-aprobar. `puedeEnviar` repite EXACTAMENTE la puerta de
   // la server action (gestionar + aprobar_entregables, o ser revisor asignado) en vez del
@@ -168,6 +173,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
                 revoked={Boolean(deliverable.reviewRevokedAt)}
                 allowDrawings={deliverable.reviewAllowDrawings}
                 hasApproved={hasApproved}
+                draft={draft}
               >
                 {/* «Enviar al cliente» también DESDE LA SALA: los productores gestionan
                     (rol de acceso total) pero antes solo tenían esta casilla en el panel

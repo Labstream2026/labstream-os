@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
-import { signReviewToken, verifyReviewToken } from "@/lib/review-token";
+import { signReviewToken, resolveReviewToken } from "@/lib/review-token";
 import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { logActivity } from "@/lib/activity";
 import { notifyManyAndEmail } from "@/lib/notify";
@@ -65,25 +65,41 @@ async function projectTeamIds(projectId: string): Promise<string[]> {
 const CLIENT_STATES = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"]);
 
 // Comprueba que el entregable existe, su enlace no está revocado y su estado es de cliente.
+// Atiende los DOS enlaces (oficial y borrador): cada uno con su vigencia, y el borrador saltándose
+// la compuerta de estado. Devuelve además el `mode`, que es lo que usan los candados de abajo.
 async function resolveDeliverable(token: string) {
-  const deliverableId = verifyReviewToken(token);
-  if (!deliverableId) throw new Error("Enlace inválido");
-  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, status: true, reviewRevokedAt: true, reviewExpiresAt: true, project: { select: { archivedAt: true } } } });
-  if (!d || d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
+  const resolved = resolveReviewToken(token);
+  if (!resolved) throw new Error("Enlace inválido");
+  const { deliverableId, mode } = resolved;
+  const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { id: true, name: true, projectId: true, status: true, reviewRevokedAt: true, reviewExpiresAt: true, draftShareAt: true, draftShareExpiresAt: true, project: { select: { archivedAt: true } } } });
+  if (!d) throw new Error("El enlace de revisión ya no está disponible");
   // Proyecto en la papelera: el enlace muere también para las ACCIONES (comentar/aprobar), no
   // solo para la página. Espejo del gate de review/[token]/page.tsx.
   if (d.project.archivedAt) throw new Error("El enlace de revisión ya no está disponible");
-  if (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()) throw new Error("El enlace de revisión ha caducado");
-  if (!CLIENT_STATES.has(d.status)) throw new Error("El material está en revisión interna del equipo. Vuelve cuando te avisen.");
-  return d;
+  if (mode === "draft") {
+    if (!d.draftShareAt) throw new Error("El enlace de borrador ya no está disponible");
+    if (d.draftShareExpiresAt && d.draftShareExpiresAt.getTime() < Date.now()) throw new Error("El enlace de borrador ha caducado");
+    // Sin compuerta de estado a propósito: el borrador existe para la pieza en producción.
+  } else {
+    if (d.reviewRevokedAt) throw new Error("El enlace de revisión ya no está disponible");
+    if (d.reviewExpiresAt && d.reviewExpiresAt.getTime() < Date.now()) throw new Error("El enlace de revisión ha caducado");
+    if (!CLIENT_STATES.has(d.status)) throw new Error("El material está en revisión interna del equipo. Vuelve cuando te avisen.");
+  }
+  return { ...d, mode };
 }
+
+// Lo que un enlace de BORRADOR nunca puede hacer: aprobar, pedir cambios formalmente, decidir la
+// portada o pre-aprobar. Ocultar los botones no basta —la server action es una URL más—, así que
+// el candado vive aquí. Comentar, responder y marcar preferencias de fotos SÍ se permiten: son
+// justo el trabajo que se le pide al externo en esta fase, y ninguno cambia el estado de la pieza.
+const SOLO_LECTURA_EN_BORRADOR = "Este es un enlace de borrador: puedes comentar, pero la aprobación se hace más adelante con el enlace definitivo.";
 
 export async function addReviewComment(token: string, formData: FormData) {
   // Comentar es lo más abusable (escribe en BD + avisa al equipo): límite más estricto.
   if (!rateLimit(`review-comment:${await rlKey(token)}`, 10, 60_000)) {
     throw new Error("Demasiados comentarios seguidos. Espera un momento e inténtalo de nuevo.");
   }
-  const { id: deliverableId, name, projectId } = await resolveDeliverable(token);
+  const { id: deliverableId, name, projectId, mode } = await resolveDeliverable(token);
 
   // Si es un usuario invitado con sesión (cliente miembro), su comentario queda atribuido a su
   // usuario (nombre real + authorUserId), como el de cualquiera de la organización.
@@ -133,12 +149,13 @@ export async function addReviewComment(token: string, formData: FormData) {
       drawingData: isNote ? undefined : ((drawingData ?? undefined) as never),
       isNote,
       fromClient: true,
+      fromDraft: mode === "draft",
     },
   });
   // Avisa al equipo del proyecto (y admins) que el cliente comentó.
   await logActivity({
     action: "deliverable.client_comment",
-    summary: `comentó la revisión de «${name}»`,
+    summary: `comentó ${mode === "draft" ? "el borrador" : "la revisión"} de «${name}»`,
     projectId,
     entityType: "deliverable",
     entityId: deliverableId,
@@ -151,7 +168,7 @@ export async function addReviewComment(token: string, formData: FormData) {
       type: "review",
       event: "review_client",
       title: `Cliente comentó: ${name}`,
-      body: `${authorName} dejó comentarios en la revisión. Ábrela para verlos.`,
+      body: `${authorName} dejó comentarios en ${mode === "draft" ? "el borrador (la pieza sigue en edición)" : "la revisión"}. Ábrela para verlos.`,
       link: `/revisiones/${deliverableId}`,
     });
   }
@@ -167,7 +184,7 @@ export async function addReviewReply(token: string, parentId: string, body: stri
   if (!rateLimit(`review-reply:${await rlKey(token)}`, 10, 60_000)) {
     throw new Error("Demasiadas respuestas seguidas. Espera un momento e inténtalo de nuevo.");
   }
-  const { id: deliverableId, name, projectId } = await resolveDeliverable(token);
+  const { id: deliverableId, name, projectId, mode } = await resolveDeliverable(token);
 
   const parent = await db.reviewComment.findUnique({
     where: { id: parentId },
@@ -197,6 +214,7 @@ export async function addReviewReply(token: string, parentId: string, body: stri
       body: clean,
       versionNumber: parent.versionNumber,
       fromClient: true,
+      fromDraft: mode === "draft",
     },
   });
   await logActivity({
@@ -249,6 +267,7 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   let deliverableId: string, delName: string, projectId: string;
   try {
     const d = await resolveDeliverable(token);
+    if (d.mode === "draft") return { ok: false, message: SOLO_LECTURA_EN_BORRADOR };
     deliverableId = d.id; delName = d.name; projectId = d.projectId;
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "El enlace de revisión ya no está disponible." };
@@ -394,7 +413,9 @@ export async function preApproveReview(
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
   let d: { id: string; name: string; projectId: string };
   try {
-    d = await resolveDeliverable(token);
+    const r = await resolveDeliverable(token);
+    if (r.mode === "draft") return { ok: false, error: SOLO_LECTURA_EN_BORRADOR };
+    d = r;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "El enlace de revisión ya no está disponible." };
   }
@@ -486,7 +507,8 @@ export async function setCoverDecision(token: string, decision: string, name?: s
   if (!rateLimit(`cover-decision:${await rlKey(token)}`, 20, 60_000)) {
     throw new Error("Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.");
   }
-  const { id: deliverableId, name: delName, projectId } = await resolveDeliverable(token);
+  const { id: deliverableId, name: delName, projectId, mode } = await resolveDeliverable(token);
+  if (mode === "draft") throw new Error(SOLO_LECTURA_EN_BORRADOR);
   const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true, type: true } });
   if (!d?.coverFileAssetId) throw new Error("Este entregable no tiene una portada para revisar");
   // La portada es propia de los formatos VERTICALES; en horizontales no hay decisión de portada.

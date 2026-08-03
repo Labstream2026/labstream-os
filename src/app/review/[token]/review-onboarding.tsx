@@ -7,7 +7,8 @@ import { Logo } from "@/components/brand/logo";
 // sencillos — ver el material, comentar al segundo, dibujar. Tarjeta "glass" sobre la sala.
 const TOUR_KEY = "review_tour_v1";
 
-export function ReviewOnboarding({ isPhoto = false }: { isPhoto?: boolean }) {
+// `draftMode`: enlace de borrador — no hay aprobación al final, así que el tour no la promete.
+export function ReviewOnboarding({ isPhoto = false, draftMode = false }: { isPhoto?: boolean; draftMode?: boolean }) {
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -27,7 +28,7 @@ export function ReviewOnboarding({ isPhoto = false }: { isPhoto?: boolean }) {
     ? [
         { n: 1, t: "Acá están tus fotos — recórrelas con calma" },
         { n: 2, t: "Marca ♥ las que te gustan y ✗ las que no" },
-        { n: 3, t: "Al final, aprueba tu selección o pide cambios" },
+        { n: 3, t: draftMode ? "Es un borrador: tu selección y tus notas guían la edición" : "Al final, aprueba tu selección o pide cambios" },
       ]
     : [
         { n: 1, t: "Acá está tu video — reprodúcelo" },

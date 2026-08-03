@@ -21,6 +21,7 @@ import { PhotosPanel, type PhotoSet } from "./photos-panel";
 import { detectSource, SOURCE_LABEL } from "@/lib/media-source";
 import { EmailReviewButton } from "./email-review-button";
 import { PreApproval, ReviewLinkBar, ReviewThread } from "./deliverable-review";
+import type { DraftShareInfo } from "@/lib/draft-share";
 import { createDeliverable, setDeliverableStatus, setDeliverableType, addDeliverableVersion, deleteDeliverable, setReviewExpiry, setInternalReviewDue, addDeliverablePhotos, deleteDeliverablePhoto, removeDeliverableCover } from "./actions";
 import { DeliverablesSpace } from "./deliverables-space";
 import { DeliverySection } from "./delivery-section";
@@ -97,6 +98,9 @@ type Deliverable = {
   reviewVisits: number;
   reviewRevoked: boolean;
   reviewAllowDrawings: boolean;
+  // Enlace de BORRADOR (revisión temprana con un externo). `null` = quien mira no puede
+  // gestionarlo (sin `compartir_cliente` o sin gestión) y el bloque no se pinta.
+  draft: DraftShareInfo | null;
   // Última actividad del entregable (para el chip «la pelota la tiene… · N días»).
   updatedAtIso: string;
   cover: { src: string; full: string } | null; // portada del reel (imagen que acompaña al video)
@@ -610,6 +614,7 @@ export function DeliverablesPanel({
                             revoked={d.reviewRevoked}
                             allowDrawings={d.reviewAllowDrawings}
                             hasApproved={hasApproved}
+                            draft={d.draft}
                           >
                             {emailEnabled && !d.reviewRevoked ? <EmailReviewButton deliverableId={d.id} /> : null}
                           </ReviewLinkBar>

@@ -1839,6 +1839,19 @@ model Deliverable {
   // Caducidad opcional del enlace del cliente. NULL = sin caducidad (no expira).
   reviewExpiresAt     DateTime?
   reviewAllowDrawings Boolean   @default(false) // habilita el modo dibujos/anotación
+  // ── Enlace de BORRADOR (revisión temprana con un externo) ──
+  // Enlace APARTE del oficial —otro scope de token— para enseñarle la pieza a un externo
+  // mientras sigue en producción/edición: se salta la compuerta de estado y la de
+  // pre-aprobación interna, pero NO deja aprobar ni descargar y NO toca el estado del
+  // entregable. Que sea otro token es lo que evita las dos formas de meter la pata: apagar
+  // el borrador no mata el enlace oficial, y el oficial nunca filtra material sin aprobar.
+  // NULL = no hay borrador vivo (apagarlo es volver a NULL, no un campo de revocación).
+  draftShareAt        DateTime?
+  draftShareById      String?   // quién lo creó (trazabilidad; el detalle está en la actividad)
+  draftShareVisits    Int       @default(0)
+  // Caducidad del borrador: material sin aprobar no debe quedar circulando para siempre, así
+  // que ESTE sí nace con fecha (14 días) —al revés que el oficial, que puede no caducar—.
+  draftShareExpiresAt DateTime?
   // Fuera del paquete de entrega del proyecto (/entrega): por defecto TODO lo aprobado/entregado
   // entra al paquete; este flag excluye la excepción (p. ej. un documento interno).
   deliveryExcluded Boolean @default(false)
@@ -2165,6 +2178,10 @@ model ReviewComment {
   replies       ReviewComment[] @relation("ReviewCommentThread")
   // ── Prioridad ── qué es bloqueante y qué es opcional, para que el editor sepa qué es
   // imprescindible corregir. Por defecto OBLIGATORIA (comportamiento previo: todo cuenta).
+  // Llegó por el enlace de BORRADOR (revisión temprana, con la pieza aún en edición). El equipo
+  // lo ve etiquetado: no es lo mismo una nota suelta sobre un corte en curso que una corrección
+  // formal sobre el material ya entregado.
+  fromDraft     Boolean     @default(false)
   priority      ReviewPriority @default(OBLIGATORIA)
   // ── Trazabilidad ── cuándo se marcó como hecha (y por quién) y cuándo se editó por última vez.
   resolvedAt    DateTime?

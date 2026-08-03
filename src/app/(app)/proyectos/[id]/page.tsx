@@ -34,6 +34,7 @@ import { DeliverablesPanel } from "./deliverables-panel";
 import { TasksViews } from "./tasks-views";
 import { ProjectHealth } from "./project-health";
 import { signReviewToken } from "@/lib/review-token";
+import { draftShareInfo } from "@/lib/draft-share";
 import { signUploadToken } from "@/lib/upload-token";
 import { UploadShare } from "./upload-share";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
@@ -371,6 +372,10 @@ export default async function ProyectoPage({
   // ── Los archivos como los pinta el panel unificado (ArchivoItem) ──
   // Los recortes del rol cliente se hacen AQUÍ, en el servidor: las rutas SMB no viajan y el
   // path de un OPS se anula. El panel nunca decide qué esconder.
+  // Enlace de BORRADOR de los entregables: misma puerta que su server action (gestionar el
+  // proyecto + `compartir_cliente`, que tienen productor y director pero no los editores).
+  // Sin permiso el bloque no se pinta: no ofrecemos un botón que el servidor va a rechazar.
+  const puedeBorrador = !isCliente && session?.role !== "demo" && canManageProject(project, session) && hasPermission(session, "compartir_cliente");
   const puedeBorrarBase = alive && session?.role !== "demo" && hasPermission(session, "eliminar_archivos");
   const esClienteMiembro = isCliente && project.members.some((m) => m.userId === session?.id);
   const puedeEliminarArchivo = (uploadedById: string | null, enUso: boolean): boolean => {
@@ -566,6 +571,7 @@ export default async function ProyectoPage({
         reviewVisits: d.reviewVisits,
         reviewRevoked: !!d.reviewRevokedAt,
         reviewAllowDrawings: d.reviewAllowDrawings,
+        draft: puedeBorrador ? draftShareInfo(d, process.env.NEXTAUTH_URL || "https://os.labstreamsas.com") : null,
         updatedAtIso: d.updatedAt.toISOString(),
         cover: d.coverFileAssetId
           ? { src: photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }), full: photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null }) }
