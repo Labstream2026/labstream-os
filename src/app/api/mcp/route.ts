@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { resolveApiKey } from "@/lib/api-key-auth";
-import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG } from "@/lib/agent-gateway";
+import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG, GATEWAY_DECLARED_ARG } from "@/lib/agent-gateway";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { toolsForApi, executeAgentTool } from "@/lib/openclaw/tools";
@@ -144,7 +144,9 @@ async function handleRpc(
             "Los permisos son los del titular de la credencial; si una herramienta responde «No tienes permiso…», respétalo. " +
             "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar." +
             (gatewaySinRemitente
-              ? " NOTA: esta credencial es de PASARELA y ahora mismo no sabe a quién atiende, así que estás en SOLO LECTURA sobre los datos de la organización. Para que cada persona vea lo suyo (y para poder modificar), manda en cada tools/call la cabecera X-Labstream-Whatsapp con el número de quien te escribió."
+              ? " NOTA: esta credencial es de PASARELA y ahora mismo no sabe a quién atiende, así que estás en SOLO LECTURA sobre los datos de la organización." +
+                " Si el canal identifica a la persona (WhatsApp), manda su número en la cabecera X-Labstream-Whatsapp o en el argumento _remitente_whatsapp: verás lo de ESA persona y podrá modificar si está habilitada." +
+                " Si el canal NO la identifica (panel de escritorio, con una contraseña compartida), pregúntale su número y mándalo en el argumento _remitente_declarado: acota la vista a lo suyo, pero sigue siendo solo lectura porque nadie comprobó quién es."
               : ""),
         });
       }
@@ -241,11 +243,18 @@ export async function POST(req: NextRequest) {
         // Con pasarela, el autor del registro ES la persona atendida (userId), así que el
         // resumen deja claro que fue POR el bot y no ella sentada en la app.
         summary: quien
-          ? `${quien.name} usó ${tool} por el asistente de WhatsApp (llave «${key.name}»)`
+          ? quien.verificado
+            ? `${quien.name} usó ${tool} por el asistente de WhatsApp (llave «${key.name}»)`
+            : `${quien.name} usó ${tool} por el asistente, identificándose sin verificar (llave «${key.name}»)`
           : `la llave «${key.name}» usó ${tool}`,
         userId,
         ip,
-        meta: { tool, key: key.name, via: quien ? "mcp-gateway" : "mcp", ...(quien ? { comoPersona: quien.name, telefono: quien.phone } : {}) },
+        meta: {
+          tool,
+          key: key.name,
+          via: quien ? (quien.verificado ? "mcp-gateway" : "mcp-gateway-declarado") : "mcp",
+          ...(quien ? { comoPersona: quien.name, telefono: quien.phone, verificado: quien.verificado } : {}),
+        },
         silent: true,
       }).catch(() => {});
     });
@@ -289,10 +298,21 @@ export async function POST(req: NextRequest) {
       const args = msg.params?.arguments;
       if (args && typeof args === "object") {
         const bag = args as Record<string, unknown>;
-        const declarado = bag[GATEWAY_SENDER_ARG];
+        // Los dos argumentos de identidad se retiran SIEMPRE, se usen o no: ninguna herramienta
+        // debe verlos. El VERIFICADO manda; el declarado solo entra si no hay verificado — si no,
+        // alguien por WhatsApp podría «declararse» otra persona y leer lo ajeno.
+        const verificado = bag[GATEWAY_SENDER_ARG];
+        const declarado = bag[GATEWAY_DECLARED_ARG];
         delete bag[GATEWAY_SENDER_ARG];
-        if (typeof declarado === "string" && declarado.trim()) {
-          const r = await resolveGatewayActor(auth.ctx, declarado);
+        delete bag[GATEWAY_DECLARED_ARG];
+        const usar =
+          typeof verificado === "string" && verificado.trim()
+            ? { valor: verificado, esVerificado: true }
+            : typeof declarado === "string" && declarado.trim()
+              ? { valor: declarado, esVerificado: false }
+              : null;
+        if (usar) {
+          const r = await resolveGatewayActor(auth.ctx, usar.valor, usar.esVerificado);
           if (!r.ok) {
             responses.push(rpcError(msg?.id ?? null, -32002, r.error));
             continue;

@@ -39,10 +39,28 @@ export const GATEWAY_SENDER_HEADER = "x-labstream-whatsapp";
 // valor bueno se pone después de que el modelo arma la llamada.
 export const GATEWAY_SENDER_ARG = "_remitente_whatsapp";
 
+// Identidad DECLARADA, no verificada: la usan los canales donde no hay forma de saber quién es
+// quien pregunta — el panel del asistente y la app de escritorio, que comparten UNA contraseña
+// entre todo el equipo. Ahí la persona dice quién es y el agente lo repite; nadie lo comprueba.
+// Por eso vale MENOS: sirve para ACOTAR la vista a esa persona, nunca para modificar.
+// Y no concede nada nuevo: sin declarar nada, esos canales ya ven la organización entera en solo
+// lectura. Declarar solo estrecha lo que se ve. Si además hay remitente VERIFICADO, este se
+// ignora — si no, cualquiera por WhatsApp podría "declararse" otro y leer lo ajeno.
+export const GATEWAY_DECLARED_ARG = "_remitente_declarado";
+
 const SCOPED_ROLE = "_apikey";
 
+export type GatewayActor = {
+  id: string;
+  name: string;
+  phone: string;
+  // false = la persona DIJO quién es y nadie lo comprobó (panel / app de escritorio). Se le acota
+  // la vista a lo suyo, pero no se le deja modificar por mucho que esté habilitada.
+  verificado: boolean;
+};
+
 export type GatewayOutcome =
-  | { ok: true; ctx: ApiKeyContext; actor: { id: string; name: string; phone: string } | null }
+  | { ok: true; ctx: ApiKeyContext; actor: GatewayActor | null }
   | { ok: false; status: number; error: string };
 
 // Rehace el contexto de la llave para que hable como la persona que le escribió al agente.
@@ -53,7 +71,13 @@ export async function applyAgentGateway(req: NextRequest, ctx: ApiKeyContext): P
 }
 
 // El mismo trabajo a partir de un número suelto, venga de donde venga (cabecera o argumento).
-export async function resolveGatewayActor(ctx: ApiKeyContext, rawPhone: string | null): Promise<GatewayOutcome> {
+// `verificado=false` (identidad declarada, sin comprobar) acota la vista igual, pero deja SIEMPRE
+// en solo lectura: quien no puede demostrar quién es, no modifica.
+export async function resolveGatewayActor(
+  ctx: ApiKeyContext,
+  rawPhone: string | null,
+  verificado = true,
+): Promise<GatewayOutcome> {
   if (!ctx.key.gateway) return { ok: true, ctx, actor: null };
 
   const phone = normalizePhone(rawPhone);
@@ -91,13 +115,14 @@ export async function resolveGatewayActor(ctx: ApiKeyContext, rawPhone: string |
     };
   }
 
-  // Escribir exige las DOS puertas: que la llave no sea de solo lectura Y que esa persona esté
-  // habilitada para modificar por agente. Basta con que falle una para quedar en solo lectura.
-  const readOnly = ctx.readOnly || !match.agentWrite;
+  // Escribir exige TRES puertas: que la llave no sea de solo lectura, que esa persona esté
+  // habilitada para modificar por agente, y que sepamos de verdad que es ella. Basta con que
+  // falle una para quedar en solo lectura.
+  const readOnly = ctx.readOnly || !match.agentWrite || !verificado;
 
   return {
     ok: true,
     ctx: { session: effective, key: ctx.key, readOnly },
-    actor: { id: match.id, name: match.name, phone },
+    actor: { id: match.id, name: match.name, phone, verificado },
   };
 }

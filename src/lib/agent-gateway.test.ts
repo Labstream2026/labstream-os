@@ -24,7 +24,7 @@ vi.mock("@/lib/openclaw/tools", () => ({
   }),
 }));
 
-const { applyAgentGateway, GATEWAY_SENDER_HEADER } = await import("./agent-gateway");
+const { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_HEADER } = await import("./agent-gateway");
 
 function req(sender?: string): NextRequest {
   return { headers: { get: (h: string) => (h === GATEWAY_SENDER_HEADER && sender ? sender : null) } } as unknown as NextRequest;
@@ -105,5 +105,29 @@ describe("pasarela de agente", () => {
     const r = await applyAgentGateway(req("573017548378"), ctx({ scopes: ["ver_proyectos"] }));
     expect(r.ok && r.ctx.session.role).toBe("_apikey");
     expect(r.ok && r.ctx.session.perms).toEqual(["ver_proyectos"]);
+  });
+});
+
+// El panel y la app de escritorio comparten UNA contraseña: ahí nadie puede demostrar quién es,
+// solo decirlo. Esa identidad acota la vista pero no abre la puerta de escribir.
+describe("identidad declarada (sin verificar)", () => {
+  it("acota la vista a esa persona igual que la verificada", async () => {
+    const r = await resolveGatewayActor(ctx(), "573118859744", false);
+    expect(r.ok && r.ctx.session.id).toBe("u-editor");
+    expect(r.ok && r.actor?.verificado).toBe(false);
+  });
+
+  // Lo que de verdad importa: declararse el gerente NO da permiso de modificar.
+  it("ni siquiera quien está habilitado puede escribir si solo lo declaró", async () => {
+    const verificada = await resolveGatewayActor(ctx({ readOnly: false }), "573017548378", true);
+    expect(verificada.ok && verificada.ctx.readOnly).toBe(false);
+
+    const declarada = await resolveGatewayActor(ctx({ readOnly: false }), "573017548378", false);
+    expect(declarada.ok && declarada.ctx.readOnly).toBe(true);
+  });
+
+  it("un número declarado que no es de nadie se rechaza igual", async () => {
+    const r = await resolveGatewayActor(ctx(), "573001112233", false);
+    expect(r.ok).toBe(false);
   });
 });
