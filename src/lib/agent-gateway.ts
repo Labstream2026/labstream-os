@@ -29,6 +29,16 @@ import type { SessionUser } from "@/lib/session";
 // Cabecera con el remitente VERIFICADO por el agente (número en cualquier formato: se normaliza).
 export const GATEWAY_SENDER_HEADER = "x-labstream-whatsapp";
 
+// Segundo canal para decir lo mismo, dentro de los argumentos de la herramienta. Existe porque no
+// todo cliente MCP puede poner una cabecera POR PETICIÓN: varios (el de Hermes entre ellos) las
+// fijan al ABRIR la conexión y las repiten igual toda la sesión, que es justo lo que no sirve
+// cuando un mismo bot atiende a gente distinta. El servidor lo lee, lo usa para identificar y lo
+// BORRA de los argumentos antes de ejecutar nada.
+// No es una puerta trasera: pasa por la misma resolución (número registrado o 403) y por el mismo
+// freno de escritura. Y aunque el modelo lo escribiera él mismo, el agente lo sobrescribe: el
+// valor bueno se pone después de que el modelo arma la llamada.
+export const GATEWAY_SENDER_ARG = "_remitente_whatsapp";
+
 const SCOPED_ROLE = "_apikey";
 
 export type GatewayOutcome =
@@ -39,10 +49,14 @@ export type GatewayOutcome =
 // Si no hay nada que hacer (llave sin pasarela, o petición sin cabecera) devuelve el contexto tal
 // cual: la Fase 1 —el bot consultando con la identidad de su llave— sigue funcionando igual.
 export async function applyAgentGateway(req: NextRequest, ctx: ApiKeyContext): Promise<GatewayOutcome> {
+  return resolveGatewayActor(ctx, req.headers.get(GATEWAY_SENDER_HEADER));
+}
+
+// El mismo trabajo a partir de un número suelto, venga de donde venga (cabecera o argumento).
+export async function resolveGatewayActor(ctx: ApiKeyContext, rawPhone: string | null): Promise<GatewayOutcome> {
   if (!ctx.key.gateway) return { ok: true, ctx, actor: null };
 
-  const raw = req.headers.get(GATEWAY_SENDER_HEADER);
-  const phone = normalizePhone(raw);
+  const phone = normalizePhone(rawPhone);
   if (!phone) return { ok: true, ctx, actor: null };
 
   // Se comparan los números YA normalizados (sin +, sin espacios, sin sufijo @s.whatsapp.net):

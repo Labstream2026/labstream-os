@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { resolveApiKey } from "@/lib/api-key-auth";
-import { applyAgentGateway } from "@/lib/agent-gateway";
+import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG } from "@/lib/agent-gateway";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { toolsForApi, executeAgentTool } from "@/lib/openclaw/tools";
@@ -221,27 +221,26 @@ export async function POST(req: NextRequest) {
     await db.appKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date(), lastUsedIp: ip } }).catch(() => {});
   });
 
-  // Auditoría: cada herramienta que usa una llave por MCP queda en el registro (con el
-  // titular como autor). Fire-and-forget: no retrasa la respuesta al agente.
-  const auditToolCalls = (msgs: RpcMessage[]) => {
+  // Auditoría: cada herramienta que usa una llave por MCP queda en el registro. Se anota POR
+  // MENSAJE (y no todo el lote de una vez) porque con pasarela la identidad puede cambiar de un
+  // mensaje al siguiente. Fire-and-forget: no retrasa la respuesta al agente.
+  const auditToolCall = (m: RpcMessage, quien: typeof actor, userId: string) => {
+    if (m?.method !== "tools/call") return;
+    const tool = typeof m.params?.name === "string" ? m.params.name : "(sin nombre)";
     after(async () => {
       const { logActivity } = await import("@/lib/activity");
-      for (const m of msgs) {
-        if (m?.method !== "tools/call") continue;
-        const tool = typeof m.params?.name === "string" ? m.params.name : "(sin nombre)";
-        await logActivity({
-          action: "api.tool",
-          // Con pasarela, el autor del registro ES la persona atendida (userId), así que el
-          // resumen deja claro que fue POR el bot y no ella sentada en la app.
-          summary: actor
-            ? `${actor.name} usó ${tool} por el asistente de WhatsApp (llave «${key.name}»)`
-            : `la llave «${key.name}» usó ${tool}`,
-          userId: session.id,
-          ip,
-          meta: { tool, key: key.name, via: actor ? "mcp-gateway" : "mcp", ...(actor ? { comoPersona: actor.name, telefono: actor.phone } : {}) },
-          silent: true,
-        }).catch(() => {});
-      }
+      await logActivity({
+        action: "api.tool",
+        // Con pasarela, el autor del registro ES la persona atendida (userId), así que el
+        // resumen deja claro que fue POR el bot y no ella sentada en la app.
+        summary: quien
+          ? `${quien.name} usó ${tool} por el asistente de WhatsApp (llave «${key.name}»)`
+          : `la llave «${key.name}» usó ${tool}`,
+        userId,
+        ip,
+        meta: { tool, key: key.name, via: quien ? "mcp-gateway" : "mcp", ...(quien ? { comoPersona: quien.name, telefono: quien.phone } : {}) },
+        silent: true,
+      }).catch(() => {});
     });
   };
 
@@ -270,10 +269,35 @@ export async function POST(req: NextRequest) {
       return json(rpcError(null, -32000, "Límite de peticiones excedido."), 429);
     }
   }
-  auditToolCalls(messages);
   const responses: object[] = [];
   for (const msg of messages) {
-    const res = await handleRpc(msg, session, readOnly, key.gateway && !actor);
+    // Identidad de ESTE mensaje. Normalmente ya viene resuelta por la cabecera; si el cliente MCP
+    // no puede mandarla por petición (las fija al abrir la conexión), el agente la mete como
+    // argumento reservado y se resuelve aquí, mensaje a mensaje. El argumento se BORRA antes de
+    // ejecutar: ninguna herramienta llega a verlo.
+    let msgSession = session;
+    let msgReadOnly = readOnly;
+    let msgActor = actor;
+    if (key.gateway && !actor && msg?.method === "tools/call") {
+      const args = msg.params?.arguments;
+      if (args && typeof args === "object") {
+        const bag = args as Record<string, unknown>;
+        const declarado = bag[GATEWAY_SENDER_ARG];
+        delete bag[GATEWAY_SENDER_ARG];
+        if (typeof declarado === "string" && declarado.trim()) {
+          const r = await resolveGatewayActor(auth.ctx, declarado);
+          if (!r.ok) {
+            responses.push(rpcError(msg?.id ?? null, -32002, r.error));
+            continue;
+          }
+          msgSession = r.ctx.session;
+          msgReadOnly = r.ctx.readOnly;
+          msgActor = r.actor;
+        }
+      }
+    }
+    auditToolCall(msg, msgActor, msgSession.id);
+    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor);
     if (res) responses.push(res);
   }
   // Solo había notificaciones → 202 sin cuerpo (lo que espera el protocolo).
