@@ -118,6 +118,12 @@ async function handleRpc(
   // este mismo modo —consultar sí, tocar nada— y se nota en el registro, donde las llamadas
   // aparecen a nombre de la llave y no de una persona.
   gatewaySinRemitente = false,
+  // Solo-lectura que aplica AL CATÁLOGO (tools/list). Va aparte del de arriba a propósito: el
+  // cliente MCP pide la lista UNA vez, al conectarse, cuando todavía no hay nadie a quien
+  // atender. Si el catálogo se recortara ahí, el modelo no volvería a ver nunca las herramientas
+  // de escritura —ni cuando quien escribe sí puede usarlas—. Así que la lista es la de la llave
+  // y el permiso de verdad se cobra al EJECUTAR, que es cuando ya se sabe quién pregunta.
+  readOnlyCatalogo = readOnly,
 ): Promise<object | null> {
   const id: RpcId = msg?.id ?? null;
   const isNotification = msg?.id === undefined || msg?.id === null;
@@ -149,7 +155,7 @@ async function handleRpc(
       case "ping":
         return rpcResult(id, {});
       case "tools/list": {
-        const base = toolsForApi(readOnly).map((t) => ({
+        const base = toolsForApi(readOnlyCatalogo).map((t) => ({
           name: TOOL_TO_ALIAS[t.function.name] ?? t.function.name, // nombre en español si lo tiene
           description: t.function.description,
           inputSchema: t.function.parameters ?? { type: "object", properties: {} },
@@ -298,7 +304,7 @@ export async function POST(req: NextRequest) {
       }
     }
     auditToolCall(msg, msgActor, msgSession.id);
-    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor);
+    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor, gw.ctx.readOnly);
     if (res) responses.push(res);
   }
   // Solo había notificaciones → 202 sin cuerpo (lo que espera el protocolo).
