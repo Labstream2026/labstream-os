@@ -108,11 +108,15 @@ async function handleRpc(
   msg: RpcMessage,
   session: import("@/lib/session").SessionUser,
   readOnly: boolean,
-  // true = llave de PASARELA sin remitente resuelto. Listar herramientas es inofensivo, pero USAR
-  // una sin saber a quién se atiende NO: la llave caería a su titular (el gerente), y cualquiera
-  // que le escribiera al bot actuaría como él. Así que se corta aquí. Falla en seguro a propósito:
-  // si el agente pierde el parche que manda la cabecera, el bot deja de poder hacer cosas en vez
-  // de hacerlas todas en nombre del jefe.
+  // true = llave de PASARELA que no sabe a quién está atendiendo. Pasa en los canales que no
+  // identifican a una persona: el panel del asistente, que tiene UNA contraseña compartida por
+  // todo el equipo. Ahí no se bloquea —el equipo necesita poder consultar— pero se entra SIEMPRE
+  // en solo lectura (lo impone quien llama, ver abajo) y con la identidad del titular de la
+  // llave, así que se ve lo de la organización, no lo de una persona.
+  // Lo que esto NO permite nunca es MODIFICAR sin saber quién lo pide: eso exige una persona
+  // resuelta y habilitada. Si el parche del agente se perdiera, el bot de WhatsApp degradaría a
+  // este mismo modo —consultar sí, tocar nada— y se nota en el registro, donde las llamadas
+  // aparecen a nombre de la llave y no de una persona.
   gatewaySinRemitente = false,
 ): Promise<object | null> {
   const id: RpcId = msg?.id ?? null;
@@ -134,7 +138,7 @@ async function handleRpc(
             "Los permisos son los del titular de la credencial; si una herramienta responde «No tienes permiso…», respétalo. " +
             "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar." +
             (gatewaySinRemitente
-              ? " IMPORTANTE: esta credencial es de PASARELA. En cada tools/call debes mandar la cabecera X-Labstream-Whatsapp con el número de la persona a la que estás atendiendo; sin ella la llamada se rechaza. Los permisos serán los de ESA persona."
+              ? " NOTA: esta credencial es de PASARELA y ahora mismo no sabe a quién atiende, así que estás en SOLO LECTURA sobre los datos de la organización. Para que cada persona vea lo suyo (y para poder modificar), manda en cada tools/call la cabecera X-Labstream-Whatsapp con el número de quien te escribió."
               : ""),
         });
       }
@@ -154,13 +158,6 @@ async function handleRpc(
         return rpcResult(id, { tools: [RESUMEN_HOY_TOOL, ...base] });
       }
       case "tools/call": {
-        if (gatewaySinRemitente) {
-          return rpcError(
-            id,
-            -32002,
-            "Esta credencial es de pasarela: para usar una herramienta debes decir a quién estás atendiendo en la cabecera X-Labstream-Whatsapp (el número de quien te escribió).",
-          );
-        }
         const raw = typeof params.name === "string" ? params.name : "";
         const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
         // Compuesto del MCP: pendientes + agenda (solo lectura).
@@ -209,8 +206,12 @@ export async function POST(req: NextRequest) {
   if (!gw.ok) {
     return json(rpcError(null, -32001, gw.error), gw.status);
   }
-  const { session, key, readOnly } = gw.ctx;
+  const { session, key } = gw.ctx;
   const actor = gw.actor;
+  // Una llave de pasarela que no sabe a quién atiende entra en SOLO LECTURA, pase lo que pase.
+  // Así el panel compartido del asistente puede consultar (que es lo que el equipo necesita) sin
+  // que una contraseña compartida se convierta en permiso para tocar nada.
+  const readOnly = gw.ctx.readOnly || (key.gateway && !actor);
 
   // Rate-limit y registro de uso, igual que withApiKey (soporta múltiples agentes).
   if (!rateLimit(`mcp:${key.prefixVisible}`, key.rateLimitPerMin, 60_000)) {
