@@ -108,6 +108,12 @@ async function handleRpc(
   msg: RpcMessage,
   session: import("@/lib/session").SessionUser,
   readOnly: boolean,
+  // true = llave de PASARELA sin remitente resuelto. Listar herramientas es inofensivo, pero USAR
+  // una sin saber a quién se atiende NO: la llave caería a su titular (el gerente), y cualquiera
+  // que le escribiera al bot actuaría como él. Así que se corta aquí. Falla en seguro a propósito:
+  // si el agente pierde el parche que manda la cabecera, el bot deja de poder hacer cosas en vez
+  // de hacerlas todas en nombre del jefe.
+  gatewaySinRemitente = false,
 ): Promise<object | null> {
   const id: RpcId = msg?.id ?? null;
   const isNotification = msg?.id === undefined || msg?.id === null;
@@ -126,7 +132,10 @@ async function handleRpc(
           instructions:
             "Herramientas de Labstream OS. Descúbrelas con tools/list y llámalas con tools/call. " +
             "Los permisos son los del titular de la credencial; si una herramienta responde «No tienes permiso…», respétalo. " +
-            "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar.",
+            "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar." +
+            (gatewaySinRemitente
+              ? " IMPORTANTE: esta credencial es de PASARELA. En cada tools/call debes mandar la cabecera X-Labstream-Whatsapp con el número de la persona a la que estás atendiendo; sin ella la llamada se rechaza. Los permisos serán los de ESA persona."
+              : ""),
         });
       }
       // Notificaciones del cliente (initialized, cancelled, …): sin respuesta.
@@ -145,6 +154,13 @@ async function handleRpc(
         return rpcResult(id, { tools: [RESUMEN_HOY_TOOL, ...base] });
       }
       case "tools/call": {
+        if (gatewaySinRemitente) {
+          return rpcError(
+            id,
+            -32002,
+            "Esta credencial es de pasarela: para usar una herramienta debes decir a quién estás atendiendo en la cabecera X-Labstream-Whatsapp (el número de quien te escribió).",
+          );
+        }
         const raw = typeof params.name === "string" ? params.name : "";
         const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
         // Compuesto del MCP: pendientes + agenda (solo lectura).
@@ -257,7 +273,7 @@ export async function POST(req: NextRequest) {
   auditToolCalls(messages);
   const responses: object[] = [];
   for (const msg of messages) {
-    const res = await handleRpc(msg, session, readOnly);
+    const res = await handleRpc(msg, session, readOnly, key.gateway && !actor);
     if (res) responses.push(res);
   }
   // Solo había notificaciones → 202 sin cuerpo (lo que espera el protocolo).
