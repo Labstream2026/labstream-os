@@ -3,6 +3,7 @@ import { resolveApiKey } from "@/lib/api-key-auth";
 import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG, GATEWAY_DECLARED_ARG, type PublicVisitor } from "@/lib/agent-gateway";
 import { PUBLIC_TOOLS, PUBLIC_ALIAS_TO_TOOL, PUBLIC_TOOL_TO_ALIAS, executePublicTool } from "@/lib/openclaw/public-tools";
 import { rateLimit } from "@/lib/rate-limit";
+import { normalizePhone } from "@/lib/whatsapp/config";
 import { db } from "@/lib/db";
 import { toolsForApi, toolAllowedByScopes, executeAgentTool } from "@/lib/openclaw/tools";
 
@@ -319,7 +320,11 @@ export async function POST(req: NextRequest) {
   }
   const { session, key } = gw.ctx;
   const actor = gw.actor;
-  const publico = gw.publico ?? null;
+  // Credencial del número comercial: TODO entra por el carril público, venga de quien venga. Ni
+  // se intenta resolver a nadie — así el catálogo que ve ese agente son tres herramientas de
+  // verdad y no cuarenta que se le van a negar al ejecutar.
+  const soloPublico = key.publicOnly;
+  const publico = soloPublico ? { phone: "" } : (gw.publico ?? null);
   // Una llave de pasarela que no sabe a quién atiende entra en SOLO LECTURA, pase lo que pase.
   // Así el panel compartido del asistente puede consultar (que es lo que el equipo necesita) sin
   // que una contraseña compartida se convierta en permiso para tocar nada.
@@ -419,7 +424,19 @@ export async function POST(req: NextRequest) {
     let msgReadOnly = readOnly;
     let msgActor = actor;
     let msgPublico = publico;
-    if (key.gateway && !actor && !publico && msg?.method === "tools/call") {
+    // Llave solo-pública: del argumento reservado se saca ÚNICAMENTE el número con el que
+    // etiquetar el prospecto. No se resuelve a nadie, no se busca en el equipo, no se otorga
+    // nada. Se borra igual antes de ejecutar: las herramientas públicas no deben verlo.
+    if (soloPublico && msg?.method === "tools/call") {
+      const args = msg.params?.arguments;
+      if (args && typeof args === "object") {
+        const bag = args as Record<string, unknown>;
+        const tel = bag[GATEWAY_SENDER_ARG] ?? bag[GATEWAY_DECLARED_ARG];
+        delete bag[GATEWAY_SENDER_ARG];
+        delete bag[GATEWAY_DECLARED_ARG];
+        if (typeof tel === "string" && tel.trim()) msgPublico = { phone: normalizePhone(tel) || "" };
+      }
+    } else if (key.gateway && !actor && !publico && msg?.method === "tools/call") {
       const args = msg.params?.arguments;
       if (args && typeof args === "object") {
         const bag = args as Record<string, unknown>;

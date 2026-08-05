@@ -82,6 +82,7 @@ export const PUBLIC_TOOLS: ToolDef[] = [
           interes: { type: "string", description: "Qué tipo de proyecto o servicio necesita, en sus palabras." },
           empresa: { type: "string", description: "Empresa o marca, si la mencionó (opcional)." },
           email: { type: "string", description: "Correo, si lo dio (opcional)." },
+          telefono: { type: "string", description: "Teléfono de contacto SOLO si lo dicta en el chat y es distinto del número desde el que escribe (opcional; el suyo ya lo sabemos)." },
           mensaje: { type: "string", description: "Resumen de lo que contó: qué quiere, para cuándo, contexto (opcional)." },
           presupuesto: { type: "string", description: "Presupuesto o rango que ÉL mencionó, tal cual (opcional). Nunca le propongas tú una cifra." },
         },
@@ -175,8 +176,14 @@ export async function executePublicTool(name: string, args: Record<string, unkno
     case "register_lead": {
       const nombre = campo(args.nombre, 120);
       if (!nombre) return "Falta el nombre de la persona. Pregúntaselo antes de registrar.";
-      // Freno por número: un extraño no debe poder llenar la tabla a fuerza de mensajes.
-      if (!rateLimit(`lead:${pub.phone}`, 6, 60 * 60_000)) {
+      // El número lo pone el canal; si el canal no lo trajo, se acepta el que dicte la persona.
+      // Sin ninguno de los dos hace falta AL MENOS un correo, o el prospecto no sirve: nadie
+      // podría devolverle la llamada.
+      const telefono = pub.phone || campo(args.telefono, 40)?.replace(/[^\d]/g, "") || null;
+      // Freno: un extraño no debe poder llenar la tabla a fuerza de mensajes. Sin número
+      // identificable se cobra contra un cubo común, más estrecho.
+      const cubo = telefono ? `lead:${telefono}` : "lead:sin-numero";
+      if (!rateLimit(cubo, telefono ? 6 : 20, 60 * 60_000)) {
         return "Ya registramos tus datos hace un momento. El equipo te va a contactar; no hace falta enviarlos de nuevo.";
       }
       const interes = campo(args.interes, 300);
@@ -188,11 +195,24 @@ export async function executePublicTool(name: string, args: Record<string, unkno
       // Si ya escribió antes y su caso sigue vivo, se ACTUALIZA su ficha. Sin esto, alguien que
       // escribe tres días seguidos aparecería como tres prospectos distintos y el equipo llamaría
       // tres veces. Los cerrados (GANADO/PERDIDO) no se reabren: una consulta nueva es un caso nuevo.
-      const previo = await db.lead.findFirst({
-        where: { telefono: pub.phone, estado: { notIn: ["GANADO", "PERDIDO"] } },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, mensaje: true },
-      });
+      // Sin número no hay con qué reconocerlo: cada registro sería uno nuevo. Se evita creando
+      // solo si dejó correo — y si no dejó ninguna de las dos cosas, se le pide antes de guardar.
+      const previo = telefono
+        ? await db.lead.findFirst({
+            where: { telefono, estado: { notIn: ["GANADO", "PERDIDO"] } },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, mensaje: true },
+          })
+        : email
+          ? await db.lead.findFirst({
+              where: { email, estado: { notIn: ["GANADO", "PERDIDO"] } },
+              orderBy: { createdAt: "desc" },
+              select: { id: true, mensaje: true },
+            })
+          : null;
+      if (!telefono && !email) {
+        return "Para poder devolverle la llamada hace falta un teléfono o un correo. Pídeselo antes de registrar.";
+      }
 
       if (previo) {
         // El relato se acumula (lo nuevo debajo), acotado para que no crezca sin fin.
@@ -231,7 +251,7 @@ export async function executePublicTool(name: string, args: Record<string, unkno
       }
 
       const lead = await db.lead.create({
-        data: { nombre, telefono: pub.phone, email, empresa, interes, mensaje, presupuesto, canal: pub.canal ?? "whatsapp", estado: "NUEVO" },
+        data: { nombre, telefono, email, empresa, interes, mensaje, presupuesto, canal: pub.canal ?? "whatsapp", estado: "NUEVO" },
         select: { id: true },
       });
       // Este SÍ hace ruido (sin `silent`): un prospecto nuevo es justo lo que el equipo quiere ver.
@@ -243,12 +263,13 @@ export async function executePublicTool(name: string, args: Record<string, unkno
         entityType: "lead",
         entityId: lead.id,
         ip: pub.ip ?? null,
-        meta: { telefono: pub.phone, canal: pub.canal ?? "whatsapp", via: "mcp-publico" },
+        meta: { telefono, canal: pub.canal ?? "whatsapp", via: "mcp-publico" },
       }).catch(() => null);
       await avisarAlEquipo(
         lead.id,
         `Prospecto nuevo: ${nombre}${empresa ? ` (${empresa})` : ""}`,
-        [interes, presupuesto ? `Presupuesto: ${presupuesto}` : null, `📱 ${pub.phone}`, mensaje].filter(Boolean).join(" · ").slice(0, 300),
+        [interes, presupuesto ? `Presupuesto: ${presupuesto}` : null, telefono ? `📱 ${telefono}` : `✉️ ${email}`, mensaje]
+          .filter(Boolean).join(" · ").slice(0, 300),
       ).catch(() => null);
       return JSON.stringify({ ok: true, mensaje: `Listo, ${nombre}: registré tus datos y el equipo comercial te va a contactar.` });
     }

@@ -418,6 +418,13 @@ model AppKey {
   // consultar proyectos ni clientes porque no tiene ese código. No es un permiso recortado: es
   // otro programa. Abrir el canal a terceros es, por eso, encender ESTE interruptor y nada más.
   publicIntake    Boolean   @default(false)
+  // Credencial PÚBLICA: no atiende a nadie de la casa, ni siquiera si quien escribe resulta ser
+  // del equipo. Todo lo que entre con ella pasa por el carril público. Es lo que usa el número
+  // comercial: su agente se conecta a OTRA credencial, así que su catálogo son tres herramientas
+  // de verdad — no cuarenta filtradas al ejecutar. Si esta llave se filtrara, lo máximo que puede
+  // hacer quien la tenga es registrar prospectos.
+  // Distinto de `publicIntake`, que es «además de al equipo, atiende a desconocidos».
+  publicOnly      Boolean   @default(false)
   user            User      @relation("AppKeyUser", fields: [userId], references: [id], onDelete: Cascade)
   userId          String
   createdById     String? // admin que la creó
