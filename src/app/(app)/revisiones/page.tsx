@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Clock, Send, RefreshCw, MessageSquare, ArrowRight, Film, Play, Flame, Sparkles, Users, Calendar, Rocket, Eye, EyeOff, Layers, LayoutGrid, List, SlidersHorizontal, UserRound, Building2 } from "lucide-react";
+import { Clock, Send, RefreshCw, MessageSquare, Film, Flame, Sparkles, Users, Calendar, Rocket, Eye, EyeOff, Layers, LayoutGrid, List, SlidersHorizontal, UserRound, Building2 } from "lucide-react";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -8,7 +8,9 @@ import { accessibleProjectWhere, canManageProject } from "@/lib/project-access";
 import { UserAvatar } from "@/components/user-avatar";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
-import { signReviewToken } from "@/lib/review-token";
+import { signReviewToken, signReviewMediaToken } from "@/lib/review-token";
+import { signFileToken } from "@/lib/storage";
+import { PreviewVideo } from "./preview-video";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
 import { CopiarEnlace } from "./copiar-enlace";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -169,7 +171,9 @@ export default async function RevisionesPage({
             client: { select: { id: true, name: true, photoUrl: true, accentColor: true, members: { select: { userId: true, role: true } } } },
           },
         },
-        versions: { orderBy: { number: "desc" }, take: 1, select: { number: true, createdAt: true, durationSec: true, uploadedBy: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+        // id/fileUrl/fileAsset → para firmar la fuente del PREVIEW en hover (la misma que
+        // reproduce el player: files-asset si vive en el NAS, review-media si vive en Drive).
+        versions: { orderBy: { number: "desc" }, take: 1, select: { id: true, number: true, createdAt: true, durationSec: true, fileUrl: true, fileAsset: { select: { id: true, name: true } }, uploadedBy: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
         _count: { select: { reviewComments: true } },
       },
       orderBy: activeTab === "publicados" ? { publishedAt: "desc" } : { updatedAt: "desc" },
@@ -188,6 +192,21 @@ export default async function RevisionesPage({
       : (d.project.leadId ?? d.ownerId) === session.id;
 
   const now = nowMs();
+
+  // La fuente del PREVIEW en hover, firmada AQUÍ (el navegador nunca fabrica estas URLs: sin
+  // firma, los dos endpoints devuelven 401). Misma lógica que buildStageVersions, reducida a la
+  // única pregunta que importa en una tarjeta: ¿hay un video que enseñar?
+  //  · Subido al NAS → files-asset, solo si el nombre ES de video (una imagen no se "previsualiza").
+  //  · Drive (archivo o carpeta) → review-media, que ya resuelve y sirve por rangos. Si la
+  //    carpeta no tiene video, el <video> falla y la tarjeta se queda con su portada: sin drama.
+  const VIDEO_RE = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
+  const previewSrcDe = (v: (typeof rows)[number]["versions"][number] | undefined): string | null => {
+    if (!v) return null;
+    if (v.fileAsset) return VIDEO_RE.test(v.fileAsset.name) ? `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id, 12 * 3600)}` : null;
+    if (v.fileUrl) return `/api/review-media/${v.id}?t=${signReviewMediaToken(v.id)}`;
+    return null;
+  };
+
   // Vista-modelo enriquecida: se resuelve una sola vez si el usuario puede gestionar el entregable
   // (canManage → acciones del menú ⋯), el enlace de entrega y su estado (vivo/archivado).
   const items: Item[] = rows.map((d) => ({
@@ -200,6 +219,7 @@ export default async function RevisionesPage({
     coverFileAssetId: d.coverFileAssetId,
     project: { id: d.project.id, name: d.project.name, emoji: d.project.emoji, client: d.project.client ? { id: d.project.client.id, name: d.project.client.name, photoUrl: d.project.client.photoUrl, accentColor: d.project.client.accentColor } : null },
     versions: d.versions,
+    previewSrc: previewSrcDe(d.versions[0]),
     _count: d._count,
     mine: isMyResponsibility(d),
     manage: canManageProject(d.project, session),
@@ -495,14 +515,14 @@ export default async function RevisionesPage({
         />
       ) : activeTab === "por-aprobar" && groupMode === "estado" ? (
         <div className="space-y-8">
-          <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" cta="Revisar" hint="Los más urgentes primero" items={pendientes} vista={vista} primary />
-          <Group title="En pre-aprobación de otros" Icon={Clock} accent="sky" cta="Ver" hint="Las revisa otro compañero" items={pendientesOtros} vista={vista} neutral />
-          <Group title="Pre-aprobados · esperando al cliente" Icon={Send} accent="sky" cta="Ver" hint="El cliente aún no lo ha abierto" items={preAprobados} vista={vista} neutral />
-          <Group title="Con el cliente · ya lo está viendo" Icon={Eye} accent="teal" cta="Ver" hint="El cliente ya lo abrió" items={conCliente} vista={vista} neutral />
-          <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" cta="Atender" items={cambios} vista={vista} />
+          <Group title="Pendientes de tu pre-aprobación" Icon={Clock} accent="amber" hint="Los más urgentes primero" items={pendientes} vista={vista} />
+          <Group title="En pre-aprobación de otros" Icon={Clock} accent="sky" hint="Las revisa otro compañero" items={pendientesOtros} vista={vista} neutral />
+          <Group title="Pre-aprobados · esperando al cliente" Icon={Send} accent="sky" hint="El cliente aún no lo ha abierto" items={preAprobados} vista={vista} neutral />
+          <Group title="Con el cliente · ya lo está viendo" Icon={Eye} accent="teal" hint="El cliente ya lo abrió" items={conCliente} vista={vista} neutral />
+          <Group title="Cambios solicitados" Icon={RefreshCw} accent="rose" items={cambios} vista={vista} />
         </div>
       ) : (
-        <GenericGroups items={visible} mode={groupMode} vista={vista} cta={activeTab === "archivados" ? "Abrir" : activeTab === "por-aprobar" ? "Revisar" : "Ver"} />
+        <GenericGroups items={visible} mode={groupMode} vista={vista} />
       )}
       </SelectionProvider>
     </div>
@@ -519,6 +539,8 @@ type Item = {
   coverFileAssetId: string | null;
   project: { id: string; name: string; emoji: string | null; client: { id: string; name: string; photoUrl: string | null; accentColor: string | null } | null };
   versions: { number: number; createdAt: Date; durationSec: number | null; uploadedBy: { id: string; name: string; initials: string | null; avatarColor: string | null } | null }[];
+  // Fuente firmada del preview en hover; null = esta pieza no tiene video que enseñar.
+  previewSrc: string | null;
   _count: { reviewComments: number };
   mine: boolean;
   manage: boolean;
@@ -551,7 +573,7 @@ const BADGE: Record<string, string> = {
 
 // Rejilla de tarjetas o lista compacta, según la vista elegida. La lista es para cuando hay
 // cuarenta piezas y lo que quieres es CONTAR lo que hay, no mirarlo una a una.
-function Piezas({ items, cta, vista, primary, neutral, showStatus }: { items: Item[]; cta: string; vista: Vista; primary?: boolean; neutral?: boolean; showStatus?: boolean }) {
+function Piezas({ items, vista, neutral, showStatus }: { items: Item[]; vista: Vista; neutral?: boolean; showStatus?: boolean }) {
   if (vista === "lista") {
     return (
       // Las esquinas se redondean en la primera y la última fila en vez de con overflow-hidden en
@@ -564,16 +586,52 @@ function Piezas({ items, cta, vista, primary, neutral, showStatus }: { items: It
       </div>
     );
   }
+  // Tarjetas compactas en subgrupos por PROYECTO: la cabecera —punto del color del cliente +
+  // nombre + cuántas— carga con lo que antes repetía cada tarjeta, y separa las tandas: seis
+  // miniaturas con la misma cara se leen como UNA entrega, no como seis piezas perdidas.
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((d) => (
-        <Card key={d.id} d={d} cta={cta} primary={primary} neutral={neutral} showStatus={showStatus} />
+    <div className="space-y-4">
+      {porProyecto(items).map((g) => (
+        <div key={g.id}>
+          <div className="mb-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            {g.color ? <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: g.color }} /> : null}
+            <span className="opacity-80"><EntityEmoji value={g.emoji} fallback="🎬" /></span>
+            <span className="truncate uppercase tracking-wide">{g.nombre}</span>
+            {g.cliente && g.cliente !== g.nombre ? <span className="truncate font-normal">· {g.cliente}</span> : null}
+            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium tabular-nums">{g.items.length}</span>
+          </div>
+          {/* auto-fill con mínimo de 11.5rem: la rejilla decide cuántas caben (5–6 en un
+              monitor normal) en vez de clavar 4 columnas gigantes. */}
+          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(11.5rem,1fr))]">
+            {g.items.map((d) => (
+              <Card key={d.id} d={d} neutral={neutral} showStatus={showStatus} />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );
 }
 
-function Group({ title, Icon, accent, cta, hint, items, vista, primary, neutral }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; cta: string; hint?: string; items: Item[]; vista: Vista; primary?: boolean; neutral?: boolean }) {
+// Agrupa por proyecto CONSERVANDO el orden de llegada (las piezas ya vienen ordenadas por
+// urgencia/fecha): el primer proyecto que aparece es el que tiene la pieza más urgente.
+function porProyecto(items: Item[]): { id: string; nombre: string; emoji: string | null; cliente: string | null; color: string | null; items: Item[] }[] {
+  const map = new Map<string, Item[]>();
+  for (const d of items) {
+    if (!map.has(d.project.id)) map.set(d.project.id, []);
+    map.get(d.project.id)!.push(d);
+  }
+  return [...map.values()].map((its) => ({
+    id: its[0].project.id,
+    nombre: its[0].project.name,
+    emoji: its[0].project.emoji,
+    cliente: its[0].project.client?.name ?? null,
+    color: clientHex(its[0].project.client?.accentColor),
+    items: its,
+  }));
+}
+
+function Group({ title, Icon, accent, hint, items, vista, neutral }: { title: string; Icon: React.ComponentType<{ className?: string }>; accent: string; hint?: string; items: Item[]; vista: Vista; neutral?: boolean }) {
   if (items.length === 0) return null;
   return (
     <section>
@@ -582,14 +640,14 @@ function Group({ title, Icon, accent, cta, hint, items, vista, primary, neutral 
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BADGE[accent]}`}>{items.length}</span>
         {hint ? <span className="ml-auto text-[11px] font-normal text-muted-foreground">{hint}</span> : null}
       </h2>
-      <Piezas items={items} cta={cta} vista={vista} primary={primary} neutral={neutral} />
+      <Piezas items={items} vista={vista} neutral={neutral} />
     </section>
   );
 }
 
 // Agrupación genérica (Cliente / Fecha / Estado en la pestaña de archivados): cabecera con punto de
 // color (cliente) + piezas. Cada pieza muestra su estado (chip) porque la cabecera ya no lo indica.
-function GenericGroups({ items, mode, cta, vista }: { items: Item[]; mode: GroupMode; cta: string; vista: Vista }) {
+function GenericGroups({ items, mode, vista }: { items: Item[]; mode: GroupMode; vista: Vista }) {
   const groups = mode === "cliente" ? groupByClient(items) : mode === "fecha" ? groupByDate(items) : groupByStatus(items);
   return (
     <div className="space-y-8">
@@ -601,7 +659,7 @@ function GenericGroups({ items, mode, cta, vista }: { items: Item[]; mode: Group
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{g.items.length}</span>
             <span className="h-px flex-1 bg-border" />
           </div>
-          <Piezas items={g.items} cta={cta} vista={vista} neutral={g.items.every((d) => isNeutralStatus(d.status))} showStatus />
+          <Piezas items={g.items} vista={vista} neutral={g.items.every((d) => isNeutralStatus(d.status))} showStatus />
         </section>
       ))}
     </div>
@@ -729,15 +787,28 @@ function Fila({ d, primera, neutral, showStatus }: { d: Item; primera: boolean; 
   );
 }
 
-function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; primary?: boolean; neutral?: boolean; showStatus?: boolean }) {
+// Tarjeta COMPACTA. La versión anterior pintaba ocho cosas con el mismo peso (chip de fecha,
+// urgencia, ⋯, versión, comentarios, proyecto, avatar y un botón «Ver →» que no hacía nada que
+// no hiciera ya la tarjeta entera): con dieciséis a la vista eran ~130 elementos compitiendo.
+// Ahora: miniatura con preview en vivo + título + UNA línea de meta. El proyecto lo dice la
+// cabecera del grupo; el ⋯ aparece al posar el ratón; la edad solo toma color cuando es un
+// problema. Caben ~15 por pantalla en vez de 8.
+function Card({ d, neutral, showStatus }: { d: Item; neutral?: boolean; showStatus?: boolean }) {
   const v = d.versions[0];
   const u = urgency(d.updatedAt);
   const uploader = v?.uploadedBy;
   const dur = fmtDur(v?.durationSec);
   const clientPhoto = d.project.client?.photoUrl ? `/api/client-asset/photo/${d.project.client.id}` : null;
   const src = d.coverFileAssetId ? `/api/files-asset/${d.coverFileAssetId}` : clientPhoto;
-  const UrgencyIcon = u.tier === "danger" ? Flame : u.tier === "warn" ? Clock : Sparkles;
-  const color = clientHex(d.project.client?.accentColor);
+  // La edad como texto plano que solo GRITA cuando es un problema del equipo, con los umbrales
+  // que la pantalla ya usaba (1+ día ámbar, 3+ días rojo). En los grupos neutrales el tiempo
+  // corre para el cliente: sin color, sin culpa.
+  const edadCls =
+    neutral || u.tier === "fresh"
+      ? ""
+      : u.tier === "warn"
+        ? "font-semibold text-amber-600 dark:text-amber-400"
+        : "font-semibold text-red-600 dark:text-red-400";
   return (
     // Envoltorio SIN overflow-hidden. La tarjeta recorta su contenido para las esquinas
     // redondeadas y el tinte del cliente, pero el panel del menú ⋯ mide 240 px: dentro del
@@ -749,14 +820,9 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
     // que tiene su propio contexto (ver components/layout/topbar.tsx).
     <div className="group relative">
       <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors group-hover:border-primary/40">
-      {/* Color del cliente: tinte suave del recuadro + barra lateral. */}
-      {color ? (
-        <>
-          <span aria-hidden className="pointer-events-none absolute inset-0 z-0" style={{ backgroundColor: color, opacity: 0.06 }} />
-          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-1" style={{ backgroundColor: color }} />
-        </>
-      ) : null}
-      <Link href={`/revisiones/${d.id}`} className="relative z-10 flex flex-1 flex-col">
+      {/* El color del cliente ya no tiñe ni pone barra: una barra roja a toda altura se leía
+          como alerta, no como «Diana Méndez». Ahora lo lleva el punto de la cabecera del grupo. */}
+      <Link href={`/revisiones/${d.id}`} className="flex flex-1 flex-col">
         <div className="relative aspect-video w-full overflow-hidden bg-muted/40">
           {src ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -766,54 +832,38 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
               <Film className="size-6 text-muted-foreground" />
             </div>
           )}
-          <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-            <span className="flex size-10 items-center justify-center rounded-full bg-white/90 text-foreground shadow-lg">
-              <Play className="size-5 translate-x-0.5 fill-current" />
-            </span>
-          </span>
-          {/* Chip de urgencia (equipo) o de tiempo neutro (con el cliente / entregado). */}
-          {neutral ? (
-            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
-              <Clock className="size-3" /> {sinceLabel(u)}
-            </span>
-          ) : (
-            <span className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${CHIP[u.tier]}`}>
-              <UrgencyIcon className="size-3" /> {teamChip(u)}
-            </span>
-          )}
-          {dur ? <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{dur}</span> : null}
-          {/* Comentarios y versión juntos ABAJO a la derecha. El contador estaba arriba, y con el ⋯
-              en esa esquina se le montaba encima al chip de urgencia en tarjetas estrechas. Arriba
-              quedan solo dos cosas —urgencia a la izquierda, ⋯ a la derecha— y no hay colisión. */}
-          <span className="absolute bottom-2 right-2 flex items-center gap-1">
+          {/* El preview en vivo: cubre la miniatura y solo carga si alguien posa el ratón. */}
+          {d.previewSrc ? <PreviewVideo src={d.previewSrc} /> : null}
+          {/* Sobre la miniatura viven SOLO los dos datos del video (versión y duración), en las
+              esquinas de abajo. `pointer-events-none` para no robarle el ratón al preview. */}
+          {v ? <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">v{v.number}</span> : null}
+          {dur ? <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] tabular-nums text-white">{dur}</span> : null}
+        </div>
+
+        <div className="flex flex-1 flex-col gap-1 px-2.5 py-2">
+          {/* El «#n» se queda (el equipo dice «la #4») pero deja de pesar como el título. */}
+          <p className="truncate text-[13px] font-medium leading-snug" title={d.name}>
+            {d.number ? <span className="mr-1 text-[11px] font-normal text-muted-foreground">#{d.number}</span> : null}{d.name}
+          </p>
+          {/* UNA línea de meta: quién subió, hace cuánto, y comentarios si los hay. El proyecto
+              ya no se repite aquí: lo dice la cabecera del grupo. Sin botón «Ver →»: la tarjeta
+              entera navega desde siempre, y dieciséis botones iguales solo eran ruido. */}
+          <p className="mt-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            {uploader ? (
+              <>
+                <UserAvatar initials={uploader.initials} color={uploader.avatarColor} size="sm" className="h-4 w-4" />
+                <span className="truncate">{uploader.name.split(" ")[0]}</span>
+                <span aria-hidden>·</span>
+              </>
+            ) : null}
+            <span className={`shrink-0 ${edadCls}`}>{sinceLabel(u)}</span>
             {d._count.reviewComments > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+              <span className="ml-auto inline-flex shrink-0 items-center gap-0.5 tabular-nums">
                 <MessageSquare className="size-3" /> {d._count.reviewComments}
               </span>
             ) : null}
-            {v ? <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">v{v.number}</span> : null}
-          </span>
-        </div>
-
-        <div className="flex flex-1 flex-col gap-2 p-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{d.number ? <span className="mr-1 text-muted-foreground">#{d.number}</span> : null}{d.name}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              <span className="opacity-80"><EntityEmoji value={d.project.emoji} fallback="🎬" /></span> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
-            </p>
-          </div>
+          </p>
           {d.publishedAt || showStatus ? <EstadoChip d={d} /> : null}
-          <div className="mt-auto flex items-center gap-2">
-            {uploader ? (
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                <UserAvatar initials={uploader.initials} color={uploader.avatarColor} size="sm" />
-                <span className="truncate">{uploader.name.split(" ")[0]}</span>
-              </span>
-            ) : <span />}
-            <span className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium ${primary ? "bg-primary text-primary-foreground group-hover:bg-primary/90" : "border border-border text-primary"}`}>
-              {cta} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-            </span>
-          </div>
           {/* Ya está con el cliente: copiar su enlace es lo que uno viene a hacer aquí, así que
               sale al frente en vez de vivir dentro del menú ⋯. */}
           {conElCliente(d) ? <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="w-full" /> : null}
@@ -825,7 +875,10 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
           archivar, borrar). Antes era una barra de cuatro botones al pie: 44 px por tarjeta y casi
           sesenta botones en una pantalla llena. Va FUERA del <Link> para que no navegue al abrirlo. */}
       {d.manage ? (
-        <div className="absolute right-2 top-2 z-30">
+        // En escritorio el ⋯ aparece al posar el ratón (o al tabular hasta él); en táctil,
+        // donde no hay hover, se queda siempre visible. Una pantalla llena pasa de cincuenta
+        // botones oscuros a cero hasta que alguien mira una tarjeta.
+        <div className="absolute right-1.5 top-1.5 z-30 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100">
           <DeliverableAdminActions
             deliverableId={d.id}
             projectId={d.project.id}
