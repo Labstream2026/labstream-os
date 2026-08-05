@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -18,6 +16,8 @@ import { ClientGaleria, ClientGaleriaAviso, type CarpetaDisponible } from "./cli
 import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, statGaleria } from "@/lib/nas-galeria";
 import { ClientHero } from "@/components/client-hero";
 import { ClientViewNav } from "./client-view-nav";
+import { ClientResumen, type ResumenProyecto } from "./client-resumen";
+import { AjustesLayout, type AjSeccion } from "./client-ajustes";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
 import { ProjectCard } from "@/components/project-card";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +38,7 @@ import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
-import { IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion, IconNotas } from "@/components/icons";
+import { IconInicio, IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion, IconNotas } from "@/components/icons";
 import { NotesTab } from "@/components/notes/notes-tab";
 import { notesFor } from "@/lib/notes-for";
 
@@ -373,6 +373,50 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     ...projects.flatMap((p) => projectSummaryItems({ id: p.id, name: p.name, emoji: p.emoji, startDate: p.startDate, dueDate: p.dueDate, deliverables: p.deliverables })),
   ];
 
+  // ── Datos de la pestaña RESUMEN (lo más importante al entrar) ──
+  // Todo se calcula aquí, en el servidor: una sola verdad de "hoy" y fechas ya formateadas (sin
+  // desfases de zona horaria ni de hidratación). El color del cliente tiñe pestañas e índice.
+  const accentHex = client.accentColor ? tone(client.accentColor).hex : undefined;
+  // `ahoraMs()` y no `Date.now()`: el lint de pureza prohíbe llamar impuras en el cuerpo del
+  // componente; el helper (función normal de lib) es la vía aceptada en esta base.
+  const nowMs = ahoraMs();
+  const DONE_PROY = ["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"];
+  const DELIV_DONE = ["APROBADO", "ENTREGADO"];
+  // El entregable VENCIDO más urgente (el que lleva más tiempo esperando) para la alerta roja.
+  const overdueDeliv = clientDeliverables
+    .filter((d) => d.dueDate && d.dueDate.getTime() < nowMs && !DELIV_DONE.includes(d.status))
+    .sort((a, b) => a.dueDate!.getTime() - b.dueDate!.getTime())[0];
+  const overdueInfo = overdueDeliv ? { name: overdueDeliv.project.name, label: formatShortDate(overdueDeliv.dueDate) ?? "" } : null;
+  // La próxima entrega del cliente: el entregable con fecha más cercana por delante.
+  const nextDeliv = clientDeliverables
+    .filter((d) => d.dueDate && d.dueDate.getTime() >= nowMs)
+    .sort((a, b) => a.dueDate!.getTime() - b.dueDate!.getTime())[0];
+  const resumenRows: ResumenProyecto[] = projects.map((p) => {
+    const meta = statusMeta(p.status);
+    return {
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      statusLabel: meta.label,
+      statusClass: meta.className,
+      dueLabel: formatShortDate(p.dueDate),
+      overdue: !!p.dueDate && p.dueDate.getTime() < nowMs && !DONE_PROY.includes(p.status),
+      progress: p.progress,
+      lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
+    };
+  });
+  const resumen = (
+    <ClientResumen
+      proyectos={resumenRows}
+      activos={active}
+      entregables={clientDeliverables.length}
+      porFacturar={canBilling ? billingPorFacturar.length : null}
+      proxLabel={formatShortDate(nextDeliv?.dueDate ?? null)}
+      overdue={overdueInfo}
+      accentHex={accentHex}
+    />
+  );
+
   const board = projects.length === 0 ? (
     <p className="text-sm text-muted-foreground">Este cliente aún no tiene proyectos.</p>
   ) : (
@@ -456,12 +500,16 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
 
       <div className="mt-6">
         <ClientViewNav
-          storageKey={`cliente-view`}
+          // v2 a propósito: estrena «Resumen» como entrada por defecto para todo el equipo (quien
+          // tuviera guardada otra pestaña no vería la nueva). Su elección vuelve a mandar al tocar.
+          storageKey={`cliente-view-v2`}
+          accentHex={accentHex}
           groups={[
             {
               label: "Producción",
               views: [
-                { key: "proyectos", label: "Proyectos", icon: <IconProyectos />, node: board },
+                { key: "resumen", label: "Resumen", icon: <IconInicio />, node: resumen },
+                { key: "proyectos", label: "Proyectos", badge: projects.length || undefined, icon: <IconProyectos />, node: board },
                 { key: "lista", label: "Lista", icon: <IconLista />, node: list },
                 {
                   key: "calendario", label: "Calendario", icon: <IconCalendario />,
@@ -580,100 +628,96 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               key: "acceso",
               label: "Ajustes",
               icon: <IconConfiguracion />,
+              // AJUSTES: índice a la izquierda + las secciones ABIERTAS (ver client-ajustes).
+              // Antes eran cuatro acordeones cerrados: aterrizabas en puros títulos y abrías de a
+              // uno. Ahora se ven todas y el índice salta con scroll suave. Las secciones que
+              // dependen de un permiso (editar) simplemente no entran al arreglo.
               node: (
-                // AJUSTES POR SECCIONES, ahora PLEGADAS: cuatro bloques —Presentación ·
-                // Información y material · Personas y acceso · Ciclo de vida— que se abren de
-                // uno en uno. Cada bloque agrupa lo que se toca junto; la zona de peligro CIERRA
-                // la página (nadie la pisa por accidente buscando otra cosa).
-                //
-                // Las píldoras de salto que había arriba se retiran: ahora los cuatro títulos
-                // caben en pantalla y SON la navegación, así que repetirlos era ruido —y encima
-                // saltar a una sección cerrada no habría enseñado nada.
-                <div className="space-y-3">
-                  {canEdit ? (
-                    <AjustesSeccion
-                      id="aj-presentacion"
-                      titulo="Presentación"
-                      desc="Cómo se ve el cliente en listas, cabeceras y su portal: color, foto, logo y portada."
-                    >
-                      <div className="grid items-start gap-5 lg:grid-cols-2">
-                        <ClientIdentity
-                          name={client.name}
-                          emoji={client.emoji}
-                          color={client.accentColor}
-                          photoUrl={client.photoUrl}
-                          logoUrl={client.logoUrl}
-                          logoBg={client.logoBg}
-                          onSave={saveClientAppearance.bind(null, client.id)}
-                          onClearImage={clearClientImage.bind(null, client.id)}
-                        />
-                        <ClientCover
-                          bannerUrl={client.bannerUrl}
-                          onSave={saveClientAppearance.bind(null, client.id)}
-                          onClearCover={clearClientCover.bind(null, client.id)}
-                        />
-                      </div>
-                    </AjustesSeccion>
-                  ) : null}
-
-                  <AjustesSeccion
-                    id="aj-informacion"
-                    titulo="Información y material"
-                    desc="Los datos de la cuenta y su carpeta de entregas en la Galería (con el color del cliente)."
-                  >
-                    <div className="grid items-start gap-5 lg:grid-cols-2">
-                      {canEdit ? (
-                        <ClientEdit
-                          clientId={id}
-                          name={client.name}
-                          emoji={client.emoji}
-                          company={client.company}
-                          description={client.description}
-                          notes={client.notes}
-                        />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
-                      )}
-                      {galeriaOn ? (
-                        <ClientGaleria
-                          clientId={id}
-                          clientName={client.name}
-                          color={client.accentColor}
-                          folder={client.galeriaFolder}
-                          folderExists={carpetaExiste}
-                          puedeEscribir={puedeCarpeta}
-                          escrituraLista={galeriaEscritura}
-                          disponibles={carpetasRaiz}
-                        />
-                      ) : null}
-                    </div>
-                  </AjustesSeccion>
-
-                  <AjustesSeccion
-                    id="aj-personas"
-                    titulo="Personas y acceso"
-                    desc="Quién entra por el portal del cliente y qué parte del equipo ve esta cuenta."
-                  >
-                    <div className="grid items-start gap-5 lg:grid-cols-2">
-                      {clientUsers.length > 0 || isAdmin ? (
-                        <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
-                      ) : null}
-                      <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
-                    </div>
-                  </AjustesSeccion>
-
-                  {canEdit ? (
-                    <AjustesSeccion
-                      id="aj-ciclo"
-                      titulo="Ciclo de vida"
-                      desc="Activo o en el Archivo; al final, la papelera (borrado suave, siempre reversible)."
-                    >
-                      <div className="grid items-start gap-5 lg:grid-cols-2">
-                        <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
-                      </div>
-                    </AjustesSeccion>
-                  ) : null}
-                </div>
+                <AjustesLayout
+                  accentHex={accentHex}
+                  secciones={[
+                    ...(canEdit ? [{
+                      id: "aj-presentacion",
+                      titulo: "Presentación",
+                      desc: "Cómo se ve el cliente en listas, cabeceras y su portal: color, foto, logo y portada.",
+                      node: (
+                        <div className="grid items-start gap-5 lg:grid-cols-2">
+                          <ClientIdentity
+                            name={client.name}
+                            emoji={client.emoji}
+                            color={client.accentColor}
+                            photoUrl={client.photoUrl}
+                            logoUrl={client.logoUrl}
+                            logoBg={client.logoBg}
+                            onSave={saveClientAppearance.bind(null, client.id)}
+                            onClearImage={clearClientImage.bind(null, client.id)}
+                          />
+                          <ClientCover
+                            bannerUrl={client.bannerUrl}
+                            onSave={saveClientAppearance.bind(null, client.id)}
+                            onClearCover={clearClientCover.bind(null, client.id)}
+                          />
+                        </div>
+                      ),
+                    }] : []),
+                    {
+                      id: "aj-informacion",
+                      titulo: "Información y material",
+                      desc: "Los datos de la cuenta y su carpeta de entregas en la Galería (con el color del cliente).",
+                      node: (
+                        <div className="grid items-start gap-5 lg:grid-cols-2">
+                          {canEdit ? (
+                            <ClientEdit
+                              clientId={id}
+                              name={client.name}
+                              emoji={client.emoji}
+                              company={client.company}
+                              description={client.description}
+                              notes={client.notes}
+                            />
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No tienes permiso para editar este cliente.</p>
+                          )}
+                          {galeriaOn ? (
+                            <ClientGaleria
+                              clientId={id}
+                              clientName={client.name}
+                              color={client.accentColor}
+                              folder={client.galeriaFolder}
+                              folderExists={carpetaExiste}
+                              puedeEscribir={puedeCarpeta}
+                              escrituraLista={galeriaEscritura}
+                              disponibles={carpetasRaiz}
+                            />
+                          ) : null}
+                        </div>
+                      ),
+                    },
+                    {
+                      id: "aj-personas",
+                      titulo: "Personas y acceso",
+                      desc: "Quién entra por el portal del cliente y qué parte del equipo ve esta cuenta.",
+                      node: (
+                        <div className="grid items-start gap-5 lg:grid-cols-2">
+                          {clientUsers.length > 0 || isAdmin ? (
+                            <ClientUsers clientId={id} users={clientUsers} canInvite={isAdmin} />
+                          ) : null}
+                          <ClientMembers clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+                        </div>
+                      ),
+                    },
+                    ...(canEdit ? [{
+                      id: "aj-ciclo",
+                      titulo: "Ciclo de vida",
+                      desc: "Activo o en el Archivo; al final, la papelera (borrado suave, siempre reversible).",
+                      node: (
+                        <div className="grid items-start gap-5 lg:grid-cols-2">
+                          <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
+                        </div>
+                      ),
+                    }] : []),
+                  ] as AjSeccion[]}
+                />
               ),
             },
               ],
@@ -685,25 +729,3 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   );
 }
 
-// Bloque titulado de la pestaña Ajustes: ancla (para las píldoras de salto), título y
-// descripción cortos, y dentro la rejilla que cada sección decida. scroll-mt deja aire
-// para la barra superior cuando se llega por ancla.
-// Cada bloque de Ajustes se PLIEGA. Antes eran cuatro secciones encadenadas y abiertas: para
-// cambiar el color del cliente había que pasar por delante de sus datos, de su gente y de la
-// zona de peligro. Ahora se ven cuatro títulos y se abre el que toca. Es un <details> nativo
-// —sin `data-autoclose`, que eso es para los menús: un acordeón no se cierra al clicar fuera—,
-// así que funciona sin una línea de JavaScript.
-function AjustesSeccion({ id, titulo, desc, children }: { id: string; titulo: string; desc: string; children: ReactNode }) {
-  return (
-    <details id={id} className="group scroll-mt-24 rounded-xl border border-border bg-card">
-      <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl p-4 hover:bg-muted/40">
-        <span className="min-w-0 flex-1">
-          <span className="block text-base font-semibold tracking-tight">{titulo}</span>
-          <span className="mt-0.5 block text-xs text-muted-foreground">{desc}</span>
-        </span>
-        <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="border-t border-border p-4">{children}</div>
-    </details>
-  );
-}

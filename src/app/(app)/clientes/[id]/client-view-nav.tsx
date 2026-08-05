@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ClientView = {
@@ -15,11 +14,22 @@ export type ClientView = {
 
 export type ClientViewGroup = { label: string; views: ClientView[] };
 
-// Menú lateral VERTICAL del detalle de cliente (mismo lenguaje que el detalle de proyecto):
-// grupos con título, íconos, badges de conteo y sticky en escritorio; en móvil se vuelve una
-// fila horizontal con scroll. La vista activa persiste en localStorage y además se refleja en
-// el hash de la URL (#ajustes) → se puede enlazar directo a una pestaña.
-export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[]; storageKey?: string }) {
+// Navegación del detalle de cliente: PESTAÑAS A LA VISTA (rediseño aprobado por prototipo).
+// Antes era un botón «▾» que ESCONDÍA las ~10 secciones: no veías a dónde podías ir sin abrirlo.
+// Ahora todas las secciones están en una fila; se salta con un clic y sin desplegar nada. El
+// último grupo (Gestión: Actividad, Ajustes) se ancla a la derecha, separado de la producción.
+// La pestaña activa persiste en localStorage y se refleja en el hash (#resumen) → se puede
+// enlazar directo a una pestaña, y una sección puede mandar a otra con un simple <a href="#clave">.
+export function ClientViewNav({
+  groups,
+  storageKey,
+  accentHex,
+}: {
+  groups: ClientViewGroup[];
+  storageKey?: string;
+  // Color del cliente (hex): tiñe la pestaña activa y su subrayado. Sin él cae al acento de la app.
+  accentHex?: string;
+}) {
   const views = React.useMemo(() => groups.flatMap((g) => g.views), [groups]);
   const [active, setActive] = React.useState(views[0]?.key);
 
@@ -33,7 +43,8 @@ export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Soporta <a href="#ajustes"> desde la propia página (p. ej. el lápiz de la cabecera).
+  // Soporta <a href="#clave"> desde la propia página (el lápiz de la cabecera, o «ver todos»
+  // del Resumen que salta a la pestaña Proyectos sin una línea de plomería extra).
   React.useEffect(() => {
     const onHash = () => {
       const k = window.location.hash.replace(/^#/, "");
@@ -43,80 +54,65 @@ export function ClientViewNav({ groups, storageKey }: { groups: ClientViewGroup[
     return () => window.removeEventListener("hashchange", onHash);
   }, [views]);
 
-  // El menú se cierra al elegir. `open` es estado del DOM: React no lo toca al re-renderizar,
-  // y DetailsAutoClose solo cierra con Escape, clic fuera o envío de formulario — estos son
-  // botones, así que hay que cerrarlo a mano.
-  const menuRef = React.useRef<HTMLDetailsElement>(null);
-
   const pick = (key: string) => {
     setActive(key);
     if (storageKey) window.localStorage.setItem(storageKey, key);
     history.replaceState(null, "", `#${key}`);
-    if (menuRef.current) menuRef.current.open = false;
   };
 
   const current = views.find((v) => v.key === active) ?? views[0];
+  // Primera pestaña del ÚLTIMO grupo: se empuja a la derecha para separar «Gestión» del resto.
+  const lastGroup = groups[groups.length - 1];
+  const firstOfLast = groups.length > 1 ? lastGroup?.views[0]?.key : undefined;
 
-  const item = (v: ClientView) => {
-    const on = v.key === current?.key;
-    return (
-      <button
-        key={v.key}
-        type="button"
-        onClick={() => pick(v.key)}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors",
-          on ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted",
-        )}
-      >
-        {v.icon ? <span className="[&_svg]:size-4 [&_svg]:shrink-0">{v.icon}</span> : null}
-        <span className="min-w-0 flex-1 truncate">{v.label}</span>
-        {v.badge ? (
-          <span className={cn(
-            "rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums",
-            on ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
-          )}>
-            {v.badge > 99 ? "99+" : v.badge}
-          </span>
-        ) : null}
-      </button>
-    );
-  };
-
-  // SELECTOR DE SECCIÓN, no columna. Antes eran dos navegaciones: una barra vertical de 176 px
-  // en escritorio —encima de la barra de la app, o sea dos columnas de menú seguidas— y una fila
-  // con scroll en móvil. Ahora es un solo botón que dice DÓNDE estás; los mismos grupos, los
-  // mismos conteos, a un clic. El contenido se queda con el ancho entero.
   return (
     <div className="flex flex-col gap-4">
-      <details ref={menuRef} data-autoclose className="relative self-start">
-        <summary
-          className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium shadow-sm hover:bg-accent"
-          aria-label={`Sección: ${current?.label ?? ""}. Cambiar de sección`}
-        >
-          {current?.icon ? <span className="[&_svg]:size-4 [&_svg]:shrink-0">{current.icon}</span> : null}
-          {current?.label}
-          {current?.badge ? (
-            <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold tabular-nums text-muted-foreground">
-              {current.badge > 99 ? "99+" : current.badge}
-            </span>
-          ) : null}
-          <ChevronDown className="size-4 text-muted-foreground" />
-        </summary>
-        <nav
-          className="absolute left-0 z-40 mt-1 max-h-[70vh] w-60 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
-          aria-label="Secciones del cliente"
-        >
-          {groups.map((g) => (
-            <div key={g.label} className="mb-1 last:mb-0">
-              <p className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{g.label}</p>
-              <div className="space-y-0.5">{g.views.map(item)}</div>
-            </div>
-          ))}
-        </nav>
-      </details>
+      <div role="tablist" aria-label="Secciones del cliente" className="flex items-stretch gap-0.5 overflow-x-auto border-b border-border">
+        {views.map((v) => {
+          const on = v.key === current?.key;
+          return (
+            <button
+              key={v.key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => pick(v.key)}
+              style={on && accentHex ? { color: accentHex } : undefined}
+              className={cn(
+                "relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-2.5 text-[13px] font-medium transition-colors",
+                v.key === firstOfLast && "ml-auto",
+                on ? "text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {v.icon ? <span className="[&_svg]:size-4 [&_svg]:shrink-0">{v.icon}</span> : null}
+              <span>{v.label}</span>
+              {v.badge ? (
+                <span
+                  style={on && accentHex ? { color: accentHex, background: `${accentHex}22` } : undefined}
+                  className={cn(
+                    "rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums",
+                    on ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {v.badge > 99 ? "99+" : v.badge}
+                </span>
+              ) : null}
+              {on ? (
+                <span
+                  aria-hidden
+                  style={accentHex ? { background: accentHex } : undefined}
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
 
-      <div className="min-w-0 flex-1">{current?.node}</div>
+      {/* La sección entra con un fundido suave al cambiar de pestaña (mismo gesto que /ajustes). */}
+      <div key={current?.key} className="min-w-0 animate-in fade-in slide-in-from-bottom-1 duration-200">
+        {current?.node}
+      </div>
     </div>
   );
 }
