@@ -43,8 +43,11 @@ const SOBRE_LABSTREAM = {
 };
 
 // ── Definición de las herramientas que ve un desconocido ───────────────────────
-// Son TRES. Corto no es solo prudente: el catálogo viaja en cada mensaje al modelo, así que
-// atender a un extraño cuesta una fracción de lo que cuesta atender al equipo.
+// Son TRES, y eso acota lo que un extraño puede EJECUTAR, no lo que cuesta atenderlo: el cliente
+// MCP de Hermes pide el catálogo UNA vez al conectarse y manda ese mismo catálogo al modelo en
+// cada turno, escriba quien escriba. Así que un desconocido cuesta hoy lo mismo que un miembro
+// del equipo (~15k tokens de entrada por mensaje). Para que la lista corta se notara en la
+// factura habría que abrir una sesión MCP por persona, que hoy no es como funciona.
 export const PUBLIC_TOOLS: ToolDef[] = [
   {
     type: "function",
