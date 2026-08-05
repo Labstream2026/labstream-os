@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
+import { usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { ProjectColorPicker } from "./project-color-picker";
 import { setProjectStatus } from "./status-actions";
 import { finishProject } from "./[id]/actions";
@@ -34,10 +35,12 @@ export type ViewProject = {
   clientId: string;
   clientName: string;
   clientEmoji: string | null;
+  clientAccentHex: string;
   team: ViewTeam[];
   teamCount: number;
   deliverables: number;
   nextDueLabel: string | null;
+  nextDueMs: number | null;
   canMove: boolean;
 };
 export type StatusCol = { key: string; label: string; className: string };
@@ -367,6 +370,127 @@ export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewPr
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ── POR CLIENTE (acordeón) ──
+// La entrada por defecto de la pantalla. Nace de un problema de datos, no de gusto: el estudio
+// tiene 28 proyectos repartidos en ~10 clientes y 22 de ellos viven en un mismo estado, así que
+// el tablero por estado sale con una columna enorme y dos casi vacías. Agrupando por CLIENTE los
+// grupos quedan parejos, y cerrado cabe el estudio entero en una pantalla — que es lo que se pidió:
+// ver de un vistazo lo importante de cada cliente sin abrir nada.
+//
+// Cada cliente resume a su derecha UNA señal, la que manda: si hay vencidos, eso; si no, cuándo es
+// la próxima entrega; y si no hay ninguna fecha, se dice. Se ordenan por urgencia, no alfabético:
+// arriba quien tiene algo vencido, luego quien entrega antes.
+
+// Qué clientes están desplegados. Se recuerda entre visitas (volver de un proyecto no debería
+// cerrar lo que abriste). El centinela "-" distingue «ninguno abierto» de «nunca has tocado esto»,
+// que no es lo mismo: sin él, cerrar el último grupo reactivaría la apertura automática.
+const CLAVE_ABIERTOS = "proyectos-clientes-abiertos";
+
+function LeadAvatar({ team, count }: { team: ViewTeam[]; count: number }) {
+  if (count === 0) return <span className="w-6 shrink-0" />;
+  // Solo el responsable. La lista apilaba hasta cuatro caras y ninguna decía quién responde;
+  // el equipo completo está a un clic, dentro del proyecto.
+  return (
+    <span className="shrink-0" title={count > 1 ? `Responsable · ${count} personas en el proyecto` : "Responsable"}>
+      <UserAvatar initials={team[0].initials} color={team[0].color} size="sm" ring />
+    </span>
+  );
+}
+
+export function ClientesView({ projects }: { projects: ViewProject[] }) {
+  const grupos = React.useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string; emoji: string | null; hex: string; items: ViewProject[] }>();
+    for (const p of projects) {
+      const g = m.get(p.clientId) ?? { id: p.clientId, nombre: p.clientName, emoji: p.clientEmoji, hex: p.clientAccentHex, items: [] };
+      g.items.push(p);
+      m.set(p.clientId, g);
+    }
+    return [...m.values()]
+      .map((g) => {
+        const vencidos = g.items.filter((p) => p.dueTone === "bad").length;
+        // La próxima entrega del cliente = la más cercana de todos sus proyectos.
+        const prox = g.items
+          .filter((p) => p.nextDueMs != null)
+          .sort((a, b) => (a.nextDueMs ?? 0) - (b.nextDueMs ?? 0))[0] ?? null;
+        return { ...g, vencidos, proxMs: prox?.nextDueMs ?? null, proxLabel: prox?.nextDueLabel ?? null };
+      })
+      .sort((a, b) => {
+        if (a.vencidos !== b.vencidos) return b.vencidos - a.vencidos; // primero lo que arde
+        if (a.proxMs !== b.proxMs) return (a.proxMs ?? Infinity) - (b.proxMs ?? Infinity); // luego lo más cercano
+        return a.nombre.localeCompare(b.nombre, "es");
+      });
+  }, [projects]);
+
+  const [guardado, guardar] = usePreferenciaLocal<string>(CLAVE_ABIERTOS, "");
+  const abiertos = React.useMemo(() => {
+    if (guardado) return new Set(guardado === "-" ? [] : guardado.split(","));
+    // Primera visita: se abren solos los clientes con algo vencido. Así la pantalla ya llega
+    // enseñando lo que necesita atención, en vez de una lista uniforme que hay que ir abriendo.
+    return new Set(grupos.filter((g) => g.vencidos > 0).map((g) => g.id));
+  }, [guardado, grupos]);
+
+  const alternar = (id: string) => {
+    const s = new Set(abiertos);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    guardar(s.size ? [...s].join(",") : "-");
+  };
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border">
+      {grupos.map((g, i) => {
+        const abierto = abiertos.has(g.id);
+        return (
+          <div key={g.id} className={cn(i > 0 && "border-t border-border")}>
+            <button
+              type="button"
+              onClick={() => alternar(g.id)}
+              aria-expanded={abierto}
+              className="flex w-full items-center gap-2.5 bg-muted/30 px-3 py-2.5 text-left transition-colors hover:bg-accent/50"
+            >
+              {abierto ? <ChevronDown className="size-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
+              <span className="h-5 w-[3px] shrink-0 rounded-sm" style={{ background: g.hex }} />
+              <span className="min-w-0 truncate text-sm font-medium">
+                {g.emoji ? <><EntityEmoji value={g.emoji} /> </> : null}{g.nombre}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{g.items.length} proyecto{g.items.length === 1 ? "" : "s"}</span>
+              <span className="ml-auto shrink-0 pl-2">
+                {g.vencidos > 0 ? (
+                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300">
+                    {g.vencidos} vencido{g.vencidos === 1 ? "" : "s"}
+                  </span>
+                ) : g.proxLabel ? (
+                  <span className="text-[11px] text-muted-foreground">próxima entrega {g.proxLabel}</span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground/70">sin fecha</span>
+                )}
+              </span>
+            </button>
+
+            {abierto
+              ? g.items.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/proyectos/${p.id}`}
+                    className="flex items-center gap-2.5 border-t border-border py-2 pl-10 pr-3 transition-colors hover:bg-accent/40"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      {emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}
+                    </span>
+                    {dueText(p)}
+                    <span className="w-24 shrink-0 text-right text-[11px] text-muted-foreground">
+                      {p.deliverables > 0 ? `${p.deliverables} entregable${p.deliverables === 1 ? "" : "s"}` : ""}
+                    </span>
+                    <LeadAvatar team={p.team} count={p.teamCount} />
+                  </Link>
+                ))
+              : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -25,7 +25,7 @@ import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import { CuerpoVista, SelectorVista } from "./vista-proyectos";
-import { PipelineView, MasterTable, PortfolioView, type ViewProject, type StatusCol } from "./projects-views";
+import { ClientesView, PipelineView, MasterTable, PortfolioView, type ViewProject, type StatusCol } from "./projects-views";
 
 export const dynamic = "force-dynamic";
 
@@ -221,6 +221,12 @@ export default async function ProyectosPage({
         clientId: c.id,
         clientName: c.name,
         clientEmoji: c.emoji,
+        // Color del CLIENTE (no el del proyecto): lo usa la vista por cliente para su franja, que
+        // debe ser la misma para todos sus proyectos aunque cada uno tenga su tono.
+        clientAccentHex: c.accentColor ? tone(c.accentColor).hex : "#6366f1",
+        // El instante de la próxima entrega, no solo su etiqueta: la vista por cliente necesita
+        // comparar entre proyectos para decir cuál es la más cercana de ese cliente.
+        nextDueMs: next ? next.getTime() : null,
         team: team.slice(0, 4),
         teamCount: team.length,
         deliverables: p.deliverables.length,
@@ -462,6 +468,7 @@ export default async function ProyectosPage({
               />
             ) : (
               <CuerpoVista
+                clientes={<ClientesView projects={rows} />}
                 pipeline={<PipelineView cols={cols} allStatuses={allStatuses} projects={rows} />}
                 tabla={<MasterTable projects={rows} allStatuses={allStatuses} grupo={grupo} />}
                 portafolio={<PortfolioView projects={rows} allStatuses={allStatuses} />}

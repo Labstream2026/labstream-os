@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Layers } from "lucide-react";
-import { IconLista, IconTablero, IconTableroH } from "@/components/icons";
+import { IconCliente, IconLista, IconTablero, IconTableroH } from "@/components/icons";
 import { MenuBarra, MenuGrupo, MenuOpcion, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 // delante de la única acción de escritura que tiene la pantalla en móvil.
 
 const VISTAS = [
+  { key: "clientes", label: "Por cliente", Icono: IconCliente },
   { key: "pipeline", label: "Pipeline", Icono: IconTablero },
   { key: "tabla", label: "Tabla", Icono: IconLista },
   { key: "portafolio", label: "Portafolio", Icono: IconTableroH },
@@ -27,15 +28,17 @@ const VISTAS = [
 
 export type VistaKey = (typeof VISTAS)[number]["key"];
 
-// La misma clave de siempre: renombrarla dejaría a todo el equipo en la vista por defecto sin que
-// nadie viera un error.
-const CLAVE = "proyectos-view-v2";
+// Se sube a v3 A PROPÓSITO al estrenar «Por cliente». Renombrar la clave deja a todo el equipo en
+// la vista por defecto —que ahora es esa— y es la única forma de que la estrenen: quien ya tenía
+// «pipeline» guardado no la vería nunca. Es un empujón de una vez; su elección vuelve a mandar en
+// cuanto toquen el conmutador. Fuera de un cambio de defecto deliberado, NO renombrarla.
+const CLAVE = "proyectos-view-v3";
 
 // Lo guardado puede ser cualquier cosa (una clave vieja, otra pestaña, alguien trasteando en las
 // herramientas del navegador). `usePreferenciaLocal` devuelve la cadena tal cual, así que se
 // valida aquí: sin esto, un valor huérfano pintaría la pantalla VACÍA y sin ningún error.
 function valida(v: string): VistaKey {
-  return (VISTAS.find((x) => x.key === v)?.key ?? "pipeline") as VistaKey;
+  return (VISTAS.find((x) => x.key === v)?.key ?? "clientes") as VistaKey;
 }
 
 export function SelectorVista({
@@ -47,7 +50,7 @@ export function SelectorVista({
   hrefGrupoCliente: string;
   hrefGrupoEstado: string;
 }) {
-  const [guardada, poner] = usePreferenciaLocal<VistaKey>(CLAVE, "pipeline");
+  const [guardada, poner] = usePreferenciaLocal<VistaKey>(CLAVE, "clientes");
   const vista = valida(guardada);
 
   return (
@@ -95,15 +98,17 @@ export function SelectorVista({
 }
 
 export function CuerpoVista({
+  clientes,
   pipeline,
   tabla,
   portafolio,
 }: {
+  clientes: React.ReactNode;
   pipeline: React.ReactNode;
   tabla: React.ReactNode;
   portafolio: React.ReactNode;
 }) {
-  const [guardada] = usePreferenciaLocal<VistaKey>(CLAVE, "pipeline");
-  const nodos: Record<VistaKey, React.ReactNode> = { pipeline, tabla, portafolio };
+  const [guardada] = usePreferenciaLocal<VistaKey>(CLAVE, "clientes");
+  const nodos: Record<VistaKey, React.ReactNode> = { clientes, pipeline, tabla, portafolio };
   return <>{nodos[valida(guardada)]}</>;
 }
