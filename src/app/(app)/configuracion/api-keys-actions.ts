@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { generateApiKey } from "@/lib/api-key";
 import { ALL_PERMISSION_KEYS } from "@/lib/permissions";
+import { serviceUserEmail } from "@/lib/service-user";
 
 type Result = { ok: boolean; error?: string };
 
@@ -89,9 +90,9 @@ export async function createServiceUser(formData: FormData): Promise<Result & { 
   if (!name) return { ok: false, error: "Falta el nombre del usuario de servicio." };
   const role = await db.role.findUnique({ where: { key: roleKey }, select: { id: true } });
   if (!role) return { ok: false, error: "Rol inválido." };
-  // Email sintético único (no recibe correo ni inicia sesión).
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 32) || "servicio";
-  const email = `svc-${slug}-${Date.now().toString(36)}@servicio.labstream`;
+  // Email sintético único (no recibe correo ni inicia sesión). El dominio es lo que marca a la
+  // cuenta como de servicio en todo el sistema: vive en lib/service-user, no aquí.
+  const email = serviceUserEmail(name);
   const initials = name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "SV";
   const user = await db.user.create({
     data: { email, name, initials, avatarColor: "slate", active: true, role: { connect: { id: role.id } } },

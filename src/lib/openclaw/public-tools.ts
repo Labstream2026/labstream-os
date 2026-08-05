@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
 import { notifyManyAndEmail } from "@/lib/notify";
+import { NOT_SERVICE_USER } from "@/lib/service-user";
 import type { ToolDef } from "./client";
 
 // ── El carril de los DESCONOCIDOS ──────────────────────────────────────────────
@@ -130,6 +131,8 @@ async function avisarAlEquipo(leadId: string, titulo: string, cuerpo: string): P
     where: {
       active: true,
       isSystemBot: false,
+      // Las cuentas de servicio (titulares de credenciales) no las lee nadie.
+      ...NOT_SERVICE_USER,
       OR: [
         { role: { key: "admin" } },
         { role: { permissions: { some: { permission: { key: "gestionar_leads" } } } } },
