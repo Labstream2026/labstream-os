@@ -38,7 +38,7 @@ const DONE_STATUSES = new Set(["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"])
 export default async function ProyectosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string; vista?: string; vencidos?: string }>;
+  searchParams: Promise<{ q?: string; estado?: string; cliente?: string; grupo?: string; vista?: string; vencidos?: string; cerrar?: string; sinplan?: string }>;
 }) {
   const sp = await searchParams;
   const session = await getSession();
@@ -89,6 +89,16 @@ export default async function ProyectosPage({
   const now = Date.now();
   const isOverdue = (p: { dueDate: Date | null; status: string }) =>
     !!p.dueDate && p.dueDate.getTime() < now && !DONE_STATUSES.has(p.status);
+  // ── Dos avisos que la pantalla no daba y que explican lo que se ve ──
+  // «Al 100 % sin cerrar»: todas sus tareas están hechas pero el proyecto sigue vivo. Es la causa
+  // de que el tablero tenga 22 en «En planeación» y tres columnas casi vacías: al terminar, nadie
+  // mueve el estado. Sacarlo a la franja lo convierte en una cola de trabajo de un minuto.
+  const al100SinCerrar = (p: { progress: number; status: string }) => p.progress >= 100 && !DONE_STATUSES.has(p.status);
+  // «Sin plan»: ni fecha propia ni un entregable con fecha por delante. No es lo mismo que «sin
+  // fecha» a secas —muchos proyectos se planifican por entregable y están perfectamente atados—:
+  // estos son los que de verdad no tienen ninguna fecha a la que agarrarse.
+  const sinPlan = (p: { dueDate: Date | null; status: string; deliverables: { dueDate: Date | null }[] }) =>
+    !DONE_STATUSES.has(p.status) && !p.dueDate && !p.deliverables.some((d) => d.dueDate && d.dueDate.getTime() >= now);
 
   // ── Filtros activos (viven en la URL; el enlace es compartible) ──
   const qRaw = (sp.q ?? "").trim();
@@ -97,10 +107,13 @@ export default async function ProyectosPage({
   const clienteSel = new Set((sp.cliente ?? "").split(",").filter(Boolean));
   const grupo = sp.grupo === "estado" ? ("estado" as const) : ("cliente" as const);
   const soloVencidos = sp.vencidos === "1";
+  const soloCerrar = sp.cerrar === "1";
+  const soloSinPlan = sp.sinplan === "1";
   // UN solo recuento de «cuántos filtros hay puestos», que usan el menú, las pastillas y los
   // estados vacíos. Antes había dos —el de la página contaba «vencidos» y el de la barra de
   // filtros no— y podían discrepar en la misma pantalla.
-  const filtrosPuestos = estadoSel.size + clienteSel.size + (qRaw ? 1 : 0) + (soloVencidos ? 1 : 0);
+  const filtrosPuestos =
+    estadoSel.size + clienteSel.size + (qRaw ? 1 : 0) + (soloVencidos ? 1 : 0) + (soloCerrar ? 1 : 0) + (soloSinPlan ? 1 : 0);
   const hasFilters = filtrosPuestos > 0;
 
   // ── Los enlaces de la barra, construidos en UN solo sitio ──
@@ -114,6 +127,8 @@ export default async function ProyectosPage({
     grupo?: "cliente" | "estado";
     vista?: "terminados" | null;
     vencidos?: boolean;
+    cerrar?: boolean;
+    sinplan?: boolean;
   } = {}) => {
     const v = over.vista === undefined ? (terminados ? "terminados" : null) : over.vista;
     const q = over.q === undefined ? qRaw : (over.q ?? "");
@@ -121,14 +136,19 @@ export default async function ProyectosPage({
     const cli = over.cliente === undefined ? [...clienteSel] : (over.cliente ?? []);
     const gr = over.grupo ?? grupo;
     const ven = over.vencidos === undefined ? soloVencidos : over.vencidos;
+    const cer = over.cerrar === undefined ? soloCerrar : over.cerrar;
+    const spl = over.sinplan === undefined ? soloSinPlan : over.sinplan;
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     if (est.length) p.set("estado", est.join(","));
     if (cli.length) p.set("cliente", cli.join(","));
     if (gr !== "cliente") p.set("grupo", gr); // «cliente» es el valor por defecto: no ensucia la URL
     if (v) p.set("vista", v);
-    // «Vencidos» no aplica al archivo: un proyecto terminado ya no corre contra el reloj.
+    // Los tres avisos no aplican al archivo: un proyecto terminado ni corre contra el reloj, ni
+    // está pendiente de cerrar, ni le falta plan.
     if (ven && !v) p.set("vencidos", "1");
+    if (cer && !v) p.set("cerrar", "1");
+    if (spl && !v) p.set("sinplan", "1");
     const s = p.toString();
     return s ? `/proyectos?${s}` : "/proyectos";
   };
@@ -143,8 +163,8 @@ export default async function ProyectosPage({
   // lo deja siempre en Entregado, Cerrado o Cancelado (finishProject lo fuerza), así que arrastrar
   // «En curso» al archivo daría cero resultados el 100 % de las veces — y el estado culpable ni
   // siquiera aparecería en el menú para poder quitarlo. Lo demás (búsqueda, cliente) sí viaja.
-  const hrefActivos = hrefCon({ vista: null, estado: null, vencidos: false });
-  const hrefTerminados = hrefCon({ vista: "terminados", estado: null, vencidos: false });
+  const hrefActivos = hrefCon({ vista: null, estado: null, vencidos: false, cerrar: false, sinplan: false });
+  const hrefTerminados = hrefCon({ vista: "terminados", estado: null, vencidos: false, cerrar: false, sinplan: false });
 
   // ── Los cuatro filtros, cada uno por separado ──
   // Sueltos y no en un solo `if` porque los contadores de la franja y del menú necesitan aplicar
@@ -155,13 +175,15 @@ export default async function ProyectosPage({
   const pasaCliente = ({ c }: Fila) => clienteSel.size === 0 || clienteSel.has(c.id);
   const pasaEstado = ({ p }: Fila) => estadoSel.size === 0 || estadoSel.has(p.status);
   const pasaVencidos = ({ p }: Fila) => !soloVencidos || isOverdue(p);
+  const pasaCerrar = ({ p }: Fila) => !soloCerrar || al100SinCerrar(p);
+  const pasaSinPlan = ({ p }: Fila) => !soloSinPlan || sinPlan(p);
 
   // Aplica los filtros en memoria (el acceso ya lo acotó la consulta).
   const clients = withProjects
     .filter((c) => clienteSel.size === 0 || clienteSel.has(c.id))
     .map((c) => ({
       ...c,
-      projects: c.projects.filter((p) => [pasaEstado, pasaVencidos, pasaTexto].every((f) => f({ p, c }))),
+      projects: c.projects.filter((p) => [pasaEstado, pasaVencidos, pasaCerrar, pasaSinPlan, pasaTexto].every((f) => f({ p, c }))),
     }))
     .filter((c) => c.projects.length > 0);
 
@@ -223,12 +245,16 @@ export default async function ProyectosPage({
   // marcarían 0 y no habría cómo saltar de uno a otro; y si contara el total accesible, la franja
   // diría «2 en curso» justo encima de una columna «En curso 0» porque la búsqueda descartó las
   // dos. Contando todo menos lo propio, cada número es exactamente lo que verías al pulsarlo.
-  const baseEstado = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaVencidos(f));
-  const baseCliente = todos.filter((f) => pasaTexto(f) && pasaEstado(f) && pasaVencidos(f));
-  const baseVencidos = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaEstado(f));
+  const baseEstado = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaVencidos(f) && pasaCerrar(f) && pasaSinPlan(f));
+  const baseCliente = todos.filter((f) => pasaTexto(f) && pasaEstado(f) && pasaVencidos(f) && pasaCerrar(f) && pasaSinPlan(f));
+  const baseVencidos = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaEstado(f) && pasaCerrar(f) && pasaSinPlan(f));
+  const baseCerrar = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaEstado(f) && pasaVencidos(f) && pasaSinPlan(f));
+  const baseSinPlan = todos.filter((f) => pasaTexto(f) && pasaCliente(f) && pasaEstado(f) && pasaVencidos(f) && pasaCerrar(f));
   const nPorEstado = (s: string) => baseEstado.filter((f) => f.p.status === s).length;
   const nPorCliente = (id: string) => baseCliente.filter((f) => f.c.id === id).length;
   const overdueCount = baseVencidos.filter((f) => isOverdue(f.p)).length;
+  const cerrarCount = baseCerrar.filter((f) => al100SinCerrar(f.p)).length;
+  const sinPlanCount = baseSinPlan.filter((f) => sinPlan(f.p)).length;
 
   const tramos: TramoResumen[] = [
     ...statusesPresent.map((s) => {
@@ -252,6 +278,25 @@ export default async function ProyectosPage({
       tono: "rose" as const,
       href: hrefCon({ vencidos: !soloVencidos }),
       activo: soloVencidos,
+    }]),
+    // Los dos avisos nuevos solo se pintan si hay algo que hacer: a diferencia de «vencidos» —que
+    // es la alarma y debe verse aunque marque cero— estos son colas de trabajo, y una cola vacía
+    // escrita en pantalla es ruido. Al pulsarlos filtran, así que dejan la lista lista para actuar.
+    ...(terminados || cerrarCount === 0 ? [] : [{
+      key: "cerrar",
+      label: "al 100% sin cerrar",
+      valor: cerrarCount,
+      tono: "emerald" as const,
+      href: hrefCon({ cerrar: !soloCerrar }),
+      activo: soloCerrar,
+    }]),
+    ...(terminados || sinPlanCount === 0 ? [] : [{
+      key: "sinplan",
+      label: "sin fecha",
+      valor: sinPlanCount,
+      tono: "neutro" as const,
+      href: hrefCon({ sinplan: !soloSinPlan }),
+      activo: soloSinPlan,
     }]),
   ];
 
@@ -374,7 +419,7 @@ export default async function ProyectosPage({
                   <MenuSeparador />
                   {/* Limpia TODO, «vencidos» y la búsqueda incluidos. El botón anterior se dejaba
                       esos dos puestos y luego la pantalla seguía filtrada sin decir por qué. */}
-                  <MenuOpcion marca={false} href={hrefCon({ q: null, estado: null, cliente: null, vencidos: false })}>
+                  <MenuOpcion marca={false} href={hrefCon({ q: null, estado: null, cliente: null, vencidos: false, cerrar: false, sinplan: false })}>
                     Limpiar los filtros
                   </MenuOpcion>
                 </>
@@ -396,6 +441,8 @@ export default async function ProyectosPage({
                 return <ChipFiltro key={id} etiqueta={c?.label ?? "cliente"} href={hrefCliente(id)}>{c?.label ?? "Cliente"}</ChipFiltro>;
               })}
               {soloVencidos ? <ChipFiltro etiqueta="vencidos" href={hrefCon({ vencidos: false })}>Solo vencidos</ChipFiltro> : null}
+              {soloCerrar ? <ChipFiltro etiqueta="al 100% sin cerrar" href={hrefCon({ cerrar: false })}>Al 100% sin cerrar</ChipFiltro> : null}
+              {soloSinPlan ? <ChipFiltro etiqueta="sin fecha" href={hrefCon({ sinplan: false })}>Sin fecha</ChipFiltro> : null}
             </div>
           ) : null}
 
@@ -408,7 +455,7 @@ export default async function ProyectosPage({
                 title="Sin resultados"
                 description="Ningún proyecto coincide con los filtros. Ajústalos o límpialos para ver todos."
                 action={
-                  <Link href={hrefCon({ q: null, estado: null, cliente: null, vencidos: false })} className="text-sm font-medium text-primary hover:underline">
+                  <Link href={hrefCon({ q: null, estado: null, cliente: null, vencidos: false, cerrar: false, sinplan: false })} className="text-sm font-medium text-primary hover:underline">
                     Limpiar los filtros
                   </Link>
                 }

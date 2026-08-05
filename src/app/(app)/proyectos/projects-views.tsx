@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { emojiToText } from "@/components/icons/marks";
+import { emojiToText, EntityEmoji } from "@/components/icons/marks";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -91,19 +91,34 @@ function FinishSuggest({ suggest, onFinish, onDismiss }: { suggest: { id: string
   );
 }
 
-function dueText(p: ViewProject, effStatus?: string) {
+// ── El «cuándo» de una tarjeta ──
+// Casi ningún proyecto tiene fecha propia: el estudio planifica por ENTREGABLE. El resultado era
+// «sin fecha» escrito en casi todas las tarjetas —el renglón más visible ocupado por un dato que
+// no existe— mientras la fecha del próximo entregable, que el servidor YA calcula, solo la pintaba
+// la Tabla. Ahora se prefiere, en este orden: la fecha del proyecto (que es un compromiso con el
+// cliente), y si no la hay, la del próximo entregable. Si no hay ninguna no se escribe nada: un
+// hueco dice lo mismo que «sin fecha» y no gasta la mirada.
+// `conProxima=false` en la Tabla, que ya tiene su propia columna de entregables con esa fecha.
+function dueText(p: ViewProject, effStatus?: string, conProxima = true) {
   const s = effStatus ?? p.status;
   const done = ["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"].includes(s);
-  return (
-    <span className={cn(
-      "text-[11px]",
-      !done && p.dueTone === "bad" ? "font-semibold text-red-600 dark:text-red-400"
-        : !done && p.dueTone === "warn" ? "font-semibold text-amber-600 dark:text-amber-400"
-          : "text-muted-foreground",
-    )}>
-      {p.dueLabel ? (!done && p.dueTone === "bad" ? `● venció ${p.dueLabel}` : p.dueLabel) : "sin fecha"}
-    </span>
-  );
+  if (p.dueLabel) {
+    return (
+      <span className={cn(
+        "truncate text-[11px]",
+        !done && p.dueTone === "bad" ? "font-semibold text-red-600 dark:text-red-400"
+          : !done && p.dueTone === "warn" ? "font-semibold text-amber-600 dark:text-amber-400"
+            : "text-muted-foreground",
+      )}>
+        {!done && p.dueTone === "bad" ? `● venció ${p.dueLabel}` : p.dueLabel}
+      </span>
+    );
+  }
+  if (conProxima && !done && p.nextDueLabel) {
+    return <span className="truncate text-[11px] text-muted-foreground">entrega {p.nextDueLabel}</span>;
+  }
+  // Span vacío, no `null`: las filas son `justify-between` y sin él el equipo se iría a la izquierda.
+  return <span />;
 }
 
 function TeamStack({ team, count }: { team: ViewTeam[]; count: number }) {
@@ -191,17 +206,20 @@ export function PipelineView({ cols, allStatuses, projects }: { cols: StatusCol[
                     >
                       <Link href={`/proyectos/${p.id}`} className="block min-w-0">
                         <p className="truncate text-sm font-medium hover:underline">{emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}</p>
-                        <p className="truncate text-[11px] text-muted-foreground">{p.clientEmoji ? `${p.clientEmoji} ` : ""}{p.clientName}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {p.clientEmoji ? <><EntityEmoji value={p.clientEmoji} /> </> : null}{p.clientName}
+                        </p>
                       </Link>
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
-                        </div>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">{p.progress}%</span>
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                      {/* El progreso (% de tareas hechas) deja la barra a lo ancho y pasa a un número
+                          discreto: era lo más llamativo de la tarjeta y lo que menos ayuda a decidir
+                          —hay proyectos al 100 % vencidos y al 100 % sin cerrar—. El «cuándo» y el
+                          equipo comparten fila con él: una línea menos por tarjeta. */}
+                      <div className="mt-2 flex items-center justify-between gap-2">
                         {dueText(p, eff(p))}
-                        <TeamStack team={p.team} count={p.teamCount} />
+                        <span className="flex shrink-0 items-center gap-2">
+                          {p.progress > 0 ? <span className="text-[10px] tabular-nums text-muted-foreground">{p.progress}%</span> : null}
+                          <TeamStack team={p.team} count={p.teamCount} />
+                        </span>
                       </div>
                     </div>
                   ))
@@ -260,7 +278,10 @@ export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewPr
     }
     const byClient = new Map<string, { key: string; label: string; pill: null; items: ViewProject[] }>();
     for (const p of projects) {
-      const g = byClient.get(p.clientId) ?? { key: p.clientId, label: `${p.clientEmoji ? `${p.clientEmoji} ` : ""}${p.clientName}`, pill: null, items: [] };
+      // `emojiToText` y no el token crudo: el campo `emoji` del cliente suele ser un token interno
+      // («ls:salud») y aquí la etiqueta es una CADENA, así que se degrada a su emoji de respaldo.
+      const marca = emojiToText(p.clientEmoji);
+      const g = byClient.get(p.clientId) ?? { key: p.clientId, label: `${marca ? `${marca} ` : ""}${p.clientName}`, pill: null, items: [] };
       g.items.push(p);
       byClient.set(p.clientId, g);
     }
@@ -327,7 +348,8 @@ export function MasterTable({ projects, allStatuses, grupo }: { projects: ViewPr
                           <span className="text-xs tabular-nums text-muted-foreground">{p.progress}%</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2">{dueText(p, eff(p))}</td>
+                      {/* Sin la próxima entrega: la columna «Entregables» de al lado ya la lleva. */}
+                      <td className="px-3 py-2">{dueText(p, eff(p), false)}</td>
                       <td className="px-3 py-2"><TeamStack team={p.team} count={p.teamCount} /></td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {p.deliverables > 0 ? (
@@ -367,21 +389,20 @@ export function PortfolioView({ projects, allStatuses }: { projects: ViewProject
                 <p className="min-w-0 truncate text-sm font-semibold group-hover:underline">{emojiToText(p.emoji) ? `${emojiToText(p.emoji)} ` : ""}{p.name}</p>
                 <span className={cn("mt-1 size-2.5 shrink-0 rounded-full", health)} title={healthTitle} />
               </div>
-              <p className="truncate text-xs text-muted-foreground">{p.clientEmoji ? `${p.clientEmoji} ` : ""}{p.clientName}</p>
-              <div className="mt-3 flex items-center gap-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
-                </div>
-                <span className="text-xs tabular-nums text-muted-foreground">{p.progress}%</span>
-              </div>
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", m?.className ?? "bg-muted text-muted-foreground")}>{m?.label ?? p.status}</span>
+              <p className="truncate text-xs text-muted-foreground">
+                {p.clientEmoji ? <><EntityEmoji value={p.clientEmoji} /> </> : null}{p.clientName}
+              </p>
+              {/* Fuera la barra de progreso a lo ancho (ver el comentario del Pipeline): el estado y
+                  el «cuándo» suben al sitio que ocupaba, que es donde se mira primero. */}
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold", m?.className ?? "bg-muted text-muted-foreground")}>{m?.label ?? p.status}</span>
                 {dueText(p)}
               </div>
               <div className="mt-2.5 flex items-center justify-between gap-2">
                 <TeamStack team={p.team} count={p.teamCount} />
-                <span className="text-[11px] text-muted-foreground">
-                  {p.deliverables > 0 ? `${p.deliverables} entregable${p.deliverables === 1 ? "" : "s"}` : "sin entregables"}
+                <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {p.progress > 0 ? <span className="tabular-nums">{p.progress}%</span> : null}
+                  {p.deliverables > 0 ? <span>{p.deliverables} entregable{p.deliverables === 1 ? "" : "s"}</span> : null}
                 </span>
               </div>
             </div>
