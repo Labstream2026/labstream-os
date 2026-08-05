@@ -19,7 +19,7 @@ import { RolesManager } from "@/app/(app)/configuracion/roles-manager";
 import { UserPermissions } from "@/app/(app)/configuracion/user-permissions";
 import { IntegrationsPanel } from "@/app/(app)/configuracion/integrations-panel";
 import { CalendarSubscribe } from "@/app/(app)/perfil/calendar-subscribe";
-import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureDiscosDefault, ensureDiscosGranularDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, ensureVerArchivosDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
+import { ensurePermissionsCatalog, ensureBuiltinRolesFlag, ensureRoleDefaults, ensureWriteGateDefaults, ensureAsistenteDefault, ensureCumplimientoDefault, ensureFinanzasDefault, ensureVentasFinanzas, ensureNotasDefault, ensureDiscosDefault, ensureDiscosGranularDefault, ensureClienteDefaults, ensureClienteWriteDefaults, ensureClienteCollabDefaults, ensureVerArchivosDefaults, ensureLeadsDefaults, PERMISSION_CATALOG, PERMISSION_CATEGORIES } from "@/lib/permissions";
 import { LabelsManager } from "@/app/(app)/configuracion/labels-manager";
 import { MarcebotSettings } from "@/app/(app)/configuracion/marcebot-settings";
 import { NotificationSettingsPanel } from "@/app/(app)/configuracion/notification-settings-panel";
@@ -184,6 +184,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   await ensureClienteWriteDefaults();
   await ensureClienteCollabDefaults();
   await ensureVerArchivosDefaults();
+  await ensureLeadsDefaults();
 
   const [roles, users] = await Promise.all([
     db.role.findMany({

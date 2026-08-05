@@ -21,6 +21,12 @@ import type { SessionUser } from "@/lib/session";
 //   3. Escribir exige, ADEMÁS, `User.agentWrite` en esa persona. Por defecto nadie lo tiene, así
 //      que el equipo consulta y solo quien esté habilitado modifica.
 //
+// Y una cuarta puerta que no lleva a esta casa: si la llave tiene `publicIntake`, un número
+// desconocido no se rechaza, se DESVÍA. No recibe una sesión con menos permisos —recibe otro
+// ejecutor (openclaw/public-tools.ts) que solo sabe contar qué hacemos y anotar sus datos. La
+// diferencia importa: con permisos recortados, un extraño está a un `if` mal escrito de ver un
+// proyecto; con otro ejecutor, habría que escribirle el código para consultarlo.
+//
 // Lo que esto NO es: una prueba de identidad. Quien tenga el secreto de una llave de pasarela
 // puede afirmar cualquier número registrado. La llave es la credencial de verdad; la cabecera solo
 // escoge entre las personas ya autorizadas. Por eso el freno de escritura vive en el servidor y no
@@ -59,8 +65,12 @@ export type GatewayActor = {
   verificado: boolean;
 };
 
+// Quien escribe y NO es de la casa. No trae sesión ni permisos porque no los necesita: lo
+// atiende `executePublicTool`, otro programa que solo sabe de la tabla Lead.
+export type PublicVisitor = { phone: string };
+
 export type GatewayOutcome =
-  | { ok: true; ctx: ApiKeyContext; actor: GatewayActor | null }
+  | { ok: true; ctx: ApiKeyContext; actor: GatewayActor | null; publico?: PublicVisitor }
   | { ok: false; status: number; error: string };
 
 // Rehace el contexto de la llave para que hable como la persona que le escribió al agente.
@@ -91,6 +101,14 @@ export async function resolveGatewayActor(
   });
   const match = candidates.find((u) => normalizePhone(u.whatsappPhone) === phone);
   if (!match) {
+    // Un número desconocido. Con `publicIntake` encendido no se le cierra la puerta: se le manda
+    // al carril público, que no tiene sesión ni permisos porque no consulta nada de la casa.
+    // Solo para remitentes VERIFICADOS: en los canales donde la identidad es DECLARADA (el panel
+    // compartido) un número que no cuadra es casi siempre un miembro del equipo escribiéndolo
+    // mal, y ahí ayuda más el aviso de abajo que tratarlo como si fuera un extraño.
+    if (ctx.key.publicIntake && verificado) {
+      return { ok: true, ctx: { session: ctx.session, key: ctx.key, readOnly: true }, actor: null, publico: { phone } };
+    }
     return {
       ok: false,
       status: 403,

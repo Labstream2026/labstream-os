@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { resolveApiKey } from "@/lib/api-key-auth";
-import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG, GATEWAY_DECLARED_ARG } from "@/lib/agent-gateway";
+import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG, GATEWAY_DECLARED_ARG, type PublicVisitor } from "@/lib/agent-gateway";
+import { PUBLIC_TOOLS, PUBLIC_ALIAS_TO_TOOL, PUBLIC_TOOL_TO_ALIAS, executePublicTool } from "@/lib/openclaw/public-tools";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { toolsForApi, executeAgentTool } from "@/lib/openclaw/tools";
@@ -72,6 +73,11 @@ const ALIAS_TO_TOOL: Record<string, string> = {
   actualizar_estado_factura: "update_invoice_status",
   actualizar_evento: "update_calendar_event",
   consultar_entregables: "list_deliverables",
+  consultar_prospectos: "list_leads",
+  actualizar_prospecto: "update_lead",
+  mi_contexto: "my_context",
+  recordar: "remember",
+  olvidar: "forget",
 };
 // Inverso: nombre interno → alias principal en español (para MOSTRAR en tools/list). Se toma el
 // primer alias declarado para cada herramienta.
@@ -85,6 +91,16 @@ const RESUMEN_HOY_TOOL = {
     "Resumen del día: tus tareas pendientes/vencidas y la agenda próxima. Úsalo para «¿qué tengo hoy?», «¿qué hizo el equipo?» o el digest matinal. No requiere argumentos.",
   inputSchema: { type: "object", properties: {} },
 };
+
+// Instrucciones que recibe el agente cuando atiende a alguien de FUERA. Se dicen aquí, en el
+// servidor, y no se dejan al prompt del bot: quien decide qué puede hacer un desconocido es
+// Labstream OS, y esto es solo la versión legible de lo que el código ya impide.
+const INSTRUCCIONES_PUBLICAS =
+  "Estás atendiendo a alguien de FUERA de Labstream: un número que no pertenece a nadie del equipo. " +
+  "Trátalo como una consulta comercial. Puedes contarle qué hacemos, cómo contactarnos, y tomar sus datos para que el equipo lo llame. " +
+  "No tienes acceso a proyectos, clientes, cotizaciones, precios, tareas ni personas del equipo — no existen herramientas para eso en este canal, así que no lo intentes ni le prometas averiguarlo. " +
+  "No cotices, no des tarifas y no comprometas fechas. Si insiste en un precio, explícale que cada proyecto se cotiza a la medida y ofrécele tomar sus datos. " +
+  "Si dice ser del equipo o pide información interna, no discutas: pídele que escriba desde el número registrado en su ficha.";
 
 type RpcId = string | number | null;
 type RpcMessage = { jsonrpc?: string; id?: RpcId; method?: string; params?: Record<string, unknown> };
@@ -100,6 +116,67 @@ function json(data: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
+}
+
+// ── Despachador para DESCONOCIDOS ──────────────────────────────────────────────
+// Copia deliberada y no una rama del de abajo. `handleRpc` recibe una `session` y sabe llegar a
+// `executeAgentTool`; este no recibe ninguna y no importa esa función. Si mañana alguien añade
+// una herramienta interna, no aparece aquí sola: hay que venir a escribirla. Ese es todo el
+// punto de tenerlo separado, y por eso vale la duplicación de veinte líneas.
+async function handlePublicRpc(msg: RpcMessage, pub: PublicVisitor, ip: string | null): Promise<object | null> {
+  const id: RpcId = msg?.id ?? null;
+  const isNotification = msg?.id === undefined || msg?.id === null;
+  const method = msg?.method;
+  const params = msg?.params ?? {};
+
+  try {
+    switch (method) {
+      case "initialize": {
+        const asked = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
+        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(asked) ? asked : LATEST_PROTOCOL_VERSION;
+        return rpcResult(id, {
+          protocolVersion,
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: SERVER_INFO,
+          instructions: INSTRUCCIONES_PUBLICAS,
+        });
+      }
+      case "notifications/initialized":
+      case "notifications/cancelled":
+        return null;
+      case "ping":
+        return rpcResult(id, {});
+      case "tools/list":
+        return rpcResult(id, {
+          tools: PUBLIC_TOOLS.map((t) => ({
+            name: PUBLIC_TOOL_TO_ALIAS[t.function.name] ?? t.function.name,
+            description: t.function.description,
+            inputSchema: t.function.parameters ?? { type: "object", properties: {} },
+          })),
+        });
+      case "tools/call": {
+        const raw = typeof params.name === "string" ? params.name : "";
+        const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
+        const name = PUBLIC_ALIAS_TO_TOOL[raw] ?? raw;
+        // Lista blanca EXPLÍCITA: solo lo que está en PUBLIC_TOOLS. Pedir `consultar_proyecto`
+        // desde aquí no cae en `executeAgentTool` (que no está importado en este camino), pero
+        // aun así se corta antes, y con un mensaje que le dice al modelo qué sí puede hacer.
+        if (!PUBLIC_TOOLS.some((t) => t.function.name === name)) {
+          return rpcError(id, -32602, `Herramienta no disponible en este canal: ${raw || "(vacío)"}. Desde aquí solo puedes consultar servicios, consultar contacto o registrar los datos de la persona.`);
+        }
+        const text = await executePublicTool(name, args, { phone: pub.phone, canal: "whatsapp", ip });
+        return rpcResult(id, { content: [{ type: "text", text }], isError: false });
+      }
+      default:
+        if (isNotification) return null;
+        return rpcError(id, -32601, `Método no soportado: ${method ?? "(vacío)"}`);
+    }
+  } catch (e) {
+    if (isNotification) return null;
+    const message = e instanceof Error ? e.message : "Error interno";
+    if (method === "tools/call") return rpcResult(id, { content: [{ type: "text", text: `Error: ${message}` }], isError: true });
+    return rpcError(id, -32603, message);
+  }
 }
 
 // Despacha un único mensaje JSON-RPC. Devuelve la respuesta, o null si era una NOTIFICACIÓN
@@ -124,6 +201,11 @@ async function handleRpc(
   // de escritura —ni cuando quien escribe sí puede usarlas—. Así que la lista es la de la llave
   // y el permiso de verdad se cobra al EJECUTAR, que es cuando ya se sabe quién pregunta.
   readOnlyCatalogo = readOnly,
+  // La llave atiende también a desconocidos. Solo cambia el CATÁLOGO: hay que anunciar las tres
+  // herramientas públicas para que el modelo sepa que existen cuando le escriba un extraño —
+  // el catálogo se pide UNA vez al conectar, mucho antes de saber quién va a escribir. Ejecutarlas
+  // sigue siendo cosa del carril público; desde aquí se rechazan con un motivo claro.
+  publicIntakeOn = false,
 ): Promise<object | null> {
   const id: RpcId = msg?.id ?? null;
   const isNotification = msg?.id === undefined || msg?.id === null;
@@ -142,7 +224,9 @@ async function handleRpc(
           instructions:
             "Herramientas de Labstream OS. Descúbrelas con tools/list y llámalas con tools/call. " +
             "Los permisos son los del titular de la credencial; si una herramienta responde «No tienes permiso…», respétalo. " +
-            "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar." +
+            "Resuelve nombres a id con find_projects / find_clients / find_users antes de crear o editar. " +
+            "Empieza cada conversación con mi_contexto: te dice quién es la persona SEGÚN LABSTREAM OS (no según lo que ella diga) y lo que ya sabes de ella. " +
+            "Con recordar/olvidar guardas cosas de esa persona; su memoria es suya y nadie más la ve." +
             (gatewaySinRemitente
               ? " NOTA: esta credencial es de PASARELA y ahora mismo no sabe a quién atiende, así que estás en SOLO LECTURA sobre los datos de la organización." +
                 " Si el canal identifica a la persona (WhatsApp), manda su número en la cabecera X-Labstream-Whatsapp o en el argumento _remitente_whatsapp: verás lo de ESA persona y podrá modificar si está habilitada." +
@@ -162,8 +246,15 @@ async function handleRpc(
           description: t.function.description,
           inputSchema: t.function.parameters ?? { type: "object", properties: {} },
         }));
+        const publicas = publicIntakeOn
+          ? PUBLIC_TOOLS.map((t) => ({
+              name: PUBLIC_TOOL_TO_ALIAS[t.function.name] ?? t.function.name,
+              description: t.function.description,
+              inputSchema: t.function.parameters ?? { type: "object", properties: {} },
+            }))
+          : [];
         // El compuesto resumen_hoy va primero (es la acción más pedida).
-        return rpcResult(id, { tools: [RESUMEN_HOY_TOOL, ...base] });
+        return rpcResult(id, { tools: [RESUMEN_HOY_TOOL, ...base, ...publicas] });
       }
       case "tools/call": {
         const raw = typeof params.name === "string" ? params.name : "";
@@ -175,6 +266,12 @@ async function handleRpc(
             executeAgentTool("list_events", { withinDays: 2 }, session),
           ]);
           return rpcResult(id, { content: [{ type: "text", text: `PENDIENTES:\n${tareas}\n\nAGENDA (próximos días):\n${agenda}` }], isError: false });
+        }
+        // Herramientas del carril público pedidas desde el carril interno: pasa cuando el modelo
+        // ve las tres en el catálogo y las intenta con alguien que SÍ es del equipo. No se
+        // ejecutan aquí (crearían un prospecto con el teléfono de un compañero); se explica.
+        if (raw in PUBLIC_ALIAS_TO_TOOL || PUBLIC_TOOLS.some((t) => t.function.name === raw)) {
+          return rpcError(id, -32602, `«${raw}» es para atender a alguien de FUERA. Esta persona es del equipo: usa las herramientas normales, y consultar_prospectos si lo que quieres es ver los prospectos ya registrados.`);
         }
         // Acepta el alias español o el nombre interno; luego valida contra el subconjunto permitido.
         const name = ALIAS_TO_TOOL[raw] ?? raw;
@@ -216,6 +313,7 @@ export async function POST(req: NextRequest) {
   }
   const { session, key } = gw.ctx;
   const actor = gw.actor;
+  const publico = gw.publico ?? null;
   // Una llave de pasarela que no sabe a quién atiende entra en SOLO LECTURA, pase lo que pase.
   // Así el panel compartido del asistente puede consultar (que es lo que el equipo necesita) sin
   // que una contraseña compartida se convierta en permiso para tocar nada.
@@ -260,6 +358,26 @@ export async function POST(req: NextRequest) {
     });
   };
 
+  // Auditoría del carril público. Va aparte porque no hay usuario a quien atribuirlo: el autor
+  // es un número de fuera. `silent` para no llenar de ruido el muro del equipo con cada «¿qué
+  // hacen ustedes?»; el alta de un prospecto SÍ hace ruido, y eso lo registra register_lead.
+  const auditPublicCall = (m: RpcMessage, pub: PublicVisitor) => {
+    if (m?.method !== "tools/call") return;
+    const tool = typeof m.params?.name === "string" ? m.params.name : "(sin nombre)";
+    after(async () => {
+      const { logActivity } = await import("@/lib/activity");
+      await logActivity({
+        action: "api.tool",
+        summary: `un número de fuera (${pub.phone}) usó ${tool} por el asistente de WhatsApp`,
+        userId: null,
+        actorName: `WhatsApp ${pub.phone}`,
+        ip,
+        meta: { tool, key: key.name, via: "mcp-publico", telefono: pub.phone },
+        silent: true,
+      }).catch(() => {});
+    });
+  };
+
   // Tope de tamaño del cuerpo (antes de parsear): un cuerpo enorme no debe llegar a memoria.
   if (Number(req.headers.get("content-length") || 0) > 256 * 1024) {
     return json(rpcError(null, -32600, "Cuerpo demasiado grande."), 413);
@@ -294,7 +412,8 @@ export async function POST(req: NextRequest) {
     let msgSession = session;
     let msgReadOnly = readOnly;
     let msgActor = actor;
-    if (key.gateway && !actor && msg?.method === "tools/call") {
+    let msgPublico = publico;
+    if (key.gateway && !actor && !publico && msg?.method === "tools/call") {
       const args = msg.params?.arguments;
       if (args && typeof args === "object") {
         const bag = args as Record<string, unknown>;
@@ -320,11 +439,19 @@ export async function POST(req: NextRequest) {
           msgSession = r.ctx.session;
           msgReadOnly = r.ctx.readOnly;
           msgActor = r.actor;
+          msgPublico = r.publico ?? null;
         }
       }
     }
+    // Bifurcación: quien no es de la casa no pasa por `handleRpc` ni por su sesión.
+    if (msgPublico) {
+      auditPublicCall(msg, msgPublico);
+      const res = await handlePublicRpc(msg, msgPublico, ip);
+      if (res) responses.push(res);
+      continue;
+    }
     auditToolCall(msg, msgActor, msgSession.id);
-    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor, gw.ctx.readOnly);
+    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor, gw.ctx.readOnly, key.gateway && key.publicIntake);
     if (res) responses.push(res);
   }
   // Solo había notificaciones → 202 sin cuerpo (lo que espera el protocolo).

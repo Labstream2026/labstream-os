@@ -6,6 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { LeadsBand } from "./leads-band";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,9 @@ export default async function ComercialPage() {
         title="Embudo comercial"
         description="Tus propuestas por etapa, de borrador a cierre."
       />
+
+      {/* Antes del embudo: quien todavía no tiene propuesta. Se pinta sola o no se pinta. */}
+      <LeadsBand />
 
       {proposals.length === 0 ? (
         <EmptyState

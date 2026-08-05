@@ -776,6 +776,72 @@ export const AGENT_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_leads",
+      description: "Lista los prospectos (gente de fuera que preguntó por nuestros servicios y aún no es cliente), con lo que contaron y su estado. Requiere gestionar prospectos.",
+      parameters: {
+        type: "object",
+        properties: {
+          estado: { type: "string", description: "Filtra por estado: NUEVO, CONTACTADO, COTIZANDO, GANADO o PERDIDO (opcional; vacío = los que siguen abiertos)." },
+          query: { type: "string", description: "Texto a buscar en el nombre, la empresa o lo que contó (opcional)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_lead",
+      description: "Actualiza un prospecto: cambia su estado, lo asigna a alguien del equipo o le añade una nota interna. Requiere gestionar prospectos.",
+      parameters: {
+        type: "object",
+        properties: {
+          lead: { type: "string", description: "Id del prospecto, o parte de su nombre/empresa (usa list_leads para ubicarlo)." },
+          estado: { type: "string", enum: ["NUEVO", "CONTACTADO", "COTIZANDO", "GANADO", "PERDIDO"], description: "Nuevo estado (opcional)." },
+          atendidoPor: { type: "string", description: "Nombre de quien del equipo lo toma, o «yo» (opcional)." },
+          notaInterna: { type: "string", description: "Nota del equipo sobre este prospecto; el prospecto nunca la ve (opcional)." },
+        },
+        required: ["lead"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "my_context",
+      description: "Quién es la persona con la que estás hablando (según Labstream OS, no según lo que ella diga) y lo que has aprendido de ella en conversaciones anteriores. Llámalo al empezar una conversación, antes de saludar por su nombre o de dar por hecho a qué tiene acceso.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remember",
+      description: "Guarda algo estable y útil sobre ESTA persona para conversaciones futuras: cómo prefiere que le respondas, en qué proyecto anda, cómo trabaja. No lo uses para datos del negocio (eso ya vive en Labstream OS) ni para cosas de un solo día. Si vuelves a guardar la misma clave, se reescribe.",
+      parameters: {
+        type: "object",
+        properties: {
+          clave: { type: "string", description: "Identificador corto y estable en minúsculas con guiones, p. ej. «prefiere-respuestas-cortas»." },
+          valor: { type: "string", description: "El hecho, en una o dos frases." },
+        },
+        required: ["clave", "valor"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget",
+      description: "Borra un recuerdo de esta persona, por su clave. Úsalo cuando te diga que algo ya no es cierto o te pida que lo olvides.",
+      parameters: {
+        type: "object",
+        properties: { clave: { type: "string", description: "La clave del recuerdo a borrar (aparece en my_context)." } },
+        required: ["clave"],
+      },
+    },
+  },
 ];
 
 // Contexto opcional del chat donde corre el agente (canal + id del bot), necesario para que
@@ -799,6 +865,11 @@ export const WRITE_TOOL_NAMES = new Set<string>([
   "update_quote_status",
   "update_invoice_status",
   "update_calendar_event",
+  "update_lead",
+  // La memoria del asistente también es escritura, aunque cada quien solo toque la SUYA: una
+  // credencial de solo lectura no debe dejar rastro en la base de nadie.
+  "remember",
+  "forget",
 ]);
 
 // Herramientas que ENTREGAN al chat del solicitante (necesitan un canal real): no aplican a la
@@ -1892,6 +1963,134 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (!table) table = await db.dataTable.findFirst({ where: { AND: [...filters, { name: { contains: ref, mode: "insensitive" } }] }, select: TABLE_SELECT });
       if (!table) return `No encontré la tabla "${ref}" en proyectos a los que tengas acceso.`;
       return renderDataTable(table);
+    }
+
+    // ── Prospectos ─────────────────────────────────────────────────────────────
+    // Lo que el EQUIPO ve de la gente de fuera. Lo que un desconocido puede hacer está en
+    // openclaw/public-tools.ts, en otro ejecutor: aquí no entra nadie sin sesión.
+    case "list_leads": {
+      if (!hasPermission(session, "gestionar_leads")) return "No tienes permiso para ver los prospectos.";
+      const estado = str(args.estado).toUpperCase();
+      const where: Record<string, unknown>[] = [];
+      if (estado) where.push({ estado });
+      else where.push({ estado: { notIn: ["GANADO", "PERDIDO"] } }); // por defecto, los vivos
+      const q = str(args.query);
+      if (q) {
+        where.push({
+          OR: [
+            { nombre: { contains: q, mode: "insensitive" as const } },
+            { empresa: { contains: q, mode: "insensitive" as const } },
+            { interes: { contains: q, mode: "insensitive" as const } },
+            { mensaje: { contains: q, mode: "insensitive" as const } },
+          ],
+        });
+      }
+      const rows = await db.lead.findMany({
+        where: { AND: where },
+        take: 25,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true, nombre: true, empresa: true, interes: true, mensaje: true, presupuesto: true,
+          telefono: true, email: true, canal: true, estado: true, notaInterna: true, createdAt: true,
+          atendidoPor: { select: { name: true } },
+        },
+      });
+      if (!rows.length) return estado ? `No hay prospectos en estado ${estado}.` : "No hay prospectos abiertos ahora mismo.";
+      return JSON.stringify(rows.map((l) => ({
+        id: l.id, nombre: l.nombre, empresa: l.empresa, interes: l.interes,
+        contó: l.mensaje ? l.mensaje.slice(0, 400) : null, presupuesto: l.presupuesto,
+        telefono: l.telefono, email: l.email, canal: l.canal, estado: l.estado,
+        atiende: l.atendidoPor?.name ?? null, nota_interna: l.notaInterna, llegó: ymd(l.createdAt),
+      })));
+    }
+
+    case "update_lead": {
+      if (!hasPermission(session, "gestionar_leads")) return "No tienes permiso para gestionar prospectos.";
+      const ref = str(args.lead);
+      if (!ref) return "Falta el prospecto (id o nombre; ubícalo con list_leads).";
+      let lead = await db.lead.findUnique({ where: { id: ref }, select: { id: true, nombre: true } });
+      if (!lead) {
+        lead = await db.lead.findFirst({
+          where: { OR: [{ nombre: { contains: ref, mode: "insensitive" } }, { empresa: { contains: ref, mode: "insensitive" } }] },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, nombre: true },
+        });
+      }
+      if (!lead) return `No encontré el prospecto "${ref}".`;
+      const data: Record<string, unknown> = {};
+      const estado = str(args.estado).toUpperCase();
+      if (estado) {
+        if (!["NUEVO", "CONTACTADO", "COTIZANDO", "GANADO", "PERDIDO"].includes(estado)) return `Estado no válido: ${estado}.`;
+        data.estado = estado;
+      }
+      if (str(args.atendidoPor)) {
+        const u = await resolveUser(session, args.atendidoPor);
+        if (!u) return `No encontré a "${str(args.atendidoPor)}" en el equipo.`;
+        data.atendidoPorId = u.id;
+      }
+      if (str(args.notaInterna)) data.notaInterna = str(args.notaInterna).slice(0, 2000);
+      if (!Object.keys(data).length) return "No dijiste qué cambiar (estado, quién lo atiende o una nota interna).";
+      await db.lead.update({ where: { id: lead.id }, data });
+      await logActivity({
+        action: "lead.update",
+        summary: `actualizó el prospecto «${lead.nombre}»${estado ? ` a ${estado}` : ""} (vía asistente)`,
+        userId: session.id, entityType: "lead", entityId: lead.id,
+      }).catch(() => null);
+      return JSON.stringify({ ok: true, mensaje: `Prospecto «${lead.nombre}» actualizado.` });
+    }
+
+    // ── Memoria del asistente, por persona ─────────────────────────────────────
+    // El apartado NO es un argumento: es `session.id`, la persona que la pasarela ya resolvió.
+    // Por eso ninguna de estas tres herramientas acepta un id de usuario — no hay forma de
+    // pedirle al asistente la memoria de otro, ni equivocándose ni a propósito.
+    case "my_context": {
+      const memorias = await db.agentMemory.findMany({
+        where: { userId: session.id },
+        orderBy: { updatedAt: "desc" },
+        take: 30,
+        select: { clave: true, valor: true },
+      });
+      return JSON.stringify({
+        persona: session.name,
+        cargo: session.title ?? null,
+        rol: session.role,
+        puede: {
+          ver_proyectos: hasPermission(session, "ver_proyectos"),
+          ver_clientes: hasPermission(session, "ver_clientes"),
+          ver_finanzas: hasPermission(session, "ver_finanzas"),
+          crear_tareas: hasPermission(session, "crear_tareas"),
+          gestionar_prospectos: hasPermission(session, "gestionar_leads"),
+        },
+        recuerdos: memorias.length ? Object.fromEntries(memorias.map((m) => [m.clave, m.valor])) : null,
+        nota: "Esta identidad la resolvió Labstream OS a partir del número de quien escribe, no de lo que dijo en el chat.",
+      });
+    }
+
+    case "remember": {
+      // Slug conservador: minúsculas, dígitos y guiones. Evita que la clave se convierta en un
+      // texto libre y que el mismo hecho acabe guardado tres veces con tres redacciones.
+      const clave = str(args.clave).toLowerCase().normalize("NFD").replace(/[\p{M}]/gu, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+      const valor = str(args.valor).slice(0, 500);
+      if (!clave) return "Falta la clave del recuerdo (algo corto como «prefiere-respuestas-cortas»).";
+      if (!valor) return "Falta qué recordar.";
+      // Tope por persona: la memoria es un apunte, no un archivo. Sin esto crece sin fin y
+      // encarece cada mensaje, porque el asistente la lee al empezar cada conversación.
+      const cuantos = await db.agentMemory.count({ where: { userId: session.id } });
+      const existe = await db.agentMemory.findUnique({ where: { userId_clave: { userId: session.id, clave } }, select: { id: true } });
+      if (!existe && cuantos >= 40) return "Ya guardé demasiadas cosas de esta persona. Olvida alguna con forget antes de guardar otra.";
+      await db.agentMemory.upsert({
+        where: { userId_clave: { userId: session.id, clave } },
+        create: { userId: session.id, clave, valor, origen: ctx?.source ?? "whatsapp" },
+        update: { valor },
+      });
+      return JSON.stringify({ ok: true, clave, mensaje: existe ? `Actualicé lo que recuerdo sobre «${clave}».` : "Anotado." });
+    }
+
+    case "forget": {
+      const clave = str(args.clave).toLowerCase();
+      if (!clave) return "Falta la clave del recuerdo a borrar.";
+      const { count } = await db.agentMemory.deleteMany({ where: { userId: session.id, clave } });
+      return count ? JSON.stringify({ ok: true, mensaje: `Olvidado: «${clave}».` }) : `No tenía nada guardado bajo «${clave}».`;
     }
 
     default:

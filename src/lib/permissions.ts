@@ -66,6 +66,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: "ver_clientes", label: "Ver clientes", category: "Clientes" },
   { key: "crear_clientes", label: "Crear clientes", category: "Clientes" },
   { key: "editar_clientes", label: "Editar clientes", category: "Clientes" },
+  { key: "gestionar_leads", label: "Gestionar prospectos (leads)", category: "Clientes" },
   // Calendario
   { key: "ver_calendario", label: "Ver calendario", category: "Calendario" },
   { key: "gestionar_calendario", label: "Gestionar citas", category: "Calendario" },
@@ -144,7 +145,7 @@ const CLIENTE_PORTAL_PERMS = [
 // UNA sola vez (ver ensureRoleDefaults). El admin luego ajusta a gusto.
 const ROLE_DEFAULTS: Record<string, string[]> = {
   gerente: ALL_PERMISSION_KEYS.filter((k) => !["administrar_usuarios", "administrar_roles", "administrar_integraciones"].includes(k)),
-  ventas: ["ver_proyectos", "ver_clientes", "crear_clientes", "editar_clientes", "ver_cotizaciones", "ver_finanzas", "crear_cotizaciones", "enviar_cotizaciones", "ver_calendario", "comentar", "ver_reportes", "ver_biblioteca", "ver_wiki"],
+  ventas: ["ver_proyectos", "ver_clientes", "crear_clientes", "editar_clientes", "gestionar_leads", "ver_cotizaciones", "ver_finanzas", "crear_cotizaciones", "enviar_cotizaciones", "ver_calendario", "comentar", "ver_reportes", "ver_biblioteca", "ver_wiki"],
   productor: ["ver_proyectos", "crear_proyectos", "editar_proyectos", "gestionar_miembros_proyecto", "ver_clientes", "crear_clientes", "editar_clientes", "crear_tareas", "editar_tareas", "eliminar_tareas", "gestionar_cronograma", "registrar_horas", "aprobar_entregables", "compartir_cliente", "ver_archivos", "subir_archivos", "eliminar_archivos", "ver_calendario", "gestionar_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "ver_clientes", "comentar", "ver_actividad"],
   director: ["ver_proyectos", "editar_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "aprobar_entregables", "compartir_cliente", "ver_archivos", "subir_archivos", "ver_calendario", "gestionar_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "ver_clientes", "comentar"],
   editor: ["ver_proyectos", "crear_tareas", "editar_tareas", "gestionar_cronograma", "registrar_horas", "ver_archivos", "subir_archivos", "ver_calendario", "crear_canales", "ver_wiki", "editar_wiki", "ver_biblioteca", "comentar"],
@@ -407,6 +408,25 @@ export async function ensureVerArchivosDefaults(): Promise<void> {
   if (!faltan.length) return;
   await db.rolePermission.createMany({
     data: faltan.map((roleId) => ({ roleId, permissionId: permVer.id })),
+    skipDuplicates: true,
+  });
+}
+
+// `gestionar_leads` es NUEVO y llega con los prospectos que deja el asistente de WhatsApp cuando
+// atiende a un desconocido. Se concede la PRIMERA vez a quien hace comercial: `ventas` y
+// `gerente` (el admin ya lo tiene por bypass). Nadie más lo recibe: la lista de prospectos trae
+// teléfonos y correos de gente de fuera, así que no es un permiso para repartir por defecto.
+// Idempotente: si algún rol ya lo tiene, el backfill ya corrió.
+const LEADS_ROLES = ["gerente", "ventas"];
+export async function ensureLeadsDefaults(): Promise<void> {
+  const perm = await db.permission.findUnique({ where: { key: "gestionar_leads" }, select: { id: true } });
+  if (!perm) return; // el catálogo aún no se sincronizó
+  const already = await db.rolePermission.count({ where: { permissionId: perm.id } });
+  if (already > 0) return;
+  const roles = await db.role.findMany({ where: { key: { in: LEADS_ROLES } }, select: { id: true } });
+  if (!roles.length) return;
+  await db.rolePermission.createMany({
+    data: roles.map((r) => ({ roleId: r.id, permissionId: perm.id })),
     skipDuplicates: true,
   });
 }

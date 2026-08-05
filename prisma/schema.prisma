@@ -200,6 +200,8 @@ model User {
   servicePackages    ServicePackage[]   @relation("ServicePackageCreator")
   recurringAssigned  RecurringTask[]    @relation("RecurAssignee")
   recurringCreated   RecurringTask[]    @relation("RecurCreatedBy")
+  leadsAtendidos     Lead[]             @relation("LeadsAtendidos")
+  memoriasAgente     AgentMemory[]      @relation("MemoriasAgente")
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -409,6 +411,13 @@ model AppKey {
   // OJO: quien tenga el secreto de una llave de pasarela puede actuar como CUALQUIER número
   // registrado. Es una credencial de alto valor; el freno de las ESCRITURAS es `User.agentWrite`.
   gateway         Boolean   @default(false)
+  // Atención a DESCONOCIDOS (solo tiene efecto en una llave de pasarela). Apagado, un número que
+  // no está en ninguna ficha se rechaza con 403 — el comportamiento de siempre, canal solo-equipo.
+  // Encendido, ese número entra a un carril APARTE: catálogo público de 3 herramientas (qué
+  // hacemos, cómo contactarnos, dejar sus datos) ejecutado por `executePublicTool`, que no sabe
+  // consultar proyectos ni clientes porque no tiene ese código. No es un permiso recortado: es
+  // otro programa. Abrir el canal a terceros es, por eso, encender ESTE interruptor y nada más.
+  publicIntake    Boolean   @default(false)
   user            User      @relation("AppKeyUser", fields: [userId], references: [id], onDelete: Cascade)
   userId          String
   createdById     String? // admin que la creó
@@ -2745,4 +2754,58 @@ model DeliveryEvent {
   createdAt DateTime @default(now())
 
   @@index([projectId, createdAt])
+}
+
+// ── Prospecto (lead) ───────────────────────────────────────────────────────────
+// Alguien que TODAVÍA no es cliente y escribió preguntando. Nace del asistente de WhatsApp
+// cuando contesta a un número desconocido: en vez de rechazarlo (que era lo que hacía antes) o
+// de dejarle ver datos de la casa (que no debe), se le atiende con información pública y lo que
+// cuenta queda AQUÍ, en su propia tabla, sin tocar Client ni User.
+// Es a propósito una isla: no tiene relación con proyectos ni cotizaciones. Un prospecto no
+// «entra» a Labstream OS; solo deja su recado. Convertirlo en cliente es un acto humano.
+model Lead {
+  id          String   @id @default(cuid())
+  nombre      String
+  telefono    String? // como lo reporta el canal, ya normalizado (solo dígitos)
+  email       String?
+  empresa     String?
+  interes     String? // qué servicio le interesa, en sus palabras
+  mensaje     String? // lo que contó; se va acumulando si vuelve a escribir
+  presupuesto String? // rango declarado, texto libre (nunca se le pregunta un precio nuestro)
+  canal       String   @default("whatsapp") // whatsapp | web | equipo
+  estado      String   @default("NUEVO") // NUEVO | CONTACTADO | COTIZANDO | GANADO | PERDIDO
+  notaInterna String? // lo que escribe el equipo, nunca visible para el prospecto
+
+  // Quién lo tomó del equipo (opcional: al nacer no lo ha tomado nadie).
+  atendidoPor   User?   @relation("LeadsAtendidos", fields: [atendidoPorId], references: [id])
+  atendidoPorId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estado, createdAt])
+  @@index([telefono])
+}
+
+// ── Memoria del asistente, POR PERSONA ─────────────────────────────────────────
+// Lo que el asistente aprende de alguien («prefiere respuestas cortas», «su proyecto de cabecera
+// es X»). El apartado es el DUEÑO: toda consulta se hace con `userId` = la persona ya resuelta
+// por la pasarela, nunca con un id que venga del modelo. Así dos personas distintas por el mismo
+// WhatsApp no se ven la memoria — que es justo lo que pasaba con la memoria del propio Hermes,
+// que era una sola para el equipo entero.
+// `clave` es un identificador corto y estable para poder REESCRIBIR un recuerdo en vez de
+// acumular versiones contradictorias.
+model AgentMemory {
+  id     String @id @default(cuid())
+  user   User   @relation("MemoriasAgente", fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  clave  String // slug corto: "prefiere-respuestas-cortas"
+  valor  String // el hecho, en una o dos frases
+  origen String @default("whatsapp") // de qué canal salió
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, clave])
+  @@index([userId, updatedAt])
 }
