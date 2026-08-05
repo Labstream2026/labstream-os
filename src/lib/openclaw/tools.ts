@@ -877,13 +877,80 @@ export const WRITE_TOOL_NAMES = new Set<string>([
 // se ofrecerían al modelo y siempre devolverían un no-op "no puedo enviar… en este contexto").
 export const CHANNEL_TOOL_NAMES = new Set<string>(["send_file", "send_quote", "generar_imagen"]);
 
-// Devuelve el subconjunto de herramientas apto para la API intermedia: sin las de canal y, si la
-// key es de solo lectura, sin las de escritura.
-export function toolsForApi(readOnly: boolean): ToolDef[] {
+// ── Permiso que exige cada herramienta ────────────────────────────────────────
+// Espejo declarativo de los `hasPermission` que viven dentro de cada `case`. NO sustituye a esas
+// comprobaciones —el candado sigue estando en la ejecución— pero permite responder antes una
+// pregunta distinta: ¿tiene sentido siquiera OFRECER esta herramienta a esta credencial?
+//
+// Una llave con alcances acotados jamás va a poder ejecutar lo que su alcance no cubre, porque
+// los permisos efectivos son la intersección(permisos de la persona, alcances de la llave). Sin
+// este mapa, el catálogo anuncia igual `consultar_cotizaciones` a una llave sin `ver_finanzas`:
+// el modelo la ve, la intenta, se la niegan, y vuelve a intentar otra cosa. Eso cuesta un turno
+// entero — y, sobre todo, cuesta en CADA mensaje, porque el catálogo viaja siempre.
+//
+// Varias claves = basta UNA (así está escrito el `case`: `crear_clientes || crear_proyectos`).
+// Herramienta ausente de este mapa = sin candado de permiso (su alcance lo imponen otras reglas,
+// como la visibilidad por proyecto) → siempre se ofrece.
+// AL AÑADIR UNA HERRAMIENTA CON PERMISO, añádela aquí también: si se olvida, se sigue ofreciendo
+// siempre, que es el comportamiento de antes — nunca al revés. Olvidarlo no abre nada.
+export const TOOL_PERMISSIONS: Record<string, string[]> = {
+  find_projects: ["ver_proyectos"],
+  get_project: ["ver_proyectos"],
+  get_delivery_link: ["ver_proyectos"],
+  list_tasks: ["ver_proyectos"],
+  find_users: ["ver_proyectos"],
+  list_deliverables: ["ver_proyectos"],
+  get_material_map: ["ver_biblioteca"],
+  send_message: ["comentar"],
+  create_task: ["crear_tareas"],
+  create_recurring_task: ["crear_tareas"],
+  update_task: ["editar_tareas"],
+  create_note: ["crear_notas"],
+  list_notes: ["ver_notas"],
+  update_note: ["editar_notas"],
+  find_clients: ["ver_clientes"],
+  create_client: ["crear_clientes", "crear_proyectos"],
+  update_client: ["editar_clientes"],
+  create_project: ["crear_proyectos"],
+  update_project: ["editar_proyectos"],
+  list_quotes: ["ver_finanzas"],
+  list_invoices: ["ver_finanzas"],
+  update_quote_status: ["ver_finanzas"],
+  update_invoice_status: ["ver_finanzas"],
+  send_quote: ["ver_finanzas"],
+  list_events: ["ver_calendario"],
+  create_calendar_event: ["gestionar_calendario"],
+  update_calendar_event: ["gestionar_calendario"],
+  find_files: ["ver_archivos"],
+  read_file: ["ver_archivos"],
+  send_file: ["ver_archivos"],
+  generar_imagen: ["ver_asistente"],
+  generar_video: ["ver_asistente"],
+  find_wiki_pages: ["ver_wiki"],
+  get_wiki_page: ["ver_wiki"],
+  get_wiki_table: ["ver_wiki"],
+  list_credentials: ["ver_contrasenas"],
+  list_leads: ["gestionar_leads"],
+  update_lead: ["gestionar_leads"],
+};
+
+// ¿Los alcances de una credencial permiten, siquiera en teoría, usar esta herramienta?
+// `scopes` vacío = la llave hereda todo lo del titular → no se filtra nada.
+export function toolAllowedByScopes(name: string, scopes: string[]): boolean {
+  if (scopes.length === 0) return true;
+  const req = TOOL_PERMISSIONS[name];
+  if (!req) return true;
+  return req.some((p) => scopes.includes(p));
+}
+
+// Devuelve el subconjunto de herramientas apto para la API intermedia: sin las de canal, sin las
+// de escritura si la key es de solo lectura, y sin las que su alcance no cubre.
+export function toolsForApi(readOnly: boolean, scopes: string[] = []): ToolDef[] {
   return AGENT_TOOLS.filter((t) => {
     const n = t.function.name;
     if (CHANNEL_TOOL_NAMES.has(n)) return false;
     if (readOnly && WRITE_TOOL_NAMES.has(n)) return false;
+    if (!toolAllowedByScopes(n, scopes)) return false;
     return true;
   });
 }

@@ -59,8 +59,10 @@ export const POST = withApiKey(async (req: NextRequest, ctx: ApiKeyContext) => {
   if (message) turns.push({ role: "user", content: message });
   if (turns.length === 1) return apiJson({ ok: false, error: "No hay ningún mensaje de usuario que responder." }, 400);
 
-  // Herramientas según el modo de la key (read-only oculta las de escritura; siempre sin las de canal).
-  const tools = toolsForApi(ctx.readOnly);
+  // Herramientas según el modo de la key (read-only oculta las de escritura; siempre sin las de
+  // canal) y según sus alcances: ofrecerle al modelo lo que esta credencial nunca podrá ejecutar
+  // solo gasta tokens y le hace perder un turno para que se lo nieguen.
+  const tools = toolsForApi(ctx.readOnly, ctx.key.scopes);
   // ctx undefined: la API no tiene un chat donde entregar; las tools de canal ya están excluidas.
   const r = await runAgent(turns, tools, (name, args) => executeAgentTool(name, args, ctx.session, undefined));
   if (!r.ok) {

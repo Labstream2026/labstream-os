@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
+import { notifyManyAndEmail } from "@/lib/notify";
 import type { ToolDef } from "./client";
 
 // ── El carril de los DESCONOCIDOS ──────────────────────────────────────────────
@@ -119,6 +120,39 @@ function campo(v: unknown, max: number): string | null {
 // Contexto de quien escribe: su número (ya normalizado por la pasarela) y por dónde entró.
 export type PublicContext = { phone: string; canal?: string; ip?: string | null };
 
+// Avisa a quien lleva lo comercial de que llegó alguien nuevo. Sin esto, un prospecto se queda
+// esperando en una pantalla que nadie tiene abierta: el asistente atiende a cualquier hora, pero
+// quien devuelve la llamada es una persona, y hay que decírselo.
+// Destinatarios = quien pueda ver prospectos (`gestionar_leads` por rol o concedido a mano),
+// más los admins, que lo tienen por bypass y no aparecen en la tabla de permisos.
+async function avisarAlEquipo(leadId: string, titulo: string, cuerpo: string): Promise<void> {
+  const usuarios = await db.user.findMany({
+    where: {
+      active: true,
+      isSystemBot: false,
+      OR: [
+        { role: { key: "admin" } },
+        { role: { permissions: { some: { permission: { key: "gestionar_leads" } } } } },
+        { permissionOverrides: { some: { permissionKey: "gestionar_leads", granted: true } } },
+      ],
+      // Quien tenga el permiso QUITADO a mano no recibe el aviso, aunque su rol lo tenga.
+      NOT: { permissionOverrides: { some: { permissionKey: "gestionar_leads", granted: false } } },
+    },
+    select: { id: true },
+  });
+  if (!usuarios.length) return;
+  await notifyManyAndEmail(usuarios.map((u) => u.id), {
+    type: "lead_nuevo",
+    event: "lead_nuevo",
+    title: titulo,
+    body: cuerpo,
+    link: "/comercial",
+    // Todos los avisos de un mismo prospecto se agrupan: si escribe tres veces, no son tres
+    // campanazos separados.
+    groupKey: `lead:${leadId}`,
+  });
+}
+
 // Ejecuta una herramienta del carril público. Devuelve texto, igual que executeAgentTool, para
 // que la capa MCP no tenga que distinguirlas.
 export async function executePublicTool(name: string, args: Record<string, unknown>, pub: PublicContext): Promise<string> {
@@ -182,6 +216,14 @@ export async function executePublicTool(name: string, args: Record<string, unkno
           meta: { telefono: pub.phone, canal: pub.canal ?? "whatsapp", via: "mcp-publico" },
           silent: true,
         }).catch(() => null);
+        // Solo se vuelve a avisar si trajo algo nuevo que contar: si repite lo mismo, callar.
+        if (mensaje || interes || presupuesto) {
+          await avisarAlEquipo(
+            previo.id,
+            `${nombre} amplió su solicitud`,
+            [interes, presupuesto ? `Presupuesto: ${presupuesto}` : null, mensaje].filter(Boolean).join(" · ").slice(0, 300),
+          ).catch(() => null);
+        }
         return JSON.stringify({ ok: true, mensaje: `Actualicé los datos de ${nombre}. El equipo comercial ya los tiene.` });
       }
 
@@ -200,6 +242,11 @@ export async function executePublicTool(name: string, args: Record<string, unkno
         ip: pub.ip ?? null,
         meta: { telefono: pub.phone, canal: pub.canal ?? "whatsapp", via: "mcp-publico" },
       }).catch(() => null);
+      await avisarAlEquipo(
+        lead.id,
+        `Prospecto nuevo: ${nombre}${empresa ? ` (${empresa})` : ""}`,
+        [interes, presupuesto ? `Presupuesto: ${presupuesto}` : null, `📱 ${pub.phone}`, mensaje].filter(Boolean).join(" · ").slice(0, 300),
+      ).catch(() => null);
       return JSON.stringify({ ok: true, mensaje: `Listo, ${nombre}: registré tus datos y el equipo comercial te va a contactar.` });
     }
 

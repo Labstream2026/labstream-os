@@ -4,7 +4,7 @@ import { applyAgentGateway, resolveGatewayActor, GATEWAY_SENDER_ARG, GATEWAY_DEC
 import { PUBLIC_TOOLS, PUBLIC_ALIAS_TO_TOOL, PUBLIC_TOOL_TO_ALIAS, executePublicTool } from "@/lib/openclaw/public-tools";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
-import { toolsForApi, executeAgentTool } from "@/lib/openclaw/tools";
+import { toolsForApi, toolAllowedByScopes, executeAgentTool } from "@/lib/openclaw/tools";
 
 // ── Servidor MCP embebido (Model Context Protocol) ──
 // Puerta de entrada oficial para AGENTES de IA (ChatGPT, Claude, Gemini, OpenClaw…). NO duplica
@@ -206,6 +206,10 @@ async function handleRpc(
   // el catálogo se pide UNA vez al conectar, mucho antes de saber quién va a escribir. Ejecutarlas
   // sigue siendo cosa del carril público; desde aquí se rechazan con un motivo claro.
   publicIntakeOn = false,
+  // Alcances de la LLAVE (no los de la persona). Recortan el catálogo a lo que esa credencial
+  // podría llegar a ejecutar alguna vez: lo que su alcance no cubre no lo va a poder usar NADIE
+  // a través de ella, así que anunciarlo solo gasta tokens y turnos.
+  scopes: string[] = [],
 ): Promise<object | null> {
   const id: RpcId = msg?.id ?? null;
   const isNotification = msg?.id === undefined || msg?.id === null;
@@ -241,7 +245,7 @@ async function handleRpc(
       case "ping":
         return rpcResult(id, {});
       case "tools/list": {
-        const base = toolsForApi(readOnlyCatalogo).map((t) => ({
+        const base = toolsForApi(readOnlyCatalogo, scopes).map((t) => ({
           name: TOOL_TO_ALIAS[t.function.name] ?? t.function.name, // nombre en español si lo tiene
           description: t.function.description,
           inputSchema: t.function.parameters ?? { type: "object", properties: {} },
@@ -253,8 +257,10 @@ async function handleRpc(
               inputSchema: t.function.parameters ?? { type: "object", properties: {} },
             }))
           : [];
-        // El compuesto resumen_hoy va primero (es la acción más pedida).
-        return rpcResult(id, { tools: [RESUMEN_HOY_TOOL, ...base, ...publicas] });
+        // El compuesto resumen_hoy va primero (es la acción más pedida), pero solo si la llave
+        // llega a los pendientes: junta list_tasks + list_events y sin lo primero no dice nada.
+        const compuesto = toolAllowedByScopes("list_tasks", scopes) ? [RESUMEN_HOY_TOOL] : [];
+        return rpcResult(id, { tools: [...compuesto, ...base, ...publicas] });
       }
       case "tools/call": {
         const raw = typeof params.name === "string" ? params.name : "";
@@ -275,7 +281,7 @@ async function handleRpc(
         }
         // Acepta el alias español o el nombre interno; luego valida contra el subconjunto permitido.
         const name = ALIAS_TO_TOOL[raw] ?? raw;
-        const allowed = toolsForApi(readOnly).some((t) => t.function.name === name);
+        const allowed = toolsForApi(readOnly, scopes).some((t) => t.function.name === name);
         if (!allowed) return rpcError(id, -32602, `Herramienta no disponible para esta credencial: ${raw || "(vacío)"}`);
         const text = await executeAgentTool(name, args, session);
         // Convención MCP: los fallos de una herramienta van como resultado con isError=true (para
@@ -451,7 +457,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
     auditToolCall(msg, msgActor, msgSession.id);
-    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor, gw.ctx.readOnly, key.gateway && key.publicIntake);
+    const res = await handleRpc(msg, msgSession, msgReadOnly, key.gateway && !msgActor, gw.ctx.readOnly, key.gateway && key.publicIntake, key.scopes);
     if (res) responses.push(res);
   }
   // Solo había notificaciones → 202 sin cuerpo (lo que espera el protocolo).
