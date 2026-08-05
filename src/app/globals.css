@@ -249,6 +249,39 @@ html.density-compact {
 :root {
   --pwa-nav-h: 0px;
 }
+
+/* ── Capas (z-index): la escala de la casa ──────────────────────────────────
+   No hay utilidades nuevas, es un ACUERDO. Se escribe aquí porque el error que
+   costó encontrarlo no fue un número mal puesto sino no saber contra quién competía
+   cada número:
+
+     0–30   contenido de la página. Tope 30. Aquí caben los adornos de una tarjeta
+            (tinte, barra de color, menú ⋯), los encabezados pegajosos de una tabla
+            y los globos del calendario. NADA de la página debe pasar de 30.
+     40     barra superior. Tiene contexto propio (`relative z-40` en topbar.tsx):
+            lo de dentro ya no compite con la página, así que sus menús pueden usar
+            los números que quieran entre ellos.
+     50     cajón de menú en móvil y botón flotante: tapan la barra a propósito.
+     60+    superposiciones a pantalla completa. De ahí para arriba cada una explica
+            en su sitio por qué va donde va (el visor inmersivo vive en 60, y lo que
+            deba verse SOBRE él sube a 80/90/100). No inventes un número nuevo sin
+            dejar escrito a qué le estás ganando.
+
+   Regla práctica: si estás subiendo un z-index para ganarle a algo, mira primero si
+   lo que falta es un CONTEXTO (`relative z-…` o `isolate`) en el ancestro. Casi
+   siempre lo es. Y ojo con `isolate` donde haya un menú que deba montarse sobre los
+   hermanos: lo encierra y queda tapado. */
+
+/* ── Alto de la barra superior ── */
+/* Lo declara ESTA variable y lo usa <Topbar>; quien necesite descontarlo (el panel de chat,
+   la columna fija de la wiki) lo resta con calc(var(--topbar-h)). Antes cada sitio escribía
+   el número a mano y habían quedado en 3.5rem mientras la barra ya medía 3.75rem: cuatro
+   píxeles de desfase que tapaban su borde inferior y estiraban de más las columnas fijas.
+   Un número escrito en tres sitios acaba siendo tres números distintos. */
+:root {
+  --topbar-h: 3.75rem;
+}
+
 .pwa-nav {
   display: none;
 }

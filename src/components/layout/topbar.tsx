@@ -193,7 +193,16 @@ export function Topbar({
   const isProjectDetail = segments[0] === "proyectos" && segments.length >= 2 && segments[1] !== "nuevo";
 
   return (
-    <header className="flex h-[calc(3.75rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
+    // `relative z-40` no es decoración: crea el CONTEXTO DE APILAMIENTO de la barra.
+    // Sin él, la barra es un hijo cualquiera del mismo contexto que la página, y los `z-20`/`z-30`
+    // de sus menús desplegables compiten uno a uno con los de las tarjetas — que también usan
+    // z-20 (la barra de color del cliente) y z-30 (el menú «⋯»). Resultado: los adornos de las
+    // tarjetas se pintaban ENCIMA del panel de notificaciones.
+    // Con el contexto, lo de dentro de la barra deja de competir con la página: toda la barra
+    // vale 40, y ahí ya no importa qué número use cada menú por dentro. 40 la deja por encima de
+    // cualquier contenido (que llega a 30) y por debajo de lo que debe taparla: cajón móvil y
+    // botón flotante (50), paleta de comandos (60), diálogos.
+    <header className="relative z-40 flex h-[calc(var(--topbar-h)+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4">
       {/* Abrir cajón de menú (solo móvil) */}
       <Button
         variant="ghost"

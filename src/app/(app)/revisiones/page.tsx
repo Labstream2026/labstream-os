@@ -742,6 +742,11 @@ function Card({ d, cta, primary, neutral, showStatus }: { d: Item; cta: string; 
     // Envoltorio SIN overflow-hidden. La tarjeta recorta su contenido para las esquinas
     // redondeadas y el tinte del cliente, pero el panel del menú ⋯ mide 240 px: dentro del
     // recorte salía cortado por los dos lados. Así el menú es hermano de la tarjeta, no hijo.
+    // OJO si alguna vez tientas `isolate` aquí: encerraría la escala de la tarjeta, sí, pero
+    // también su menú ⋯ —que mide 240 px y TIENE que montarse sobre las tarjetas vecinas—, y
+    // quedaría tapado por la siguiente de la cuadrícula. Que estos z- compitan con los hermanos
+    // es justo lo que se necesita. De que no le ganen a la barra superior se encarga la barra,
+    // que tiene su propio contexto (ver components/layout/topbar.tsx).
     <div className="group relative">
       <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors group-hover:border-primary/40">
       {/* Color del cliente: tinte suave del recuadro + barra lateral. */}

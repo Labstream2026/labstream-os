@@ -16,7 +16,7 @@ export async function WikiShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1">
       <aside className="hidden w-56 shrink-0 lg:block">
-        <div className="sticky top-0 h-[calc(100dvh-var(--pwa-nav-h,0px)-3.5rem)]">
+        <div className="sticky top-0 h-[calc(100dvh-var(--pwa-nav-h,0px)-var(--topbar-h))]">
           <WikiSidebar
             grupos={nav.grupos}
             todas={nav.todas}

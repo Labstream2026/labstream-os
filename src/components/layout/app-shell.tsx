@@ -246,7 +246,7 @@ export function AppShell({
         <DesktopChatBubble onOpen={() => setChatPanelOpen(true)} fallbackUnread={chatUnread} />
       ) : null}
       {hasChat && chatPanelOpen ? (
-        <div className="fixed bottom-0 right-0 top-[calc(3.5rem+env(safe-area-inset-top)+var(--pwa-nav-h,0px))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
+        <div className="fixed bottom-0 right-0 top-[calc(var(--topbar-h)+env(safe-area-inset-top)+var(--pwa-nav-h,0px))] z-40 hidden w-[380px] max-w-[92vw] border-l border-border bg-background shadow-2xl animate-in slide-in-from-right duration-200 md:block">
           <ChatDock variant="mobile" me={me} isAdmin={isAdmin} team={dockTeam} generalChannel={generalChannel} onClose={() => setChatPanelOpen(false)} />
         </div>
       ) : null}
