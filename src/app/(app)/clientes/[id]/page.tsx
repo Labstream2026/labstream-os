@@ -6,8 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject, canManageProject, accessibleProjectWhere } from "@/lib/project-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
-import { canAccessClient, canManageClient, accessibleClientWhere } from "@/lib/client-access";
-import { ClientesRail, type RailClient } from "./clientes-rail";
+import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientTopbarPeople } from "./client-topbar-people";
 import { ClientUsers, type ClientUserItem } from "./client-users";
@@ -406,51 +405,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
     };
   });
-  // ── Rail de clientes (columna izquierda de la ficha) ──
-  // Todos los clientes ACTIVOS accesibles, ligeros, con sus proyectos, para saltar entre cuentas
-  // sin volver a la galería. Consulta aparte y liviana (solo lo que el rail pinta); el acceso a
-  // proyectos se acota luego en JS con canAccessProject (barato sobre este select mínimo).
-  const railClientsRaw = await db.client.findMany({
-    where: { ...accessibleClientWhere(session), archivedAt: null, isActive: true },
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      emoji: true,
-      accentColor: true,
-      members: { select: { userId: true } },
-      projects: {
-        where: { archivedAt: null, finishedAt: null },
-        orderBy: { createdAt: "asc" },
-        select: { id: true, name: true, emoji: true, status: true, dueDate: true, isPrivate: true, leadId: true, members: { select: { userId: true } } },
-      },
-    },
-  });
-  const railClientes: RailClient[] = railClientsRaw
-    .map((c) => {
-      const visibles = c.projects.filter((p) => canAccessProject({ ...p, client: { members: c.members } }, session));
-      const projects = visibles.map((p) => {
-        const done = DONE_PROY.includes(p.status);
-        return {
-          id: p.id,
-          name: p.name,
-          emoji: p.emoji,
-          done,
-          overdue: !!p.dueDate && p.dueDate.getTime() < nowMs && !done,
-        };
-      });
-      return {
-        id: c.id,
-        name: c.name,
-        emoji: c.emoji,
-        accentHex: c.accentColor ? tone(c.accentColor).hex : "#6366f1",
-        count: projects.length,
-        overdue: projects.filter((p) => p.overdue).length,
-        projects,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
-
   const resumen = (
     <ClientResumen
       proyectos={resumenRows}
@@ -506,19 +460,10 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   );
 
   return (
-    // Maestro-detalle: rail de clientes a la izquierda (solo escritorio, lg+) + la ficha. Cambiar
-    // de cuenta es un clic, sin volver a la galería. En móvil la ficha va a ancho completo.
-    <div className="flex">
-      <aside className="hidden shrink-0 lg:block">
-        <div className="sticky top-4 mr-1 h-[calc(100vh-2rem)] w-64 overflow-hidden rounded-xl border border-border bg-card">
-          <ClientesRail clientes={railClientes} activeId={id} total={railClientes.length} />
-        </div>
-      </aside>
-      <div className="min-w-0 flex-1">
-        <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-7">
-          {/* Miembros del cliente en la BARRA superior (avatares → panel editable, se recoge al
-              hacer clic fuera). Sustituye ahí al grupo global del equipo mientras estás en la ficha. */}
-          <ClientTopbarPeople clientId={id} members={memberItems} addable={addable} canManage={canManage} />
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
+      {/* Miembros del cliente en la BARRA superior (avatares → panel editable, se recoge al
+          hacer clic fuera). Sustituye ahí al grupo global del equipo mientras estás en la ficha. */}
+      <ClientTopbarPeople clientId={id} members={memberItems} addable={addable} canManage={canManage} />
       {/* Cabecera-portada tipo Notion (dirección «Cine»): la identidad del cliente al frente.
           `key` por portada: al cambiarla, la pieza se re-monta y su estado local (encuadre,
           override optimista) arranca limpio con los datos frescos del servidor. */}
@@ -779,8 +724,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             },
           ]}
         />
-          </div>
-        </div>
       </div>
     </div>
   );
