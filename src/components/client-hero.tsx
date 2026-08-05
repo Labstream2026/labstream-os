@@ -172,7 +172,10 @@ export function ClientHero({
       <div
         className={cn(
           "group relative w-full overflow-hidden rounded-xl border border-border",
-          ficha ? "h-28 sm:h-44" : "h-24 sm:h-32",
+          // La ficha baja de sm:h-44 (176px) a sm:h-36 (144px): seguía comiendo demasiado antes de
+          // cualquier dato. No baja más porque es la PORTADA real del cliente (imagen, reencuadre,
+          // color), no un adorno — dejarla en una tira fina perdería esa función. El portal no cambia.
+          ficha ? "h-24 sm:h-36" : "h-24 sm:h-32",
           draggable && (dragging ? "cursor-grabbing" : "cursor-grab"),
         )}
         style={draggable ? { touchAction: "none" } : undefined}
