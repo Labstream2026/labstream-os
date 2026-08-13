@@ -155,18 +155,18 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
           <>
             <KpiFila kpis={datos.canCumpl ? datos.kpis : datos.kpis.filter((k) => k.l !== "Cumplimiento")} />
             <div className="mt-2.5 grid gap-2.5 lg:grid-cols-2">
-              <Caja titulo="Videos aprobados" hint="Aprobaciones reales del cliente (decisiones), no estados a mano">
+              <Caja titulo="Videos aprobados" hint={`${datos.contexto} · aprobaciones reales del cliente, no estados a mano`}>
                 {datos.serieAprobados.valores.some((v) => v > 0) ? (
                   <Barras serie={datos.serieAprobados} color="var(--rs1)" unidad="videos" />
                 ) : (
-                  <Vacio texto="Sin aprobaciones en el periodo." />
+                  <Vacio texto="Sin aprobaciones en esta ventana." />
                 )}
               </Caja>
-              <Caja titulo="Horas registradas" hint="Tiempo imputado en tareas · pasa el cursor">
+              <Caja titulo="Horas registradas" hint={`${datos.contexto} · tiempo imputado en tareas`}>
                 {datos.serieHoras.valores.some((v) => v > 0) ? (
                   <Area serie={datos.serieHoras} color="var(--rs2)" unidad="h" />
                 ) : (
-                  <Vacio texto="Sin horas en el periodo. Se registran desde el detalle de una tarea." />
+                  <Vacio texto="Sin horas registradas aún. Se imputan desde el detalle de una tarea." />
                 )}
               </Caja>
               <Caja titulo="Dónde está el esfuerzo" hint="Horas del periodo por proyecto (top 5)">

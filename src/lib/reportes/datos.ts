@@ -90,6 +90,8 @@ export type ReporteDatos = {
   canFin: boolean;
   canCumpl: boolean;
   kpis: Kpi[];
+  // Qué ventana pintan las gráficas del Estudio («Últimas 10 semanas», «Por mes de 2026»…).
+  contexto: string;
   serieAprobados: SerieBarras;
   serieHoras: SerieBarras;
   esfuerzo: FilaBarra[];
@@ -249,25 +251,53 @@ function particion(periodo: ReturnType<typeof parsePeriodo>, minAnio: number): {
   };
 }
 
-function cubetasDe(periodo: ReturnType<typeof parsePeriodo>, eventosMs: number[], minAnio: number): SerieBarras {
-  const { labels, idx } = particion(periodo, minAnio);
-  const valores = labels.map(() => 0);
-  for (const ms of eventosMs) {
-    const i = idx(ms);
-    if (i >= 0 && i < labels.length) valores[i]++;
+// Partición de CONTEXTO para las gráficas del Estudio: en Mes y 90 días la gráfica no se
+// encoge al periodo — enseña las últimas 10 SEMANAS rodantes (se pidió ver más semanas; un
+// mes recién empezado dejaba dos barras y aire). En Año parte por meses y en Todo por años.
+// Los KPIs sí responden al periodo; la gráfica da el aire alrededor.
+const SEMANAS_CONTEXTO = 10;
+function particionContexto(
+  periodo: ReturnType<typeof parsePeriodo>,
+  ahora: Date,
+  minAnio: number,
+): { labels: string[]; idx: (ms: number) => number; titulo: string } {
+  if (periodo.key === "mes" || periodo.key === "90") {
+    const fin = ahora.getTime();
+    const labels = Array.from({ length: SEMANAS_CONTEXTO }, (_, i) => {
+      // Etiqueta = el día en que TERMINA la semana (la última termina hoy).
+      const d = new Date(fin - (SEMANAS_CONTEXTO - 1 - i) * 7 * DIA);
+      return `${d.getUTCDate()} ${MES_CORTO[d.getUTCMonth()]}`;
+    });
+    return {
+      labels,
+      idx: (ms) => {
+        const dif = Math.floor((fin - ms) / (7 * DIA));
+        return dif >= 0 && dif < SEMANAS_CONTEXTO ? SEMANAS_CONTEXTO - 1 - dif : -1;
+      },
+      titulo: `Últimas ${SEMANAS_CONTEXTO} semanas`,
+    };
   }
-  return { labels, valores };
+  const base = particion(periodo, minAnio);
+  return { ...base, titulo: periodo.key === "ano" ? `Por mes de ${periodo.etiqueta}` : "Por año" };
 }
 
-// Igual que cubetasDe pero SUMANDO un valor (minutos) en vez de contar.
-function cubetasSuma(periodo: ReturnType<typeof parsePeriodo>, eventos: { ms: number; v: number }[], minAnio: number): SerieBarras {
-  const { labels, idx } = particion(periodo, minAnio);
-  const valores = labels.map(() => 0);
-  for (const e of eventos) {
-    const i = idx(e.ms);
-    if (i >= 0 && i < labels.length) valores[i] += e.v;
+function cuenta(part: { labels: string[]; idx: (ms: number) => number }, eventosMs: number[]): SerieBarras {
+  const valores = part.labels.map(() => 0);
+  for (const ms of eventosMs) {
+    const i = part.idx(ms);
+    if (i >= 0 && i < part.labels.length) valores[i]++;
   }
-  return { labels, valores };
+  return { labels: part.labels, valores };
+}
+
+// Igual que cuenta pero SUMANDO un valor (minutos) en vez de contar.
+function suma(part: { labels: string[]; idx: (ms: number) => number }, eventos: { ms: number; v: number }[]): SerieBarras {
+  const valores = part.labels.map(() => 0);
+  for (const e of eventos) {
+    const i = part.idx(e.ms);
+    if (i >= 0 && i < part.labels.length) valores[i] += e.v;
+  }
+  return { labels: part.labels, valores };
 }
 
 // ── el constructor ──────────────────────────────────────────────────────────
@@ -460,15 +490,17 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       : []),
   ];
 
-  // ── Series del periodo ──
+  // ── Series de contexto (todas las semanas/meses de la ventana, no solo el periodo) ──
   const minAnio = Math.min(
     ahora.getUTCFullYear(),
     ...aprobEventos.map(([, ms]) => new Date(ms).getUTCFullYear()),
     ...entradas.map((e) => e.spentOn.getUTCFullYear()),
   );
-  const serieAprobados = cubetasDe(periodo, aprobEnRango.map(([, ms]) => ms), minAnio);
-  const serieHorasRaw = cubetasSuma(periodo, minEnRango.map((e) => ({ ms: e.spentOn.getTime(), v: e.minutes })), minAnio);
+  const parte = particionContexto(periodo, ahora, minAnio);
+  const serieAprobados = cuenta(parte, aprobEventos.map(([, ms]) => ms));
+  const serieHorasRaw = suma(parte, entradas.map((e) => ({ ms: e.spentOn.getTime(), v: e.minutes })));
   const serieHoras = { labels: serieHorasRaw.labels, valores: serieHorasRaw.valores.map((m) => Math.round(m / 60)) };
+  const contexto = parte.titulo;
 
   // ── Esfuerzo por proyecto (top 5) ──
   const etiquetaProyecto = (p: { name: string; emoji: string | null; client: { name: string } | null }) =>
@@ -724,7 +756,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       etiqueta: periodo.etiqueta, subtitulo: periodo.subtitulo,
     },
     canFin, canCumpl,
-    kpis, serieAprobados, serieHoras, esfuerzo, cumplimiento,
+    kpis, contexto, serieAprobados, serieHoras, esfuerzo, cumplimiento,
     kpisEntregas, apiladas, corrPorProyecto, piezaTop, tablaEntregas,
     personas, clientes, kpisFinanzas,
   };
