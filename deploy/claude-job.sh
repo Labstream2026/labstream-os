@@ -111,9 +111,15 @@ docker compose -p "$PROJECT" up -d >> "$LOG" 2>&1
 #    • "|| true": la limpieza nunca debe tumbar el deploy (set -e).
 #    • NO se usa --volumes: los datos persistentes (Postgres, Redis, subidas) están
 #      en bind mounts (./data) y quedan intactos.
+#    • builder prune CON TOPE (--keep-storage, Docker 24 del NAS lo trae): la poda
+#      total borraba TODA la caché en cada deploy y el siguiente build volvía a bajar
+#      cada paquete de internet — de ahí salían los ECONNRESET de npm a mitad de build.
+#      Con tope, la caché reciente sobrevive entre deploys y solo se poda el exceso.
+#      Si el flag desapareciera en un Docker futuro, se cae a la poda total de antes
+#      (peor caché es mejor que caché infinita).
 log "limpieza docker"
 docker image prune -f >> "$LOG" 2>&1 || true
-docker builder prune -f >> "$LOG" 2>&1 || true
+docker builder prune -f --keep-storage 12G >> "$LOG" 2>&1 || docker builder prune -f >> "$LOG" 2>&1 || true
 
 log "deploy OK"
 echo "Deploy completado."
