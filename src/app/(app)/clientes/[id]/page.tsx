@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canWriteProject, canManageProject, accessibleProjectWhere } from "@/lib/project-access";
 import { isEditableOffice } from "@/lib/onlyoffice";
-import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
+import { ahoraMs, fechaRelativa, VIDEO_ARCHIVO_EXT, type ArchivoItem } from "@/lib/archivos/tipos";
 import { canAccessClient, canManageClient } from "@/lib/client-access";
 import { ClientMembers } from "./client-members";
 import { ClientTopbarPeople } from "./client-topbar-people";
@@ -17,28 +17,30 @@ import { galeriaEnabled, galeriaReady, galeriaWritable, listGaleriaFolders, stat
 import { ClientHero } from "@/components/client-hero";
 import { ClientViewNav } from "./client-view-nav";
 import { ClientResumen, type ResumenProyecto } from "./client-resumen";
+import { ClientBrief, type BriefProyecto } from "./client-brief";
 import { AjustesLayout, type AjSeccion } from "./client-ajustes";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
-import { ProjectCard } from "@/components/project-card";
-import { Badge } from "@/components/ui/badge";
 import { statusMeta, formatShortDate } from "@/lib/ui";
-import { cn } from "@/lib/utils";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
+import { buildSessionTimeline } from "@/lib/timeline-data";
+import { GlobalTimeline } from "@/app/(app)/timeline/global-timeline";
 import { ActivityFeed } from "@/app/(app)/proyectos/[id]/activity-feed";
 import { ClientDeliverables, type ClientDeliverable } from "./client-deliverables";
 import { ClientStatus } from "./client-status";
+import { ClientProjectArchive, type ProyectoArchivable } from "./client-project-archive";
 import { ClientBilling, type ClientInvoiceRow } from "./client-billing";
+import { ClientComercial } from "./client-comercial";
 import { ClientFilesPanel } from "./client-files";
-import { EntityEmoji } from "@/components/icons/marks";
+import { ClientProyectos, type ProyectoInfo } from "./client-proyectos";
 import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { quoteTotals } from "@/lib/ui";
 import { type PorFacturarItem } from "@/app/(app)/facturacion/por-facturar";
 import { tone } from "@/lib/colors";
 import { effectiveStatus, STATUS_META, type ProposalStatus } from "@/lib/proposals/types";
 import { TEMPLATE_MAP } from "@/lib/proposals/templates";
-import { IconInicio, IconProyectos, IconLista, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconPropuestas, IconActividad, IconConfiguracion, IconNotas } from "@/components/icons";
+import { IconInicio, IconProyectos, IconCalendario, IconEntregas, IconArchivo, IconFacturacion, IconActividad, IconConfiguracion, IconNotas } from "@/components/icons";
 import { NotesTab } from "@/components/notes/notes-tab";
 import { notesFor } from "@/lib/notes-for";
 
@@ -84,17 +86,28 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
         where: { AND: [{ archivedAt: null }, accessibleProjectWhere(session)] },
         orderBy: { createdAt: "asc" },
         include: {
-          lead: { select: { initials: true, avatarColor: true } },
+          lead: { select: { name: true, initials: true, avatarColor: true } },
           members: { select: { userId: true, role: true } },
           deliverables: {
             orderBy: { createdAt: "asc" },
             select: {
               id: true,
               name: true,
+              number: true,
               type: true,
               status: true,
               dueDate: true,
-              versions: { orderBy: { number: "desc" }, take: 1, select: { number: true } },
+              // Para la miniatura de la pestaña Entregables: portada asignada o, en su
+              // defecto, el fotograma del video de la última versión (?poster=1).
+              coverFileAssetId: true,
+              // 0 = pre-aprobado sin abrir; >0 = el cliente ya lo está viendo.
+              reviewVisits: true,
+              versions: {
+                orderBy: { number: "desc" },
+                take: 1,
+                select: { number: true, fileAsset: { select: { id: true, name: true } } },
+              },
+              _count: { select: { reviewComments: true } },
             },
           },
         },
@@ -112,19 +125,48 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const projectIds = projects.map((p) => p.id);
   const active = projects.filter((p) => !["CERRADO", "CANCELADO"].includes(p.status)).length;
 
+  // Una sola verdad de "hoy" para toda la página (fechas vencidas, próximas, actividad).
+  // `ahoraMs()` y no `Date.now()`: el lint de pureza prohíbe llamar impuras en el cuerpo del
+  // componente; el helper (función normal de lib) es la vía aceptada en esta base.
+  const nowMs = ahoraMs();
+  const DONE_PROY = ["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"];
+  const DELIV_DONE = ["APROBADO", "ENTREGADO"];
+  // El cliente con sus miembros, para las ramas de acceso que lo necesitan (RESPONSABLE).
+  const clientePara = { members: client.members };
+  const sessionCanApprove = hasPermission(session, "aprobar_entregables");
+
   // Entregables de TODOS los proyectos visibles del cliente, aplanados con su proyecto
   // de origen, para la pestaña «Entregables» (vista agregada por cliente, agrupada por estado).
-  const clientDeliverables: ClientDeliverable[] = projects.flatMap((p) =>
-    p.deliverables.map((d) => ({
-      id: d.id,
-      name: d.name,
-      type: d.type,
-      status: d.status,
-      dueDate: d.dueDate,
-      versionNumber: d.versions[0]?.number ?? null,
-      project: { id: p.id, name: p.name, emoji: p.emoji },
-    })),
-  );
+  // La miniatura y el permiso de aprobar se resuelven AQUÍ (servidor): portada asignada o el
+  // fotograma de la última versión si es video; aprobar = gestionar + aprobar_entregables,
+  // el MISMO gate que la pantalla de Revisiones.
+  const clientDeliverables: ClientDeliverable[] = projects.flatMap((p) => {
+    const canApprove = sessionCanApprove && canManageProject({ ...p, client: clientePara }, session);
+    return p.deliverables.map((d) => {
+      const vFile = d.versions[0]?.fileAsset ?? null;
+      const thumbSrc = d.coverFileAssetId
+        ? `/api/files-asset/${d.coverFileAssetId}`
+        : vFile && VIDEO_ARCHIVO_EXT.test(vFile.name)
+          ? `/api/files-asset/${vFile.id}?poster=1`
+          : null;
+      return {
+        id: d.id,
+        name: d.name,
+        number: d.number,
+        type: d.type,
+        status: d.status,
+        dueDate: d.dueDate,
+        dueLabel: formatShortDate(d.dueDate),
+        overdue: !!d.dueDate && d.dueDate.getTime() < nowMs && !DELIV_DONE.includes(d.status),
+        versionNumber: d.versions[0]?.number ?? null,
+        project: { id: p.id, name: p.name, emoji: p.emoji },
+        thumbSrc,
+        comments: d._count.reviewComments,
+        reviewVisits: d.reviewVisits,
+        canApprove,
+      };
+    });
+  });
 
   // Actividad del cliente: cambios del propio cliente + de sus proyectos. Solo se consulta si
   // la pestaña existe para este usuario: sin `ver_actividad` la vista no se pinta, así que
@@ -263,7 +305,6 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     },
   });
   // Escritura por proyecto, con el cliente puesto (la rama del RESPONSABLE cuenta aquí).
-  const clientePara = { members: client.members };
   const escribibles = projects.filter((p) => canWriteProject({ ...p, client: clientePara }, session));
   const gestionados = projects.filter((p) => canManageProject({ ...p, client: clientePara }, session));
   const escribeEn = new Set(escribibles.map((p) => p.id));
@@ -318,8 +359,9 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const proyectoRef = (p: (typeof projects)[number]) => ({ id: p.id, name: p.name, emoji: p.emoji });
   // Invitar/crear usuarios cliente es sensible → solo admins (administrar_usuarios).
   const isAdmin = hasPermission(session, "administrar_usuarios");
-  // Notas de la cuenta (las que se apuntaron del cliente, no de un proyecto suelto).
-  const clientNotes = session && hasPermission(session, "ver_notas") ? await notesFor(session, { clientId: id }) : [];
+  // Notas de la CUENTA y de SUS PROYECTOS, juntas (aprobado por prototipo): cada una con el
+  // chip de su origen para poder filtrar. El compositor de la pestaña apunta a la cuenta.
+  const clientNotes = session && hasPermission(session, "ver_notas") ? await notesFor(session, { clientId: id, projectIds }) : [];
 
   // Separamos los miembros del cliente: EQUIPO interno (acceso) vs USUARIOS CLIENTE del portal (rol cliente).
   const clientUsers: ClientUserItem[] = client.members
@@ -373,15 +415,16 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     ...projects.flatMap((p) => projectSummaryItems({ id: p.id, name: p.name, emoji: p.emoji, startDate: p.startDate, dueDate: p.dueDate, deliverables: p.deliverables })),
   ];
 
+  // Cronograma acotado a ESTE cliente (conmutador Calendario/Cronograma de la pestaña).
+  // Mismo constructor que /calendario y /timeline, recortado en la base por clientId.
+  const clientTimeline = hasPermission(session, "ver_proyectos")
+    ? await buildSessionTimeline(session, { clientId: id })
+    : null;
+
   // ── Datos de la pestaña RESUMEN (lo más importante al entrar) ──
   // Todo se calcula aquí, en el servidor: una sola verdad de "hoy" y fechas ya formateadas (sin
   // desfases de zona horaria ni de hidratación). El color del cliente tiñe pestañas e índice.
   const accentHex = client.accentColor ? tone(client.accentColor).hex : undefined;
-  // `ahoraMs()` y no `Date.now()`: el lint de pureza prohíbe llamar impuras en el cuerpo del
-  // componente; el helper (función normal de lib) es la vía aceptada en esta base.
-  const nowMs = ahoraMs();
-  const DONE_PROY = ["APROBADO", "ENTREGADO", "CERRADO", "CANCELADO"];
-  const DELIV_DONE = ["APROBADO", "ENTREGADO"];
   // El entregable VENCIDO más urgente (el que lleva más tiempo esperando) para la alerta roja.
   const overdueDeliv = clientDeliverables
     .filter((d) => d.dueDate && d.dueDate.getTime() < nowMs && !DELIV_DONE.includes(d.status))
@@ -405,6 +448,75 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null,
     };
   });
+  // ── Plan de trabajo: brief + checklist de videos, por proyecto ──
+  // El checklist se ARMA SOLO con los entregables reales (nada que mantener a mano): una pieza
+  // cuenta como hecha cuando queda aprobada o entregada. Los dos textos del brief ya existían en
+  // el proyecto (briefScope / briefDeliverables) y hasta ahora solo se veían dentro de él.
+  const briefProyectos: BriefProyecto[] = projects
+    .filter((p) => !DONE_PROY.includes(p.status))
+    .map((p) => {
+      const meta = statusMeta(p.status);
+      const piezas = p.deliverables.map((d) => ({ id: d.id, name: d.name, done: DELIV_DONE.includes(d.status) }));
+      return {
+        id: p.id,
+        name: p.name,
+        emoji: p.emoji,
+        statusLabel: meta.label,
+        statusClass: meta.className,
+        scope: p.briefScope,
+        special: p.briefDeliverables,
+        piezas,
+        hechas: piezas.filter((d) => d.done).length,
+        // Espejo EXACTO del candado de updateProjectBrief (escritura + editar_proyectos): sin
+        // el permiso, el botón «Editar brief» sería un botón que siempre falla.
+        canEdit: canWriteProject(p, session) && hasPermission(session, "editar_proyectos"),
+      };
+    });
+  // Compromiso de la cuenta: TODAS sus piezas (incluidas las de proyectos ya cerrados) y cuántas
+  // están resueltas. Es el número que se pregunta el gerente al abrir el cliente.
+  const videosTotal = clientDeliverables.length;
+  const videosHechos = clientDeliverables.filter((d) => DELIV_DONE.includes(d.status)).length;
+
+  // ── Pestaña PROYECTOS: la tarjeta/fila con MÁS información (aprobado por prototipo) ──
+  // «Última actividad» sale de UNA consulta agregada (el máximo del log por proyecto), no de
+  // traer los registros: es un timestamp, no una historia.
+  const lastActs = projectIds.length
+    ? await db.activityLog.groupBy({
+        by: ["projectId"],
+        where: { projectId: { in: projectIds } },
+        _max: { createdAt: true },
+      })
+    : [];
+  const lastActByProject = new Map(lastActs.map((a) => [a.projectId, a._max.createdAt]));
+  const proyectosInfo: ProyectoInfo[] = projects.map((p) => {
+    const meta = statusMeta(p.status);
+    const ultima = lastActByProject.get(p.id) ?? null;
+    return {
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      statusLabel: meta.label,
+      statusClass: meta.className,
+      progress: p.progress,
+      dueLabel: formatShortDate(p.dueDate),
+      overdue: !!p.dueDate && p.dueDate.getTime() < nowMs && !DONE_PROY.includes(p.status),
+      videosTotal: p.deliverables.length,
+      videosHechos: p.deliverables.filter((d) => DELIV_DONE.includes(d.status)).length,
+      correcciones: p.deliverables.filter((d) => d.status === "CORRECCIONES").length,
+      actividadLabel: ultima ? fechaRelativa(ultima.toISOString()) : null,
+      lead: p.lead ? { name: p.lead.name, initials: p.lead.initials, color: p.lead.avatarColor } : null,
+    };
+  });
+
+  // Proyectos que ESTE usuario puede mandar a la papelera desde Ciclo de vida: gestión del
+  // proyecto + permiso de eliminar — el mismo candado que valida archiveProject en el servidor.
+  const archivables: ProyectoArchivable[] = hasPermission(session, "eliminar_proyectos")
+    ? gestionados.map((p) => {
+        const meta = statusMeta(p.status);
+        return { id: p.id, name: p.name, emoji: p.emoji, statusLabel: meta.label, statusClass: meta.className };
+      })
+    : [];
+
   const resumen = (
     <ClientResumen
       proyectos={resumenRows}
@@ -414,50 +526,15 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       proxLabel={formatShortDate(nextDeliv?.dueDate ?? null)}
       overdue={overdueInfo}
       accentHex={accentHex}
+      videosTotal={videosTotal}
+      videosHechos={videosHechos}
+      brief={<ClientBrief proyectos={briefProyectos} />}
     />
   );
 
-  const board = projects.length === 0 ? (
-    <p className="text-sm text-muted-foreground">Este cliente aún no tiene proyectos.</p>
-  ) : (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {projects.map((p) => (
-        <ProjectCard
-          key={p.id}
-          project={{ id: p.id, name: p.name, emoji: p.emoji, status: p.status, progress: p.progress, dueDate: p.dueDate, lead: p.lead ? { initials: p.lead.initials, color: p.lead.avatarColor } : null }}
-          tintColor={client.accentColor}
-        />
-      ))}
-    </div>
-  );
-
-  const list = (
-    <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-            <th className="px-3 py-2 font-medium">Proyecto</th>
-            <th className="px-3 py-2 font-medium">Estado</th>
-            <th className="px-3 py-2 font-medium">Progreso</th>
-            <th className="px-3 py-2 font-medium">Entrega</th>
-          </tr>
-        </thead>
-        <tbody>
-          {projects.map((p) => {
-            const st = statusMeta(p.status);
-            return (
-              <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-                <td className="px-3 py-2"><Link href={`/proyectos/${p.id}`} className="font-medium hover:underline"><EntityEmoji value={p.emoji} /> {p.name}</Link></td>
-                <td className="px-3 py-2"><Badge className={cn("text-[10px]", st.className)}>{st.label}</Badge></td>
-                <td className="px-3 py-2"><span className="text-xs text-muted-foreground">{p.progress}%</span></td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">{formatShortDate(p.dueDate) ?? "—"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+  // Tarjetas y lista viven en el MISMO componente con su conmutador (la antigua pestaña
+  // «Lista» se pliega aquí — una pestaña menos en la barra).
+  const proyectosNode = <ClientProyectos proyectos={proyectosInfo} tintHex={accentHex} />;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
@@ -509,17 +586,22 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               label: "Producción",
               views: [
                 { key: "resumen", label: "Resumen", icon: <IconInicio />, node: resumen },
-                { key: "proyectos", label: "Proyectos", badge: projects.length || undefined, icon: <IconProyectos />, node: board },
-                { key: "lista", label: "Lista", icon: <IconLista />, node: list },
+                { key: "proyectos", label: "Proyectos", badge: projects.length || undefined, icon: <IconProyectos />, node: proyectosNode },
                 {
                   key: "calendario", label: "Calendario", icon: <IconCalendario />,
+                  // Más alto que antes (se ven más horas de la semana) + columna derecha con
+                  // «Próximo», capas y próximas entregas + conmutador Cronograma.
                   node: (
-                    <div className="h-[72vh] min-h-[26rem]">
+                    <div className="h-[78vh] min-h-[30rem]">
                       <CalendarBoard
                         items={clientCalItems}
                         onCreate={projects.length ? createMyEvent : undefined}
                         projectId={projects[0]?.id ?? null}
                         team={calTeam.map((u) => ({ id: u.id, name: u.name, initials: u.initials, color: u.avatarColor }))}
+                        asideStats
+                        timelineNode={clientTimeline ? (
+                          <GlobalTimeline clients={clientTimeline.clients} milestones={clientTimeline.milestones} />
+                        ) : null}
                       />
                     </div>
                   ),
@@ -568,38 +650,41 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             {
               label: "Comercial",
               views: [
-            ...(canBilling ? [{
-              key: "facturacion",
-              label: "Facturación",
-              badge: billingPorFacturar.length || undefined,
-              icon: <IconFacturacion />,
-              node: <ClientBilling porFacturar={billingPorFacturar} invoices={billingInvoices} canCreate={canCreateInvoice} />,
-            }] : []),
+            // Facturación + Propuestas UNIFICADAS (aprobado por prototipo): una sola pestaña
+            // con sub-conmutador — la barra baja de 11 a 9 pestañas. Sin ver_finanzas, la
+            // pestaña se reduce a Propuestas (el conmutador ni aparece).
             {
-              key: "propuestas",
-              label: "Propuestas",
-              badge: proposals.length || undefined,
-              icon: <IconPropuestas />,
-              node: proposals.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin propuestas vinculadas. Vincúlalas desde el editor de la propuesta (Ajustes → Cliente vinculado).</p>
-              ) : (
-                <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-                  {proposals.map((p) => {
-                    const st = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
-                    const meta = STATUS_META[st];
-                    const tpl = TEMPLATE_MAP[p.templateKey];
-                    return (
-                      <Link key={p.id} href={`/cotizaciones/propuestas/${p.id}`} className="flex items-center gap-3 p-3 transition-colors hover:bg-accent/50">
-                        <span className="text-lg">{tpl?.icon ?? "📄"}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{p.title}</p>
-                          <p className="truncate text-xs text-muted-foreground">{tpl?.name ?? p.templateKey} · {p.code}</p>
-                        </div>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${tone(meta.tone).chip}`}>{meta.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
+              key: "comercial",
+              label: "Comercial",
+              badge: (canBilling ? billingPorFacturar.length : 0) || proposals.length || undefined,
+              icon: <IconFacturacion />,
+              node: (
+                <ClientComercial
+                  facturacion={canBilling ? <ClientBilling porFacturar={billingPorFacturar} invoices={billingInvoices} canCreate={canCreateInvoice} /> : null}
+                  facturacionCount={billingPorFacturar.length}
+                  propuestasCount={proposals.length}
+                  propuestas={proposals.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sin propuestas vinculadas. Vincúlalas desde el editor de la propuesta (Ajustes → Cliente vinculado).</p>
+                  ) : (
+                    <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                      {proposals.map((p) => {
+                        const st = effectiveStatus({ status: p.status as ProposalStatus, expiresAt: p.expiresAt });
+                        const meta = STATUS_META[st];
+                        const tpl = TEMPLATE_MAP[p.templateKey];
+                        return (
+                          <Link key={p.id} href={`/cotizaciones/propuestas/${p.id}`} className="flex items-center gap-3 p-3 transition-colors hover:bg-accent/50">
+                            <span className="text-lg">{tpl?.icon ?? "📄"}</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">{p.title}</p>
+                              <p className="truncate text-xs text-muted-foreground">{tpl?.name ?? p.templateKey} · {p.code}</p>
+                            </div>
+                            <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${tone(meta.tone).chip}`}>{meta.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                />
               ),
             },
               ],
@@ -709,10 +794,11 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
                     ...(canEdit ? [{
                       id: "aj-ciclo",
                       titulo: "Ciclo de vida",
-                      desc: "Activo o en el Archivo; al final, la papelera (borrado suave, siempre reversible).",
+                      desc: "Activo o en el Archivo, archivar proyectos sueltos y, al final, la papelera (borrado suave, siempre reversible).",
                       node: (
                         <div className="grid items-start gap-5 lg:grid-cols-2">
                           <ClientStatus clientId={id} isActive={client.isActive} canArchive={session?.role === "admin"} />
+                          <ClientProjectArchive proyectos={archivables} />
                         </div>
                       ),
                     }] : []),

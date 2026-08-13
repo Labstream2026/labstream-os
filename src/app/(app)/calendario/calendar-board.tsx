@@ -71,6 +71,7 @@ export function CalendarBoard({
   defaultView = "semana",
   timelineNode = null,
   shell = false,
+  asideStats = false,
 }: {
   items: CalItem[];
   onCreate?: (fd: FormData) => Promise<void>;
@@ -83,6 +84,11 @@ export function CalendarBoard({
   timelineNode?: React.ReactNode | null;
   // Experiencia completa (mini-calendario + capas + estadísticas + Día/Agenda). Solo /calendario.
   shell?: boolean;
+  // Modo embebido con COLUMNA DERECHA (ficha del cliente, aprobado por prototipo): «Próximo»,
+  // las capas-contador y la lista de próximas entregas se mudan a un panel lateral y la
+  // rejilla gana todo el alto (se ven más horas). En pantallas angostas se cae a la pila de
+  // siempre — el panel no roba ancho donde no lo hay.
+  asideStats?: boolean;
 }) {
   const [view, setView] = React.useState<EmbView>(defaultView);
   // Vista embebida: restaura la última elegida EN ESTA SUPERFICIE (clave por ruta: cada
@@ -490,102 +496,170 @@ export function CalendarBoard({
   const maxKindCount = Math.max(1, ...KIND_LAYERS.map((L) => kindCounts[L.key] ?? 0));
   const monthShort = MONTH_FMT.format(countMonth).replace(".", "").toUpperCase();
 
+  // Próximas ENTREGAS (tareas con fecha + hitos): la lista del panel derecho. Los rodajes y
+  // citas no entran — para lo inmediato ya está la franja «Próximo».
+  const proximasEntregas = shownItems
+    .filter((it) => it.kind === "task" || it.kind === "milestone")
+    .map((it) => ({ it, ms: new Date(it.start ?? it.date).getTime() }))
+    .filter((x) => !Number.isNaN(x.ms) && x.ms >= wallNowMs - 5 * 60_000)
+    .sort((a, b) => a.ms - b.ms)
+    .slice(0, 6);
+
+  const proximoNode = nextUp && nextStart ? (
+    <button
+      type="button"
+      onClick={() => setDetail(nextUp)}
+      className="group flex w-full shrink-0 items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5 text-left transition-colors hover:bg-primary/10"
+    >
+      <span className="relative flex size-2.5 shrink-0">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-50 motion-reduce:hidden" />
+        <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">
+          {KIND_LAYERS.find((L) => L.key === nextUp.kind)?.emoji} {nextUp.title}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {cap(NEXT_DAY_FMT.format(nextStart))}
+          {!nextUp.allDay ? <> · {wallTime(nextStart)}{nextUp.endTime ? `–${nextUp.endTime}` : ""}</> : null}
+          {" · "}
+          <strong className="font-semibold text-primary">{relWall(nextStart.getTime(), wallNowMs)}</strong>
+          {nextPeople.length ? <> · con {nextPeople.slice(0, 2).join(" y ")}{nextPeople.length > 2 ? ` +${nextPeople.length - 2}` : ""}</> : null}
+        </span>
+      </span>
+      <span className="shrink-0 text-xs font-semibold text-primary opacity-70 transition-opacity group-hover:opacity-100">Ver →</span>
+    </button>
+  ) : null;
+
+  // Capas por tipo con contador del mes: cada tarjeta es también el interruptor de su capa.
+  const capasNode = (cols: string) => items.length > 0 ? (
+    <div className={cn("grid shrink-0 gap-2", cols)}>
+      {KIND_LAYERS.map((L) => {
+        const on = !hiddenKinds.has(L.key);
+        const n = kindCounts[L.key] ?? 0;
+        return (
+          <button
+            key={L.key}
+            type="button"
+            onClick={() => toggleKind(L.key)}
+            title={on ? `Ocultar ${L.label.toLowerCase()}` : `Mostrar ${L.label.toLowerCase()}`}
+            className={cn("rounded-xl border px-3 py-2 text-left transition-all", on ? "border-border bg-card hover:border-border/70" : "border-dashed border-border opacity-40 hover:opacity-70")}
+          >
+            <span className="text-base font-bold leading-none tabular-nums">{n}</span>
+            <span className="mt-0.5 block truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{L.emoji} {L.short} · {monthShort}</span>
+            <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full transition-all" style={{ width: `${(n / maxKindCount) * 100}%`, background: L.color }} />
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
+  const entregasNode = proximasEntregas.length > 0 ? (
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <p className="border-b border-border bg-muted/40 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Próximas entregas
+      </p>
+      <ul className="divide-y divide-border">
+        {proximasEntregas.map(({ it, ms }) => (
+          <li key={it.id}>
+            <button
+              type="button"
+              onClick={() => setDetail(it)}
+              className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40"
+            >
+              <span className="mt-0.5 shrink-0 text-sm leading-none" aria-hidden>{KIND_LAYERS.find((L) => L.key === it.kind)?.emoji ?? "📦"}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium">{it.title}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {cap(NEXT_DAY_FMT.format(new Date(ms)))} · <strong className="font-semibold text-primary">{relWall(ms, wallNowMs)}</strong>
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
+  const vistasNode = showingCrono ? (
+    <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
+  ) : view === "agenda" ? (
+    <div className="min-h-0 flex-1 overflow-y-auto"><AgendaView items={shownItems} anchor={anchor} days={30} colorBy={colorBy} /></div>
+  ) : view === "mes" ? (
+    <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} onNavigate={setViewMonth} /></div>
+  ) : (
+    <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} onNavigate={setViewMonth} /></div>
+  );
+
+  const barraNode = (
+    <div className={cn("flex shrink-0 flex-wrap items-center gap-2", timelineNode ? "justify-between" : "justify-end")}>
+      {cronoSwitch}
+      {/* Controles propios del calendario: ocultos en vista Cronograma. */}
+      {showingCrono ? null : (
+      <div className="flex flex-wrap items-center gap-2">
+      {/* Filtro por persona: ver el calendario de un colaborador */}
+      {people.length > 1 ? (
+        <select
+          value={personFilter}
+          onChange={(e) => setPersonFilter(e.target.value)}
+          className="max-w-[160px] truncate rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+          title="Filtrar por persona"
+        >
+          <option value="">👥 Todo el equipo</option>
+          {people.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      ) : null}
+      {colorSwitch}
+      <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
+        {EMB_VIEWS.map((v) => (
+          <button
+            key={v.key}
+            onClick={() => pickView(v.key)}
+            className={cn("rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors", view === v.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      </div>
+      )}
+    </div>
+  );
+
+  // ── Con panel derecho (ficha del cliente): rejilla a todo el alto + columna de contexto ──
+  if (asideStats) {
+    return (
+      <div className="flex h-full flex-col gap-3">
+        {barraNode}
+        {/* En angosto, lo del panel se apila arriba como siempre (el aside se esconde). */}
+        {!showingCrono ? <div className="flex flex-col gap-2.5 lg:hidden">{proximoNode}{capasNode("grid-cols-2 sm:grid-cols-4")}</div> : null}
+        <div className="flex min-h-0 flex-1 gap-3">
+          <div className="flex min-w-0 flex-1 flex-col">{vistasNode}</div>
+          {!showingCrono ? (
+            <aside className="hidden w-60 shrink-0 flex-col gap-2.5 overflow-y-auto lg:flex xl:w-64">
+              {proximoNode}
+              {capasNode("grid-cols-2")}
+              {entregasNode}
+            </aside>
+          ) : null}
+        </div>
+        {overlays}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className={cn("flex shrink-0 flex-wrap items-center gap-2", timelineNode ? "justify-between" : "justify-end")}>
-        {cronoSwitch}
-        {/* Controles propios del calendario: ocultos en vista Cronograma. */}
-        {showingCrono ? null : (
-        <div className="flex flex-wrap items-center gap-2">
-        {/* Filtro por persona: ver el calendario de un colaborador */}
-        {people.length > 1 ? (
-          <select
-            value={personFilter}
-            onChange={(e) => setPersonFilter(e.target.value)}
-            className="max-w-[160px] truncate rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
-            title="Filtrar por persona"
-          >
-            <option value="">👥 Todo el equipo</option>
-            {people.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-        ) : null}
-        {colorSwitch}
-        <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
-          {EMB_VIEWS.map((v) => (
-            <button
-              key={v.key}
-              onClick={() => pickView(v.key)}
-              className={cn("rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors", view === v.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-        </div>
-        )}
-      </div>
+      {barraNode}
 
       {/* Franja «Próximo»: lo más inmediato del proyecto/cliente siempre a la vista; clic → detalle. */}
-      {!showingCrono && nextUp && nextStart ? (
-        <button
-          type="button"
-          onClick={() => setDetail(nextUp)}
-          className="group flex w-full shrink-0 items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5 text-left transition-colors hover:bg-primary/10"
-        >
-          <span className="relative flex size-2.5 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-50 motion-reduce:hidden" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold">
-              {KIND_LAYERS.find((L) => L.key === nextUp.kind)?.emoji} {nextUp.title}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {cap(NEXT_DAY_FMT.format(nextStart))}
-              {!nextUp.allDay ? <> · {wallTime(nextStart)}{nextUp.endTime ? `–${nextUp.endTime}` : ""}</> : null}
-              {" · "}
-              <strong className="font-semibold text-primary">{relWall(nextStart.getTime(), wallNowMs)}</strong>
-              {nextPeople.length ? <> · con {nextPeople.slice(0, 2).join(" y ")}{nextPeople.length > 2 ? ` +${nextPeople.length - 2}` : ""}</> : null}
-            </span>
-          </span>
-          <span className="shrink-0 text-xs font-semibold text-primary opacity-70 transition-opacity group-hover:opacity-100">Ver →</span>
-        </button>
-      ) : null}
+      {!showingCrono ? proximoNode : null}
 
-      {/* Capas por tipo con contador del mes: cada tarjeta es también el interruptor de su capa. */}
-      {!showingCrono && items.length > 0 ? (
-        <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
-          {KIND_LAYERS.map((L) => {
-            const on = !hiddenKinds.has(L.key);
-            const n = kindCounts[L.key] ?? 0;
-            return (
-              <button
-                key={L.key}
-                type="button"
-                onClick={() => toggleKind(L.key)}
-                title={on ? `Ocultar ${L.label.toLowerCase()}` : `Mostrar ${L.label.toLowerCase()}`}
-                className={cn("rounded-xl border px-3 py-2 text-left transition-all", on ? "border-border bg-card hover:border-border/70" : "border-dashed border-border opacity-40 hover:opacity-70")}
-              >
-                <span className="text-base font-bold leading-none tabular-nums">{n}</span>
-                <span className="mt-0.5 block truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{L.emoji} {L.short} · {monthShort}</span>
-                <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
-                  <span className="block h-full rounded-full transition-all" style={{ width: `${(n / maxKindCount) * 100}%`, background: L.color }} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {!showingCrono ? capasNode("grid-cols-2 sm:grid-cols-4") : null}
 
-      {showingCrono ? (
-        <div className="min-h-0 flex-1 overflow-auto">{timelineNode}</div>
-      ) : view === "agenda" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto"><AgendaView items={shownItems} anchor={anchor} days={30} colorBy={colorBy} /></div>
-      ) : view === "mes" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} onNavigate={setViewMonth} /></div>
-      ) : (
-        <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} onNavigate={setViewMonth} /></div>
-      )}
+      {vistasNode}
       {overlays}
     </div>
   );

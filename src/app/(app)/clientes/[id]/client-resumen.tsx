@@ -31,6 +31,9 @@ export function ClientResumen({
   proxLabel,
   overdue,
   accentHex,
+  videosTotal,
+  videosHechos,
+  brief,
 }: {
   proyectos: ResumenProyecto[];
   activos: number;
@@ -41,7 +44,14 @@ export function ClientResumen({
   // El entregable más urgente vencido, si lo hay: su pieza y su fecha.
   overdue: { name: string; label: string } | null;
   accentHex?: string;
+  // Compromiso de la cuenta: cuántas piezas hay en total y cuántas ya están aprobadas o
+  // entregadas. Es el número que de verdad se pregunta el gerente al abrir un cliente.
+  videosTotal: number;
+  videosHechos: number;
+  // Plan de trabajo por proyecto (brief + checklist). Se arma en el servidor.
+  brief?: React.ReactNode;
 }) {
+  const pctVideos = videosTotal ? Math.round((videosHechos / videosTotal) * 100) : 0;
   const tiles: { k: string; v: string; small?: boolean }[] = [
     { k: "Proyectos activos", v: String(activos) },
     { k: "Entregables en revisión", v: String(entregables) },
@@ -65,6 +75,20 @@ export function ClientResumen({
       ) : null}
 
       <div className="mb-5 grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+        {/* El compromiso de la cuenta va PRIMERO y con barra: es lo que se pregunta al entrar
+            («¿cuántos videos le debemos y cuántos van?»). Solo aparece si hay piezas. */}
+        {videosTotal > 0 ? (
+          <div className="rounded-xl border border-border/70 bg-card p-3.5">
+            <p className="text-[11.5px] text-muted-foreground">Videos comprometidos</p>
+            <p className="mt-1 flex items-baseline gap-1.5 font-bold tabular-nums tracking-tight">
+              <span className="text-2xl">{videosTotal}</span>
+              <span className="text-[11.5px] font-medium text-muted-foreground">· {videosHechos} entregados</span>
+            </p>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${pctVideos}%` }} />
+            </div>
+          </div>
+        ) : null}
         {tiles.map((t) => (
           <div key={t.k} className="rounded-xl border border-border/70 bg-card p-3.5">
             <p className="text-[11.5px] text-muted-foreground">{t.k}</p>
@@ -72,6 +96,9 @@ export function ClientResumen({
           </div>
         ))}
       </div>
+
+      {/* Plan de trabajo: el brief de cada proyecto y su checklist de videos. */}
+      {brief ? <div className="mb-5">{brief}</div> : null}
 
       <div className="mb-2.5 flex items-center gap-2">
         <h3 className="text-[13px] font-semibold">Proyectos</h3>

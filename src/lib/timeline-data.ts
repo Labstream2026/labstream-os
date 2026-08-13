@@ -18,12 +18,19 @@ const INACTIVE_STATUSES = ["CERRADO", "CANCELADO"];
 
 export async function buildSessionTimeline(
   session: SessionUser | null,
-  opts?: { activeOnly?: boolean },
+  opts?: { activeOnly?: boolean; clientId?: string },
 ): Promise<{ clients: GTClient[]; milestones: GTMilestone[]; undatedCount: number }> {
   const [projects, taskLabels] = await Promise.all([
     db.project.findMany({
       // finishedAt: los TERMINADOS también salen del calendario general (se consultan en su página).
-      where: { archivedAt: null, finishedAt: null, ...(opts?.activeOnly ? { status: { notIn: INACTIVE_STATUSES as never } } : {}) },
+      // clientId: el cronograma embebido de la ficha del cliente pide SOLO sus proyectos —
+      // recortar en la base, no en JS, es lo que evita traer la cartera entera para tirarla.
+      where: {
+        archivedAt: null,
+        finishedAt: null,
+        ...(opts?.activeOnly ? { status: { notIn: INACTIVE_STATUSES as never } } : {}),
+        ...(opts?.clientId ? { clientId: opts.clientId } : {}),
+      },
       orderBy: [{ clientId: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,

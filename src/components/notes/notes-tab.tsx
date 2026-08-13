@@ -22,6 +22,9 @@ export type TabNote = {
   total: number;
   reminder: string | null; // «28 de jul, 09:30 a. m.» o null
   ownerName: string | null; // null = es mía
+  // De dónde viene la nota cuando la lista MEZCLA orígenes (ficha del cliente: «La cuenta»
+  // o el nombre del proyecto). null/ausente = lista de un solo origen, sin chip ni filtro.
+  origen?: string | null;
 };
 
 export function NotesTab({
@@ -39,6 +42,14 @@ export function NotesTab({
   const [text, setText] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [saving, start] = React.useTransition();
+  // Filtro por origen (solo aparece si las notas mezclan orígenes: ficha del cliente).
+  const [origen, setOrigen] = React.useState<string>("");
+  const origenes = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const n of rows) if (n.origen) s.add(n.origen);
+    return [...s].sort((a, b) => a.localeCompare(b, "es"));
+  }, [rows]);
+  const visibles = origen ? rows.filter((n) => (n.origen ?? "") === origen) : rows;
 
   function save() {
     const body = text.trim();
@@ -47,7 +58,8 @@ export function NotesTab({
     start(async () => {
       const r = await quickNote({ text: body, projectId, clientId });
       if (r.ok && r.note) {
-        setRows((prev) => [{ id: r.note!.id, title: r.note!.title, snippet: r.note!.snippet, when: "ahora", category: null, done: 0, total: 0, reminder: null, ownerName: null }, ...prev]);
+        // La nota rápida se apunta A LA CUENTA (o al proyecto si estamos en su ficha).
+        setRows((prev) => [{ id: r.note!.id, title: r.note!.title, snippet: r.note!.snippet, when: "ahora", category: null, done: 0, total: 0, reminder: null, ownerName: null, origen: origenes.length ? "La cuenta" : null }, ...prev]);
         setText("");
       } else {
         setError(r.error ?? "No se pudo guardar la nota");
@@ -81,19 +93,42 @@ export function NotesTab({
         </div>
       ) : null}
 
+      {origenes.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {["", ...origenes].map((o) => (
+            <button
+              key={o || "__todas"}
+              type="button"
+              onClick={() => setOrigen(o)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                origen === o ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              {o || `Todas (${rows.length})`}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
           <StickyNote className="size-8 text-muted-foreground/30" />
           Sin notas todavía.
           {canWrite ? <span className="text-xs">Lo que apuntes aquí también aparece en Notas.</span> : null}
         </div>
+      ) : visibles.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Nada de ese origen.</p>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-          {rows.map((n) => (
+          {visibles.map((n) => (
             <li key={n.id}>
               <Link href={`/notas?nota=${n.id}`} className="block px-4 py-3 transition-colors hover:bg-accent">
                 <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                   <span className="truncate">{n.title}</span>
+                  {n.origen ? (
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">{n.origen}</span>
+                  ) : null}
                   {n.ownerName ? (
                     <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"><Users className="size-2.5" /> {n.ownerName}</span>
                   ) : null}

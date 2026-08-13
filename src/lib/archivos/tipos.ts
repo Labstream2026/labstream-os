@@ -115,6 +115,14 @@ export function esImagen(f: Pick<ArchivoItem, "name" | "kind" | "missing">): boo
   return (f.kind === "LOCAL" || (f.kind === "OPS" && !f.missing)) && IMG_EXT.test(f.name);
 }
 
+// Video servible por la app (LOCAL u OPS presente): su miniatura sale de ?poster=1 (el
+// fotograma que fabrica video-poster) y su clic abre el visor central en vez de otra pestaña.
+export const VIDEO_ARCHIVO_EXT = /\.(mp4|m4v|mov|mkv|webm|ogv|avi|mts|m2ts|mpg|mpeg|wmv)$/i;
+
+export function esVideoArchivo(f: Pick<ArchivoItem, "name" | "kind" | "missing">): boolean {
+  return (f.kind === "LOCAL" || (f.kind === "OPS" && !f.missing)) && VIDEO_ARCHIVO_EXT.test(f.name);
+}
+
 // Peso legible. Única implementación: sustituye a las copias de chunked-upload-form,
 // upload-version, review-cache-panel, ops-explorer y subir/[token].
 export function formatPeso(bytes: number | null | undefined): string | null {
@@ -147,7 +155,9 @@ export function fechaRelativa(iso: string): string {
 }
 
 // Filtros de la fila de pastillas. Son combinaciones precocinadas, no modelos nuevos.
-export type FiltroArchivos = "todo" | "marca" | "reciente" | "cliente" | "enlaces" | "rutas" | "sincarpeta";
+export type FiltroArchivos =
+  | "todo" | "marca" | "reciente" | "cliente" | "enlaces" | "rutas" | "sincarpeta"
+  | "video" | "imagen" | "documento";
 
 // `ahora` llega del servidor (Date.now() en la página): así el render del panel es puro y
 // el compilador de React puede optimizarlo.
@@ -169,6 +179,15 @@ export function pasaFiltro(f: ArchivoItem, filtro: FiltroArchivos, ahora: number
       return f.kind === "NAS";
     case "sincarpeta":
       return !f.esMarca && !f.carpeta;
+    // Por TIPO de contenido: es lo que se busca en una productora («las fotos del rodaje»,
+    // «el master»). Video/imagen miran la extensión venga de donde venga el archivo;
+    // documento = todo lo demás con bytes (ni enlace ni ruta).
+    case "video":
+      return VIDEO_ARCHIVO_EXT.test(f.name) && f.kind !== "LINK" && f.kind !== "DRIVE" && f.kind !== "NAS";
+    case "imagen":
+      return (IMG_EXT.test(f.name) || /\.(nef|cr[23]|arw|dng|tiff?)$/i.test(f.name)) && f.kind !== "LINK" && f.kind !== "DRIVE" && f.kind !== "NAS";
+    case "documento":
+      return !VIDEO_ARCHIVO_EXT.test(f.name) && !IMG_EXT.test(f.name) && !/\.(nef|cr[23]|arw|dng|tiff?)$/i.test(f.name) && f.kind !== "LINK" && f.kind !== "DRIVE" && f.kind !== "NAS";
   }
 }
 

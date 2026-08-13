@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { SubmitButton } from "@/components/submit-button";
 import { EmojiSelect } from "@/components/emoji-select";
+import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import {
   type ArchivoItem,
   type CarpetaItem,
@@ -51,6 +52,7 @@ import {
   type OpsVivo,
   type FiltroArchivos,
   esImagen,
+  esVideoArchivo,
   formatPeso,
   fechaRelativa,
   pasaFiltro,
@@ -195,6 +197,10 @@ export function ArchivosPanel({
   // ── Pastillas de filtro: las de conteo 0 no se pintan ──
   const pastillas: { key: FiltroArchivos; label: string }[] = [
     { key: "todo", label: "Todo" },
+    // Por TIPO primero: «las fotos», «los videos» es lo que más se busca en una productora.
+    { key: "video", label: "Videos" },
+    { key: "imagen", label: "Imágenes" },
+    { key: "documento", label: "Documentos" },
     ...(esCliente ? [{ key: "marca" as const, label: "De marca" }] : []),
     { key: "reciente", label: "Lo último (7 días)" },
     { key: "cliente", label: "Que subió el cliente" },
@@ -545,7 +551,9 @@ export function ArchivosPanel({
               <select name="projectId" required defaultValue="" className="rounded-md border border-input bg-background px-2 py-2 text-sm">
                 <option value="" disabled>Proyecto…</option>
                 {proyectosSelector.map((p) => (
-                  <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.name}</option>
+                  // emojiToText: dentro de un <option> no se puede pintar el ícono ls:*, así
+                  // que se usa su emoji de respaldo (nunca el token crudo).
+                  <option key={p.id} value={p.id}>{p.emoji ? `${emojiToText(p.emoji, "🎬")} ` : ""}{p.name}</option>
                 ))}
               </select>
             ) : (
@@ -694,7 +702,9 @@ export function ArchivosPanel({
                   <button type="button" onClick={() => alterna(g.key, i)} className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left" aria-expanded={estaAbierto(g.key, i)}>
                     <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", estaAbierto(g.key, i) && "rotate-90")} />
                     {g.emoji ? (
-                      <span className="text-base leading-none">{g.emoji}</span>
+                      // EntityEmoji, no el texto crudo: el emoji del proyecto puede ser un
+                      // token "ls:*" (los íconos Labstream) y aquí se veía literal («ls:video»).
+                      <span className="text-base leading-none"><EntityEmoji value={g.emoji} /></span>
                     ) : g.carpetaId ? (
                       estaAbierto(g.key, i) ? <FolderOpen className="size-4 shrink-0" style={g.color ? { color: tone(g.color).hex } : undefined} /> : <Folder className="size-4 shrink-0" style={g.color ? { color: tone(g.color).hex } : undefined} />
                     ) : g.proyectoId ? (
@@ -1049,7 +1059,7 @@ function SelectorDestino({ proyectos, conMarca }: { proyectos: ProyectoRef[]; co
     <select name="destino" required defaultValue={conMarca ? "marca" : ""} className="rounded-md border border-input bg-background px-2 py-2 text-sm">
       {conMarca ? <option value="marca">✳ Marca del cliente</option> : <option value="" disabled>Destino…</option>}
       {proyectos.map((p) => (
-        <option key={p.id} value={p.id}>{p.emoji ? `${p.emoji} ` : ""}{p.name}</option>
+        <option key={p.id} value={p.id}>{p.emoji ? `${emojiToText(p.emoji, "🎬")} ` : ""}{p.name}</option>
       ))}
     </select>
   );
@@ -1148,6 +1158,49 @@ function CopiarRuta({ path }: { path: string }) {
   );
 }
 
+// Miniatura REAL de un archivo: imagen → ?thumb=1, video → ?poster=1 (el fotograma que
+// fabrica la app). Si el póster no existe (formato de cámara, ffmpeg ocupado) el <img> falla
+// y se cae al icono — la promesa nunca queda en un cuadro roto. El video lleva un ▸ encima
+// para distinguirse de una foto.
+function MiniArchivo({ f, Icon, color, grande = false }: { f: ArchivoItem; Icon: React.ComponentType<{ className?: string }>; color: string; grande?: boolean }) {
+  const esImg = esImagen(f);
+  const esVid = esVideoArchivo(f);
+  const [rota, setRota] = React.useState(false);
+  // La celda de la cuadrícula es SIEMPRE cuadrada (también para video): una mezcla de 16:9 y
+  // 1:1 descuadraría las filas. El póster se recorta con object-cover y ya.
+  const caja = grande ? "aspect-square w-full bg-muted/40" : "mt-0.5 size-9 shrink-0 rounded-md ring-1 ring-border";
+  if ((!esImg && !esVid) || rota) {
+    return grande ? (
+      <div className="grid aspect-square w-full place-items-center bg-muted/40">
+        <Icon className={cn("size-8", color)} />
+      </div>
+    ) : (
+      <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-muted/60 ring-1 ring-border">
+        <Icon className={cn("size-4", color)} />
+      </span>
+    );
+  }
+  return (
+    <span className={cn("relative block overflow-hidden", caja)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/files-asset/${f.id}?${esVid ? "poster=1" : "thumb=1"}`}
+        alt=""
+        loading="lazy"
+        onError={() => setRota(true)}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      {esVid ? (
+        <span className={cn("absolute inset-0 grid place-items-center", grande ? "" : "bg-black/15")} aria-hidden>
+          <span className={cn("grid place-items-center rounded-full bg-black/55 text-white", grande ? "size-9" : "size-4")}>
+            <svg viewBox="0 0 24 24" fill="currentColor" className={grande ? "ml-0.5 size-4" : "ml-px size-2.5"}><path d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 // La FILA: casilla (lote) + miniatura/icono + nombre + metadatos (proyecto · carpeta · peso ·
 // actividad · autor) + chips + acciones + menú ⋯ (renombrar, mover, fijar, categoría).
 function FilaArchivo({
@@ -1176,6 +1229,7 @@ function FilaArchivo({
   const { Icon, color } = iconoDe(f.name, f.kind);
   const peso = formatPeso(f.size);
   const esImg = esImagen(f);
+  const esVid = esVideoArchivo(f);
   const verHref = f.kind === "LOCAL" || f.kind === "OPS" ? `/api/files-asset/${f.id}` : f.url;
   const projectIdDe = f.proyecto?.id ?? (alcance.tipo === "proyecto" ? alcance.projectId : "");
   const catLabel = categoriaLabel(f.categoria);
@@ -1190,14 +1244,7 @@ function FilaArchivo({
           className="mt-3 size-3.5 shrink-0 accent-[hsl(var(--primary))]"
         />
       ) : null}
-      {esImg ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/files-asset/${f.id}?thumb=1`} alt="" loading="lazy" className="mt-0.5 size-9 shrink-0 rounded-md object-cover ring-1 ring-border" />
-      ) : (
-        <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-muted/60 ring-1 ring-border">
-          <Icon className={cn("size-4", color)} />
-        </span>
-      )}
+      <MiniArchivo f={f} Icon={Icon} color={color} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium leading-5">
           {f.pinned ? <Pin className="mr-1 inline size-3 text-amber-600" aria-label="Fijado" /> : null}
@@ -1220,7 +1267,7 @@ function FilaArchivo({
               href={`/proyectos/${f.proyecto.id}?tab=archivos`}
               className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/[0.06] px-1.5 py-px font-semibold text-primary hover:bg-primary/15"
             >
-              {f.proyecto.emoji ? <span>{f.proyecto.emoji}</span> : null}
+              {f.proyecto.emoji ? <EntityEmoji value={f.proyecto.emoji} /> : null}
               <span className="max-w-[9rem] truncate">{f.proyecto.name}</span>
             </Link>
           ) : null}
@@ -1285,9 +1332,12 @@ function FilaArchivo({
           <>
             <a
               href={verHref!}
-              target={esImg ? undefined : "_blank"}
+              // Imagen Y video se abren en el visor central (navegable con ‹ ›); el resto
+              // (documentos) sigue abriendo en otra pestaña.
+              target={esImg || esVid ? undefined : "_blank"}
               rel="noreferrer"
               {...(esImg ? { "data-lightbox": "", "data-lightbox-name": f.name } : {})}
+              {...(esVid ? { "data-lightbox": "", "data-lightbox-video": "", "data-lightbox-name": f.name } : {})}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               title="Ver"
             >
@@ -1511,7 +1561,7 @@ function Papelera({ archivos, projectId, onCambio }: { archivos: ArchivoItem[]; 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-muted-foreground line-through">{f.name}</p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-                    {f.proyecto ? <span>{f.proyecto.emoji ? `${f.proyecto.emoji} ` : ""}{f.proyecto.name}</span> : null}
+                    {f.proyecto ? <span>{f.proyecto.emoji ? <><EntityEmoji value={f.proyecto.emoji} />{" "}</> : null}{f.proyecto.name}</span> : null}
                     {f.borradoEn ? <span>borrado {fechaRelativa(f.borradoEn)}</span> : null}
                     <span className={cn("font-medium", dias <= 5 && "text-amber-600")}>
                       {dias === 0 ? "se borra hoy" : `quedan ${dias} ${dias === 1 ? "día" : "días"}`}
@@ -1553,27 +1603,22 @@ function Papelera({ archivos, projectId, onCambio }: { archivos: ArchivoItem[]; 
   );
 }
 
-// Tarjeta de la cuadrícula: miniatura real (vía ?thumb=1, que no audita), icono grande para el
-// resto, y el chip del proyecto en el pie cuando el alcance es el cliente.
+// Tarjeta de la cuadrícula: miniatura real (imagen vía ?thumb=1, video vía ?poster=1 — ninguna
+// audita), icono grande para el resto, y el chip del proyecto en el pie cuando el alcance es el
+// cliente. Imagen y video abren el visor central; los documentos, su pestaña.
 function TarjetaArchivo({ f, conProyecto }: { f: ArchivoItem; conProyecto: boolean }) {
   const { Icon, color } = iconoDe(f.name, f.kind);
   const esImg = esImagen(f);
+  const esVid = esVideoArchivo(f);
   const href = f.missing ? null : f.kind === "LOCAL" || f.kind === "OPS" ? `/api/files-asset/${f.id}` : f.url;
   const cuerpo = (
     <>
-      {esImg ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/files-asset/${f.id}?thumb=1`} alt={f.name} loading="lazy" className="aspect-square w-full bg-muted/40 object-cover" />
-      ) : (
-        <div className="grid aspect-square w-full place-items-center bg-muted/40">
-          <Icon className={cn("size-8", color)} />
-        </div>
-      )}
+      <MiniArchivo f={f} Icon={Icon} color={color} grande />
       <div className="px-2 py-1.5">
         <p className="truncate text-[11px] font-medium" title={f.name}>{f.name}</p>
         {conProyecto && f.proyecto ? (
           <p className="truncate text-[10px] font-semibold text-primary">
-            {f.proyecto.emoji ? `${f.proyecto.emoji} ` : ""}
+            {f.proyecto.emoji ? <><EntityEmoji value={f.proyecto.emoji} />{" "}</> : null}
             {f.proyecto.name}
           </p>
         ) : f.missing ? (
@@ -1587,9 +1632,10 @@ function TarjetaArchivo({ f, conProyecto }: { f: ArchivoItem; conProyecto: boole
     return (
       <a
         href={href}
-        target={esImg ? undefined : "_blank"}
+        target={esImg || esVid ? undefined : "_blank"}
         rel="noreferrer"
         {...(esImg ? { "data-lightbox": "", "data-lightbox-name": f.name } : {})}
+        {...(esVid ? { "data-lightbox": "", "data-lightbox-video": "", "data-lightbox-name": f.name } : {})}
         className={cls}
         title={f.kind === "LOCAL" || f.kind === "OPS" ? "Ver" : "Abrir enlace"}
       >

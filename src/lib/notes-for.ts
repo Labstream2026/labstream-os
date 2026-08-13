@@ -1,11 +1,16 @@
 import { db } from "@/lib/db";
 import { countNoteTasks } from "@/lib/note-tasks";
+import { emojiToText } from "@/components/icons/marks";
 import type { SessionUser } from "@/lib/session";
 import type { TabNote } from "@/components/notes/notes-tab";
 
 // Notas de un PROYECTO o de un CLIENTE, para su pestaña «Notas». Mismo criterio de
 // visibilidad que /notas: las mías, las del equipo y las compartidas por proyecto. Formatea
 // aquí las fechas (servidor) para que el componente cliente no lea el reloj.
+//
+// En el alcance CLIENTE se pueden pedir TAMBIÉN las notas de sus proyectos (projectIds):
+// la ficha enseña todo lo apuntado de la cuenta en un solo sitio, cada nota con el chip de
+// su origen («La cuenta» o el proyecto) para poder filtrar.
 
 const fmt = (d: Date): string => {
   try {
@@ -17,10 +22,18 @@ const fmt = (d: Date): string => {
 
 export async function notesFor(
   session: SessionUser,
-  scope: { projectId?: string; clientId?: string },
+  scope: { projectId?: string; clientId?: string; projectIds?: string[] },
 ): Promise<TabNote[]> {
-  const where = scope.projectId ? { projectId: scope.projectId } : scope.clientId ? { clientId: scope.clientId } : null;
+  const where = scope.projectId
+    ? { projectId: scope.projectId }
+    : scope.clientId
+      ? scope.projectIds?.length
+        ? { OR: [{ clientId: scope.clientId }, { projectId: { in: scope.projectIds } }] }
+        : { clientId: scope.clientId }
+      : null;
   if (!where) return [];
+  // ¿Hay que decir de dónde viene cada nota? Solo cuando la lista mezcla orígenes.
+  const conOrigen = !scope.projectId && !!scope.projectIds?.length;
 
   const rows = await db.note.findMany({
     where: {
@@ -32,7 +45,11 @@ export async function notesFor(
     },
     orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
     take: 60,
-    select: { id: true, title: true, content: true, category: true, remindAt: true, updatedAt: true, createdById: true, createdBy: { select: { name: true } } },
+    select: {
+      id: true, title: true, content: true, category: true, remindAt: true, updatedAt: true, createdById: true,
+      createdBy: { select: { name: true } },
+      project: { select: { name: true, emoji: true } },
+    },
   });
 
   return rows.map((n) => {
@@ -49,6 +66,11 @@ export async function notesFor(
       total: tasks.total,
       reminder: n.remindAt ? fmt(n.remindAt) : null,
       ownerName: n.createdById === session.id ? null : n.createdBy?.name ?? null,
+      origen: conOrigen
+        ? n.project
+          ? `${emojiToText(n.project.emoji, "🎬")} ${n.project.name}`
+          : "La cuenta"
+        : null,
     };
   });
 }

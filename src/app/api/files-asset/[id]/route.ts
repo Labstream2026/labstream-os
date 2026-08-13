@@ -47,6 +47,46 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   // escribía una línea de actividad por celda), y se permite caché privada del navegador.
   const isThumb = !!url.searchParams.get("thumb");
 
+  // Modo PÓSTER (?poster=1): el FOTOGRAMA de un video, servido como imagen. Es un parámetro
+  // aparte de ?thumb porque para video la rama inline NUNCA puede devolver una imagen (el
+  // <video> del reproductor pide esta misma URL); con ?poster quien pide es un <img> y lo
+  // dice explícito. Mismo trato que thumb: no se audita, caché privada. 404 si la pieza no
+  // tiene fotograma posible (formato de cámara propietario, ffmpeg ausente): el <img> falla
+  // y el panel enseña el icono, que es la verdad.
+  if (url.searchParams.get("poster")) {
+    try {
+      let webp: Buffer | null = null;
+      if (file.kind === "OPS") {
+        // opsThumb ya sabe de videos: usa el póster de la fábrica o lo saca con ffmpeg.
+        const { opsThumb } = await import("@/lib/nas-ops");
+        webp = await opsThumb(file.path, 640);
+      } else if (file.kind === "GALERIA") {
+        const { galeriaThumb } = await import("@/lib/nas-galeria");
+        webp = await galeriaThumb(file.path, 640);
+      } else {
+        const { posterDeVideo, puedeHacerPoster } = await import("@/lib/video-poster");
+        if (puedeHacerPoster(file.name)) {
+          const abs = absPath(file.path);
+          const st = await fs.stat(abs);
+          webp = await posterDeVideo(abs, { mtimeMs: st.mtimeMs, size: st.size }, 640);
+        }
+      }
+      if (webp) {
+        return new NextResponse(new Uint8Array(webp), {
+          headers: {
+            "Content-Type": "image/webp",
+            "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=3600, must-revalidate",
+          },
+        });
+      }
+    } catch {
+      /* sin fotograma → 404 abajo */
+    }
+    return new NextResponse("Sin fotograma", { status: 404 });
+  }
+
   // Auditoría de descargas/aperturas: una vez por archivo servido. Los saltos del <video>
   // (peticiones Range intermedias) no cuentan — solo la primera carga completa o byte 0.
   if (!isThumb) {
