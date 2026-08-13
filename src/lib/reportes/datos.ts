@@ -44,7 +44,9 @@ export type Kpi = {
 
 export type SerieBarras = { labels: string[]; valores: number[] };
 export type SerieApilada = { labels: string[]; a: number[]; b: number[] }; // a la primera / con correcciones
-export type FilaBarra = { label: string; valor: number; sufijo?: string };
+// `texto` manda sobre valor+sufijo al pintar (para «2,5 h» con coma sin ensuciar el número
+// que dimensiona la barra).
+export type FilaBarra = { label: string; valor: number; sufijo?: string; texto?: string };
 export type FilaCumplimiento = { id: string; ini: string | null; nombre: string; color: string | null; ok: number; tarde: number; venc: number; pct: number | null };
 
 export type PersonaReporte = {
@@ -58,6 +60,11 @@ export type PersonaReporte = {
   piezas: number; // entregables con versión subida por esta persona en el periodo
   carga: number; // tareas abiertas hoy
   porProyecto: FilaBarra[]; // sus horas por proyecto (top 4)
+  // Del RASTREADOR de trabajo (app de escritorio): horas con el equipo activo (la inactividad
+  // profunda ya viene descontada por el sensor) y en qué apps estuvo (top 5).
+  efectivasH: number;
+  efectivasTxt: string | null; // «6,5 h» — null si este periodo no tiene datos del rastreador
+  apps: FilaBarra[];
 };
 
 export type FilaEntrega = {
@@ -319,10 +326,13 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
   const desdeHoras =
     periodo.key === "todo" ? null : new Date(Math.min(periodo.prevDesde?.getTime() ?? Infinity, periodo.desde?.getTime() ?? Infinity, hace8m.getTime()));
 
+  // Rango del periodo para las agregaciones del rastreador (startedAt).
+  const rangoTracker = { ...(periodo.desde ? { gte: periodo.desde } : {}), lt: periodo.hasta };
+
   const [
     entregables, decisiones, actividadAprobados, versionesAgg, versionesPeriodo,
     entradas, cargaAgg, usuarios, clientesDb, facturas,
-    cumplRows, cumplPrevRows,
+    cumplRows, cumplPrevRows, trabajoAgg, trabajoApps,
   ] = await Promise.all([
     // Todas las piezas vivas, con su proyecto y cliente (pocos cientos de filas).
     db.deliverable.findMany({
@@ -372,6 +382,9 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
     periodo.prevDesde && periodo.prevHasta
       ? personCompliance({ from: periodo.prevDesde, to: periodo.prevHasta })
       : Promise.resolve([]),
+    // Rastreador: total por persona y desglose por app, del periodo.
+    db.workBlock.groupBy({ by: ["userId"], where: { startedAt: rangoTracker }, _sum: { seconds: true, activeSecs: true } }),
+    db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }),
   ]);
 
   const piezaDe = new Map(entregables.map((d) => [d.id, d]));
@@ -653,9 +666,21 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       minPersonaProyecto.set(e.userId, m);
     }
   }
+  // Rastreador: segundos con equipo activo por persona y sus apps más usadas.
+  const horas1 = (seg: number) => `${(seg / 3600).toFixed(1).replace(".", ",")} h`;
+  const efectivasDe = new Map(trabajoAgg.map((r) => [r.userId, r._sum.seconds ?? 0]));
+  const appsDe = new Map<string, FilaBarra[]>();
+  for (const r of trabajoApps) {
+    const arr = appsDe.get(r.userId) ?? [];
+    arr.push({ label: r.app, valor: r._sum.seconds ?? 0, texto: horas1(r._sum.seconds ?? 0) });
+    appsDe.set(r.userId, arr);
+  }
+  for (const arr of appsDe.values()) arr.sort((a, b) => b.valor - a.valor).splice(5);
+
   const personas: PersonaReporte[] = usuarios
     .map((u) => {
       const c = cumplDe.get(u.id);
+      const efectivasSeg = efectivasDe.get(u.id) ?? 0;
       return {
         id: u.id, ini: u.initials, nombre: u.name, color: u.avatarColor,
         horas: Math.round((minPersona.get(u.id) ?? 0) / 60),
@@ -667,11 +692,14 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
           .sort((a, b) => b[1] - a[1])
           .slice(0, 4)
           .map(([pid, min]) => ({ label: proyInfo.get(pid)?.label ?? "Proyecto", valor: Math.round(min / 60), sufijo: " h" })),
+        efectivasH: Math.round(efectivasSeg / 3600),
+        efectivasTxt: efectivasSeg > 0 ? horas1(efectivasSeg) : null,
+        apps: appsDe.get(u.id) ?? [],
       };
     })
-    // Solo quien tuvo ALGO en el periodo (horas, tareas, piezas o carga): los demás no ocupan fila.
-    .filter((p) => p.horas > 0 || p.tareasCerradas > 0 || p.piezas > 0 || p.carga > 0)
-    .sort((a, b) => b.horas - a.horas);
+    // Solo quien tuvo ALGO en el periodo (horas, rastreador, tareas, piezas o carga).
+    .filter((p) => p.horas > 0 || p.efectivasH > 0 || p.efectivasTxt !== null || p.tareasCerradas > 0 || p.piezas > 0 || p.carga > 0)
+    .sort((a, b) => (b.horas + b.efectivasH) - (a.horas + a.efectivasH));
 
   // ── Caso CLIENTES ──
   const factPorCliente = new Map<string, { fact: number; cobr: number; vencMs: number | null }>();

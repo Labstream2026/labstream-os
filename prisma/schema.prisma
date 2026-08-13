@@ -184,6 +184,9 @@ model User {
   // Capacidad semanal (vista Carga): contra cuántas horas se compara su trabajo estimado.
   weeklyCapacityHours Int             @default(40)
   timeEntries        TimeEntry[]        @relation("TimeEntryUser")
+  // Rastreador de trabajo efectivo: equipos vinculados y sus bloques de uso.
+  trackerDevices     TrackerDevice[]    @relation("TrackerDeviceUser")
+  workBlocks         WorkBlock[]        @relation("WorkBlockUser")
   runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -1724,6 +1727,49 @@ model Task {
 
 // Registro de tiempo real trabajado en una tarea (parte de horas). La suma por tarea
 // y por proyecto se compara contra `Task.estimatedMinutes` en el cronograma.
+// ── Rastreador de trabajo efectivo (Fase 1) ──
+// Un EQUIPO vinculado por persona/máquina: la app de escritorio guarda el token (ltk_, aquí
+// solo su sha256) y sube bloques de uso. Revocar el device corta el flujo al instante.
+model TrackerDevice {
+  id         String      @id @default(cuid())
+  user       User        @relation("TrackerDeviceUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  // Nombre visible («PC edición 1»). El sensor manda el hostname en su primer lote y se adopta.
+  name       String
+  tokenHash  String      @unique // sha256 del token completo; el secreto se enseña UNA vez
+  platform   String? // windows | macos
+  appVersion String?
+  createdAt  DateTime    @default(now())
+  lastSeenAt DateTime?
+  revokedAt  DateTime?
+  blocks     WorkBlock[]
+
+  @@index([userId])
+}
+
+// Un BLOQUE de uso: «en esta app (y este título de ventana) hubo N segundos, M con actividad
+// real de entrada». El sensor agrega por minuto y sube lotes cada ~5 min; NUNCA manda teclas,
+// posiciones ni pantallazos — solo app + título truncado. La inactividad profunda (3 min sin
+// entrada) ni siquiera genera bloque. El único índice de consulta es (userId, startedAt): las
+// agregaciones de Reportes van por persona y rango.
+model WorkBlock {
+  id         String        @id @default(cuid())
+  device     TrackerDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId   String
+  user       User          @relation("WorkBlockUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId     String // denormalizado del device: las agregaciones no pasan por el join
+  startedAt  DateTime
+  seconds    Int // duración del bloque (sin inactividad profunda)
+  activeSecs Int // segundos con entrada real (mouse/teclado detectado, no registrado)
+  app        String
+  title      String        @default("") // "" y no null: la unicidad de reintentos lo necesita
+  createdAt  DateTime      @default(now())
+
+  // Idempotencia del reintento offline: el mismo lote reenviado no duplica nada.
+  @@unique([deviceId, startedAt, app, title])
+  @@index([userId, startedAt])
+}
+
 model TimeEntry {
   id        String   @id @default(cuid())
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)

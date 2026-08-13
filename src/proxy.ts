@@ -36,7 +36,9 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   (valida alcance + registra actividad antes de redirigir al archivo real).
 // - /api/doc-templates: archivo de una plantilla de documento; el Document Server lo descarga
 //   con token firmado (sin cookie) para poder editarla. La ruta exige sesión del equipo O token.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica"];
+// - /api/tracker: lotes del rastreador de trabajo (app de escritorio); se autentica por token
+//   de equipo (Bearer ltk_), nunca por cookie — el sensor corre en Rust, sin sesión.
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica", "/api/tracker"];
 
 // La sala del CLIENTE de la galería (/galeria/<token>, enlace firmado sin cuenta) es pública,
 // pero /galeria a secas es la página del EQUIPO y sigue detrás de la sesión. La lista de

@@ -35,6 +35,8 @@ import { getMarcebotConfig } from "@/lib/marcebot/config";
 import { CalendarSyncSettings } from "@/app/(app)/configuracion/calendar-sync-settings";
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
+import { TrackerDevices, type EquipoRastreador } from "@/app/(app)/perfil/tracker-devices";
+import { ahoraMs, fechaRelativa } from "@/lib/archivos/tipos";
 import { PreferencesForm } from "@/app/(app)/perfil/preferences-form";
 import { NotificationPrefsForm } from "@/app/(app)/perfil/notification-prefs-form";
 import { SilenceSettings, type MutedTarget } from "@/app/(app)/perfil/silence-settings";
@@ -90,6 +92,24 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
         : mutedProjects.find((p) => p.id === m.targetId)?.name ?? "Proyecto",
   }));
 
+  // Equipos vinculados al rastreador de trabajo (solo equipo interno, no clientes). «Activo» =
+  // reportó hace menos de 10 min: el sensor sube lotes cada 5, con margen para un reintento.
+  const equiposRastreador: EquipoRastreador[] = isCliente
+    ? []
+    : (
+        await db.trackerDevice.findMany({
+          where: { userId: me.id, revokedAt: null },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, platform: true, lastSeenAt: true },
+        })
+      ).map((d) => ({
+        id: d.id,
+        name: d.name,
+        platform: d.platform,
+        vistoLabel: d.lastSeenAt ? fechaRelativa(d.lastSeenAt.toISOString()) : null,
+        activo: !!d.lastSeenAt && ahoraMs() - d.lastSeenAt.getTime() < 10 * 60_000,
+      }));
+
   const perfilNode = (
     <div className="space-y-4">
       <ProfileForm
@@ -105,6 +125,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
         birthDate={me.birthDate ? me.birthDate.toISOString() : null}
         isCliente={isCliente}
       />
+      {!isCliente ? <TrackerDevices equipos={equiposRastreador} /> : null}
       {/* La leyenda del correo va AL FINAL de la pestaña (nota informativa, no un dato editable). */}
       <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm">
         <Mail className="mt-0.5 size-4 shrink-0 text-primary" />

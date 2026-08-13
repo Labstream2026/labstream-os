@@ -273,6 +273,17 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
             ) : (
               <>
                 <div className="grid gap-2.5 lg:grid-cols-2">
+                  <Caja titulo="Horas efectivas (rastreador)" hint="Tiempo con el equipo activo según la app de escritorio · clic abre su detalle">
+                    {datos.personas.some((p) => p.efectivasH > 0) ? (
+                      <div className="flex flex-col gap-1.5">
+                        {[...datos.personas].filter((p) => p.efectivasH > 0).sort((a, b) => b.efectivasH - a.efectivasH).map((p) => (
+                          <FilaPersonaBarra key={p.id} p={p} max={Math.max(...datos.personas.map((x) => x.efectivasH), 1)} valor={p.efectivasH} sufijo=" h" color="var(--rs1)" onClick={() => setPersona(p.id)} />
+                        ))}
+                      </div>
+                    ) : (
+                      <Vacio texto="Sin datos del rastreador en el periodo. Cada quien vincula su equipo en Ajustes → Perfil, desde la app de escritorio." />
+                    )}
+                  </Caja>
                   <Caja titulo="Horas del periodo por persona" hint="Tiempo imputado en tareas · clic abre su detalle">
                     {datos.personas.some((p) => p.horas > 0) ? (
                       <div className="flex flex-col gap-1.5">
@@ -461,7 +472,7 @@ function FilasBarra({ filas, color }: { filas: FilaBarra[]; color: string }) {
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
             <span className="block h-full rounded-full" style={{ width: `${(f.valor / max) * 100}%`, background: color }} />
           </span>
-          <span className="w-12 flex-none text-right text-[11px] tabular-nums text-muted-foreground">{f.valor}{f.sufijo ?? ""}</span>
+          <span className="w-14 flex-none text-right text-[11px] tabular-nums text-muted-foreground">{f.texto ?? `${f.valor}${f.sufijo ?? ""}`}</span>
         </div>
       ))}
     </div>
@@ -527,8 +538,9 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10.5px] font-semibold text-primary">en el periodo</span>
         <button type="button" onClick={onCerrar} aria-label="Cerrar" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
       </div>
-      <div className="mb-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <KpiMini v={`${p.horas} h`} l="registradas" />
+      <div className="mb-2.5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <KpiMini v={p.efectivasTxt ?? "—"} l="efectivas (rastreador)" />
+        <KpiMini v={`${p.horas} h`} l="imputadas en tareas" />
         <KpiMini v={String(p.tareasCerradas)} l="tareas cerradas" />
         {canCumpl ? <KpiMini v={p.pctATiempo === null ? "—" : `${p.pctATiempo}%`} l="a tiempo" /> : null}
         <KpiMini v={String(p.piezas)} l="piezas trabajadas" />
@@ -538,14 +550,16 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
           Con fecha en el periodo: <b className="text-emerald-600 dark:text-emerald-400">{cumpl.ok} a tiempo</b> · <b className="text-amber-600 dark:text-amber-400">{cumpl.tarde} tarde</b> · <b className="text-rose-600 dark:text-rose-400">{cumpl.venc} vencidas</b>
         </p>
       ) : null}
-      {p.porProyecto.length ? (
-        <>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
           <h4 className="mb-1.5 text-[11.5px] font-semibold">Sus horas por proyecto</h4>
-          <FilasBarra filas={p.porProyecto} color="var(--rs2)" />
-        </>
-      ) : (
-        <Vacio texto="Sin horas registradas en el periodo." />
-      )}
+          {p.porProyecto.length ? <FilasBarra filas={p.porProyecto} color="var(--rs2)" /> : <Vacio texto="Sin horas imputadas en el periodo." />}
+        </div>
+        <div>
+          <h4 className="mb-1.5 text-[11.5px] font-semibold">En qué apps (rastreador)</h4>
+          {p.apps.length ? <FilasBarra filas={p.apps} color="var(--rs1)" /> : <Vacio texto="Sin datos del rastreador en el periodo." />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -589,8 +603,8 @@ function exportarCsv(caso: CasoKey, d: ReporteDatos) {
     ];
   } else if (caso === "equipo") {
     lineas = [
-      fila(["Persona", "Horas", "Tareas cerradas", "% a tiempo", "Piezas trabajadas", "Carga actual"]),
-      ...d.personas.map((p) => fila([p.nombre, p.horas, p.tareasCerradas, p.pctATiempo ?? "", p.piezas, p.carga])),
+      fila(["Persona", "Horas efectivas (rastreador)", "Horas imputadas", "Tareas cerradas", "% a tiempo", "Piezas trabajadas", "Carga actual"]),
+      ...d.personas.map((p) => fila([p.nombre, p.efectivasTxt ?? "", p.horas, p.tareasCerradas, p.pctATiempo ?? "", p.piezas, p.carga])),
     ];
   } else if (caso === "clientes") {
     lineas = [
