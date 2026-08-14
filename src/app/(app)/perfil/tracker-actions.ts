@@ -13,7 +13,9 @@ import { generateTrackerToken } from "@/lib/tracker";
 
 const MAX_EQUIPOS = 3;
 
-export async function vincularRastreador(): Promise<{ ok: boolean; token?: string; error?: string }> {
+// Devuelve también el `deviceId`: si el sensor no acusa recibo del token (app vieja, sin
+// sensor), la página deshace este equipo en vez de dejar un fantasma que nunca reporta.
+export async function vincularRastreador(): Promise<{ ok: boolean; token?: string; deviceId?: string; error?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "Sin sesión." };
   if (session.role === "cliente" || session.role === "demo") {
@@ -24,12 +26,13 @@ export async function vincularRastreador(): Promise<{ ok: boolean; token?: strin
     return { ok: false, error: `Ya tienes ${MAX_EQUIPOS} equipos vinculados. Revoca uno primero.` };
   }
   const { raw, tokenHash } = generateTrackerToken();
-  await db.trackerDevice.create({
+  const device = await db.trackerDevice.create({
     // El nombre real (hostname) lo manda el sensor en su primer lote y lo adopta el endpoint.
     data: { userId: session.id, name: `Equipo de ${session.name?.split(" ")[0] ?? "alguien"}`, tokenHash },
+    select: { id: true },
   });
   revalidatePath("/ajustes");
-  return { ok: true, token: raw };
+  return { ok: true, token: raw, deviceId: device.id };
 }
 
 export async function revocarRastreador(deviceId: string): Promise<{ ok: boolean; error?: string }> {

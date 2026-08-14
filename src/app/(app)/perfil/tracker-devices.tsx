@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Laptop, Loader2, MonitorCheck, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { vincularRastreador, revocarRastreador } from "./tracker-actions";
+import { consultarSensor, enAppEscritorio, entregarToken } from "@/components/tracker/puente";
 
 // ── Ajustes → Perfil → «Rastreador de trabajo» ──
 // La vinculación SOLO funciona dentro de la app de escritorio: esta página genera el token en
@@ -22,39 +23,56 @@ export type EquipoRastreador = {
   activo: boolean;
 };
 
-// El objeto global que inyecta Tauri en la app de escritorio (tipado mínimo local).
-type TauriGlobal = { event?: { emit: (name: string, payload?: unknown) => Promise<void> } };
+// Qué se puede hacer aquí, según con quién estemos hablando:
+//   navegador   → no hay app de escritorio: solo explicar y listar
+//   vieja       → es la app, pero no contesta: no trae sensor (anterior a la 1.8.0)
+//   sinVincular → el sensor contesta y este equipo aún no está vinculado
+//   vinculado   → ya está midiendo; no tiene sentido ofrecerlo otra vez
+type Modo = "cargando" | "navegador" | "vieja" | "sinVincular" | "vinculado";
 
 export function TrackerDevices({ equipos }: { equipos: EquipoRastreador[] }) {
   const router = useRouter();
-  const [enApp, setEnApp] = React.useState(false);
+  const [modo, setModo] = React.useState<Modo>("cargando");
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = React.useTransition();
 
   React.useEffect(() => {
-    const t = setTimeout(() => {
-      const tauri = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
-      setEnApp(!!tauri?.event);
-    }, 0);
-    return () => clearTimeout(t);
+    let vivo = true;
+    // Se le pregunta al SENSOR, no solo a Tauri: que exista la app no significa que traiga
+    // el rastreador. Quien no contesta en el plazo es una versión anterior a la 1.8.0.
+    void (async () => {
+      if (!enAppEscritorio()) {
+        if (vivo) setModo("navegador");
+        return;
+      }
+      const estado = await consultarSensor();
+      if (!vivo) return;
+      setModo(estado === null ? "vieja" : estado.vinculado ? "vinculado" : "sinVincular");
+    })();
+    return () => { vivo = false; };
   }, []);
 
   function vincular() {
     setMsg(null);
     start(async () => {
       const r = await vincularRastreador();
-      if (!r.ok || !r.token) {
+      if (!r.ok || !r.token || !r.deviceId) {
         setMsg({ ok: false, text: r.error ?? "No se pudo vincular." });
         return;
       }
-      const tauri = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
-      try {
-        await tauri!.event!.emit("ls-tracker-token", { token: r.token });
-        setMsg({ ok: true, text: "Equipo vinculado: el sensor empieza a registrar en un momento." });
+      const recogido = await entregarToken(r.token);
+      if (!recogido) {
+        // Nadie acusó recibo: esta app no trae sensor. Se deshace el equipo recién creado
+        // para no dejar uno registrado que nunca va a reportar nada.
+        await revocarRastreador(r.deviceId);
+        setModo("vieja");
+        setMsg({ ok: false, text: "Tu app de escritorio no trae el rastreador todavía. Ciérrala y ábrela de nuevo: se actualiza sola." });
         router.refresh();
-      } catch {
-        setMsg({ ok: false, text: "No se pudo entregar el token a la app. ¿Estás en la app de escritorio?" });
+        return;
       }
+      setModo("vinculado");
+      setMsg({ ok: true, text: "Equipo vinculado: el sensor empieza a registrar en un momento." });
+      router.refresh();
     });
   }
 
@@ -74,17 +92,31 @@ export function TrackerDevices({ equipos }: { equipos: EquipoRastreador[] }) {
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={vincular}
-          disabled={pending || !enApp}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Laptop className="size-3.5" />}
-          Vincular este equipo
-        </button>
-        {!enApp ? (
+        {/* El botón solo aparece cuando de verdad sirve para algo. */}
+        {modo === "sinVincular" ? (
+          <button
+            type="button"
+            onClick={vincular}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Laptop className="size-3.5" />}
+            Vincular este equipo
+          </button>
+        ) : null}
+        {modo === "cargando" ? <span className="text-[11px] text-muted-foreground">Buscando el sensor…</span> : null}
+        {modo === "navegador" ? (
           <span className="text-[11px] text-muted-foreground">Abre esta página desde la app de escritorio para vincular.</span>
+        ) : null}
+        {modo === "vieja" ? (
+          <span className="text-[11.5px] font-medium text-amber-600 dark:text-amber-400">
+            Tu app de escritorio aún no trae el rastreador. Ciérrala y ábrela de nuevo: se actualiza sola.
+          </span>
+        ) : null}
+        {modo === "vinculado" && !msg ? (
+          <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-emerald-600 dark:text-emerald-400">
+            <MonitorCheck className="size-3.5" /> Este equipo ya está midiendo tus horas.
+          </span>
         ) : null}
         {msg ? (
           <span className={cn("text-[11.5px] font-medium", msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>{msg.text}</span>
