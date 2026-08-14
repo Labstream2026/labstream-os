@@ -35,6 +35,7 @@ export function AppShell({
   canCalendar = true,
   canTimeline = true,
   canReports = true,
+  canRastreo = false,
   canClients = true,
   canPapelera = false,
   canCreateTasks = false,
@@ -68,6 +69,7 @@ export function AppShell({
   canCalendar?: boolean;
   canTimeline?: boolean;
   canReports?: boolean;
+  canRastreo?: boolean;
   canClients?: boolean;
   canPapelera?: boolean;
   canCreateTasks?: boolean;
@@ -177,7 +179,7 @@ export function AppShell({
     <div className={`flex h-[calc(100dvh-var(--pwa-nav-h,0px))] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canRastreo={canRastreo} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
       </div>
 
       {/* Cajón de menú (móvil) */}
@@ -200,6 +202,7 @@ export function AppShell({
               canCalendar={canCalendar}
               canTimeline={canTimeline}
               canReports={canReports}
+              canRastreo={canRastreo}
               canClients={canClients}
               canPapelera={canPapelera}
               canCreateTasks={canCreateTasks}

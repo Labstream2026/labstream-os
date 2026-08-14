@@ -6,6 +6,7 @@ import { isDndActive } from "@/lib/notif-silence";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { canSeeWiki } from "@/lib/wiki-access";
+import { accesoRastreo } from "@/lib/rastreo/acceso";
 import { getChatUnreadSummary } from "@/lib/chat-unread";
 import { isEditableOffice } from "@/lib/onlyoffice";
 import { opsEnabled } from "@/lib/nas-ops";
@@ -121,6 +122,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const showWiki = await canSeeWiki(session);
 
+  // ¿Enseñar «Rastreo» en el menú? No basta con el permiso: a alguien puede habérsele
+  // compartido UNA persona, y sin el enlace no encontraría el panel nunca. Para quien tiene
+  // el permiso esto no consulta nada; para el resto es una lectura por índice de una tabla
+  // con un puñado de filas.
+  const accRastreo = await accesoRastreo(session);
+
   // Preferencias del usuario (panel lateral/chat, accesibilidad) que sincronizan entre dispositivos.
   const prefs = await getUserPreference(session.id);
 
@@ -183,6 +190,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canTimeline={hasPermission(session, "ver_proyectos")}
       wikiPages={wikiPages}
       canReports={hasPermission(session, "ver_reportes")}
+      canRastreo={accRastreo.puede}
       canClients={hasPermission(session, "ver_clientes")}
       canPapelera={hasPermission(session, "ver_papelera")}
       canCreateTasks={hasPermission(session, "crear_tareas")}

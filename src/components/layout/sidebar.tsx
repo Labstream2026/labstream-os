@@ -31,6 +31,7 @@ import {
   Receipt,
   Rocket,
   ScrollText,
+  Radar,
   Search,
   Settings,
   ShieldCheck,
@@ -186,6 +187,7 @@ export function Sidebar({
   canCalendar = true,
   canTimeline = true,
   canReports = true,
+  canRastreo = false,
   canClients = true,
   canPapelera = false,
   canCreateTasks = false,
@@ -211,6 +213,9 @@ export function Sidebar({
   canCalendar?: boolean;
   canTimeline?: boolean;
   canReports?: boolean;
+  // Panel de rastreo: por defecto FALSE. A diferencia del resto, este no se hereda por rol —
+  // es dato personal del equipo y se concede a mano (ver lib/rastreo/acceso).
+  canRastreo?: boolean;
   canClients?: boolean;
   canPapelera?: boolean;
   // Muestra el acceso rápido «+ Tarea» del cajón móvil (los modales viven en QuickCreateFab).
@@ -303,7 +308,7 @@ export function Sidebar({
   const isClientOpen = (c: SidebarClient) => openMap[c.id] ?? c.projects.some((p) => p.id === activeProjectId);
 
   // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si estás dentro).
-  const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") || pathname.startsWith("/comercial") || pathname.startsWith("/reportes") || pathname.startsWith("/papelera");
+  const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") || pathname.startsWith("/comercial") || pathname.startsWith("/reportes") || pathname.startsWith("/rastreo") || pathname.startsWith("/papelera");
   const [adminOpen, setAdminOpen] = React.useState(true);
   React.useEffect(() => {
     const saved = window.localStorage.getItem("ui:adminOpen");
@@ -523,6 +528,7 @@ export function Sidebar({
               {canWiki ? adminRow("/wiki", "Wiki", IconWiki, pathname.startsWith("/wiki") || pathname.startsWith("/plantillas")) : null}
               {canBiblioteca ? adminRow("/biblioteca", "Biblioteca", IconBiblioteca, pathname.startsWith("/biblioteca")) : null}
               {canReports ? adminRow("/reportes", "Reportes", IconReportes, pathname.startsWith("/reportes")) : null}
+              {canRastreo ? adminRow("/rastreo", "Rastreo", Radar, pathname.startsWith("/rastreo")) : null}
               {canComercial ? adminRow("/comercial", "Comercial", IconComercial, pathname.startsWith("/comercial")) : null}
               {canQuotes ? adminRow("/facturacion", "Facturación", IconFacturacion, pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion")) : null}
               {canPapelera ? adminRow("/papelera", "Papelera", IconPapelera, pathname.startsWith("/papelera")) : null}
@@ -552,6 +558,7 @@ export function Sidebar({
     // Herramientas), así que enciende esta misma fila. Un icono menos en el rail.
     { href: "/wiki", label: "Wiki", icon: BookOpen, show: canWiki, active: pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") },
     { href: "/reportes", label: "Reportes", icon: BarChart3, show: canReports, active: pathname.startsWith("/reportes") },
+    { href: "/rastreo", label: "Rastreo", icon: Radar, show: canRastreo, active: pathname.startsWith("/rastreo") },
     { href: "/comercial", label: "Comercial", icon: TrendingUp, show: canComercial, active: pathname.startsWith("/comercial") },
     // «Facturación» lleva A FACTURACIÓN (con Siigo conectado, ahí vive lo contable en vivo).
     // Antes llevaba a /cotizaciones y el usuario «no encontraba» Siigo: el botón prometía una

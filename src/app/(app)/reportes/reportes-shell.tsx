@@ -269,21 +269,27 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
             </div>
 
             {personaSel ? (
-              <DrillPersona p={personaSel} cumpl={cumplPersona(personaSel.id)} canCumpl={datos.canCumpl} onCerrar={() => setPersona(null)} />
+              <DrillPersona p={personaSel} cumpl={cumplPersona(personaSel.id)} canCumpl={datos.canCumpl} canRastreo={datos.canRastreo} onCerrar={() => setPersona(null)} />
             ) : (
               <>
-                <div className="grid gap-2.5 lg:grid-cols-2">
+                <div className={`grid gap-2.5 ${datos.canRastreo ? "lg:grid-cols-2" : ""}`}>
+                  {/* Solo con permiso `ver_rastreo`: sin él estas horas ni se consultaron. */}
+                  {datos.canRastreo ? (
                   <Caja titulo="Horas efectivas (rastreador)" hint="Tiempo con el equipo activo según la app de escritorio · clic abre su detalle">
                     {datos.personas.some((p) => p.efectivasH > 0) ? (
                       <div className="flex flex-col gap-1.5">
                         {[...datos.personas].filter((p) => p.efectivasH > 0).sort((a, b) => b.efectivasH - a.efectivasH).map((p) => (
                           <FilaPersonaBarra key={p.id} p={p} max={Math.max(...datos.personas.map((x) => x.efectivasH), 1)} valor={p.efectivasH} sufijo=" h" color="var(--rs1)" onClick={() => setPersona(p.id)} />
                         ))}
+                        <a href="/rastreo" className="mt-1 self-start text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+                          Abrir el panel de rastreo →
+                        </a>
                       </div>
                     ) : (
                       <Vacio texto="Sin datos del rastreador en el periodo. Cada quien vincula su equipo en Ajustes → Perfil, desde la app de escritorio." />
                     )}
                   </Caja>
+                  ) : null}
                   <Caja titulo="Horas del periodo por persona" hint="Tiempo imputado en tareas · clic abre su detalle">
                     {datos.personas.some((p) => p.horas > 0) ? (
                       <div className="flex flex-col gap-1.5">
@@ -328,7 +334,7 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
                       <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                         <th className="px-2 py-1.5 font-bold">Cliente</th>
                         <th className="px-2 py-1.5 font-bold">Videos del compromiso</th>
-                        <Th r>Corr.</Th><Th r>Horas reales</Th><Th r>Imputadas</Th>
+                        <Th r>Corr.</Th>{datos.canRastreo ? <Th r>Horas reales</Th> : null}<Th r>Imputadas</Th>
                         {datos.canFin ? <Th r>Cobrado / facturado</Th> : null}
                         <th className="px-2 py-1.5 font-bold">Salud</th>
                       </tr>
@@ -344,9 +350,11 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
                             <span className="tabular-nums text-muted-foreground">{c.hechos}/{c.total}</span>
                           </td>
                           <td className="px-2 py-2 text-right">{c.correcciones ? <Pill tono="warn">{c.correcciones}</Pill> : "—"}</td>
-                          <td className="px-2 py-2 text-right font-medium tabular-nums" title="Medidas por el rastreador de la app de escritorio">
-                            {c.horasReales ? `${c.horasReales} h` : "—"}
-                          </td>
+                          {datos.canRastreo ? (
+                            <td className="px-2 py-2 text-right font-medium tabular-nums" title="Medidas por el rastreador de la app de escritorio">
+                              {c.horasReales ? `${c.horasReales} h` : "—"}
+                            </td>
+                          ) : null}
                           <td className="px-2 py-2 text-right tabular-nums text-muted-foreground" title="Imputadas a mano en tareas">{c.horas ? `${c.horas} h` : "—"}</td>
                           {datos.canFin ? (
                             <td className="px-2 py-2 text-right tabular-nums">
@@ -532,7 +540,7 @@ function KpiMini({ v, l }: { v: string; l: string }) {
   );
 }
 
-function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cumpl: FilaCumplimiento | null; canCumpl: boolean; onCerrar: () => void }) {
+function DrillPersona({ p, cumpl, canCumpl, canRastreo, onCerrar }: { p: PersonaReporte; cumpl: FilaCumplimiento | null; canCumpl: boolean; canRastreo: boolean; onCerrar: () => void }) {
   return (
     <div className="rounded-xl border border-primary/50 bg-card p-3.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
       <div className="mb-2.5 flex items-center gap-2.5">
@@ -542,7 +550,7 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
         <button type="button" onClick={onCerrar} aria-label="Cerrar" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
       </div>
       <div className="mb-2.5 grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <KpiMini v={p.efectivasTxt ?? "—"} l="efectivas (rastreador)" />
+        {canRastreo ? <KpiMini v={p.efectivasTxt ?? "—"} l="efectivas (rastreador)" /> : null}
         <KpiMini v={`${p.horas} h`} l="imputadas en tareas" />
         <KpiMini v={String(p.tareasCerradas)} l="tareas cerradas" />
         {canCumpl ? <KpiMini v={p.pctATiempo === null ? "—" : `${p.pctATiempo}%`} l="a tiempo" /> : null}
@@ -558,10 +566,14 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
           <h4 className="mb-1.5 text-[11.5px] font-semibold">Sus horas por proyecto</h4>
           {p.porProyecto.length ? <FilasBarra filas={p.porProyecto} color="var(--rs2)" /> : <Vacio texto="Sin horas imputadas en el periodo." />}
         </div>
+        {/* Todo lo de abajo es del sensor: sin `ver_rastreo` no llegó ni un dato. */}
+        {canRastreo ? (
         <div>
           <h4 className="mb-1.5 text-[11.5px] font-semibold">En qué apps (rastreador)</h4>
           {p.apps.length ? <FilasBarra filas={p.apps} color="var(--rs1)" /> : <Vacio texto="Sin datos del rastreador en el periodo." />}
         </div>
+        ) : null}
+        {canRastreo ? (
         <div>
           <h4 className="mb-1.5 text-[11.5px] font-semibold">En qué cuentas (rastreador)</h4>
           {p.cuentas.length ? (
@@ -570,6 +582,8 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
             <Vacio texto="Sin datos del rastreador en el periodo." />
           )}
         </div>
+        ) : null}
+        {canRastreo ? (
         <div>
           <h4 className="mb-1.5 text-[11.5px] font-semibold">Sus últimas jornadas</h4>
           {p.jornadas.length ? (
@@ -596,6 +610,7 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
             <Vacio texto="Sin jornadas registradas (últimos 14 días)." />
           )}
         </div>
+        ) : null}
       </div>
     </div>
   );
@@ -640,13 +655,15 @@ function exportarCsv(caso: CasoKey, d: ReporteDatos) {
     ];
   } else if (caso === "equipo") {
     lineas = [
-      fila(["Persona", "Horas efectivas (rastreador)", "Horas imputadas", "Tareas cerradas", "% a tiempo", "Piezas trabajadas", "Carga actual"]),
-      ...d.personas.map((p) => fila([p.nombre, p.efectivasTxt ?? "", p.horas, p.tareasCerradas, p.pctATiempo ?? "", p.piezas, p.carga])),
+      // La columna del sensor solo sale si quien exporta puede verlo: un CSV que se reenvía
+      // es la vía más fácil de que un dato personal termine donde no debe.
+      fila(["Persona", ...(d.canRastreo ? ["Horas efectivas (rastreador)"] : []), "Horas imputadas", "Tareas cerradas", "% a tiempo", "Piezas trabajadas", "Carga actual"]),
+      ...d.personas.map((p) => fila([p.nombre, ...(d.canRastreo ? [p.efectivasTxt ?? ""] : []), p.horas, p.tareasCerradas, p.pctATiempo ?? "", p.piezas, p.carga])),
     ];
   } else if (caso === "clientes") {
     lineas = [
-      fila(["Cliente", "Videos hechos", "Videos total", "Correcciones", "Horas reales", "Horas imputadas", ...(d.canFin ? ["Cobrado/facturado", "% cobrado"] : []), "Salud", "Motivo"]),
-      ...d.clientes.map((c) => fila([c.nombre, c.hechos, c.total, c.correcciones, c.horasReales, c.horas, ...(d.canFin ? [c.dineroTxt ?? "", c.pctCobrado ?? ""] : []), c.salud, c.motivo])),
+      fila(["Cliente", "Videos hechos", "Videos total", "Correcciones", ...(d.canRastreo ? ["Horas reales"] : []), "Horas imputadas", ...(d.canFin ? ["Cobrado/facturado", "% cobrado"] : []), "Salud", "Motivo"]),
+      ...d.clientes.map((c) => fila([c.nombre, c.hechos, c.total, c.correcciones, ...(d.canRastreo ? [c.horasReales] : []), c.horas, ...(d.canFin ? [c.dineroTxt ?? "", c.pctCobrado ?? ""] : []), c.salud, c.motivo])),
     ];
   } else {
     lineas = [fila(["Indicador", "Valor", "Detalle"]), ...d.kpisFinanzas.map((k) => fila([k.l, k.v, k.d ?? ""]))];

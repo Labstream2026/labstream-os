@@ -90,6 +90,10 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // Reportes
   { key: "ver_reportes", label: "Ver reportes", category: "Reportes" },
   { key: "ver_cumplimiento", label: "Ver cumplimiento del equipo", category: "Reportes" },
+  // Rastreo de trabajo: dato PERSONAL medido por el sensor de la app de escritorio (horas
+  // efectivas, apps, jornadas). No lo hereda NINGÚN rol —ni gerente— a propósito: se concede
+  // persona por persona desde Configuración. Ver ROLE_DEFAULTS y lib/rastreo/acceso.
+  { key: "ver_rastreo", label: "Ver rastreo de trabajo (dato personal)", category: "Reportes" },
   // Administración
   { key: "administrar_usuarios", label: "Administrar usuarios", category: "Administración" },
   { key: "administrar_roles", label: "Administrar roles y permisos", category: "Administración" },

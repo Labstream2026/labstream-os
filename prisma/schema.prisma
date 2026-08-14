@@ -187,6 +187,9 @@ model User {
   // Rastreador de trabajo efectivo: equipos vinculados y sus bloques de uso.
   trackerDevices     TrackerDevice[]    @relation("TrackerDeviceUser")
   workBlocks         WorkBlock[]        @relation("WorkBlockUser")
+  rastreoQueVe       TrackerShare[]     @relation("RastreoVisor")
+  rastreoDeEl        TrackerShare[]     @relation("RastreoSujeto")
+  rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
   runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -1780,6 +1783,34 @@ model WorkBlock {
   @@index([userId, startedAt])
   @@index([clientId, startedAt])
   @@index([projectId, startedAt])
+}
+
+// COMPARTIR el rastreo de UNA persona con otro miembro del equipo. Hay dos niveles de acceso
+// al dato del sensor y este es el fino:
+//   · permiso `ver_rastreo` → ve a TODO el equipo (para quien dirige);
+//   · TrackerShare          → ve SOLO al sujeto concedido (un líder viendo a su editor, o
+//                             alguien viendo sus propios números).
+// Se concede desde el panel /rastreo y caduca sola si se le pone fecha. Nunca es un enlace
+// público: el dato es personal y solo viaja a una cuenta con sesión iniciada.
+model TrackerShare {
+  id          String    @id @default(cuid())
+  // Quién MIRA.
+  viewer      User      @relation("RastreoVisor", fields: [viewerId], references: [id], onDelete: Cascade)
+  viewerId    String
+  // A QUIÉN mira. Siempre una persona concreta: para «ve a todos» está el permiso.
+  subject     User      @relation("RastreoSujeto", fields: [subjectId], references: [id], onDelete: Cascade)
+  subjectId   String
+  // Quién lo concedió, para poder rendir cuentas de por qué alguien ve lo que ve.
+  grantedBy   User?     @relation("RastreoQuienConcede", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedById String?
+  nota        String? // «para su 1:1 de agosto»
+  expiresAt   DateTime? // null = sin vencimiento
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Un solo permiso vivo por pareja: volver a compartir actualiza en vez de duplicar.
+  @@unique([viewerId, subjectId])
+  @@index([subjectId])
 }
 
 model TimeEntry {

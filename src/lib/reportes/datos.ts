@@ -107,6 +107,9 @@ export type ReporteDatos = {
   periodo: Periodo;
   canFin: boolean;
   canCumpl: boolean;
+  // Si es false, TODO lo del sensor viene vacío (no se consultó) y el shell no pinta ni
+  // menciona el rastreo: para quien no tiene el permiso, el rastreador no existe.
+  canRastreo: boolean;
   kpis: Kpi[];
   // Qué ventana pintan las gráficas del Estudio («Últimas 10 semanas», «Por mes de 2026»…).
   contexto: string;
@@ -325,6 +328,11 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
   const periodo = parsePeriodo(sp, ahora);
   const canFin = hasPermission(session, "ver_finanzas");
   const canCumpl = hasPermission(session, "ver_cumplimiento");
+  // El rastreo es dato PERSONAL: sin el permiso ni siquiera se consulta. No basta con no
+  // pintarlo —eso lo mandaría igual al navegador—, así que las cuatro agregaciones del
+  // sensor quedan en vacío y todo lo derivado (efectivas, apps, cuentas, jornadas y las
+  // horas reales del ranking) cae solo. El detalle vive en su propio panel: /rastreo.
+  const canRastreo = hasPermission(session, "ver_rastreo");
   const enRango = (ms: number) => (periodo.desde === null || ms >= periodo.desde.getTime()) && ms < periodo.hasta.getTime();
   const enPrev = (ms: number) =>
     periodo.prevDesde !== null && periodo.prevHasta !== null && ms >= periodo.prevDesde.getTime() && ms < periodo.prevHasta.getTime();
@@ -395,14 +403,16 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       : Promise.resolve([]),
     // Rastreador: total por persona, desglose por app, por cuenta atribuida, y los bloques
     // del último tramo para reconstruir las jornadas (a qué hora se empieza y se termina).
-    db.workBlock.groupBy({ by: ["userId"], where: { startedAt: rangoTracker }, _sum: { seconds: true, activeSecs: true } }),
-    db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }),
-    db.workBlock.groupBy({ by: ["userId", "clientId"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }),
-    db.workBlock.findMany({
-      where: { startedAt: { gte: new Date(ahora.getTime() - 14 * DIA), lt: periodo.hasta } },
-      orderBy: { startedAt: "asc" },
-      select: { userId: true, startedAt: true, seconds: true },
-    }),
+    canRastreo ? db.workBlock.groupBy({ by: ["userId"], where: { startedAt: rangoTracker }, _sum: { seconds: true, activeSecs: true } }) : Promise.resolve([]),
+    canRastreo ? db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }) : Promise.resolve([]),
+    canRastreo ? db.workBlock.groupBy({ by: ["userId", "clientId"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }) : Promise.resolve([]),
+    canRastreo
+      ? db.workBlock.findMany({
+          where: { startedAt: { gte: new Date(ahora.getTime() - 14 * DIA), lt: periodo.hasta } },
+          orderBy: { startedAt: "asc" },
+          select: { userId: true, startedAt: true, seconds: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const piezaDe = new Map(entregables.map((d) => [d.id, d]));
@@ -854,7 +864,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       key: periodo.key, mes: periodo.mes, mesAnterior: periodo.mesAnterior, mesSiguiente: periodo.mesSiguiente,
       etiqueta: periodo.etiqueta, subtitulo: periodo.subtitulo,
     },
-    canFin, canCumpl,
+    canFin, canCumpl, canRastreo,
     kpis, contexto, serieAprobados, serieHoras, esfuerzo, cumplimiento,
     kpisEntregas, apiladas, corrPorProyecto, piezaTop, tablaEntregas,
     personas, clientes, kpisFinanzas,
