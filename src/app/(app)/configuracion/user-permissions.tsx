@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { SlidersHorizontal, X, LayoutGrid, Building2, CalendarDays, FileText, Sparkles, BookOpen, Library, BarChart3, Target } from "lucide-react";
+import { SlidersHorizontal, X, LayoutGrid, Building2, CalendarDays, FileText, Sparkles, BookOpen, Library, BarChart3, Target, Radar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getUserPermissionState, setUserPermissionOverride } from "./actions";
 
@@ -20,6 +20,9 @@ const SECTIONS: { key: string; label: string; Icon: React.ComponentType<{ classN
   { key: "ver_biblioteca", label: "Biblioteca", Icon: Library },
   { key: "ver_reportes", label: "Reportes", Icon: BarChart3 },
   { key: "ver_cumplimiento", label: "Cumplimiento", Icon: Target },
+  // Dato PERSONAL del equipo (horas efectivas, apps, jornadas). Ningún rol lo trae: se
+  // enciende aquí, persona por persona, y por eso vale la pena tenerlo a un clic.
+  { key: "ver_rastreo", label: "Rastreo", Icon: Radar },
 ];
 
 export function UserPermissions({
