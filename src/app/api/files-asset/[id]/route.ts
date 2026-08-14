@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
@@ -8,6 +7,7 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
 import { absPath, verifyFileToken, mimeFor, isInlineSafeMime } from "@/lib/storage";
 import { previewRel } from "@/lib/image";
+import { cabecerasWebp, yaLaTiene } from "@/lib/cache-imagen";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,16 +28,11 @@ const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|ogv|webm)$/i;
 //   · previsualización → `no-cache`: se guarda pero SIEMPRE se pregunta. Nunca enseña algo
 //     viejo, y aun así la respuesta repetida es un 304 vacío en vez de la imagen entera.
 function respuestaWebp(webp: Buffer, nombre: string, req: NextRequest, esMiniatura: boolean): NextResponse {
-  const etag = `"${crypto.createHash("sha1").update(webp).digest("base64url")}"`;
-  const headers: Record<string, string> = {
-    "Content-Type": "image/webp",
-    "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(nombre)}`,
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": esMiniatura ? "private, max-age=86400, stale-while-revalidate=604800" : "private, no-cache",
-    ETag: etag,
-  };
+  const headers = cabecerasWebp(webp, nombre, esMiniatura);
   // El navegador manda lo que tiene guardado; si coincide, no viaja ni un byte de imagen.
-  if (req.headers.get("if-none-match") === etag) return new NextResponse(null, { status: 304, headers });
+  if (yaLaTiene(req.headers.get("if-none-match"), headers.ETag)) {
+    return new NextResponse(null, { status: 304, headers });
+  }
   return new NextResponse(new Uint8Array(webp), { headers });
 }
 
