@@ -1,9 +1,26 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { hashTrackerToken, limpiarBloques, TRACKER_PREFIX } from "@/lib/tracker";
+import { atribuir, hashTrackerToken, limpiarBloques, TRACKER_PREFIX, type EntradaCatalogo } from "@/lib/tracker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Catálogo de proyectos vivos para atribuir por el título de la ventana. Se cachea 5 min en
+// el proceso: cada equipo sube un lote cada 5 min y sería absurdo releer la lista completa
+// en cada uno. Un proyecto nuevo tarda como mucho ese rato en empezar a reconocerse.
+let catalogo: { hasta: number; filas: EntradaCatalogo[] } = { hasta: 0, filas: [] };
+async function catalogoVivo(): Promise<EntradaCatalogo[]> {
+  if (Date.now() < catalogo.hasta) return catalogo.filas;
+  const proyectos = await db.project.findMany({
+    where: { archivedAt: null, status: { notIn: ["CERRADO", "CANCELADO"] as never } },
+    select: { id: true, name: true, clientId: true, client: { select: { name: true } } },
+  });
+  catalogo = {
+    hasta: Date.now() + 5 * 60_000,
+    filas: proyectos.map((p) => ({ projectId: p.id, nombre: p.name, clientId: p.clientId, cliente: p.client?.name ?? null })),
+  };
+  return catalogo.filas;
+}
 
 // ── POST /api/tracker — el sensor de la app de escritorio sube sus lotes ──
 // Autenticación por token del EQUIPO (ltk_, Authorization: Bearer): un espacio aparte de las
@@ -39,8 +56,11 @@ export async function POST(req: NextRequest) {
 
   let recibidos = 0;
   if (bloques.length) {
+    // A qué proyecto/cliente pertenece cada rato, leído del título de la ventana. Lo que no
+    // se puede decir se guarda sin atribuir: cuenta en el total y en nadie más.
+    const cat = await catalogoVivo();
     const r = await db.workBlock.createMany({
-      data: bloques.map((x) => ({ ...x, deviceId: device.id, userId: device.userId })),
+      data: bloques.map((x) => ({ ...x, ...atribuir(x.title, cat), deviceId: device.id, userId: device.userId })),
       skipDuplicates: true,
     });
     recibidos = r.count;

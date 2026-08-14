@@ -37,7 +37,7 @@ const PERIODOS: { key: string; label: string }[] = [
 // Colores de las series (validados claro y oscuro; el ámbar cambia de tono en oscuro porque
 // el claro no pasa la banda de luminosidad sobre fondo oscuro). El resto hereda tokens.
 const VARS =
-  "[--rs1:#2a78d6] [--rs2:#1d9e75] [--rs3:#eda100] [--rs-bad:#e24b4a] dark:[--rs3:#bd8100] " +
+  "[--rs1:#2a78d6] [--rs2:#1d9e75] [--rs3:#eda100] [--rs4:#7f77dd] [--rs-bad:#e24b4a] dark:[--rs3:#bd8100] " +
   "[--rs-grid:hsl(var(--muted))] [--rs-tx:hsl(var(--foreground))] [--rs-dim:hsl(var(--muted-foreground))] " +
   "[--rs-faint:hsl(var(--muted-foreground))] [--rs-card:hsl(var(--card))]";
 
@@ -328,7 +328,7 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
                       <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                         <th className="px-2 py-1.5 font-bold">Cliente</th>
                         <th className="px-2 py-1.5 font-bold">Videos del compromiso</th>
-                        <Th r>Corr.</Th><Th r>Horas</Th>
+                        <Th r>Corr.</Th><Th r>Horas reales</Th><Th r>Imputadas</Th>
                         {datos.canFin ? <Th r>Cobrado / facturado</Th> : null}
                         <th className="px-2 py-1.5 font-bold">Salud</th>
                       </tr>
@@ -344,7 +344,10 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
                             <span className="tabular-nums text-muted-foreground">{c.hechos}/{c.total}</span>
                           </td>
                           <td className="px-2 py-2 text-right">{c.correcciones ? <Pill tono="warn">{c.correcciones}</Pill> : "—"}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">{c.horas} h</td>
+                          <td className="px-2 py-2 text-right font-medium tabular-nums" title="Medidas por el rastreador de la app de escritorio">
+                            {c.horasReales ? `${c.horasReales} h` : "—"}
+                          </td>
+                          <td className="px-2 py-2 text-right tabular-nums text-muted-foreground" title="Imputadas a mano en tareas">{c.horas ? `${c.horas} h` : "—"}</td>
                           {datos.canFin ? (
                             <td className="px-2 py-2 text-right tabular-nums">
                               {c.dineroTxt}{c.pctCobrado !== null ? <span className="text-muted-foreground"> ({c.pctCobrado}%)</span> : null}
@@ -559,6 +562,40 @@ function DrillPersona({ p, cumpl, canCumpl, onCerrar }: { p: PersonaReporte; cum
           <h4 className="mb-1.5 text-[11.5px] font-semibold">En qué apps (rastreador)</h4>
           {p.apps.length ? <FilasBarra filas={p.apps} color="var(--rs1)" /> : <Vacio texto="Sin datos del rastreador en el periodo." />}
         </div>
+        <div>
+          <h4 className="mb-1.5 text-[11.5px] font-semibold">En qué cuentas (rastreador)</h4>
+          {p.cuentas.length ? (
+            <FilasBarra filas={p.cuentas} color="var(--rs4)" />
+          ) : (
+            <Vacio texto="Sin datos del rastreador en el periodo." />
+          )}
+        </div>
+        <div>
+          <h4 className="mb-1.5 text-[11.5px] font-semibold">Sus últimas jornadas</h4>
+          {p.jornadas.length ? (
+            <table className="w-full text-[11.5px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="py-1 font-bold">Día</th><Th r>Entró</Th><Th r>Salió</Th><Th r>Efectivas</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.jornadas.map((j) => (
+                  <tr key={j.dia} className="border-b border-border last:border-0">
+                    <td className="py-1 capitalize">{j.dia}</td>
+                    <td className="py-1 text-right tabular-nums">{j.inicio}</td>
+                    <td className="py-1 text-right tabular-nums">{j.fin}</td>
+                    <td className={cn("py-1 text-right font-semibold tabular-nums", j.horas >= 7 ? "text-emerald-600 dark:text-emerald-400" : j.horas >= 4 ? "" : "text-muted-foreground")}>
+                      {j.efectivasTxt}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Vacio texto="Sin jornadas registradas (últimos 14 días)." />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -576,7 +613,7 @@ function DrillCliente({ c, canFin, onCerrar }: { c: FilaCliente; canFin: boolean
       <div className="mb-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <KpiMini v={`${c.hechos}/${c.total}`} l="videos entregados" />
         <KpiMini v={String(c.correcciones)} l="correcciones abiertas" />
-        <KpiMini v={`${c.horas} h`} l="horas del periodo" />
+        <KpiMini v={c.horasReales ? `${c.horasReales} h` : `${c.horas} h`} l={c.horasReales ? "horas reales (rastreador)" : "horas imputadas"} />
         {canFin ? <KpiMini v={c.pctCobrado === null ? "—" : `${c.pctCobrado}%`} l="cobrado de lo facturado" /> : null}
       </div>
       <p className="text-[11.5px] text-muted-foreground">{c.salud === "ok" ? "✓" : "⚠"} {c.motivo}</p>
@@ -608,8 +645,8 @@ function exportarCsv(caso: CasoKey, d: ReporteDatos) {
     ];
   } else if (caso === "clientes") {
     lineas = [
-      fila(["Cliente", "Videos hechos", "Videos total", "Correcciones", "Horas", ...(d.canFin ? ["Cobrado/facturado", "% cobrado"] : []), "Salud", "Motivo"]),
-      ...d.clientes.map((c) => fila([c.nombre, c.hechos, c.total, c.correcciones, c.horas, ...(d.canFin ? [c.dineroTxt ?? "", c.pctCobrado ?? ""] : []), c.salud, c.motivo])),
+      fila(["Cliente", "Videos hechos", "Videos total", "Correcciones", "Horas reales", "Horas imputadas", ...(d.canFin ? ["Cobrado/facturado", "% cobrado"] : []), "Salud", "Motivo"]),
+      ...d.clientes.map((c) => fila([c.nombre, c.hechos, c.total, c.correcciones, c.horasReales, c.horas, ...(d.canFin ? [c.dineroTxt ?? "", c.pctCobrado ?? ""] : []), c.salud, c.motivo])),
     ];
   } else {
     lineas = [fila(["Indicador", "Valor", "Detalle"]), ...d.kpisFinanzas.map((k) => fila([k.l, k.v, k.d ?? ""]))];

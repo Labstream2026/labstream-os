@@ -519,6 +519,7 @@ model Client {
   channel     ChatChannel?
   members     ClientMember[]
   files       ClientFile[]
+  workBlocks  WorkBlock[] // ratos del rastreador atribuidos a esta cuenta
   clientNotes Note[] // notas (modelo Note) etiquetadas a este cliente — distinto del campo `notes` libre
   libraryAssets LibraryAsset[] @relation("LibraryClient") // recursos de la Biblioteca ligados a este cliente
   // Activo/inactivo: un cliente sin proyectos a la vista se DESACTIVA para no estorbar en
@@ -675,6 +676,7 @@ model Project {
   activity     ActivityLog[]
   equipmentPlans EquipmentPlan[]
   notes        Note[]
+  workBlocks   WorkBlock[] // ratos del rastreador atribuidos a este proyecto
   clientRequests ClientRequest[]
   surveys        ProjectSurvey[]
 
@@ -1763,11 +1765,21 @@ model WorkBlock {
   activeSecs Int // segundos con entrada real (mouse/teclado detectado, no registrado)
   app        String
   title      String        @default("") // "" y no null: la unicidad de reintentos lo necesita
+  // A QUÉ trabajo se atribuye este rato: se deduce del TÍTULO de la ventana al recibirlo
+  // (Resolve, Premiere y el navegador ponen ahí el nombre del proyecto). Null = no se pudo
+  // decir, y entonces el rato cuenta en el total pero no en ningún cliente — jamás se
+  // adivina. SetNull para conservar el histórico si el proyecto se borra.
+  project    Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId  String?
+  client     Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId   String?
   createdAt  DateTime      @default(now())
 
   // Idempotencia del reintento offline: el mismo lote reenviado no duplica nada.
   @@unique([deviceId, startedAt, app, title])
   @@index([userId, startedAt])
+  @@index([clientId, startedAt])
+  @@index([projectId, startedAt])
 }
 
 model TimeEntry {

@@ -65,7 +65,16 @@ export type PersonaReporte = {
   efectivasH: number;
   efectivasTxt: string | null; // «6,5 h» — null si este periodo no tiene datos del rastreador
   apps: FilaBarra[];
+  // En qué CUENTAS se fue ese tiempo (deducido del título de la ventana; lo no atribuible
+  // aparece como «sin atribuir»).
+  cuentas: FilaBarra[];
+  // Sus últimos días de trabajo: cuándo arrancó, cuándo paró y cuánto sumó.
+  jornadas: Jornada[];
 };
+
+// Un día de trabajo visto por el rastreador. Las horas vienen ya formateadas en la zona de
+// Bogotá desde el servidor (el cliente no lee el reloj).
+export type Jornada = { dia: string; inicio: string; fin: string; efectivasTxt: string; horas: number };
 
 export type FilaEntrega = {
   label: string;
@@ -86,6 +95,8 @@ export type FilaCliente = {
   total: number;
   correcciones: number;
   horas: number;
+  // Horas REALES del rastreador atribuidas a esta cuenta (0 = sin datos).
+  horasReales: number;
   dineroTxt: string | null; // «$6,2 M / $9,8 M» (null sin permiso de finanzas)
   pctCobrado: number | null;
   salud: "ok" | "warn" | "bad";
@@ -332,7 +343,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
   const [
     entregables, decisiones, actividadAprobados, versionesAgg, versionesPeriodo,
     entradas, cargaAgg, usuarios, clientesDb, facturas,
-    cumplRows, cumplPrevRows, trabajoAgg, trabajoApps,
+    cumplRows, cumplPrevRows, trabajoAgg, trabajoApps, trabajoCuentas, trabajoBloques,
   ] = await Promise.all([
     // Todas las piezas vivas, con su proyecto y cliente (pocos cientos de filas).
     db.deliverable.findMany({
@@ -382,9 +393,16 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
     periodo.prevDesde && periodo.prevHasta
       ? personCompliance({ from: periodo.prevDesde, to: periodo.prevHasta })
       : Promise.resolve([]),
-    // Rastreador: total por persona y desglose por app, del periodo.
+    // Rastreador: total por persona, desglose por app, por cuenta atribuida, y los bloques
+    // del último tramo para reconstruir las jornadas (a qué hora se empieza y se termina).
     db.workBlock.groupBy({ by: ["userId"], where: { startedAt: rangoTracker }, _sum: { seconds: true, activeSecs: true } }),
     db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }),
+    db.workBlock.groupBy({ by: ["userId", "clientId"], where: { startedAt: rangoTracker }, _sum: { seconds: true } }),
+    db.workBlock.findMany({
+      where: { startedAt: { gte: new Date(ahora.getTime() - 14 * DIA), lt: periodo.hasta } },
+      orderBy: { startedAt: "asc" },
+      select: { userId: true, startedAt: true, seconds: true },
+    }),
   ]);
 
   const piezaDe = new Map(entregables.map((d) => [d.id, d]));
@@ -666,7 +684,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       minPersonaProyecto.set(e.userId, m);
     }
   }
-  // Rastreador: segundos con equipo activo por persona y sus apps más usadas.
+  // Rastreador: segundos con equipo activo por persona, sus apps y sus cuentas.
   const horas1 = (seg: number) => `${(seg / 3600).toFixed(1).replace(".", ",")} h`;
   const efectivasDe = new Map(trabajoAgg.map((r) => [r.userId, r._sum.seconds ?? 0]));
   const appsDe = new Map<string, FilaBarra[]>();
@@ -676,6 +694,46 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
     appsDe.set(r.userId, arr);
   }
   for (const arr of appsDe.values()) arr.sort((a, b) => b.valor - a.valor).splice(5);
+
+  // Horas reales por cuenta (para el ranking de Clientes) y por persona×cuenta (su drill).
+  const nombreCliente = new Map(clientesDb.map((c) => [c.id, c.name]));
+  const realesPorCliente = new Map<string, number>();
+  const cuentasDe = new Map<string, FilaBarra[]>();
+  for (const r of trabajoCuentas) {
+    const seg = r._sum.seconds ?? 0;
+    if (r.clientId) realesPorCliente.set(r.clientId, (realesPorCliente.get(r.clientId) ?? 0) + seg);
+    const arr = cuentasDe.get(r.userId) ?? [];
+    arr.push({
+      label: r.clientId ? nombreCliente.get(r.clientId) ?? "Otra cuenta" : "Sin atribuir",
+      valor: seg,
+      texto: horas1(seg),
+    });
+    cuentasDe.set(r.userId, arr);
+  }
+  for (const arr of cuentasDe.values()) arr.sort((a, b) => b.valor - a.valor).splice(5);
+
+  // ── Jornadas: a qué hora arranca y termina cada quien, y cuánto suma ese día ──
+  // El día y las horas se resuelven en la zona de BOGOTÁ (el contenedor corre en UTC): sin
+  // esto, la jornada de la tarde se partiría en dos al pasar la medianoche UTC.
+  const FMT_HORA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", hour12: false });
+  const FMT_DIA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", weekday: "short", day: "numeric", month: "short" });
+  const claveDia = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  type AccJornada = { dia: string; ini: Date; fin: Date; seg: number };
+  const jornadasDe = new Map<string, Map<string, AccJornada>>();
+  for (const b of trabajoBloques) {
+    const dia = claveDia(b.startedAt);
+    const porDia = jornadasDe.get(b.userId) ?? new Map<string, AccJornada>();
+    const acc = porDia.get(dia);
+    // Los bloques llegan ordenados por startedAt: el primero abre la jornada y el último la
+    // cierra (el fin es el arranque del último rato más su duración).
+    const fin = new Date(b.startedAt.getTime() + b.seconds * 1000);
+    if (!acc) porDia.set(dia, { dia, ini: b.startedAt, fin, seg: b.seconds });
+    else {
+      acc.seg += b.seconds;
+      if (fin > acc.fin) acc.fin = fin;
+    }
+    jornadasDe.set(b.userId, porDia);
+  }
 
   const personas: PersonaReporte[] = usuarios
     .map((u) => {
@@ -695,6 +753,18 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
         efectivasH: Math.round(efectivasSeg / 3600),
         efectivasTxt: efectivasSeg > 0 ? horas1(efectivasSeg) : null,
         apps: appsDe.get(u.id) ?? [],
+        cuentas: cuentasDe.get(u.id) ?? [],
+        // Los últimos 7 días con actividad, del más reciente al más viejo.
+        jornadas: [...(jornadasDe.get(u.id)?.values() ?? [])]
+          .sort((a, b) => b.dia.localeCompare(a.dia))
+          .slice(0, 7)
+          .map((j) => ({
+            dia: FMT_DIA.format(j.ini).replace(".", ""),
+            inicio: FMT_HORA.format(j.ini),
+            fin: FMT_HORA.format(j.fin),
+            efectivasTxt: horas1(j.seg),
+            horas: j.seg / 3600,
+          })),
       };
     })
     // Solo quien tuvo ALGO en el periodo (horas, rastreador, tareas, piezas o carga).
@@ -760,13 +830,14 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
         hechos, total: piezas.length,
         correcciones: enCorreccion.length,
         horas: Math.round((minPorCliente.get(c.id) ?? 0) / 60),
+        horasReales: Math.round((realesPorCliente.get(c.id) ?? 0) / 3600),
         dineroTxt: canFin ? `${dineroCorto(fin?.cobr ?? 0, moneda)} / ${dineroCorto(fin?.fact ?? 0, moneda)}` : null,
         pctCobrado: canFin ? (fin && fin.fact > 0 ? Math.round((fin.cobr / fin.fact) * 100) : null) : null,
         salud, motivo: motivos.join(" · "),
       };
     })
     // Cuentas sin piezas, sin horas y sin plata no aportan fila.
-    .filter((c) => c.total > 0 || c.horas > 0 || (c.dineroTxt !== null && c.pctCobrado !== null))
+    .filter((c) => c.total > 0 || c.horas > 0 || c.horasReales > 0 || (c.dineroTxt !== null && c.pctCobrado !== null))
     .sort((a, b) => (a.salud === b.salud ? b.horas - a.horas : a.salud === "bad" ? -1 : b.salud === "bad" ? 1 : a.salud === "warn" ? -1 : 1));
 
   // ── Caso FINANZAS ──
