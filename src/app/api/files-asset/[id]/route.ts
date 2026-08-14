@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
@@ -12,6 +13,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|ogv|webm)$/i;
+
+// ── Respuesta de una imagen derivada (miniatura o previsualización) ──
+// Estas cuatro respuestas salían SIN ETag, y eso costaba caro con internet lento: al vencer
+// el plazo de caché el navegador no tenía con qué preguntar «¿cambió?», así que se bajaba la
+// imagen entera otra vez. Un panel de archivos son decenas de miniaturas, todos los días.
+//
+// Con un ETag de CONTENIDO (hash de los bytes que se van a servir) la revalidación cuesta
+// ~200 bytes en vez de la imagen completa. Y el ETag es de contenido y no de fecha porque el
+// `path` de un FileAsset sí se reescribe (mover a su carpeta final tras subir): con la fecha
+// se podría servir una imagen vieja; con el hash, jamás.
+//
+//   · miniatura     → un día sin preguntar, y una semana sirviendo la vieja mientras refresca.
+//   · previsualización → `no-cache`: se guarda pero SIEMPRE se pregunta. Nunca enseña algo
+//     viejo, y aun así la respuesta repetida es un 304 vacío en vez de la imagen entera.
+function respuestaWebp(webp: Buffer, nombre: string, req: NextRequest, esMiniatura: boolean): NextResponse {
+  const etag = `"${crypto.createHash("sha1").update(webp).digest("base64url")}"`;
+  const headers: Record<string, string> = {
+    "Content-Type": "image/webp",
+    "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(nombre)}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": esMiniatura ? "private, max-age=86400, stale-while-revalidate=604800" : "private, no-cache",
+    ETag: etag,
+  };
+  // El navegador manda lo que tiene guardado; si coincide, no viaja ni un byte de imagen.
+  if (req.headers.get("if-none-match") === etag) return new NextResponse(null, { status: 304, headers });
+  return new NextResponse(new Uint8Array(webp), { headers });
+}
 
 // Sirve un archivo LOCAL de proyecto (FileAsset). Acceso: token firmado (Document Server de
 // OnlyOffice / reproductor de revisión, sin cookie) o usuario con sesión y acceso al proyecto.
@@ -71,16 +99,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           webp = await posterDeVideo(abs, { mtimeMs: st.mtimeMs, size: st.size }, 640);
         }
       }
-      if (webp) {
-        return new NextResponse(new Uint8Array(webp), {
-          headers: {
-            "Content-Type": "image/webp",
-            "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, max-age=3600, must-revalidate",
-          },
-        });
-      }
+      if (webp) return respuestaWebp(webp, file.name, req, true);
     } catch {
       /* sin fotograma → 404 abajo */
     }
@@ -124,16 +143,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (wantInline && !opsIsVideo) {
       try {
         const webp = await opsThumb(file.path, isThumb ? 480 : 1600);
-        if (webp) {
-          return new NextResponse(new Uint8Array(webp), {
-            headers: {
-              "Content-Type": "image/webp",
-              "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-              "X-Content-Type-Options": "nosniff",
-              "Cache-Control": isThumb ? "private, max-age=3600, must-revalidate" : "private, no-store",
-            },
-          });
-        }
+        if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
         /* sin miniatura → sigue con el original */
       }
@@ -156,16 +166,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (wantInline && !galIsVideo) {
       try {
         const webp = await galeriaThumb(file.path, 1600);
-        if (webp) {
-          return new NextResponse(new Uint8Array(webp), {
-            headers: {
-              "Content-Type": "image/webp",
-              "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-              "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, no-store",
-            },
-          });
-        }
+        if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
         /* sin miniatura → sigue con el original */
       }
@@ -435,14 +436,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (wantInline && !isVideo) {
     try {
       const webp = await fs.readFile(absPath(previewRel(file.path)));
-      return new NextResponse(new Uint8Array(webp), {
-        headers: {
-          "Content-Type": "image/webp",
-          "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-          "X-Content-Type-Options": "nosniff",
-          "Cache-Control": isThumb ? "private, max-age=3600, must-revalidate" : "private, no-store",
-        },
-      });
+      return respuestaWebp(webp, file.name, req, isThumb);
     } catch {
       /* sin preview → sigue con el original */
     }

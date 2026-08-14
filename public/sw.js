@@ -1,10 +1,32 @@
-// Service worker mínimo de Labstream OS.
-// Objetivo: cumplir el criterio de instalabilidad de Chrome (un SW con manejador `fetch`)
-// y dar una pantalla de "sin conexión" decente — SIN cachear el código de la app, para no
-// servir nunca una versión vieja tras un despliegue.
+// Service worker de Labstream OS.
+//
+// Antes esto no guardaba NADA a propósito, por un miedo legítimo: servir código viejo después
+// de un despliegue. Ese miedo se respeta aquí, pero se resuelve por partes en vez de renunciar
+// a todo el caché — porque con internet lento o con el NAS caído, no guardar nada se paga caro.
+//
+//   · ESTÁTICOS (/_next/static, /icons) → de caché primero, para siempre. Es SEGURO porque
+//     esas URL llevan el hash del contenido: un despliegue nuevo pide archivos con OTRO nombre,
+//     así que es imposible servir una versión vieja. Antes se volvían a bajar en cada arranque.
+//   · MINIATURAS → de caché primero y se refresca por detrás. Es lo que más se repite en el
+//     día (paneles llenos de miniaturas) y lo que más pesa con conexión mala.
+//   · PÁGINAS → SIEMPRE red primero. La copia guardada solo sale cuando la red FALLA de
+//     verdad, nunca para ahorrar. Así jamás se ve algo viejo con el servidor sano, y con el
+//     servidor caído al menos se puede consultar lo último que se vio.
+//
+// Lo que esto NO es: no permite TRABAJAR sin servidor. Guardar cambios necesita el servidor,
+// y por eso la app enseña una barra roja diciéndolo (ver components/sin-conexion). Un modo
+// offline que deje escribir y perder el trabajo sería peor que no tenerlo.
 
+const ESTATICO = "labstream-estatico-v1";
+const MINIATURAS = "labstream-miniaturas-v1";
+const PAGINAS = "labstream-paginas-v1";
 const OFFLINE_CACHE = "labstream-offline-v1";
 const OFFLINE_URL = "/offline.html";
+const VIVOS = [ESTATICO, MINIATURAS, PAGINAS, OFFLINE_CACHE];
+
+// Topes: sin esto el caché crece sin freno en equipos que se usan todo el día.
+const TOPE_MINIATURAS = 400;
+const TOPE_PAGINAS = 40;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -16,24 +38,121 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      // Limpia caches de versiones anteriores.
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== OFFLINE_CACHE).map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => !VIVOS.includes(k)).map((k) => caches.delete(k)));
       await self.clients.claim();
     })(),
   );
 });
 
-// Solo interceptamos NAVEGACIONES (la página completa): red primero y, si no hay conexión,
-// mostramos la página offline. El resto de peticiones (JS, datos, HMR) pasan sin tocar.
+// Recorta el caché por orden de llegada (lo más viejo primero).
+async function recortar(nombre, tope) {
+  try {
+    const cache = await caches.open(nombre);
+    const claves = await cache.keys();
+    if (claves.length <= tope) return;
+    await Promise.all(claves.slice(0, claves.length - tope).map((k) => cache.delete(k)));
+  } catch {
+    /* el caché es un lujo: si falla, la app sigue igual */
+  }
+}
+
+function esEstatico(url) {
+  return url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/");
+}
+
+// Imágenes DERIVADAS (miniaturas, carátulas, avatares, logos). Nunca el archivo original:
+// un video de 2 GB no tiene por qué acabar en el caché del navegador.
+function esMiniatura(url) {
+  if (url.pathname.startsWith("/api/avatar/") || url.pathname.startsWith("/api/brand-logo/")) return true;
+  if (url.pathname.startsWith("/api/banner/") || url.pathname.startsWith("/api/client-asset/")) return true;
+  const derivada = url.searchParams.get("thumb") === "1" || url.searchParams.get("poster") === "1";
+  return derivada && (url.pathname.startsWith("/api/files-asset/") || url.pathname.startsWith("/api/ops-asset/"));
+}
+
+// Solo se guardan respuestas completas y propias: nada de 206 (trozos de video), nada de
+// respuestas opacas de otro origen, nada que no sea un 200 limpio.
+function guardable(res) {
+  return !!res && res.status === 200 && res.type === "basic";
+}
+
+async function deCachePrimero(req, nombre, tope) {
+  const cache = await caches.open(nombre);
+  const guardada = await cache.match(req);
+  if (guardada) return guardada;
+  const res = await fetch(req);
+  if (guardable(res)) {
+    cache.put(req, res.clone()).then(() => recortar(nombre, tope)).catch(() => {});
+  }
+  return res;
+}
+
+// Enseña lo guardado YA y refresca por detrás: la miniatura aparece al instante aunque la
+// conexión esté fatal, y la próxima vez ya está la nueva.
+async function deCacheYRefrescar(req, nombre, tope) {
+  const cache = await caches.open(nombre);
+  const guardada = await cache.match(req);
+  const red = fetch(req)
+    .then((res) => {
+      if (guardable(res)) {
+        cache.put(req, res.clone()).then(() => recortar(nombre, tope)).catch(() => {});
+      }
+      return res;
+    })
+    .catch(() => null);
+  if (guardada) return guardada;
+  const res = await red;
+  return res || Response.error();
+}
+
 self.addEventListener("fetch", (event) => {
-  if (event.request.mode !== "navigate") return;
-  event.respondWith(
-    fetch(event.request).catch(async () => {
-      const cache = await caches.open(OFFLINE_CACHE);
-      return (await cache.match(OFFLINE_URL)) || Response.error();
-    }),
-  );
+  const req = event.request;
+  // Solo GET del mismo origen. Todo lo demás (POST de acciones, subidas, streams) pasa
+  // derecho: meter mano ahí es la forma más rápida de romper la app.
+  if (req.method !== "GET") return;
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
+
+  if (req.mode === "navigate") {
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetch(req);
+          const cache = await caches.open(PAGINAS);
+          // Al pasar por el login la sesión cambia: se tira lo guardado para que nadie vea
+          // páginas de quien usó el equipo antes.
+          if (url.pathname === "/login" || url.pathname === "/logout") {
+            await caches.delete(PAGINAS);
+          } else if (guardable(res)) {
+            cache.put(req, res.clone()).then(() => recortar(PAGINAS, TOPE_PAGINAS)).catch(() => {});
+          }
+          return res;
+        } catch {
+          // Aquí sí falló la red de verdad: la copia de ESTA página, y si no, la pantalla
+          // de sin conexión.
+          const cache = await caches.open(PAGINAS);
+          const guardada = await cache.match(req, { ignoreSearch: false });
+          if (guardada) return guardada;
+          const off = await caches.open(OFFLINE_CACHE);
+          return (await off.match(OFFLINE_URL)) || Response.error();
+        }
+      })(),
+    );
+    return;
+  }
+
+  if (esEstatico(url)) {
+    event.respondWith(deCachePrimero(req, ESTATICO, 600).catch(() => fetch(req)));
+    return;
+  }
+  if (esMiniatura(url)) {
+    event.respondWith(deCacheYRefrescar(req, MINIATURAS, TOPE_MINIATURAS).catch(() => fetch(req)));
+  }
 });
 
 // ─── Web Push (notificaciones en segundo plano) ──────────────────────────────

@@ -17,6 +17,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { getUserPreference } from "@/lib/user-preference";
 import { MarcebotPopup } from "./marcebot-popup";
 import { AvisoVincular } from "@/components/tracker/aviso-vincular";
+import { SinConexion } from "@/components/sin-conexion";
 
 // Datos por petición desde Postgres → render dinámico (evita prerender en el build de Docker).
 export const dynamic = "force-dynamic";
@@ -264,6 +265,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Aviso de un clic para vincular el rastreador. Se pinta solo dentro de la app de
           escritorio y solo si el sensor dice que este equipo no está vinculado; en el
           navegador y en el portal del cliente no existe. */}
+      <SinConexion />
       {session.role === "cliente" || session.role === "demo" ? null : <AvisoVincular />}
       {children}
       <MarcebotPopup />
