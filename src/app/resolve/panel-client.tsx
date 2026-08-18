@@ -150,6 +150,48 @@ export function Thumb({ src, fallback, color }: { src: string | null; fallback: 
   return <img src={src} alt="" loading="lazy" onError={() => setRota(true)} className={`${caja} object-cover`} />;
 }
 
+// ── Filtro por cliente ────────────────────────────────────────────────────────
+// Desplegable para quedarse SOLO con lo pendiente de un cliente, aunque el editor tenga más
+// videos en sus proyectos. Navega con la URL (?cli=) en vez de estado propio: así el filtro
+// sobrevive a recargas, se puede compartir y las pestañas lo conservan.
+export function FiltroCliente({ opciones, actual, vista }: {
+  opciones: { id: string; nombre: string; n: number }[];
+  actual: string | null;
+  vista: "mios" | "equipo";
+}) {
+  const router = useRouter();
+  return (
+    <label className="mb-2 flex items-center gap-2 text-[11px] text-zinc-500">
+      <span className="shrink-0">Cliente</span>
+      <select
+        value={actual ?? ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          const q = new URLSearchParams();
+          if (vista === "equipo") q.set("vista", "equipo");
+          if (v) q.set("cli", v);
+          const s = q.toString();
+          router.push(s ? `/resolve?${s}` : "/resolve");
+        }}
+        className="w-full min-w-0 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100"
+      >
+        <option value="">Todos los clientes</option>
+        {opciones.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.nombre} · {o.n}
+          </option>
+        ))}
+        {/* Si el cliente filtrado no tiene pendientes en ESTA pestaña, no está entre las
+            opciones — sin esta entrada el <select> quedaría mostrando «Todos los clientes»
+            mientras la lista aparece vacía por un filtro invisible. */}
+        {actual && !opciones.some((o) => o.id === actual) ? (
+          <option value={actual}>Cliente sin pendientes aquí</option>
+        ) : null}
+      </select>
+    </label>
+  );
+}
+
 const CADA_30_MIN = 30 * 60 * 1000;
 
 // Qué versiones ya se intentaron descargar. Vive FUERA del componente a propósito: como useRef

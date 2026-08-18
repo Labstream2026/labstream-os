@@ -1,0 +1,120 @@
+# Construye el instalador de Mac del plugin de Resolve: un .pkg de verdad dentro de un .dmg.
+#
+# Vive en GitHub Actions porque pkgbuild y hdiutil SOLO existen en macOS y el desarrollo se hace
+# en Windows. El runner arma el paquete y lo commitea a public/plugin/, de donde el deploy del
+# NAS lo sirve como cualquier otro archivo del kit.
+#
+# El WorkflowIntegration.node NO viaja en el paquete (es binario de Blackmagic por plataforma):
+# el postinstall lo busca en el Resolve del equipo de destino y lo copia, igual que hace el
+# instalador de Windows.
+#
+# El paquete va SIN FIRMA (firmarlo exige el Developer Program de Apple): macOS lo bloquea al
+# doble clic y hay que abrirlo con clic derecho -> Abrir. La pagina /plugin/instalar lo avisa.
+name: instalador-mac
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "resolve-plugin/panel/com.labstream.correcciones/**"
+      - ".github/workflows/instalador-mac.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instalador-mac
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Construir pkg y dmg
+        run: |
+          set -euo pipefail
+          V=$(grep -o 'const VERSION = "[^"]*"' resolve-plugin/panel/com.labstream.correcciones/main.js | cut -d'"' -f2)
+          echo "version: $V"
+
+          RAIZ=$(mktemp -d)
+          SCRIPTS=$(mktemp -d)
+          DMGROOT=$(mktemp -d)
+
+          mkdir -p "$RAIZ/com.labstream.correcciones"
+          cp resolve-plugin/panel/com.labstream.correcciones/main.js \
+             resolve-plugin/panel/com.labstream.correcciones/preload.js \
+             resolve-plugin/panel/com.labstream.correcciones/timecode.js \
+             resolve-plugin/panel/com.labstream.correcciones/manifest.xml \
+             resolve-plugin/panel/com.labstream.correcciones/package.json \
+             resolve-plugin/panel/com.labstream.correcciones/offline.html \
+             resolve-plugin/panel/com.labstream.correcciones/icon.png \
+             resolve-plugin/panel/com.labstream.correcciones/icon.ico \
+             "$RAIZ/com.labstream.correcciones/"
+
+          # El postinstall corre como root al instalar: copia el .node del Resolve local.
+          # Si no lo encuentra (Resolve gratuito), instala igual y el panel avisa por si solo.
+          # OJO: en macOS la ruta NO lleva el nivel /Support/ (ese es el layout de Windows en
+          # ProgramData). La de verdad es la que usa instalar-panel-mac.command, ya probado.
+          cat > "$SCRIPTS/postinstall" <<'GUION'
+          #!/bin/bash
+          DEST="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/com.labstream.correcciones"
+          for r in \
+            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Workflow Integrations" \
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Developer/Workflow Integrations"
+          do
+            if [ -d "$r" ]; then
+              N=$(/usr/bin/find "$r" -name WorkflowIntegration.node 2>/dev/null | /usr/bin/head -n 1)
+              if [ -n "$N" ]; then
+                /bin/cp "$N" "$DEST/" && exit 0
+              fi
+            fi
+          done
+          echo "AVISO: WorkflowIntegration.node no encontrado (¿Resolve Studio?). El panel abre igual, sin puente al timeline." >&2
+          exit 0
+          GUION
+          chmod +x "$SCRIPTS/postinstall"
+
+          pkgbuild \
+            --root "$RAIZ" \
+            --scripts "$SCRIPTS" \
+            --identifier com.labstream.correcciones \
+            --version "$V" \
+            --install-location "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins" \
+            "$DMGROOT/Instalar Labstream Correcciones $V.pkg"
+
+          printf 'Doble clic en el .pkg. Si macOS lo bloquea: clic derecho sobre el .pkg -> Abrir.\nNecesita DaVinci Resolve STUDIO. Despues: Workspace -> Workflow Integrations.\n' \
+            > "$DMGROOT/LEEME.txt"
+
+          mkdir -p public/plugin
+          rm -f public/plugin/LabstreamCorrecciones-*.dmg
+          hdiutil create -volname "Labstream Correcciones" -srcfolder "$DMGROOT" -format UDZO -ov \
+            "public/plugin/LabstreamCorrecciones-$V.dmg"
+          ls -la public/plugin/
+
+      - name: Publicar el dmg en el repo
+        run: |
+          set -euo pipefail
+          git config user.name "labstream-ci"
+          git config user.email "hola@labstream.co"
+          # -A sobre la carpeta, no el glob: el glob lo expande bash contra el DISCO, donde el
+          # dmg viejo ya no existe (rm -f), asi que su BORRADO nunca se stageaba y las versiones
+          # retiradas se quedaban en main para siempre.
+          git add -A public/plugin/
+          if git diff --cached --quiet; then
+            echo "el dmg no cambio: nada que publicar"
+            exit 0
+          fi
+          git commit -m "CI: instalador de Mac (.dmg) del plugin de Resolve [skip ci]"
+          # Otra sesion puede empujar mientras el runner trabaja: reintento con rebase.
+          # --autostash: sin el, cualquier resto sin stagear aborta el rebase y el bucle
+          # reintenta a ciegas tres veces para nada.
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase --autostash origin main
+          done
+          exit 1

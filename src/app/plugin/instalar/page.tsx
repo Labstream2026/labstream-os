@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -45,6 +47,24 @@ export default async function InstalarPluginPage() {
   if (session.role === "cliente") redirect("/");
 
   const m = await leerManifiestoPlugin();
+  // El .dmg lo construye GitHub Actions DESPUÉS del empaquetado local (necesita un runner de
+  // macOS) y llega al NAS en el deploy SIGUIENTE, así que en cada release hay una ventana en la
+  // que el dmg vigente en disco es el de la versión anterior. Se ofrece el MÁS RECIENTE que
+  // exista en vez de exigir el nombre exacto: un pkg viejo instala igual de bien, porque el
+  // puente se autoactualiza al abrir el panel. Si se exigiera el exacto, el botón de Mac se
+  // esfumaría de producción con cada versión nueva hasta el próximo deploy casual.
+  let dmg: { url: string; version: string } | null = null;
+  if (m) {
+    try {
+      const candidatos = readdirSync(path.join(process.cwd(), "public", "plugin"))
+        .map((f) => f.match(/^LabstreamCorrecciones-(\d+\.\d+(?:\.\d+)?)\.dmg$/))
+        .filter((x): x is RegExpMatchArray => x !== null)
+        .sort((a, b) => b[1].localeCompare(a[1], undefined, { numeric: true }));
+      if (candidatos.length > 0) dmg = { url: `/plugin/${candidatos[0][0]}`, version: candidatos[0][1] };
+    } catch {
+      /* sin carpeta aún: sin botón de Mac */
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -65,21 +85,45 @@ export default async function InstalarPluginPage() {
       <section className="mt-6 rounded-xl border border-border bg-card p-5">
         {m?.kit ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="font-semibold">Versión {m.version}</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Publicada el {formatBogota(m.builtAt)} · {m.kitSize ? pesoLegible(m.kitSize) : "zip"}
-                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Publicada el {formatBogota(m.builtAt)}</p>
               </div>
-              <a
-                href={m.kit}
-                download
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-              >
-                <Download className="size-4" /> Descargar el instalador
-              </a>
+              <div className="flex flex-wrap gap-2">
+                {m.exe ? (
+                  <a
+                    href={m.exe}
+                    download
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                  >
+                    <Download className="size-4" /> Windows (.exe)
+                  </a>
+                ) : null}
+                {dmg ? (
+                  <a
+                    href={dmg.url}
+                    download
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                  >
+                    <Download className="size-4" /> Mac (.dmg{dmg.version !== m.version ? ` · v${dmg.version}` : ""})
+                  </a>
+                ) : null}
+              </div>
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Van sin firma digital, así que la primera vez el sistema desconfía: en Windows, SmartScreen pide «Más información →
+              Ejecutar de todas formas»; en Mac, clic derecho sobre el .pkg → Abrir. Si tu Windows tiene el «Control de
+              aplicaciones inteligente» activado bloqueará cualquier .exe sin firma — usa el zip de abajo, que hace exactamente lo
+              mismo.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Alternativa universal:{" "}
+              <a href={m.kit} download className="text-primary hover:underline">
+                kit en zip ({m.kitSize ? pesoLegible(m.kitSize) : "zip"})
+              </a>{" "}
+              con <Ruta>INSTALAR-Windows.bat</Ruta> / <Ruta>instalar-panel-mac.command</Ruta> dentro.
+            </p>
             {m.notes ? <p className="mt-3 border-t border-border pt-3 text-sm text-muted-foreground">{m.notes}</p> : null}
           </>
         ) : (

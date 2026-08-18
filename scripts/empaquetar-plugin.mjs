@@ -11,8 +11,11 @@
 // Uso:  node scripts/empaquetar-plugin.mjs "notas de la versión"
 // La versión NO se escribe aquí: se lee de main.js (const VERSION), que es la que manda de verdad.
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { crearZip } from "./lib/zip.mjs";
 
@@ -94,6 +97,46 @@ const zip = crearZip(entradas);
 const nombreZip = `labstream-correcciones-${version}.zip`;
 await writeFile(path.join(DESTINO, nombreZip), zip);
 
+// ── Instalador .exe de Windows ────────────────────────────────────────────────
+// Un solo ejecutable con el kit embebido: doble clic → administrador → instalado. Se compila
+// con el csc del .NET Framework que trae todo Windows; en otro sistema simplemente no se
+// genera (el zip sigue siendo el camino universal). Si csc existe pero la compilación FALLA,
+// se aborta: publicar un manifiesto que promete un .exe que no se construyó sería mentir.
+const CSC = "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe";
+const DIR_INSTALADOR = path.join(RAIZ, "resolve-plugin", "instalador-windows");
+let exe = null;
+if (existsSync(CSC)) {
+  const nombreExe = `InstalarLabstreamCorrecciones-${version}.exe`;
+  // La versión llega al C# como constante generada (C# 5: sin interpolación ni recursos .resx).
+  const tmpVer = path.join(os.tmpdir(), "InfoInstalador.cs");
+  await writeFile(tmpVer, `internal static class InfoInstalador { public const string Version = "${version}"; }\n`);
+  const r = spawnSync(
+    CSC,
+    [
+      "/nologo",
+      "/optimize+",
+      "/target:winexe",
+      `/out:${path.join(DESTINO, nombreExe)}`,
+      `/win32icon:${path.join(ORIGEN, "icon.ico")}`,
+      `/win32manifest:${path.join(DIR_INSTALADOR, "app.manifest")}`,
+      `/res:${path.join(DESTINO, nombreZip)},kit.zip`,
+      "/r:System.IO.Compression.dll",
+      "/r:System.IO.Compression.FileSystem.dll",
+      "/r:System.Windows.Forms.dll",
+      path.join(DIR_INSTALADOR, "Instalador.cs"),
+      tmpVer,
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.status !== 0) {
+    console.error("La compilación del instalador .exe falló:\n" + (r.stdout || "") + (r.stderr || ""));
+    process.exit(1);
+  }
+  exe = `/plugin/${nombreExe}`;
+} else {
+  console.warn("  (sin csc en este sistema: el instalador .exe no se genera aquí)");
+}
+
 const manifiesto = {
   version,
   notes: notas,
@@ -104,6 +147,9 @@ const manifiesto = {
   kit: `/plugin/${nombreZip}`,
   kitSize: zip.length,
   kitSha256: createHash("sha256").update(zip).digest("hex"),
+  // Instalador de un clic para Windows; el .dmg de Mac lo construye GitHub Actions (un runner
+  // de macOS: hdiutil no existe fuera de Mac) y la página de instalación lo detecta en disco.
+  exe,
 };
 await writeFile(path.join(DESTINO, "manifest.json"), JSON.stringify(manifiesto, null, 2) + "\n");
 
@@ -118,16 +164,33 @@ for (const viejo of dirs.slice(2)) {
   await rm(path.join(DESTINO, viejo), { recursive: true, force: true });
   console.log("  retirada la versión vieja:", viejo);
 }
-// El zip de una versión retirada se va con ella: si no, quedaban kits viejos descargables para
-// siempre y alguien acabaría instalando el de hace tres versiones.
+// Y cualquier carpeta con pinta de kit DESCOMPRIMIDO (residuo de una verificación manual del
+// zip): el kit legítimo es siempre el .zip; una carpeta suelta acabaría commiteada y servida
+// para siempre sin que ninguna limpieza la tocara.
+for (const d of await readdir(DESTINO, { withFileTypes: true })) {
+  if (d.isDirectory() && /^labstream-correcciones-/i.test(d.name)) {
+    await rm(path.join(DESTINO, d.name), { recursive: true, force: true });
+    console.log("  retirado un kit descomprimido suelto:", d.name);
+  }
+}
+// Los instaladores de una versión retirada se van con ella: si no, quedaban kits viejos
+// descargables para siempre y alguien acabaría instalando el de hace tres versiones.
+const PATRONES_VIEJOS = [
+  /^labstream-correcciones-(\d+\.\d+(?:\.\d+)?)\.zip$/,
+  /^InstalarLabstreamCorrecciones-(\d+\.\d+(?:\.\d+)?)\.exe$/,
+  /^LabstreamCorrecciones-(\d+\.\d+(?:\.\d+)?)\.dmg$/,
+];
 for (const f of await readdir(DESTINO)) {
-  const z = f.match(/^labstream-correcciones-(\d+\.\d+(?:\.\d+)?)\.zip$/);
-  if (z && !vigentes.has(z[1])) {
-    await rm(path.join(DESTINO, f), { force: true });
-    console.log("  retirado el kit viejo:", f);
+  for (const patron of PATRONES_VIEJOS) {
+    const z = f.match(patron);
+    if (z && !vigentes.has(z[1])) {
+      await rm(path.join(DESTINO, f), { force: true });
+      console.log("  retirado el instalador viejo:", f);
+    }
   }
 }
 
 console.log(`Plugin ${version} empaquetado en public/plugin/`);
 for (const f of files) console.log(`  ${f.name}  ${f.size} B  ${f.sha256.slice(0, 16)}…`);
 console.log(`  ${nombreZip}  ${zip.length} B  (kit de instalación: ${entradas.length} archivos)`);
+if (exe) console.log(`  ${exe.slice(8)}  (instalador de Windows)`);

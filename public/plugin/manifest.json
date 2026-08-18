@@ -18,9 +18,10 @@
       "size": 3818
     }
   ],
-  "builtAt": "2026-08-18T17:29:28.279Z",
+  "builtAt": "2026-08-18T20:09:18.386Z",
   "installer": "/plugin/instalar",
   "kit": "/plugin/labstream-correcciones-2.1.1.zip",
   "kitSize": 60330,
-  "kitSha256": "c9baa0c7e43709f2d0e9ef3943b426d8e538e51e63b5d13daec009e8c9fabdaf"
+  "kitSha256": "c9baa0c7e43709f2d0e9ef3943b426d8e538e51e63b5d13daec009e8c9fabdaf",
+  "exe": "/plugin/InstalarLabstreamCorrecciones-2.1.1.exe"
 }

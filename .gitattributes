@@ -24,3 +24,5 @@ public/plugin/manifest.json text eol=lf
 *.ico -text
 *.png -text
 *.node -text
+*.exe -text
+*.dmg -text

@@ -17,6 +17,8 @@ export type PluginManifest = {
   kit?: string;
   kitSize?: number;
   kitSha256?: string;
+  // Instalador de un clic para Windows (null si se empaquetó fuera de Windows, sin csc).
+  exe?: string | null;
 };
 
 export async function leerManifiestoPlugin(): Promise<PluginManifest | null> {

@@ -10,7 +10,7 @@ import { formatBogota, bogotaDayKey } from "@/lib/bogota-time";
 import { ahoraMs, VIDEO_ARCHIVO_EXT } from "@/lib/archivos/tipos";
 import { EntityEmoji } from "@/components/icons/marks";
 import { Logo } from "@/components/brand/logo";
-import { AutoBanner, AutoDetect, CorrectionsList, MarkersBar, RefreshButton, Thumb, UpdateBanner, type FilaCorreccion, type MarkerItem } from "./panel-client";
+import { AutoBanner, AutoDetect, CorrectionsList, FiltroCliente, MarkersBar, RefreshButton, Thumb, UpdateBanner, type FilaCorreccion, type MarkerItem } from "./panel-client";
 import { TONE_MAP } from "@/lib/colors";
 
 // Panel compacto de correcciones para DaVinci Resolve: clientes → proyectos → videos →
@@ -28,7 +28,7 @@ const ACCIONABLE = { NOT: { fromClient: false as const, visibleToClient: false a
 // Punto del checklist de verdad: ni nota suelta ni respuesta de hilo.
 const CHECKLIST_PENDIENTE = { ...ACCIONABLE, isNote: false as const, parentId: null, resolved: false as const };
 
-type Search = { p?: string; d?: string; v?: string; oc?: string; auto?: string; ord?: string; todo?: string; vista?: string };
+type Search = { p?: string; d?: string; v?: string; oc?: string; auto?: string; ord?: string; todo?: string; vista?: string; cli?: string };
 
 // Un parámetro repetido llega como string[]: nos quedamos con el primero (evita pasarle un
 // array a Prisma, que revienta la query con un 500 en vez del «no disponible» amable).
@@ -38,7 +38,7 @@ function one(v: string | string[] | undefined): string | undefined {
 
 export default async function ResolvePanelPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const raw = await searchParams;
-  const sp: Search = { p: one(raw.p), d: one(raw.d), v: one(raw.v), oc: one(raw.oc), auto: one(raw.auto), ord: one(raw.ord), todo: one(raw.todo), vista: one(raw.vista) };
+  const sp: Search = { p: one(raw.p), d: one(raw.d), v: one(raw.v), oc: one(raw.oc), auto: one(raw.auto), ord: one(raw.ord), todo: one(raw.todo), vista: one(raw.vista), cli: one(raw.cli) };
   // El guard se repite AQUÍ (no solo en el layout) a propósito: los layouts no se re-ejecutan
   // en navegaciones suaves (p. ej. ?p= → ?d=), así que un usuario desactivado a mitad de
   // sesión —o el rol cliente pidiendo el segmento suelto— debe cortarse cerca de los datos.
@@ -55,12 +55,23 @@ export default async function ResolvePanelPage({ searchParams }: { searchParams:
       </div>
     );
   }
-  if (sp.d) return <DeliverableView id={sp.d} vParam={sp.v} hideDone={sp.oc === "1"} porPrioridad={sp.ord === "prio"} auto={sp.auto === "1"} session={session} />;
+  if (sp.d) {
+    // Si el video se abrió desde la lista de pendientes (la fila arrastra vista/cli), el «←»
+    // vuelve exactamente ahí: misma pestaña, mismo cliente filtrado.
+    const desdePendientes =
+      sp.vista === "equipo" || sp.cli
+        ? {
+            href: `/resolve?${[sp.vista === "equipo" ? "vista=equipo" : "", sp.cli ? `cli=${encodeURIComponent(sp.cli)}` : ""].filter(Boolean).join("&")}`,
+            label: sp.vista === "equipo" ? "Pendientes del equipo" : "Lo tuyo por corregir",
+          }
+        : null;
+    return <DeliverableView id={sp.d} vParam={sp.v} hideDone={sp.oc === "1"} porPrioridad={sp.ord === "prio"} auto={sp.auto === "1"} volver={desdePendientes} session={session} />;
+  }
   if (sp.p) return <ProjectView id={sp.p} session={session} />;
   // La portada por defecto es lo pendiente PROPIO; lo del equipo y la navegación completa
   // quedan a un toque.
   if (sp.todo === "1") return <HomeView session={session} />;
-  return <PendientesView session={session} vista={sp.vista === "equipo" ? "equipo" : "mios"} />;
+  return <PendientesView session={session} vista={sp.vista === "equipo" ? "equipo" : "mios"} cliente={sp.cli ?? null} />;
 }
 
 function Chrome({ session, back, title, subtitle, children }: {
@@ -128,10 +139,13 @@ function PendingBadge({ n }: { n: number }) {
 //              hacer cualquiera sin esperar al dueño del proyecto
 //   Todos      la navegación por cliente y proyecto, para abrir un video que no tiene nada
 //              pendiente (revisar algo entregado, buscar una versión vieja)
-function Tabs({ activa, nMios, nEquipo }: { activa: "mios" | "equipo" | "todo"; nMios: number; nEquipo: number }) {
+function Tabs({ activa, nMios, nEquipo, cli }: { activa: "mios" | "equipo" | "todo"; nMios: number; nEquipo: number; cli: string | null }) {
   const base = "flex-1 rounded-md px-2 py-1.5 text-center text-[12px] font-medium transition-colors";
   const on = "bg-zinc-800 text-zinc-100";
   const off = "text-zinc-400 hover:text-zinc-200";
+  // El filtro por cliente viaja con la pestaña: cambiar de Míos a Del equipo no debe hacerte
+  // volver a elegir el cliente. «Todos» no lo lleva — es la navegación completa.
+  const filtro = cli ? `cli=${encodeURIComponent(cli)}` : "";
   const cuenta = (n: number, fuerte: boolean) =>
     n ? (
       <span className={`ml-1 rounded-full px-1.5 text-[11px] ${fuerte ? "bg-orange-500/20 text-orange-300" : "bg-zinc-700/60 text-zinc-300"}`}>
@@ -140,10 +154,10 @@ function Tabs({ activa, nMios, nEquipo }: { activa: "mios" | "equipo" | "todo"; 
     ) : null;
   return (
     <div className="mb-3 flex gap-1 rounded-lg bg-zinc-900 p-1">
-      <Link href="/resolve" className={`${base} ${activa === "mios" ? on : off}`}>
+      <Link href={`/resolve${filtro ? `?${filtro}` : ""}`} className={`${base} ${activa === "mios" ? on : off}`}>
         Míos{cuenta(nMios, true)}
       </Link>
-      <Link href="/resolve?vista=equipo" className={`${base} ${activa === "equipo" ? on : off}`}>
+      <Link href={`/resolve?vista=equipo${filtro ? `&${filtro}` : ""}`} className={`${base} ${activa === "equipo" ? on : off}`}>
         Del equipo{cuenta(nEquipo, false)}
       </Link>
       <Link href="/resolve?todo=1" className={`${base} ${activa === "todo" ? on : off}`}>
@@ -180,7 +194,7 @@ async function contarPendientes(session: SessionUser) {
 // Antes había que bajar por una lista de clientes y proyectos donde casi todo decía «al día»
 // para encontrar los pocos con trabajo. Aquí se salta ese paso: se listan los videos, no los
 // proyectos, y solo los que tienen algo que corregir. De tres toques a uno.
-async function PendientesView({ session, vista }: { session: SessionUser; vista: "mios" | "equipo" }) {
+async function PendientesView({ session, vista, cliente }: { session: SessionUser; vista: "mios" | "equipo"; cliente: string | null }) {
   const todos = await db.deliverable.findMany({
     where: pendientesWhere(session),
     select: {
@@ -218,9 +232,26 @@ async function PendientesView({ session, vista }: { session: SessionUser; vista:
   const equipo = todos.filter((v) => !esMio(v));
   const videos = vista === "mios" ? mios : equipo;
 
+  // Opciones del desplegable: los clientes CON pendientes en esta pestaña y cuántos. Se
+  // calculan ANTES de filtrar, para que el desplegable siga enseñando las demás opciones
+  // mientras un cliente está elegido.
+  const opcionesCliente: { id: string; nombre: string; n: number }[] = [];
+  for (const v of videos) {
+    const c = v.project.client;
+    const o = opcionesCliente.find((x) => x.id === c.id);
+    if (o) o.n++;
+    else opcionesCliente.push({ id: c.id, nombre: c.name, n: 1 });
+  }
+  opcionesCliente.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  // El filtro pedido: solo lo pendiente de UN cliente, aunque el editor tenga más en sus
+  // proyectos. Un id que no está en la pestaña (marcador viejo, cliente ya al día) no revienta:
+  // simplemente deja la lista vacía y el estado vacío ofrece quitar el filtro.
+  const filtrados = cliente ? videos.filter((v) => v.project.client.id === cliente) : videos;
+
   // Orden: primero lo que tiene fecha de entrega (y de esas, la más próxima), luego lo más
   // reciente. Lo que vence manda sobre lo que se tocó hace poco.
-  const ordenados = [...videos].sort((a, b) => {
+  const ordenados = [...filtrados].sort((a, b) => {
     if (a.fixDueAt && b.fixDueAt) return a.fixDueAt.getTime() - b.fixDueAt.getTime();
     if (a.fixDueAt) return -1;
     if (b.fixDueAt) return 1;
@@ -260,34 +291,54 @@ async function PendientesView({ session, vista }: { session: SessionUser; vista:
       session={session}
       title={vista === "mios" ? "Lo tuyo por corregir" : "Pendientes del equipo"}
       subtitle={
-        videos.length
-          ? `${videos.length} ${videos.length === 1 ? "video espera" : "videos esperan"} cambios`
+        filtrados.length
+          ? `${filtrados.length} ${filtrados.length === 1 ? "video espera" : "videos esperan"} cambios`
           : undefined
       }
     >
       <AutoDetect />
       <UpdateBanner />
-      <Tabs activa={vista} nMios={mios.length} nEquipo={equipo.length} />
-      {vista === "equipo" && videos.length > 0 ? (
+      <Tabs activa={vista} nMios={mios.length} nEquipo={equipo.length} cli={cliente} />
+      {opcionesCliente.length > 1 || cliente ? (
+        <FiltroCliente opciones={opcionesCliente} actual={cliente} vista={vista} />
+      ) : null}
+      {vista === "equipo" && filtrados.length > 0 ? (
         <p className="mb-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-[11px] text-zinc-400">
           Proyectos donde no estás asignado. Si el ajuste es sencillo, hazlo — el responsable lo verá marcado con tu nombre.
         </p>
       ) : null}
-      {videos.length === 0 ? (
+      {filtrados.length === 0 ? (
         <div className="pt-10 text-center">
-          <p className="text-2xl">✓</p>
-          <p className="mt-2 text-sm text-zinc-300">
-            {vista === "mios" ? "No tienes correcciones pendientes." : "El equipo no tiene nada pendiente."}
-          </p>
-          <p className="mt-1 text-[12px] text-zinc-500">
-            {vista === "mios" && equipo.length > 0 ? (
-              <>
-                Quedan {equipo.length} en <Link href="/resolve?vista=equipo" className="text-indigo-300 hover:underline">Del equipo</Link>.
-              </>
-            ) : (
-              "Todo lo que compartieron los clientes está resuelto."
-            )}
-          </p>
+          {cliente && videos.length > 0 ? (
+            // El filtro dejó la pestaña vacía, pero HAY trabajo de otros clientes: decirlo tal
+            // cual, no un «todo resuelto» que sería mentira.
+            <>
+              <p className="text-2xl">🔍</p>
+              <p className="mt-2 text-sm text-zinc-300">Este cliente no tiene videos pendientes en esta pestaña.</p>
+              <p className="mt-1 text-[12px] text-zinc-500">
+                <Link href={vista === "equipo" ? "/resolve?vista=equipo" : "/resolve"} className="text-indigo-300 hover:underline">
+                  Quitar el filtro
+                </Link>{" "}
+                · {videos.length} de otros clientes
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl">✓</p>
+              <p className="mt-2 text-sm text-zinc-300">
+                {vista === "mios" ? "No tienes correcciones pendientes." : "El equipo no tiene nada pendiente."}
+              </p>
+              <p className="mt-1 text-[12px] text-zinc-500">
+                {vista === "mios" && equipo.length > 0 ? (
+                  <>
+                    Quedan {equipo.length} en <Link href="/resolve?vista=equipo" className="text-indigo-300 hover:underline">Del equipo</Link>.
+                  </>
+                ) : (
+                  "Todo lo que compartieron los clientes está resuelto."
+                )}
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -315,10 +366,18 @@ async function PendientesView({ session, vista }: { session: SessionUser; vista:
                       : g.logoUrl
                         ? `/api/client-asset/logo/${g.id}`
                         : null;
+                  // La fila arrastra pestaña y filtro: al abrir el video y volver con «←», el
+                  // editor aterriza donde estaba (misma pestaña, mismo cliente filtrado), no en
+                  // la portada pelada.
+                  const qsFila = [
+                    `d=${v.id}`,
+                    vista === "equipo" ? "vista=equipo" : "",
+                    cliente ? `cli=${encodeURIComponent(cliente)}` : "",
+                  ].filter(Boolean).join("&");
                   return (
                     <Link
                       key={v.id}
-                      href={`/resolve?d=${v.id}`}
+                      href={`/resolve?${qsFila}`}
                       className={`flex items-center gap-2.5 px-2.5 py-2 hover:bg-zinc-900 ${i > 0 ? "border-t border-zinc-800/70" : ""}`}
                     >
                       <Thumb
@@ -402,7 +461,7 @@ async function HomeView({ session }: { session: SessionUser }) {
       {/* Si el panel corre dentro de Resolve, intenta abrir DIRECTO el video del timeline. */}
       <AutoDetect />
       <UpdateBanner />
-      <Tabs activa="todo" nMios={nMios} nEquipo={nEquipo} />
+      <Tabs activa="todo" nMios={nMios} nEquipo={nEquipo} cli={null} />
       {withProjects.length === 0 ? (
         <p className="pt-8 text-center text-sm text-zinc-400">No tienes proyectos visibles todavía.</p>
       ) : (
@@ -529,7 +588,7 @@ async function ProjectView({ id, session }: { id: string; session: SessionUser }
 }
 
 // ── Vista 3: UN video en foco, con sus correcciones ──
-async function DeliverableView({ id, vParam, hideDone, porPrioridad, auto, session }: { id: string; vParam?: string; hideDone: boolean; porPrioridad: boolean; auto: boolean; session: SessionUser }) {
+async function DeliverableView({ id, vParam, hideDone, porPrioridad, auto, volver, session }: { id: string; vParam?: string; hideDone: boolean; porPrioridad: boolean; auto: boolean; volver: { href: string; label: string } | null; session: SessionUser }) {
   const d = await db.deliverable.findFirst({
     where: { id, project: accessibleProjectWhere(session) },
     select: {
@@ -646,7 +705,7 @@ async function DeliverableView({ id, vParam, hideDone, porPrioridad, auto, sessi
   return (
     <Chrome
       session={session}
-      back={{ href: `/resolve?p=${d.projectId}`, label: project0(d.project.name) }}
+      back={volver ?? { href: `/resolve?p=${d.projectId}`, label: project0(d.project.name) }}
       title={<>{d.number ? <span className="text-zinc-500">#{d.number} </span> : null}{d.name}</>}
       subtitle={<><EntityEmoji value={d.project.emoji} fallback="🎬" /> {d.project.name} · {d.project.client.name}</>}
     >
