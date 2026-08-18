@@ -190,6 +190,7 @@ model User {
   rastreoQueVe       TrackerShare[]     @relation("RastreoVisor")
   rastreoDeEl        TrackerShare[]     @relation("RastreoSujeto")
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
+  mailAccount        MailAccount?
   runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -1815,6 +1816,75 @@ model TrackerShare {
   // Un solo permiso vivo por pareja: volver a compartir actualiza en vez de duplicar.
   @@unique([viewerId, subjectId])
   @@index([subjectId])
+}
+
+// ── Correo PERSONAL dentro de la app (pestaña Correo) ──
+// Cada persona conecta SU buzón de MailPlus (el servidor de correo vive en este mismo NAS):
+// la app sincroniza la bandeja por IMAP y envía por SMTP con su identidad. La contraseña se
+// guarda cifrada (mismo cifrado que MailSettings) y solo la toca el servidor.
+model MailAccount {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique // una cuenta por persona (v1)
+
+  email       String
+  imapHost    String
+  imapPort    Int     @default(993)
+  smtpHost    String
+  smtpPort    Int     @default(587)
+  username    String
+  passwordEnc String
+  // El certificado del NAS no coincide cuando se entra por IP de LAN (192.168.0.22): true =
+  // no verificar TLS. Mismo criterio que SMTP_TLS_REJECT_UNAUTHORIZED y el CalDAV del NAS.
+  tlsRelaxed  Boolean @default(true)
+
+  // Marca de agua de la sincronización: solo se piden UIDs nuevos. Si el servidor cambia
+  // uidValidity, los UIDs guardados no significan nada y toca resincronizar de cero.
+  lastUid     BigInt    @default(0)
+  uidValidity BigInt?
+  lastSyncAt  DateTime?
+  syncError   String? // último error, visible en la pestaña para no fallar en silencio
+  // Carpeta de enviados detectada en el servidor (para APPEND al enviar: así el webmail de
+  // MailPlus también ve lo que se mandó desde la app).
+  sentFolder  String?
+
+  createdAt DateTime      @default(now())
+  messages  MailMessage[]
+}
+
+// Un correo sincronizado (o enviado desde la app). El cuerpo HTML se guarda CRUDO y acotado,
+// y se SANEA SIEMPRE al servir (lib/correo/sanitizar): el HTML de un correo es entrada hostil
+// y no se le entrega al navegador tal cual jamás.
+model MailMessage {
+  id        String      @id @default(cuid())
+  account   MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+
+  // UID del mensaje en su carpeta IMAP. Los enviados desde la app son locales (carpeta
+  // ENVIADOS) y usan el instante en ms como pseudo-UID — por eso BigInt.
+  uid    BigInt
+  folder String @default("INBOX") // INBOX · ENVIADOS
+
+  messageId String? // Message-ID: para no duplicar y para responder en hilo
+  inReplyTo String?
+  fromName  String?
+  fromEmail String?
+  toList    String  @default("") // «a@b, c@d» plano: para pintar, no para consultar
+  subject   String  @default("")
+  date      DateTime
+  snippet   String  @default("")
+  textBody  String?
+  htmlBody  String? // CRUDO y acotado; nunca se sirve sin sanear
+  seen      Boolean @default(false)
+  answered  Boolean @default(false)
+  // [{ indice, nombre, mime, bytes }] — solo el índice; los bytes se bajan del IMAP al pedirse.
+  attachments Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, folder, uid])
+  @@index([accountId, date])
+  @@index([accountId, seen])
 }
 
 model TimeEntry {
