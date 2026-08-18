@@ -9,6 +9,7 @@ import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { sendWhatsappText, toWhatsappNumber } from "@/lib/whatsapp/send";
 import { logActivity } from "@/lib/activity";
 import { textoWhatsapp, textoCorreo, asuntoCorreo, proyectoComun } from "@/lib/review-share";
+import { sellarEnvioCliente } from "@/lib/envio-cliente";
 
 // ── Trabajar con VARIAS piezas de una vez en la bandeja de revisiones ──
 // Una campaña sale en tanda: 8 reels que se mandan juntos al cliente, se archivan juntos y se
@@ -211,6 +212,9 @@ export async function bulkSendReviewLinks(
     });
     if (!r.ok) return { ok: false, error: r.error };
   }
+
+  // Un solo sello para todo el lote: mismo instante, mismo destinatario, mismo plazo.
+  await sellarEnvioCliente(vivos.map((d) => d.id), input.channel === "whatsapp" ? "whatsapp" : "correo", input.to.trim());
 
   for (const d of vivos) {
     await logActivity({

@@ -3,6 +3,8 @@ import { aliveProjectWhere } from "@/lib/project-access";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { notify } from "@/lib/notify";
 import { formatBogota } from "@/lib/bogota-time";
+import { isEmailEnabled, sendEmail } from "@/lib/email";
+import { signReviewToken } from "@/lib/review-token";
 import { AUTO_TASK_PREFIX, recalcProgress } from "@/lib/deliverable-tasks";
 
 // ── Barrido de SLA del flujo de entregables ──
@@ -41,7 +43,7 @@ async function reviewerActed(deliverableId: string, userId: string, since: Date)
   return !!comment;
 }
 
-export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }): Promise<{ settled: number; breached: number }> {
+export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }): Promise<{ settled: number; breached: number; clientReminded?: number }> {
   const now = opts?.now ?? new Date();
   if (!opts?.force && Date.now() - lastSweepAt < SWEEP_THROTTLE_MS) return { settled: 0, breached: 0 };
   lastSweepAt = Date.now();
@@ -148,5 +150,71 @@ export async function sweepDeliverableSla(opts?: { force?: boolean; now?: Date }
     }
   }
 
-  return { settled, breached };
+  // ── 3) El TRAMO DEL CLIENTE: plazo de respuesta vencido ──
+  // Los dos barridos de arriba persiguen al equipo; este persigue la única etapa que no
+  // tenía dueño. Si la pieza salió por CORREO, se le recuerda AL CLIENTE directamente (mismo
+  // patrón de reclamo atómico que delivery-reminders: clientRemindedAt es el candado y se
+  // avisa UNA vez). Si salió por WhatsApp —del estudio o personal—, no se le escribe solo:
+  // se le avisa al productor para que reenvíe, porque un bot insistiendo por WhatsApp es
+  // exactamente el tono que un estudio no quiere con su cliente.
+  let clientReminded = 0;
+  const sinRespuesta = await db.deliverable.findMany({
+    where: {
+      status: "ENVIADO_CLIENTE",
+      archivedAt: null,
+      reviewRevokedAt: null,
+      sentToClientAt: { not: null },
+      clientRemindedAt: null,
+      clientReviewDueAt: { lt: now },
+      project: aliveProjectWhere,
+    },
+    select: {
+      id: true, name: true, number: true, projectId: true,
+      sentToClientVia: true, sentToClientTo: true, clientReviewDueAt: true,
+      project: { select: { name: true, leadId: true } },
+    },
+    take: 25,
+  });
+  for (const d of sinRespuesta) {
+    // Reclamo atómico: dos barridos simultáneos no recuerdan dos veces.
+    const claim = await db.deliverable.updateMany({ where: { id: d.id, clientRemindedAt: null }, data: { clientRemindedAt: now } });
+    if (claim.count !== 1) continue;
+    clientReminded += 1;
+
+    const titulo = d.number ? `#${d.number} ${d.name}` : d.name;
+    const porCorreo = d.sentToClientVia === "correo" && !!d.sentToClientTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.sentToClientTo);
+
+    if (porCorreo && (await isEmailEnabled())) {
+      const url = `${(process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "")}/review/${signReviewToken(d.id)}`;
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      await sendEmail({
+        to: d.sentToClientTo!,
+        subject: `¿Pudiste revisar «${titulo}»?`,
+        html:
+          `<p>Hola,</p><p>Hace unos días te compartimos <b>${esc(titulo)}</b> de <b>${esc(d.project.name)}</b> y aún no vemos tu revisión.</p>` +
+          `<p><a href="${url}" style="color:#4f46e5">Ver y comentar</a> — puedes marcar el segundo exacto de cada comentario.</p>` +
+          `<p style="color:#666;font-size:12px">Labstream Studio</p>`,
+        text: `Hola,\n\nHace unos días te compartimos «${titulo}» de ${d.project.name} y aún no vemos tu revisión.\n\nVer y comentar: ${url}\n\nLabstream Studio`,
+      }).catch(() => null);
+      if (d.project.leadId) {
+        await notify(d.project.leadId, {
+          type: "review",
+          event: "review_sla",
+          title: `Se le recordó al cliente: ${d.name}`,
+          body: `El plazo venció sin respuesta y se le reenvió el enlace por correo (${d.sentToClientTo}).`,
+          link: `/revisiones/${d.id}`,
+        }).catch(() => null);
+      }
+    } else if (d.project.leadId) {
+      await notify(d.project.leadId, {
+        type: "review",
+        event: "review_sla",
+        title: `El cliente no ha respondido: ${d.name}`,
+        body: `Se le envió por WhatsApp ${d.clientReviewDueAt ? `y el plazo venció el ${formatBogota(d.clientReviewDueAt)}` : "y el plazo venció"}. Reenvíale el enlace por el mismo chat.`,
+        link: `/revisiones/${d.id}`,
+      }).catch(() => null);
+    }
+  }
+
+  return { settled, breached, clientReminded };
 }

@@ -2050,6 +2050,18 @@ model Deliverable {
   reviewComments ReviewComment[]
   decisions DeliverableDecision[]
   renditions DeliverableRendition[]
+  // ── El tramo del CLIENTE, instrumentado ──
+  // Hasta aquí el envío solo dejaba una línea de bitácora que ninguna pantalla leía: la
+  // bandeja decía «esperando al cliente» sin saber si alguien mandó el enlace de verdad.
+  // sentToClientAt/Via/To los sella el envío (correo, WhatsApp del estudio o WhatsApp
+  // personal); clientReviewDueAt es el plazo de respuesta (3 días hábiles desde el envío) y
+  // clientRemindedAt es el candado del recordatorio automático: null = aún no se persiguió.
+  // Reenviar re-arma el plazo y el candado.
+  sentToClientAt   DateTime?
+  sentToClientVia  String? // correo · whatsapp · whatsapp-personal
+  sentToClientTo   String?
+  clientReviewDueAt DateTime?
+  clientRemindedAt  DateTime?
   // Enlace de revisión del cliente: único por entregable, con visitas y revocación.
   reviewVisits        Int       @default(0)
   reviewRevokedAt     DateTime? // si está puesto, el portal del cliente queda inválido

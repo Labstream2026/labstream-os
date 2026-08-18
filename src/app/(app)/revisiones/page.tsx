@@ -19,6 +19,10 @@ import { IconRevisiones } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 import { SelectionProvider, SelectCheck, type SelectableItem } from "./selection";
 import { estadoRonda, type EstadoRonda } from "@/lib/rondas";
+import { formatBogota } from "@/lib/bogota-time";
+import { toWhatsappNumber } from "@/lib/whatsapp/send";
+import { textoWhatsapp } from "@/lib/review-share";
+import { BotonWa } from "./boton-wa";
 import { isEmailEnabled } from "@/lib/email";
 import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 import { AtajosBarra, BarraMandos, ChipFiltro, FranjaResumen, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, type TramoResumen } from "@/components/ui/barra-menu";
@@ -58,6 +62,80 @@ const CHIP: Record<Tier, string> = {
   warn: "bg-amber-400 text-amber-950",
   fresh: "bg-emerald-500 text-white",
 };
+
+// ── El estado del ENVÍO al cliente ──────────────────────────────────────────
+// Tres verdades que antes no se podían saber mirando la bandeja: si el enlace se mandó de
+// verdad (la fase se deducía de las VISITAS: «esperando al cliente» aunque nadie lo hubiera
+// enviado), hace cuánto salió y por dónde, y si el plazo de respuesta ya venció.
+type ChipEnvioDatos = { tono: "rojo" | "cielo" | "vencido"; texto: string; title: string };
+
+type EnvioCampos = {
+  status: string;
+  sentToClientAt: Date | null;
+  sentToClientVia: string | null;
+  sentToClientTo: string | null;
+  clientReviewDueAt: Date | null;
+  clientRemindedAt: Date | null;
+  reviewVisits: number;
+};
+
+function chipEnvioDe(d: EnvioCampos): ChipEnvioDatos | null {
+  if (d.status !== "ENVIADO_CLIENTE") return null;
+  if (!d.sentToClientAt) {
+    // Piezas pre-aprobadas ANTES de este sello: si el cliente ya la visitó, el enlace salió
+    // por algún lado — no se acusa un «sin enviar» falso; simplemente no hay chip.
+    if (d.reviewVisits > 0) return null;
+    return {
+      tono: "rojo",
+      texto: "Enlace sin enviar",
+      title: "Pre-aprobada y esperando al cliente, pero nadie le ha mandado el enlace todavía.",
+    };
+  }
+  const hace = sinceLabel(urgency(d.sentToClientAt));
+  const via = d.sentToClientVia === "correo" ? "por correo" : "por WhatsApp";
+  const venc = d.clientReviewDueAt && d.clientReviewDueAt.getTime() < nowMs();
+  const fechaDue = d.clientReviewDueAt ? formatBogota(d.clientReviewDueAt, { day: "numeric", month: "short" }) : null;
+  const title =
+    `Enviada ${via}${d.sentToClientTo ? ` a ${d.sentToClientTo}` : ""}.` +
+    (d.reviewVisits > 0 ? ` El cliente la ha abierto ${d.reviewVisits === 1 ? "1 vez" : `${d.reviewVisits} veces`}.` : " El cliente aún no la abre.") +
+    (d.clientRemindedAt ? " Ya se le recordó automáticamente." : "");
+  if (venc) {
+    return { tono: "vencido", texto: `Enviada ${hace} · sin respuesta desde el ${fechaDue}`, title };
+  }
+  return { tono: "cielo", texto: `Enviada ${hace}${fechaDue ? ` · responde antes del ${fechaDue}` : ""}`, title };
+}
+
+function ChipEnvio({ e }: { e: ChipEnvioDatos | null }) {
+  if (!e) return null;
+  const tono =
+    e.tono === "rojo"
+      ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300"
+      : e.tono === "vencido"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+        : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
+  return (
+    <span className={`inline-flex w-fit shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tono}`} title={e.title}>
+      <Send className="size-2.5" /> {e.texto}
+    </span>
+  );
+}
+
+// El botón de WhatsApp personal: solo cuando FALTA enviar y el cliente tiene número. El texto
+// del mensaje es el mismo que arma lib/review-share para el envío normal — lo que la persona
+// ve en su WhatsApp es lo que habría salido por cualquier otro camino.
+function botonWaDe(
+  d: { status: string; sentToClientAt: Date | null; reviewVisits: number; name: string; number: number | null; project: { name: string; client: { phone: string | null } | null } },
+  reviewUrl: string,
+): { href: string; phone: string } | null {
+  if (d.status !== "ENVIADO_CLIENTE" || d.sentToClientAt || d.reviewVisits > 0) return null;
+  const phone = d.project.client?.phone ? toWhatsappNumber(d.project.client.phone) : null;
+  if (!phone) return null;
+  const texto = textoWhatsapp(
+    [{ titulo: `${d.number ? `#${d.number} ` : ""}${d.name}`, proyecto: d.project.name, url: reviewUrl }],
+    "",
+  );
+  return { href: `https://wa.me/${phone}?text=${encodeURIComponent(texto)}`, phone };
+}
 // Duración en segundos → "m:ss" (o null si no se capturó).
 function fmtDur(sec: number | null | undefined): string | null {
   if (!sec || sec <= 0) return null;
@@ -154,6 +232,13 @@ export default async function RevisionesPage({
         reviewRevokedAt: true,
         reviewExpiresAt: true,
         archivedAt: true,
+        // El tramo del cliente, instrumentado: cuándo salió el enlace, por dónde, a quién,
+        // el plazo de respuesta y si ya se le recordó. De aquí salen los chips de envío.
+        sentToClientAt: true,
+        sentToClientVia: true,
+        sentToClientTo: true,
+        clientReviewDueAt: true,
+        clientRemindedAt: true,
         // Visitas del cliente al enlace: 0 = pre-aprobado pero aún sin abrir; >0 = ya lo está viendo.
         reviewVisits: true,
         // Sello de publicación (interno): fecha + quién lo marcó, para la pestaña «Publicados».
@@ -171,7 +256,7 @@ export default async function RevisionesPage({
             // Tope de rondas pactado con el cliente (null = sin pactar). Ver lib/rondas.
             roundsIncluded: true,
             members: { select: { userId: true, role: true } },
-            client: { select: { id: true, name: true, photoUrl: true, accentColor: true, members: { select: { userId: true, role: true } } } },
+            client: { select: { id: true, name: true, photoUrl: true, accentColor: true, phone: true, members: { select: { userId: true, role: true } } } },
           },
         },
         // id/fileUrl/fileAsset → para firmar la fuente del PREVIEW en hover (la misma que
@@ -247,6 +332,8 @@ export default async function RevisionesPage({
     linkActive: !d.reviewRevokedAt && (!d.reviewExpiresAt || d.reviewExpiresAt.getTime() > now),
     archived: d.archivedAt != null,
     ronda: estadoRonda(rondasDe.get(d.id) ?? 0, d.project.roundsIncluded),
+    envio: chipEnvioDe(d),
+    wa: botonWaDe(d, `${REVIEW_BASE}/review/${signReviewToken(d.id)}`),
   }));
 
   const mineFilter = (d: Item) => !onlyMine || d.mine;
@@ -551,6 +638,12 @@ type Item = {
   number: number | null;
   // En qué ronda de cambios del cliente va la pieza, y si se pasó de lo pactado.
   ronda: EstadoRonda;
+  // El estado del ENVÍO al cliente (null fuera de «con el cliente»): sin enviar / enviada
+  // con plazo / plazo vencido. Calculado en el servidor para que la tarjeta solo pinte.
+  envio: ChipEnvioDatos | null;
+  // Botón «Enviar por WhatsApp» desde el computador de quien mira (solo si falta enviar y
+  // el cliente tiene número): el href ya trae el mensaje y el enlace escritos.
+  wa: { href: string; phone: string } | null;
   status: string;
   type: string | null;
   updatedAt: Date;
@@ -795,6 +888,7 @@ function Fila({ d, primera, neutral, showStatus }: { d: Item; primera: boolean; 
             <EntityEmoji value={d.project.emoji} fallback="🎬" /> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
           </span>
         </span>
+        <ChipEnvio e={d.envio} />
         <ChipRonda r={d.ronda} />
         {showStatus || d.publishedAt ? <EstadoChip d={d} /> : null}
         {v ? <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground sm:inline">v{v.number}</span> : null}
@@ -888,7 +982,12 @@ function Card({ d, neutral, showStatus }: { d: Item; neutral?: boolean; showStat
           <p className="truncate text-[13px] font-medium leading-snug" title={d.name}>
             {d.number ? <span className="mr-1 text-[11px] font-normal text-muted-foreground">#{d.number}</span> : null}{d.name}
           </p>
-          <ChipRonda r={d.ronda} />
+          {d.ronda.texto || d.envio ? (
+            <span className="flex flex-wrap gap-1">
+              <ChipEnvio e={d.envio} />
+              <ChipRonda r={d.ronda} />
+            </span>
+          ) : null}
           {/* UNA línea de meta: quién subió, hace cuánto, y comentarios si los hay. El proyecto
               ya no se repite aquí: lo dice la cabecera del grupo. Sin botón «Ver →»: la tarjeta
               entera navega desde siempre, y dieciséis botones iguales solo eran ruido. */}
@@ -909,8 +1008,18 @@ function Card({ d, neutral, showStatus }: { d: Item; neutral?: boolean; showStat
           </p>
           {d.publishedAt || showStatus ? <EstadoChip d={d} /> : null}
           {/* Ya está con el cliente: copiar su enlace es lo que uno viene a hacer aquí, así que
-              sale al frente en vez de vivir dentro del menú ⋯. */}
-          {conElCliente(d) ? <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="w-full" /> : null}
+              sale al frente en vez de vivir dentro del menú ⋯. Si además FALTA enviarla y el
+              cliente tiene WhatsApp, el envío de un clic va primero. */}
+          {conElCliente(d) ? (
+            d.wa ? (
+              <span className="flex w-full gap-1.5">
+                <BotonWa deliverableId={d.id} phone={d.wa.phone} href={d.wa.href} className="flex-1" />
+                <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="flex-1" />
+              </span>
+            ) : (
+              <CopiarEnlace url={d.reviewUrl} activo={d.linkActive} className="w-full" />
+            )
+          ) : null}
         </div>
       </Link>
       </div>

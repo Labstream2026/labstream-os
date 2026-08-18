@@ -9,6 +9,7 @@ import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { sendWhatsappText, toWhatsappNumber } from "@/lib/whatsapp/send";
 import { logActivity } from "@/lib/activity";
 import { textoWhatsapp, textoCorreo, asuntoCorreo, type PiezaCompartida } from "@/lib/review-share";
+import { sellarEnvioCliente } from "@/lib/envio-cliente";
 
 // ── Mandarle al cliente el enlace de UNA pieza, desde la sala de revisión ──────
 // El envío en lote de /revisiones (bulk-actions) exige GESTIONAR el proyecto, y eso deja fuera
@@ -123,9 +124,35 @@ export async function enviarEnlaceRevision(
     if (!r.ok) return { ok: false, error: r.error };
   }
 
+  // El sello que instruye a la bandeja: cuándo salió, por dónde, a quién, y el plazo de
+  // respuesta. Sin esto, «esperando al cliente» era una suposición.
+  await sellarEnvioCliente([d.id], input.channel === "whatsapp" ? "whatsapp" : "correo", input.to.trim());
+
   await logActivity({
     action: "deliverable.share",
     summary: `envió al cliente el enlace de «${d.name}» por ${input.channel === "whatsapp" ? "WhatsApp" : "correo"}`,
+    projectId: d.projectId,
+    entityType: "deliverable",
+    entityId: d.id,
+  }).catch(() => null);
+  revalidatePath("/revisiones");
+  return { ok: true };
+}
+
+// ── WhatsApp PERSONAL: sellar el envío hecho desde el computador de cada quien ──
+// El botón de la bandeja abre wa.me con el mensaje listo y la persona lo manda desde SU
+// número. La app no puede saber si de verdad pulsó enviar — solo que abrió WhatsApp con el
+// mensaje listo — así que esto sella el envío con esa reserva, y si el cliente nunca abre el
+// enlace, el chip de visitas lo delata. Misma puerta que el envío normal.
+export async function registrarEnvioPersonal(deliverableId: string, phone: string): Promise<EnvioResultado> {
+  const { session, d } = await piezaSiPuedo(deliverableId);
+  if (!session || !d) return { ok: false, error: "No autorizado" };
+  const limpio = toWhatsappNumber(phone.trim());
+  if (!limpio) return { ok: false, error: "Número inválido." };
+  await sellarEnvioCliente([d.id], "whatsapp-personal", limpio);
+  await logActivity({
+    action: "deliverable.share",
+    summary: `le envió al cliente el enlace de «${d.name}» por su WhatsApp`,
     projectId: d.projectId,
     entityType: "deliverable",
     entityId: d.id,
