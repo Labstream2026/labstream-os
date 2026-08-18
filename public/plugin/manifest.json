@@ -1,0 +1,26 @@
+{
+  "version": "2.1.1",
+  "notes": "Correcciones de la revision: cortacircuitos de verdad, icono y pantalla sin conexion tras autoactualizarse, y firma estable de archivos.",
+  "files": [
+    {
+      "name": "main.js",
+      "sha256": "60f229f997f2e4cb82f21e6bee0c6e63c0401c5c02ad69c9f1acba7ca742d0b3",
+      "size": 26958
+    },
+    {
+      "name": "preload.js",
+      "sha256": "f0438926493b695aebc6ab0550bab39575be8693003258802e92aeb6c19a2b07",
+      "size": 899
+    },
+    {
+      "name": "timecode.js",
+      "sha256": "a89873e0cf1990b5437e457cec4523c9495c28b2968708098e133522abc3875d",
+      "size": 3818
+    }
+  ],
+  "builtAt": "2026-08-18T17:29:28.279Z",
+  "installer": "/plugin/instalar",
+  "kit": "/plugin/labstream-correcciones-2.1.1.zip",
+  "kitSize": 60330,
+  "kitSha256": "c9baa0c7e43709f2d0e9ef3943b426d8e538e51e63b5d13daec009e8c9fabdaf"
+}

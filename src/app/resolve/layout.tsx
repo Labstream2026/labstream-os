@@ -9,7 +9,24 @@ import { getSession } from "@/lib/auth";
 // re-verifica con permisos vivos de BD, igual que el layout de (app).
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Correcciones · Labstream OS" };
+// Icono propio (el de Labstream), no el favicon general de la app: esta ventana vive junto a los
+// paneles de Resolve y se reconoce por él en la barra de tareas.
+// Se declaran DOS tamaños porque el logotipo se compone distinto según cuál sea: el de 32 px casi
+// no lleva margen (en pequeño cada píxel de letra cuenta) y el de 512 respira. El navegador
+// escoge solo el más cercano en vez de reescalar el grande y emborronarlo.
+export const metadata: Metadata = {
+  // Solo "Correcciones": el layout raíz ya le añade " · Labstream OS" con su plantilla. Ponerlo
+  // aquí también hacía que la ventana del plugin se llamara "Correcciones · Labstream OS ·
+  // Labstream OS", que es lo que se ve en la barra de título.
+  title: "Correcciones",
+  icons: {
+    icon: [
+      { url: "/icons/resolve-icon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/icons/resolve-icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/icons/resolve-icon-180.png", sizes: "180x180" }],
+  },
+};
 export const viewport: Viewport = { themeColor: "#0b0b0e" };
 
 export default async function ResolveLayout({ children }: { children: React.ReactNode }) {

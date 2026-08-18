@@ -40,6 +40,19 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   de equipo (Bearer ltk_), nunca por cookie — el sensor corre en Rust, sin sesión.
 const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica", "/api/tracker"];
 
+// Los archivos que descarga el PUENTE del plugin de Resolve para actualizarse solo
+// (/plugin/<version>/<archivo>.js y /plugin/manifest.json). Van sin cookie a propósito: la
+// descarga corre en el proceso principal de Electron con https.get, que no comparte la sesión
+// del panel ni sigue redirecciones — con el proxy delante recibía un 307 a /login y la
+// actualización JAMÁS habría funcionado (fallaba limpio, pero fallaba siempre). El matcher de
+// abajo solo exime imágenes, así que .js y .json sí pasan por aquí.
+// Es código de cliente sin secretos (el mismo que ya está instalado en cada equipo) y su
+// integridad no depende de la sesión sino del sha256 que verifica el puente archivo por archivo.
+// OJO: la PÁGINA /plugin/instalar NO entra aquí — esa sigue pidiendo sesión del equipo.
+function isPluginAsset(pathname: string) {
+  return pathname === "/plugin/manifest.json" || /^\/plugin\/\d+\.\d+(\.\d+)?\/[a-z0-9._-]+\.js$/i.test(pathname);
+}
+
 // La sala del CLIENTE de la galería (/galeria/<token>, enlace firmado sin cuenta) es pública,
 // pero /galeria a secas es la página del EQUIPO y sigue detrás de la sesión. La lista de
 // prefijos no sabe expresar «los hijos sí, la raíz no», por eso va aparte. Sin esto, el
@@ -60,7 +73,7 @@ function isOnlyOfficeCallback(pathname: string) {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isPublic =
-    PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) || isOnlyOfficeCallback(pathname) || isGaleriaPublica(pathname);
+    PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) || isOnlyOfficeCallback(pathname) || isGaleriaPublica(pathname) || isPluginAsset(pathname);
 
   // Las rutas públicas con su propia autenticación (Bearer en /api/v1, tokens en webhooks/cron)
   // NO dependen de la cookie de sesión: se cortocircuitan ANTES de verifyToken, para que un

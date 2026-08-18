@@ -1,0 +1,26 @@
+# El puente del plugin de Resolve se descarga solo, y el panel comprueba cada archivo contra el
+# sha256 que anuncia el manifiesto. Ese hash se calcula al empaquetar, en Windows, donde el
+# árbol de trabajo puede tener CRLF; git guarda el blob en LF y eso es lo que el NAS sirve. Si
+# los bytes no son los mismos a los dos lados, la firma NUNCA cuadra y la actualización falla
+# siempre, en silencio (el servidor responde 200 tan contento).
+# Fijando el salto de línea de estos archivos, lo que se hashea es lo que se sirve.
+resolve-plugin/**/*.js text eol=lf
+resolve-plugin/**/*.xml text eol=lf
+resolve-plugin/**/*.json text eol=lf
+resolve-plugin/**/*.html text eol=lf
+public/plugin/**/*.js text eol=lf
+public/plugin/manifest.json text eol=lf
+
+# Los instaladores van con el salto de línea que espera SU sistema, no el de quien haga commit:
+# un .bat con LF hace cosas raras en cmd.exe (los saltos a etiqueta, sobre todo), y un .command
+# con CRLF ni siquiera arranca en macOS ("bad interpreter").
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.command text eol=lf
+
+# Binarios: git no debe tocarlos jamás (el zip lleva dentro los mismos .js, y una conversión de
+# saltos de línea lo corrompería).
+*.zip -text
+*.ico -text
+*.png -text
+*.node -text
