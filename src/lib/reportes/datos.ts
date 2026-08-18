@@ -75,7 +75,9 @@ export type PersonaReporte = {
 
 // Un día de trabajo visto por el rastreador. Las horas vienen ya formateadas en la zona de
 // Bogotá desde el servidor (el cliente no lee el reloj).
-export type Jornada = { dia: string; inicio: string; fin: string; efectivasTxt: string; horas: number };
+// `inactivoTxt`: cuánto estuvo el equipo despierto SIN ninguna entrada ese día (tras el umbral
+// de 3 min del sensor). null = nada que contar (o sensor anterior a 1.9, que no lo reporta).
+export type Jornada = { dia: string; inicio: string; fin: string; efectivasTxt: string; horas: number; inactivoTxt: string | null };
 
 export type FilaEntrega = {
   label: string;
@@ -778,6 +780,9 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
             fin: FMT_HORA.format(j.fin),
             efectivasTxt: horas1(j.seg),
             horas: j.seg / 3600,
+            // La inactividad SOLO se enseña en /rastreo (dos niveles de acceso propios);
+            // Reportes lo ve más gente y quedó fuera a propósito en la fase de privacidad.
+            inactivoTxt: null,
           })),
       };
     })

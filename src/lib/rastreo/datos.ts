@@ -134,7 +134,7 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   const wUsuarios = acceso.sujetos === null ? Prisma.empty : Prisma.sql`AND "userId" IN (${Prisma.join(acceso.sujetos)})`;
   const wDesde = periodo.desde ? Prisma.sql`AND "startedAt" >= ${periodo.desde}` : Prisma.empty;
 
-  const [porDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb] = await Promise.all([
+  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb] = await Promise.all([
     // Un renglón por persona y día LOCAL: cuánto sumó, cuánto de eso fue activo, y a qué hora
     // abrió y cerró. De aquí salen la serie, los días trabajados y las jornadas.
     db.$queryRaw<FilaDia[]>`
@@ -148,6 +148,16 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
       WHERE "startedAt" < ${periodo.hasta} ${wDesde} ${wUsuarios}
       GROUP BY 1, 2
       ORDER BY 2 ASC
+    `,
+    // La INACTIVIDAD del mismo día local (equipo despierto, cero entrada, tras el umbral).
+    // Mismo corte de día en Bogotá que arriba, o un descanso nocturno caería en el día que no es.
+    db.$queryRaw<{ userId: string; dia: Date; seg: number }[]>`
+      SELECT "userId",
+             (("startedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota'))::date AS dia,
+             SUM("seconds")::int AS seg
+      FROM "IdleBlock"
+      WHERE "startedAt" < ${periodo.hasta} ${wDesde} ${wUsuarios}
+      GROUP BY 1, 2
     `,
     db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rango, ...filtro }, _sum: { seconds: true } }),
     db.workBlock.groupBy({ by: ["userId", "clientId"], where: { startedAt: rango, ...filtro }, _sum: { seconds: true } }),
@@ -183,6 +193,10 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
     arr.push(f);
     diasDe.set(f.userId, arr);
   }
+  // Ocio por persona+día, para casarlo con cada jornada. La clave usa los componentes UTC de
+  // la fecha pura de Postgres, igual que el resto del archivo.
+  const ocioDe = new Map<string, number>();
+  for (const f of ocioPorDia) ocioDe.set(`${f.userId}|${f.dia.toISOString().slice(0, 10)}`, f.seg);
   const appsDe = new Map<string, FilaBarra[]>();
   for (const r of apps) {
     const seg = r._sum.seconds ?? 0;
@@ -245,13 +259,17 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
         jornadas: [...dias]
           .sort((a, b) => b.dia.getTime() - a.dia.getTime())
           .slice(0, 10)
-          .map((d) => ({
-            dia: FMT_DIA.format(d.dia).replace(".", ""),
-            inicio: FMT_HORA.format(d.ini),
-            fin: FMT_HORA.format(d.fin),
-            efectivasTxt: horas1(d.seg),
-            horas: d.seg / 3600,
-          })),
+          .map((d) => {
+            const ocio = ocioDe.get(`${u.id}|${d.dia.toISOString().slice(0, 10)}`) ?? 0;
+            return {
+              dia: FMT_DIA.format(d.dia).replace(".", ""),
+              inicio: FMT_HORA.format(d.ini),
+              fin: FMT_HORA.format(d.fin),
+              efectivasTxt: horas1(d.seg),
+              horas: d.seg / 3600,
+              inactivoTxt: ocio > 0 ? horas1(ocio) : null,
+            };
+          }),
         equipos: eq?.n ?? 0,
         ultimoTxt: eq?.ultimo ? hace(eq.ultimo, ahoraMs) : null,
         visores: visoresDe.get(u.id) ?? [],

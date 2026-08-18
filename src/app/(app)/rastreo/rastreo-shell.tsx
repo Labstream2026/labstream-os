@@ -199,7 +199,7 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
       ) : null}
 
       <div className="mt-2.5 grid gap-2.5 lg:grid-cols-2">
-        <Caja titulo="Sus jornadas" hint="A qué hora entró, a qué hora paró y cuánto sumó · hora de Bogotá">
+        <Caja titulo="Sus jornadas" hint="A qué hora entró, a qué hora paró, cuánto sumó y cuánto estuvo quieto · hora de Bogotá">
           {p.jornadas.length ? (
             <table className="w-full text-[11.5px]">
               <thead>
@@ -208,6 +208,9 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
                   <th className="py-1 text-right font-bold">Entró</th>
                   <th className="py-1 text-right font-bold">Paró</th>
                   <th className="py-1 text-right font-bold">Efectivas</th>
+                  {/* «Inactivo» = el equipo despierto y sin una sola entrada (tras los 3 min de
+                      umbral). Los sensores anteriores a 1.9 no lo reportan: sale «—». */}
+                  <th className="py-1 text-right font-bold">Inactivo</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,6 +222,7 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
                     <td className={cn("py-1 text-right font-semibold tabular-nums", j.horas >= 7 ? "text-emerald-600 dark:text-emerald-400" : j.horas >= 4 ? "" : "text-muted-foreground")}>
                       {j.efectivasTxt}
                     </td>
+                    <td className="py-1 text-right tabular-nums text-muted-foreground">{j.inactivoTxt ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { atribuir, hashTrackerToken, limpiarBloques, TRACKER_PREFIX, type EntradaCatalogo } from "@/lib/tracker";
+import { atribuir, hashTrackerToken, limpiarBloques, limpiarOcios, TRACKER_PREFIX, type EntradaCatalogo } from "@/lib/tracker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +29,8 @@ async function catalogoVivo(): Promise<EntradaCatalogo[]> {
 // idempotente (unique deviceId+startedAt+app+title con skipDuplicates): el reintento de la
 // cola offline no duplica nada.
 //
-// Payload: { device?: { hostname?, platform?, version? }, blocks: [{ s, d, a, app, t? }] }
+// Payload: { device?: { hostname?, platform?, version? }, blocks: [{ s, d, a, app, t? }],
+//            idles?: [{ s, d }] }  — idles lo manda el sensor 1.9+; los viejos no, y no pasa nada.
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -51,8 +52,13 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ ok: false, error: "JSON inválido" }, { status: 400 });
   }
-  const b = (body ?? {}) as { device?: { hostname?: unknown; platform?: unknown; version?: unknown }; blocks?: unknown };
+  const b = (body ?? {}) as {
+    device?: { hostname?: unknown; platform?: unknown; version?: unknown };
+    blocks?: unknown;
+    idles?: unknown;
+  };
   const bloques = limpiarBloques(b.blocks, Date.now());
+  const ocios = limpiarOcios(b.idles, Date.now());
 
   let recibidos = 0;
   if (bloques.length) {
@@ -64,6 +70,16 @@ export async function POST(req: NextRequest) {
       skipDuplicates: true,
     });
     recibidos = r.count;
+  }
+  // Los tramos de inactividad van a su propia tabla, sin atribución: la inactividad no es de
+  // ningún cliente. Misma idempotencia que los bloques (unique deviceId+startedAt).
+  let inactivos = 0;
+  if (ocios.length) {
+    const r = await db.idleBlock.createMany({
+      data: ocios.map((x) => ({ ...x, deviceId: device.id, userId: device.userId })),
+      skipDuplicates: true,
+    });
+    inactivos = r.count;
   }
 
   // Señales de vida del equipo. El HOSTNAME que manda el sensor bautiza al device la primera
@@ -83,7 +99,13 @@ export async function POST(req: NextRequest) {
   // más de 180 días. Los reportes miran ventanas mucho más cortas; esto solo evita crecer eterno.
   if (Math.random() < 0.02) {
     db.workBlock.deleteMany({ where: { startedAt: { lt: new Date(Date.now() - 180 * 86_400_000) } } }).catch(() => {});
+    db.idleBlock.deleteMany({ where: { startedAt: { lt: new Date(Date.now() - 180 * 86_400_000) } } }).catch(() => {});
   }
 
-  return NextResponse.json({ ok: true, recibidos, descartados: Math.max(0, (Array.isArray(b.blocks) ? b.blocks.length : 0) - bloques.length) });
+  return NextResponse.json({
+    ok: true,
+    recibidos,
+    inactivos,
+    descartados: Math.max(0, (Array.isArray(b.blocks) ? b.blocks.length : 0) - bloques.length),
+  });
 }

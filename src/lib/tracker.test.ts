@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { atribuir, limpiarBloques, normalizarTitulo, type EntradaCatalogo } from "./tracker";
+import { atribuir, limpiarBloques, limpiarOcios, normalizarTitulo, type EntradaCatalogo } from "./tracker";
 
 // Lo delicado del rastreador: (1) que la ATRIBUCIÓN por título no invente —un rato mal
 // asignado ensucia las horas de un cliente y es peor que no asignarlo— y (2) que la
@@ -88,5 +88,41 @@ describe("limpiarBloques", () => {
   it("un payload que no es lista da lista vacía", () => {
     expect(limpiarBloques("no", AHORA)).toEqual([]);
     expect(limpiarBloques(undefined, AHORA)).toEqual([]);
+  });
+});
+
+describe("limpiarOcios", () => {
+  const AHORA = 1_760_000_000_000;
+  const ok = { s: AHORA - 3_600_000, d: 900 }; // 15 min quieto hace una hora
+
+  it("deja pasar un tramo valido", () => {
+    const [o] = limpiarOcios([ok], AHORA);
+    expect(o.seconds).toBe(900);
+    expect(o.startedAt.getTime()).toBe(ok.s);
+  });
+
+  it("descarta el ruido del umbral (menos de 30 s) y lo increible (mas de 6 h)", () => {
+    expect(limpiarOcios([{ ...ok, d: 20 }], AHORA)).toHaveLength(0);
+    // El sensor cierra los tramos a las 4 h; el tope del servidor (6 h) es la red de
+    // seguridad. Una "noche entera inactivo" (torre sin suspension) no debe pasar jamas.
+    expect(limpiarOcios([{ ...ok, d: 7 * 3600 }], AHORA)).toHaveLength(0);
+    expect(limpiarOcios([{ ...ok, d: 14 * 3600 }], AHORA)).toHaveLength(0);
+    const [o] = limpiarOcios([{ ...ok, d: 4 * 3600 }], AHORA);
+    expect(o.seconds).toBe(4 * 3600);
+  });
+
+  it("descarta basura sin tirar el resto del lote", () => {
+    const sucio = [ok, null, "x", { d: 900 }, { s: AHORA, d: 0 }];
+    expect(limpiarOcios(sucio, AHORA)).toHaveLength(1);
+  });
+
+  it("rechaza el futuro y lo mas viejo que 30 dias, igual que los bloques", () => {
+    expect(limpiarOcios([{ ...ok, s: AHORA + 3_600_000 }], AHORA)).toHaveLength(0);
+    expect(limpiarOcios([{ ...ok, s: AHORA - 40 * 86_400_000 }], AHORA)).toHaveLength(0);
+  });
+
+  it("un payload que no es lista da lista vacia (los sensores 1.8 no mandan idles)", () => {
+    expect(limpiarOcios(undefined, AHORA)).toEqual([]);
+    expect(limpiarOcios("no", AHORA)).toEqual([]);
   });
 });

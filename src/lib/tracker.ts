@@ -103,6 +103,36 @@ export function atribuir(titulo: string, catalogo: EntradaCatalogo[]): Atribucio
   return porCliente ?? SIN_ATRIBUIR;
 }
 
+// ── Tramos de inactividad ──
+// El sensor 1.9+ manda además `idles: [{ s, d }]`: desde cuándo y cuántos segundos estuvo el
+// equipo sin ninguna entrada (más allá del umbral de 3 min, que sigue contando como trabajo).
+// Sin app ni título a propósito. Misma actitud que limpiarBloques: el payload es nuestro pero
+// el endpoint es internet — topes duros y lo inválido se descarta sin tumbar el lote.
+export type OcioEntrante = { s: number; d: number };
+export type OcioLimpio = { startedAt: Date; seconds: number };
+
+const MAX_OCIOS = 288;
+// Un tramo de inactividad puede ser largo de verdad (almuerzo, reunión, render ajeno), pero el
+// sensor cierra cada tramo a las 4 h como máximo (más que eso es ausencia, no descanso) y corta
+// al suspender. El tope de acá es la RED DE SEGURIDAD para relojes locos o sensores raros: un
+// poco por encima del máximo legítimo, jamás una noche entera.
+const MAX_SEG_OCIO = 6 * 3600;
+const MIN_SEG_OCIO = 30; // por debajo es ruido del umbral, no un descanso
+
+export function limpiarOcios(entrada: unknown, ahoraMs: number): OcioLimpio[] {
+  if (!Array.isArray(entrada)) return [];
+  const fuera: OcioLimpio[] = [];
+  for (const o of entrada.slice(0, MAX_OCIOS)) {
+    if (!o || typeof o !== "object") continue;
+    const { s, d } = o as Partial<OcioEntrante>;
+    if (typeof s !== "number" || !Number.isFinite(s)) continue;
+    if (typeof d !== "number" || !Number.isInteger(d) || d < MIN_SEG_OCIO || d > MAX_SEG_OCIO) continue;
+    if (s > ahoraMs + 5 * 60_000 || s < ahoraMs - 30 * DIA) continue;
+    fuera.push({ startedAt: new Date(s), seconds: d });
+  }
+  return fuera;
+}
+
 export function limpiarBloques(entrada: unknown, ahoraMs: number): BloqueLimpio[] {
   if (!Array.isArray(entrada)) return [];
   const fuera: BloqueLimpio[] = [];

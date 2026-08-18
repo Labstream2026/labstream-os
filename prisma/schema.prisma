@@ -187,6 +187,7 @@ model User {
   // Rastreador de trabajo efectivo: equipos vinculados y sus bloques de uso.
   trackerDevices     TrackerDevice[]    @relation("TrackerDeviceUser")
   workBlocks         WorkBlock[]        @relation("WorkBlockUser")
+  idleBlocks         IdleBlock[]        @relation("IdleBlockUser")
   rastreoQueVe       TrackerShare[]     @relation("RastreoVisor")
   rastreoDeEl        TrackerShare[]     @relation("RastreoSujeto")
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
@@ -1753,6 +1754,7 @@ model TrackerDevice {
   lastSeenAt DateTime?
   revokedAt  DateTime?
   blocks     WorkBlock[]
+  idles      IdleBlock[] @relation("IdleBlockDevice")
 
   @@index([userId])
 }
@@ -1788,6 +1790,28 @@ model WorkBlock {
   @@index([userId, startedAt])
   @@index([clientId, startedAt])
   @@index([projectId, startedAt])
+}
+
+// Un tramo de INACTIVIDAD: el equipo encendido y sin ninguna entrada, más allá del umbral de
+// 3 min del sensor (los primeros 3 min de un descanso siguen contando como trabajo, igual que
+// siempre). Tabla APARTE de WorkBlock a propósito: las horas efectivas se suman sobre
+// WorkBlock entero en varios sitios, y una bandera «esOcio» ahí era una invitación a inflar
+// horas por un where olvidado. Sin app ni título: la inactividad no tiene contenido que
+// registrar. El sensor CORTA el tramo al suspender o apagar — la noche con el portátil
+// cerrado es una laguna, no inactividad.
+model IdleBlock {
+  id        String        @id @default(cuid())
+  device    TrackerDevice @relation("IdleBlockDevice", fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId  String
+  user      User          @relation("IdleBlockUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId    String // denormalizado del device, igual que en WorkBlock
+  startedAt DateTime
+  seconds   Int
+  createdAt DateTime      @default(now())
+
+  // Idempotencia del reintento offline, igual que WorkBlock.
+  @@unique([deviceId, startedAt])
+  @@index([userId, startedAt])
 }
 
 // COMPARTIR el rastreo de UNA persona con otro miembro del equipo. Hay dos niveles de acceso
