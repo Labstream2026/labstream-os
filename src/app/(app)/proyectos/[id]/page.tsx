@@ -915,6 +915,7 @@ export default async function ProyectoPage({
                         projectId={id}
                         scope={project.briefScope}
                         deliverables={project.briefDeliverables}
+                        rounds={project.roundsIncluded}
                         canWrite={canWriteProject(project, session)}
                       />
                     </ResumenSection>

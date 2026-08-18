@@ -642,6 +642,10 @@ model Project {
   // Visible para todo el equipo del proyecto; NO incluye valores ni equipos. Editable.
   briefScope        String?
   briefDeliverables String?
+  // RONDAS DE CAMBIOS pactadas con el cliente («hasta 4 rondas de ajustes» en la propuesta).
+  // Null = no se pactó tope: se sigue contando la ronda, pero sin techo ni aviso. El conteo
+  // real sale de DeliverableDecision (etapa CLIENTE, resultado CAMBIOS) — ver lib/rondas.
+  roundsIncluded    Int?
   // «¿Qué sigue?» del portal del cliente: frase corta que el equipo edita para contarle al
   // cliente en qué va el proyecto y qué esperar. Null = texto automático derivado de la fase.
   nextForClient     String?

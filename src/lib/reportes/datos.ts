@@ -6,6 +6,7 @@ import { personCompliance } from "@/lib/compliance";
 import { quoteTotals } from "@/lib/ui";
 import { effectiveInvoiceStatus } from "@/lib/billing";
 import { emojiToText } from "@/components/icons/marks";
+import { extrasDe } from "@/lib/rondas";
 
 // ── Los DATOS de Reportes v2, armados enteros en el servidor ──
 // La página elige un PERIODO (mes navegable, 90 días, año, todo) y aquí se calcula todo lo
@@ -97,6 +98,9 @@ export type FilaCliente = {
   horas: number;
   // Horas REALES del rastreador atribuidas a esta cuenta (0 = sin datos).
   horasReales: number;
+  // Rondas de cambios POR ENCIMA de lo pactado, sumando sus piezas. 0 = todo dentro de lo
+  // acordado (o sin tope pactado, que no es lo mismo pero tampoco es cobrable).
+  rondasExtra: number;
   dineroTxt: string | null; // «$6,2 M / $9,8 M» (null sin permiso de finanzas)
   pctCobrado: number | null;
   salud: "ok" | "warn" | "bad";
@@ -358,7 +362,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
       where: { archivedAt: null, project: { archivedAt: null } },
       select: {
         id: true, name: true, number: true, status: true, createdAt: true, updatedAt: true,
-        project: { select: { id: true, name: true, emoji: true, status: true, clientId: true, client: { select: { name: true } } } },
+        project: { select: { id: true, name: true, emoji: true, status: true, clientId: true, roundsIncluded: true, client: { select: { name: true } } } },
       },
     }),
     // Decisiones del cliente: la verdad de aprobaciones y correcciones.
@@ -807,6 +811,14 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
     if (!cid) continue;
     minPorCliente.set(cid, (minPorCliente.get(cid) ?? 0) + min);
   }
+  // RONDAS del cliente por pieza: `decisiones` ya trae solo las de etapa CLIENTE, así que aquí
+  // basta con quedarse con las que pidieron cambios. Las internas nunca cuentan: revisar en
+  // casa las veces que haga falta no se le cobra a nadie.
+  const rondasPorPieza = new Map<string, number>();
+  for (const d of decisiones) {
+    if (d.result !== "CAMBIOS") continue;
+    rondasPorPieza.set(d.deliverableId, (rondasPorPieza.get(d.deliverableId) ?? 0) + 1);
+  }
   const clientes: FilaCliente[] = clientesDb
     .map((c) => {
       const piezas = piezasPorCliente.get(c.id) ?? [];
@@ -841,6 +853,7 @@ export async function construirReporte(session: SessionUser | null, sp: { p?: st
         correcciones: enCorreccion.length,
         horas: Math.round((minPorCliente.get(c.id) ?? 0) / 60),
         horasReales: Math.round((realesPorCliente.get(c.id) ?? 0) / 3600),
+        rondasExtra: extrasDe(piezas.map((d) => ({ rondas: rondasPorPieza.get(d.id) ?? 0, tope: d.project.roundsIncluded }))),
         dineroTxt: canFin ? `${dineroCorto(fin?.cobr ?? 0, moneda)} / ${dineroCorto(fin?.fact ?? 0, moneda)}` : null,
         pctCobrado: canFin ? (fin && fin.fact > 0 ? Math.round((fin.cobr / fin.fact) * 100) : null) : null,
         salud, motivo: motivos.join(" · "),

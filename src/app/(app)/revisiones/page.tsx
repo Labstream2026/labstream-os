@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { IconRevisiones } from "@/components/icons";
 import { EntityEmoji } from "@/components/icons/marks";
 import { SelectionProvider, SelectCheck, type SelectableItem } from "./selection";
+import { estadoRonda, type EstadoRonda } from "@/lib/rondas";
 import { isEmailEnabled } from "@/lib/email";
 import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 import { AtajosBarra, BarraMandos, ChipFiltro, FranjaResumen, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, type TramoResumen } from "@/components/ui/barra-menu";
@@ -167,6 +168,8 @@ export default async function RevisionesPage({
             emoji: true,
             isPrivate: true,
             leadId: true,
+            // Tope de rondas pactado con el cliente (null = sin pactar). Ver lib/rondas.
+            roundsIncluded: true,
             members: { select: { userId: true, role: true } },
             client: { select: { id: true, name: true, photoUrl: true, accentColor: true, members: { select: { userId: true, role: true } } } },
           },
@@ -183,6 +186,18 @@ export default async function RevisionesPage({
     db.deliverable.count({ where: publicadosWhere }),
     db.deliverable.count({ where: archivadosWhere }),
   ]);
+
+  // RONDAS del cliente por pieza. Va en consulta aparte y no en un _count filtrado del select
+  // de arriba a propósito: aquí solo cuentan las decisiones del CLIENTE que pidieron cambios
+  // —las internas no se le cobran a nadie— y esa condición no cabe en el `_count` del findMany.
+  const rondasRows = rows.length
+    ? await db.deliverableDecision.groupBy({
+        by: ["deliverableId"],
+        where: { deliverableId: { in: rows.map((r) => r.id) }, stage: "CLIENTE", result: "CAMBIOS" },
+        _count: { _all: true },
+      })
+    : [];
+  const rondasDe = new Map(rondasRows.map((r) => [r.deliverableId, r._count._all]));
 
   // Responsable de la pre-aprobación: CUALQUIER revisor asignado (co-revisores). Si no hay revisores,
   // cae al lead del proyecto (y en último caso, al dueño del entregable). A todos esos les sale "pendiente".
@@ -231,6 +246,7 @@ export default async function RevisionesPage({
     reviewUrl: `${REVIEW_BASE}/review/${signReviewToken(d.id)}`,
     linkActive: !d.reviewRevokedAt && (!d.reviewExpiresAt || d.reviewExpiresAt.getTime() > now),
     archived: d.archivedAt != null,
+    ronda: estadoRonda(rondasDe.get(d.id) ?? 0, d.project.roundsIncluded),
   }));
 
   const mineFilter = (d: Item) => !onlyMine || d.mine;
@@ -533,6 +549,8 @@ type Item = {
   id: string;
   name: string;
   number: number | null;
+  // En qué ronda de cambios del cliente va la pieza, y si se pasó de lo pactado.
+  ronda: EstadoRonda;
   status: string;
   type: string | null;
   updatedAt: Date;
@@ -711,6 +729,30 @@ function groupByDate(items: Item[]): Bucket[] {
 
 // Chip de estado de una pieza (o el sello «Publicado», que manda sobre el estado: en la pestaña de
 // Publicados es lo que importa).
+// En qué ronda de cambios va la pieza. No se pinta hasta que el cliente pide algo (un
+// «Ronda 0 de 4» en cada pieza recién enviada sería ruido en toda la bandeja), y solo grita
+// cuando se pasa de lo pactado — que es cuando hay algo que cobrar y alguien tiene que verlo.
+function ChipRonda({ r }: { r: EstadoRonda }) {
+  if (!r.texto) return null;
+  const tono =
+    r.tono === "excedido"
+      ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300"
+      : r.tono === "aviso"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+        : "bg-muted text-muted-foreground";
+  const title =
+    r.tono === "excedido"
+      ? `El cliente ha pedido cambios ${r.ronda} veces y se pactaron ${r.tope}. Hay ${r.extra} ronda${r.extra > 1 ? "s" : ""} por cobrar.`
+      : r.tope
+        ? `El cliente ha pedido cambios ${r.ronda} de las ${r.tope} veces pactadas.`
+        : `El cliente ha pedido cambios ${r.ronda} ${r.ronda === 1 ? "vez" : "veces"}. No hay tope pactado en este proyecto.`;
+  return (
+    <span className={`inline-flex w-fit shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tono}`} title={title}>
+      <RefreshCw className="size-2.5" /> {r.texto}
+    </span>
+  );
+}
+
 function EstadoChip({ d }: { d: Item }) {
   if (d.publishedAt) {
     return (
@@ -753,6 +795,7 @@ function Fila({ d, primera, neutral, showStatus }: { d: Item; primera: boolean; 
             <EntityEmoji value={d.project.emoji} fallback="🎬" /> {d.project.name}{d.project.client ? ` · ${d.project.client.name}` : ""}
           </span>
         </span>
+        <ChipRonda r={d.ronda} />
         {showStatus || d.publishedAt ? <EstadoChip d={d} /> : null}
         {v ? <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground sm:inline">v{v.number}</span> : null}
         {d._count.reviewComments > 0 ? (
@@ -845,6 +888,7 @@ function Card({ d, neutral, showStatus }: { d: Item; neutral?: boolean; showStat
           <p className="truncate text-[13px] font-medium leading-snug" title={d.name}>
             {d.number ? <span className="mr-1 text-[11px] font-normal text-muted-foreground">#{d.number}</span> : null}{d.name}
           </p>
+          <ChipRonda r={d.ronda} />
           {/* UNA línea de meta: quién subió, hace cuánto, y comentarios si los hay. El proyecto
               ya no se repite aquí: lo dice la cabecera del grupo. Sin botón «Ver →»: la tarjeta
               entera navega desde siempre, y dieciséis botones iguales solo eran ruido. */}

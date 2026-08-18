@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Target, PackageCheck, Pencil, Check } from "lucide-react";
+import { Target, PackageCheck, Pencil, Check, RefreshCw } from "lucide-react";
 import { updateProjectBrief } from "./actions";
 
 // Propuesta del proyecto para el EQUIPO: qué se va a hacer + entregables/compromisos.
@@ -9,11 +9,13 @@ import { updateProjectBrief } from "./actions";
 // RENDERIZADA (no en formulario); quien puede escribir tiene un botón "Editar" que despliega
 // los campos. Se guarda al perder el foco y al pulsar "Listo".
 export function BriefPanel({
-  projectId, scope, deliverables, canWrite,
+  projectId, scope, deliverables, rounds, canWrite,
 }: {
   projectId: string;
   scope: string | null;
   deliverables: string | null;
+  /** Rondas de cambios pactadas con el cliente. Null = no se acordó tope. */
+  rounds: number | null;
   canWrite: boolean;
 }) {
   const [editing, setEditing] = React.useState(false);
@@ -22,15 +24,17 @@ export function BriefPanel({
   // sin esperar un refetch del servidor.
   const [scopeV, setScopeV] = React.useState(scope ?? "");
   const [delivV, setDelivV] = React.useState(deliverables ?? "");
+  const [rondasV, setRondasV] = React.useState(rounds ? String(rounds) : "");
 
   const save = () => {
     const fd = new FormData();
     fd.set("briefScope", scopeV);
     fd.set("briefDeliverables", delivV);
+    fd.set("roundsIncluded", rondasV);
     updateProjectBrief(projectId, fd).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500); });
   };
 
-  const empty = !scopeV.trim() && !delivV.trim();
+  const empty = !scopeV.trim() && !delivV.trim() && !rondasV.trim();
 
   // ── Vista LECTURA (renderizada) — también cuando se puede editar pero no se está editando ──
   if (!canWrite || !editing) {
@@ -42,6 +46,9 @@ export function BriefPanel({
           <>
             <Section icon={<Target className="size-4" />} title="Qué vamos a hacer" body={scopeV} />
             <Section icon={<PackageCheck className="size-4" />} title="Entregables y compromisos" body={delivV} />
+            {rondasV.trim() ? (
+              <Section icon={<RefreshCw className="size-4" />} title="Rondas de cambios incluidas" body={`Hasta ${rondasV} ${Number(rondasV) === 1 ? "ronda" : "rondas"} por pieza. A partir de ahí, se cobra aparte.`} />
+            ) : null}
           </>
         )}
         {canWrite ? (
@@ -77,6 +84,20 @@ export function BriefPanel({
           placeholder="Qué se entregará al cliente: p. ej. 1 video de 60s en 4K, 20 fotos editadas, 3 reels verticales, fechas de entrega…"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
+      </Field>
+      <Field icon={<RefreshCw className="size-4" />} title="Rondas de cambios incluidas">
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min={1} max={20} inputMode="numeric"
+            value={rondasV} onChange={(e) => setRondasV(e.target.value)} onBlur={save}
+            placeholder="Sin tope"
+            className="w-28 rounded-md border border-input bg-background px-3 py-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p className="text-xs text-muted-foreground">
+            Lo que dice la propuesta («hasta 4 rondas de ajustes»). Cada pieza mostrará por cuál va, y avisará al pasarse.
+            Vacío = se cuentan igual, pero sin techo.
+          </p>
+        </div>
       </Field>
       <div className="flex justify-end">
         <button

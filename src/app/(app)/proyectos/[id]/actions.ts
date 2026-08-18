@@ -39,6 +39,7 @@ import { signDeliveryToken } from "@/lib/delivery-token";
 import { noonUTC, todayKey, dayKey, parseHoursToMinutes, minutesToHours } from "@/lib/timeline";
 import { prewarmReviewCopy } from "@/lib/review-prewarm";
 import type { SessionUser } from "@/lib/session";
+import { avisarRondaExcedida } from "@/lib/rondas-aviso";
 
 function refresh(projectId: string | null) {
   if (projectId) revalidatePath(`/proyectos/${projectId}`);
@@ -257,7 +258,12 @@ export async function updateProjectBrief(projectId: string, formData: FormData) 
   await ensureProjectAccess(projectId, "editar_proyectos");
   const briefScope = String(formData.get("briefScope") ?? "").trim() || null;
   const briefDeliverables = String(formData.get("briefDeliverables") ?? "").trim() || null;
-  await db.project.update({ where: { id: projectId }, data: { briefScope, briefDeliverables } });
+  // Rondas pactadas: vacío o 0 = no se acordó tope (se sigue contando, pero sin techo ni
+  // aviso). Se acota a 20 para que un dedazo no deje un tope absurdo que nunca salte.
+  const rondasRaw = String(formData.get("roundsIncluded") ?? "").trim();
+  const rondasNum = Number.parseInt(rondasRaw, 10);
+  const roundsIncluded = rondasRaw === "" || !Number.isFinite(rondasNum) || rondasNum <= 0 ? null : Math.min(rondasNum, 20);
+  await db.project.update({ where: { id: projectId }, data: { briefScope, briefDeliverables, roundsIncluded } });
   await logActivity({ action: "project.brief", summary: "actualizó la propuesta del proyecto (alcance/entregables)", projectId, entityType: "project", entityId: projectId });
   refresh(projectId);
 }
@@ -3386,6 +3392,9 @@ export async function clientDecideDeliverable(deliverableId: string, decision: "
   await db.deliverableDecision.create({
     data: { deliverableId, versionNumber: latestApproved.number, stage: "CLIENTE", result: approved ? "APROBADO" : "CAMBIOS", byUserId: session.id, byName: session.name, note: note?.slice(0, 1000) || null },
   });
+  // ¿Esta ronda cruzó el tope pactado? Avisa una sola vez al productor y a comercial. No se
+  // espera (`void`): que el aviso falle no debe tumbar el registro de la decisión.
+  if (!approved) void avisarRondaExcedida(deliverableId).catch(() => {});
   await db.reviewComment.create({
     data: {
       deliverableId,

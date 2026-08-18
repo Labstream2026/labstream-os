@@ -13,6 +13,7 @@ import { closeDeliverableAutoTasks, createDeliverableAutoTask, autoTaskTitles } 
 import { defaultFixDeadline } from "@/lib/business-time";
 import { formatBogota } from "@/lib/bogota-time";
 import { deliverableOrientation } from "@/lib/ui";
+import { avisarRondaExcedida } from "@/lib/rondas-aviso";
 
 function baseUrl() {
   return (process.env.NEXTAUTH_URL || "https://os.labstreamsas.com").replace(/\/$/, "");
@@ -316,6 +317,9 @@ export async function setReviewDecision(token: string, decision: string, name?: 
   await db.deliverableDecision.create({
     data: { deliverableId, versionNumber, stage: "CLIENTE", result: approved ? "APROBADO" : "CAMBIOS", byUserId: invitedApprover?.id ?? undefined, byName: who, note: noteClean },
   });
+  // Igual que en el panel interno: si esta ronda cruzó el tope, avisa una vez. Aquí importa
+  // más aún que no reviente — al otro lado hay un cliente esperando ver su decisión guardada.
+  if (!approved) void avisarRondaExcedida(deliverableId).catch(() => {});
   await db.reviewComment.create({
     data: {
       deliverableId,

@@ -349,7 +349,16 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
                             </span>
                             <span className="tabular-nums text-muted-foreground">{c.hechos}/{c.total}</span>
                           </td>
-                          <td className="px-2 py-2 text-right">{c.correcciones ? <Pill tono="warn">{c.correcciones}</Pill> : "—"}</td>
+                          <td className="px-2 py-2 text-right">
+                            {c.correcciones ? <Pill tono="warn">{c.correcciones}</Pill> : "—"}
+                            {/* Rondas por encima de lo pactado: es plata que hoy se pierde en
+                                silencio, así que va donde ya se está mirando el estado. */}
+                            {c.rondasExtra ? (
+                              <span className="ml-1 inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300" title={`${c.rondasExtra} ronda${c.rondasExtra > 1 ? "s" : ""} de cambios por encima de lo pactado, sin cobrar`}>
+                                +{c.rondasExtra} por cobrar
+                              </span>
+                            ) : null}
+                          </td>
                           {datos.canRastreo ? (
                             <td className="px-2 py-2 text-right font-medium tabular-nums" title="Medidas por el rastreador de la app de escritorio">
                               {c.horasReales ? `${c.horasReales} h` : "—"}
