@@ -2042,6 +2042,10 @@ model MailSignatureTemplate {
   id          String   @id @default(cuid())
   nombre      String // «Labstream 2026», «Firma con banner»…
   html        String // saneado con la allowlist del redactor; lleva {{nombre}} y {{cargo}}
+  // El estado del DISEÑADOR (layout, acento, empresa, redes…): guardar regenera el html
+  // desde aquí EN EL SERVIDOR, y reabrir edita campos — no HTML. null = plantilla escrita
+  // a mano en modo HTML (las viejas, o quien prefiere el control total).
+  config      Json?
   imageBytes  Bytes?
   imageMime   String?
   createdBy   User?    @relation("PlantillaFirmaDe", fields: [createdById], references: [id], onDelete: SetNull)

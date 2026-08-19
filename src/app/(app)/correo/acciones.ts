@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { createCalendarEventCore } from "@/lib/calendar-create";
@@ -16,6 +17,7 @@ import { componerCorreo, probarConexion } from "@/lib/correo/enviar";
 import { cancelarDespacho, despacharOutbox, programarDespacho } from "@/lib/correo/outbox";
 import { etiquetaSalida, validarProgramacion } from "@/lib/correo/programar";
 import { sanearSaliente, extraerInlines, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
+import { generarHtmlFirma, normalizarDiseno } from "@/lib/correo/firma-diseno";
 import { firmaDeCuenta } from "@/lib/correo/firma";
 import { textoPlano } from "@/lib/correo/sanitizar";
 import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
@@ -742,15 +744,15 @@ export async function elegirFirma(input: { templateId: string | null; nombre?: s
 }
 
 // ── Plantillas de FIRMA del estudio (estructurar la corporativa una sola vez) ──
+// Dos caminos: el DISEÑADOR manda su config y el html se REGENERA AQUÍ (del navegador no se
+// confía ni el html «bonito»); el modo HTML avanzado manda html directo, como siempre.
 export async function guardarPlantillaFirma(fd: FormData): Promise<{ ok: boolean; error?: string; id?: string }> {
   const session = await sesionEquipo();
   if (!session) return { ok: false, error: "Sin sesión." };
 
   const id = String(fd.get("id") ?? "").trim() || null;
   const nombre = String(fd.get("nombre") ?? "").trim().slice(0, 80);
-  const html = sanearSaliente(String(fd.get("html") ?? "").trim()).slice(0, 20_000);
   if (!nombre) return { ok: false, error: "Ponle un nombre a la plantilla (p. ej. «Labstream 2026»)." };
-  if (!textoDeHtml(html).trim()) return { ok: false, error: "La plantilla está vacía. Usa {{nombre}} y {{cargo}} donde va cada dato." };
 
   let imagen: Uint8Array<ArrayBuffer> | undefined;
   let mime: string | undefined;
@@ -762,10 +764,35 @@ export async function guardarPlantillaFirma(fd: FormData): Promise<{ ok: boolean
     mime = archivo.type.toLowerCase();
   }
   const quitarImagen = String(fd.get("quitarImagen") ?? "") === "1";
+  // ¿La plantilla TERMINA con imagen? (la recién subida, o la que ya tenía y no se quitó).
+  const previa = id ? await db.mailSignatureTemplate.findUnique({ where: { id }, select: { imageMime: true } }) : null;
+  const conImagen = !!imagen || (!!previa?.imageMime && !quitarImagen);
+
+  const configRaw = String(fd.get("config") ?? "").trim();
+  let html: string;
+  let config: ReturnType<typeof normalizarDiseno> = null;
+  if (configRaw) {
+    try {
+      config = normalizarDiseno(JSON.parse(configRaw));
+    } catch {
+      config = null;
+    }
+    if (!config) return { ok: false, error: "El diseño llegó incompleto — vuelve a intentarlo." };
+    html = sanearSaliente(generarHtmlFirma(config, { conImagen }));
+  } else {
+    html = sanearSaliente(String(fd.get("html") ?? "").trim()).slice(0, 20_000);
+    // HTML a mano con el cid del logo pero SIN logo: se retira la etiqueta — un cid sin
+    // parte adjunta es una imagen rota en la bandeja del cliente.
+    if (!conImagen) html = html.replace(/<img[^>]*src="cid:firma@labstream"[^>]*>/gi, "");
+  }
+  if (!textoDeHtml(html).trim()) return { ok: false, error: "La plantilla está vacía. Usa {{nombre}} y {{cargo}} donde va cada dato." };
 
   const data = {
     nombre,
     html,
+    // Diseñada = su config queda vivo (reabre en el diseñador); a mano = config fuera
+    // (reabre en modo HTML). Guardar en un modo borra el rastro del otro, sin ambigüedad.
+    config: config ? (config as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     ...(imagen ? { imageBytes: imagen, imageMime: mime } : quitarImagen ? { imageBytes: null, imageMime: null } : {}),
   };
   const fila = id

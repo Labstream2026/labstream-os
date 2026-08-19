@@ -51,6 +51,9 @@ export function sanearSaliente(html: string): string {
         "border-collapse": [/^(separate|collapse)$/],
         display: [/^(block|inline-block)$/],
         "line-height": [/^[\d.]+(px|em)?$/],
+        // El diseñador de firmas alinea logo y texto en una tabla: sin esto, el logo queda
+        // pegado arriba.
+        "vertical-align": [/^(top|middle|bottom)$/],
       },
     },
     allowedSchemes: ["http", "https", "mailto"],
@@ -150,9 +153,12 @@ function esc(s: string): string {
  * persona jamás puede inyectar HTML en la firma corporativa.
  */
 export function aplicarPlantillaFirma(html: string, campos: { nombre: string; cargo?: string | null }): string {
-  return html
+  const conCampos = html
     .replace(/\{\{\s*nombre\s*\}\}/gi, esc(campos.nombre))
     .replace(/\{\{\s*cargo\s*\}\}/gi, esc(campos.cargo?.trim() || ""));
+  // Un campo vacío no deja renglón huérfano: el span que quedó sin nada (y su salto de
+  // línea) se barren — así «sin cargo» no es una línea en blanco en mitad de la firma.
+  return conCampos.replace(/<span[^>]*>\s*<\/span>(<br\s*\/?>|\s*·\s*)?/gi, "");
 }
 
 /** Texto plano paralelo al HTML (la parte text/plain del multipart), con sus saltos. */

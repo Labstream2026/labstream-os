@@ -139,11 +139,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     take: 40,
     select: { id: true, nombre: true, html: true },
   });
-  // Plantillas de FIRMA del estudio (la corporativa que todos comparten).
+  // Plantillas de FIRMA del estudio (la corporativa que todos comparten). El config es el
+  // estado del diseñador: reabrir edita CAMPOS, no HTML (null = plantilla hecha a mano).
   const plantillasFirma = await db.mailSignatureTemplate.findMany({
     orderBy: { updatedAt: "desc" },
     take: 20,
-    select: { id: true, nombre: true, html: true, imageMime: true, createdBy: { select: { name: true } } },
+    select: { id: true, nombre: true, html: true, config: true, imageMime: true, createdBy: { select: { name: true } } },
   });
 
   const carpetasVisibles = CARPETAS.filter((c) => c.key !== "programados" || nProgramados > 0);
@@ -385,7 +386,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 <PanelFirma
                   firmaHtml={cuenta.signatureHtml ?? ""}
                   imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null}
-                  plantillas={plantillasFirma.map((p) => ({ id: p.id, nombre: p.nombre, html: p.html, tieneImagen: !!p.imageMime, autor: p.createdBy?.name ?? null }))}
+                  plantillas={plantillasFirma.map((p) => ({ id: p.id, nombre: p.nombre, html: p.html, config: p.config, tieneImagen: !!p.imageMime, autor: p.createdBy?.name ?? null }))}
                   seleccion={{
                     templateId: cuenta.signatureTemplateId,
                     usaPropia: !cuenta.signatureTemplateId && !!cuenta.signatureHtml,

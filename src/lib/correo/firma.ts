@@ -45,10 +45,17 @@ export async function firmaDeCuenta(
   // 1) Plantilla del estudio: la corporativa manda.
   const t = cuenta.signatureTemplate;
   if (t) {
-    const cuerpo = aplicarPlantillaFirma(sanearSaliente(t.html), { nombre, cargo });
+    let cuerpo = aplicarPlantillaFirma(sanearSaliente(t.html), { nombre, cargo });
     const conImagen = !!t.imageBytes;
+    // Las plantillas del DISEÑADOR traen el logo INTEGRADO al layout (cid dentro del html:
+    // a la izquierda, apilado, banner…); a las viejas —solo texto— se les anexa debajo,
+    // como siempre. Nunca las dos cosas.
+    const cidIntegrado = new RegExp(`cid:${CID_FIRMA}`, "i").test(t.html);
     const srcImagen = previa ? `/api/correo/firma-plantilla/${t.id}` : `cid:${CID_FIRMA}`;
-    const img = conImagen ? `<p style="margin:8px 0 0"><img src="${srcImagen}" alt="" style="max-width:260px"></p>` : "";
+    if (cidIntegrado) {
+      if (previa) cuerpo = cuerpo.replace(new RegExp(`cid:${CID_FIRMA}`, "gi"), srcImagen);
+    }
+    const img = conImagen && !cidIntegrado ? `<p style="margin:8px 0 0"><img src="${srcImagen}" alt="" style="max-width:260px"></p>` : "";
     return {
       html: `<div style="margin-top:16px">${cuerpo}${img}</div>`,
       inlines:
