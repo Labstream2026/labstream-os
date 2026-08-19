@@ -38,7 +38,8 @@ import { SESSION_COOKIE, verifyToken } from "@/lib/session";
 //   con token firmado (sin cookie) para poder editarla. La ruta exige sesión del equipo O token.
 // - /api/tracker: lotes del rastreador de trabajo (app de escritorio); se autentica por token
 //   de equipo (Bearer ltk_), nunca por cookie — el sensor corre en Rust, sin sesión.
-const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica", "/api/tracker"];
+// - /llamado: hoja de llamado PÚBLICA para freelancers sin cuenta (token firmado, revocable).
+const PUBLIC_PREFIXES = ["/login", "/api/auth", "/review", "/portadas", "/cotizacion", "/p", "/invitacion", "/subir", "/entrega", "/llamado", "/api/entrega", "/api/proposal-img", "/api/cron", "/api/review-media", "/api/files-asset", "/api/doc-templates", "/api/ops/file", "/api/upload", "/api/whatsapp", "/api/openclaw", "/api/v1", "/api/mcp", "/api/calendar/feed", "/api/resolve-plugin", "/api/brand-logo", "/api/health", "/api/galeria-publica", "/api/tracker"];
 
 // Los archivos que descarga el PUENTE del plugin de Resolve para actualizarse solo
 // (/plugin/<version>/<archivo>.js y /plugin/manifest.json). Van sin cookie a propósito: la
