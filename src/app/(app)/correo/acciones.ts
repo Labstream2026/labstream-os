@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
 import { logActivity } from "@/lib/activity";
-import { marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
+import { backfillCuenta, descargarAdjunto, marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
+import { esDominioAgrupable } from "@/lib/correo/hilos";
+import { userCanAccessClient } from "@/lib/client-access";
 import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
 import { sanearSaliente, extraerInlines, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
 import { firmaDeCuenta } from "@/lib/correo/firma";
@@ -169,13 +171,14 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   let referencias: string | null = null;
   let original: { id: string; uid: bigint; folder: string; projectId: string | null } | null = null;
   let projectId: string | null = null;
+  let cita = ""; // el original citado (respuestas): va DESPUÉS de la firma, como en Gmail
   const origenId = responderAId ?? reenviarDeId;
   if (origenId) {
     const orig = await db.mailMessage.findUnique({
       where: { id: origenId },
       select: {
         id: true, uid: true, folder: true, messageId: true, inReplyTo: true, threadKey: true, projectId: true,
-        fromName: true, fromEmail: true, toList: true, subject: true, date: true, textBody: true,
+        fromName: true, fromEmail: true, toList: true, subject: true, date: true, textBody: true, attachments: true,
         account: { select: { id: true } },
       },
     });
@@ -187,18 +190,35 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
       referencias = [orig.threadKey, orig.messageId].filter((x, i, a) => x && a.indexOf(x) === i).join(" ");
       original = orig;
       projectId = orig.projectId; // la respuesta hereda el proyecto del hilo
+      // La respuesta CITA el original plegado, como en cualquier cliente de correo: el hilo
+      // técnico (References) ya existía — esto es lo que VE el humano del otro lado.
+      const fechaR = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" }).format(orig.date);
+      cita = `<br><div style="color:#71717a;font-size:13px">El ${htmlDeTexto(fechaR)}, ${htmlDeTexto(orig.fromName || orig.fromEmail || "")} escribió:</div><blockquote>${htmlDeTexto((orig.textBody ?? "").slice(0, 50_000))}</blockquote>`;
     } else {
-      // Reenviar: el original citado en el cuerpo, al estilo de siempre.
+      // Reenviar: el original citado en el cuerpo, al estilo de siempre — Y con sus
+      // ADJUNTOS originales (se bajan del servidor y viajan de nuevo; antes se perdían).
       asunto = asunto || `Fwd: ${orig.subject}`;
       const fecha = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" }).format(orig.date);
       html += `<br><br><div>---------- Mensaje reenviado ----------<br>De: ${htmlDeTexto(`${orig.fromName ?? ""} <${orig.fromEmail ?? ""}>`)}<br>Fecha: ${htmlDeTexto(fecha)}<br>Asunto: ${htmlDeTexto(orig.subject)}<br>Para: ${htmlDeTexto(orig.toList)}</div><blockquote>${htmlDeTexto((orig.textBody ?? "").slice(0, 100_000))}</blockquote>`;
+
+      const metaAdjuntos = ((orig.attachments as { indice: number; nombre?: string; bytes?: number }[] | null) ?? []).filter((a) => typeof a?.indice === "number");
+      for (const a of metaAdjuntos) {
+        const r = await descargarAdjunto(orig.id, a.indice, session.id);
+        if ("error" in r) {
+          if (orig.folder === "ENVIADOS") break; // los enviados locales no guardan adjuntos
+          return { ok: false, error: `No se pudo traer el adjunto «${a.nombre ?? a.indice}» del original: ${r.error}` };
+        }
+        total += r.contenido.length;
+        if (total > MAX_ADJUNTOS_BYTES) return { ok: false, error: "Con los adjuntos del original se superan los 15 MB. Reenvía sin ellos o comparte un enlace." };
+        adjuntos.push({ nombre: r.nombre, mime: r.mime, contenido: r.contenido });
+      }
     }
   }
 
   // Firma: la corporativa de plantilla, la personalizada o la institucional — la compone
   // el MISMO helper de la vista previa, con la imagen INCRUSTADA en alta calidad.
   const firma = await firmaDeCuenta(cuenta.id);
-  html += firma.html;
+  html += firma.html + cita;
 
   // Imágenes del cuerpo (pegadas o de la biblioteca de GIFs) → partes CID.
   const extraccion = await extraerInlines(html, async (id) => {
@@ -347,6 +367,94 @@ export async function moverCorreos(ids: string[], destino: "ARCHIVO" | "PAPELERA
   }
   revalidatePath("/correo");
   return { ok: !error, error };
+}
+
+// ── Segmentar por EMPRESA: dominio → cliente («@pepsico.com es Pepsico») ──
+// Global (todo el equipo ve igual) y con BACKFILL: lo ya sincronizado de ese dominio queda
+// etiquetado de una vez, en todas las bandejas. Los dominios gratuitos se rechazan.
+export async function agruparDominioCliente(clientId: string, domain: string): Promise<{ ok: boolean; error?: string; etiquetados?: number }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  if (!(await userCanAccessClient(clientId, session))) return { ok: false, error: "No puedes tocar ese cliente." };
+  const d = domain.trim().toLowerCase().replace(/^@/, "");
+  if (!esDominioAgrupable(d)) return { ok: false, error: "Ese dominio no se puede agrupar (correo gratuito o formato inválido)." };
+
+  await db.clientMailDomain.upsert({
+    where: { domain: d },
+    create: { domain: d, clientId, createdById: session.id },
+    update: { clientId },
+  });
+  // Backfill: TODO lo ya sincronizado de ese dominio (en todas las cuentas) queda del cliente.
+  // Solo lo sin etiquetar: un match exacto de miembro no se pisa.
+  const r = await db.mailMessage.updateMany({
+    where: { fromEmail: { endsWith: `@${d}`, mode: "insensitive" }, clientId: null },
+    data: { clientId },
+  });
+  const cliente = await db.client.findUnique({ where: { id: clientId }, select: { name: true } });
+  await logActivity({
+    action: "correo.dominio",
+    summary: `agrupó el dominio @${d} bajo ${cliente?.name ?? "un cliente"} (${r.count} correos etiquetados)`,
+    clientId,
+    entityType: "correo",
+    silent: true,
+  });
+  revalidatePath("/correo");
+  return { ok: true, etiquetados: r.count };
+}
+
+export async function quitarDominioCliente(domain: string): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  const d = await db.clientMailDomain.delete({ where: { domain: domain.trim().toLowerCase() }, select: { domain: true } }).catch(() => null);
+  if (d) await logActivity({ action: "correo.dominio", summary: `quitó la agrupación del dominio @${d.domain}`, entityType: "correo", silent: true });
+  // Lo ya etiquetado se queda: quitar la regla frena lo FUTURO, no reescribe la historia.
+  revalidatePath("/correo");
+}
+
+// ── Silenciar un remitente: lo suyo entra directo al Archivo DE LA APP ──
+// Para el ruido automático (notificaciones, robots). Solo local a propósito: el webmail lo
+// sigue mostrando — esta es la bandeja del equipo sin ruido, no una regla del servidor.
+export async function silenciarRemitente(fromEmail: string, on: boolean): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
+  const e = fromEmail.trim().toLowerCase();
+  if (!RE_MAIL.test(e)) return { ok: false, error: "Remitente inválido." };
+
+  if (on) {
+    await db.mailRule.upsert({
+      where: { accountId_fromEmail: { accountId: cuenta.id, fromEmail: e } },
+      create: { accountId: cuenta.id, fromEmail: e, archivar: true },
+      update: { archivar: true },
+    });
+    // Lo que YA está en Recibidos de ese remitente se archiva (localmente) de una vez.
+    await db.mailMessage.updateMany({
+      where: { accountId: cuenta.id, folder: "INBOX", fromEmail: { equals: e, mode: "insensitive" } },
+      data: { folder: "ARCHIVO" },
+    });
+  } else {
+    // Quitar el silencio: si la regla también asignaba proyecto, se conserva esa parte.
+    const regla = await db.mailRule.findUnique({ where: { accountId_fromEmail: { accountId: cuenta.id, fromEmail: e } }, select: { projectId: true } });
+    if (regla?.projectId) {
+      await db.mailRule.update({ where: { accountId_fromEmail: { accountId: cuenta.id, fromEmail: e } }, data: { archivar: false } });
+    } else {
+      await db.mailRule.deleteMany({ where: { accountId: cuenta.id, fromEmail: e, projectId: null } });
+    }
+  }
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+// ── Traer HISTORIAL viejo (una tanda de ~300 por pulsación, hasta 1 año atrás) ──
+export async function sincronizarHistorico(): Promise<{ ok: boolean; error?: string; traidos?: number }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return { ok: false, error: "No hay buzón conectado." };
+  const r = await backfillCuenta(cuenta.id, 365, 300);
+  revalidatePath("/correo");
+  return { ok: !r.error, error: r.error ?? undefined, traidos: r.traidos };
 }
 
 // ── Firma del usuario (HTML corto + imagen en alta calidad) ──

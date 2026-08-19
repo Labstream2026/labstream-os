@@ -195,6 +195,7 @@ model User {
   gifsSubidos        MailGif[]          @relation("GifDe")
   plantillasCorreo   MailTemplate[]     @relation("PlantillaCorreoDe")
   plantillasFirma    MailSignatureTemplate[] @relation("PlantillaFirmaDe")
+  dominiosCorreo     ClientMailDomain[] @relation("DominioCorreoDe")
   llamadosCreados    CallSheet[]        @relation("LlamadoCreador")
   llamados           CallSheetPerson[]  @relation("LlamadoPersona")
   ausencias          Absence[]          @relation("AusenciaDe")
@@ -532,6 +533,7 @@ model Client {
   channel     ChatChannel?
   members     ClientMember[]
   files       ClientFile[]
+  mailDomains ClientMailDomain[] // dominios de correo agrupados bajo este cliente
   workBlocks  WorkBlock[] // ratos del rastreador atribuidos a esta cuenta
   clientNotes Note[] // notas (modelo Note) etiquetadas a este cliente — distinto del campo `notes` libre
   libraryAssets LibraryAsset[] @relation("LibraryClient") // recursos de la Biblioteca ligados a este cliente
@@ -1990,6 +1992,23 @@ model MailGif {
   createdBy   User?    @relation("GifDe", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime @default(now())
+}
+
+// DOMINIO de correo → CLIENTE: «todo lo que llegue de @pepsico.com es Pepsico». Es la
+// segmentación por EMPRESA que el match exacto de miembros del portal no cubre (allá escribe
+// una persona registrada; aquí escribe cualquiera de la compañía). Curado a mano y GLOBAL
+// (todo el equipo ve igual): los dominios de correo gratuito (gmail, hotmail…) se rechazan
+// al crear la regla — agrupar «gmail.com» sería agrupar medio mundo.
+model ClientMailDomain {
+  id          String   @id @default(cuid())
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    String
+  domain      String   @unique // minúsculas, sin @ («pepsico.com»)
+  createdBy   User?    @relation("DominioCorreoDe", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([clientId])
 }
 
 // PLANTILLA DE FIRMA del estudio: la firma corporativa se ESTRUCTURA una sola vez (layout,

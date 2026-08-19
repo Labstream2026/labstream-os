@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { asignarProyectoHilo, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos, previaCorreo } from "./acciones";
 import { useCompositor, type PrefillCompositor } from "./compositor";
 import { useVistaCorreo } from "./vista-correo";
+import { BotonSilenciar } from "./organizacion";
 
 // ── La lista de CONVERSACIONES y la barra de acciones (estilo Gmail) ────────
 // El servidor agrupa y serializa; aquí solo se pinta, se selecciona y se dispara. Las filas
@@ -403,6 +404,7 @@ export function BarraHilo({ ids, carpeta, volverHref, proyectos, proyectoActual,
       {proyectos?.length || proyectoActual ? (
         <AsignarProyecto ids={ids} proyectos={proyectos ?? []} actual={proyectoActual ?? null} remitente={remitente ?? null} />
       ) : null}
+      {remitente && carpeta !== "papelera" ? <BotonSilenciar remitente={remitente} volverHref={volverHref} /> : null}
       {pendiente ? <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" /> : null}
     </div>
   );

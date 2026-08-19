@@ -1,4 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { dominioDe, esDominioAgrupable } from "./hilos";
+
+describe("segmentación por dominio (empresa)", () => {
+  const catalogo = [{ email: "maria@pepsico.com", clientId: "exacto" }];
+  const dominios = new Map([["pepsico.com", "pepsi"]]);
+
+  it("el match exacto de miembro manda sobre el dominio", () => {
+    expect(clienteDeRemitente("maria@pepsico.com", catalogo, dominios)).toBe("exacto");
+  });
+  it("cualquiera del dominio agrupa bajo el cliente de la regla", () => {
+    expect(clienteDeRemitente("carlos@pepsico.com", catalogo, dominios)).toBe("pepsi");
+    expect(clienteDeRemitente("otro@acme.com", catalogo, dominios)).toBeNull();
+  });
+  it("sin reglas de dominio, se comporta como siempre", () => {
+    expect(clienteDeRemitente("carlos@pepsico.com", catalogo)).toBeNull();
+  });
+  it("dominioDe saca el dominio completo, subdominios incluidos", () => {
+    expect(dominioDe("a@Ventas.Pepsico.com")).toBe("ventas.pepsico.com");
+    expect(dominioDe("sin-arroba")).toBeNull();
+  });
+  it("los dominios de correo gratuito no son agrupables", () => {
+    expect(esDominioAgrupable("pepsico.com")).toBe(true);
+    expect(esDominioAgrupable("GMAIL.com")).toBe(false);
+    expect(esDominioAgrupable("hotmail.com")).toBe(false);
+    expect(esDominioAgrupable("no-es-dominio")).toBe(false);
+  });
+});
 import { agruparHilos, asuntoLimpio, claveHilo, clienteDeRemitente } from "./hilos";
 
 // Agrupar mal es MEZCLAR conversaciones de clientes distintos en una tarjeta — el error que

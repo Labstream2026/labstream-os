@@ -76,13 +76,42 @@ export function agruparHilos<M extends MensajeParaHilo>(mensajes: M[]): Hilo<M>[
 }
 
 /**
- * El cliente del CRM al que pertenece un remitente: coincidencia EXACTA de correo contra los
- * miembros del portal de cada cliente. Nada de adivinar por dominio — media Colombia escribe
- * desde gmail.com y etiquetar mal es peor que no etiquetar.
+ * El cliente del CRM al que pertenece un remitente. Dos niveles, en orden:
+ *   1. Coincidencia EXACTA de correo contra los miembros del portal (la de siempre).
+ *   2. Coincidencia por DOMINIO contra las reglas CURADAS («@pepsico.com es Pepsico»):
+ *      cualquiera de la compañía queda agrupado, no solo la persona registrada.
+ * Sin regla explícita NO se adivina por dominio — media Colombia escribe desde gmail.com y
+ * etiquetar mal es peor que no etiquetar.
  */
-export function clienteDeRemitente(fromEmail: string | null | undefined, catalogo: { email: string; clientId: string }[]): string | null {
+export function clienteDeRemitente(
+  fromEmail: string | null | undefined,
+  catalogo: { email: string; clientId: string }[],
+  dominios?: Map<string, string>,
+): string | null {
   if (!fromEmail) return null;
   const e = fromEmail.trim().toLowerCase();
   if (!e) return null;
-  return catalogo.find((c) => c.email === e)?.clientId ?? null;
+  const exacto = catalogo.find((c) => c.email === e)?.clientId;
+  if (exacto) return exacto;
+  const dominio = dominioDe(e);
+  return (dominio && dominios?.get(dominio)) || null;
+}
+
+/** El dominio de una dirección («maria@ventas.pepsico.com» → «ventas.pepsico.com»). */
+export function dominioDe(email: string): string | null {
+  const m = /@([a-z0-9.-]+)$/i.exec(email.trim().toLowerCase());
+  return m ? m[1] : null;
+}
+
+// Dominios de correo GRATUITO/personal: jamás se agrupan como empresa — «gmail.com» sería
+// medio mundo bajo un solo cliente. La regla se rechaza al crearla, no falla en silencio.
+const DOMINIOS_LIBRES = new Set([
+  "gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "outlook.es", "live.com",
+  "msn.com", "yahoo.com", "yahoo.es", "icloud.com", "me.com", "aol.com", "proton.me",
+  "protonmail.com", "gmx.com", "zoho.com", "mail.com", "latinmail.com", "terra.com",
+]);
+
+export function esDominioAgrupable(domain: string): boolean {
+  const d = domain.trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(d) && !DOMINIOS_LIBRES.has(d);
 }

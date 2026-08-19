@@ -8,7 +8,9 @@ import { tone } from "@/lib/colors";
 import { sanearCorreo, cidLimpio } from "@/lib/correo/sanitizar";
 import { firmaDeCuenta } from "@/lib/correo/firma";
 import { sincronizarCuenta } from "@/lib/correo/imap";
-import { agruparHilos, asuntoLimpio } from "@/lib/correo/hilos";
+import { agruparHilos, asuntoLimpio, dominioDe, esDominioAgrupable } from "@/lib/correo/hilos";
+import { accessibleClientWhere } from "@/lib/client-access";
+import { AgruparDominio, PanelOrganizacion } from "./organizacion";
 import { estadoRonda } from "@/lib/rondas";
 import { accessibleProjectWhere, aliveProjectWhere } from "@/lib/project-access";
 import { PageHeader } from "@/components/ui/page-header";
@@ -186,6 +188,18 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
         .map((p) => ({ id: p.id, nombre: p.name }))
     : [];
   const hiloRemitente = hiloMsgs.find((m) => m.folder !== "ENVIADOS")?.fromEmail ?? null;
+
+  // ── Segmentar por EMPRESA: si el hilo no tiene cliente y el remitente es corporativo,
+  // se ofrece agrupar todo su dominio bajo un cliente (con backfill). ──
+  const dominioHilo = !hiloClienteId && hiloRemitente ? dominioDe(hiloRemitente) : null;
+  const dominioOfrecible = dominioHilo && esDominioAgrupable(dominioHilo)
+    ? (await db.clientMailDomain.findUnique({ where: { domain: dominioHilo }, select: { id: true } })) === null
+      ? dominioHilo
+      : null
+    : null;
+  const clientesAgrupables = dominioOfrecible
+    ? (await db.client.findMany({ where: { ...accessibleClientWhere(session), archivedAt: null }, orderBy: { name: "asc" }, take: 60, select: { id: true, name: true } })).map((c) => ({ id: c.id, nombre: c.name }))
+    : [];
   const crm = hiloClienteId
     ? await db.client.findUnique({
         where: { id: hiloClienteId },
@@ -288,6 +302,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
 
             {carpeta === "ajustes" && !clFiltro ? (
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+                <PanelOrganizacion
+                  dominios={(await db.clientMailDomain.findMany({ orderBy: { createdAt: "desc" }, select: { domain: true, client: { select: { name: true } } } })).map((d) => ({ domain: d.domain, cliente: d.client.name }))}
+                  silencios={(await db.mailRule.findMany({ where: { accountId: cuenta.id, archivar: true }, orderBy: { createdAt: "desc" }, select: { fromEmail: true } })).map((r) => r.fromEmail)}
+                />
                 <PanelFirma
                   firmaHtml={cuenta.signatureHtml ?? ""}
                   imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null}
@@ -385,6 +403,9 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                       <Link href={`/clientes/${crm.id}`} className="ml-auto font-semibold text-primary hover:underline">Abrir el cliente →</Link>
                     </p>
                   ) : null}
+
+                  {/* Sin cliente y remitente corporativo: ofrecer agrupar TODO su dominio. */}
+                  {dominioOfrecible ? <AgruparDominio dominio={dominioOfrecible} clientes={clientesAgrupables} /> : null}
 
                   <div className="mt-2 space-y-2.5">
                     {hiloMsgs.map((m, i) => {
