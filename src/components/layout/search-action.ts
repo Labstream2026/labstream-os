@@ -68,7 +68,31 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
             { type: "PROJECT", project: { members: { some: { userId: session.id } } } },
           ];
 
-  const [tasks, delivs, quotes, invoices, proposals, files, clientFiles, notes, channels, libAssets, disks] = await Promise.all([
+  const [projects, clientsRows, wikiPages, tasks, delivs, quotes, invoices, proposals, files, clientFiles, notes, channels, libAssets, disks] = await Promise.all([
+    // PROYECTOS por nombre o código — incluidos los TERMINADOS. «¿Cómo se llamaba el video
+    // que hicimos para X el año pasado?» es la pregunta que el buscador no respondía: el
+    // palette solo veía la lista del sidebar, que filtra terminados. La papelera sigue fuera.
+    db.project.findMany({
+      where: { AND: [projWhere, { archivedAt: null }, { OR: [{ name: like }, { code: like }] }] },
+      select: { id: true, name: true, code: true, finishedAt: true, client: { select: { name: true } } },
+      take: TAKE,
+    }),
+    // CLIENTES — incluidos los INACTIVOS (desaparecían del sidebar y con eso de la búsqueda,
+    // como si el archivo del estudio no existiera).
+    db.client.findMany({
+      where: { AND: [clientWhere, { archivedAt: null }, { OR: [{ name: like }, { company: like }] }] },
+      select: { id: true, name: true, company: true, isActive: true },
+      take: TAKE,
+    }),
+    // WIKI por CONTENIDO, no solo por título (las notas ya se buscaban por dentro; los
+    // procesos del estudio no, y es donde uno recuerda «lo del dron» sin saber el título).
+    hasPermission(session, "ver_wiki")
+      ? db.wikiPage.findMany({
+          where: { OR: [{ title: like }, { content: like }] },
+          select: { id: true, title: true, content: true, section: true },
+          take: TAKE,
+        })
+      : Promise.resolve([]),
     // Tareas: en un proyecto que puedo ver, o asignadas a/por mí (tareas personales sin proyecto).
     db.task.findMany({
       where: {
@@ -174,6 +198,10 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   ]);
 
   const hits: SearchHit[] = [];
+  // Proyectos y clientes primero: son lo que uno busca por nombre («el de Postobón»).
+  for (const p of projects) hits.push({ id: `pr-${p.id}`, label: p.name, sub: `${p.code}${p.client?.name ? ` · ${p.client.name}` : ""}`, href: `/proyectos/${p.id}`, group: "Proyectos", kind: "project", finished: !!p.finishedAt });
+  for (const c of clientsRows) hits.push({ id: `cl-${c.id}`, label: c.name, sub: c.isActive ? (c.company ?? "Cliente") : "Cliente inactivo (archivo)", href: `/clientes/${c.id}`, group: "Clientes", kind: "client" });
+  for (const w of wikiPages) hits.push({ id: `w-${w.id}`, label: w.title, sub: excerpt(w.content, q) || w.section || "Wiki", href: `/wiki/${w.id}`, group: "Wiki", kind: "wiki" });
   for (const t of tasks) hits.push({ id: `t-${t.id}`, label: t.title, sub: t.project?.name ?? "Tarea personal", href: t.projectId ? `/proyectos/${t.projectId}?tab=tareas` : "/mis-tareas", group: "Tareas", kind: "task", finished: !!t.project?.finishedAt });
   for (const d of delivs) hits.push({ id: `d-${d.id}`, label: d.name, sub: d.project?.name ?? "Entregable", href: `/proyectos/${d.projectId}?tab=entregables`, group: "Entregables", kind: "deliverable", finished: !!d.project?.finishedAt });
   for (const c of quotes) hits.push({ id: `q-${c.id}`, label: c.title || c.code, sub: `${c.code} · ${c.client?.name ?? ""}`.trim(), href: `/cotizaciones/${c.id}`, group: "Cotizaciones", kind: "quote" });

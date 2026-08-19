@@ -51,6 +51,9 @@ function Highlighted({ text, term }: { text: string; term: string }) {
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   task: IconTareas, deliverable: IconRevisiones, quote: IconCotizacion, invoice: IconFacturacion, proposal: IconCotizacion, file: IconArchivo, note: IconNotas, chat: IconChat,
   library: IconBiblioteca, disk: IconBiblioteca,
+  // El archivo del estudio, por fin buscable: proyectos terminados, clientes inactivos y la
+  // Wiki por dentro (search-action los trae del servidor con su control de acceso).
+  project: IconProyectos, client: IconCliente, wiki: IconWiki,
 };
 
 // Páginas de la Wiki indexadas para el buscador (se cargan en el layout).
