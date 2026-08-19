@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Download, Hourglass, Map as MapIcon, Pencil, Plus, X } from "lucide-react";
+import { Check, Download, Hourglass, Pencil, Plus, X } from "lucide-react";
+import { IconMapa } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MATERIAL_ROLES, ROLE_LABEL, type ExpiryLevel, type MaterialHealth } from "@/lib/material-health";
 import { addMaterialLocation, removeMaterialLocation, updateMaterialLocation, verifyMaterialLocation } from "./disk-actions";
@@ -259,7 +260,7 @@ export function Mapa({ projects, disks, canManage, initialRiesgo = false }: {
       {filtered.length === 0 ? (
         <div className="mt-8">
           <EmptyState
-            icon={<MapIcon className="size-6" />}
+            icon={<IconMapa className="size-6" />}
             title={projects.length === 0 ? "Sin proyectos a la vista" : "Nada coincide"}
             description={projects.length === 0 ? "Cuando haya proyectos, aquí se registra en qué disco vive su material." : "Prueba con otro término o quita el filtro."}
           />

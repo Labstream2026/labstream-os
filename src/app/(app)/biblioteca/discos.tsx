@@ -8,7 +8,6 @@ import {
   Check,
   ChevronRight,
   Cloud,
-  HardDrive,
   LayoutGrid,
   List,
   MapPin,
@@ -21,6 +20,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { IconDisco } from "@/components/icons";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MenuBarra, MenuOpcion, MenuSeparador, MenuGrupo, usePreferenciaLocal } from "@/components/ui/barra-menu";
@@ -288,7 +288,7 @@ function SugerenciaMontaje({ m }: { m: MontajeLibre }) {
   const libre = Math.max(0, m.totalGB - m.usedGB);
   return (
     <form action={registrarMontaje.bind(null, m.key)} className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3">
-      <HardDrive className="size-5 shrink-0 text-primary" />
+      <IconDisco className="size-5 shrink-0" />
       <div className="min-w-48 flex-1">
         <p className="text-sm font-medium">
           La app tiene montado <b>{m.label}</b> y ningún disco lo reclama.
@@ -434,7 +434,7 @@ export function Discos({
         montajesLibres.length === 0 || !canManage ? (
           <div className="mt-8">
             <EmptyState
-              icon={<HardDrive className="size-6" />}
+              icon={<IconDisco className="size-6" />}
               title="Sin discos registrados"
               description="Registra el NAS, los discos externos y la nube para armar el mapa del material."
             />

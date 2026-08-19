@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
-import { MessageSquarePlus } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
 import { formatBogota } from "@/lib/bogota-time";
 import { REQUEST_TYPES, REQUEST_STATUS } from "@/lib/client-portal";
 import { ClientPortalNav } from "@/components/client-portal-nav";
+import { PageHeader } from "@/components/ui/page-header";
+import { IconSolicitudes } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { NewRequest } from "./new-request";
 
@@ -54,14 +55,13 @@ export default async function SolicitudesPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <MessageSquarePlus className="size-6 text-primary" /> Solicitudes al equipo
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pide un cambio, material nuevo, haz una pregunta o agenda una reunión. Cada solicitud queda con su estado — sin perseguir a nadie.
-        </p>
-      </header>
+      {/* A la barra de arriba, como el resto de secciones: la ruta ya existe en nav-meta, así
+          que antes se veían DOS nombres (aquí «Solicitudes al equipo», arriba «Labstream»). */}
+      <PageHeader
+        icon={<IconSolicitudes />}
+        title="Solicitudes al equipo"
+        description="Pide un cambio, material nuevo, haz una pregunta o agenda una reunión. Cada solicitud queda con su estado — sin perseguir a nadie."
+      />
 
       <ClientPortalNav active="solicitudes" />
 

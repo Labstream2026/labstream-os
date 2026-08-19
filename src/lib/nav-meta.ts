@@ -37,5 +37,14 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname.startsWith("/perfil")) return { icon: "personalizacion", label: "Mi perfil", desc: "Tu cuenta y preferencias" };
   if (pathname.startsWith("/ajustes")) return { icon: "configuracion", label: "Ajustes", desc: "Tu cuenta, apariencia y preferencias" };
   if (pathname.startsWith("/papelera")) return { icon: "papelera", label: "Papelera", desc: "Borrado suave: restaura lo que necesites" };
+  // ── Seis rutas VIVAS que no estaban aquí (2026-08-19) ──
+  // Sin entrada propia caían al rótulo de reserva, así que en la barra de pestañas se veían
+  // seis pestañas llamadas «Labstream»: imposible saber cuál era cuál.
+  if (pathname.startsWith("/correo")) return { icon: "correo", label: "Correo", desc: "Tu buzón del estudio, dentro de la app" };
+  if (pathname.startsWith("/rastreo")) return { icon: "actividad", label: "Rastreo", desc: "Horas efectivas, inactividad y en qué se va el día" };
+  if (pathname.startsWith("/galeria")) return { icon: "galeria", label: "Galería de entregas", desc: "El material entregado, listo para buscar" };
+  if (pathname.startsWith("/operaciones")) return { icon: "disco", label: "Operaciones", desc: "El disco de trabajo del estudio" };
+  if (pathname.startsWith("/solicitudes")) return { icon: "solicitudes", label: "Solicitudes", desc: "Lo que los clientes piden al equipo" };
+  if (pathname.startsWith("/entregas-finales")) return { icon: "entregas", label: "Entregas finales", desc: "Lo aprobado y cerrado, para descargar" };
   return { icon: null, label: "Labstream" };
 }

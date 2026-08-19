@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Building2, Clock, FileText, Inbox, Mail, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { Archive, Building2, Clock, FileText, Inbox, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { IconCorreo } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { detectarCita } from "@/lib/correo/citas";
@@ -57,7 +58,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
   if (!cuenta) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
-        <PageHeader title="Correo" description="Tu buzón del estudio, dentro de la app" icon={<Mail className="size-4" />} />
+        <PageHeader title="Correo" description="Tu buzón del estudio, dentro de la app" icon={<IconCorreo />} />
         {/* La dirección viene de la cuenta de la app: los correos del equipo SON sus buzones
             de MailPlus, así que conectar es escribir la contraseña y nada más. */}
         <ConectarCorreo hostDefecto={HOST_DEFECTO} emailSugerido={session.email ?? undefined} />
@@ -397,7 +398,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                   !hiloMsgs.length ? (
                     /* Panel de lectura vacío: la casa de los atajos (antes eran un pie de página perpetuo). */
                     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-                      <Mail className="size-8 text-muted-foreground/40" />
+                      <IconCorreo className="size-8 text-muted-foreground/40" />
                       <p className="text-sm text-muted-foreground">Elige una conversación de la lista.</p>
                       <p className="text-[11px] text-muted-foreground/70">
                         <kbd className="rounded border border-border bg-muted px-1">c</kbd> redactar ·{" "}

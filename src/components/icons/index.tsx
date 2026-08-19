@@ -70,7 +70,8 @@ export type IconName =
   | "usuarios" | "etiquetas" | "roles" | "auditoria" | "integraciones" | "api"
   | "marca" | "flujo" | "personalizacion"
   | "tablero" | "tableroH" | "cronograma" | "lista" | "tarjetas" | "tabla" | "galeria" | "archivador"
-  | "midia" | "completadas" | "raci" | "propuestas" | "actividad" | "mas";
+  | "midia" | "completadas" | "raci" | "propuestas" | "actividad" | "mas"
+  | "solicitudes" | "portada" | "disco" | "mapa" | "correo";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -648,6 +649,73 @@ export function IconMas(p: IconProps) {
   );
 }
 
+/* ═══════════ Conceptos que no tenían dibujo propio (2026-08-19) ═══════════ */
+// Cinco pantallas resolvían su identidad con un ícono de lucide, que por la regla de arriba es
+// para MANDOS, no para decir qué ES algo. Dibujados ya en tinta + un acento: al no haber que
+// elegir tono, el trabajo es solo decidir cuál es EL detalle que cuenta.
+//
+// NO se dibujaron dos que estaban en la lista, porque ya existen y repetirlos sería ruido:
+// «checklist» lo cubre IconTareas (un portapapeles con su check) y «entregable», IconEntregas.
+
+// Solicitudes — burbuja con la cola a la DERECHA (llega de fuera, del cliente) y un más de
+// acento. Se conserva la metáfora del ícono de lucide que había: el equipo ya la reconoce.
+export function IconSolicitudes(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v7.6a2.8 2.8 0 0 1-2.8 2.8h-.6v3.2l-4-3.2H6.8A2.8 2.8 0 0 1 4 14.4V6.8Z" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="M12 8.1v5M9.5 10.6h5" stroke={C.orange} strokeWidth={2} />
+    </Icon>
+  );
+}
+
+// Portada — una PÁGINA cuya banda de arriba es la imagen (con su sol de acento), no un cuadro
+// lleno de foto: eso ya es IconGaleria. Lo que distingue una portada es que encabeza algo.
+export function IconPortada(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="4" y="3.5" width="16" height="17" rx="2.5" fill={C.violet} fillOpacity={0.12} stroke={C.violet} strokeWidth={SW} />
+      <path d="M4 10.6h16" stroke={C.violet} strokeWidth={1.6} />
+      <circle cx="8.2" cy="7" r="1.5" fill={C.orange} />
+      <path d="M7.2 14.2h9.6M7.2 17.2h5.8" stroke={C.violet} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
+// Disco — dos bahías con su testigo encendido de acento. Ni libros (IconBiblioteca) ni cajones
+// (IconArchivador): esto es la máquina donde vive el material.
+export function IconDisco(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="6" width="17" height="12" rx="2.5" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="M3.5 12h17" stroke={C.violet} strokeWidth={1.6} />
+      <path d="M6.4 9h5.2M6.4 15h5.2" stroke={C.violet} strokeWidth={1.5} />
+      <circle cx="17.3" cy="9" r="1.1" fill={C.orange} />
+      <circle cx="17.3" cy="15" r="1.1" fill={C.violet} />
+    </Icon>
+  );
+}
+
+// Mapa — el plegado clásico con el alfiler de acento: dónde está el material.
+export function IconMapa(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3.6 6.9 9.2 4.7l5.6 2.2 5.6-2.2v12.4l-5.6 2.2-5.6-2.2-5.6 2.2V6.9Z" fill={C.violet} fillOpacity={0.12} stroke={C.violet} strokeWidth={SW} />
+      <path d="M9.2 4.7v12.4M14.8 6.9v12.4" stroke={C.violet} strokeWidth={1.4} />
+      <path d="M12 7.8a2.1 2.1 0 0 1 2.1 2.1c0 1.5-2.1 3.8-2.1 3.8s-2.1-2.3-2.1-3.8A2.1 2.1 0 0 1 12 7.8Z" fill={C.orange} />
+    </Icon>
+  );
+}
+
+// Correo — el sobre, con la solapa de acento (es lo único que se mueve al abrirlo).
+export function IconCorreo(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.2" y="5.5" width="17.6" height="13" rx="2.5" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="m3.8 7.4 6.9 5c.8.6 1.8.6 2.6 0l6.9-5" stroke={C.orange} strokeWidth={1.8} />
+    </Icon>
+  );
+}
+
 
 // Mapa por nombre, para usarlos dinámicamente (p. ej. desde datos o navegación).
 export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElement> = {
@@ -699,4 +767,9 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   propuestas: IconPropuestas,
   actividad: IconActividad,
   mas: IconMas,
+  solicitudes: IconSolicitudes,
+  portada: IconPortada,
+  disco: IconDisco,
+  mapa: IconMapa,
+  correo: IconCorreo,
 };
