@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, CheckCheck, Clock, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
+import { Archive, CheckCheck, Clapperboard, Clock, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos } from "./acciones";
+import { asignarProyectoHilo, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos } from "./acciones";
 import { useCompositor, type PrefillCompositor } from "./compositor";
 
 // ── La lista de CONVERSACIONES y la barra de acciones (estilo Gmail) ────────
@@ -260,7 +260,18 @@ export function BotonesRespuesta({ prefills }: { prefills: { responder: PrefillC
   );
 }
 
-export function BarraHilo({ ids, carpeta, volverHref }: { ids: string[]; carpeta: string; volverHref: string }) {
+export type ProyectoAsignable = { id: string; nombre: string };
+
+export function BarraHilo({ ids, carpeta, volverHref, proyectos, proyectoActual, remitente }: {
+  ids: string[];
+  carpeta: string;
+  volverHref: string;
+  /** Proyectos donde este hilo se puede colgar (los del cliente detectado primero). */
+  proyectos?: ProyectoAsignable[];
+  proyectoActual?: { id: string; nombre: string } | null;
+  /** Remitente del hilo, para la regla «siempre a este proyecto». */
+  remitente?: string | null;
+}) {
   const router = useRouter();
   const [pendiente, arranca] = React.useTransition();
   const mover = (destino: "ARCHIVO" | "PAPELERA" | "INBOX") =>
@@ -269,7 +280,7 @@ export function BarraHilo({ ids, carpeta, volverHref }: { ids: string[]; carpeta
       router.push(volverHref, { scroll: false });
     });
   return (
-    <div className="flex min-h-11 items-center gap-1 border-b border-border px-2">
+    <div className="flex min-h-11 flex-wrap items-center gap-1 border-b border-border px-2">
       <Link href={volverHref} scroll={false} className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" title="Volver">←</Link>
       {carpeta !== "papelera" ? (
         <>
@@ -282,7 +293,71 @@ export function BarraHilo({ ids, carpeta, volverHref }: { ids: string[]; carpeta
       <BotonBarra title="Marcar como no leído" onClick={() => arranca(async () => { await marcarLeidosCorreo(ids, false); router.push(volverHref, { scroll: false }); })}>
         <Mail className="size-4" />
       </BotonBarra>
+      {proyectos?.length || proyectoActual ? (
+        <AsignarProyecto ids={ids} proyectos={proyectos ?? []} actual={proyectoActual ?? null} remitente={remitente ?? null} />
+      ) : null}
       {pendiente ? <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" /> : null}
     </div>
+  );
+}
+
+// ── Colgar el hilo de un PROYECTO ───────────────────────────────────────────
+// Asignar lo expone en la sección Correo de ese proyecto (decisión explícita de compartirlo)
+// y lo que llegue después al hilo hereda solo. La casilla deja además la REGLA: todo lo
+// futuro de este remitente cae directo en el proyecto.
+function AsignarProyecto({ ids, proyectos, actual, remitente }: {
+  ids: string[];
+  proyectos: ProyectoAsignable[];
+  actual: { id: string; nombre: string } | null;
+  remitente: string | null;
+}) {
+  const router = useRouter();
+  const [abierto, setAbierto] = React.useState(false);
+  const [regla, setRegla] = React.useState(false);
+  const [pendiente, arranca] = React.useTransition();
+
+  const asigna = (projectId: string | null) =>
+    arranca(async () => {
+      await asignarProyectoHilo(ids, projectId, { reglaRemitente: regla ? remitente : null });
+      setAbierto(false);
+      router.refresh();
+    });
+
+  return (
+    <span className="relative ml-1">
+      <button type="button" onClick={() => setAbierto((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium",
+          actual ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}>
+        <Clapperboard className="size-3.5" />
+        {pendiente ? "Guardando…" : actual ? actual.nombre : "Asignar a proyecto"}
+      </button>
+      {abierto ? (
+        <span className="absolute left-0 top-9 z-30 flex w-64 flex-col overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl">
+          <span className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">El hilo se verá en el proyecto</span>
+          <span className="max-h-48 overflow-y-auto">
+            {proyectos.map((p) => (
+              <button key={p.id} type="button" onClick={() => asigna(p.id)}
+                className={cn("block w-full px-3 py-1.5 text-left text-[12.5px] hover:bg-muted", actual?.id === p.id && "font-bold text-primary")}>
+                {p.nombre}
+              </button>
+            ))}
+            {proyectos.length === 0 ? <span className="block px-3 py-2 text-[11.5px] text-muted-foreground">No hay proyectos vivos donde colgarlo.</span> : null}
+          </span>
+          {remitente ? (
+            <label className="flex cursor-pointer items-center gap-2 border-t border-border px-3 py-2 text-[11.5px] text-muted-foreground">
+              <input type="checkbox" checked={regla} onChange={(e) => setRegla(e.target.checked)} className="accent-primary" />
+              Siempre para <b className="max-w-36 truncate">{remitente}</b>
+            </label>
+          ) : null}
+          {actual ? (
+            <button type="button" onClick={() => asigna(null)} className="border-t border-border px-3 py-1.5 text-left text-[12px] text-destructive hover:bg-muted">
+              Quitar del proyecto
+            </button>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
   );
 }

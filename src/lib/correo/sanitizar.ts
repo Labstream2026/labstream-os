@@ -8,7 +8,9 @@ import sanitizeHtml from "sanitize-html";
 // Las imágenes remotas van BLOQUEADAS por defecto y no es (solo) por estética: un <img> a un
 // servidor ajeno es una baliza — le confirma al remitente que el correo se abrió, cuándo y
 // desde qué IP. Se quitan contando cuántas eran, y la página ofrece «Mostrar imágenes» para
-// verlas a propósito. Las incrustadas (cid:) no se resuelven en esta versión: fuera también.
+// verlas a propósito. Las INCRUSTADAS (cid:) sí se pintan cuando el mensaje trae la parte:
+// son parte del propio correo (firmas, GIFs), no una baliza — se resuelven a nuestra ruta
+// autenticada con el mapa `cids` (Content-ID → URL de la app).
 
 export type HtmlSaneado = {
   html: string;
@@ -44,8 +46,19 @@ const ESTILOS: Record<string, RegExp[]> = {
   display: [/^(block|inline|inline-block|none)$/],
 };
 
-export function sanearCorreo(htmlCrudo: string, opts?: { permitirImagenes?: boolean }): HtmlSaneado {
+/** Un Content-ID en su forma canónica: sin <>, en minúsculas. */
+export const cidLimpio = (s: string) => s.replace(/[<>]/g, "").trim().toLowerCase();
+
+export function sanearCorreo(
+  htmlCrudo: string,
+  opts?: {
+    permitirImagenes?: boolean;
+    /** Content-ID → URL de la app que sirve esa parte incrustada (autenticada). */
+    cids?: Map<string, string>;
+  },
+): HtmlSaneado {
   const permitir = opts?.permitirImagenes === true;
+  const cids = opts?.cids;
   let bloqueadas = 0;
 
   const html = sanitizeHtml(htmlCrudo, {
@@ -68,12 +81,19 @@ export function sanearCorreo(htmlCrudo: string, opts?: { permitirImagenes?: bool
     transformTags: {
       // Todo enlace abre fuera y sin darle al destino una ventana que manipular.
       a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+      // cid: → nuestra ruta autenticada, ANTES del filtro (una src relativa /api/… pasa el
+      // colador de esquemas porque no tiene esquema).
+      img: (tagName, attribs) => {
+        const m = /^cid:(.+)$/i.exec(String(attribs.src ?? ""));
+        const url = m ? cids?.get(cidLimpio(m[1])) : null;
+        return url ? { tagName, attribs: { ...attribs, src: url } } : { tagName, attribs };
+      },
     },
     exclusiveFilter: (frame) => {
       if (frame.tag !== "img") return false;
       const src = String(frame.attribs?.src ?? "");
-      // Las cid: (incrustadas) no se resuelven en esta versión; las remotas solo si se pidió.
-      const viva = permitir && /^https?:\/\//i.test(src);
+      // Vivas: las incrustadas ya resueltas a nuestra ruta, y las remotas solo si se pidió.
+      const viva = src.startsWith("/api/correo/") || (permitir && /^https?:\/\//i.test(src));
       if (!viva) bloqueadas += 1;
       return !viva;
     },

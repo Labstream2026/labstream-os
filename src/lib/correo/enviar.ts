@@ -72,26 +72,42 @@ export async function enviarDesdeCuenta(input: {
   cc?: string | null;
   asunto: string;
   texto: string;
+  /** Cuerpo HTML (redactor con formato). Si viene, el mensaje sale multipart: HTML + texto. */
+  html?: string | null;
+  /** Partes INCRUSTADAS (imágenes/GIFs del cuerpo y de la firma), referidas por cid: en el HTML. */
+  inlines?: { cid: string; nombre: string; mime: string; contenido: Buffer }[];
   // Para responder EN HILO: el Message-ID del original y su cadena References completa —
   // con solo el id del padre, Gmail del otro lado partiría hilos largos en dos.
   enRespuestaA?: string | null;
   referencias?: string | null;
   adjuntos?: { nombre: string; mime: string; contenido: Buffer }[];
+  /** Proyecto del hilo (heredado o elegido): la copia local queda ya asignada. */
+  projectId?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const cuenta = await db.mailAccount.findUnique({ where: { id: input.accountId } });
   if (!cuenta) return { ok: false, error: "La cuenta de correo ya no existe." };
 
   const referencias = [input.referencias, input.enRespuestaA].filter(Boolean).join(" ").trim() || undefined;
+  // Las incrustadas van como adjuntos con cid + disposición inline; las normales, como siempre.
+  const attachments = [
+    ...(input.inlines ?? []).map((p) => ({
+      filename: p.nombre,
+      content: p.contenido,
+      contentType: p.mime,
+      cid: p.cid,
+      contentDisposition: "inline" as const,
+    })),
+    ...(input.adjuntos ?? []).map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.mime })),
+  ];
   const opciones = {
     from: { name: input.nombreRemitente, address: cuenta.email },
     to: input.para,
     ...(input.cc ? { cc: input.cc } : {}),
     subject: input.asunto,
     text: input.texto,
+    ...(input.html ? { html: input.html } : {}),
     ...(input.enRespuestaA ? { inReplyTo: input.enRespuestaA, references: referencias } : {}),
-    ...(input.adjuntos?.length
-      ? { attachments: input.adjuntos.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.mime })) }
-      : {}),
+    ...(attachments.length ? { attachments } : {}),
   };
 
   // El mensaje se COMPONE una sola vez y ese mismo crudo se envía y se appendea: lo que hay
@@ -134,6 +150,8 @@ export async function enviarDesdeCuenta(input: {
         date: new Date(),
         snippet: input.texto.replace(/\s+/g, " ").trim().slice(0, 180),
         textBody: input.texto.slice(0, 200_000),
+        htmlBody: input.html ? input.html.slice(0, 400_000) : null,
+        projectId: input.projectId ?? null,
         seen: true,
         attachments: input.adjuntos?.length
           ? input.adjuntos.map((a, i) => ({ indice: i, nombre: a.nombre.slice(0, 200), mime: a.mime.slice(0, 100), bytes: a.contenido.length }))

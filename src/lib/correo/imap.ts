@@ -99,6 +99,9 @@ function filaDe(accountId: string, uid: number, flags: Set<string>, parsed: Pars
           nombre: (a.filename ?? `adjunto-${i + 1}`).slice(0, 200),
           mime: (a.contentType ?? "application/octet-stream").slice(0, 100),
           bytes: a.size ?? 0,
+          // Content-ID de las partes INCRUSTADAS (firmas, GIFs): con él la vista resuelve
+          // los <img src="cid:..."> del HTML a nuestra ruta autenticada.
+          ...(a.contentId ? { cid: a.contentId.replace(/[<>]/g, "").slice(0, 200).toLowerCase() } : {}),
         }))
       : undefined,
   };
@@ -134,6 +137,10 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
   const cuenta = await db.mailAccount.findUnique({ where: { id: accountId } });
   if (!cuenta) return { nuevos: 0, error: "La cuenta ya no existe." };
   const clientesCatalogo = await catalogoClientes();
+  // Reglas de la cuenta («lo de este remitente va al proyecto X»): se aplican al llegar.
+  const reglas = new Map(
+    (await db.mailRule.findMany({ where: { accountId }, select: { fromEmail: true, projectId: true } })).map((r) => [r.fromEmail, r]),
+  );
 
   const client = clienteImap(cuenta);
   let nuevos = 0;
@@ -203,10 +210,21 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
           fila = filaDe(accountId, uid, flags, await simpleParser(full.source), clientesCatalogo);
         }
 
+        // Proyecto del mensaje nuevo: manda la REGLA del remitente; sin regla, se HEREDA del
+        // hilo (si alguien ya asignó la conversación a un proyecto, lo que llegue sigue ahí).
+        let projectId = reglas.get((fila.fromEmail ?? "").toLowerCase())?.projectId ?? null;
+        if (!projectId && fila.threadKey) {
+          const hermano = await db.mailMessage.findFirst({
+            where: { accountId, threadKey: fila.threadKey, projectId: { not: null } },
+            select: { projectId: true },
+          });
+          projectId = hermano?.projectId ?? null;
+        }
+
         // Upsert por (cuenta, carpeta, uid): resincronizar jamás duplica.
         await db.mailMessage.upsert({
           where: { accountId_folder_uid: { accountId, folder: "INBOX", uid: BigInt(uid) } },
-          create: fila,
+          create: { ...fila, projectId },
           update: { seen: fila.seen, answered: fila.answered },
         });
         nuevos += 1;

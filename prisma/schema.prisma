@@ -192,6 +192,7 @@ model User {
   rastreoDeEl        TrackerShare[]     @relation("RastreoSujeto")
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
   mailAccount        MailAccount?
+  gifsSubidos        MailGif[]          @relation("GifDe")
   ausencias          Absence[]          @relation("AusenciaDe")
   ausenciasCreadas   Absence[]          @relation("AusenciaCreadaPor")
   runningTimer       RunningTimer?
@@ -691,6 +692,8 @@ model Project {
   workBlocks   WorkBlock[] // ratos del rastreador atribuidos a este proyecto
   clientRequests ClientRequest[]
   surveys        ProjectSurvey[]
+  correos      MailMessage[] @relation("CorreoDeProyecto") // hilos asignados a este proyecto
+  reglasCorreo MailRule[]    @relation("ReglaProyecto")
 
   // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
   // cae en ESTE proyecto SIN cuenta. Como el enlace de revisión: revocable + caducidad opcional.
@@ -1894,9 +1897,17 @@ model MailAccount {
   archiveFolder String?
   trashFolder   String?
 
+  // FIRMA del usuario: HTML corto editable (nombre, cargo, enlaces) + imagen en ALTA
+  // calidad (bytes originales, sin recomprimir). La imagen viaja INCRUSTADA (CID) en cada
+  // correo — Gmail la muestra sin el candado de «imágenes remotas» y no se degrada.
+  signatureHtml      String?
+  signatureImage     Bytes?
+  signatureImageMime String?
+
   createdAt DateTime      @default(now())
   messages  MailMessage[]
   drafts    MailDraft[]
+  rules     MailRule[]
 }
 
 // Un correo sincronizado (o enviado desde la app). El cuerpo HTML se guarda CRUDO y acotado,
@@ -1938,7 +1949,12 @@ model MailMessage {
   // el correo llega YA etiquetado por cliente, sin que nadie etiquete nada.
   client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
   clientId String?
-  // [{ indice, nombre, mime, bytes }] — solo el índice; los bytes se bajan del IMAP al pedirse.
+  // PROYECTO asignado a mano (o heredado del hilo, o por regla). Asignar EXPONE el hilo en
+  // la sección Correo del proyecto — es la decisión explícita de compartirlo con ese equipo.
+  project   Project? @relation("CorreoDeProyecto", fields: [projectId], references: [id], onDelete: SetNull)
+  projectId String?
+  // [{ indice, nombre, mime, bytes, cid? }] — solo metadatos; los bytes se bajan del IMAP al
+  // pedirse. `cid` (Content-ID) permite pintar las imágenes INCRUSTADAS del mensaje.
   attachments Json?
 
   createdAt DateTime @default(now())
@@ -1948,6 +1964,35 @@ model MailMessage {
   @@index([accountId, seen])
   @@index([accountId, threadKey])
   @@index([accountId, clientId])
+  @@index([projectId])
+}
+
+// GIFs y stickers DEL ESTUDIO: se suben una vez y todo el equipo los inserta en sus correos
+// (incrustados como CID, así que se mueven de verdad en la bandeja del cliente). Es la
+// biblioteca compartida — sin depender de Giphy ni de servicios externos.
+model MailGif {
+  id          String   @id @default(cuid())
+  nombre      String
+  mime        String   @default("image/gif")
+  bytes       Bytes
+  createdBy   User?    @relation("GifDe", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime @default(now())
+}
+
+// REGLA simple de bandeja (subconjunto útil de MailPlus): lo que llegue de este remitente
+// se asigna solo a un proyecto y/o se archiva. Se aplica al sincronizar.
+model MailRule {
+  id        String      @id @default(cuid())
+  account   MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+  fromEmail String // remitente exacto (minúsculas)
+  project   Project? @relation("ReglaProyecto", fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String?
+  archivar  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, fromEmail])
 }
 
 // Un BORRADOR del compositor: lo que se estaba escribiendo, guardado solo (autosave). Vive

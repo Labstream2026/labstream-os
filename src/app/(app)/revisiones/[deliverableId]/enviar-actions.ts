@@ -8,8 +8,10 @@ import { signReviewToken } from "@/lib/review-token";
 import { isEmailEnabled, sendEmail } from "@/lib/email";
 import { sendWhatsappText, toWhatsappNumber } from "@/lib/whatsapp/send";
 import { logActivity } from "@/lib/activity";
-import { textoWhatsapp, textoCorreo, asuntoCorreo, type PiezaCompartida } from "@/lib/review-share";
+import { textoWhatsapp, textoCorreo, asuntoCorreo, htmlCorreoRevision, type PiezaCompartida } from "@/lib/review-share";
 import { sellarEnvioCliente } from "@/lib/envio-cliente";
+import { enviarDesdeCuenta } from "@/lib/correo/enviar";
+import { bloqueFirma, type ParteInline } from "@/lib/correo/redactar";
 
 // ── Mandarle al cliente el enlace de UNA pieza, desde la sala de revisión ──────
 // El envío en lote de /revisiones (bulk-actions) exige GESTIONAR el proyecto, y eso deja fuera
@@ -102,26 +104,54 @@ export async function enviarEnlaceRevision(
       await db.client.update({ where: { id: d.project.clientId }, data: { phone } }).catch(() => null);
     }
   } else {
-    if (!(await isEmailEnabled())) return { ok: false, error: "El correo no está configurado (SMTP)." };
     const to = input.to.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { ok: false, error: "Correo del cliente inválido." };
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const html =
-      `<p>Hola,</p>` +
-      `<p>${esc(session.name)} te comparte esta pieza de <b>${esc(d.project.name)}</b> para tu revisión.</p>` +
-      (nota ? `<p>${esc(nota)}</p>` : "") +
-      `<table style="border-collapse:collapse"><tr><td style="padding:6px 0"><b>${esc(piezas[0].titulo)}</b><br>` +
-      `<a href="${piezas[0].url}" style="color:#4f46e5">Ver y comentar</a></td></tr></table>` +
-      `<p style="color:#666;font-size:12px">Labstream Studio</p>`;
-    const r = await sendEmail({
-      to,
-      from: session.email ? `${session.name} <${session.email}>` : undefined,
-      replyTo: session.email,
-      subject: asuntoCorreo(piezas),
-      html,
-      text: textoCorreo(piezas, session.name, nota),
+
+    // Preferido: el BUZÓN PROPIO del que envía (Correo 2.0). El cliente recibe la tarjeta
+    // bonita CON la firma real, la respuesta cae en la bandeja de quien envió, y el hilo
+    // queda ligado al proyecto desde el primer mensaje. Sin buzón conectado, el SMTP del
+    // sistema de siempre.
+    const cuentaPropia = await db.mailAccount.findUnique({
+      where: { userId: session.id },
+      select: { id: true, signatureHtml: true, signatureImage: true, signatureImageMime: true },
     });
-    if (!r.ok) return { ok: false, error: r.error };
+    const yo = await db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } });
+    const tarjeta = htmlCorreoRevision(piezas, session.name, nota);
+
+    if (cuentaPropia) {
+      const firma = bloqueFirma({
+        nombre: yo?.name ?? session.name,
+        cargo: yo?.title,
+        firmaHtml: cuentaPropia.signatureHtml,
+        tieneImagen: !!cuentaPropia.signatureImage,
+      });
+      const inlines: ParteInline[] = [];
+      if (firma.cidImagen && cuentaPropia.signatureImage) {
+        inlines.push({ cid: firma.cidImagen, nombre: "firma.png", mime: cuentaPropia.signatureImageMime ?? "image/png", contenido: Buffer.from(cuentaPropia.signatureImage) });
+      }
+      const r = await enviarDesdeCuenta({
+        accountId: cuentaPropia.id,
+        nombreRemitente: session.name ?? "Labstream",
+        para: to,
+        asunto: asuntoCorreo(piezas),
+        texto: textoCorreo(piezas, session.name, nota),
+        html: tarjeta + firma.html,
+        inlines,
+        projectId: d.projectId,
+      });
+      if (!r.ok) return { ok: false, error: r.error };
+    } else {
+      if (!(await isEmailEnabled())) return { ok: false, error: "Conecta tu buzón en Correo (o configura el SMTP del sistema) para enviar por correo." };
+      const r = await sendEmail({
+        to,
+        from: session.email ? `${session.name} <${session.email}>` : undefined,
+        replyTo: session.email,
+        subject: asuntoCorreo(piezas),
+        html: tarjeta + `<p style="color:#71717a;font-size:12px;font-family:sans-serif">Labstream Studio · labstreamsas.com</p>`,
+        text: textoCorreo(piezas, session.name, nota),
+      });
+      if (!r.ok) return { ok: false, error: r.error };
+    }
   }
 
   // El sello que instruye a la bandeja: cuándo salió, por dónde, a quién, y el plazo de

@@ -22,7 +22,8 @@ import { ProjectSettings } from "@/components/project-settings";
 import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
-import { Lock, FileText, ChevronDown, Inbox, Megaphone, Users, Settings } from "lucide-react";
+import { Lock, FileText, ChevronDown, Inbox, Megaphone, Users, Settings, Mail as MailIcon } from "lucide-react";
+import { CorreoProyecto } from "./correo-proyecto";
 import {
   IconTablero, IconTareas, IconCalendario, IconCronograma, IconEntregas,
   IconArchivo, IconNotas, IconEquipo, IconActividad,
@@ -98,6 +99,7 @@ const TABS = [
   { key: "archivos", label: "Archivos", group: "entregables", Icon: IconArchivo },
   { key: "notas", label: "Notas", group: "contenido", Icon: IconNotas },
   { key: "equipos", label: "Equipos", group: "operacion", Icon: IconEquipo },
+  { key: "correo", label: "Correo", group: "operacion", Icon: MailIcon },
   { key: "actividad", label: "Actividad", group: "operacion", Icon: IconActividad },
 ];
 const GROUP_LABEL: Record<string, string> = { contenido: "Contenido", entregables: "Entregables", operacion: "Operación" };
@@ -1161,6 +1163,8 @@ export default async function ProyectoPage({
             canWrite={hasPermission(session, "editar_notas") && session?.role !== "demo"}
           />
         ) : null}
+
+        {tab === "correo" ? <CorreoProyecto projectId={id} sessionUserId={session?.id ?? null} /> : null}
 
         {tab === "actividad" && hasPermission(session, "ver_actividad") ? (
           <ActivityFeed

@@ -7,6 +7,8 @@ import { encryptSecret } from "@/lib/crypto";
 import { logActivity } from "@/lib/activity";
 import { marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
 import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
+import { sanearSaliente, extraerInlines, bloqueFirma, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
+import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
 
 // ── Acciones del correo personal ────────────────────────────────────────────
 // Todas parten de la MISMA verdad: la cuenta es la del usuario de la sesión y nada más. No
@@ -111,24 +113,32 @@ const MAX_ADJUNTOS_BYTES = 15 * 1024 * 1024;
 
 /**
  * Envía desde el FORMULARIO del compositor (FormData por los archivos). Cubre los tres modos:
- * nuevo, responder (en hilo, con References completo) y reenviar (cita el original).
+ * nuevo, responder (en hilo, con References completo) y reenviar (cita el original). El cuerpo
+ * llega como HTML del redactor: se sanea, sus imágenes se vuelven partes CID (GIFs de la
+ * biblioteca incluidos) y la firma —con su imagen en alta calidad— se anexa al final.
  */
 export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; error?: string }> {
   const session = await sesionEquipo();
   if (!session) return { ok: false, error: "El correo es solo para el equipo." };
-  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true, email: true } });
+  const cuenta = await db.mailAccount.findUnique({
+    where: { userId: session.id },
+    select: { id: true, email: true, signatureHtml: true, signatureImage: true, signatureImageMime: true },
+  });
   if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
 
   const para = String(fd.get("para") ?? "").trim();
   const cc = String(fd.get("cc") ?? "").trim();
   let asunto = String(fd.get("asunto") ?? "").trim().slice(0, 300);
-  let texto = String(fd.get("texto") ?? "").trim();
+  const htmlCrudo = String(fd.get("html") ?? "").trim();
+  const textoCrudo = String(fd.get("texto") ?? "").trim();
   const responderAId = String(fd.get("responderAId") ?? "").trim() || null;
   const reenviarDeId = String(fd.get("reenviarDeId") ?? "").trim() || null;
 
   if (!para || !listaValida(para)) return { ok: false, error: "El destinatario no parece una dirección válida." };
   if (cc && !listaValida(cc)) return { ok: false, error: "Hay una dirección inválida en CC." };
-  if (!texto) return { ok: false, error: "El mensaje está vacío." };
+  // El redactor manda `html`; `texto` queda como respaldo (borradores viejos, sin JS).
+  let html = htmlCrudo ? sanearSaliente(htmlCrudo) : htmlDeTexto(textoCrudo);
+  if (!textoDeHtml(html).trim() && !/<img\b/i.test(html)) return { ok: false, error: "El mensaje está vacío." };
 
   // Adjuntos del formulario, con tope total.
   const adjuntos: { nombre: string; mime: string; contenido: Buffer }[] = [];
@@ -144,13 +154,14 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   // este candado serviría para leer Message-IDs (y textos) ajenos.
   let enRespuestaA: string | null = null;
   let referencias: string | null = null;
-  let original: { id: string; uid: bigint; folder: string } | null = null;
+  let original: { id: string; uid: bigint; folder: string; projectId: string | null } | null = null;
+  let projectId: string | null = null;
   const origenId = responderAId ?? reenviarDeId;
   if (origenId) {
     const orig = await db.mailMessage.findUnique({
       where: { id: origenId },
       select: {
-        id: true, uid: true, folder: true, messageId: true, inReplyTo: true, threadKey: true,
+        id: true, uid: true, folder: true, messageId: true, inReplyTo: true, threadKey: true, projectId: true,
         fromName: true, fromEmail: true, toList: true, subject: true, date: true, textBody: true,
         account: { select: { id: true } },
       },
@@ -162,17 +173,41 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
       // lado parte los hilos largos en dos.
       referencias = [orig.threadKey, orig.messageId].filter((x, i, a) => x && a.indexOf(x) === i).join(" ");
       original = orig;
+      projectId = orig.projectId; // la respuesta hereda el proyecto del hilo
     } else {
       // Reenviar: el original citado en el cuerpo, al estilo de siempre.
       asunto = asunto || `Fwd: ${orig.subject}`;
       const fecha = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" }).format(orig.date);
-      texto += `\n\n---------- Mensaje reenviado ----------\nDe: ${orig.fromName ?? ""} <${orig.fromEmail ?? ""}>\nFecha: ${fecha}\nAsunto: ${orig.subject}\nPara: ${orig.toList}\n\n${(orig.textBody ?? "").slice(0, 100_000)}`;
+      html += `<br><br><div>---------- Mensaje reenviado ----------<br>De: ${htmlDeTexto(`${orig.fromName ?? ""} <${orig.fromEmail ?? ""}>`)}<br>Fecha: ${htmlDeTexto(fecha)}<br>Asunto: ${htmlDeTexto(orig.subject)}<br>Para: ${htmlDeTexto(orig.toList)}</div><blockquote>${htmlDeTexto((orig.textBody ?? "").slice(0, 100_000))}</blockquote>`;
     }
   }
 
-  // Firma automática: nombre + cargo reales, no un texto pegado a mano en cada correo.
+  // Firma: la personalizada del usuario (o la institucional con nombre + cargo), con su
+  // imagen INCRUSTADA en alta calidad — nada de firmas pixeladas ni bloqueadas por Gmail.
   const yo = await db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } });
-  texto += `\n\n—\n${yo?.name ?? session.name}${yo?.title ? ` · ${yo.title}` : ""}\nLabstream Studio · labstreamsas.com`;
+  const firma = bloqueFirma({
+    nombre: yo?.name ?? session.name ?? "Labstream",
+    cargo: yo?.title,
+    firmaHtml: cuenta.signatureHtml,
+    tieneImagen: !!cuenta.signatureImage,
+  });
+  html += firma.html;
+
+  // Imágenes del cuerpo (pegadas o de la biblioteca de GIFs) → partes CID.
+  const extraccion = await extraerInlines(html, async (id) => {
+    const g = await db.mailGif.findUnique({ where: { id }, select: { nombre: true, mime: true, bytes: true } });
+    return g ? { nombre: g.nombre, mime: g.mime, contenido: Buffer.from(g.bytes) } : null;
+  });
+  if (extraccion.error) return { ok: false, error: extraccion.error };
+  const inlines: ParteInline[] = extraccion.inlines;
+  if (firma.cidImagen && cuenta.signatureImage) {
+    inlines.push({
+      cid: firma.cidImagen,
+      nombre: "firma.png",
+      mime: cuenta.signatureImageMime ?? "image/png",
+      contenido: Buffer.from(cuenta.signatureImage),
+    });
+  }
 
   const r = await enviarDesdeCuenta({
     accountId: cuenta.id,
@@ -180,10 +215,13 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
     para,
     cc: cc || null,
     asunto: asunto || "(sin asunto)",
-    texto,
+    texto: textoDeHtml(extraccion.html),
+    html: extraccion.html,
+    inlines,
     enRespuestaA,
     referencias,
     adjuntos,
+    projectId,
   });
   if (!r.ok) return r;
 
@@ -310,4 +348,111 @@ export async function moverCorreos(ids: string[], destino: "ARCHIVO" | "PAPELERA
   }
   revalidatePath("/correo");
   return { ok: !error, error };
+}
+
+// ── Firma del usuario (HTML corto + imagen en alta calidad) ──
+export async function guardarFirma(fd: FormData): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
+
+  const html = sanearSaliente(String(fd.get("firmaHtml") ?? "").trim()).slice(0, 4000) || null;
+  const quitarImagen = String(fd.get("quitarImagen") ?? "") === "1";
+
+  let imagen: Uint8Array<ArrayBuffer> | null | undefined = quitarImagen ? null : undefined;
+  let mime: string | null | undefined = quitarImagen ? null : undefined;
+  const archivo = fd.get("imagen");
+  if (archivo instanceof File && archivo.size > 0) {
+    if (archivo.size > 500 * 1024) return { ok: false, error: "La imagen de la firma no debe pasar de 500 KB (súbela a 2× de tamaño para que se vea nítida, pero optimizada)." };
+    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(archivo.type)) return { ok: false, error: "La firma acepta PNG, JPG, WebP o GIF." };
+    imagen = new Uint8Array(await archivo.arrayBuffer());
+    mime = archivo.type.toLowerCase();
+  }
+
+  await db.mailAccount.update({
+    where: { id: cuenta.id },
+    data: { signatureHtml: html, ...(imagen !== undefined ? { signatureImage: imagen, signatureImageMime: mime } : {}) },
+  });
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+// ── Biblioteca de GIFs del estudio (compartida por todo el equipo) ──
+export async function subirGif(fd: FormData): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const archivo = fd.get("gif");
+  if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, error: "Falta el archivo." };
+  if (archivo.size > 3 * 1024 * 1024) return { ok: false, error: "Máximo 3 MB por GIF: uno más pesado infla cada correo que lo lleve." };
+  if (!/^image\/(gif|webp|png|jpe?g)$/i.test(archivo.type)) return { ok: false, error: "Sube un GIF (o WebP/PNG/JPG)." };
+  const nombre = (String(fd.get("nombre") ?? "").trim() || archivo.name.replace(/\.[a-z0-9]+$/i, "")).slice(0, 80);
+  await db.mailGif.create({
+    data: { nombre, mime: archivo.type.toLowerCase(), bytes: new Uint8Array(await archivo.arrayBuffer()), createdById: session.id },
+  });
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+export async function eliminarGif(id: string): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  // Cualquiera del equipo puede curar la biblioteca (es compartida); queda en la bitácora.
+  const g = await db.mailGif.delete({ where: { id }, select: { nombre: true } }).catch(() => null);
+  if (g) await logActivity({ action: "correo.gif", summary: `quitó «${g.nombre}» de la biblioteca de GIFs`, entityType: "correo", silent: true });
+  revalidatePath("/correo");
+}
+
+// ── Asignar un hilo a un PROYECTO ──
+// Asignar EXPONE el hilo en la sección Correo de ese proyecto (los correos son personales;
+// esta es la decisión explícita de compartirlos con ese equipo). `regla` además deja
+// programado que TODO lo futuro de ese remitente caiga solo en el proyecto.
+export async function asignarProyectoHilo(
+  ids: string[],
+  projectId: string | null,
+  opts?: { reglaRemitente?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const msgs = await db.mailMessage.findMany({
+    where: { id: { in: [...new Set(ids)].slice(0, 100) }, account: { userId: session.id } },
+    select: { id: true, account: { select: { id: true } } },
+  });
+  if (!msgs.length) return { ok: false, error: "Ese hilo no existe." };
+
+  if (projectId) {
+    // El proyecto tiene que existir y el usuario poder VERLO (no asignar a ciegas por id).
+    const proyecto = await db.project.findUnique({ where: { id: projectId }, select: PROJECT_ACCESS_SELECT });
+    if (!proyecto || !canAccessProject(proyecto, session)) return { ok: false, error: "No puedes asignar a ese proyecto." };
+  }
+
+  await db.mailMessage.updateMany({ where: { id: { in: msgs.map((m) => m.id) } }, data: { projectId } });
+
+  // Regla opcional: lo próximo de este remitente cae solo (o se borra la regla al desasignar).
+  const remitente = opts?.reglaRemitente?.trim().toLowerCase() || null;
+  if (remitente && RE_MAIL.test(remitente)) {
+    const accountId = msgs[0].account.id;
+    if (projectId) {
+      await db.mailRule.upsert({
+        where: { accountId_fromEmail: { accountId, fromEmail: remitente } },
+        create: { accountId, fromEmail: remitente, projectId },
+        update: { projectId },
+      });
+    } else {
+      await db.mailRule.deleteMany({ where: { accountId, fromEmail: remitente } });
+    }
+  }
+
+  if (projectId) {
+    await logActivity({
+      action: "correo.proyecto",
+      summary: `asignó un hilo de correo al proyecto`,
+      projectId,
+      entityType: "correo",
+      silent: true,
+    });
+    revalidatePath(`/proyectos/${projectId}`);
+  }
+  revalidatePath("/correo");
+  return { ok: true };
 }

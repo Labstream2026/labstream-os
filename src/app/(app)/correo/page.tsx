@@ -1,20 +1,23 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Clock, FileText, Inbox, Mail, Paperclip, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { Archive, Clock, FileText, Inbox, Mail, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
-import { sanearCorreo } from "@/lib/correo/sanitizar";
+import { sanearCorreo, cidLimpio } from "@/lib/correo/sanitizar";
+import { bloqueFirma } from "@/lib/correo/redactar";
 import { sincronizarCuenta } from "@/lib/correo/imap";
 import { agruparHilos, asuntoLimpio } from "@/lib/correo/hilos";
 import { estadoRonda } from "@/lib/rondas";
+import { accessibleProjectWhere, aliveProjectWhere } from "@/lib/project-access";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { ConectarCorreo } from "./conectar";
 import { desconectarCorreo, eliminarBorrador, sincronizarAhora } from "./acciones";
 import { AbrirBorrador, BotonRedactar, CompositorProvider } from "./compositor";
-import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM } from "./bandeja";
+import { PanelFirma, BibliotecaGifs } from "./firma-gifs";
+import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM, type ProyectoAsignable } from "./bandeja";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +28,8 @@ export const dynamic = "force-dynamic";
 // lo que Gmail no puede hacer: el correo cruzado con el CRM y el estado real del proyecto.
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
-type Adjunto = { indice: number; nombre: string; mime: string; bytes: number };
-type CarpetaKey = "recibidos" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera";
+type Adjunto = { indice: number; nombre: string; mime: string; bytes: number; cid?: string };
+type CarpetaKey = "recibidos" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
 const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "recibidos", label: "Recibidos", Icon: Inbox },
   { key: "destacados", label: "Destacados", Icon: Star },
@@ -35,6 +38,7 @@ const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "borradores", label: "Borradores", Icon: FileText },
   { key: "archivo", label: "Archivo", Icon: Archive },
   { key: "papelera", label: "Papelera", Icon: Trash2 },
+  { key: "ajustes", label: "Firma y GIFs", Icon: PenTool },
 ];
 
 export default async function CorreoPage({ searchParams }: { searchParams: Promise<{ c?: string; q?: string; h?: string; img?: string }> }) {
@@ -69,17 +73,17 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       ? { flagged: true, folder: { not: "PAPELERA" } }
       : carpeta === "pospuestos"
         ? { snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } }
-        : carpeta === "recibidos"
+        : carpeta === "recibidos" || carpeta === "ajustes"
           ? { folder: "INBOX", OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] }
           : { folder: carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
 
-  const [mensajes, sinLeer, nPospuestos, borradores, porCliente, clientes, contactosEquipo] = await Promise.all([
+  const [mensajes, sinLeer, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
         ...whereCarpeta,
         ...(q
-          ? { OR: [{ subject: { contains: q, mode: "insensitive" } }, { fromEmail: { contains: q, mode: "insensitive" } }, { fromName: { contains: q, mode: "insensitive" } }, { snippet: { contains: q, mode: "insensitive" } }] }
+          ? { OR: [{ subject: { contains: q, mode: "insensitive" } }, { fromEmail: { contains: q, mode: "insensitive" } }, { fromName: { contains: q, mode: "insensitive" } }, { snippet: { contains: q, mode: "insensitive" } }, { textBody: { contains: q, mode: "insensitive" } }] }
           : {}),
       },
       orderBy: { date: "desc" },
@@ -96,11 +100,25 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     // Autocompletar del compositor: equipo + miembros de portales de clientes. Del CRM, no
     // de una libreta aparte.
     db.user.findMany({ where: { active: true, isSystemBot: false, isGuest: false }, select: { email: true } }),
+    // La biblioteca de GIFs (solo metadatos: los bytes los sirve /api/correo/gif/<id>).
+    db.mailGif.findMany({ orderBy: { createdAt: "desc" }, take: 60, select: { id: true, nombre: true, createdBy: { select: { name: true } } } }),
+    db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } }),
   ]);
 
   const clienteInfo = new Map(clientes.filter((c) => c.client).map((c) => [c.client!.id, { nombre: c.client!.name, hex: tone(c.client!.accentColor ?? "slate").hex }]));
   const noLeidosCliente = new Map(porCliente.map((r) => [r.clientId!, r._count._all]));
   const contactos = [...new Set(contactosEquipo.map((u) => u.email).filter(Boolean))].sort();
+  const gifs = gifsLib.map((g) => ({ id: g.id, nombre: g.nombre }));
+
+  // La firma tal como saldrá (para la vista previa del compositor): el cid de la imagen se
+  // sustituye por la ruta propia — en el correo real viaja incrustada.
+  const firma = bloqueFirma({
+    nombre: yo?.name ?? session.name ?? "Labstream",
+    cargo: yo?.title,
+    firmaHtml: cuenta.signatureHtml,
+    tieneImagen: !!cuenta.signatureImage,
+  });
+  const firmaPreview = firma.html.replace(/cid:firma@labstream/g, "/api/correo/firma-imagen");
 
   const hiloAbiertoIds = (sp.h ?? "").split(".").filter(Boolean).slice(0, 60);
   const linkBase = `/correo?c=${clFiltro ? `cliente:${clFiltro}` : carpeta}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
@@ -136,12 +154,30 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     ? await db.mailMessage.findMany({
         where: { id: { in: hiloAbiertoIds }, accountId: cuenta.id },
         orderBy: { date: "asc" },
-        select: { id: true, folder: true, fromName: true, fromEmail: true, toList: true, ccList: true, subject: true, snippet: true, date: true, textBody: true, htmlBody: true, seen: true, clientId: true, attachments: true },
+        select: { id: true, folder: true, fromName: true, fromEmail: true, toList: true, ccList: true, subject: true, snippet: true, date: true, textBody: true, htmlBody: true, seen: true, clientId: true, attachments: true, projectId: true, project: { select: { id: true, name: true } } },
       })
     : [];
 
   // Banner CRM del hilo: cliente + la pieza que está en su cancha ahora mismo.
   const hiloClienteId = hiloMsgs.map((m) => m.clientId).find(Boolean) ?? null;
+
+  // ── Proyecto del hilo + a cuáles se puede asignar ──
+  // Los del cliente detectado van de primeros (es casi siempre la respuesta); después el
+  // resto de proyectos vivos que el usuario puede ver.
+  const hiloProyecto = hiloMsgs.map((m) => m.project).find(Boolean) ?? null;
+  const proyectosAsignables: ProyectoAsignable[] = hiloMsgs.length
+    ? (
+        await db.project.findMany({
+          where: { ...accessibleProjectWhere(session), ...aliveProjectWhere },
+          orderBy: [{ updatedAt: "desc" }],
+          take: 60,
+          select: { id: true, name: true, clientId: true },
+        })
+      )
+        .sort((a, b) => Number(b.clientId === hiloClienteId) - Number(a.clientId === hiloClienteId))
+        .map((p) => ({ id: p.id, nombre: p.name }))
+    : [];
+  const hiloRemitente = hiloMsgs.find((m) => m.folder !== "ENVIADOS")?.fromEmail ?? null;
   const crm = hiloClienteId
     ? await db.client.findUnique({
         where: { id: hiloClienteId },
@@ -183,7 +219,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     : null;
 
   return (
-    <CompositorProvider contactos={contactos}>
+    <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs}>
       <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-6">
         <PageHeader title="Correo" description={cuenta.email} icon={<Mail className="size-4" />} />
 
@@ -231,7 +267,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12px]"><b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span></p>
             ) : null}
 
-            {carpeta === "borradores" && !clFiltro ? (
+            {carpeta === "ajustes" && !clFiltro ? (
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+                <PanelFirma firmaHtml={cuenta.signatureHtml ?? ""} imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null} />
+                <BibliotecaGifs gifs={gifsLib.map((g) => ({ id: g.id, nombre: g.nombre, autor: g.createdBy?.name ?? null }))} />
+              </div>
+            ) : carpeta === "borradores" && !clFiltro ? (
               <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
                 {borradores.map((b) => (
                   <li key={b.id} className="group flex h-11 items-center gap-2 px-4 hover:bg-accent/40">
@@ -256,7 +297,14 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} />
             ) : (
               <>
-                <BarraHilo ids={hiloMsgs.map((m) => m.id)} carpeta={carpeta} volverHref={linkBase} />
+                <BarraHilo
+                  ids={hiloMsgs.map((m) => m.id)}
+                  carpeta={carpeta}
+                  volverHref={linkBase}
+                  proyectos={proyectosAsignables}
+                  proyectoActual={hiloProyecto ? { id: hiloProyecto.id, nombre: hiloProyecto.name } : null}
+                  remitente={hiloRemitente}
+                />
                 <MarcarHiloLeido ids={hiloMsgs.filter((m) => !m.seen && m.folder === "INBOX").map((m) => m.id)} />
                 <article className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
                   <h1 className="flex flex-wrap items-center gap-2 text-[18px] font-medium">
@@ -283,8 +331,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                   <div className="mt-2 space-y-2.5">
                     {hiloMsgs.map((m, i) => {
                       const esUltimo = i === hiloMsgs.length - 1;
-                      const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id }) : null;
                       const adjuntos = ((m.attachments as Adjunto[] | null) ?? []).filter((a) => a && typeof a.indice === "number");
+                      // Imágenes INCRUSTADAS (firmas, GIFs): cid → nuestra ruta autenticada.
+                      const cids = new Map(adjuntos.filter((a) => a.cid).map((a) => [cidLimpio(a.cid!), `/api/correo/inline/${m.id}/${a.indice}`]));
+                      const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id, cids }) : null;
                       return (
                         <details key={m.id} open={esUltimo} className="group/msg rounded-xl border border-border open:bg-card [&:not([open])]:bg-muted/30">
                           <summary className="flex cursor-pointer list-none items-baseline gap-2.5 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
