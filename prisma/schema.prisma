@@ -193,6 +193,7 @@ model User {
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
   mailAccount        MailAccount?
   gifsSubidos        MailGif[]          @relation("GifDe")
+  plantillasCorreo   MailTemplate[]     @relation("PlantillaCorreoDe")
   llamadosCreados    CallSheet[]        @relation("LlamadoCreador")
   llamados           CallSheetPerson[]  @relation("LlamadoPersona")
   ausencias          Absence[]          @relation("AusenciaDe")
@@ -1981,6 +1982,19 @@ model MailGif {
   createdBy   User?    @relation("GifDe", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime @default(now())
+}
+
+// PLANTILLA de correo del estudio: un cuerpo bien armado (bloques, botón, colores) que se
+// guarda UNA vez y todo el equipo aplica desde el redactor. Compartidas a propósito — la
+// gracia es que el correo de entrega se vea igual de bien lo mande quien lo mande.
+model MailTemplate {
+  id          String   @id @default(cuid())
+  nombre      String
+  html        String // cuerpo saneado con la MISMA allowlist del redactor
+  createdBy   User?    @relation("PlantillaCorreoDe", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // REGLA simple de bandeja (subconjunto útil de MailPlus): lo que llegue de este remitente

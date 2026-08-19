@@ -394,6 +394,30 @@ export async function subirGif(fd: FormData): Promise<{ ok: boolean; error?: str
   return { ok: true };
 }
 
+// ── Plantillas de correo del estudio ──
+// Se guardan desde el propio redactor («Guardar lo escrito como plantilla») y las aplica
+// cualquiera del equipo. El HTML entra por la MISMA allowlist del envío.
+export async function guardarPlantillaCorreo(nombre: string, html: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const limpio = sanearSaliente(html).slice(0, 100_000);
+  const n = nombre.trim().slice(0, 80);
+  if (!n) return { ok: false, error: "Ponle un nombre a la plantilla." };
+  if (!textoDeHtml(limpio).trim() && !/<img\b/i.test(limpio)) return { ok: false, error: "El cuerpo está vacío: escribe el correo primero y luego guárdalo como plantilla." };
+  await db.mailTemplate.create({ data: { nombre: n, html: limpio, createdById: session.id } });
+  await logActivity({ action: "correo.plantilla", summary: `guardó la plantilla de correo «${n}»`, entityType: "correo", silent: true });
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+export async function eliminarPlantillaCorreo(id: string): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  const p = await db.mailTemplate.delete({ where: { id }, select: { nombre: true } }).catch(() => null);
+  if (p) await logActivity({ action: "correo.plantilla", summary: `eliminó la plantilla de correo «${p.nombre}»`, entityType: "correo", silent: true });
+  revalidatePath("/correo");
+}
+
 export async function eliminarGif(id: string): Promise<void> {
   const session = await sesionEquipo();
   if (!session) return;

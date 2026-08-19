@@ -12,25 +12,45 @@ import sanitizeHtml from "sanitize-html";
 
 export type ParteInline = { cid: string; nombre: string; mime: string; contenido: Buffer };
 
-const TAGS_SALIENTE = ["a", "b", "i", "em", "strong", "u", "s", "p", "br", "div", "span", "ul", "ol", "li", "blockquote", "img", "hr"];
+const TAGS_SALIENTE = ["a", "b", "i", "em", "strong", "u", "s", "p", "br", "div", "span", "ul", "ol", "li", "blockquote", "img", "hr", "h2", "h3", "table", "tbody", "tr", "td"];
+
+// Colores que el redactor puede usar (paleta corta y sobria — la del estudio). Un correo
+// «óptimo» no es un arcoíris: se acota aquí y la barra solo ofrece estos.
+export const PALETA_CORREO = ["#18181b", "#71717a", "#0369a1", "#047857", "#b45309", "#be123c"] as const;
 
 export function sanearSaliente(html: string): string {
   return sanitizeHtml(html, {
     allowedTags: TAGS_SALIENTE,
     allowedAttributes: {
-      a: ["href", "target", "rel"],
+      a: ["href", "target", "rel", "style"],
       img: ["src", "alt", "width", "height", "style"],
+      table: ["width", "cellpadding", "cellspacing", "role", "style"],
+      td: ["style"],
       "*": ["style"],
     },
     allowedStyles: {
       "*": {
-        "font-weight": [/^(bold|normal)$/],
+        // Formato de texto + los estilos EN LÍNEA de los bloques (botón, caja, tarjeta):
+        // en correo no hay hoja de estilos — todo viaja pegado al elemento.
+        "font-weight": [/^(bold|normal|[1-9]00)$/],
         "font-style": [/^(italic|normal)$/],
+        "font-size": [/^[\d.]+(px|em)$/],
         "text-decoration": [/^[a-z\s-]+$/],
+        "text-align": [/^(left|center|right)$/],
+        color: [/^#[0-9a-f]{3,8}$/i],
+        "background-color": [/^#[0-9a-f]{3,8}$/i],
+        background: [/^#[0-9a-f]{3,8}$/i],
         width: [/^[\d.]+(px|%)$/],
         "max-width": [/^[\d.]+(px|%)$/],
         height: [/^auto$|^[\d.]+(px|%)$/],
+        padding: [/^[\d.\s]+(px)?[\d.\spx]*$/],
+        margin: [/^[\d.\s]+(px|auto)?[\d.\spxauto]*$/],
+        border: [/^[\w\s#]+$/],
+        "border-left": [/^[\w\s#]+$/],
         "border-radius": [/^[\d.]+px$/],
+        "border-collapse": [/^(separate|collapse)$/],
+        display: [/^(block|inline-block)$/],
+        "line-height": [/^[\d.]+(px|em)?$/],
       },
     },
     allowedSchemes: ["http", "https", "mailto"],

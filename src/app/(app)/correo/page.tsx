@@ -104,6 +104,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     db.mailGif.findMany({ orderBy: { createdAt: "desc" }, take: 60, select: { id: true, nombre: true, createdBy: { select: { name: true } } } }),
     db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } }),
   ]);
+  // Plantillas del estudio para el menú del redactor (las de fábrica van en el código).
+  const plantillasCorreo = await db.mailTemplate.findMany({
+    orderBy: { updatedAt: "desc" },
+    take: 40,
+    select: { id: true, nombre: true, html: true },
+  });
 
   const clienteInfo = new Map(clientes.filter((c) => c.client).map((c) => [c.client!.id, { nombre: c.client!.name, hex: tone(c.client!.accentColor ?? "slate").hex }]));
   const noLeidosCliente = new Map(porCliente.map((r) => [r.clientId!, r._count._all]));
@@ -219,7 +225,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     : null;
 
   return (
-    <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs}>
+    <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs} plantillas={plantillasCorreo}>
       <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-6">
         <PageHeader title="Correo" description={cuenta.email} icon={<Mail className="size-4" />} />
 
