@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import type { LabelRow } from "@/lib/colors";
@@ -9,7 +8,7 @@ import { type Task, type TeamMember } from "./task-shared";
 import { TasksBoard } from "./tasks-board";
 import { TasksList } from "./tasks-list";
 import { ViewTabs } from "./view-tabs";
-import { IconTablero, IconLista } from "@/components/icons";
+import { IconTablero, IconLista, IconEquipo } from "@/components/icons";
 
 // ── Vistas de tareas del proyecto ──
 // T1 · Filtro por PERSONA: chips de avatares sobre el tablero/lista (con «Sin responsable»
@@ -96,7 +95,9 @@ export function TasksViews({
           {
             key: "personas",
             label: "Por persona",
-            icon: <Users className="size-3.5" />,
+            // IconEquipo, no el de lucide: las otras dos pastillas del MISMO grupo son del set
+            // propio, así que esta salía gris y de línea entre dos a color.
+            icon: <IconEquipo />,
             // T2: los carriles muestran SIEMPRE todas las tareas (son el reparto completo).
             node: <PeopleLanes tasks={tasks} team={team} priorities={priorities} />,
           },

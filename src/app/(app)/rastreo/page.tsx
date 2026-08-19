@@ -21,7 +21,9 @@ export default async function RastreoPage({ searchParams }: { searchParams: Prom
   if (!datos) redirect("/");
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-7">
+    // max-w-7xl, el mismo que Reportes: son la pareja de tableros del estudio, comparten hasta
+    // el relleno apretado, y saltar de uno al otro movía el contenido 128 px de ancho.
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
       <RastreoShell datos={datos} />
     </div>
   );

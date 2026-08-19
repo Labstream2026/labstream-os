@@ -3,7 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Search, CalendarClock, AlertTriangle, List, Users } from "lucide-react";
+import { ChevronRight, Search, CalendarClock, AlertTriangle } from "lucide-react";
+import { IconLista, IconEquipo } from "@/components/icons";
 import { UserAvatar } from "@/components/user-avatar";
 import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
@@ -38,8 +39,10 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 type BoardView = "list" | "person";
 const VIEW_KEY = "labstream:team-tasks-view";
 const VIEWS: { key: BoardView; label: string; icon: React.ReactNode }[] = [
-  { key: "list", label: "Lista", icon: <List className="size-4" /> },
-  { key: "person", label: "Por persona", icon: <Users className="size-4" /> },
+  // Los MISMOS íconos que el conmutador de vistas de un proyecto: «Lista» y «Por persona» son
+  // las mismas dos vistas y aquí salían de la otra familia (línea gris contra duotono a color).
+  { key: "list", label: "Lista", icon: <IconLista className="size-4" /> },
+  { key: "person", label: "Por persona", icon: <IconEquipo className="size-4" /> },
 ];
 let viewSubs: (() => void)[] = [];
 const subscribeView = (cb: () => void) => {
