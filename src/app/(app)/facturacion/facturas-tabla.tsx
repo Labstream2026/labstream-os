@@ -151,8 +151,11 @@ export function FacturasTabla({ filas }: { filas: FilaFactura[] }) {
                 <td className="px-4 py-2.5">
                   <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", f.clase)}>{f.etiqueta}</span>
                 </td>
-                <td className="px-4 py-2.5 text-right font-medium">{formatMoney(f.total, "COP")}</td>
-                <td className={cn("px-4 py-2.5 text-right", f.saldo > 0 ? "font-medium" : "text-muted-foreground")}>{formatMoney(f.saldo, "COP")}</td>
+                {/* tabular-nums: sin ellas los puntos de miles no caen en la misma columna y
+                    hay que leer cada cifra entera para compararla con la de arriba. El resto de
+                    la app ya lo hace; esta tabla, la principal del dinero, se había quedado fuera. */}
+                <td className="px-4 py-2.5 text-right font-medium tabular-nums">{formatMoney(f.total, "COP")}</td>
+                <td className={cn("px-4 py-2.5 text-right tabular-nums", f.saldo > 0 ? "font-medium" : "text-muted-foreground")}>{formatMoney(f.saldo, "COP")}</td>
                 <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">{f.fecha}</td>
                 <td className="hidden px-4 py-2.5 text-xs text-muted-foreground sm:table-cell">{f.vence}</td>
               </tr>
