@@ -47,8 +47,12 @@ export function TasksList({
   const sorted = [...tasks].sort((a, b) => orderOf(a) - orderOf(b) || dueMs(a) - dueMs(b));
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full text-sm">
+    // overflow-x-auto y no overflow-hidden: son 9 columnas y en el celular las últimas quedaban
+    // CORTADAS sin forma de llegar a ellas — entre ellas la fecha de entrega, que es justo lo
+    // que se mira desde el teléfono. Mismo patrón que la lista de proyectos y la de clientes.
+    // El min-w evita que las columnas se aplasten en vez de desplazarse.
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full min-w-[860px] text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
             <th className="px-3 py-2 font-medium">Tarea</th>
