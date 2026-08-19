@@ -140,8 +140,32 @@ export async function addTask(id: string, formData: FormData) {
   if (!title) return;
   const priority = String(formData.get("priority") ?? "MEDIA") as TemplateContent["tasks"][number]["priority"];
   const stage = String(formData.get("stage") ?? "").trim() || undefined;
+
+  // ── El plan de producción de la tarea (opcional) ──
+  // Con ancla + offset + duración, la plantilla planifica hacia atrás al crear el proyecto
+  // (lib/plantillas/calendario) — igual que las de fábrica. Sin ellos, la tarea nace el día
+  // de creación, como siempre. El offset se acota a ±60 días hábiles y la duración a 30:
+  // más que eso no es un plan, es un dedazo.
+  const anclaRaw = String(formData.get("ancla") ?? "");
+  const ancla = anclaRaw === "entrega" || anclaRaw === "rodaje" ? anclaRaw : undefined;
+  const num = (campo: string, min: number, max: number): number | undefined => {
+    const v = Number.parseInt(String(formData.get(campo) ?? ""), 10);
+    return Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : undefined;
+  };
+  const offsetDias = ancla ? num("offsetDias", -60, 60) : undefined;
+  const duracionDias = ancla ? num("duracionDias", 1, 30) : undefined;
+  const horas = num("horas", 1, 200);
+  const role = String(formData.get("role") ?? "").trim() || undefined;
+
   const c = await loadContent(id);
-  c.tasks.push({ title, priority, ...(stage ? { stage } : {}) });
+  c.tasks.push({
+    title,
+    priority,
+    ...(stage ? { stage } : {}),
+    ...(ancla ? { ancla, offsetDias: offsetDias ?? 0, duracionDias: duracionDias ?? 1 } : {}),
+    ...(horas ? { estimatedMinutes: horas * 60 } : {}),
+    ...(role ? { role } : {}),
+  });
   await saveContent(id, c);
 }
 

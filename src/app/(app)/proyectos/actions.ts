@@ -29,11 +29,21 @@ export async function createProject(formData: FormData) {
   // No confiar en el clientId del formulario: exigir que el usuario pueda acceder a ese cliente.
   if (!(await userCanAccessClient(clientId, session))) noAutorizado();
 
+  // Fechas reales del plan (cambio 4): con ellas, la plantilla programa hacia atrás y nada
+  // nace vencido. El cliente del portal no planifica: sus proyectos los configura el equipo.
+  const planEntrega = String(formData.get("planEntrega") ?? "").trim();
+  const planRodaje = String(formData.get("planRodaje") ?? "").trim();
+  const fechas =
+    session?.role !== "cliente" && /^\d{4}-\d{2}-\d{2}$/.test(planEntrega)
+      ? { entrega: planEntrega, rodaje: /^\d{4}-\d{2}-\d{2}$/.test(planRodaje) ? planRodaje : null }
+      : null;
+
   const project = await instantiateTemplate(db, {
     templateKey,
     name,
     clientId,
     leadId,
+    fechas,
   });
 
   // Carpeta SIEMPRE: si el cliente tiene la suya en la galería (LabTem), la subcarpeta del
@@ -145,11 +155,16 @@ export async function createProject(formData: FormData) {
     // solo su equipo del proyecto). Evita que un cliente asigne tareas a cualquiera al crear proyecto.
     const assigneeId = await validateAssignee(project.id, a.assigneeId || null, session);
     const dueDate = a.dueDate ? new Date(`${a.dueDate}T12:00:00.000Z`) : null;
+    // Si quien crea adelantó el vencimiento por debajo del inicio programado, el inicio se
+    // recoge también: una tarea que empieza después de vencer no es un plan, es un error.
+    const actual = dueDate ? await db.task.findUnique({ where: { id: task.id }, select: { startDate: true } }) : null;
+    const recogerInicio = dueDate && actual?.startDate && actual.startDate.getTime() > dueDate.getTime();
     await db.task.update({
       where: { id: task.id },
       data: {
         ...(assigneeId ? { assigneeId, assignedById: session?.id ?? null } : {}),
         ...(a.dueDate ? { dueDate } : {}),
+        ...(recogerInicio ? { startDate: dueDate } : {}),
       },
     });
     if (assigneeId && assigneeId !== session?.id) {

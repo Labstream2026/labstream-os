@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { WIZARDS } from "@/lib/templates";
+import { resolveTemplate } from "@/lib/provisioning";
 import { NewProjectForm } from "./new-project-form";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,17 @@ export default async function NuevoProyectoPage({
     db.projectTemplate.findMany({ orderBy: { name: "asc" }, select: { key: true, name: true, emoji: true } }),
   ]);
 
+  // Qué plantillas traen PLAN de producción (y si usan fecha de rodaje): decide si el
+  // formulario pide fechas y previsualiza el cronograma, o cae al asistente viejo.
+  const planInfo: Record<string, { rodaje: boolean }> = {};
+  for (const t of templates) {
+    const r = await resolveTemplate(db, t.key);
+    const tareas = r?.content.tasks ?? [];
+    if (tareas.some((x) => x.ancla !== undefined || x.duracionDias !== undefined)) {
+      planInfo[t.key] = { rodaje: tareas.some((x) => x.ancla === "rodaje") };
+    }
+  }
+
   return (
     <div className="mx-auto max-w-xl px-4 py-6 sm:px-8 sm:py-10">
       <Link href="/proyectos" className="text-sm text-muted-foreground hover:text-foreground">← Proyectos</Link>
@@ -57,6 +69,7 @@ export default async function NuevoProyectoPage({
         clients={clients}
         team={team}
         templates={templates}
+        planInfo={planInfo}
         wizards={WIZARDS}
         initialTemplate={template}
         initialClient={clientId}

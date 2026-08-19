@@ -27,6 +27,9 @@ const PROJECT_TYPES = [
   "EVENTO", "CORPORATIVO", "INSTITUCIONAL", "FOTOGRAFIA", "CAMPANA_MENSUAL",
 ];
 const PRIORITIES = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
+// Roles a los que el plan puede sugerir gente (claves reales de Role). Sin gerente/ventas:
+// a ellos no se les reparte producción por plantilla.
+const ROLES_SUGERIBLES = ["productor", "director", "editor", "camarografo", "disenador", "community"];
 // Solo dos formatos: vertical (REEL) y horizontal (VIDEO_LARGO).
 const DELIVERABLE_TYPES = ["REEL", "VIDEO_LARGO"];
 
@@ -120,11 +123,21 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
       </Section>
 
       {/* Tareas */}
-      <Section title="Tareas predefinidas" hint="Se crean asignadas al responsable del proyecto.">
+      <Section
+        title="Tareas predefinidas"
+        hint="Con calendario (ancla + días), la plantilla planifica sola hacia atrás al crear el proyecto: se piden las fechas reales y ninguna tarea nace vencida. Sin calendario, la tarea nace el día de creación."
+      >
         <div className="space-y-1.5">
           {tasks.map((t, i) => (
-            <div key={`${t.title}-${i}`} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm">
-              <span className="flex-1">{t.title}</span>
+            <div key={`${t.title}-${i}`} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm">
+              <span className="min-w-0 flex-1 truncate">{t.title}</span>
+              {t.ancla ? (
+                <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title={`Vence ${t.offsetDias === 0 ? "el día" : `${Math.abs(t.offsetDias ?? 0)} día(s) hábiles ${(t.offsetDias ?? 0) < 0 ? "antes" : "después"}`} de ${t.ancla === "rodaje" ? "el rodaje" : "la entrega"} · dura ${t.duracionDias ?? 1} día(s)`}>
+                  {t.ancla === "rodaje" ? "🎬" : "📦"} {t.offsetDias === 0 ? "el día" : `${(t.offsetDias ?? 0) > 0 ? "+" : ""}${t.offsetDias} d`} · {t.duracionDias ?? 1}d
+                </span>
+              ) : null}
+              {t.role ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{t.role}</span> : null}
+              {t.estimatedMinutes ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{Math.round(t.estimatedMinutes / 60)} h</span> : null}
               {t.stage ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{t.stage}</span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[11px] ${PRIORITY_COLOR[t.priority ?? "MEDIA"]}`}>{(t.priority ?? "MEDIA").toLowerCase()}</span>
               <RemoveBtn action={removeTask.bind(null, id, i)} />
@@ -132,16 +145,44 @@ export default async function PlantillaEditorPage({ params }: { params: Promise<
           ))}
           {tasks.length === 0 ? <p className="text-sm text-muted-foreground">Sin tareas.</p> : null}
         </div>
-        <form action={addTask.bind(null, id)} className="mt-3 flex flex-wrap gap-2">
-          <input name="title" required placeholder="Título de la tarea" className={`min-w-40 flex-1 ${inputCls}`} />
-          <select name="priority" defaultValue="MEDIA" className={inputCls}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{p.toLowerCase()}</option>)}
-          </select>
-          <select name="stage" defaultValue="" className={inputCls}>
-            <option value="">Sin etapa</option>
-            {stages.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <AddBtn />
+        <form action={addTask.bind(null, id)} className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <input name="title" required placeholder="Título de la tarea" className={`min-w-40 flex-1 ${inputCls}`} />
+            <select name="priority" defaultValue="MEDIA" className={inputCls}>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{p.toLowerCase()}</option>)}
+            </select>
+            <select name="stage" defaultValue="" className={inputCls}>
+              <option value="">Sin etapa</option>
+              {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select name="ancla" defaultValue="" className={inputCls} title="A qué hito se ancla el vencimiento">
+              <option value="">Sin calendario</option>
+              <option value="entrega">📦 Ancla: entrega</option>
+              <option value="rodaje">🎬 Ancla: rodaje</option>
+            </select>
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              Vence a
+              <input name="offsetDias" type="number" min={-60} max={60} placeholder="0" className={`w-16 tabular-nums ${inputCls}`} title="Días hábiles respecto al hito: -3 = tres antes, 0 = el día" />
+              d
+            </label>
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              Dura
+              <input name="duracionDias" type="number" min={1} max={30} placeholder="1" className={`w-14 tabular-nums ${inputCls}`} />
+              d
+            </label>
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              Estimado
+              <input name="horas" type="number" min={1} max={200} placeholder="—" className={`w-14 tabular-nums ${inputCls}`} title="Horas estimadas: alimentan la Carga del equipo desde el día uno" />
+              h
+            </label>
+            <select name="role" defaultValue="" className={inputCls} title="Rol sugerido: al crear, la app propone a quien esté libre">
+              <option value="">Sin rol</option>
+              {ROLES_SUGERIBLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <AddBtn />
+          </div>
         </form>
       </Section>
 
