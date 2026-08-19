@@ -194,6 +194,7 @@ model User {
   mailAccount        MailAccount?
   gifsSubidos        MailGif[]          @relation("GifDe")
   plantillasCorreo   MailTemplate[]     @relation("PlantillaCorreoDe")
+  plantillasFirma    MailSignatureTemplate[] @relation("PlantillaFirmaDe")
   llamadosCreados    CallSheet[]        @relation("LlamadoCreador")
   llamados           CallSheetPerson[]  @relation("LlamadoPersona")
   ausencias          Absence[]          @relation("AusenciaDe")
@@ -1907,6 +1908,13 @@ model MailAccount {
   signatureHtml      String?
   signatureImage     Bytes?
   signatureImageMime String?
+  // FIRMA POR PLANTILLA (la corporativa): si apunta a una plantilla del estudio, la firma
+  // sale de ahí con {{nombre}} y {{cargo}} sustituidos — y manda sobre la personalizada.
+  // El nombre/cargo mostrados se pueden afinar aquí (null = los de la ficha del usuario).
+  signatureTemplate   MailSignatureTemplate? @relation(fields: [signatureTemplateId], references: [id], onDelete: SetNull)
+  signatureTemplateId String?
+  signatureName       String?
+  signatureRole       String?
 
   createdAt DateTime      @default(now())
   messages  MailMessage[]
@@ -1982,6 +1990,23 @@ model MailGif {
   createdBy   User?    @relation("GifDe", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime @default(now())
+}
+
+// PLANTILLA DE FIRMA del estudio: la firma corporativa se ESTRUCTURA una sola vez (layout,
+// logo, colores, enlaces) con los campos {{nombre}} y {{cargo}}, y cada colaborador solo
+// pone su nombre y su cargo — todas las firmas de Labstream salen iguales y bien armadas.
+// La imagen (logo/banner) vive en la plantilla y viaja incrustada (CID) en cada correo.
+model MailSignatureTemplate {
+  id          String   @id @default(cuid())
+  nombre      String // «Labstream 2026», «Firma con banner»…
+  html        String // saneado con la allowlist del redactor; lleva {{nombre}} y {{cargo}}
+  imageBytes  Bytes?
+  imageMime   String?
+  createdBy   User?    @relation("PlantillaFirmaDe", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  cuentas     MailAccount[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // PLANTILLA de correo del estudio: un cuerpo bien armado (bloques, botón, colores) que se

@@ -11,7 +11,7 @@ import { logActivity } from "@/lib/activity";
 import { textoWhatsapp, textoCorreo, asuntoCorreo, htmlCorreoRevision, type PiezaCompartida } from "@/lib/review-share";
 import { sellarEnvioCliente } from "@/lib/envio-cliente";
 import { enviarDesdeCuenta } from "@/lib/correo/enviar";
-import { bloqueFirma, type ParteInline } from "@/lib/correo/redactar";
+import { firmaDeCuenta } from "@/lib/correo/firma";
 
 // ── Mandarle al cliente el enlace de UNA pieza, desde la sala de revisión ──────
 // El envío en lote de /revisiones (bulk-actions) exige GESTIONAR el proyecto, y eso deja fuera
@@ -108,27 +108,14 @@ export async function enviarEnlaceRevision(
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { ok: false, error: "Correo del cliente inválido." };
 
     // Preferido: el BUZÓN PROPIO del que envía (Correo 2.0). El cliente recibe la tarjeta
-    // bonita CON la firma real, la respuesta cae en la bandeja de quien envió, y el hilo
-    // queda ligado al proyecto desde el primer mensaje. Sin buzón conectado, el SMTP del
-    // sistema de siempre.
-    const cuentaPropia = await db.mailAccount.findUnique({
-      where: { userId: session.id },
-      select: { id: true, signatureHtml: true, signatureImage: true, signatureImageMime: true },
-    });
-    const yo = await db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } });
+    // bonita CON la firma real (la corporativa de plantilla si la eligió), la respuesta cae
+    // en la bandeja de quien envió, y el hilo queda ligado al proyecto desde el primer
+    // mensaje. Sin buzón conectado, el SMTP del sistema de siempre.
+    const cuentaPropia = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
     const tarjeta = htmlCorreoRevision(piezas, session.name, nota);
 
     if (cuentaPropia) {
-      const firma = bloqueFirma({
-        nombre: yo?.name ?? session.name,
-        cargo: yo?.title,
-        firmaHtml: cuentaPropia.signatureHtml,
-        tieneImagen: !!cuentaPropia.signatureImage,
-      });
-      const inlines: ParteInline[] = [];
-      if (firma.cidImagen && cuentaPropia.signatureImage) {
-        inlines.push({ cid: firma.cidImagen, nombre: "firma.png", mime: cuentaPropia.signatureImageMime ?? "image/png", contenido: Buffer.from(cuentaPropia.signatureImage) });
-      }
+      const firma = await firmaDeCuenta(cuentaPropia.id);
       const r = await enviarDesdeCuenta({
         accountId: cuentaPropia.id,
         nombreRemitente: session.name ?? "Labstream",
@@ -136,7 +123,7 @@ export async function enviarEnlaceRevision(
         asunto: asuntoCorreo(piezas),
         texto: textoCorreo(piezas, session.name, nota),
         html: tarjeta + firma.html,
-        inlines,
+        inlines: firma.inlines,
         projectId: d.projectId,
       });
       if (!r.ok) return { ok: false, error: r.error };

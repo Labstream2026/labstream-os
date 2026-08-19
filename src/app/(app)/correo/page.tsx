@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
 import { sanearCorreo, cidLimpio } from "@/lib/correo/sanitizar";
-import { bloqueFirma } from "@/lib/correo/redactar";
+import { firmaDeCuenta } from "@/lib/correo/firma";
 import { sincronizarCuenta } from "@/lib/correo/imap";
 import { agruparHilos, asuntoLimpio } from "@/lib/correo/hilos";
 import { estadoRonda } from "@/lib/rondas";
@@ -112,21 +112,21 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     take: 40,
     select: { id: true, nombre: true, html: true },
   });
+  // Plantillas de FIRMA del estudio (la corporativa que todos comparten).
+  const plantillasFirma = await db.mailSignatureTemplate.findMany({
+    orderBy: { updatedAt: "desc" },
+    take: 20,
+    select: { id: true, nombre: true, html: true, imageMime: true, createdBy: { select: { name: true } } },
+  });
 
   const clienteInfo = new Map(clientes.filter((c) => c.client).map((c) => [c.client!.id, { nombre: c.client!.name, hex: tone(c.client!.accentColor ?? "slate").hex }]));
   const noLeidosCliente = new Map(porCliente.map((r) => [r.clientId!, r._count._all]));
   const contactos = [...new Set(contactosEquipo.map((u) => u.email).filter(Boolean))].sort();
   const gifs = gifsLib.map((g) => ({ id: g.id, nombre: g.nombre }));
 
-  // La firma tal como saldrá (para la vista previa del compositor): el cid de la imagen se
-  // sustituye por la ruta propia — en el correo real viaja incrustada.
-  const firma = bloqueFirma({
-    nombre: yo?.name ?? session.name ?? "Labstream",
-    cargo: yo?.title,
-    firmaHtml: cuenta.signatureHtml,
-    tieneImagen: !!cuenta.signatureImage,
-  });
-  const firmaPreview = firma.html.replace(/cid:firma@labstream/g, "/api/correo/firma-imagen");
+  // La firma tal como saldrá (para la vista previa del compositor): el MISMO compositor del
+  // envío, en modo vista previa (la imagen por URL propia — en el correo real viaja CID).
+  const firmaPreview = (await firmaDeCuenta(cuenta.id, { paraVistaPrevia: true })).html;
 
   const hiloAbiertoIds = (sp.h ?? "").split(".").filter(Boolean).slice(0, 60);
   const linkBase = `/correo?c=${clFiltro ? `cliente:${clFiltro}` : carpeta}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
@@ -288,7 +288,17 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
 
             {carpeta === "ajustes" && !clFiltro ? (
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                <PanelFirma firmaHtml={cuenta.signatureHtml ?? ""} imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null} />
+                <PanelFirma
+                  firmaHtml={cuenta.signatureHtml ?? ""}
+                  imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null}
+                  plantillas={plantillasFirma.map((p) => ({ id: p.id, nombre: p.nombre, html: p.html, tieneImagen: !!p.imageMime, autor: p.createdBy?.name ?? null }))}
+                  seleccion={{
+                    templateId: cuenta.signatureTemplateId,
+                    usaPropia: !cuenta.signatureTemplateId && !!cuenta.signatureHtml,
+                    nombre: cuenta.signatureName ?? yo?.name ?? session.name ?? "",
+                    cargo: cuenta.signatureRole ?? yo?.title ?? "",
+                  }}
+                />
                 <BibliotecaGifs gifs={gifsLib.map((g) => ({ id: g.id, nombre: g.nombre, autor: g.createdBy?.name ?? null }))} />
                 {/* La cuenta: lo único destructivo vive aquí, no en la barra de todos los días. */}
                 <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanearSaliente, extraerInlines, bloqueFirma, textoDeHtml, htmlDeTexto } from "./redactar";
+import { sanearSaliente, extraerInlines, bloqueFirma, aplicarPlantillaFirma, textoDeHtml, htmlDeTexto } from "./redactar";
 
 // El pipeline del redactor: lo que escribe el equipo se sanea igual que lo hostil, las
 // imágenes del cuerpo se vuelven partes CID, y la firma se compone con su imagen incrustada.
@@ -64,6 +64,21 @@ describe("bloqueFirma", () => {
     const f = bloqueFirma({ nombre: "D", firmaHtml: `<b>Yo</b><script>x</script>` });
     expect(f.html).toContain("<b>Yo</b>");
     expect(f.html).not.toContain("script");
+  });
+});
+
+describe("aplicarPlantillaFirma", () => {
+  it("sustituye {{nombre}} y {{cargo}} con y sin espacios, sin distinguir mayúsculas", () => {
+    const out = aplicarPlantillaFirma("<b>{{nombre}}</b> · {{ Cargo }} · {{NOMBRE}}", { nombre: "Diana", cargo: "Productora" });
+    expect(out).toBe("<b>Diana</b> · Productora · Diana");
+  });
+  it("escapa los valores: un nombre jamás inyecta HTML en la firma corporativa", () => {
+    const out = aplicarPlantillaFirma("{{nombre}}", { nombre: `<img src=x onerror=1>` });
+    expect(out).not.toContain("<img");
+    expect(out).toContain("&lt;img");
+  });
+  it("cargo vacío desaparece limpio", () => {
+    expect(aplicarPlantillaFirma("{{nombre}}{{cargo}}", { nombre: "D", cargo: null })).toBe("D");
   });
 });
 

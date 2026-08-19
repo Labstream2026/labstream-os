@@ -7,7 +7,8 @@ import { encryptSecret } from "@/lib/crypto";
 import { logActivity } from "@/lib/activity";
 import { marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
 import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
-import { sanearSaliente, extraerInlines, bloqueFirma, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
+import { sanearSaliente, extraerInlines, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
+import { firmaDeCuenta } from "@/lib/correo/firma";
 import { textoPlano } from "@/lib/correo/sanitizar";
 import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
 
@@ -135,10 +136,7 @@ const MAX_ADJUNTOS_BYTES = 15 * 1024 * 1024;
 export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; error?: string }> {
   const session = await sesionEquipo();
   if (!session) return { ok: false, error: "El correo es solo para el equipo." };
-  const cuenta = await db.mailAccount.findUnique({
-    where: { userId: session.id },
-    select: { id: true, email: true, signatureHtml: true, signatureImage: true, signatureImageMime: true },
-  });
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true, email: true } });
   if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
 
   const para = String(fd.get("para") ?? "").trim();
@@ -197,15 +195,9 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
     }
   }
 
-  // Firma: la personalizada del usuario (o la institucional con nombre + cargo), con su
-  // imagen INCRUSTADA en alta calidad — nada de firmas pixeladas ni bloqueadas por Gmail.
-  const yo = await db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } });
-  const firma = bloqueFirma({
-    nombre: yo?.name ?? session.name ?? "Labstream",
-    cargo: yo?.title,
-    firmaHtml: cuenta.signatureHtml,
-    tieneImagen: !!cuenta.signatureImage,
-  });
+  // Firma: la corporativa de plantilla, la personalizada o la institucional — la compone
+  // el MISMO helper de la vista previa, con la imagen INCRUSTADA en alta calidad.
+  const firma = await firmaDeCuenta(cuenta.id);
   html += firma.html;
 
   // Imágenes del cuerpo (pegadas o de la biblioteca de GIFs) → partes CID.
@@ -214,15 +206,7 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
     return g ? { nombre: g.nombre, mime: g.mime, contenido: Buffer.from(g.bytes) } : null;
   });
   if (extraccion.error) return { ok: false, error: extraccion.error };
-  const inlines: ParteInline[] = extraccion.inlines;
-  if (firma.cidImagen && cuenta.signatureImage) {
-    inlines.push({
-      cid: firma.cidImagen,
-      nombre: "firma.png",
-      mime: cuenta.signatureImageMime ?? "image/png",
-      contenido: Buffer.from(cuenta.signatureImage),
-    });
-  }
+  const inlines: ParteInline[] = [...extraccion.inlines, ...firma.inlines];
 
   const r = await enviarDesdeCuenta({
     accountId: cuenta.id,
@@ -387,10 +371,82 @@ export async function guardarFirma(fd: FormData): Promise<{ ok: boolean; error?:
 
   await db.mailAccount.update({
     where: { id: cuenta.id },
-    data: { signatureHtml: html, ...(imagen !== undefined ? { signatureImage: imagen, signatureImageMime: mime } : {}) },
+    // Guardar la personalizada te CAMBIA a la personalizada: la plantilla queda suelta.
+    data: { signatureHtml: html, signatureTemplateId: null, ...(imagen !== undefined ? { signatureImage: imagen, signatureImageMime: mime } : {}) },
   });
   revalidatePath("/correo");
   return { ok: true };
+}
+
+// ── Elegir la firma: una plantilla del estudio (con tu nombre/cargo) o volver a la básica ──
+export async function elegirFirma(input: { templateId: string | null; nombre?: string; cargo?: string }): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
+
+  if (input.templateId) {
+    const existe = await db.mailSignatureTemplate.findUnique({ where: { id: input.templateId }, select: { id: true } });
+    if (!existe) return { ok: false, error: "Esa plantilla ya no existe." };
+  }
+  await db.mailAccount.update({
+    where: { id: cuenta.id },
+    data: {
+      signatureTemplateId: input.templateId,
+      signatureName: input.nombre?.trim().slice(0, 120) || null,
+      signatureRole: input.cargo?.trim().slice(0, 120) || null,
+      // Elegir plantilla (o la básica) suelta la personalizada como firma activa; el HTML
+      // propio se conserva por si vuelve.
+    },
+  });
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+// ── Plantillas de FIRMA del estudio (estructurar la corporativa una sola vez) ──
+export async function guardarPlantillaFirma(fd: FormData): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+
+  const id = String(fd.get("id") ?? "").trim() || null;
+  const nombre = String(fd.get("nombre") ?? "").trim().slice(0, 80);
+  const html = sanearSaliente(String(fd.get("html") ?? "").trim()).slice(0, 20_000);
+  if (!nombre) return { ok: false, error: "Ponle un nombre a la plantilla (p. ej. «Labstream 2026»)." };
+  if (!textoDeHtml(html).trim()) return { ok: false, error: "La plantilla está vacía. Usa {{nombre}} y {{cargo}} donde va cada dato." };
+
+  let imagen: Uint8Array<ArrayBuffer> | undefined;
+  let mime: string | undefined;
+  const archivo = fd.get("imagen");
+  if (archivo instanceof File && archivo.size > 0) {
+    if (archivo.size > 500 * 1024) return { ok: false, error: "La imagen no debe pasar de 500 KB (súbela a 2× de tamaño, optimizada)." };
+    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(archivo.type)) return { ok: false, error: "PNG, JPG, WebP o GIF." };
+    imagen = new Uint8Array(await archivo.arrayBuffer());
+    mime = archivo.type.toLowerCase();
+  }
+  const quitarImagen = String(fd.get("quitarImagen") ?? "") === "1";
+
+  const data = {
+    nombre,
+    html,
+    ...(imagen ? { imageBytes: imagen, imageMime: mime } : quitarImagen ? { imageBytes: null, imageMime: null } : {}),
+  };
+  const fila = id
+    ? await db.mailSignatureTemplate.update({ where: { id }, data }).catch(() => null)
+    : await db.mailSignatureTemplate.create({ data: { ...data, createdById: session.id } });
+  if (!fila) return { ok: false, error: "Esa plantilla ya no existe." };
+
+  await logActivity({ action: "correo.firma", summary: `${id ? "actualizó" : "creó"} la plantilla de firma «${nombre}»`, entityType: "correo", silent: true });
+  revalidatePath("/correo");
+  return { ok: true, id: fila.id };
+}
+
+export async function eliminarPlantillaFirma(id: string): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  // Las cuentas que la usaban vuelven a la institucional (FK SetNull). Queda en bitácora.
+  const p = await db.mailSignatureTemplate.delete({ where: { id }, select: { nombre: true } }).catch(() => null);
+  if (p) await logActivity({ action: "correo.firma", summary: `eliminó la plantilla de firma «${p.nombre}»`, entityType: "correo", silent: true });
+  revalidatePath("/correo");
 }
 
 // ── Biblioteca de GIFs del estudio (compartida por todo el equipo) ──

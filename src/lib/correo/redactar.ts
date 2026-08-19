@@ -144,6 +144,17 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Sustituye los CAMPOS de una plantilla de firma: {{nombre}} y {{cargo}} (con o sin
+ * espacios, sin distinguir mayúsculas). Los valores van ESCAPADOS — el nombre de una
+ * persona jamás puede inyectar HTML en la firma corporativa.
+ */
+export function aplicarPlantillaFirma(html: string, campos: { nombre: string; cargo?: string | null }): string {
+  return html
+    .replace(/\{\{\s*nombre\s*\}\}/gi, esc(campos.nombre))
+    .replace(/\{\{\s*cargo\s*\}\}/gi, esc(campos.cargo?.trim() || ""));
+}
+
 /** Texto plano paralelo al HTML (la parte text/plain del multipart), con sus saltos. */
 export function textoDeHtml(html: string): string {
   const conSaltos = html
