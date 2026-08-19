@@ -28,6 +28,7 @@ import { clearMyDay } from "./actions";
 import { getUserPreference, parseSavedViews } from "@/lib/user-preference";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { QuickAdd } from "./quick-add";
+import { AvisoCierre } from "./aviso-cierre";
 import { NextUpHero, TimerRowButton, type HeroTask, type HeroTimer } from "./next-up";
 import { SwipeTaskRow } from "./swipe-row";
 import { SeleccionProvider, CasillaTarea } from "./seleccion";
@@ -582,6 +583,8 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 tramo FILTRA al pulsarlo (antes solo informaban). El tramo activo se suelta
                 pulsándolo otra vez: el mismo gesto pone y quita. */}
             {ocultos.includes("resumen") ? null : <FranjaResumen tramos={tramosUrgencia} className="mt-3 max-w-2xl" />}
+            {/* Desde las 4 pm, si el sensor midió más de lo anotado: el puente a /mis-tareas/cierre. */}
+            <AvisoCierre userId={user.id} />
             {ocultos.includes("heroe") ? null : <NextUpHero task={heroTask} timer={heroTimer} />}
           </div>
         }
