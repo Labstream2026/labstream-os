@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, CheckCheck, Clapperboard, Clock, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { asignarProyectoHilo, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos } from "./acciones";
+import { asignarProyectoHilo, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos, previaCorreo } from "./acciones";
 import { useCompositor, type PrefillCompositor } from "./compositor";
+import { useVistaCorreo } from "./vista-correo";
 
 // ── La lista de CONVERSACIONES y la barra de acciones (estilo Gmail) ────────
 // El servidor agrupa y serializa; aquí solo se pinta, se selecciona y se dispara. Las filas
@@ -29,7 +30,7 @@ export type HiloVM = {
   ultimoId: string; // al que se le pone/quita la estrella
 };
 
-export function ListaHilos({ hilos, carpeta, hiloActivo }: { hilos: HiloVM[]; carpeta: string; hiloActivo?: string | null }) {
+export function ListaHilos({ hilos, carpeta, hiloActivo, enBusqueda }: { hilos: HiloVM[]; carpeta: string; hiloActivo?: string | null; enBusqueda?: boolean }) {
   const router = useRouter();
   const [sel, setSel] = React.useState<Set<string>>(new Set()); // claves de hilo
   const [pendiente, arranca] = React.useTransition();
@@ -131,7 +132,22 @@ export function ListaHilos({ hilos, carpeta, hiloActivo }: { hilos: HiloVM[]; ca
             enPapelera={enPapelera} enArchivo={enArchivo} carpeta={carpeta}
             onMarcar={(on) => setSel((p) => { const s = new Set(p); if (on) s.add(h.clave); else s.delete(h.clave); return s; })} />
         ))}
-        {hilos.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Nada por aquí.</li> : null}
+        {hilos.length === 0 ? (
+          enBusqueda ? (
+            <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">
+              Sin resultados. La búsqueda mira remitente, asunto y el texto de los mensajes.
+            </li>
+          ) : carpeta === "recibidos" ? (
+            /* CERO-BANDEJA: llegar aquí es un logro, no un vacío. */
+            <li className="flex flex-col items-center gap-2 px-4 py-16 text-center">
+              <span className="text-3xl">🎉</span>
+              <p className="text-sm font-semibold">¡Bandeja limpia!</p>
+              <p className="text-[12px] text-muted-foreground">Todo atendido. Lo pospuesto volverá solo a su hora.</p>
+            </li>
+          ) : (
+            <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Nada por aquí.</li>
+          )
+        ) : null}
       </ul>
     </div>
   );
@@ -178,59 +194,133 @@ function MenuPosponer({ ids, quitar, onHecho }: { ids: string[]; quitar?: boolea
   );
 }
 
-// Fila de DOS líneas (remitente + fecha arriba; asunto — fragmento abajo): funciona igual de
-// bien a todo lo ancho que en la columna estrecha del panel de lectura, que es donde vive la
-// mayor parte del tiempo. La fila activa (el hilo abierto al lado) se marca con la regleta.
+// Caché de vistas previas ya pedidas: posar el ratón dos veces no vuelve al servidor.
+const previasCache = new Map<string, string>();
+
+// Fila de DOS líneas (remitente + fecha arriba; asunto — fragmento abajo) o de UNA
+// (densidad compacta, para quien maneja volumen). La fila activa (el hilo abierto al lado)
+// se marca con la regleta. Al POSAR el ratón medio segundo, asoma la vista previa flotante
+// del último mensaje — mirar de reojo sin abrir (y sin marcar leído).
 function FilaHilo({ h, marcada, conCursor, activa, enPapelera, enArchivo, carpeta, onMarcar }: {
   h: HiloVM; marcada: boolean; conCursor: boolean; activa?: boolean; enPapelera: boolean; enArchivo: boolean; carpeta: string; onMarcar: (on: boolean) => void;
 }) {
   const router = useRouter();
+  const { vista } = useVistaCorreo();
+  const compacta = vista.densidad === "compacta";
   const [estrella, setEstrella] = React.useState(h.destacado);
   const [, arranca] = React.useTransition();
   const noLeido = h.noLeidos > 0;
 
+  // ── Vista previa flotante ──
+  const [previa, setPrevia] = React.useState<{ texto: string; top: number; left: number } | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const entra = (e: React.MouseEvent<HTMLLIElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      const texto = previasCache.get(h.ultimoId) ?? (await previaCorreo(h.ultimoId))?.texto ?? null;
+      if (texto === null) return;
+      previasCache.set(h.ultimoId, texto);
+      setPrevia({
+        texto,
+        top: Math.max(8, Math.min(rect.top, window.innerHeight - 250)),
+        left: Math.min(rect.right + 10, window.innerWidth - 400),
+      });
+    }, 500);
+  };
+  const sale = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setPrevia(null);
+  };
+
   const rapida = (fn: () => Promise<unknown>) => arranca(async () => { await fn(); router.refresh(); });
 
+  const casillaEstrella = (
+    <span className={cn("flex shrink-0 items-center", !compacta && "pt-0.5")}>
+      <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1 accent-primary opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" style={marcada ? { opacity: 1 } : undefined} />
+      <button
+        type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
+        onClick={() => { setEstrella(!estrella); void estrellaCorreo(h.ultimoId, !estrella); }}
+        className={cn("rounded p-0.5", estrella ? "text-amber-400" : "text-muted-foreground/40 hover:text-muted-foreground")}
+      >
+        <Star className="size-3.5" fill={estrella ? "currentColor" : "none"} />
+      </button>
+    </span>
+  );
+
   return (
-    <li className={cn(
-      "group relative px-2 py-1.5 transition-colors hover:bg-accent/40",
-      marcada && "bg-primary/5",
-      noLeido && !marcada && "bg-card",
-      activa && "bg-accent/60",
-      (conCursor || activa) && "shadow-[inset_3px_0_0] shadow-primary",
-    )}>
-      <div className="flex items-start gap-1">
-        <span className="flex shrink-0 items-center pt-0.5">
-          <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1 accent-primary opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" style={marcada ? { opacity: 1 } : undefined} />
-          <button
-            type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
-            onClick={() => { setEstrella(!estrella); void estrellaCorreo(h.ultimoId, !estrella); }}
-            className={cn("rounded p-0.5", estrella ? "text-amber-400" : "text-muted-foreground/40 hover:text-muted-foreground")}
-          >
-            <Star className="size-3.5" fill={estrella ? "currentColor" : "none"} />
-          </button>
-        </span>
-        <Link href={h.href} prefetch={false} scroll={false} className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className={cn("min-w-0 flex-1 truncate text-[13px]", noLeido ? "font-bold" : "text-muted-foreground")}>
+    <li
+      onMouseEnter={entra}
+      onMouseLeave={sale}
+      onClick={sale}
+      className={cn(
+        "group relative px-2 transition-colors hover:bg-accent/40",
+        compacta ? "py-0.5" : "py-1.5",
+        marcada && "bg-primary/5",
+        noLeido && !marcada && "bg-card",
+        activa && "bg-accent/60",
+        (conCursor || activa) && "shadow-[inset_3px_0_0] shadow-primary",
+      )}
+    >
+      {compacta ? (
+        /* UNA línea: remitente fijo + asunto—fragmento + fecha. */
+        <div className="flex h-8 items-center gap-1">
+          {casillaEstrella}
+          <Link href={h.href} prefetch={false} scroll={false} className="flex min-w-0 flex-1 items-center gap-2">
+            <span className={cn("w-36 shrink-0 truncate text-[12.5px]", noLeido ? "font-bold" : "text-muted-foreground")}>
               {h.quien}{h.n > 1 ? <span className="font-normal text-muted-foreground"> ({h.n})</span> : null}
+            </span>
+            {h.cliente ? <span className="size-2 shrink-0 rounded-full" title={h.cliente.nombre} style={{ background: h.cliente.hex }} /> : null}
+            <span className="min-w-0 flex-1 truncate text-[12.5px]">
+              <span className={cn(noLeido && "font-semibold")}>{h.asunto}</span>
+              <span className="text-muted-foreground"> — {h.snippet}</span>
             </span>
             {h.conAdjunto ? <Paperclip className="size-3 shrink-0 text-muted-foreground" /> : null}
             <span className={cn("shrink-0 text-[11px] tabular-nums group-hover:invisible", noLeido ? "font-bold text-primary" : "text-muted-foreground")}>
               {h.cuando}
             </span>
-          </span>
-          <span className="mt-0.5 flex items-center gap-1.5">
-            {h.cliente ? (
-              <span className="size-2 shrink-0 rounded-full" title={h.cliente.nombre} style={{ background: h.cliente.hex }} />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-[12.5px]">
-              <span className={cn(noLeido && "font-semibold")}>{h.asunto}</span>
-              <span className="text-muted-foreground"> — {h.snippet}</span>
+          </Link>
+        </div>
+      ) : (
+        <div className="flex items-start gap-1">
+          {casillaEstrella}
+          <Link href={h.href} prefetch={false} scroll={false} className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <span className={cn("min-w-0 flex-1 truncate text-[13px]", noLeido ? "font-bold" : "text-muted-foreground")}>
+                {h.quien}{h.n > 1 ? <span className="font-normal text-muted-foreground"> ({h.n})</span> : null}
+              </span>
+              {h.conAdjunto ? <Paperclip className="size-3 shrink-0 text-muted-foreground" /> : null}
+              <span className={cn("shrink-0 text-[11px] tabular-nums group-hover:invisible", noLeido ? "font-bold text-primary" : "text-muted-foreground")}>
+                {h.cuando}
+              </span>
             </span>
-          </span>
-        </Link>
-      </div>
+            <span className="mt-0.5 flex items-center gap-1.5">
+              {h.cliente ? (
+                <span className="size-2 shrink-0 rounded-full" title={h.cliente.nombre} style={{ background: h.cliente.hex }} />
+              ) : null}
+              <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                <span className={cn(noLeido && "font-semibold")}>{h.asunto}</span>
+                <span className="text-muted-foreground"> — {h.snippet}</span>
+              </span>
+            </span>
+          </Link>
+        </div>
+      )}
+
+      {/* La tarjeta flotante de la vista previa. */}
+      {previa ? (
+        <div
+          className="pointer-events-none fixed z-40 w-[380px] rounded-xl border border-border bg-card p-3.5 shadow-2xl"
+          style={{ top: previa.top, left: previa.left }}
+        >
+          <p className="mb-1 flex items-baseline justify-between gap-2 text-[11.5px]">
+            <b className="truncate">{h.quien}</b>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{h.cuando}</span>
+          </p>
+          <p className="mb-1.5 truncate text-[12px] font-semibold">{h.asunto}</p>
+          <p className="max-h-40 overflow-hidden whitespace-pre-wrap text-[12px] leading-relaxed text-muted-foreground">{previa.texto}</p>
+        </div>
+      ) : null}
       {/* Acciones al pasar el ratón, como Gmail: sin abrir el hilo. */}
       <span className="absolute right-2 top-1 hidden items-center gap-0 rounded-md border border-border bg-card shadow-sm group-hover:flex">
         {!enPapelera ? (

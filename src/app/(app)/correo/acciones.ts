@@ -8,6 +8,7 @@ import { logActivity } from "@/lib/activity";
 import { marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
 import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
 import { sanearSaliente, extraerInlines, bloqueFirma, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
+import { textoPlano } from "@/lib/correo/sanitizar";
 import { canAccessProject, PROJECT_ACCESS_SELECT } from "@/lib/project-access";
 
 // ── Acciones del correo personal ────────────────────────────────────────────
@@ -85,6 +86,20 @@ export async function sincronizarAhora(): Promise<{ ok: boolean; error?: string 
   const r = await sincronizarCuenta(cuenta.id, { max: 120 });
   revalidatePath("/correo");
   return { ok: !r.error, error: r.error ?? undefined };
+}
+
+// Vista previa FLOTANTE de un hilo (al posar el ratón en la fila): el comienzo del último
+// mensaje, en texto plano. No marca nada como leído — mirar de reojo no es abrir.
+export async function previaCorreo(mensajeId: string): Promise<{ texto: string } | null> {
+  const session = await sesionEquipo();
+  if (!session) return null;
+  const m = await db.mailMessage.findFirst({
+    where: { id: mensajeId, account: { userId: session.id } },
+    select: { textBody: true, htmlBody: true },
+  });
+  if (!m) return null;
+  const texto = (m.textBody?.trim() || (m.htmlBody ? textoPlano(m.htmlBody, 700) : "")).slice(0, 700);
+  return { texto: texto || "(sin contenido)" };
 }
 
 // La marca de leído la dispara el LECTOR al montarse (client), no el render de la página: el

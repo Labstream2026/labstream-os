@@ -17,6 +17,8 @@ import { ConectarCorreo } from "./conectar";
 import { desconectarCorreo, eliminarBorrador, sincronizarAhora } from "./acciones";
 import { AbrirBorrador, BotonRedactar, CompositorProvider } from "./compositor";
 import { PanelFirma, BibliotecaGifs } from "./firma-gifs";
+import { VistaCorreoProvider, PanelesCorreo, MenuVista } from "./vista-correo";
+import { ClientesRail } from "./clientes-rail";
 import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM, type ProyectoAsignable } from "./bandeja";
 
 export const dynamic = "force-dynamic";
@@ -226,6 +228,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
 
   return (
     <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs} plantillas={plantillasCorreo}>
+      <VistaCorreoProvider>
       {/* ── Pantalla COMPLETA ── El menú lateral de la app se pliega solo al entrar (modo
           enfoque, app-shell) y aquí no hay contenedor ni cabecera: solo el correo. */}
       <div className="flex h-full min-h-0 flex-col">
@@ -253,14 +256,11 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{borradores.length}</span> : null}
               </Link>
             ))}
-            {clienteInfo.size ? <p className="mt-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Clientes</p> : null}
-            {[...clienteInfo.entries()].map(([id, c]) => (
-              <Link key={id} href={`/correo?c=cliente:${id}`} prefetch={false}
-                className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", clFiltro === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-                <span className="size-2.5 shrink-0 rounded-full" style={{ background: c.hex }} /> <span className="truncate">{c.nombre}</span>
-                {noLeidosCliente.get(id) ? <b className="ml-auto text-[11.5px] tabular-nums">{noLeidosCliente.get(id)}</b> : null}
-              </Link>
-            ))}
+            {/* Clientes con ANCLA: el pin sube ese cliente al principio, siempre. */}
+            <ClientesRail
+              activo={clFiltro}
+              clientes={[...clienteInfo.entries()].map(([id, c]) => ({ id, nombre: c.nombre, hex: c.hex, noLeidos: noLeidosCliente.get(id) ?? 0 }))}
+            />
             <p className="mt-auto truncate px-3 pt-3 text-[10.5px] text-muted-foreground" title={`${cuenta.email} — sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail`}>
               {cuenta.email}
             </p>
@@ -279,6 +279,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               <form action={async () => { "use server"; await sincronizarAhora(); }}>
                 <button type="submit" title="Buscar correo nuevo ahora" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><RefreshCw className="size-4" /></button>
               </form>
+              <MenuVista />
             </div>
 
             {estado?.syncError ? (
@@ -324,17 +325,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 {borradores.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Sin borradores. Lo que escribas en el compositor se guarda aquí solo.</li> : null}
               </ul>
             ) : (
-              /* ── Lista + LECTURA lado a lado (xl); en pantallas menores, una u otra ── */
-              <div className="flex min-h-0 flex-1">
-                <div className={cn(
-                  "min-h-0 flex-col xl:flex xl:w-[400px] xl:shrink-0 xl:border-r xl:border-border",
-                  hiloMsgs.length ? "hidden xl:flex" : "flex flex-1 xl:flex-none",
-                )}>
-                  <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} hiloActivo={sp.h ?? null} />
-                </div>
-
-                <div className={cn("min-h-0 min-w-0 flex-1 flex-col", hiloMsgs.length ? "flex" : "hidden xl:flex")}>
-                  {!hiloMsgs.length ? (
+              /* ── Lista + LECTURA: al lado o abajo, según la preferencia del menú Vista ── */
+              <PanelesCorreo
+                hayHilo={hiloMsgs.length > 0}
+                lista={<ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} hiloActivo={sp.h ?? null} enBusqueda={!!q} />}
+                lectura={
+                  !hiloMsgs.length ? (
                     /* Panel de lectura vacío: la casa de los atajos (antes eran un pie de página perpetuo). */
                     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
                       <Mail className="size-8 text-muted-foreground/40" />
@@ -430,13 +426,14 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                   {prefills ? <BotonesRespuesta prefills={prefills} /> : null}
                 </article>
               </>
-                  )}
-                </div>
-              </div>
+                  )
+                }
+              />
             )}
           </div>
         </div>
       </div>
+      </VistaCorreoProvider>
     </CompositorProvider>
   );
 }
