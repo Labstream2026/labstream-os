@@ -71,6 +71,14 @@ describe("limpiarBloques", () => {
     expect(b.title.length).toBe(140);
   });
 
+  it("barre los BYTES NULOS y controles de app y título (Postgres rechaza 0x00 y tumbaba el lote)", () => {
+    const [b] = limpiarBloques([{ ...ok, app: "Reso\u0000lve", t: "Derma\u0000kind\u0007 agosto" }], AHORA);
+    expect(b.app).toBe("Resolve");
+    expect(b.title).toBe("Dermakind agosto");
+    // Un app que era PURO control no pasa (quedaría vacío).
+    expect(limpiarBloques([{ ...ok, app: "\u0000\u0001" }], AHORA)).toHaveLength(0);
+  });
+
   it("descarta basura sin tirar el resto del lote", () => {
     const sucio = [ok, null, 7, { d: 60, app: "x" }, { s: AHORA, d: 0, app: "x" }, { s: AHORA, d: 60, app: "  " }];
     expect(limpiarBloques(sucio, AHORA)).toHaveLength(1);

@@ -133,6 +133,13 @@ export function limpiarOcios(entrada: unknown, ahoraMs: number): OcioLimpio[] {
   return fuera;
 }
 
+// Algunas ventanas de Windows traen BYTES NULOS (0x00) y otros controles en el título (buffers
+// UTF-16 rellenos, overlays de juegos/drivers). Postgres rechaza el 0x00 en TEXT con el error
+// 22021 «invalid byte sequence» — y como el insert del lote es UNO solo, un título sucio
+// tumbaba el lote ENTERO y el sensor lo reintentaba por siempre. Se barren aquí, en la puerta.
+// eslint-disable-next-line no-control-regex -- barrer controles es exactamente la intención
+const sinControles = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, "");
+
 export function limpiarBloques(entrada: unknown, ahoraMs: number): BloqueLimpio[] {
   if (!Array.isArray(entrada)) return [];
   const fuera: BloqueLimpio[] = [];
@@ -141,7 +148,7 @@ export function limpiarBloques(entrada: unknown, ahoraMs: number): BloqueLimpio[
     const { s, d, a, app, t } = b as Partial<BloqueEntrante>;
     if (typeof s !== "number" || !Number.isFinite(s)) continue;
     if (typeof d !== "number" || !Number.isInteger(d) || d < 1 || d > MAX_SEG) continue;
-    if (typeof app !== "string" || !app.trim()) continue;
+    if (typeof app !== "string" || !sinControles(app).trim()) continue;
     // Ni del futuro (reloj loco) ni de hace más de 30 días (cola offline con tope real).
     if (s > ahoraMs + 5 * 60_000 || s < ahoraMs - 30 * DIA) continue;
     const activos = typeof a === "number" && Number.isInteger(a) && a >= 0 ? Math.min(a, d) : 0;
@@ -149,8 +156,8 @@ export function limpiarBloques(entrada: unknown, ahoraMs: number): BloqueLimpio[
       startedAt: new Date(s),
       seconds: d,
       activeSecs: activos,
-      app: app.trim().slice(0, MAX_APP),
-      title: typeof t === "string" ? t.trim().slice(0, MAX_TITULO) : "",
+      app: sinControles(app).trim().slice(0, MAX_APP),
+      title: typeof t === "string" ? sinControles(t).trim().slice(0, MAX_TITULO) : "",
     });
   }
   return fuera;
