@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, usePreferenciaLocal } from "@/components/ui/barra-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
+import { tone } from "@/lib/colors";
 import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
 import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
 import { createTaskFromNoteLine, createTaskFromNote, setNoteTaskDone } from "./task-actions";
@@ -42,6 +43,11 @@ const NOTE_COLORS: { key: string; hex: string }[] = [
   { key: "gray", hex: "#888780" },
 ];
 const noteHex = (key: string | null): string | null => NOTE_COLORS.find((c) => c.key === key)?.hex ?? null;
+
+// El color del CLIENTE se guarda como CLAVE de paleta ("emerald"), no como hex. Pintarlo crudo
+// no producía nada —o, si la clave coincidía con un color HTML clásico ("red", "green"), el
+// color equivocado—, así que los clientes CON color se veían peor que los que no tenían.
+const clienteHex = (key: string | null | undefined): string | null => (key ? tone(key).hex : null);
 
 // ISO → valor de <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") en hora local.
 function toLocalInput(iso: string | null): string {
@@ -206,7 +212,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
         const c = clientOf(n.clientId);
         key = c ? `c:${c.id}` : "c:none";
         label = c ? c.name : "Sin cliente";
-        color = c?.accentColor ?? null;
+        color = clienteHex(c?.accentColor);
         emoji = c?.emoji ?? null;
       } else {
         const cat = (n.category ?? "").trim();
@@ -772,7 +778,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
               <div className="flex flex-wrap items-center gap-2">
                 {clients.length && (draft.clientId || reveladas.has("cliente")) ? (
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm transition-colors hover:border-primary/40" title="Cliente de la nota">
-                    <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: draftClient?.accentColor ?? "hsl(var(--muted-foreground))" }} />
+                    <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: clienteHex(draftClient?.accentColor) ?? "hsl(var(--muted-foreground))" }} />
                     <select value={draft.clientId} onChange={(e) => onChange({ clientId: e.target.value })} className="cursor-pointer bg-transparent outline-none">
                       <option value="">Sin cliente</option>
                       {clients.map((c) => <option key={c.id} value={c.id}>{c.emoji ? `${c.emoji} ` : ""}{c.name}</option>)}

@@ -5,6 +5,7 @@ import { IconEntregas } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { accessibleProjectWhere } from "@/lib/project-access";
+import { tone } from "@/lib/colors";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ClientPortalNav } from "@/components/client-portal-nav";
 
@@ -102,9 +103,12 @@ export default async function MisEntregasPage() {
               href={`/mis-entregas/${c.id}`}
               className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/40"
             >
+              {/* `color` guarda una CLAVE de paleta ("emerald"), no un hex: concatenarla daba
+                  "emerald22", que no es color CSS y el navegador descartaba — la banda salía en
+                  blanco SIEMPRE. tone() la traduce, igual que hace la lista de proyectos. */}
               <div
                 className="flex h-16 items-center justify-center border-b border-border/60"
-                style={{ background: c.color ? `${c.color}22` : undefined }}
+                style={{ background: c.color ? `${tone(c.color).hex}22` : undefined }}
               >
                 <span className="text-3xl">{c.emoji ?? "🎬"}</span>
               </div>
