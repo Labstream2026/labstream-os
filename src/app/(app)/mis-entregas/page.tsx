@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, Clock, CheckCircle2, Inbox } from "lucide-react";
+import { ArrowRight, Clock, CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { IconEntregas } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -78,14 +79,11 @@ export default async function MisEntregasPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
-      <header className="mb-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <Inbox className="size-6 text-primary" /> Tus entregas
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Aquí están tus campañas. Abre una para revisar cada pieza, comentar y aprobar o pedir cambios.
-        </p>
-      </header>
+      <PageHeader
+        icon={<IconEntregas />}
+        title="Tus entregas"
+        description="Aquí están tus campañas. Abre una para revisar cada pieza, comentar y aprobar o pedir cambios."
+      />
 
       {session.role === "cliente" ? <ClientPortalNav active="entregas" /> : null}
 

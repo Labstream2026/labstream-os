@@ -3,7 +3,8 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { HardDrive, Loader2, FileText, X, Folder, FolderPlus, Upload, Search, ChevronRight } from "lucide-react";
+import { Loader2, FileText, X, Folder, FolderPlus, Upload, Search, ChevronRight } from "lucide-react";
+import { IconDisco } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Miniatura } from "@/components/discos/miniatura";
 import {
@@ -127,7 +128,7 @@ function ModalDisco({
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <HardDrive className="size-4.5" />
+            <IconDisco className="size-4.5" />
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{titulo}</p>
@@ -529,7 +530,8 @@ export function CrearDesdeDisco({
           className="group flex w-full items-center gap-3 rounded-xl border border-dashed border-[#F47A20]/50 bg-[#F47A20]/5 px-4 py-3.5 text-left transition-colors hover:border-[#F47A20] hover:bg-[#F47A20]/10"
         >
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#F47A20]/15">
-            <HardDrive className="size-5 text-[#F47A20]" />
+            {/* IconDisco: el naranja ya lo trae el ícono en su acento, no hace falta pintarlo. */}
+            <IconDisco className="size-5" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold">Elegir de la galería del cliente</span>
@@ -548,7 +550,7 @@ export function CrearDesdeDisco({
           title="Crear el entregable eligiendo un video que ya está en la carpeta del cliente (LabTem) — sin subir nada"
           className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
-          <HardDrive className="size-4" /> Desde el disco (galería)
+          <IconDisco className="size-4" /> Desde el disco (galería)
         </button>
       )}
 
@@ -598,7 +600,7 @@ export function CrearDesdeDisco({
                 disabled={!elegida || !nombre.trim() || creando}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                {creando ? <Loader2 className="size-4 animate-spin" /> : <HardDrive className="size-4" />} Crear y mandar a pre-aprobación
+                {creando ? <Loader2 className="size-4 animate-spin" /> : <IconDisco className="size-4" />} Crear y mandar a pre-aprobación
               </button>
             </div>
           </div>
@@ -651,7 +653,7 @@ export function VersionDesdeDisco({ deliverableId, projectId }: { deliverableId:
         className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         title="Elegir un archivo que ya está en la carpeta del cliente en la galería (LabTem)"
       >
-        <HardDrive className="size-4" /> Desde el disco
+        <IconDisco className="size-4" /> Desde el disco
       </button>
 
       <ModalDisco
@@ -675,7 +677,7 @@ export function VersionDesdeDisco({ deliverableId, projectId }: { deliverableId:
                 disabled={!elegida || creando}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                {creando ? <Loader2 className="size-4 animate-spin" /> : <HardDrive className="size-4" />} Usar este archivo
+                {creando ? <Loader2 className="size-4 animate-spin" /> : <IconDisco className="size-4" />} Usar este archivo
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { HardDrive } from "lucide-react";
+import { IconDisco } from "@/components/icons";
 import { getSession, hasPermission } from "@/lib/auth";
 import { leerPreferenciasUI } from "@/app/(app)/prefs-actions";
 import { db } from "@/lib/db";
@@ -28,7 +28,7 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
         {/* Con las pestañas a la vista, un disco caído no te deja atrapado: saltas al otro. */}
         <DiscoTabs activo="operaciones" hayOps={opsEnabled()} hayGaleria={galeriaEnabled()} />
         <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center gap-3 px-4 text-center">
-          <HardDrive className="size-10 text-muted-foreground" />
+          <IconDisco className="size-10 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Operaciones_LAB no está conectado</h1>
           <p className="text-sm text-muted-foreground">
             {opsEnabled()

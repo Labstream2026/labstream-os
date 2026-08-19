@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Bell, ListChecks, Loader2, Plus, StickyNote, Users } from "lucide-react";
+import { Bell, ListChecks, Loader2, Plus, Users } from "lucide-react";
+import { IconNotas } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { quickNote } from "@/app/(app)/notas/quick-actions";
 
@@ -113,7 +114,7 @@ export function NotesTab({
 
       {rows.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
-          <StickyNote className="size-8 text-muted-foreground/30" />
+          <IconNotas className="size-8 text-muted-foreground/30" />
           Sin notas todavía.
           {canWrite ? <span className="text-xs">Lo que apuntes aquí también aparece en Notas.</span> : null}
         </div>

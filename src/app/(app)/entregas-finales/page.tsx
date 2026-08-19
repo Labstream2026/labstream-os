@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { FolderCheck } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { getDeliveryPackage } from "@/lib/delivery-data";
@@ -7,6 +6,8 @@ import { formatBogotaDate } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
 import { emojiToText } from "@/components/icons/marks";
 import { ClientPortalNav } from "@/components/client-portal-nav";
+import { PageHeader } from "@/components/ui/page-header";
+import { IconEntregas } from "@/components/icons";
 import { FinalsHub, type HubProject } from "./finals-hub";
 
 export const dynamic = "force-dynamic";
@@ -80,15 +81,11 @@ export default async function EntregasFinalesPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <header className="mb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <FolderCheck className="size-6 text-primary" /> Entregas finales
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Todo tu material aprobado, proyecto por proyecto y listo para descargar. Siempre la versión final — y sigue
-          aquí aunque el proyecto ya se haya cerrado.
-        </p>
-      </header>
+      <PageHeader
+        icon={<IconEntregas />}
+        title="Entregas finales"
+        description="Todo tu material aprobado, proyecto por proyecto y listo para descargar. Siempre la versión final — y sigue aquí aunque el proyecto ya se haya cerrado."
+      />
 
       <ClientPortalNav active="finales" />
 

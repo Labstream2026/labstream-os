@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Check, Loader2, StickyNote, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter } from "lucide-react";
+import { Plus, Trash2, Check, Loader2, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter } from "lucide-react";
 import { IconNotas, IconPapelera, IconTareas } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, usePreferenciaLocal } from "@/components/ui/barra-menu";
@@ -981,7 +981,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-            <StickyNote className="size-10 text-muted-foreground/30" />
+            <IconNotas className="size-10 text-muted-foreground/30" />
             Selecciona una nota o crea una nueva.
           </div>
         )}

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, X, Minus } from "lucide-react";
+import { X, Minus } from "lucide-react";
+import { IconChat } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useChatLive } from "@/components/layout/chat-live";
 import { ProjectChatTab } from "./project-chat-tab";
@@ -137,7 +138,7 @@ export function ProjectChatBubble({ projectId, me, isAdmin }: { projectId: strin
         </div>
 
         <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2.5">
-          <MessageCircle className="size-4 shrink-0 text-primary" />
+          <IconChat className="size-4 shrink-0" />
           <span className="flex-1 truncate text-sm font-semibold">Chat del proyecto</span>
           <button onClick={() => setOpen(false)} aria-label="Minimizar" title="Minimizar" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
             <Minus className="size-4" />
@@ -167,7 +168,9 @@ export function ProjectChatBubble({ projectId, me, isAdmin }: { projectId: strin
         "[body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0",
       )}
     >
-      <MessageCircle className="size-6" />
+      {/* IconChat, el MISMO que el botón flotante del chat general: son el mismo control y
+          salían con dos dibujos distintos. */}
+      <IconChat className="size-6 [--icono-acento:currentColor]" />
       {unread > 0 ? (
         <span className="absolute -right-1 -top-1 grid min-w-[22px] place-items-center rounded-full border-2 border-background bg-red-500 px-1 text-[11px] font-extrabold leading-[18px] text-white">
           {unread > 99 ? "99+" : unread}
