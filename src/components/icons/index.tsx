@@ -10,6 +10,24 @@ import { cn } from "@/lib/utils";
 //
 // Fase 1 = núcleo de secciones/áreas más usadas. Fase 2 = ampliar el set y cablearlos en más
 // superficies. Para usarlos: import { IconProyectos } from "@/components/icons".
+//
+// ── CUÁL DE LOS DOS SETS USAR ──
+// La app tiene dos lenguajes de ícono a propósito, y mezclarlos al azar es lo que hace que la
+// misma cosa se vea distinta en dos pantallas. La regla:
+//
+//   ESTE SET (duotono, a color) = IDENTIDAD. Qué ES algo.
+//     · el ícono de la cabecera de una página (PageHeader / routeMeta)
+//     · un resultado del buscador — cada tipo con su ícono
+//     · una entidad: cliente, proyecto (EntityEmoji con el token "ls:")
+//     · pestañas DENTRO de una entidad (las del proyecto), que nombran tipos de contenido
+//
+//   LUCIDE (línea, monocromo) = CROMO Y MANDOS. Qué HACE algo, o dónde estás.
+//     · el rail y los menús de navegación — se decidió a propósito que fueran de línea, para
+//       que a 20 px y en columna todos pesen igual (ver el comentario en sidebar.tsx)
+//     · botones y afordancias: guardar, borrar, cerrar, cargando, desplegar
+//
+// La prueba de fuego: si el mismo concepto aparece DOS VECES EN LA MISMA VISTA con dos dibujos
+// distintos, hay un error — sin importar de qué set sea cada uno.
 
 // Paleta viva de la familia (saturada, legible en ambos temas). El naranja es el hilo de marca.
 export const C = {
@@ -32,7 +50,7 @@ export type IconName =
   | "inicio" | "entregas" | "comercial" | "biblioteca" | "papelera" | "configuracion" | "recordatorios"
   | "usuarios" | "etiquetas" | "roles" | "auditoria" | "integraciones" | "api"
   | "marca" | "flujo" | "personalizacion"
-  | "tablero" | "tableroH" | "lista" | "tarjetas" | "tabla" | "galeria" | "archivador"
+  | "tablero" | "tableroH" | "cronograma" | "lista" | "tarjetas" | "tabla" | "galeria" | "archivador"
   | "midia" | "completadas" | "raci" | "propuestas" | "actividad" | "mas";
 
 export type IconProps = { className?: string; label?: string };
@@ -470,6 +488,19 @@ export function IconTableroH(p: IconProps) {
   );
 }
 
+// Cronograma (Gantt) — barras ESCALONADAS: cada una empieza donde la tarea empieza. Es lo
+// único que la separa de IconTableroH, cuyos carriles arrancan todos del margen izquierdo; a
+// 16 px el escalón se lee y la longitud sola no. La del medio, en naranja, es la de hoy.
+export function IconCronograma(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.4" y="5.2" width="9" height="3.6" rx="1.4" fill={C.teal} fillOpacity={0.16} stroke={C.teal} strokeWidth={1.6} />
+      <rect x="8.4" y="10.2" width="10" height="3.6" rx="1.4" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={1.6} />
+      <rect x="6" y="15.2" width="7.6" height="3.6" rx="1.4" fill={C.teal} fillOpacity={0.16} stroke={C.teal} strokeWidth={1.6} />
+    </Icon>
+  );
+}
+
 // Lista — renglones con viñeta (azul), el del medio naranja.
 export function IconLista(p: IconProps) {
   return (
@@ -634,6 +665,7 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   personalizacion: IconPersonalizacion,
   tablero: IconTablero,
   tableroH: IconTableroH,
+  cronograma: IconCronograma,
   lista: IconLista,
   tarjetas: IconTarjetas,
   tabla: IconTabla,

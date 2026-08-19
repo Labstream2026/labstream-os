@@ -23,6 +23,10 @@ import { ProjectLifecycleBanner } from "./lifecycle-banner";
 import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText, ChevronDown, Inbox, Megaphone, Users, Settings } from "lucide-react";
+import {
+  IconTablero, IconTareas, IconCalendario, IconCronograma, IconEntregas,
+  IconArchivo, IconNotas, IconEquipo, IconActividad,
+} from "@/components/icons";
 import { ResumenSection } from "./resumen-section";
 import { TasksSpace } from "./tasks-space";
 import { CompletedTasks } from "./completed-tasks";
@@ -80,16 +84,21 @@ export const dynamic = "force-dynamic";
 // las 10 no se vean como un muro plano; un separador sutil marca cada grupo.
 // El Chat ya NO es una pestaña: vive en una BURBUJA flotante (ProjectChatBubble). Aquí quedan
 // las pestañas de navegación, que se muestran en el MENÚ LATERAL vertical (no en una barra arriba).
+//
+// Cada pestaña lleva su ícono del set propio. Era la navegación más densa de la app y la única
+// sin ninguno: nueve renglones de puro texto que hay que LEER para encontrar el que se busca.
+// Con ícono la forma se reconoce de reojo, y son los MISMOS de la barra lateral y del buscador,
+// así que "Tareas" se ve igual esté donde esté.
 const TABS = [
-  { key: "resumen", label: "Resumen", group: "contenido" },
-  { key: "tareas", label: "Tareas", group: "contenido" },
-  { key: "calendario", label: "Calendario", group: "contenido" },
-  { key: "cronograma", label: "Cronograma", group: "contenido" },
-  { key: "entregables", label: "Entregables", group: "entregables" },
-  { key: "archivos", label: "Archivos", group: "entregables" },
-  { key: "notas", label: "Notas", group: "contenido" },
-  { key: "equipos", label: "Equipos", group: "operacion" },
-  { key: "actividad", label: "Actividad", group: "operacion" },
+  { key: "resumen", label: "Resumen", group: "contenido", Icon: IconTablero },
+  { key: "tareas", label: "Tareas", group: "contenido", Icon: IconTareas },
+  { key: "calendario", label: "Calendario", group: "contenido", Icon: IconCalendario },
+  { key: "cronograma", label: "Cronograma", group: "contenido", Icon: IconCronograma },
+  { key: "entregables", label: "Entregables", group: "entregables", Icon: IconEntregas },
+  { key: "archivos", label: "Archivos", group: "entregables", Icon: IconArchivo },
+  { key: "notas", label: "Notas", group: "contenido", Icon: IconNotas },
+  { key: "equipos", label: "Equipos", group: "operacion", Icon: IconEquipo },
+  { key: "actividad", label: "Actividad", group: "operacion", Icon: IconActividad },
 ];
 const GROUP_LABEL: Record<string, string> = { contenido: "Contenido", entregables: "Entregables", operacion: "Operación" };
 
@@ -742,8 +751,9 @@ export default async function ProyectoPage({
           {visibleTabs.map((t) => {
             const count = (counts as Record<string, number>)[t.key];
             return (
-              <Link key={t.key} href={`/proyectos/${id}?tab=${t.key}`} className={cn("shrink-0 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors", tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
-                {t.label}{count ? <span className="ml-1.5 text-xs text-muted-foreground">{count}</span> : null}
+              <Link key={t.key} href={`/proyectos/${id}?tab=${t.key}`} className={cn("flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors", tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+                <t.Icon className="size-4 shrink-0" />
+                {t.label}{count ? <span className="text-xs text-muted-foreground">{count}</span> : null}
               </Link>
             );
           })}
@@ -760,6 +770,7 @@ export default async function ProyectoPage({
                   const count = (counts as Record<string, number>)[t.key];
                   return (
                     <Link key={t.key} href={`/proyectos/${id}?tab=${t.key}`} className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13.5px] font-medium transition-colors", tab === t.key ? "bg-primary/10 text-primary" : "text-foreground/80 hover:bg-muted hover:text-foreground")}>
+                      <t.Icon className="size-[18px] shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{t.label}</span>
                       {count ? <span className="text-xs text-muted-foreground">{count}</span> : null}
                     </Link>

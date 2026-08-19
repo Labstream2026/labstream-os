@@ -3,7 +3,7 @@
 import * as React from "react";
 import { quickAddTask } from "@/app/(app)/proyectos/[id]/actions";
 import { useRouter } from "next/navigation";
-import { Search, FileText, Loader2, Plus } from "lucide-react";
+import { Search, Loader2, Plus } from "lucide-react";
 import {
   IconInicio, IconTareas, IconChat, IconProyectos, IconCalendario, IconCotizacion, IconWiki,
   IconArchivo, IconConfiguracion, IconBiblioteca, IconCliente, IconRevisiones, IconFacturacion, IconNotas,
@@ -91,7 +91,10 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
   const items = React.useMemo(() => {
     const clientItems: Item[] = clients.map((c) => ({ id: `c-${c.id}`, label: c.name, sub: "Cliente", href: `/clientes/${c.id}`, icon: IconCliente, group: "Clientes" }));
     const projectItems: Item[] = clients.flatMap((c) => c.projects.map((p) => ({ id: `pr-${p.id}`, label: p.name, sub: c.name, href: `/proyectos/${p.id}`, icon: IconProyectos, group: "Proyectos", finished: p.finished })));
-    const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: FileText, group: "Wiki" }));
+    // IconWiki, el MISMO que KIND_ICON.wiki: una página de la Wiki que sale del índice local y
+    // la misma página traída por la búsqueda del servidor caían en esta lista con dos dibujos
+    // distintos (un documento gris de lucide contra el ícono de la casa a color).
+    const wikiItems: Item[] = wikiPages.map((w) => ({ id: `w-${w.id}`, label: w.title, sub: w.section ?? "Wiki", href: `/wiki/${w.id}`, icon: IconWiki, group: "Wiki" }));
     // Normaliza quitando acentos (NFD + strip diacríticos): "diseno" encuentra "Diseño",
     // "cotizacion" encuentra "Cotización". Antes una tilde de más/menos no encontraba nada.
     const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -116,7 +119,7 @@ export function CommandPalette({ clients, wikiPages = [], open, onClose }: { cli
     const timer = setTimeout(async () => {
       try {
         const hits = await globalSearch(term);
-        if (!cancelled) setServerHits(hits.map((h) => ({ id: h.id, label: h.label, sub: h.sub, href: h.href, icon: KIND_ICON[h.kind] ?? FileText, group: h.group, finished: h.finished })));
+        if (!cancelled) setServerHits(hits.map((h) => ({ id: h.id, label: h.label, sub: h.sub, href: h.href, icon: KIND_ICON[h.kind] ?? IconArchivo, group: h.group, finished: h.finished })));
       } catch {
         if (!cancelled) setServerHits([]);
       } finally {
