@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
 import { WikiTabs } from "@/app/(app)/wiki/wiki-tabs";
+import { IconTarjetas } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { TemplatesList, type TemplateRow } from "./templates-list";
 
 export const dynamic = "force-dynamic";
@@ -38,10 +40,8 @@ export default async function PlantillasDocumentosPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">
-        Plantillas de documento: el punto de partida de los guiones, presupuestos y propuestas.
-      </p>
+      {/* Antes decía «Wiki del equipo», que no es esta pantalla ni lo que dice la barra. */}
+      <PageHeader icon={<IconTarjetas />} title="Plantillas de documento" description="El punto de partida de los guiones, presupuestos y propuestas." />
       <WikiTabs />
 
       <div className="mb-4">

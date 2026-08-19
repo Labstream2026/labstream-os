@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
+import { IconWiki } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { CredentialsClient, type Cred } from "./credentials-client";
 
 export const dynamic = "force-dynamic";
@@ -41,8 +43,9 @@ export default async function ContrasenasPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">Bóveda de usuarios y contraseñas del equipo.</p>
+      {/* Antes: «Wiki del equipo» a 30 px aquí y «Wiki» a 14,5 px en la barra — el mismo nombre
+          dos veces y ninguna de las dos decía que estabas en Contraseñas. */}
+      <PageHeader icon={<IconWiki />} title="Contraseñas" description="Bóveda de usuarios y contraseñas del equipo." />
       <WikiTabs />
 
       <div className="mb-4">

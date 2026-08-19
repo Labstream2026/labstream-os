@@ -6,7 +6,8 @@ import { createTemplate, duplicateTemplate } from "./actions";
 import { PromptCreate } from "@/components/prompt-create";
 import { WikiTabs } from "@/app/(app)/wiki/wiki-tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { IconProyectos } from "@/components/icons";
+import { IconProyectos, IconTarjetas } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { Plus, Pencil, Copy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +19,10 @@ export default async function PlantillasPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-10">
-      <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-      <p className="mt-1 mb-6 text-sm text-muted-foreground">
-        Plantillas de proyecto: arranca con etapas, tareas, carpetas y entregables predefinidos.
-      </p>
+      {/* El título decía «Wiki del equipo» mientras la barra superior decía «Plantillas»: las
+          dos cabeceras de la misma pantalla se contradecían. Ahora hay UNA, en la barra, y dice
+          dónde estás de verdad. */}
+      <PageHeader icon={<IconTarjetas />} title="Plantillas de proyecto" description="Arranca con etapas, tareas, carpetas y entregables predefinidos." />
       <WikiTabs />
 
       <div className="flex flex-wrap items-center justify-between gap-3">

@@ -7,6 +7,8 @@ import { ChevronLeft, ChevronRight, Download, Landmark, X } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import type { FilaBarra, FilaCliente, FilaCumplimiento, Kpi, PersonaReporte, ReporteDatos } from "@/lib/reportes/datos";
+import { IconReportes } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { Apiladas, Area, Barras, Spark } from "./graficas";
 
 // ── Reportes v2: el shell (rediseño aprobado por prototipo) ──
@@ -85,7 +87,10 @@ export function ReportesShell({ datos }: { datos: ReporteDatos }) {
     <div className={VARS}>
       {/* ── Barra de enfoque: título + periodo ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="flex items-center gap-2 text-base font-semibold">📊 Reportes</h1>
+        {/* El nombre va a la barra superior (y de paso apaga el rótulo genérico): aquí se leía
+            «Reportes» dos veces, arriba a 14,5 px y aquí a 16. El periodo se queda, que es lo
+            que de verdad cambia. */}
+        <PageHeader icon={<IconReportes />} title="Reportes" description="Métricas de producción y del equipo" />
         <p className="min-w-32 flex-1 text-[11px] text-muted-foreground">{per.subtitulo}</p>
         {per.key === "mes" ? (
           <span className="inline-flex items-center gap-0.5 rounded-lg border border-border px-1 py-0.5">

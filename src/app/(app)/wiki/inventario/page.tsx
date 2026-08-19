@@ -6,7 +6,8 @@ import { getSession } from "@/lib/auth";
 import { WikiTabs } from "../wiki-tabs";
 import { ImportInventoryButton } from "./import-button";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
-import { IconGaleria, IconTabla } from "@/components/icons";
+import { IconGaleria, IconTabla, IconWiki } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { InventoryGallery } from "./inventory-gallery";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +38,8 @@ export default async function InventarioPage() {
   return (
     <div className="py-6 sm:py-10">
       <div className="mx-auto max-w-none px-4 sm:px-6">
-        <h1 className="text-3xl font-bold tracking-tight">Wiki del equipo</h1>
-        <p className="mt-1 mb-6 text-sm text-muted-foreground">Inventario de equipos: cámaras, streaming, audio, iluminación…</p>
+        {/* Antes: «Wiki del equipo», que no dice que estás en el Inventario. */}
+        <PageHeader icon={<IconWiki />} title="Inventario de equipos" description="Cámaras, streaming, audio, iluminación…" />
         <WikiTabs />
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

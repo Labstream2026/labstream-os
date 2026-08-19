@@ -18,6 +18,7 @@ import { userComplianceSummary } from "@/lib/compliance";
 import { labelOptions } from "@/lib/colors";
 import { getTaskLabels } from "@/lib/workflow-labels";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { toDateInputValue } from "@/app/(app)/proyectos/[id]/task-shared";
 import { TaskDetailButton } from "./task-detail-panel";
@@ -550,9 +551,17 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
         storageKey="mis-tareas-view"
         titleSlot={
           <div>
+            {/* El nombre de la sección lo pinta la barra superior: aquí salía OTRA VEZ a 30 px,
+                con su burbuja de 44 px, así que «Mis tareas» se leía dos veces en la misma
+                pantalla y el contenido empezaba ~80 px más abajo de lo necesario. PageHeader lo
+                lleva a la barra (y oculta el rótulo genérico); el % de SLA y la cuenta de tareas
+                se quedan, que eso sí es dato y no identidad. */}
+            <PageHeader
+              icon={<IconTareas />}
+              title="Mis tareas"
+              description={`${tasks.length} tarea${tasks.length === 1 ? "" : "s"} abierta${tasks.length === 1 ? "" : "s"} · ${user.name}`}
+            />
             <div className="flex flex-wrap items-center gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconTareas className="size-7" /></span>
-              <h1 className="text-3xl font-bold tracking-tight">Mis tareas</h1>
               {sla && sla.pct !== null ? (
                 <span
                   className={cn(
@@ -569,9 +578,6 @@ export default async function MisTareasPage({ searchParams }: { searchParams: Pr
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {tasks.length} tarea{tasks.length === 1 ? "" : "s"} abierta{tasks.length === 1 ? "" : "s"} · {user.name}
-            </p>
             {/* Los cuatro cuadros de ~110 px de alto pasan a UNA franja de una línea, y cada
                 tramo FILTRA al pulsarlo (antes solo informaban). El tramo activo se suelta
                 pulsándolo otra vez: el mismo gesto pone y quita. */}

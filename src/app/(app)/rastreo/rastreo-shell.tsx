@@ -6,6 +6,8 @@ import { ChevronLeft, ChevronRight, Download, Share2, ShieldCheck, X } from "luc
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
 import type { PersonaRastreo, RastreoDatos } from "@/lib/rastreo/datos";
+import { IconHoras } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { Barras, Spark } from "../reportes/graficas";
 import { compartirRastreo, revocarRastreo } from "./acciones";
 
@@ -46,7 +48,10 @@ export function RastreoShell({ datos }: { datos: RastreoDatos }) {
     <div className={VARS}>
       {/* ── Barra de enfoque ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="flex items-center gap-2 text-base font-semibold">🛰️ Rastreo de trabajo</h1>
+        {/* /rastreo NO está en nav-meta, así que la barra superior decía «Labstream» — el
+            rótulo de reserva — mientras el nombre real vivía solo aquí abajo. PageHeader lo
+            pone donde se lee la identidad de cada pantalla, sin tener que tocar nav-meta. */}
+        <PageHeader icon={<IconHoras />} title="Rastreo de trabajo" description="Horas efectivas, inactividad y en qué se trabaja" />
         <p className="min-w-32 flex-1 text-[11px] text-muted-foreground">{per.subtitulo}</p>
         {per.key === "mes" ? (
           <span className="inline-flex items-center gap-0.5 rounded-lg border border-border px-1 py-0.5">

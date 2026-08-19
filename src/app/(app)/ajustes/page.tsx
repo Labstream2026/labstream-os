@@ -46,6 +46,7 @@ import { getUserPreference } from "@/lib/user-preference";
 import { getAllUserNotifPrefs } from "@/lib/user-notif-prefs";
 import { Mail } from "lucide-react";
 import { IconConfiguracion, IconUsuarios, IconEtiquetas, IconRoles, IconNotificaciones, IconAuditoria, IconMarcebot, IconIntegraciones, IconApi, IconMarca, IconFlujo, IconPersonalizacion, IconCalendario, IconBiblioteca } from "@/components/icons";
+import { PageHeader } from "@/components/ui/page-header";
 import { BibliotecaSettings } from "./biblioteca-settings";
 import { getAppConfigBool, MARCEBOT_CHAT_SILENCIO, REQUIRE_BACKUP_TO_FINISH } from "@/lib/app-config";
 import { AjustesShell, type AjustesSection } from "./ajustes-shell";
@@ -491,12 +492,8 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
 
 function Header({ subtitle }: { subtitle: string }) {
   return (
-    <div className="mb-6 flex items-center gap-3">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted/60"><IconConfiguracion className="size-7" /></span>
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Ajustes</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
-      </div>
-    </div>
+    // «Ajustes» salía en la barra superior y otra vez aquí a 30 px con su burbuja de 44:
+    // el mismo nombre dos veces y ~80 px de alto gastados antes de la primera opción.
+    <PageHeader icon={<IconConfiguracion />} title="Ajustes" description={subtitle} />
   );
 }
