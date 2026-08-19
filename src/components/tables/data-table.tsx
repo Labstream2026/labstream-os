@@ -202,7 +202,12 @@ export function DataTableView({ table, team }: { table: { id: string; name: stri
                       </td>
                     ))}
                     <td className="px-2 text-center">
-                      <button onClick={() => run(() => deleteRow(row.id))} className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-100 hover:bg-muted hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar fila" aria-label="Eliminar fila"><Trash2 className="size-4" /></button>
+                      {/* Pregunta antes de borrar, como ya hacen «eliminar tabla» y «eliminar
+                          columna» en este mismo archivo. Borrar la fila era el ÚNICO de los tres
+                          que se ejecutaba al primer clic, con el botón siempre visible en móvil:
+                          el usuario aprende que esta app pregunta y baja la guardia justo donde
+                          no preguntaba. */}
+                      <button onClick={async () => { if (await confirm({ title: "Eliminar fila", message: "¿Eliminar esta fila? Esto no se puede deshacer.", confirmLabel: "Eliminar", danger: true })) run(() => deleteRow(row.id)); }} className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground opacity-100 hover:bg-muted hover:text-destructive md:opacity-0 md:group-hover:opacity-100" title="Eliminar fila" aria-label="Eliminar fila"><Trash2 className="size-4" /></button>
                     </td>
                   </tr>
                 );
