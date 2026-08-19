@@ -836,6 +836,13 @@ model Quote {
   code         String      @unique // COT-0001
   title        String
   status       QuoteStatus @default(BORRADOR)
+  // Sello de ENVÍO real y aperturas del cliente. sentAt lo escribe el paso a ENVIADA — el
+  // radar comercial mide desde aquí, no desde updatedAt: corregir una coma ya no reinicia el
+  // reloj de seguimiento. Las aperturas las cuenta la página pública (mismo patrón que
+  // reviewVisits en los entregables).
+  sentAt       DateTime?
+  openCount    Int       @default(0)
+  lastOpenedAt DateTime?
   currency     String      @default("COP")
   taxRate      Int         @default(0) // % IVA (0-100)
   notes        String?
@@ -1016,6 +1023,10 @@ model Proposal {
   templateKey String // plantilla que la generó
   title       String
   status      ProposalStatus @default(BORRADOR)
+  // Sello de ENVÍO real (el radar mide desde aquí, no desde updatedAt) y ÚLTIMA apertura del
+  // cliente. El CONTEO de aperturas ya existía (views): no se duplica.
+  sentAt       DateTime?
+  lastOpenedAt DateTime?
   expiresAt   DateTime? // fecha de validez → deriva "VENCIDA"
   views       Int            @default(0) // se incrementa al abrir el enlace del cliente
   // Reja de contraseña OPCIONAL del portal público: si está, el cliente debe escribir la clave

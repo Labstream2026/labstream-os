@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/project-access";
 import { aiEnabled, AI_MODEL, ASSISTANT_SYSTEM, getAnthropic } from "@/lib/ai";
+import { ejecutarHerramienta, HERRAMIENTAS_ASISTENTE } from "@/lib/asistente/herramientas";
 import { PROJECT_STATUS } from "@/lib/ui";
 
 export const runtime = "nodejs";
@@ -80,7 +81,12 @@ export async function POST(req: NextRequest) {
     return new NextResponse("Falta un mensaje del usuario", { status: 400 });
   }
 
-  let system = ASSISTANT_SYSTEM;
+  // El asistente por fin sabe QUÉ DÍA ES y QUIÉN le habla — sin esto, «el martes» no
+  // significa nada — y recibe las herramientas de recordatorio (lib/asistente/herramientas).
+  let system =
+    `${ASSISTANT_SYSTEM}\n\n` +
+    `Hoy es ${new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "full" }).format(new Date())} (zona de Bogotá). ` +
+    `Hablas con ${session.name}. Cuando pidan «recuérdame…» o «avísame…», usa crear_recordatorio — nunca respondas que lo anotaste sin usarla: sin la herramienta no suena nada.`;
   if (body.projectId) {
     if (!(await userCanAccessProject(body.projectId, session))) {
       return new NextResponse("Sin acceso al proyecto", { status: 403 });
@@ -117,18 +123,41 @@ export async function POST(req: NextRequest) {
         }
       };
       try {
-        const ai = client.messages.stream({
-          model: AI_MODEL,
-          max_tokens: 8192,
-          thinking: { type: "adaptive" },
-          system,
-          messages,
-        });
-        for await (const event of ai) {
-          if (cerrado) break; // nadie escucha ya: no seguir gastando tokens del proveedor
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            escribir(event.delta.text);
+        // Bucle de herramientas SIN perder el streaming: cada vuelta emite su texto en vivo;
+        // si el modelo pide una herramienta, se ejecuta (con el userId de la SESIÓN, jamás
+        // del modelo) y se sigue con el resultado. Tope de 4 vueltas: un asistente que
+        // encadena más que eso no está ayudando, está dando vueltas.
+        const convo: Parameters<typeof client.messages.stream>[0]["messages"] = [...messages];
+        for (let vuelta = 0; vuelta < 4 && !cerrado; vuelta++) {
+          const ai = client.messages.stream({
+            model: AI_MODEL,
+            max_tokens: 8192,
+            thinking: { type: "adaptive" },
+            system,
+            messages: convo,
+            tools: HERRAMIENTAS_ASISTENTE,
+          });
+          for await (const event of ai) {
+            if (cerrado) break; // nadie escucha ya: no seguir gastando tokens del proveedor
+            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              escribir(event.delta.text);
+            }
           }
+          if (cerrado) break;
+          const final = await ai.finalMessage();
+          const usos = final.content.filter((b) => b.type === "tool_use");
+          if (final.stop_reason !== "tool_use" || !usos.length) break;
+          convo.push({ role: "assistant", content: final.content });
+          convo.push({
+            role: "user",
+            content: await Promise.all(
+              usos.map(async (u) => ({
+                type: "tool_result" as const,
+                tool_use_id: u.id,
+                content: await ejecutarHerramienta(u.name, (u.input ?? {}) as Record<string, unknown>, session.id),
+              })),
+            ),
+          });
         }
       } catch (e) {
         // No exponer el detalle del proveedor al cliente; registrarlo en el servidor.

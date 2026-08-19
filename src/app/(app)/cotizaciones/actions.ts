@@ -311,6 +311,9 @@ export async function setQuoteStatus(quoteId: string, status: string) {
     where: { id: quoteId },
     data: {
       status,
+      // El sello del envío: el radar comercial mide desde aquí, no desde updatedAt. Se
+      // renueva en cada paso a ENVIADA (reenviar ES una nueva espera).
+      ...(status === "ENVIADA" ? { sentAt: new Date() } : {}),
       approvedById: status === "APROBADA" ? session.id : null,
       approvedAt: status === "APROBADA" ? new Date() : null,
     },

@@ -31,6 +31,10 @@ function actionsDoc(tools: ToolDef[]): string {
 
 function protocol(doc: string): string {
   return [
+    // Sin la fecha, «recuérdame el martes» no significa nada: el agente necesita convertir
+    // fechas relativas a YYYY-MM-DD para crear_recordatorio.
+    `Hoy es ${new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "full" }).format(new Date())} (zona de Bogotá).`,
+    "",
     "ACCIONES disponibles para consultar o modificar datos de la app Labstream (úsalas SIEMPRE para datos de la app; NO uses tu propio almacenamiento, memoria ni archivos para esto):",
     doc,
     "",

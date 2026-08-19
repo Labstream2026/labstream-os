@@ -219,7 +219,9 @@ export async function setProposalStatus(id: string, status: string) {
   if (current?.status === "ACEPTADA" && status !== "ACEPTADA") {
     await requirePerm("aprobar_cotizaciones");
   }
-  await db.proposal.update({ where: { id }, data: { status } });
+  // Mismo sello que las cotizaciones: el radar mide desde el ENVÍO, no desde la última
+  // edición — corregir una coma ya no borra el seguimiento.
+  await db.proposal.update({ where: { id }, data: { status, ...(status === "ENVIADA" ? { sentAt: new Date() } : {}) } });
   refresh(id);
 }
 

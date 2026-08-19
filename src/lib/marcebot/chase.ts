@@ -49,13 +49,24 @@ export async function getUserChases(userId: string, now: Date = new Date()): Pro
       orderBy: { dueDate: "asc" },
       select: { id: true, name: true, dueDate: true, project: { select: { name: true } } },
     }),
+    // La quietud se mide desde el ENVÍO (sentAt), no desde la última edición: corregir una
+    // coma ya no reinicia el reloj ni borra la persecución. Lo enviado antes de que existiera
+    // el sello (sentAt null) sigue midiéndose por updatedAt, como antes.
     db.proposal.findMany({
-      where: { createdById: userId, status: "ENVIADA", OR: [{ expiresAt: { lte: expSoon } }, { updatedAt: { lt: staleCut } }] },
+      where: {
+        createdById: userId,
+        status: "ENVIADA",
+        OR: [{ expiresAt: { lte: expSoon } }, { sentAt: { lt: staleCut } }, { sentAt: null, updatedAt: { lt: staleCut } }],
+      },
       orderBy: { updatedAt: "asc" },
       select: { id: true, title: true, expiresAt: true, updatedAt: true },
     }),
     db.quote.findMany({
-      where: { createdById: userId, status: "ENVIADA", OR: [{ validUntil: { lte: expSoon } }, { updatedAt: { lt: staleCut } }] },
+      where: {
+        createdById: userId,
+        status: "ENVIADA",
+        OR: [{ validUntil: { lte: expSoon } }, { sentAt: { lt: staleCut } }, { sentAt: null, updatedAt: { lt: staleCut } }],
+      },
       orderBy: { updatedAt: "asc" },
       select: { id: true, title: true, code: true, validUntil: true, updatedAt: true },
     }),

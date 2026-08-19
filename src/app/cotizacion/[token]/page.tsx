@@ -31,6 +31,13 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
   });
   if (!quote) return <PublicLinkInvalid />;
 
+  // La APERTURA del cliente, contada (mismo patrón que reviewVisits): es la señal más útil
+  // para saber cuándo llamar — «la abrió tres veces y no responde» pide teléfono, no correo.
+  // Best-effort: contar visitas jamás tumba la página.
+  void db.quote
+    .update({ where: { id: quoteId }, data: { openCount: { increment: 1 }, lastOpenedAt: new Date() } })
+    .catch(() => {});
+
   // "Decidida" = el CLIENTE ya respondió (aceptó/rechazó) en el portal. La aprobación INTERNA
   // del equipo (status APROBADA) no afecta lo que el cliente ve/puede hacer aquí.
   const decided = quote.clientDecision != null || quote.status === "RECHAZADA";

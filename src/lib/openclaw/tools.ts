@@ -25,6 +25,7 @@ import { pollAndDeliverJob } from "@/lib/media-jobs";
 import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
 import { bogotaNoon } from "@/lib/today";
+import { ejecutarHerramienta } from "@/lib/asistente/herramientas";
 import type { ToolDef } from "./client";
 
 // ── Sesión del usuario que etiqueta al bot ──
@@ -335,7 +336,7 @@ export const AGENT_TOOLS: ToolDef[] = [
     type: "function",
     function: {
       name: "create_note",
-      description: "Guarda una NOTA rápida de la persona (idea, recordatorio, apunte). Úsalo cuando diga 'crea una nota', 'guarda esto', 'anota que', 'recuérdame…'. Genera un título corto a partir del contenido si no lo dan. La nota es de quien la pide.",
+      description: "Guarda una NOTA rápida de la persona (idea, apunte, texto suelto). Úsalo cuando diga 'crea una nota', 'guarda esto', 'anota que'. NO para 'recuérdame…' o 'avísame…': eso es crear_recordatorio (una nota no suena nunca). Genera un título corto a partir del contenido si no lo dan. La nota es de quien la pide.",
       parameters: {
         type: "object",
         properties: {
@@ -346,6 +347,40 @@ export const AGENT_TOOLS: ToolDef[] = [
         },
         required: ["content"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_recordatorio",
+      description:
+        "Crea un RECORDATORIO que SUENA (aviso en la app y push) para la persona. Úsalo SIEMPRE que diga 'recuérdame…', 'avísame…', 'no me dejes olvidar…'. Convierte tú la fecha relativa ('el martes', 'mañana') a YYYY-MM-DD con la fecha de hoy del contexto. Si no dan hora, usa 09:00. Antes esto se guardaba como nota y el recordatorio no sonaba jamás.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Qué recordar, corto y accionable." },
+          date: { type: "string", description: "YYYY-MM-DD (día de Bogotá)." },
+          time: { type: "string", description: "HH:mm de Bogotá, 24 h. Por defecto 09:00." },
+          notes: { type: "string", description: "Detalle opcional." },
+        },
+        required: ["title", "date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "listar_recordatorios",
+      description: "Lista los próximos recordatorios pendientes de la persona, con su id (necesario para cancelar).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "cancelar_recordatorio",
+      description: "Cancela un recordatorio pendiente de la persona por su id (sale de listar_recordatorios).",
+      parameters: { type: "object", properties: { id: { type: "string", description: "Id del recordatorio." } }, required: ["id"] },
     },
   },
   {
@@ -1265,6 +1300,15 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       const rows = await db.recurringTask.findMany({ where: { AND: where }, take: 30, orderBy: { createdAt: "desc" }, select: { title: true, frequency: true, interval: true, weekdays: true, dayOfMonth: true, startDate: true, project: { select: { name: true } }, assignee: { select: { name: true } } } });
       if (!rows.length) return "No hay tareas recurrentes activas que puedas ver.";
       return JSON.stringify(rows.map((r) => ({ titulo: r.title, frecuencia: r.frequency, cada: r.interval, dias: r.weekdays, diaDelMes: r.dayOfMonth, desde: ymd(r.startDate), proyecto: r.project?.name ?? "(personal)", responsable: r.assignee?.name ?? null })));
+    }
+
+    // Los recordatorios del agente son los MISMOS del asistente de la app: una sola
+    // implementación (lib/asistente/herramientas), con el userId de la sesión — jamás del
+    // modelo. «Recuérdame» por WhatsApp por fin SUENA.
+    case "crear_recordatorio":
+    case "listar_recordatorios":
+    case "cancelar_recordatorio": {
+      return ejecutarHerramienta(name, args, session.id);
     }
 
     case "create_note": {

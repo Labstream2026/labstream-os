@@ -66,8 +66,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
     }
   }
 
-  // Cuenta una visita del cliente (solo cuando de verdad ve el contenido; no bloquea el render si falla).
-  await db.proposal.update({ where: { id }, data: { views: { increment: 1 } } }).catch(() => {});
+  // Cuenta una visita del cliente (solo cuando de verdad ve el contenido; no bloquea el render
+  // si falla). lastOpenedAt le dice al comercial CUÁNDO fue la última — «la abrió ayer y no
+  // responde» pide teléfono, no otro correo.
+  await db.proposal.update({ where: { id }, data: { views: { increment: 1 }, lastOpenedAt: new Date() } }).catch(() => {});
   // Saneo servidor del HTML de los bloques antes del render público (cubre propuestas guardadas
   // antes del saneo al escribir) y enhebrado del token en las imágenes internas. El editor
   // (cliente) NO pasa por aquí: usa su propio renderer y su sesión.
