@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
+import { createCalendarEventCore } from "@/lib/calendar-create";
+import { utcFromBogota, isValidYmd } from "@/lib/reminder-schedule";
+import { horaMas } from "@/lib/correo/citas";
 import { encryptSecret } from "@/lib/crypto";
 import { logActivity } from "@/lib/activity";
 import { backfillCuenta, descargarAdjunto, marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
@@ -367,6 +370,82 @@ export async function moverCorreos(ids: string[], destino: "ARCHIVO" | "PAPELERA
   }
   revalidatePath("/correo");
   return { ok: !error, error };
+}
+
+// ── Crear una CITA (o recordatorio) desde un correo ─────────────────────────
+// El detector propone; aquí se confirma. El evento va por el MISMO núcleo del calendario
+// (createCalendarEventCore): queda en la app, sincroniza al Synology Calendar de quien lo
+// tenga conectado y avisa con su recordatorio. La opción ligera crea solo un Reminder.
+const HORA_RE_CITA = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+export async function crearCitaDesdeCorreo(input: {
+  mensajeId: string;
+  modo: "evento" | "recordatorio";
+  titulo: string;
+  fecha: string; // YYYY-MM-DD (Bogotá)
+  hora: string; // HH:mm
+  duracionMin?: number;
+  lugar?: string;
+  recordatorioMin?: number; // aviso antes (solo evento); 0/undefined = sin aviso
+}): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+
+  // El correo tiene que ser MÍO: de él salen el contexto y el proyecto del evento.
+  const msg = await db.mailMessage.findFirst({
+    where: { id: input.mensajeId, account: { userId: session.id } },
+    select: { subject: true, fromName: true, fromEmail: true, projectId: true },
+  });
+  if (!msg) return { ok: false, error: "Ese correo no existe." };
+
+  const titulo = input.titulo.trim().slice(0, 200);
+  if (!titulo) return { ok: false, error: "Ponle un título a la cita." };
+  if (!isValidYmd(input.fecha)) return { ok: false, error: "La fecha no es válida." };
+  if (!HORA_RE_CITA.test(input.hora)) return { ok: false, error: "La hora no es válida." };
+  const inicio = utcFromBogota(input.fecha, input.hora);
+  if (inicio.getTime() < Date.now() - 60_000) return { ok: false, error: "Ese momento ya pasó. Ajusta la fecha u hora." };
+
+  const remitente = msg.fromName || msg.fromEmail || "el remitente";
+  const descripcion = `Creada desde el correo «${msg.subject}» de ${remitente}.`;
+
+  if (input.modo === "evento") {
+    if (!hasPermission(session, "gestionar_calendario")) {
+      return { ok: false, error: "No tienes permiso de calendario: usa «Solo recordatorio»." };
+    }
+    const dur = Math.min(480, Math.max(15, Math.round(input.duracionMin ?? 60)));
+    const aviso = input.recordatorioMin && input.recordatorioMin > 0 ? Math.min(1440, Math.round(input.recordatorioMin)) : null;
+    await createCalendarEventCore({
+      creatorId: session.id,
+      creatorName: session.name ?? "Labstream",
+      title: titulo,
+      date: input.fecha,
+      time: input.hora,
+      endTime: horaMas(input.hora, dur),
+      description: descripcion,
+      location: (input.lugar ?? "").trim().slice(0, 300),
+      attendeeIds: [],
+      guestEmails: [],
+      projectId: msg.projectId ?? null,
+      reminderMinutes: aviso,
+    });
+    await logActivity({ action: "correo.cita", summary: `agendó «${titulo}» desde un correo`, projectId: msg.projectId ?? undefined, entityType: "correo", silent: true });
+    revalidatePath("/calendario");
+  } else {
+    await db.reminder.create({
+      data: {
+        title: titulo,
+        notes: descripcion,
+        forUserId: session.id,
+        createdById: session.id,
+        frequency: "UNA_VEZ",
+        timeOfDay: input.hora,
+        nextFireAt: inicio,
+      },
+    });
+    await logActivity({ action: "correo.cita", summary: `se puso un recordatorio («${titulo}») desde un correo`, entityType: "correo", silent: true });
+  }
+  revalidatePath("/correo");
+  return { ok: true };
 }
 
 // ── Segmentar por EMPRESA: dominio → cliente («@pepsico.com es Pepsico») ──

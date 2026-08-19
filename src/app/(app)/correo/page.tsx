@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Archive, Building2, Clock, FileText, Inbox, Mail, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
+import { detectarCita } from "@/lib/correo/citas";
+import { BannerCita } from "./cita-detectada";
 import { formatBogota } from "@/lib/bogota-time";
 import { tone } from "@/lib/colors";
 import { sanearCorreo, cidLimpio } from "@/lib/correo/sanitizar";
@@ -448,6 +450,9 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                       // Imágenes INCRUSTADAS (firmas, GIFs): cid → nuestra ruta autenticada.
                       const cids = new Map(adjuntos.filter((a) => a.cid).map((a) => [cidLimpio(a.cid!), `/api/correo/inline/${m.id}/${a.indice}`]));
                       const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id, cids }) : null;
+                      // CITA detectada: solo en el mensaje más reciente (ahí vive la logística)
+                      // y solo en lo recibido — agendar desde lo que uno mismo mandó es raro.
+                      const cita = esUltimo && m.folder !== "ENVIADOS" ? detectarCita(m.subject, m.textBody ?? m.snippet, Date.now()) : null;
                       return (
                         <details key={m.id} open={esUltimo} className="group/msg rounded-xl border border-border open:bg-card [&:not([open])]:bg-muted/30">
                           <summary className="flex cursor-pointer list-none items-baseline gap-2.5 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
@@ -459,6 +464,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                             <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatBogota(m.date)}</span>
                           </summary>
                           <div className="px-4 pb-4">
+                            {cita ? <BannerCita mensajeId={m.id} cita={cita} puedeEvento={hasPermission(session, "gestionar_calendario")} /> : null}
                             {adjuntos.length ? (
                               <p className="mb-2 flex flex-wrap gap-1.5">
                                 {adjuntos.map((a) => (
