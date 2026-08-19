@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Inbox, Mail, Paperclip, RefreshCw, Search, Send, Star, Trash2, Unlink } from "lucide-react";
+import { Archive, Clock, FileText, Inbox, Mail, Paperclip, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
@@ -12,8 +12,8 @@ import { estadoRonda } from "@/lib/rondas";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { ConectarCorreo } from "./conectar";
-import { desconectarCorreo, sincronizarAhora } from "./acciones";
-import { BotonRedactar, CompositorProvider } from "./compositor";
+import { desconectarCorreo, eliminarBorrador, sincronizarAhora } from "./acciones";
+import { AbrirBorrador, BotonRedactar, CompositorProvider } from "./compositor";
 import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM } from "./bandeja";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +26,13 @@ export const dynamic = "force-dynamic";
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
 type Adjunto = { indice: number; nombre: string; mime: string; bytes: number };
-type CarpetaKey = "recibidos" | "destacados" | "enviados" | "archivo" | "papelera";
+type CarpetaKey = "recibidos" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera";
 const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "recibidos", label: "Recibidos", Icon: Inbox },
   { key: "destacados", label: "Destacados", Icon: Star },
+  { key: "pospuestos", label: "Pospuestos", Icon: Clock },
   { key: "enviados", label: "Enviados", Icon: Send },
+  { key: "borradores", label: "Borradores", Icon: FileText },
   { key: "archivo", label: "Archivo", Icon: Archive },
   { key: "papelera", label: "Papelera", Icon: Trash2 },
 ];
@@ -58,13 +60,18 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
   const q = (sp.q ?? "").trim().slice(0, 100);
   const clFiltro = (sp.c ?? "").startsWith("cliente:") ? (sp.c ?? "").slice(8) : null;
 
+  const ahora = new Date();
   const whereCarpeta = clFiltro
     ? { clientId: clFiltro, folder: { not: "PAPELERA" } }
     : carpeta === "destacados"
       ? { flagged: true, folder: { not: "PAPELERA" } }
-      : { folder: carpeta === "recibidos" ? "INBOX" : carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
+      : carpeta === "pospuestos"
+        ? { snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } }
+        : carpeta === "recibidos"
+          ? { folder: "INBOX", OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] }
+          : { folder: carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
 
-  const [mensajes, sinLeer, porCliente, clientes, contactosEquipo] = await Promise.all([
+  const [mensajes, sinLeer, nPospuestos, borradores, porCliente, clientes, contactosEquipo] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
@@ -77,7 +84,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       take: 400,
       select: { id: true, threadKey: true, folder: true, fromName: true, fromEmail: true, toList: true, subject: true, snippet: true, date: true, seen: true, flagged: true, clientId: true, attachments: true },
     }),
-    db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false } }),
+    // No leídos SIN los pospuestos: posponer es sacarlo de la vista, contarlo sería trampa.
+    db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] } }),
+    db.mailMessage.count({ where: { accountId: cuenta.id, snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } } }),
+    db.mailDraft.findMany({ where: { accountId: cuenta.id }, orderBy: { updatedAt: "desc" }, take: 50 }),
     // Clientes detectados en ESTE buzón, con sus no-leídos: el raíl solo lista lo que existe.
     db.mailMessage.groupBy({ by: ["clientId"], where: { accountId: cuenta.id, clientId: { not: null }, folder: "INBOX", seen: false }, _count: { _all: true } }),
     db.mailMessage.findMany({ where: { accountId: cuenta.id, clientId: { not: null } }, distinct: ["clientId"], select: { client: { select: { id: true, name: true, accentColor: true } } } }),
@@ -184,6 +194,8 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 className={cn("flex items-center gap-2.5 rounded-full px-3.5 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
                 <Icon className="size-4" /> {label}
                 {key === "recibidos" && sinLeer > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeer}</b> : null}
+                {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums">{nPospuestos}</span> : null}
+                {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums">{borradores.length}</span> : null}
               </Link>
             ))}
             {clienteInfo.size ? <p className="mt-2 hidden px-3.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground lg:block">Clientes · automático</p> : null}
@@ -217,7 +229,28 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12px]"><b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span></p>
             ) : null}
 
-            {!hiloMsgs.length ? (
+            {carpeta === "borradores" && !clFiltro ? (
+              <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+                {borradores.map((b) => (
+                  <li key={b.id} className="group flex h-11 items-center gap-2 px-4 hover:bg-accent/40">
+                    <AbrirBorrador borrador={b} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                      <span className="shrink-0 text-[11px] font-bold uppercase text-red-600 dark:text-red-400">Borrador</span>
+                      <span className="w-44 shrink-0 truncate text-[13px] text-muted-foreground">{b.para || "(sin destinatario)"}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px]">
+                        {b.asunto || "(sin asunto)"} <span className="text-muted-foreground">— {b.texto.replace(/\s+/g, " ").slice(0, 90)}</span>
+                      </span>
+                      <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{formatBogota(b.updatedAt, { day: "numeric", month: "short" }).replace(".", "")}</span>
+                    </AbrirBorrador>
+                    <form action={eliminarBorrador.bind(null, b.id)}>
+                      <button type="submit" title="Descartar borrador" className="hidden rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-destructive group-hover:block">
+                        <X className="size-4" />
+                      </button>
+                    </form>
+                  </li>
+                ))}
+                {borradores.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Sin borradores. Lo que escribas en el compositor se guarda aquí solo.</li> : null}
+              </ul>
+            ) : !hiloMsgs.length ? (
               <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} />
             ) : (
               <>
@@ -298,7 +331,8 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
         </div>
 
         <p className="mt-2 text-[10.5px] text-muted-foreground">
-          Sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail. Atajo: <kbd className="rounded border border-border bg-muted px-1">c</kbd> redacta.
+          Sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail (posponer y borradores son solo de la app).
+          Atajos: <kbd className="rounded border border-border bg-muted px-1">c</kbd> redactar · <kbd className="rounded border border-border bg-muted px-1">j</kbd>/<kbd className="rounded border border-border bg-muted px-1">k</kbd> moverse · <kbd className="rounded border border-border bg-muted px-1">Enter</kbd> abrir · <kbd className="rounded border border-border bg-muted px-1">e</kbd> archivar · <kbd className="rounded border border-border bg-muted px-1">s</kbd> destacar.
         </p>
       </div>
     </CompositorProvider>

@@ -1888,6 +1888,7 @@ model MailAccount {
 
   createdAt DateTime      @default(now())
   messages  MailMessage[]
+  drafts    MailDraft[]
 }
 
 // Un correo sincronizado (o enviado desde la app). El cuerpo HTML se guarda CRUDO y acotado,
@@ -1917,6 +1918,10 @@ model MailMessage {
   answered  Boolean @default(false)
   // Estrella (\Flagged de IMAP): destacado aquí = destacado en el webmail.
   flagged   Boolean @default(false)
+  // POSPUESTO hasta este instante (solo local: MailPlus no tiene el concepto, así que el
+  // webmail lo sigue mostrando). Mientras no venza, el hilo sale de Recibidos y vive en
+  // «Pospuestos»; al vencer reaparece solo — es un filtro por tiempo, no necesita cron.
+  snoozedUntil DateTime?
   ccList    String  @default("")
   // La CONVERSACIÓN: raíz del hilo (References/In-Reply-To; el propio Message-ID si abre
   // hilo). Es lo que agrupa la bandeja al estilo Gmail. Ver lib/correo/hilos.
@@ -1935,6 +1940,27 @@ model MailMessage {
   @@index([accountId, seen])
   @@index([accountId, threadKey])
   @@index([accountId, clientId])
+}
+
+// Un BORRADOR del compositor: lo que se estaba escribiendo, guardado solo (autosave). Vive
+// aparte de MailMessage a propósito — un borrador se EDITA, un mensaje no; mezclarlos llena
+// la bandeja de medio-correos. Enviar lo borra.
+model MailDraft {
+  id        String      @id @default(cuid())
+  account   MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+
+  para         String @default("")
+  cc           String @default("")
+  asunto       String @default("")
+  texto        String @default("")
+  responderAId String?
+  reenviarDeId String?
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([accountId, updatedAt])
 }
 
 model TimeEntry {

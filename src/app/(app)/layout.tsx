@@ -133,7 +133,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // No leídos del buzón conectado (0 si no hay buzón): el numerito del menú. Barato: count
   // por índice (accountId, seen).
   const correoUnread = await db.mailMessage.count({
-    where: { account: { userId: session.id }, folder: "INBOX", seen: false },
+    where: { account: { userId: session.id }, folder: "INBOX", seen: false, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }] },
   }).catch(() => 0);
 
   // Preferencias del usuario (panel lateral/chat, accesibilidad) que sincronizan entre dispositivos.

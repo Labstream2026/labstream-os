@@ -191,6 +191,9 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
     await db.mailMessage.update({ where: { id: original.id }, data: { answered: true } }).catch(() => {});
     void marcarEnServidor(cuenta.id, original.uid, "\\Answered", { folder: original.folder }).catch(() => {});
   }
+  // El borrador del que salió este envío ya cumplió: se va.
+  const borradorId = String(fd.get("borradorId") ?? "").trim();
+  if (borradorId) await db.mailDraft.deleteMany({ where: { id: borradorId, accountId: cuenta.id } }).catch(() => {});
   revalidatePath("/correo");
   return { ok: true };
 }
@@ -228,6 +231,70 @@ export async function marcarLeidosCorreo(ids: string[], seen = true): Promise<vo
   for (const m of cambiar) {
     if (m.folder !== "ENVIADOS") void marcarEnServidor(m.account.id, m.uid, "\\Seen", { quitar: !seen, folder: m.folder }).catch(() => {});
   }
+  revalidatePath("/correo");
+}
+
+// ── Posponer (solo local: MailPlus no tiene el concepto) ──
+// Los presets se calculan AQUÍ y en hora de Bogotá — el navegador de cada quien no decide
+// qué significa «mañana a las 9».
+export async function posponerCorreos(ids: string[], preset: "tarde" | "manana" | "lunes" | "quitar"): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  const msgs = await misMensajes(ids, session.id);
+  if (!msgs.length) return;
+
+  let hasta: Date | null = null;
+  if (preset !== "quitar") {
+    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+    const a = (ymd: string, h: string) => new Date(`${ymd}T${h}:00.000-05:00`); // Bogotá no tiene DST
+    const dia = (n: number) => {
+      const d = new Date(`${hoy}T12:00:00.000-05:00`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+    };
+    if (preset === "tarde") hasta = new Date(Date.now() + 3 * 3600_000);
+    else if (preset === "manana") hasta = a(dia(1), "09:00");
+    else {
+      // El próximo lunes a las 9 (si hoy es lunes, el de la semana entrante).
+      const dow = new Date(`${hoy}T12:00:00.000-05:00`).getUTCDay();
+      hasta = a(dia(((8 - dow) % 7) || 7), "09:00");
+    }
+  }
+  await db.mailMessage.updateMany({ where: { id: { in: msgs.map((m) => m.id) } }, data: { snoozedUntil: hasta } });
+  revalidatePath("/correo");
+}
+
+// ── Borradores: autoguardado del compositor ──
+export async function guardarBorrador(input: {
+  id?: string | null;
+  para: string; cc: string; asunto: string; texto: string;
+  responderAId?: string | null; reenviarDeId?: string | null;
+}): Promise<{ id: string } | null> {
+  const session = await sesionEquipo();
+  if (!session) return null;
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return null;
+  const data = {
+    para: input.para.slice(0, 500),
+    cc: input.cc.slice(0, 500),
+    asunto: input.asunto.slice(0, 300),
+    texto: input.texto.slice(0, 100_000),
+    responderAId: input.responderAId ?? null,
+    reenviarDeId: input.reenviarDeId ?? null,
+  };
+  if (input.id) {
+    // El candado de siempre: solo borradores de la propia cuenta.
+    const r = await db.mailDraft.updateMany({ where: { id: input.id, accountId: cuenta.id }, data });
+    if (r.count === 1) return { id: input.id };
+  }
+  const d = await db.mailDraft.create({ data: { accountId: cuenta.id, ...data }, select: { id: true } });
+  return { id: d.id };
+}
+
+export async function eliminarBorrador(id: string): Promise<void> {
+  const session = await sesionEquipo();
+  if (!session) return;
+  await db.mailDraft.deleteMany({ where: { id, account: { userId: session.id } } });
   revalidatePath("/correo");
 }
 

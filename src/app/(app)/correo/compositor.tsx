@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Paperclip, PenLine, Send, X } from "lucide-react";
-import { enviarCorreoForm } from "./acciones";
+import { enviarCorreoForm, guardarBorrador } from "./acciones";
 
 // ── El compositor flotante (estilo Gmail) ───────────────────────────────────
 // Una sola pieza para los cuatro modos: nuevo, responder, responder a todos y reenviar. El
@@ -12,12 +12,15 @@ import { enviarCorreoForm } from "./acciones";
 // de firma editable en cada correo es la forma de que cada quien la rompa a su manera.
 
 export type PrefillCompositor = {
-  modo: "nuevo" | "responder" | "todos" | "reenviar";
+  modo: "nuevo" | "responder" | "todos" | "reenviar" | "borrador";
   para?: string;
   cc?: string;
   asunto?: string;
+  texto?: string;
   responderAId?: string;
   reenviarDeId?: string;
+  /** Si se abre desde un borrador guardado, su id: editarlo actualiza en vez de duplicar. */
+  borradorId?: string;
 };
 
 type Ctx = { abrir: (p: PrefillCompositor) => void };
@@ -37,10 +40,44 @@ export function CompositorProvider({ contactos, children }: { contactos: string[
   const [pendiente, arranca] = React.useTransition();
   const formRef = React.useRef<HTMLFormElement>(null);
 
+  // ── Autoguardado de borrador ──
+  // Al 1,5 s de dejar de teclear se guarda solo; cerrar sin enviar NO pierde nada — el
+  // borrador queda en su carpeta. Enviar lo borra (lo hace el servidor).
+  const [borradorId, setBorradorId] = React.useState<string | null>(null);
+  const [guardadoTxt, setGuardadoTxt] = React.useState<string | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const borradorRef = React.useRef<string | null>(null);
+  borradorRef.current = borradorId;
+
+  const autoguardar = React.useCallback((p: PrefillCompositor | null) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      const form = formRef.current;
+      if (!form || !p) return;
+      const fd = new FormData(form);
+      const texto = String(fd.get("texto") ?? "");
+      const para = String(fd.get("para") ?? "");
+      const asunto = String(fd.get("asunto") ?? "");
+      if (!texto.trim() && !para.trim() && !asunto.trim()) return; // vacío: nada que guardar
+      const r = await guardarBorrador({
+        id: borradorRef.current,
+        para, cc: String(fd.get("cc") ?? ""), asunto, texto,
+        responderAId: p.responderAId ?? null,
+        reenviarDeId: p.reenviarDeId ?? null,
+      });
+      if (r) {
+        setBorradorId(r.id);
+        setGuardadoTxt(new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()));
+      }
+    }, 1500);
+  }, []);
+
   const abrir = React.useCallback((p: PrefillCompositor) => {
     setError(null);
     setConCc(!!p.cc);
     setNombres([]);
+    setBorradorId(p.borradorId ?? null);
+    setGuardadoTxt(null);
     setPrefill(p);
   }, []);
 
@@ -80,9 +117,10 @@ export function CompositorProvider({ contactos, children }: { contactos: string[
             {titulo}
             <button type="button" onClick={() => setPrefill(null)} aria-label="Cerrar" className="ml-auto rounded p-0.5 hover:opacity-70"><X className="size-4" /></button>
           </div>
-          <form ref={formRef} onSubmit={enviar} className="flex flex-col">
+          <form ref={formRef} onSubmit={enviar} onChange={() => autoguardar(prefill)} className="flex flex-col">
             <input type="hidden" name="responderAId" value={prefill.responderAId ?? ""} />
             <input type="hidden" name="reenviarDeId" value={prefill.reenviarDeId ?? ""} />
+            <input type="hidden" name="borradorId" value={borradorId ?? ""} />
             <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-[13px]">
               <span className="text-muted-foreground">Para</span>
               <input
@@ -106,7 +144,7 @@ export function CompositorProvider({ contactos, children }: { contactos: string[
               <input name="asunto" defaultValue={prefill.asunto ?? ""} placeholder="Asunto" className="w-full bg-transparent outline-none" />
             </div>
             <textarea
-              name="texto" required rows={9} autoFocus
+              name="texto" required rows={9} autoFocus defaultValue={prefill.texto ?? ""}
               placeholder={prefill.modo === "reenviar" ? "Escribe algo antes del mensaje reenviado (se cita solo)…" : "Escribe el mensaje…"}
               className="resize-y bg-transparent px-4 py-3 text-[13.5px] leading-relaxed outline-none"
             />
@@ -130,7 +168,9 @@ export function CompositorProvider({ contactos, children }: { contactos: string[
                   onChange={(e) => setNombres([...(e.target.files ?? [])].map((f) => f.name))}
                 />
               </label>
-              <span className="ml-auto text-[10.5px] text-muted-foreground">firma automática ✓ · sale desde tu dirección</span>
+              <span className="ml-auto text-[10.5px] text-muted-foreground">
+                firma automática ✓{guardadoTxt ? ` · borrador guardado ${guardadoTxt}` : ""}
+              </span>
             </div>
           </form>
         </div>
@@ -140,6 +180,34 @@ export function CompositorProvider({ contactos, children }: { contactos: string[
         {contactos.map((c) => (<option key={c} value={c} />))}
       </datalist>
     </CompositorCtx.Provider>
+  );
+}
+
+/** Abre el compositor con un borrador guardado (fila de la carpeta Borradores). */
+export function AbrirBorrador({ borrador, children, className }: {
+  borrador: { id: string; para: string; cc: string; asunto: string; texto: string; responderAId: string | null; reenviarDeId: string | null };
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const { abrir } = useCompositor();
+  return (
+    <button
+      type="button" className={className}
+      onClick={() =>
+        abrir({
+          modo: "borrador",
+          borradorId: borrador.id,
+          para: borrador.para,
+          cc: borrador.cc,
+          asunto: borrador.asunto,
+          texto: borrador.texto,
+          responderAId: borrador.responderAId ?? undefined,
+          reenviarDeId: borrador.reenviarDeId ?? undefined,
+        })
+      }
+    >
+      {children}
+    </button>
   );
 }
 

@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, CheckCheck, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
+import { Archive, CheckCheck, Clock, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { estrellaCorreo, marcarLeidosCorreo, moverCorreos } from "./acciones";
+import { estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos } from "./acciones";
 import { useCompositor, type PrefillCompositor } from "./compositor";
 
 // ── La lista de CONVERSACIONES y la barra de acciones (estilo Gmail) ────────
@@ -33,6 +33,41 @@ export function ListaHilos({ hilos, carpeta }: { hilos: HiloVM[]; carpeta: strin
   const router = useRouter();
   const [sel, setSel] = React.useState<Set<string>>(new Set()); // claves de hilo
   const [pendiente, arranca] = React.useTransition();
+  // Cursor de teclado (j/k de Gmail): -1 = sin cursor hasta la primera pulsación.
+  const [cursor, setCursor] = React.useState(-1);
+  const hilosRef = React.useRef(hilos);
+  hilosRef.current = hilos;
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      const lista = hilosRef.current;
+      if (!lista.length) return;
+      if (e.key === "j") setCursor((c) => Math.min(c + 1, lista.length - 1));
+      else if (e.key === "k") setCursor((c) => Math.max(c - 1, 0));
+      else if (e.key === "Enter") {
+        setCursor((c) => {
+          if (c >= 0 && lista[c]) router.push(lista[c].href, { scroll: false });
+          return c;
+        });
+      } else if (e.key === "e") {
+        setCursor((c) => {
+          const h = c >= 0 ? lista[c] : null;
+          if (h) void moverCorreos(h.ids, "ARCHIVO").then(() => router.refresh());
+          return c;
+        });
+      } else if (e.key === "s") {
+        setCursor((c) => {
+          const h = c >= 0 ? lista[c] : null;
+          if (h) void estrellaCorreo(h.ultimoId, !h.destacado).then(() => router.refresh());
+          return c;
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 
   const idsSeleccionados = hilos.filter((h) => sel.has(h.clave)).flatMap((h) => h.ids);
   const limpiar = () => setSel(new Set());
@@ -80,6 +115,7 @@ export function ListaHilos({ hilos, carpeta }: { hilos: HiloVM[]; carpeta: strin
             <BotonBarra title="Marcar como no leído" onClick={() => lote(() => marcarLeidosCorreo(idsSeleccionados, false))}>
               <Mail className="size-4" />
             </BotonBarra>
+            <MenuPosponer ids={idsSeleccionados} quitar={carpeta === "pospuestos"} onHecho={() => { limpiar(); router.refresh(); }} />
             <span className="ml-1 text-[12px] font-semibold text-primary">
               {pendiente ? <Loader2 className="inline size-3.5 animate-spin" /> : `${sel.size} seleccionada${sel.size > 1 ? "s" : ""}`}
             </span>
@@ -90,8 +126,8 @@ export function ListaHilos({ hilos, carpeta }: { hilos: HiloVM[]; carpeta: strin
       </div>
 
       <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-        {hilos.map((h) => (
-          <FilaHilo key={h.clave} h={h} marcada={sel.has(h.clave)} enPapelera={enPapelera} enArchivo={enArchivo}
+        {hilos.map((h, i) => (
+          <FilaHilo key={h.clave} h={h} marcada={sel.has(h.clave)} conCursor={i === cursor} enPapelera={enPapelera} enArchivo={enArchivo} carpeta={carpeta}
             onMarcar={(on) => setSel((p) => { const s = new Set(p); if (on) s.add(h.clave); else s.delete(h.clave); return s; })} />
         ))}
         {hilos.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Nada por aquí.</li> : null}
@@ -108,8 +144,41 @@ function BotonBarra({ title, onClick, children }: { title: string; onClick: () =
   );
 }
 
-function FilaHilo({ h, marcada, enPapelera, enArchivo, onMarcar }: {
-  h: HiloVM; marcada: boolean; enPapelera: boolean; enArchivo: boolean; onMarcar: (on: boolean) => void;
+// Menú de POSPONER: tres presets calculados en el servidor (hora de Bogotá), como Gmail.
+// «Pospuesto» es solo de la app: el webmail de MailPlus lo sigue mostrando.
+function MenuPosponer({ ids, quitar, onHecho }: { ids: string[]; quitar?: boolean; onHecho: () => void }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const disparar = (preset: "tarde" | "manana" | "lunes" | "quitar") => {
+    setAbierto(false);
+    void posponerCorreos(ids, preset).then(onHecho);
+  };
+  if (quitar) {
+    return (
+      <BotonBarra title="Devolver a Recibidos ahora" onClick={() => disparar("quitar")}>
+        <Clock className="size-4" />
+      </BotonBarra>
+    );
+  }
+  return (
+    <span className="relative">
+      <BotonBarra title="Posponer hasta…" onClick={() => setAbierto((v) => !v)}>
+        <Clock className="size-4" />
+      </BotonBarra>
+      {abierto ? (
+        <span className="absolute right-0 top-9 z-30 flex w-44 flex-col overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
+          {([["tarde", "En 3 horas"], ["manana", "Mañana 9:00 a. m."], ["lunes", "El lunes 9:00 a. m."]] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => disparar(k)} className="px-3 py-1.5 text-left text-[12.5px] hover:bg-muted">
+              {l}
+            </button>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function FilaHilo({ h, marcada, conCursor, enPapelera, enArchivo, carpeta, onMarcar }: {
+  h: HiloVM; marcada: boolean; conCursor: boolean; enPapelera: boolean; enArchivo: boolean; carpeta: string; onMarcar: (on: boolean) => void;
 }) {
   const router = useRouter();
   const [estrella, setEstrella] = React.useState(h.destacado);
@@ -119,7 +188,7 @@ function FilaHilo({ h, marcada, enPapelera, enArchivo, onMarcar }: {
   const rapida = (fn: () => Promise<unknown>) => arranca(async () => { await fn(); router.refresh(); });
 
   return (
-    <li className={cn("group relative flex h-11 items-center gap-1.5 px-3 transition-colors hover:bg-accent/40", marcada && "bg-primary/5", noLeido && !marcada && "bg-card")}>
+    <li className={cn("group relative flex h-11 items-center gap-1.5 px-3 transition-colors hover:bg-accent/40", marcada && "bg-primary/5", noLeido && !marcada && "bg-card", conCursor && "shadow-[inset_3px_0_0] shadow-primary")}>
       <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1.5 shrink-0 accent-primary" />
       <button
         type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
@@ -161,6 +230,7 @@ function FilaHilo({ h, marcada, enPapelera, enArchivo, onMarcar }: {
         <BotonBarra title={noLeido ? "Marcar leído" : "Marcar no leído"} onClick={() => rapida(() => marcarLeidosCorreo(h.ids, noLeido))}>
           {noLeido ? <CheckCheck className="size-4" /> : <Mail className="size-4" />}
         </BotonBarra>
+        <MenuPosponer ids={h.ids} quitar={carpeta === "pospuestos"} onHecho={() => router.refresh()} />
       </span>
     </li>
   );
