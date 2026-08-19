@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { TaskDetail } from "./task-detail";
 import { type Task, type TeamMember } from "./task-shared";
 import { setTaskDates } from "./actions";
+import { aplazarCascada, dependientesDe, type FilaCascada } from "./cascada-actions";
+import { useRouter } from "next/navigation";
 
 // Tonos por defecto para las fases que no tienen color asignado (se reparten en orden).
 const STAGE_TONES = ["indigo", "sky", "violet", "amber", "emerald", "rose", "cyan", "orange"];
@@ -18,6 +20,7 @@ type DeliverableLite = { id: string; name: string; dueDate: Date | string | null
 export function ProjectTimeline({
   projectId,
   tasks: allTasks,
+  conflictos = [],
   stages,
   stageColors,
   deliverables,
@@ -30,6 +33,8 @@ export function ProjectTimeline({
 }: {
   projectId: string;
   tasks: Task[];
+  // Imposibles: tareas que empiezan antes de que termine su bloqueadora (calculado en la página).
+  conflictos?: { tarea: string; bloqueadora: string; hasta: string }[];
   stages: string[];
   stageColors: Record<string, string>;
   deliverables: DeliverableLite[];
@@ -88,8 +93,48 @@ export function ProjectTimeline({
     const fd = new FormData();
     fd.set("startDate", dates.startKey);
     fd.set("dueDate", dates.endKey);
-    startTransition(() => { void setTaskDates(taskId, projectId, fd); });
+    // Cuánto se corrió el VENCIMIENTO (días calendario): es el delta que se le ofrece a la
+    // cadena de dependientes. Alargar la barra sin mover el fin no dispara nada.
+    const antes = allTasks.find((t) => t.id === taskId);
+    const finAntes = dayKey(antes?.dueDate ?? null);
+    const delta = finAntes ? Math.round((Date.parse(`${dates.endKey}T12:00:00Z`) - Date.parse(`${finAntes}T12:00:00Z`)) / 86_400_000) : 0;
+    startTransition(async () => {
+      await setTaskDates(taskId, projectId, fd);
+      if (!delta || !antes) return;
+      // ¿Algo cuelga de esta tarea? Se ofrece arrastrarlo — nunca se mueve solo.
+      const r = await dependientesDe(taskId, projectId);
+      if (!r.filas.length) return;
+      setCascada({
+        origen: antes.title,
+        delta,
+        filas: r.filas,
+        entrega: r.entregaProyecto,
+        // El compromiso con el cliente sale DESMARCADO: moverlo es una decisión a propósito.
+        marcadas: new Set(r.filas.filter((f) => !f.compromisoCliente).map((f) => f.id)),
+      });
+    });
   }
+
+  // ── Panel de cascada: aparece tras mover una tarea con dependientes ──
+  const router = useRouter();
+  const [cascada, setCascada] = React.useState<{
+    origen: string;
+    delta: number;
+    filas: FilaCascada[];
+    entrega: string | null;
+    marcadas: Set<string>;
+  } | null>(null);
+  const [moviendo, arrancaMover] = React.useTransition();
+
+  const confirmarCascada = () => {
+    if (!cascada) return;
+    const ids = [...cascada.marcadas];
+    arrancaMover(async () => {
+      await aplazarCascada({ projectId, origenTitulo: cascada.origen, deltaDias: cascada.delta, ids });
+      setCascada(null);
+      router.refresh();
+    });
+  };
 
   // Convierte una tarea en una barra continua del Gantt. Cuenta desde su creación
   // (o su inicio) hasta su entrega/finalización/hoy, así toda tarea aparece y se ve avanzar.
@@ -190,6 +235,66 @@ export function ProjectTimeline({
 
   return (
     <div className="space-y-4">
+      {/* Imposibles del calendario: guardarlos en silencio era el problema. */}
+      {conflictos.length ? (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 dark:border-red-500/40 dark:bg-red-500/10">
+          {conflictos.map((c, i) => (
+            <p key={i} className="text-xs text-red-700 dark:text-red-300">
+              ⚠ <b>{c.tarea}</b> empieza antes de que termine su bloqueadora <b>{c.bloqueadora}</b> (hasta el {c.hasta}).
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {/* La cascada: se movió una tarea de la que cuelgan otras. Nada se mueve solo. */}
+      {cascada ? (
+        <div className="rounded-xl border border-primary/50 bg-card p-4">
+          <p className="text-sm font-semibold">
+            Moviste «{cascada.origen}» {cascada.delta > 0 ? `+${cascada.delta}` : cascada.delta} día{Math.abs(cascada.delta) > 1 ? "s" : ""}
+          </p>
+          <p className="mb-2 mt-0.5 text-xs text-muted-foreground">
+            {cascada.filas.length === 1 ? "1 tarea depende" : `${cascada.filas.length} tareas dependen`} de esta. ¿Las corro también? A cada afectado le llega <b>un solo aviso</b> con todas sus tareas.
+          </p>
+          <div className="space-y-1">
+            {cascada.filas.map((f) => (
+              <label key={f.id} className="flex cursor-pointer flex-wrap items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/50">
+                <input
+                  type="checkbox"
+                  checked={cascada.marcadas.has(f.id)}
+                  onChange={(e) => {
+                    const m = new Set(cascada.marcadas);
+                    if (e.target.checked) m.add(f.id);
+                    else m.delete(f.id);
+                    setCascada({ ...cascada, marcadas: m });
+                  }}
+                  className="accent-primary"
+                />
+                <span className="min-w-0 flex-1 truncate">{f.title}</span>
+                {f.asignadoNombre ? <span className="text-[11px] text-muted-foreground">{f.asignadoNombre.split(" ")[0]}</span> : null}
+                <span className="text-[11px] tabular-nums text-muted-foreground">{f.fin ?? "sin fecha"}</span>
+                {f.compromisoCliente ? (
+                  <span className="w-full pl-6 text-[11px] font-medium text-red-600 dark:text-red-400">comprometida con el cliente — muévela solo a propósito</span>
+                ) : null}
+              </label>
+            ))}
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={confirmarCascada}
+              disabled={moviendo || cascada.marcadas.size === 0}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {moviendo ? "Moviendo…" : `Mover ${cascada.marcadas.size === 1 ? "la marcada" : `las ${cascada.marcadas.size}`} y avisar`}
+            </button>
+            <button type="button" onClick={() => setCascada(null)} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">
+              Solo esta
+            </button>
+            {cascada.entrega ? <span className="text-[11px] text-muted-foreground">Entrega al cliente: {cascada.entrega}</span> : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Cronograma del proyecto. Arrastra una barra para mover fechas, tira de los bordes para alargarla y haz clic para abrir la tarea.

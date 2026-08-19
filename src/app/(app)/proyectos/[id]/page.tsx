@@ -56,6 +56,24 @@ import { isWhatsappEnabled } from "@/lib/whatsapp/send";
 import { NotesTab } from "@/components/notes/notes-tab";
 import { notesFor } from "@/lib/notes-for";
 
+// Imposibles del cronograma: tareas que EMPIEZAN antes de que termine su bloqueadora. Antes
+// esto se podía dejar guardado sin que nada lo dijera — los datos de dependencias ni llegaban
+// a la vista. Se calcula aquí (barato: un findMany por proyecto) y el cronograma lo enseña.
+async function conflictosDependencias(projectId: string): Promise<{ tarea: string; bloqueadora: string; hasta: string }[]> {
+  const deps = await db.taskDependency.findMany({
+    where: { task: { projectId, completedAt: null }, blocker: { completedAt: null } },
+    select: {
+      task: { select: { title: true, startDate: true } },
+      blocker: { select: { title: true, dueDate: true } },
+    },
+  });
+  const fmt = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short" });
+  return deps
+    .filter((d) => d.task.startDate && d.blocker.dueDate && d.task.startDate.getTime() < d.blocker.dueDate.getTime())
+    .slice(0, 8)
+    .map((d) => ({ tarea: d.task.title, bloqueadora: d.blocker.title, hasta: fmt.format(d.blocker.dueDate!).replace(".", "") }));
+}
+
 export const dynamic = "force-dynamic";
 
 // Pestañas del proyecto agrupadas en 3 bloques (Contenido · Entregables · Operación) para que
@@ -1040,6 +1058,7 @@ export default async function ProyectoPage({
           <ProjectTimeline
             projectId={id}
             tasks={tasksData}
+            conflictos={await conflictosDependencias(id)}
             stages={project.stages}
             stageColors={(project.stageColors as Record<string, string> | null) ?? {}}
             deliverables={project.deliverables.map((d) => ({ id: d.id, name: d.name, dueDate: d.dueDate, status: d.status }))}
