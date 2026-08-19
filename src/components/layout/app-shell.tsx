@@ -318,7 +318,9 @@ function DesktopChatBubble({ onOpen, fallbackUnread = 0 }: { onOpen: () => void;
       // suben exactamente a este hueco (mismo arreglo que la burbuja del proyecto en ea32e27).
       className="group fixed bottom-[5.75rem] right-6 z-50 hidden size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-[transform,opacity] hover:scale-105 active:scale-95 md:grid print:hidden [body:has(.qc-dial-open)_&]:pointer-events-none [body:has(.qc-dial-open)_&]:opacity-0"
     >
-      <IconChat className="size-6" />
+      {/* El botón ya ES naranja: se apaga el acento para que el ícono quede de un solo color
+          (si no, el punto naranja de la burbuja se pierde sobre el naranja y se ven dos). */}
+      <IconChat className="size-6 [--icono-acento:currentColor]" />
       {unread > 0 ? (
         <span className="absolute -right-1 -top-1 grid min-w-[22px] place-items-center rounded-full border-2 border-background bg-red-500 px-1 text-[11px] font-extrabold leading-[18px] text-white">
           {unread > 99 ? "99+" : unread}

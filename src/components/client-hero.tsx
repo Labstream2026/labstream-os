@@ -210,8 +210,11 @@ export function ClientHero({
               <circle cx="232" cy="142" r="17" fill="white" fillOpacity="0.09" />
               <circle cx="288" cy="70" r="9" fill="white" fillOpacity="0.12" />
             </svg>
+            {/* text-white obligatorio en la marca de agua: el ícono se dibuja con el color del
+                TEXTO y aquí el fondo es el degradado saturado del cliente. Sin esto hereda la
+                tinta oscura de la página y sale un manchón sucio. */}
             {watermark ? (
-              <watermark.Icon className="absolute right-4 top-1/2 size-20 -translate-y-1/2 opacity-30 sm:size-28" />
+              <watermark.Icon className="absolute right-4 top-1/2 size-20 -translate-y-1/2 text-white opacity-30 sm:size-28" />
             ) : watermarkText ? (
               <span className="absolute right-5 top-1/2 -translate-y-1/2 text-6xl opacity-25 sm:text-7xl" aria-hidden>{watermarkText}</span>
             ) : null}
@@ -276,7 +279,9 @@ export function ClientHero({
         {/* ── Contenido: burbuja de foto/emoji + nombre + subtítulo + logo ── */}
         <div className={cn("absolute inset-x-0 bottom-0 z-10 flex items-end gap-3", ficha ? "p-3 sm:p-4" : "p-3")}>
           <div className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/30 bg-white/15 shadow-lg backdrop-blur",
+            // text-white: la burbuja va sobre el degradado y dentro puede haber un ícono del set,
+            // que se dibuja con el color del texto.
+            "flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/30 bg-white/15 text-white shadow-lg backdrop-blur",
             ficha ? "size-12 text-2xl sm:size-14 sm:text-3xl" : "size-11 text-2xl",
           )}>
             {photoUrl ? (

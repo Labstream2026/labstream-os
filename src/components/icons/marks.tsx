@@ -324,10 +324,12 @@ function MkWeb(p: IconProps) {
 function MkCampana(p: IconProps) {
   return (
     <Icon {...p}>
-      <path d="M4 10.6v2.8c0 .6.4 1 1 1h1.7l7.8 3.8c.7.3 1.5-.2 1.5-1V6.8c0-.8-.8-1.3-1.5-1L6.7 9.6H5c-.6 0-1 .4-1 1Z" fill={C.orange} fillOpacity={0.18} stroke={C.orange} strokeWidth={SW} />
-      <path d="M7.4 14.8v3.2c0 .8.7 1.5 1.5 1.5h.3c.8 0 1.4-.6 1.4-1.4v-2.2" stroke={C.orange} strokeWidth={SW} />
-      <path d="M18.9 9.4a3.8 3.8 0 0 1 0 5.2" stroke={C.violet} strokeWidth={1.5} />
-      <path d="M21 7.5a6.6 6.6 0 0 1 0 9" stroke={C.violet} strokeWidth={1.5} />
+      {/* Invertido: el megáfono era naranja y las ondas del color de tono. Con el set en tinta,
+          el cuerpo es la tinta y la SEÑAL es el acento — que es lo que una campaña emite. */}
+      <path d="M4 10.6v2.8c0 .6.4 1 1 1h1.7l7.8 3.8c.7.3 1.5-.2 1.5-1V6.8c0-.8-.8-1.3-1.5-1L6.7 9.6H5c-.6 0-1 .4-1 1Z" fill={C.violet} fillOpacity={0.16} stroke={C.violet} strokeWidth={SW} />
+      <path d="M7.4 14.8v3.2c0 .8.7 1.5 1.5 1.5h.3c.8 0 1.4-.6 1.4-1.4v-2.2" stroke={C.violet} strokeWidth={SW} />
+      <path d="M18.9 9.4a3.8 3.8 0 0 1 0 5.2" stroke={C.orange} strokeWidth={1.6} />
+      <path d="M21 7.5a6.6 6.6 0 0 1 0 9" stroke={C.orange} strokeWidth={1.6} />
     </Icon>
   );
 }

@@ -2,11 +2,18 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 // ── Íconos propios de Labstream ──
-// Set duotono y vívido, hecho a medida (no depende de librerías externas): cada ícono usa un
-// color saturado propio + el naranja de marca (#F47A20) como acento recurrente, con el trazo
-// redondeado y geométrico del logo. Los rellenos usan opacidad (fill-opacity) para que se vean
-// bien en tema claro y oscuro sin variantes. API igual que un ícono de UI: reciben `className`
-// (por defecto size-6) y un `label` opcional para accesibilidad; sin label son decorativos.
+// Set de TINTA Y ACENTO, hecho a medida (no depende de librerías externas): el cuerpo del ícono
+// se dibuja con el color del TEXTO que lo rodea y solo un detalle lleva el naranja de marca
+// (#F47A20), con el trazo redondeado y geométrico del logo. Los rellenos usan opacidad
+// (fill-opacity) para que se vean bien en tema claro y oscuro sin variantes. API igual que un
+// ícono de UI: reciben `className` (por defecto size-6) y un `label` opcional para
+// accesibilidad; sin label son decorativos.
+//
+// Hasta 2026-08-19 cada ícono traía su propio tono saturado. Se cambió por dos razones: nueve
+// colores distintos en una columna de nueve renglones compiten entre sí, y —lo que de verdad
+// obligaba— el color iba ESCRITO DENTRO del svg, así que el ícono no podía saber si su pestaña
+// estaba activa: el texto se ponía naranja y el ícono se quedaba violeta. Heredando el color
+// del texto eso se resuelve solo, y el tema oscuro también.
 //
 // Fase 1 = núcleo de secciones/áreas más usadas. Fase 2 = ampliar el set y cablearlos en más
 // superficies. Para usarlos: import { IconProyectos } from "@/components/icons".
@@ -15,7 +22,7 @@ import { cn } from "@/lib/utils";
 // La app tiene dos lenguajes de ícono a propósito, y mezclarlos al azar es lo que hace que la
 // misma cosa se vea distinta en dos pantallas. La regla:
 //
-//   ESTE SET (duotono, a color) = IDENTIDAD. Qué ES algo.
+//   ESTE SET (tinta + acento naranja) = IDENTIDAD. Qué ES algo.
 //     · el ícono de la cabecera de una página (PageHeader / routeMeta)
 //     · un resultado del buscador — cada tipo con su ícono
 //     · una entidad: cliente, proyecto (EntityEmoji con el token "ls:")
@@ -29,18 +36,30 @@ import { cn } from "@/lib/utils";
 // La prueba de fuego: si el mismo concepto aparece DOS VECES EN LA MISMA VISTA con dos dibujos
 // distintos, hay un error — sin importar de qué set sea cada uno.
 
-// Paleta viva de la familia (saturada, legible en ambos temas). El naranja es el hilo de marca.
+// Paleta de la familia. El naranja es el ÚNICO color propio: el hilo de marca, reservado para
+// UN detalle por ícono. Todo lo demás es `currentColor` — el color del texto que lo rodea.
+//
+// Las claves de tono siguen existiendo (y todas valen lo mismo) a propósito: los ~150 íconos de
+// este archivo y de marks.tsx se escribieron nombrando su tono, y conservar los nombres deja el
+// cambio en UNA línea, reversible, sin tocar ni un `path`. Además guarda la intención original
+// de cada trazo por si algún día se quiere volver a teñir algo.
+// El acento va por variable CSS para que una superficie INVERTIDA pueda apagarlo: en el botón
+// flotante naranja, un acento naranja sobre naranja se ve como un agujero (la burbuja del chat
+// salía con dos puntos en vez de tres). Ahí basta con `[--icono-acento:currentColor]` y el
+// ícono queda de un solo color. Sin la variable, el naranja de marca de siempre.
+const TINTA = "currentColor";
+export const ACENTO = "var(--icono-acento, #F47A20)";
 export const C = {
-  orange: "#F47A20",
-  violet: "#7C5CFC",
-  blue: "#2E90FA",
-  teal: "#12B5A6",
-  green: "#16A34A",
-  amber: "#F59E0B",
-  rose: "#EC4899",
-  indigo: "#4F46E5",
-  coral: "#F0503A",
-  sky: "#0EA5E9",
+  orange: ACENTO,
+  violet: TINTA,
+  blue: TINTA,
+  teal: TINTA,
+  green: TINTA,
+  amber: TINTA,
+  rose: TINTA,
+  indigo: TINTA,
+  coral: TINTA,
+  sky: TINTA,
 } as const;
 
 export type IconName =
@@ -238,12 +257,15 @@ export function IconNotificaciones(p: IconProps) {
 export function IconMarcebot(p: IconProps) {
   return (
     <Icon {...p}>
-      <rect x="4" y="8" width="16" height="11" rx="4" fill={C.orange} fillOpacity={0.16} stroke={C.orange} strokeWidth={SW} />
-      <path d="M12 8V4.9" stroke={C.orange} strokeWidth={SW} />
-      <circle cx="12" cy="3.7" r="1.4" fill={C.orange} />
+      {/* Era el único ícono ENTERAMENTE naranja: nació así cuando el naranja era un color más
+          entre nueve. Con el set en tinta se leía como un manchón. Cuerpo en tinta y los OJOS
+          de acento — que además es donde se ve que el bot está encendido. */}
+      <rect x="4" y="8" width="16" height="11" rx="4" fill={C.violet} fillOpacity={0.14} stroke={C.violet} strokeWidth={SW} />
+      <path d="M12 8V4.9" stroke={C.violet} strokeWidth={SW} />
+      <circle cx="12" cy="3.7" r="1.4" fill={C.violet} />
       <circle cx="9.3" cy="13" r="1.5" fill={C.orange} />
       <circle cx="14.7" cy="13" r="1.5" fill={C.orange} />
-      <path d="M9.6 16.3h4.8" stroke={C.orange} strokeWidth={1.6} />
+      <path d="M9.6 16.3h4.8" stroke={C.violet} strokeWidth={1.6} />
     </Icon>
   );
 }

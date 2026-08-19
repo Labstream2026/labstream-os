@@ -87,9 +87,11 @@ export function CoverBanner({
                 <circle cx="232" cy="142" r="17" fill="white" fillOpacity="0.09" />
                 <circle cx="288" cy="70" r="9" fill="white" fillOpacity="0.12" />
               </svg>
-              {/* Marca de agua: el ícono Labstream elegido, en grande y translúcido. */}
+              {/* Marca de agua: el ícono Labstream elegido, en grande y translúcido. El
+                  text-white es obligatorio (ver la nota de client-hero): el ícono toma el color
+                  del texto y aquí el fondo es el degradado de la portada. */}
               {watermark ? (
-                <watermark.Icon className={cn("absolute right-4 top-1/2 -translate-y-1/2 opacity-30", compact ? "size-16" : "size-28 sm:size-36")} />
+                <watermark.Icon className={cn("absolute right-4 top-1/2 -translate-y-1/2 text-white opacity-30", compact ? "size-16" : "size-28 sm:size-36")} />
               ) : null}
             </div>
           )}
@@ -144,7 +146,9 @@ export function CoverBanner({
               onClick={() => { if (canEdit) setEmojiOpen((o) => !o); }}
               title={canEdit ? "Cambiar icono" : undefined}
               className={cn(
-                "flex items-center justify-center border border-white/30 bg-white/15 shadow-lg backdrop-blur transition hover:bg-white/25 disabled:cursor-default disabled:hover:bg-white/15",
+                // text-white por lo mismo: la burbuja flota sobre el degradado y lo que va dentro
+                // puede ser un ícono del set, que toma el color del texto (un emoji no se entera).
+                "flex items-center justify-center border border-white/30 bg-white/15 text-white shadow-lg backdrop-blur transition hover:bg-white/25 disabled:cursor-default disabled:hover:bg-white/15",
                 compact ? "size-11 rounded-xl text-2xl" : "size-[64px] rounded-2xl text-4xl",
               )}
             >
