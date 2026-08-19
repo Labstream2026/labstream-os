@@ -1,6 +1,16 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
+import { RecargaSiVieja } from "./recarga";
+
+// El SHA del build que sirve (horneado por el deploy en public/version.txt): la ventana del
+// plugin lo compara contra /api/version y se RECARGA sola cuando hubo deploy debajo — vive
+// días abierta en Resolve y sin esto cada deploy la dejaba fallando «para siempre».
+const versionDelBuild = readFile(path.join(process.cwd(), "public", "version.txt"), "utf8")
+  .then((s) => s.split("\n")[0]?.trim() ?? "")
+  .catch(() => "");
 
 // Panel de correcciones para DaVinci Resolve. Vive FUERA del grupo (app) a propósito:
 // no lleva sidebar ni chrome — es una vista compacta (~420px) pensada para la ventana
@@ -47,5 +57,10 @@ export default async function ResolveLayout({ children }: { children: React.Reac
   }
   // El wrapper .dark fuerza el tema oscuro SOLO en esta ruta (los tokens .dark de
   // globals.css cascadean a los descendientes): el panel convive con la UI de Resolve.
-  return <div className="dark min-h-screen bg-zinc-950 text-zinc-100 antialiased">{children}</div>;
+  return (
+    <div className="dark min-h-screen bg-zinc-950 text-zinc-100 antialiased">
+      <RecargaSiVieja versionPropia={await versionDelBuild} />
+      {children}
+    </div>
+  );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTran
 import { useRouter } from "next/navigation";
 import { resolveReviewComment } from "@/app/(app)/proyectos/[id]/actions";
 import { esNoAutorizado } from "@/lib/authz-error";
+import { avisarAppVieja, esAccionDeOtraVersion } from "@/lib/accion-error";
 
 // Componentes cliente del panel /resolve. El «puente» window.labstream lo inyecta el
 // plugin de Workflow Integration de Resolve (preload.js): si existe, los timecodes saltan
@@ -382,6 +383,13 @@ export function ResolveToggle({ commentId, projectId, resolved }: { commentId: s
             router.refresh();
           } catch (e) {
             const err = e as (Error & { digest?: string }) | null;
+            // Panel de otra versión (hubo deploy debajo): reintentar jamás cura una página
+            // vieja — se avisa y RecargaSiVieja recarga la ventana; el clic siguiente entra.
+            if (esAccionDeOtraVersion(err)) {
+              setError("panel viejo — recargando…");
+              avisarAppVieja();
+              return;
+            }
             setError(
               esNoAutorizado(err)
                 ? "sin permiso"
