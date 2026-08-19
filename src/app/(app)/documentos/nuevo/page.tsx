@@ -1,3 +1,4 @@
+import { MARCO } from "@/lib/ui";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -49,7 +50,7 @@ export default async function NuevoDocumentoPage({
   const volver = session.role === "cliente" ? "/documentos" : "/proyectos";
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
+    <div className={`mx-auto w-full max-w-2xl ${MARCO.ajustado}`}>
       <Link href={volver} className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Volver
       </Link>

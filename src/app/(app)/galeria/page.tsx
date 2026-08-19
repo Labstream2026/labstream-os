@@ -29,7 +29,7 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
 
   if (!galeriaEnabled() || !(await galeriaReady())) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
         {/* Con las pestañas a la vista, un disco caído no te deja atrapado: saltas al otro. */}
         <DiscoTabs activo="galeria" hayOps={opsEnabled()} hayGaleria={galeriaEnabled()} />
         <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center gap-3 px-4 text-center">
@@ -111,7 +111,7 @@ export default async function GaleriaPage({ searchParams }: { searchParams: Prom
   const now = new Date();
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
       <DiscoTabs activo="galeria" hayOps={opsEnabled()} hayGaleria />
       {disco ? (
         <CabeceraDisco

@@ -308,3 +308,21 @@ export function quoteTotals(
   const tax = Math.round((subtotal * taxRate) / 100);
   return { subtotal, tax, total: subtotal + tax };
 }
+
+// ── El MARCO de una página ──
+// Antes cada pantalla escribía su relleno a mano y salieron cinco ritmos distintos, tres de
+// ellos usados por una sola página. Estos son los tres que de verdad existen; si una pantalla
+// nueva no encaja en ninguno, casi siempre es que encaja y no se miró.
+//
+// El ANCHO no vive aquí a propósito: `max-w-7xl` en una lista y `max-w-xl` en un formulario
+// son decisiones de contenido, no del marco. Lo que se unifica es el relleno.
+export const MARCO = {
+  // La mayoría: listas, fichas, formularios, configuración.
+  normal: "px-4 py-6 sm:px-8 sm:py-10",
+  // Tableros con mucho dato por pantalla — menos aire arriba para que quepa una fila más.
+  // Reportes, Rastreo, el Inicio, la ficha de cliente y la lista de proyectos.
+  tablero: "px-4 py-5 sm:px-8 sm:py-7",
+  // Margen lateral CORTO: el portal del cliente y los exploradores de disco, donde el
+  // contenido manda y el margen solo estorba.
+  ajustado: "px-4 py-6 sm:px-6",
+} as const;

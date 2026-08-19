@@ -1,3 +1,4 @@
+import { MARCO } from "@/lib/ui";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { construirRastreo } from "@/lib/rastreo/datos";
@@ -23,7 +24,7 @@ export default async function RastreoPage({ searchParams }: { searchParams: Prom
   return (
     // max-w-7xl, el mismo que Reportes: son la pareja de tableros del estudio, comparten hasta
     // el relleno apretado, y saltar de uno al otro movía el contenido 128 px de ancho.
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
+    <div className={`mx-auto max-w-7xl ${MARCO.tablero}`}>
       <RastreoShell datos={datos} />
     </div>
   );

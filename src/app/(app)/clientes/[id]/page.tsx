@@ -20,7 +20,7 @@ import { ClientResumen, type ResumenProyecto } from "./client-resumen";
 import { ClientBrief, type BriefProyecto } from "./client-brief";
 import { AjustesLayout, type AjSeccion } from "./client-ajustes";
 import { saveClientAppearance, clearClientImage, clearClientCover } from "../actions";
-import { statusMeta, formatShortDate } from "@/lib/ui";
+import { statusMeta, formatShortDate, MARCO } from "@/lib/ui";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
 import { eventToCalItem, taskToCalItems, projectSummaryItems } from "@/app/(app)/calendario/build-items";
 import { createMyEvent } from "@/app/(app)/calendario/actions";
@@ -537,7 +537,7 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
   const proyectosNode = <ClientProyectos proyectos={proyectosInfo} tintHex={accentHex} />;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
+    <div className={`mx-auto max-w-7xl ${MARCO.tablero}`}>
       {/* Miembros del cliente en la BARRA superior (avatares → panel editable, se recoge al
           hacer clic fuera). Sustituye ahí al grupo global del equipo mientras estás en la ficha. */}
       <ClientTopbarPeople clientId={id} members={memberItems} addable={addable} canManage={canManage} />

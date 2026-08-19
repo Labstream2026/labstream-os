@@ -20,7 +20,7 @@ import {
   MenuSeparador,
   type TramoResumen,
 } from "@/components/ui/barra-menu";
-import { statusMeta, formatShortDate } from "@/lib/ui";
+import { statusMeta, formatShortDate, MARCO } from "@/lib/ui";
 import { PROJECT_STATUS_DEFAULTS } from "@/lib/project-status";
 import { tone } from "@/lib/colors";
 import { cn } from "@/lib/utils";
@@ -318,7 +318,7 @@ export default async function ProyectosPage({
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-6">
+    <div className={`mx-auto max-w-7xl ${MARCO.tablero}`}>
       <AtajosBarra />
       {/* La identidad de la pantalla sube a la barra superior, que YA decía «Proyectos»: el ícono
           y el H1 de aquí eran un duplicado literal. El recuento sustituye a la descripción fija. */}

@@ -1,3 +1,4 @@
+import { MARCO } from "@/lib/ui";
 import { db } from "@/lib/db";
 import { DataTableView } from "@/components/tables/data-table";
 import { cellsToMap } from "@/lib/table-cells";
@@ -37,7 +38,9 @@ export default async function InventarioPage() {
 
   return (
     <div className="py-6 sm:py-10">
-      <div className="mx-auto max-w-none px-4 sm:px-6">
+      {/* Era la ÚNICA página de la app sin relleno vertical: su contenido arrancaba pegado a la
+          barra de arriba. El ancho suelto sí es a propósito (la tabla del inventario es larga). */}
+      <div className={`mx-auto max-w-none ${MARCO.ajustado}`}>
         {/* Antes: «Wiki del equipo», que no dice que estás en el Inventario. */}
         <PageHeader icon={<IconWiki />} title="Inventario de equipos" description="Cámaras, streaming, audio, iluminación…" />
         <WikiTabs />

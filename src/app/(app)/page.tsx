@@ -7,7 +7,7 @@ import { canAccessProject, accessibleProjectWhere } from "@/lib/project-access";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "./timeline/global-timeline";
 import { MarcebotCard } from "./marcebot-card";
-import { formatShortDate, avatarHex } from "@/lib/ui";
+import { formatShortDate, avatarHex, MARCO } from "@/lib/ui";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { TeamPerformance } from "./reportes/team-performance";
 import { TeamTasks } from "./team-tasks";
@@ -293,7 +293,7 @@ export default async function HomePage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
+    <div className={`mx-auto max-w-7xl ${MARCO.tablero}`}>
       {/* Saludo, fecha, los tres números y el selector de vista, TODO en un renglón. Antes eran
           cuatro bloques apilados —saludo, cuatro pestañas, tres tarjetones— y el cronograma, que
           es a lo que de verdad viene uno cada mañana, empezaba a 663 px del borde: fuera de

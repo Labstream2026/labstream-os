@@ -3,6 +3,7 @@ import { SectionChatCard } from "@/components/chat/section-chat-card";
 import { getSession, hasPermission } from "@/lib/auth";
 import { construirReporte } from "@/lib/reportes/datos";
 import { ReportesShell } from "./reportes-shell";
+import { MARCO } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export default async function ReportesPage({ searchParams }: { searchParams: Pro
   const datos = await construirReporte(session, sp);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-8 sm:py-7">
+    <div className={`mx-auto max-w-7xl ${MARCO.tablero}`}>
       <ReportesShell datos={datos} />
       <div className="mt-8"><SectionChatCard section="reportes" /></div>
     </div>

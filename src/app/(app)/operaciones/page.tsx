@@ -24,7 +24,7 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
 
   if (!opsEnabled() || !(await opsReady())) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
         {/* Con las pestañas a la vista, un disco caído no te deja atrapado: saltas al otro. */}
         <DiscoTabs activo="operaciones" hayOps={opsEnabled()} hayGaleria={galeriaEnabled()} />
         <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center gap-3 px-4 text-center">
@@ -57,7 +57,7 @@ export default async function OperacionesPage({ searchParams }: { searchParams: 
   const canBorrar = !esDemo && hasPermission(session, "borrar_discos");
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
       <DiscoTabs activo="operaciones" hayOps hayGaleria={galeriaEnabled()} />
       {disco ? (
         <CabeceraDisco
