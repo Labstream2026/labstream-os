@@ -11,6 +11,7 @@ import { logActivity } from "@/lib/activity";
 import { backfillCuenta, descargarAdjunto, marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
 import { esDominioAgrupable } from "@/lib/correo/hilos";
 import { userCanAccessClient } from "@/lib/client-access";
+import { userCanAccessProject } from "@/lib/project-access";
 import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
 import { sanearSaliente, extraerInlines, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
 import { firmaDeCuenta } from "@/lib/correo/firma";
@@ -175,6 +176,10 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   let original: { id: string; uid: bigint; folder: string; projectId: string | null } | null = null;
   let projectId: string | null = null;
   let cita = ""; // el original citado (respuestas): va DESPUÉS de la firma, como en Gmail
+  // «Escribir al cliente» desde un proyecto: el enviado nace colgado de él (validado, no se
+  // confía en el id del navegador).
+  const proyectoIdForm = String(fd.get("proyectoId") ?? "").trim() || null;
+  if (proyectoIdForm && (await userCanAccessProject(proyectoIdForm, session))) projectId = proyectoIdForm;
   const origenId = responderAId ?? reenviarDeId;
   if (origenId) {
     const orig = await db.mailMessage.findUnique({
@@ -192,7 +197,7 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
       // lado parte los hilos largos en dos.
       referencias = [orig.threadKey, orig.messageId].filter((x, i, a) => x && a.indexOf(x) === i).join(" ");
       original = orig;
-      projectId = orig.projectId; // la respuesta hereda el proyecto del hilo
+      projectId = orig.projectId ?? projectId; // la respuesta hereda el proyecto del hilo
       // La respuesta CITA el original plegado, como en cualquier cliente de correo: el hilo
       // técnico (References) ya existía — esto es lo que VE el humano del otro lado.
       const fechaR = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" }).format(orig.date);

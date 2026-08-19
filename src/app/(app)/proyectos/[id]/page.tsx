@@ -1167,7 +1167,9 @@ export default async function ProyectoPage({
           />
         ) : null}
 
-        {tab === "correo" ? <CorreoProyecto projectId={id} sessionUserId={session?.id ?? null} /> : null}
+        {tab === "correo" ? (
+          <CorreoProyecto projectId={id} sessionUserId={session?.id ?? null} gestiona={!isCliente && session?.role !== "demo" && canManageProject(project, session)} />
+        ) : null}
 
         {tab === "actividad" && hasPermission(session, "ver_actividad") ? (
           <ActivityFeed

@@ -1,18 +1,26 @@
 import Link from "next/link";
-import { Mail } from "lucide-react";
+import { Mail, PenLine, X } from "lucide-react";
 import { db } from "@/lib/db";
 import { formatBogota } from "@/lib/bogota-time";
 import { asuntoLimpio } from "@/lib/correo/hilos";
 import { EmptyState } from "@/components/ui/empty-state";
+import { agregarContactoProyecto, quitarContactoProyecto } from "./contactos-actions";
 
 // ── La pestaña Correo del proyecto ──────────────────────────────────────────
-// Los hilos que alguien del equipo ASIGNÓ a este proyecto desde su bandeja (o que cayeron
-// solos por una regla). Es la memoria de lo que el cliente pidió por correo, visible para
-// todo el que ve el proyecto — asignar ES la decisión de compartirlo. Solo se muestran las
-// cabeceras (quién, asunto, fragmento): el cuerpo completo vive en la bandeja de su dueño,
-// y si el hilo es TUYO, el enlace te lleva directo a él.
+// Arriba, los CONTACTOS del proyecto (los correos del cliente para ESTE trabajo) y el botón
+// «Escribir al cliente»: abre el compositor del buzón PROPIO ya dirigido a ellos, y el
+// enviado queda colgado del proyecto. Abajo, los hilos que el equipo asignó aquí (o que
+// cayeron solos por regla/herencia) — la memoria de lo que el cliente pidió por correo.
+// Solo cabeceras: el cuerpo completo vive en la bandeja de su dueño; si el hilo es TUYO,
+// el enlace te lleva directo a él.
 
-export async function CorreoProyecto({ projectId, sessionUserId }: { projectId: string; sessionUserId: string | null }) {
+export async function CorreoProyecto({ projectId, sessionUserId, gestiona = false }: { projectId: string; sessionUserId: string | null; gestiona?: boolean }) {
+  const contactos = await db.projectContact.findMany({
+    where: { projectId },
+    orderBy: { createdAt: "asc" },
+    select: { email: true, nombre: true },
+  });
+  const paraEscribir = contactos.map((c) => c.email).join(", ");
   const mensajes = await db.mailMessage.findMany({
     where: { projectId, folder: { not: "PAPELERA" } },
     orderBy: { date: "desc" },
@@ -24,13 +32,54 @@ export async function CorreoProyecto({ projectId, sessionUserId }: { projectId: 
     },
   });
 
+  // ── Los contactos del proyecto + «Escribir al cliente» ──
+  const bloqueContactos = (
+    <div className="mb-3 rounded-xl border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-[12px] font-semibold">Contactos del proyecto</p>
+        {contactos.map((c) => (
+          <span key={c.email} className="group inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11.5px]">
+            {c.nombre ? <b>{c.nombre}</b> : null} <span className="text-muted-foreground">{c.email}</span>
+            {gestiona ? (
+              <form action={quitarContactoProyecto.bind(null, projectId, c.email)} className="hidden group-hover:block">
+                <button type="submit" title="Quitar contacto" className="rounded p-0.5 text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
+              </form>
+            ) : null}
+          </span>
+        ))}
+        {contactos.length === 0 ? <span className="text-[11.5px] text-muted-foreground">agrega los correos del cliente para este proyecto</span> : null}
+        {contactos.length && sessionUserId ? (
+          <Link
+            href={`/correo?para=${encodeURIComponent(paraEscribir)}&proy=${projectId}`}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90"
+            title="Abre TU correo con el mensaje ya dirigido a los contactos; el enviado queda colgado de este proyecto"
+          >
+            <PenLine className="size-3.5" /> Escribir al cliente
+          </Link>
+        ) : null}
+      </div>
+      {gestiona ? (
+        <form action={agregarContactoProyecto.bind(null, projectId)} className="mt-2 flex flex-wrap items-center gap-1.5">
+          <input name="nombre" placeholder="Nombre (opcional)" maxLength={120}
+            className="rounded-md border border-input bg-background px-2 py-1 text-[12px] outline-none focus:ring-2 focus:ring-ring" />
+          <input name="email" type="email" required placeholder="correo@cliente.com"
+            className="min-w-48 rounded-md border border-input bg-background px-2 py-1 text-[12px] outline-none focus:ring-2 focus:ring-ring" />
+          <button className="rounded-md border border-border px-2.5 py-1 text-[12px] font-medium hover:bg-accent">Agregar</button>
+        </form>
+      ) : null}
+    </div>
+  );
+
   if (mensajes.length === 0) {
     return (
-      <EmptyState
-        icon={<Mail className="size-4" />}
-        title="Sin correos asignados"
-        description="Desde tu bandeja de Correo, abre un hilo del cliente y usa «Asignar a proyecto»: quedará aquí, a la vista del equipo, y lo que llegue después al hilo cae solo."
-      />
+      <div>
+        {bloqueContactos}
+        <EmptyState
+          icon={<Mail className="size-4" />}
+          title="Sin correos asignados"
+          description="Desde tu bandeja de Correo, abre un hilo del cliente y usa «Asignar a proyecto»: quedará aquí, a la vista del equipo, y lo que llegue después al hilo cae solo."
+        />
+      </div>
     );
   }
 
@@ -48,6 +97,8 @@ export async function CorreoProyecto({ projectId, sessionUserId }: { projectId: 
   }
 
   return (
+    <div>
+      {bloqueContactos}
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <p className="border-b border-border bg-muted/30 px-4 py-2 text-[11.5px] text-muted-foreground">
         Hilos de correo que el equipo colgó de este proyecto — lo que el cliente pidió, por escrito y con fecha.
@@ -79,6 +130,7 @@ export async function CorreoProyecto({ projectId, sessionUserId }: { projectId: 
           );
         })}
       </ul>
+    </div>
     </div>
   );
 }

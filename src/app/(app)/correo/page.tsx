@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Building2, Clock, FileText, Inbox, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { Archive, Building2, Clock, FileText, Inbox, Paperclip, PenTool, RefreshCw, Reply as ReplyIcon, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { IconCorreo } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -36,9 +36,10 @@ export const dynamic = "force-dynamic";
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
 type Adjunto = { indice: number; nombre: string; mime: string; bytes: number; cid?: string };
-type CarpetaKey = "recibidos" | "clientes" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
+type CarpetaKey = "recibidos" | "responder" | "clientes" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
 const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "recibidos", label: "Recibidos", Icon: Inbox },
+  { key: "responder", label: "Por responder", Icon: ReplyIcon },
   { key: "clientes", label: "Clientes", Icon: Building2 },
   { key: "destacados", label: "Destacados", Icon: Star },
   { key: "pospuestos", label: "Pospuestos", Icon: Clock },
@@ -49,7 +50,7 @@ const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "ajustes", label: "Firma y GIFs", Icon: PenTool },
 ];
 
-export default async function CorreoPage({ searchParams }: { searchParams: Promise<{ c?: string; q?: string; h?: string; img?: string }> }) {
+export default async function CorreoPage({ searchParams }: { searchParams: Promise<{ c?: string; q?: string; h?: string; img?: string; para?: string; proy?: string }> }) {
   const session = await getSession();
   if (!session || session.role === "cliente" || session.role === "demo") redirect("/");
   const sp = await searchParams;
@@ -77,7 +78,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
   const ahora = new Date();
   const whereCarpeta = clFiltro
     ? { clientId: clFiltro, folder: { not: "PAPELERA" } }
-    : carpeta === "clientes"
+    : carpeta === "responder"
+      // La DEUDA con los clientes: recibidos de un cliente, sin respuesta y sin posponer.
+      ? { folder: "INBOX", clientId: { not: null }, answered: false, snoozedUntil: null }
+      : carpeta === "clientes"
       // El REGISTRO con los clientes: recibido, enviado y archivado — todo menos la papelera.
       ? { clientId: { not: null }, folder: { not: "PAPELERA" } }
       : carpeta === "destacados"
@@ -88,7 +92,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
           ? { folder: "INBOX", OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] }
           : { folder: carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
 
-  const [mensajes, sinLeer, sinLeerClientes, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
+  const [mensajes, sinLeer, sinLeerClientes, nPorResponder, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
@@ -105,6 +109,8 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] } }),
     // No leídos DE CLIENTES (el badge de la bandeja «Clientes»).
     db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false, clientId: { not: null } } }),
+    // La DEUDA: correos de clientes sin respuesta (el badge de «Por responder»).
+    db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", clientId: { not: null }, answered: false, snoozedUntil: null } }),
     db.mailMessage.count({ where: { accountId: cuenta.id, snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } } }),
     db.mailDraft.findMany({ where: { accountId: cuenta.id }, orderBy: { updatedAt: "desc" }, take: 50 }),
     // Clientes detectados en ESTE buzón, con sus no-leídos: el raíl solo lista lo que existe.
@@ -269,8 +275,13 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       }
     : null;
 
+  // «Escribir al cliente» desde un proyecto: ?para=…&proy=… abre el compositor ya dirigido.
+  const autoAbrir = sp.para
+    ? { modo: "nuevo" as const, para: sp.para.slice(0, 500), proyectoId: (sp.proy ?? "").slice(0, 40) || undefined }
+    : null;
+
   return (
-    <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs} plantillas={plantillasCorreo}>
+    <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs} plantillas={plantillasCorreo} autoAbrir={autoAbrir}>
       <VistaCorreoProvider>
       {/* ── Pantalla COMPLETA ── El menú lateral de la app se pliega solo al entrar (modo
           enfoque, app-shell) y aquí no hay contenedor ni cabecera: solo el correo. */}
@@ -282,6 +293,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted")}>
               <Icon className="size-3.5" /> {label}
               {key === "recibidos" && sinLeer > 0 ? <b className="text-[11px] tabular-nums">{sinLeer}</b> : null}
+              {key === "responder" && nPorResponder > 0 ? <b className="text-[11px] tabular-nums text-amber-600 dark:text-amber-400">{nPorResponder}</b> : null}
               {key === "clientes" && sinLeerClientes > 0 ? <b className="text-[11px] tabular-nums">{sinLeerClientes}</b> : null}
             </Link>
           ))}
@@ -296,6 +308,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
                 <Icon className="size-4" /> {label}
                 {key === "recibidos" && sinLeer > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeer}</b> : null}
+                {key === "responder" && nPorResponder > 0 ? <b className="ml-auto text-[11.5px] tabular-nums text-amber-600 dark:text-amber-400">{nPorResponder}</b> : null}
                 {key === "clientes" && sinLeerClientes > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeerClientes}</b> : null}
                 {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{nPospuestos}</span> : null}
                 {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{borradores.length}</span> : null}

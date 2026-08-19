@@ -23,6 +23,8 @@ export type PrefillCompositor = {
   reenviarDeId?: string;
   /** Si se abre desde un borrador guardado, su id: editarlo actualiza en vez de duplicar. */
   borradorId?: string;
+  /** Proyecto al que se cuelga el enviado («Escribir al cliente» desde el proyecto). */
+  proyectoId?: string;
 };
 
 export type GifVM = { id: string; nombre: string };
@@ -40,13 +42,15 @@ const escapa = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 /** El prefill puede ser texto plano (respuestas, borradores viejos) o HTML (borradores nuevos). */
 const comoHtml = (s: string) => (/<[a-z!][^>]*>/i.test(s) ? s : escapa(s).replace(/\n/g, "<br>"));
 
-export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, children }: {
+export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, autoAbrir, children }: {
   contactos: string[];
   /** Vista previa de la firma que el servidor anexará (ya saneada allá). */
   firmaHtml: string;
   gifs: GifVM[];
   /** Plantillas guardadas del estudio (las de fábrica se suman en el menú). */
   plantillas: PlantillaVM[];
+  /** Abre el compositor al montar («Escribir al cliente» llega con esto desde el proyecto). */
+  autoAbrir?: PrefillCompositor | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -106,6 +110,15 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, chi
     editor.focus();
   }, [prefill]);
 
+  // «Escribir al cliente» desde un proyecto: llega con ?para=…&proy=… y se abre solo (una vez).
+  const autoAbierto = React.useRef(false);
+  React.useEffect(() => {
+    if (autoAbrir && !autoAbierto.current) {
+      autoAbierto.current = true;
+      abrir(autoAbrir);
+    }
+  }, [autoAbrir, abrir]);
+
   // Atajo `c` de Gmail: redactar desde cualquier parte de la bandeja.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -150,6 +163,7 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, chi
             <input type="hidden" name="responderAId" value={prefill.responderAId ?? ""} />
             <input type="hidden" name="reenviarDeId" value={prefill.reenviarDeId ?? ""} />
             <input type="hidden" name="borradorId" value={borradorId ?? ""} />
+            <input type="hidden" name="proyectoId" value={prefill.proyectoId ?? ""} />
             <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-[13px]">
               <span className="text-muted-foreground">Para</span>
               <input

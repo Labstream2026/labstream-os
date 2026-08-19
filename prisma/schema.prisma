@@ -196,6 +196,7 @@ model User {
   plantillasCorreo   MailTemplate[]     @relation("PlantillaCorreoDe")
   plantillasFirma    MailSignatureTemplate[] @relation("PlantillaFirmaDe")
   dominiosCorreo     ClientMailDomain[] @relation("DominioCorreoDe")
+  contactosProyecto  ProjectContact[]   @relation("ContactoProyectoDe")
   llamadosCreados    CallSheet[]        @relation("LlamadoCreador")
   llamados           CallSheetPerson[]  @relation("LlamadoPersona")
   ausencias          Absence[]          @relation("AusenciaDe")
@@ -700,6 +701,7 @@ model Project {
   surveys        ProjectSurvey[]
   correos      MailMessage[] @relation("CorreoDeProyecto") // hilos asignados a este proyecto
   reglasCorreo MailRule[]    @relation("ReglaProyecto")
+  contactos    ProjectContact[] // correos del cliente para ESTE proyecto
   callSheets   CallSheet[] // hojas de llamado de los rodajes
 
   // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
@@ -1970,6 +1972,9 @@ model MailMessage {
   // [{ indice, nombre, mime, bytes, cid? }] — solo metadatos; los bytes se bajan del IMAP al
   // pedirse. `cid` (Content-ID) permite pintar las imágenes INCRUSTADAS del mensaje.
   attachments Json?
+  // Cuándo se AVISÓ que este correo lleva >24 h sin respuesta (anti-duplicado del barrido:
+  // un solo empujón por mensaje). null = aún no se ha avisado.
+  answerNudgedAt DateTime?
 
   createdAt DateTime @default(now())
 
@@ -1992,6 +1997,23 @@ model MailGif {
   createdBy   User?    @relation("GifDe", fields: [createdById], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime @default(now())
+}
+
+// CONTACTO de correo de un PROYECTO: las direcciones del cliente a las que se le manda la
+// información de ESTE proyecto («agregar los correos del cliente al proyecto»). El botón
+// «Enviar correo» del proyecto abre el compositor del buzón PROPIO ya dirigido a ellos, y
+// el enviado queda colgado del proyecto.
+model ProjectContact {
+  id        String  @id @default(cuid())
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  email     String
+  nombre    String?
+  createdBy   User?  @relation("ContactoProyectoDe", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, email])
 }
 
 // DOMINIO de correo → CLIENTE: «todo lo que llegue de @pepsico.com es Pepsico». Es la
