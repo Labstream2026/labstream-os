@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { parsePeriodo, type Periodo, type FilaBarra, type Jornada, type SerieBarras } from "@/lib/reportes/datos";
+import { FRANJAS, franjaDe, NAVEGADORES, sitioDe } from "@/lib/rastreo/navegacion";
 import { accesoRastreo, filtroSujetos } from "./acceso";
 
 // ── Los DATOS del panel de rastreo ──────────────────────────────────────────
@@ -39,6 +40,13 @@ export type PersonaRastreo = {
   serie: SerieBarras; // su curva en el periodo
   apps: FilaBarra[];
   cuentas: FilaBarra[];
+  /** Páginas más frecuentes en el navegador (catálogo conocido + «Otros sitios»). */
+  sitios: FilaBarra[];
+  /** Solo los sitios de OCIO, con su total. Vacío si no hubo. */
+  ocioSitios: FilaBarra[];
+  ocioTxt: string | null; // total de ocio en el navegador («4,2 h») · null si nada
+  /** En qué franjas del día cae el ocio (madrugada/mañana/tarde/noche), en horas de Bogotá. */
+  ocioFranjas: FilaBarra[];
   jornadas: Jornada[]; // las últimas 10, de la más reciente a la más vieja
   equipos: number; // equipos vinculados y vivos
   ultimoTxt: string | null; // «hace 3 min» · null si nunca reportó
@@ -56,6 +64,13 @@ export type RastreoDatos = {
   pctActivoEquipo: number | null;
   serieEquipo: SerieBarras;
   personas: PersonaRastreo[];
+  /** Ocio en el navegador de TODO el equipo en el periodo: top de sitios y total. */
+  ocioEquipo: FilaBarra[];
+  ocioEquipoTxt: string | null;
+  /** El que mira ve a TODO el equipo (permiso) o solo a personas compartidas con él. */
+  ambitoTodos: boolean;
+  /** El periodo trajo más navegación que el tope de la consulta: las cifras son parciales. */
+  navegacionTruncada: boolean;
   /** A quién se le puede conceder acceso (solo si gestionas). */
   candidatos: { id: string; nombre: string; ini: string | null; color: string | null }[];
   /** Nadie ha vinculado equipo todavía: el panel explica qué falta en vez de mostrar ceros. */
@@ -134,7 +149,7 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   const wUsuarios = acceso.sujetos === null ? Prisma.empty : Prisma.sql`AND "userId" IN (${Prisma.join(acceso.sujetos)})`;
   const wDesde = periodo.desde ? Prisma.sql`AND "startedAt" >= ${periodo.desde}` : Prisma.empty;
 
-  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb] = await Promise.all([
+  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb, bloquesNavegador] = await Promise.all([
     // Un renglón por persona y día LOCAL: cuánto sumó, cuánto de eso fue activo, y a qué hora
     // abrió y cerró. De aquí salen la serie, los días trabajados y las jornadas.
     db.$queryRaw<FilaDia[]>`
@@ -181,6 +196,25 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
         })
       : Promise.resolve([]),
     db.client.findMany({ where: { archivedAt: null }, select: { id: true, name: true } }),
+    // Los bloques de NAVEGADOR del periodo, para clasificar páginas. Se filtra por nombre de
+    // app aquí y se clasifica el título en JS (el catálogo vive en navegacion.ts). El tope es
+    // un seguro de memoria: si algún mes lo toca, se pierde cola vieja del periodo, no el panel.
+    db.workBlock.findMany({
+      where: {
+        startedAt: rango,
+        ...filtro,
+        // La MISMA lista que esNavegador (importada: una sola verdad, no puede divergir de lo
+        // testeado). Los hosts WebView2 («Microsoft Edge WebView2») quedan fuera: son apps de
+        // escritorio con motor de Edge embebido, no navegación de nadie.
+        OR: NAVEGADORES.map((n) => ({ app: { contains: n, mode: "insensitive" as const } })),
+        NOT: { app: { contains: "webview", mode: "insensitive" } },
+      },
+      select: { userId: true, title: true, startedAt: true, seconds: true },
+      // El orden hace el tope DETERMINISTA: sin él, Postgres entrega 60k filas cualesquiera
+      // y las cifras bailarían entre recargas. Así el recorte es de verdad la cola vieja.
+      orderBy: { startedAt: "desc" },
+      take: 60000,
+    }),
   ]);
 
   const ahoraMs = ahora.getTime();
@@ -197,6 +231,34 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   // la fecha pura de Postgres, igual que el resto del archivo.
   const ocioDe = new Map<string, number>();
   for (const f of ocioPorDia) ocioDe.set(`${f.userId}|${f.dia.toISOString().slice(0, 10)}`, f.seg);
+
+  // ── Navegación: qué páginas y cuándo ──
+  // Se clasifica cada bloque de navegador por el catálogo de sitios; lo no reconocido cae en
+  // «Otros sitios» (sin enseñar títulos crudos). Para el «cuándo», las franjas del día en
+  // Bogotá — solo de los sitios de OCIO, que es la pregunta que este panel responde.
+  type Nav = { sitios: Map<string, number>; ocioSitios: Map<string, number>; franjas: [number, number, number, number] };
+  const navDe = new Map<string, Nav>();
+  const navEquipoSitios = new Map<string, number>();
+  for (const b of bloquesNavegador) {
+    const s = sitioDe(b.title);
+    const nombre = s ? s.nombre : "Otros sitios";
+    const nav = navDe.get(b.userId) ?? { sitios: new Map(), ocioSitios: new Map(), franjas: [0, 0, 0, 0] as [number, number, number, number] };
+    nav.sitios.set(nombre, (nav.sitios.get(nombre) ?? 0) + b.seconds);
+    if (s?.cat === "ocio") {
+      nav.ocioSitios.set(s.nombre, (nav.ocioSitios.get(s.nombre) ?? 0) + b.seconds);
+      nav.franjas[franjaDe(b.startedAt)] += b.seconds;
+      navEquipoSitios.set(s.nombre, (navEquipoSitios.get(s.nombre) ?? 0) + b.seconds);
+    }
+    navDe.set(b.userId, nav);
+  }
+  // Top N + una fila «Resto» con lo recortado: así cada lista CIERRA contra el total que la
+  // acompaña (sin ella, con >N sitios la columna sumaba menos que el título y que las franjas).
+  const aBarras = (m: Map<string, number>, tope: number): FilaBarra[] => {
+    const filas = [...m.entries()].map(([label, seg]) => ({ label, valor: seg, texto: horas1(seg) })).sort((a, b) => b.valor - a.valor);
+    if (filas.length <= tope) return filas;
+    const resto = filas.slice(tope).reduce((s, f) => s + f.valor, 0);
+    return [...filas.slice(0, tope), { label: "Resto", valor: resto, texto: horas1(resto) }];
+  };
   const appsDe = new Map<string, FilaBarra[]>();
   for (const r of apps) {
     const seg = r._sum.seconds ?? 0;
@@ -243,6 +305,8 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
       const seg = dias.reduce((s, d) => s + d.seg, 0);
       const act = dias.reduce((s, d) => s + d.act, 0);
       const eq = equiposDe.get(u.id);
+      const nav = navDe.get(u.id);
+      const ocioSeg = nav ? [...nav.ocioSitios.values()].reduce((s, x) => s + x, 0) : 0;
       return {
         id: u.id,
         ini: u.initials,
@@ -256,6 +320,15 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
         serie: agrupar(dias, periodo).serie,
         apps: appsDe.get(u.id) ?? [],
         cuentas: cuentasDe.get(u.id) ?? [],
+        sitios: nav ? aBarras(nav.sitios, 8) : [],
+        ocioSitios: nav ? aBarras(nav.ocioSitios, 6) : [],
+        ocioTxt: ocioSeg > 0 ? horas1(ocioSeg) : null,
+        ocioFranjas:
+          ocioSeg > 0
+            ? nav!.franjas
+                .map((seg, i) => ({ label: FRANJAS[i], valor: seg, texto: horas1(seg) }))
+                .filter((f) => f.valor > 0)
+            : [],
         jornadas: [...dias]
           .sort((a, b) => b.dia.getTime() - a.dia.getTime())
           .slice(0, 10)
@@ -292,6 +365,10 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
     pctActivoEquipo: totalSeg > 0 ? Math.round((totalAct / totalSeg) * 100) : null,
     serieEquipo,
     personas,
+    ocioEquipo: aBarras(navEquipoSitios, 6),
+    ocioEquipoTxt: navEquipoSitios.size ? horas1([...navEquipoSitios.values()].reduce((s, x) => s + x, 0)) : null,
+    ambitoTodos: acceso.sujetos === null,
+    navegacionTruncada: bloquesNavegador.length === 60000,
     candidatos: acceso.gestiona ? usuarios.map((u) => ({ id: u.id, nombre: u.name, ini: u.initials, color: u.avatarColor })) : [],
     sinSensor: personas.every((p) => p.equipos === 0) && totalSeg === 0,
   };

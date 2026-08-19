@@ -133,6 +133,22 @@ function Lista({ datos, onElegir }: { datos: RastreoDatos; onElegir: (id: string
         </Caja>
       ) : null}
 
+      {datos.ocioEquipoTxt ? (
+        <Caja
+          titulo={`Ocio en el navegador (${datos.ambitoTodos ? "equipo" : "personas visibles"}) · ${datos.ocioEquipoTxt}`}
+          hint="Sitios de ocio detectados por el título de la ventana. El detalle por persona y por franja del día está en cada ficha. WhatsApp y Telegram no cuentan aquí: son canal de clientes."
+          className="mt-2.5"
+        >
+          <FilasBarra filas={datos.ocioEquipo} color="var(--rs3)" />
+          {datos.navegacionTruncada ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              El periodo trae más navegación que el tope de la consulta: estas cifras son parciales (falta lo más viejo). Elige un
+              periodo más corto para verlo completo.
+            </p>
+          ) : null}
+        </Caja>
+      ) : null}
+
       <Caja titulo="Cada persona" hint="Clic en alguien para abrir su ficha" className="mt-2.5">
         <div className="flex flex-col">
           {datos.personas.map((p) => (
@@ -231,6 +247,20 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
             <Vacio texto="Sin jornadas en el periodo." />
           )}
         </Caja>
+        <Caja
+          titulo="En qué páginas (navegador)"
+          hint="Clasificado por el título de la ventana contra un catálogo de sitios conocidos; lo demás va a «Otros sitios». Un rato en YouTube puede ser un tutorial: esto dice dónde y cuándo, no por qué."
+        >
+          {p.sitios.length ? <FilasBarra filas={p.sitios} color="var(--rs2)" /> : <Vacio texto="Sin navegación en el periodo." />}
+        </Caja>
+        {p.ocioTxt ? (
+          <Caja titulo={`Ocio en el navegador · ${p.ocioTxt}`} hint="Solo sitios de la categoría ocio, y en qué franja del día caen · hora de Bogotá">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FilasBarra filas={p.ocioSitios} color="var(--rs3)" />
+              <FilasBarra filas={p.ocioFranjas} color="var(--rs3)" />
+            </div>
+          </Caja>
+        ) : null}
         <div className="flex flex-col gap-2.5">
           <Caja titulo="En qué apps">
             {p.apps.length ? <FilasBarra filas={p.apps} color="var(--rs2)" /> : <Vacio texto="Sin datos en el periodo." />}
