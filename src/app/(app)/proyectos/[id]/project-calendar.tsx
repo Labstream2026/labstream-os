@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { CalendarBoard } from "@/app/(app)/calendario/calendar-board";
+import { IconHito } from "@/components/icons";
 import type { CalItem, TeamMember } from "@/app/(app)/calendario/my-calendar";
 
 // X3 · Calendario del proyecto con el interruptor «Solo hitos y entregas»: oculta el día a
@@ -24,7 +25,8 @@ export function ProjectCalendar({
     <div className="flex h-full flex-col gap-2">
       <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">
         <input type="checkbox" checked={solo} onChange={(e) => setSolo(e.target.checked)} className="accent-[#F47A20]" />
-        🚩 Solo hitos y entregas
+        <IconHito className="size-3.5" />
+        Solo hitos y entregas
       </label>
       <div className="min-h-0 flex-1">
         <CalendarBoard items={shown} onCreate={onCreate} projectId={projectId} team={team} />

@@ -1,10 +1,12 @@
 "use client";
 
+import * as React from "react";
 import { useMemo } from "react";
 import type { CalItem } from "./my-calendar";
 import { itemSolid, personColor, emitCalendarDetail, type ColorBy } from "./calendar-detail";
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
+import { IconCalendario, IconEntregas, IconRodaje, IconHito } from "@/components/icons";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -25,7 +27,11 @@ function dayLabel(key: string): string {
 // Respeta la convención de la app: el día de un item se saca de it.date.slice(0,10)
 // (hora de pared en UTC), nunca de new Date(...).getDate().
 // Emoji por tipo para el cuadrito de cada fila (mismo lenguaje visual que las capas del board).
-const KIND_EMOJI: Record<CalItem["kind"], string> = { event: "📅", task: "📦", shoot: "🎬", milestone: "🚩" };
+// Los mismos íconos que el resto del calendario. Eran emoji, que además de mezclarse con los
+// íconos vectoriales de al lado los dibuja cada sistema operativo a su manera.
+const KIND_ICON: Record<CalItem["kind"], (p: { className?: string }) => React.ReactElement> = {
+  event: IconCalendario, task: IconEntregas, shoot: IconRodaje, milestone: IconHito,
+};
 
 export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
   items: CalItem[];
@@ -76,7 +82,7 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
       <div className="space-y-4 p-1">
         {groups.map(([key, dayItems]) => (
           <div key={key}>
-            <h3 className="sticky top-0 z-[1] bg-card/95 py-1 text-xs font-semibold capitalize backdrop-blur">
+            <h3 className="sticky top-0 z-[1] bg-card/95 py-1 text-xs font-semibold backdrop-blur">
               {dayLabel(key)}
               {key === todayKey ? <span className="ml-1.5 text-primary">· Hoy</span> : null}
             </h3>
@@ -94,8 +100,10 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                     className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40"
                     title={`${it.title} · clic para ver el detalle`}
                   >
-                    {/* Cuadrito tintado con el emoji del tipo (aspecto del rediseño aprobado). */}
-                    <span className="grid size-7 shrink-0 place-items-center rounded-lg text-sm" style={{ background: `${dot}26` }}>{KIND_EMOJI[it.kind]}</span>
+                    {/* Cuadrito tintado con el ícono del tipo (aspecto del rediseño aprobado). */}
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg" style={{ background: `${dot}26` }}>
+                      {React.createElement(KIND_ICON[it.kind], { className: "size-4" })}
+                    </span>
                     <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">{timeLabel}</span>
                     <span className="truncate text-sm font-medium">{it.title}</span>
                     {it.projectName ? (

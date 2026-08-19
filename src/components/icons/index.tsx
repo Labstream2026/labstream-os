@@ -71,7 +71,7 @@ export type IconName =
   | "marca" | "flujo" | "personalizacion"
   | "tablero" | "tableroH" | "cronograma" | "lista" | "tarjetas" | "tabla" | "galeria" | "archivador"
   | "midia" | "completadas" | "raci" | "propuestas" | "actividad" | "mas"
-  | "solicitudes" | "portada" | "disco" | "mapa" | "correo";
+  | "solicitudes" | "portada" | "disco" | "mapa" | "correo" | "hito";
 
 export type IconProps = { className?: string; label?: string };
 
@@ -706,6 +706,17 @@ export function IconMapa(p: IconProps) {
   );
 }
 
+// Hito — el banderín en su asta. El asta es la tinta (la línea de tiempo) y la BANDERA el
+// acento: un hito es exactamente eso, la marca que se clava en una fecha.
+export function IconHito(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M6.4 3.4v17.2" stroke={C.violet} strokeWidth={SW} />
+      <path d="M6.4 4.8h10l-2.5 3.4 2.5 3.4h-10V4.8Z" fill={C.orange} fillOpacity={0.9} stroke={C.orange} strokeWidth={1.5} />
+    </Icon>
+  );
+}
+
 // Correo — el sobre, con la solapa de acento (es lo único que se mueve al abrirlo).
 export function IconCorreo(p: IconProps) {
   return (
@@ -772,4 +783,5 @@ export const LABSTREAM_ICONS: Record<IconName, (p: IconProps) => React.ReactElem
   disco: IconDisco,
   mapa: IconMapa,
   correo: IconCorreo,
+  hito: IconHito,
 };

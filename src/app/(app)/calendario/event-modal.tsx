@@ -48,7 +48,7 @@ export function EventModal({ state, team, onClose }: { state: EventModalState; t
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={isEdit ? "Editar cita" : "Nueva cita"} className="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-sm font-semibold">{isEdit ? "Editar cita" : "Nueva cita"}</h3>
-        <p className="mt-0.5 text-xs capitalize text-muted-foreground">{dayLabel}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground first-letter:uppercase">{dayLabel}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();

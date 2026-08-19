@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CalendarDays, Check, ChevronDown, GanttChartSquare, Plus, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IconCalendario, IconEntregas, IconRodaje, IconHito } from "@/components/icons";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
 import { WeekView } from "./week-view";
@@ -30,12 +31,22 @@ const SHELL_VIEWS: { key: ShellView; label: string }[] = [
   { key: "agenda", label: "Agenda" },
 ];
 // Capas de «Mis calendarios» (por tipo de evento). El color casa con calTone().solid.
-const KIND_LAYERS: { key: CalItem["kind"]; label: string; short: string; emoji: string; color: string }[] = [
-  { key: "event", label: "Citas y reuniones", short: "Citas", emoji: "📅", color: "#6366f1" },
-  { key: "task", label: "Entregas", short: "Entregas", emoji: "📦", color: "#f59e0b" },
-  { key: "shoot", label: "Rodajes", short: "Rodajes", emoji: "🎬", color: "#f43f5e" },
-  { key: "milestone", label: "Hitos de proyecto", short: "Hitos", emoji: "🚩", color: "#0ea5e9" },
+// Cada tipo con su ícono del set propio. Eran EMOJI, y en la misma pantalla convivían con los
+// íconos vectoriales del menú del proyecto. Además un emoji lo dibuja el SISTEMA: el equipo en
+// Mac y quien entra desde Windows no veían el mismo calendario.
+const KIND_LAYERS: { key: CalItem["kind"]; label: string; short: string; Icon: (p: { className?: string }) => React.ReactElement; color: string }[] = [
+  { key: "event", label: "Citas y reuniones", short: "Citas", Icon: IconCalendario, color: "#6366f1" },
+  { key: "task", label: "Entregas", short: "Entregas", Icon: IconEntregas, color: "#f59e0b" },
+  { key: "shoot", label: "Rodajes", short: "Rodajes", Icon: IconRodaje, color: "#f43f5e" },
+  { key: "milestone", label: "Hitos de proyecto", short: "Hitos", Icon: IconHito, color: "#0ea5e9" },
 ];
+
+// El ícono de un tipo, con respaldo si llegara una clase desconocida.
+function KindIcon({ kind, className }: { kind: CalItem["kind"]; className?: string }) {
+  const L = KIND_LAYERS.find((k) => k.key === kind);
+  const Ic = L ? L.Icon : IconEntregas;
+  return <Ic className={className} />;
+}
 
 // Vistas del calendario EMBEBIDO (proyecto/cliente): ahora también Agenda y Día.
 type EmbView = "agenda" | "dia" | "semana" | "mes";
@@ -395,7 +406,7 @@ export function CalendarBoard({
                   {/* El TÍTULO abre el mini-calendario. Vivía fijo en la columna izquierda
                       ocupando ancho todo el rato; saltar de mes es cosa de un momento. */}
                   <details data-autoclose className="relative ml-1">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold capitalize hover:bg-muted">
+                    <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-muted">
                       {shellTitle}
                       <ChevronDown className="size-3.5 text-muted-foreground" />
                     </summary>
@@ -517,7 +528,7 @@ export function CalendarBoard({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">
-          {KIND_LAYERS.find((L) => L.key === nextUp.kind)?.emoji} {nextUp.title}
+          <KindIcon kind={nextUp.kind} className="mr-1 inline-block size-4 align-[-3px]" />{nextUp.title}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
           {cap(NEXT_DAY_FMT.format(nextStart))}
@@ -546,7 +557,7 @@ export function CalendarBoard({
             className={cn("rounded-xl border px-3 py-2 text-left transition-all", on ? "border-border bg-card hover:border-border/70" : "border-dashed border-border opacity-40 hover:opacity-70")}
           >
             <span className="text-base font-bold leading-none tabular-nums">{n}</span>
-            <span className="mt-0.5 block truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{L.emoji} {L.short} · {monthShort}</span>
+            <span className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"><L.Icon className="size-3.5 shrink-0" /><span className="truncate">{L.short} · {monthShort}</span></span>
             <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
               <span className="block h-full rounded-full transition-all" style={{ width: `${(n / maxKindCount) * 100}%`, background: L.color }} />
             </span>
@@ -569,7 +580,7 @@ export function CalendarBoard({
               onClick={() => setDetail(it)}
               className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40"
             >
-              <span className="mt-0.5 shrink-0 text-sm leading-none" aria-hidden>{KIND_LAYERS.find((L) => L.key === it.kind)?.emoji ?? "📦"}</span>
+              <KindIcon kind={it.kind} className="mt-0.5 size-4 shrink-0" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">{it.title}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">

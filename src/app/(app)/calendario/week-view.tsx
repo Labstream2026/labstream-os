@@ -348,7 +348,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
     <div className="flex h-full flex-col">
       {controlled ? null : (
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
-        <h3 className="text-sm font-semibold capitalize">{monthLabel}</h3>
+        <h3 className="text-sm font-semibold first-letter:uppercase">{monthLabel}</h3>
         <div className="flex items-center gap-1">
           <button onClick={() => shift(-1)} className="rounded-md border border-border px-2 py-1 text-sm hover:bg-muted">←</button>
           <button onClick={() => commitAnchor(new Date())} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Hoy</button>

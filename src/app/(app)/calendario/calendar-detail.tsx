@@ -72,7 +72,7 @@ export function CalendarDetailCard({ item, onClose }: { item: CalItem; onClose?:
           {onClose ? <button onClick={onClose} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground">✕</button> : null}
         </div>
         <h3 className="text-base font-semibold leading-snug">{item.title}</h3>
-        <p className="text-sm capitalize text-muted-foreground">
+        <p className="text-sm text-muted-foreground first-letter:uppercase">
           {dateLabel}
           {item.time ? ` · ${item.time}${item.endTime ? `–${item.endTime}` : ""}` : item.allDay || item.kind !== "event" ? " · todo el día" : ""}
         </p>
