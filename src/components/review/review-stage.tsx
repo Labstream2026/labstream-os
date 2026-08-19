@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Play, Pause, StepBack, StepForward, Volume2, VolumeX, Maximize, ChevronLeft, ChevronRight, Bookmark, Frame, Keyboard } from "lucide-react";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { mensajeDeAccionFallida } from "@/lib/accion-error";
 import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
 import { formatBogota } from "@/lib/bogota-time";
@@ -244,11 +245,13 @@ export function ReviewStage({
   // que lo llama — si no, deja de compilar el escenario y react-hooks/purity marca el `Date.now()`
   // de sendReply como impuro en render.
   const [immReplyId, setImmReplyId] = React.useState<string | null>(null);
-  // Error de una acción de FILA (prioridad, reabrir, responder): se muestra bajo esa corrección y
-  // no tumba la página. El servidor es la autoridad (puede rechazar por permisos) y al fallar se
-  // revierte el estado optimista.
+  // Error de una acción de FILA (prioridad, reabrir, responder, editar, retirar): se muestra bajo
+  // esa corrección y no tumba la página. El servidor es la autoridad (puede rechazar por permisos)
+  // y al fallar se revierte el estado optimista.
   const [rowError, setRowError] = React.useState<{ id: string; message: string } | null>(null);
-  const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
+  // Un fallo «de versión vieja» (deploy debajo de la pestaña) se traduce a «recarga» y
+  // enciende el banner global; lo demás se muestra tal cual llegó (o el texto de reserva).
+  const errMsg = (e: unknown, fallback: string) => mensajeDeAccionFallida(e, e instanceof Error && e.message ? e.message : fallback);
 
   const startEdit = (c: StageComment) => { setEditingId(c.id); setEditText(c.body); };
   const saveEdit = (c: StageComment) => {
@@ -259,13 +262,27 @@ export function ReviewStage({
     // Marca «editado» solo si ya estaba SELLADA: es exactamente lo que hace el servidor.
     if (c.locked) setEditedIds((p) => new Set(p).add(c.id));
     setEditingId(null);
-    start(async () => { await onEdit(c.id, next); });
+    start(async () => {
+      try {
+        await onEdit(c.id, next);
+      } catch (e) {
+        setBodyOverride((p) => { const { [c.id]: _fuera, ...resto } = p; return resto; });
+        setRowError({ id: c.id, message: errMsg(e, "No se pudo guardar la edición.") });
+      }
+    });
   };
   const removeComment = async (id: string) => {
     if (!onDelete) return;
     if (!(await confirm({ message: "¿Retirar este comentario? Si tiene respuestas, también se irán. No se puede deshacer.", confirmLabel: "Retirar", danger: true }))) return;
     setDeletedIds((p) => new Set(p).add(id));
-    start(async () => { await onDelete(id); });
+    start(async () => {
+      try {
+        await onDelete(id);
+      } catch (e) {
+        setDeletedIds((p) => { const s = new Set(p); s.delete(id); return s; });
+        setRowError({ id, message: errMsg(e, "No se pudo retirar el comentario.") });
+      }
+    });
   };
   // ¿Se puede editar/retirar este comentario? Los del EQUIPO (no los del cliente), en modo interno
   // y con los callbacks disponibles. Sellado ya NO lo impide: corregir una redacción mala o retirar

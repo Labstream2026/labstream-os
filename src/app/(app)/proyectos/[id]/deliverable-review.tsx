@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { formatTimecode } from "@/lib/ui";
 import { CopyLink } from "@/components/copy-link";
 import { internalDecision, setReviewRevoked, resolveReviewComment, replyToReview } from "./actions";
+import { mensajeDeAccionFallida } from "@/lib/accion-error";
 import { crearEnlaceBorrador, apagarEnlaceBorrador, extenderEnlaceBorrador } from "./draft-share-actions";
 // Estado del enlace de borrador: lo arma el servidor (lib/draft-share) y aquí solo se pinta.
 import type { DraftShareInfo } from "@/lib/draft-share";
@@ -256,6 +257,7 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
   const [body, setBody] = React.useState("");
   // Estado «realizado» optimista (resolveReviewComment no revalida la página).
   const [override, setOverride] = React.useState<Record<string, boolean>>({});
+  const [aviso, setAviso] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<ReviewFilter>("todas");
   // Acordeón por versión: null = aún sin tocar (abre solo la última); luego, conjunto explícito.
   const [openVersions, setOpenVersions] = React.useState<Set<number | "none"> | null>(null);
@@ -277,7 +279,17 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
   const toggle = (c: ReviewThreadComment) => {
     const next = !c.resolved;
     setOverride((p) => ({ ...p, [c.id]: next }));
-    start(() => resolveReviewComment(c.id, projectId, next));
+    setAviso(null);
+    start(async () => {
+      try {
+        await resolveReviewComment(c.id, projectId, next);
+      } catch (e) {
+        // La casilla NO miente: si el servidor no lo guardó, vuelve a como estaba — y el
+        // motivo se dice aquí mismo, no en una pantalla de error que bota al editor.
+        setOverride((p) => ({ ...p, [c.id]: !next }));
+        setAviso(mensajeDeAccionFallida(e, "No se pudo guardar el cambio — revisa tu conexión e inténtalo otra vez."));
+      }
+    });
   };
   const matchesFilter = (c: ReviewThreadComment) =>
     filter === "todas" || (filter === "pendientes" ? !c.resolved : c.resolved);
@@ -310,6 +322,9 @@ export function ReviewThread({ deliverableId, projectId, comments }: { deliverab
 
   return (
     <div>
+      {aviso ? (
+        <p className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[11.5px] font-medium text-destructive">{aviso}</p>
+      ) : null}
       {changes.length > 0 ? (
         <>
           {/* Filtros + contador VIVO: incluye el estado optimista, a diferencia del resumen
