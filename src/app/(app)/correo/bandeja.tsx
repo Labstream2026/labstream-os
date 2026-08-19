@@ -29,7 +29,7 @@ export type HiloVM = {
   ultimoId: string; // al que se le pone/quita la estrella
 };
 
-export function ListaHilos({ hilos, carpeta }: { hilos: HiloVM[]; carpeta: string }) {
+export function ListaHilos({ hilos, carpeta, hiloActivo }: { hilos: HiloVM[]; carpeta: string; hiloActivo?: string | null }) {
   const router = useRouter();
   const [sel, setSel] = React.useState<Set<string>>(new Set()); // claves de hilo
   const [pendiente, arranca] = React.useTransition();
@@ -125,9 +125,10 @@ export function ListaHilos({ hilos, carpeta }: { hilos: HiloVM[]; carpeta: strin
         )}
       </div>
 
-      <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+      <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
         {hilos.map((h, i) => (
-          <FilaHilo key={h.clave} h={h} marcada={sel.has(h.clave)} conCursor={i === cursor} enPapelera={enPapelera} enArchivo={enArchivo} carpeta={carpeta}
+          <FilaHilo key={h.clave} h={h} marcada={sel.has(h.clave)} conCursor={i === cursor} activa={hiloActivo != null && h.ids.join(".") === hiloActivo}
+            enPapelera={enPapelera} enArchivo={enArchivo} carpeta={carpeta}
             onMarcar={(on) => setSel((p) => { const s = new Set(p); if (on) s.add(h.clave); else s.delete(h.clave); return s; })} />
         ))}
         {hilos.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Nada por aquí.</li> : null}
@@ -177,8 +178,11 @@ function MenuPosponer({ ids, quitar, onHecho }: { ids: string[]; quitar?: boolea
   );
 }
 
-function FilaHilo({ h, marcada, conCursor, enPapelera, enArchivo, carpeta, onMarcar }: {
-  h: HiloVM; marcada: boolean; conCursor: boolean; enPapelera: boolean; enArchivo: boolean; carpeta: string; onMarcar: (on: boolean) => void;
+// Fila de DOS líneas (remitente + fecha arriba; asunto — fragmento abajo): funciona igual de
+// bien a todo lo ancho que en la columna estrecha del panel de lectura, que es donde vive la
+// mayor parte del tiempo. La fila activa (el hilo abierto al lado) se marca con la regleta.
+function FilaHilo({ h, marcada, conCursor, activa, enPapelera, enArchivo, carpeta, onMarcar }: {
+  h: HiloVM; marcada: boolean; conCursor: boolean; activa?: boolean; enPapelera: boolean; enArchivo: boolean; carpeta: string; onMarcar: (on: boolean) => void;
 }) {
   const router = useRouter();
   const [estrella, setEstrella] = React.useState(h.destacado);
@@ -188,47 +192,59 @@ function FilaHilo({ h, marcada, conCursor, enPapelera, enArchivo, carpeta, onMar
   const rapida = (fn: () => Promise<unknown>) => arranca(async () => { await fn(); router.refresh(); });
 
   return (
-    <li className={cn("group relative flex h-11 items-center gap-1.5 px-3 transition-colors hover:bg-accent/40", marcada && "bg-primary/5", noLeido && !marcada && "bg-card", conCursor && "shadow-[inset_3px_0_0] shadow-primary")}>
-      <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1.5 shrink-0 accent-primary" />
-      <button
-        type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
-        onClick={() => { setEstrella(!estrella); void estrellaCorreo(h.ultimoId, !estrella); }}
-        className={cn("shrink-0 rounded p-1", estrella ? "text-amber-400" : "text-muted-foreground/50 hover:text-muted-foreground")}
-      >
-        <Star className="size-4" fill={estrella ? "currentColor" : "none"} />
-      </button>
-      <Link href={h.href} prefetch={false} scroll={false} className="flex min-w-0 flex-1 items-center gap-2">
-        <span className={cn("w-40 shrink-0 truncate text-[13px]", noLeido ? "font-bold" : "text-muted-foreground")}>
-          {h.quien}{h.n > 1 ? <span className="font-normal text-muted-foreground"> ({h.n})</span> : null}
+    <li className={cn(
+      "group relative px-2 py-1.5 transition-colors hover:bg-accent/40",
+      marcada && "bg-primary/5",
+      noLeido && !marcada && "bg-card",
+      activa && "bg-accent/60",
+      (conCursor || activa) && "shadow-[inset_3px_0_0] shadow-primary",
+    )}>
+      <div className="flex items-start gap-1">
+        <span className="flex shrink-0 items-center pt-0.5">
+          <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1 accent-primary opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" style={marcada ? { opacity: 1 } : undefined} />
+          <button
+            type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
+            onClick={() => { setEstrella(!estrella); void estrellaCorreo(h.ultimoId, !estrella); }}
+            className={cn("rounded p-0.5", estrella ? "text-amber-400" : "text-muted-foreground/40 hover:text-muted-foreground")}
+          >
+            <Star className="size-3.5" fill={estrella ? "currentColor" : "none"} />
+          </button>
         </span>
-        {h.cliente ? (
-          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: `${h.cliente.hex}22`, color: h.cliente.hex }}>
-            {h.cliente.nombre}
+        <Link href={h.href} prefetch={false} scroll={false} className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className={cn("min-w-0 flex-1 truncate text-[13px]", noLeido ? "font-bold" : "text-muted-foreground")}>
+              {h.quien}{h.n > 1 ? <span className="font-normal text-muted-foreground"> ({h.n})</span> : null}
+            </span>
+            {h.conAdjunto ? <Paperclip className="size-3 shrink-0 text-muted-foreground" /> : null}
+            <span className={cn("shrink-0 text-[11px] tabular-nums group-hover:invisible", noLeido ? "font-bold text-primary" : "text-muted-foreground")}>
+              {h.cuando}
+            </span>
           </span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          <span className={cn(noLeido && "font-bold")}>{h.asunto}</span>
-          <span className="text-muted-foreground"> — {h.snippet}</span>
-        </span>
-        {h.conAdjunto ? <Paperclip className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-        <span className={cn("w-14 shrink-0 text-right text-[11px] tabular-nums group-hover:invisible", noLeido ? "font-bold text-primary" : "text-muted-foreground")}>
-          {h.cuando}
-        </span>
-      </Link>
+          <span className="mt-0.5 flex items-center gap-1.5">
+            {h.cliente ? (
+              <span className="size-2 shrink-0 rounded-full" title={h.cliente.nombre} style={{ background: h.cliente.hex }} />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-[12.5px]">
+              <span className={cn(noLeido && "font-semibold")}>{h.asunto}</span>
+              <span className="text-muted-foreground"> — {h.snippet}</span>
+            </span>
+          </span>
+        </Link>
+      </div>
       {/* Acciones al pasar el ratón, como Gmail: sin abrir el hilo. */}
-      <span className="absolute right-2 hidden items-center gap-0.5 bg-inherit group-hover:flex">
+      <span className="absolute right-2 top-1 hidden items-center gap-0 rounded-md border border-border bg-card shadow-sm group-hover:flex">
         {!enPapelera ? (
           <BotonBarra title={enArchivo ? "Devolver a Recibidos" : "Archivar"} onClick={() => rapida(() => moverCorreos(h.ids, enArchivo ? "INBOX" : "ARCHIVO"))}>
-            {enArchivo ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
+            {enArchivo ? <RotateCcw className="size-3.5" /> : <Archive className="size-3.5" />}
           </BotonBarra>
         ) : (
-          <BotonBarra title="Restaurar" onClick={() => rapida(() => moverCorreos(h.ids, "INBOX"))}><RotateCcw className="size-4" /></BotonBarra>
+          <BotonBarra title="Restaurar" onClick={() => rapida(() => moverCorreos(h.ids, "INBOX"))}><RotateCcw className="size-3.5" /></BotonBarra>
         )}
         {!enPapelera ? (
-          <BotonBarra title="Papelera" onClick={() => rapida(() => moverCorreos(h.ids, "PAPELERA"))}><Trash2 className="size-4" /></BotonBarra>
+          <BotonBarra title="Papelera" onClick={() => rapida(() => moverCorreos(h.ids, "PAPELERA"))}><Trash2 className="size-3.5" /></BotonBarra>
         ) : null}
         <BotonBarra title={noLeido ? "Marcar leído" : "Marcar no leído"} onClick={() => rapida(() => marcarLeidosCorreo(h.ids, noLeido))}>
-          {noLeido ? <CheckCheck className="size-4" /> : <Mail className="size-4" />}
+          {noLeido ? <CheckCheck className="size-3.5" /> : <Mail className="size-3.5" />}
         </BotonBarra>
         <MenuPosponer ids={h.ids} quitar={carpeta === "pospuestos"} onHecho={() => router.refresh()} />
       </span>
@@ -281,7 +297,8 @@ export function BarraHilo({ ids, carpeta, volverHref, proyectos, proyectoActual,
     });
   return (
     <div className="flex min-h-11 flex-wrap items-center gap-1 border-b border-border px-2">
-      <Link href={volverHref} scroll={false} className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" title="Volver">←</Link>
+      {/* En pantallas anchas la lista sigue visible al lado: «volver» solo hace falta abajo. */}
+      <Link href={volverHref} scroll={false} className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground xl:hidden" title="Volver">←</Link>
       {carpeta !== "papelera" ? (
         <>
           <BotonBarra title="Archivar" onClick={() => mover("ARCHIVO")}><Archive className="size-4" /></BotonBarra>

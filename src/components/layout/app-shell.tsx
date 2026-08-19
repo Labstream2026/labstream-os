@@ -124,12 +124,17 @@ export function AppShell({
     pathname === "/biblioteca" ||
     pathname.startsWith("/biblioteca/");
 
-  // MODO ENFOQUE (/chat y /wiki): el panel de «Producción/Clientes» se retira por defecto para que
-  // la conversación —o el árbol de la wiki— ocupe todo el ancho. El botón de colapsar de la barra
-  // lo trae de vuelta durante la sesión; al recargar vuelve a enfocarse. Fuera manda la preferencia
-  // normal (persistida).
+  // El CORREO también enfoca: al abrirlo, el panel de clientes/proyectos se pliega solo para
+  // que la bandeja ocupe toda la pantalla — el correo trae su propio raíl de carpetas y dos
+  // menús laterales compitiendo es justo lo contrario de concentrarse.
+  const isCorreoPage = pathname === "/correo" || pathname.startsWith("/correo/");
+
+  // MODO ENFOQUE (/chat, /wiki y /correo): el panel de «Producción/Clientes» se retira por defecto
+  // para que la conversación —o el árbol de la wiki, o la bandeja— ocupe todo el ancho. El botón de
+  // colapsar de la barra lo trae de vuelta durante la sesión; al recargar vuelve a enfocarse. Fuera
+  // manda la preferencia normal (persistida).
   const [chatFocus, setChatFocus] = React.useState(true);
-  const focusPage = isChatPage || isWikiPage;
+  const focusPage = isChatPage || isWikiPage || isCorreoPage;
 
   // Atajo ⌘K / Ctrl+K para abrir el buscador.
   React.useEffect(() => {

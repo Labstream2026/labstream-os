@@ -226,57 +226,81 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
 
   return (
     <CompositorProvider contactos={contactos} firmaHtml={firmaPreview} gifs={gifs} plantillas={plantillasCorreo}>
-      <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-6">
-        <PageHeader title="Correo" description={cuenta.email} icon={<Mail className="size-4" />} />
+      {/* ── Pantalla COMPLETA ── El menú lateral de la app se pliega solo al entrar (modo
+          enfoque, app-shell) y aquí no hay contenedor ni cabecera: solo el correo. */}
+      <div className="flex h-full min-h-0 flex-col">
+        {/* Carpetas en móvil/tablet: una fila deslizable arriba (el raíl aparece en lg). */}
+        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-1.5 lg:hidden">
+          {CARPETAS.map(({ key, label, Icon }) => (
+            <Link key={key} href={`/correo?c=${key}`} prefetch={false}
+              className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted")}>
+              <Icon className="size-3.5" /> {label}
+              {key === "recibidos" && sinLeer > 0 ? <b className="text-[11px] tabular-nums">{sinLeer}</b> : null}
+            </Link>
+          ))}
+        </nav>
 
-        <div className="grid gap-3 lg:grid-cols-[200px_1fr]">
-          {/* ── Raíl ── */}
-          <nav className="flex flex-row flex-wrap gap-1 lg:flex-col">
-            <div className="mb-1 w-full lg:mb-3"><BotonRedactar /></div>
+        <div className="flex min-h-0 flex-1">
+          {/* ── Raíl (lg+): fino, sin ruido — Redactar, carpetas, clientes y la cuenta abajo ── */}
+          <nav className="hidden w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border px-2.5 py-3 lg:flex">
+            <div className="mb-2.5"><BotonRedactar /></div>
             {CARPETAS.map(({ key, label, Icon }) => (
               <Link key={key} href={`/correo?c=${key}`} prefetch={false}
-                className={cn("flex items-center gap-2.5 rounded-full px-3.5 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
                 <Icon className="size-4" /> {label}
                 {key === "recibidos" && sinLeer > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeer}</b> : null}
-                {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums">{nPospuestos}</span> : null}
-                {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums">{borradores.length}</span> : null}
+                {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{nPospuestos}</span> : null}
+                {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{borradores.length}</span> : null}
               </Link>
             ))}
-            {clienteInfo.size ? <p className="mt-2 hidden px-3.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground lg:block">Clientes · automático</p> : null}
+            {clienteInfo.size ? <p className="mt-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Clientes</p> : null}
             {[...clienteInfo.entries()].map(([id, c]) => (
               <Link key={id} href={`/correo?c=cliente:${id}`} prefetch={false}
-                className={cn("flex items-center gap-2.5 rounded-full px-3.5 py-1.5 text-[13px]", clFiltro === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-                <span className="size-2.5 rounded-full" style={{ background: c.hex }} /> <span className="truncate">{c.nombre}</span>
+                className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", clFiltro === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                <span className="size-2.5 shrink-0 rounded-full" style={{ background: c.hex }} /> <span className="truncate">{c.nombre}</span>
                 {noLeidosCliente.get(id) ? <b className="ml-auto text-[11.5px] tabular-nums">{noLeidosCliente.get(id)}</b> : null}
               </Link>
             ))}
+            <p className="mt-auto truncate px-3 pt-3 text-[10.5px] text-muted-foreground" title={`${cuenta.email} — sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail`}>
+              {cuenta.email}
+            </p>
           </nav>
 
-          {/* ── Panel ── */}
-          <div className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-border bg-card">
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+          {/* ── Panel principal ── */}
+          <div className="flex min-w-0 flex-1 flex-col bg-card">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
               <form action="/correo" className="relative min-w-40 flex-1 sm:max-w-md">
                 <input type="hidden" name="c" value={clFiltro ? `cliente:${clFiltro}` : carpeta} />
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input name="q" defaultValue={q} placeholder="Buscar en el correo…"
                   className="w-full rounded-full border border-border bg-background py-1.5 pl-9 pr-3 text-[12.5px] outline-none focus:ring-2 focus:ring-ring" />
               </form>
+              <div className="lg:hidden"><BotonRedactar /></div>
               <form action={async () => { "use server"; await sincronizarAhora(); }}>
                 <button type="submit" title="Buscar correo nuevo ahora" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><RefreshCw className="size-4" /></button>
-              </form>
-              <form action={async () => { "use server"; await desconectarCorreo(); }}>
-                <button type="submit" title="Desconectar este buzón (tu correo real no se toca)" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Unlink className="size-4" /></button>
               </form>
             </div>
 
             {estado?.syncError ? (
-              <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12px]"><b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span></p>
+              <p className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12px]"><b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span></p>
             ) : null}
 
             {carpeta === "ajustes" && !clFiltro ? (
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
                 <PanelFirma firmaHtml={cuenta.signatureHtml ?? ""} imagenUrl={cuenta.signatureImage ? "/api/correo/firma-imagen" : null} />
                 <BibliotecaGifs gifs={gifsLib.map((g) => ({ id: g.id, nombre: g.nombre, autor: g.createdBy?.name ?? null }))} />
+                {/* La cuenta: lo único destructivo vive aquí, no en la barra de todos los días. */}
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold">Cuenta conectada</h3>
+                    <p className="truncate text-[12px] text-muted-foreground">{cuenta.email} · sincronizada con MailPlus</p>
+                  </div>
+                  <form action={async () => { "use server"; await desconectarCorreo(); }}>
+                    <button type="submit" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:bg-accent hover:text-destructive">
+                      <Unlink className="size-3.5" /> Desconectar (tu correo real no se toca)
+                    </button>
+                  </form>
+                </div>
               </div>
             ) : carpeta === "borradores" && !clFiltro ? (
               <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
@@ -299,9 +323,31 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 ))}
                 {borradores.length === 0 ? <li className="px-4 py-12 text-center text-[12.5px] text-muted-foreground">Sin borradores. Lo que escribas en el compositor se guarda aquí solo.</li> : null}
               </ul>
-            ) : !hiloMsgs.length ? (
-              <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} />
             ) : (
+              /* ── Lista + LECTURA lado a lado (xl); en pantallas menores, una u otra ── */
+              <div className="flex min-h-0 flex-1">
+                <div className={cn(
+                  "min-h-0 flex-col xl:flex xl:w-[400px] xl:shrink-0 xl:border-r xl:border-border",
+                  hiloMsgs.length ? "hidden xl:flex" : "flex flex-1 xl:flex-none",
+                )}>
+                  <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} hiloActivo={sp.h ?? null} />
+                </div>
+
+                <div className={cn("min-h-0 min-w-0 flex-1 flex-col", hiloMsgs.length ? "flex" : "hidden xl:flex")}>
+                  {!hiloMsgs.length ? (
+                    /* Panel de lectura vacío: la casa de los atajos (antes eran un pie de página perpetuo). */
+                    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                      <Mail className="size-8 text-muted-foreground/40" />
+                      <p className="text-sm text-muted-foreground">Elige una conversación de la lista.</p>
+                      <p className="text-[11px] text-muted-foreground/70">
+                        <kbd className="rounded border border-border bg-muted px-1">c</kbd> redactar ·{" "}
+                        <kbd className="rounded border border-border bg-muted px-1">j</kbd>/<kbd className="rounded border border-border bg-muted px-1">k</kbd> moverse ·{" "}
+                        <kbd className="rounded border border-border bg-muted px-1">Enter</kbd> abrir ·{" "}
+                        <kbd className="rounded border border-border bg-muted px-1">e</kbd> archivar ·{" "}
+                        <kbd className="rounded border border-border bg-muted px-1">s</kbd> destacar
+                      </p>
+                    </div>
+                  ) : (
               <>
                 <BarraHilo
                   ids={hiloMsgs.map((m) => m.id)}
@@ -384,14 +430,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                   {prefills ? <BotonesRespuesta prefills={prefills} /> : null}
                 </article>
               </>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>
-
-        <p className="mt-2 text-[10.5px] text-muted-foreground">
-          Sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail (posponer y borradores son solo de la app).
-          Atajos: <kbd className="rounded border border-border bg-muted px-1">c</kbd> redactar · <kbd className="rounded border border-border bg-muted px-1">j</kbd>/<kbd className="rounded border border-border bg-muted px-1">k</kbd> moverse · <kbd className="rounded border border-border bg-muted px-1">Enter</kbd> abrir · <kbd className="rounded border border-border bg-muted px-1">e</kbd> archivar · <kbd className="rounded border border-border bg-muted px-1">s</kbd> destacar.
-        </p>
       </div>
     </CompositorProvider>
   );
