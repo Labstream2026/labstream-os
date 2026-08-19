@@ -927,7 +927,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
               </div>
               {/* Cuerpo: solo lectura (compartida por otro) o editar/ver Markdown con checkboxes */}
               {readOnly ? (
-                <div className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content) : '<p class="text-muted-foreground">Esta nota no tiene contenido.</p>' }} />
+                <div className="min-h-0 flex-1 overflow-y-auto text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content) : '<p class="text-muted-foreground">Esta nota no tiene contenido.</p>' }} />
               ) : (
                 <>
                   <div className="flex items-center gap-1 border-b border-border pb-1.5">
@@ -960,7 +960,10 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                       // Sin caja de foco naranja (outline global) en el cuerpo de la nota; el
                       // cursor ya indica dónde estás escribiendo. Editor más limpio.
                       style={{ outline: "none" }}
-                      className="min-h-0 w-full flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/40"
+                      /* 15px, el MISMO de la vista y el de la wiki publicada: con 16 al editar y
+                         14 al ver, el texto se encogía un 12,5 % al cambiar de pestaña, la nota se
+                         re-maquetaba y se perdía el punto donde ibas leyendo. */
+                      className="min-h-0 w-full flex-1 resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground/40"
                     />
                   ) : (
                     // Vista: las casillas «- [ ]» son BOTONES de verdad. El clic sube por el
@@ -968,7 +971,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                     // alterna [ ]↔[x] en el texto — con su autoguardado, como cualquier edición.
                     <div
                       onClick={onViewClick}
-                      className="min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed"
+                      className="min-h-0 flex-1 overflow-y-auto text-[15px] leading-relaxed"
                       dangerouslySetInnerHTML={{ __html: draft.content.trim() ? renderMarkdown(draft.content, { interactiveTasks: true, taskActions: canCreateTasks && !!draft.id, taskLinks: myLinks }) : '<p class="text-muted-foreground">Nada que mostrar todavía.</p>' }}
                     />
                   )}
