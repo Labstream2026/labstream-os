@@ -581,3 +581,50 @@ export async function moverMensaje(
     await client.logout().catch(() => {});
   }
 }
+
+/**
+ * BORRA DEFINITIVAMENTE en el servidor — solo de la PAPELERA: el borrado sin vuelta atrás
+ * únicamente existe ahí (todo lo demás pasa primero por la papelera). Con el MISMO candado
+ * de identidad de moverMensaje: el uid local solo vale si su Message-ID cuadra; si no, se
+ * busca por Message-ID dentro de la papelera — expulsar el uid equivocado sería borrar el
+ * correo de otro. Lo que no se encuentra allá se da por ya-no-existente (no es error).
+ * Devuelve ok:false SOLO ante fallo de conexión/carpeta — ahí el que llama NO debe borrar
+ * lo local, o el webmail y la app contarían historias distintas.
+ */
+export async function eliminarDefinitivoServidor(
+  accountId: string,
+  objetivos: { uid: bigint; messageId: string | null }[],
+): Promise<{ ok: boolean; error?: string }> {
+  if (!objetivos.length) return { ok: true };
+  const cuenta = await db.mailAccount.findUnique({ where: { id: accountId } });
+  if (!cuenta) return { ok: false, error: "La cuenta ya no existe." };
+  if (!cuenta.trashFolder) return { ok: true }; // sin papelera en el servidor: no hay qué borrar allá
+
+  const client = clienteImap(cuenta);
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(cuenta.trashFolder);
+    try {
+      const uids = new Set<number>();
+      for (const t of objetivos) {
+        const f = await client.fetchOne(String(t.uid), { uid: true, envelope: true }, { uid: true }).catch(() => null);
+        const mid = !f || typeof f === "boolean" ? null : (f.envelope?.messageId ?? null);
+        if (mid && (!t.messageId || mid === t.messageId)) {
+          uids.add(Number(t.uid));
+          continue;
+        }
+        if (!t.messageId) continue; // sin ancla no se adivina: se borra solo lo local
+        const ids = (await client.search({ header: { "message-id": t.messageId } }, { uid: true })) || [];
+        for (const id of ids) uids.add(id); // duplicados del mismo mensaje en papelera: fuera todos
+      }
+      if (uids.size) await client.messageDelete([...uids].join(","), { uid: true });
+    } finally {
+      lock.release();
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errorEnEspanol(e, cuenta.imapHost) };
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}

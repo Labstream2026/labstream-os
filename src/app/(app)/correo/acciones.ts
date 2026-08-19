@@ -8,7 +8,7 @@ import { utcFromBogota, isValidYmd } from "@/lib/reminder-schedule";
 import { horaMas } from "@/lib/correo/citas";
 import { encryptSecret } from "@/lib/crypto";
 import { logActivity } from "@/lib/activity";
-import { backfillCuenta, descargarAdjunto, marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
+import { backfillCuenta, descargarAdjunto, eliminarDefinitivoServidor, marcarEnServidor, moverMensaje, sincronizarCuenta } from "@/lib/correo/imap";
 import { esDominioAgrupable } from "@/lib/correo/hilos";
 import { userCanAccessClient } from "@/lib/client-access";
 import { userCanAccessProject } from "@/lib/project-access";
@@ -480,6 +480,47 @@ export async function moverCorreos(ids: string[], destino: "ARCHIVO" | "PAPELERA
   }
   revalidatePath("/correo");
   return { ok: !error, error };
+}
+
+// ── Borrado DEFINITIVO: solo desde la papelera, y sin vuelta atrás ──
+// Primero el servidor y DESPUÉS lo local: si el expunge falla, aquí no se borra nada — que
+// la app diga «sigue ahí» es mejor que un buzón donde el webmail y la app cuentan historias
+// distintas. Lo que el servidor ya no tiene se limpia local sin drama.
+
+export async function borrarDefinitivoCorreos(ids: string[]): Promise<{ ok: boolean; error?: string; borrados?: number }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const limpios = [...new Set(ids.filter(Boolean))].slice(0, 200);
+  if (!limpios.length) return { ok: true, borrados: 0 };
+  // El candado de siempre + el candado de la papelera: NADA fuera de ella se borra así.
+  const msgs = await db.mailMessage.findMany({
+    where: { id: { in: limpios }, account: { userId: session.id }, folder: "PAPELERA" },
+    select: { id: true, uid: true, messageId: true, accountId: true },
+  });
+  if (!msgs.length) return { ok: true, borrados: 0 };
+  const r = await eliminarDefinitivoServidor(msgs[0].accountId, msgs.map((m) => ({ uid: m.uid, messageId: m.messageId })));
+  if (!r.ok) return { ok: false, error: `No se pudo borrar en el servidor (${r.error}). No se borró nada.` };
+  await db.mailMessage.deleteMany({ where: { id: { in: msgs.map((m) => m.id) } } });
+  revalidatePath("/correo");
+  return { ok: true, borrados: msgs.length };
+}
+
+export async function vaciarPapelera(): Promise<{ ok: boolean; error?: string; borrados?: number }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true } });
+  if (!cuenta) return { ok: false, error: "Conecta tu buzón primero." };
+  const msgs = await db.mailMessage.findMany({
+    where: { accountId: cuenta.id, folder: "PAPELERA" },
+    select: { id: true, uid: true, messageId: true },
+    take: 1000,
+  });
+  if (!msgs.length) return { ok: true, borrados: 0 };
+  const r = await eliminarDefinitivoServidor(cuenta.id, msgs.map((m) => ({ uid: m.uid, messageId: m.messageId })));
+  if (!r.ok) return { ok: false, error: `No se pudo vaciar en el servidor (${r.error}). No se borró nada.` };
+  await db.mailMessage.deleteMany({ where: { id: { in: msgs.map((m) => m.id) } } });
+  revalidatePath("/correo");
+  return { ok: true, borrados: msgs.length };
 }
 
 // ── Crear una CITA (o recordatorio) desde un correo ─────────────────────────

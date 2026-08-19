@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, CheckCheck, Clapperboard, Clock, Loader2, Mail, MailOpen, Paperclip, RotateCcw, Star, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { asignarProyectoHilo, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos, previaCorreo } from "./acciones";
+import { asignarProyectoHilo, borrarDefinitivoCorreos, estrellaCorreo, marcarLeidosCorreo, moverCorreos, posponerCorreos, previaCorreo, vaciarPapelera } from "./acciones";
 import { useCompositor, type PrefillCompositor } from "./compositor";
 import { useVistaCorreo } from "./vista-correo";
 import { BotonSilenciar } from "./organizacion";
@@ -103,9 +103,12 @@ export function ListaHilos({ hilos, carpeta, hiloActivo, enBusqueda }: { hilos: 
                 {enArchivo ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
               </BotonBarra>
             ) : (
-              <BotonBarra title="Restaurar a Recibidos" onClick={() => lote(() => moverCorreos(idsSeleccionados, "INBOX"))}>
-                <RotateCcw className="size-4" />
-              </BotonBarra>
+              <>
+                <BotonBarra title="Restaurar a Recibidos" onClick={() => lote(() => moverCorreos(idsSeleccionados, "INBOX"))}>
+                  <RotateCcw className="size-4" />
+                </BotonBarra>
+                <BotonBorrarDefinitivo ids={idsSeleccionados} onHecho={() => { limpiar(); router.refresh(); }} />
+              </>
             )}
             {!enPapelera ? (
               <BotonBarra title="Enviar a la papelera" onClick={() => lote(() => moverCorreos(idsSeleccionados, "PAPELERA"))}>
@@ -127,6 +130,14 @@ export function ListaHilos({ hilos, carpeta, hiloActivo, enBusqueda }: { hilos: 
           <span className="text-[11.5px] text-muted-foreground">{hilos.length} conversaciones</span>
         )}
       </div>
+
+      {/* La papelera no se vacía sola: aquí vive el botón que la vacía de verdad. */}
+      {enPapelera && hilos.length > 0 ? (
+        <p className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-4 py-1.5 text-[11.5px] text-muted-foreground">
+          Lo de aquí se puede restaurar cuando quieras — la papelera no se vacía sola.
+          <BotonVaciarPapelera onHecho={() => router.refresh()} />
+        </p>
+      ) : null}
 
       <ul className="min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
         {hilos.map((h, i) => (
@@ -159,6 +170,72 @@ function BotonBarra({ title, onClick, children }: { title: string; onClick: () =
   return (
     <button type="button" title={title} onClick={onClick} className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
       {children}
+    </button>
+  );
+}
+
+// ── Borrado DEFINITIVO (solo papelera): en DOS pasos, siempre ───────────────
+// No hay papelera después de la papelera: el primer clic arma la pregunta (y se desarma
+// solo a los 4 s), el segundo borra de verdad — aquí y en el servidor. Texto, no icono:
+// una acción sin vuelta atrás se lee, no se adivina.
+function BotonBorrarDefinitivo({ ids, onHecho }: { ids: string[]; onHecho: () => void }) {
+  const [armado, setArmado] = React.useState(false);
+  const [pendiente, arranca] = React.useTransition();
+  React.useEffect(() => {
+    if (!armado) return;
+    const t = setTimeout(() => setArmado(false), 4_000);
+    return () => clearTimeout(t);
+  }, [armado]);
+  return (
+    <button
+      type="button"
+      disabled={pendiente}
+      onClick={() => {
+        if (!armado) { setArmado(true); return; }
+        arranca(async () => {
+          const r = await borrarDefinitivoCorreos(ids);
+          setArmado(false);
+          if (!r.ok) window.alert(r.error ?? "No se pudo borrar.");
+          else onHecho();
+        });
+      }}
+      className={cn(
+        "rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors",
+        armado ? "bg-destructive text-white" : "text-destructive hover:bg-destructive/10",
+      )}
+    >
+      {pendiente ? <Loader2 className="inline size-3.5 animate-spin" /> : armado ? `¿Borrar ${ids.length > 1 ? `las ${ids.length}` : "esto"} sin vuelta atrás?` : "Borrar definitivamente"}
+    </button>
+  );
+}
+
+function BotonVaciarPapelera({ onHecho }: { onHecho: () => void }) {
+  const [armado, setArmado] = React.useState(false);
+  const [pendiente, arranca] = React.useTransition();
+  React.useEffect(() => {
+    if (!armado) return;
+    const t = setTimeout(() => setArmado(false), 4_000);
+    return () => clearTimeout(t);
+  }, [armado]);
+  return (
+    <button
+      type="button"
+      disabled={pendiente}
+      onClick={() => {
+        if (!armado) { setArmado(true); return; }
+        arranca(async () => {
+          const r = await vaciarPapelera();
+          setArmado(false);
+          if (!r.ok) window.alert(r.error ?? "No se pudo vaciar.");
+          else onHecho();
+        });
+      }}
+      className={cn(
+        "rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold transition-colors",
+        armado ? "bg-destructive text-white" : "text-destructive hover:bg-destructive/10",
+      )}
+    >
+      {pendiente ? <Loader2 className="inline size-3 animate-spin" /> : armado ? "¿Vaciar TODO sin vuelta atrás?" : "Vaciar la papelera"}
     </button>
   );
 }
@@ -463,7 +540,10 @@ export function BarraHilo({ ids, carpeta, volverHref, proyectos, proyectoActual,
           <BotonBarra title="Enviar a la papelera" onClick={() => mover("PAPELERA")}><Trash2 className="size-4" /></BotonBarra>
         </>
       ) : (
-        <BotonBarra title="Restaurar a Recibidos" onClick={() => mover("INBOX")}><RotateCcw className="size-4" /></BotonBarra>
+        <>
+          <BotonBarra title="Restaurar a Recibidos" onClick={() => mover("INBOX")}><RotateCcw className="size-4" /></BotonBarra>
+          <BotonBorrarDefinitivo ids={ids} onHecho={() => router.push(volverHref, { scroll: false })} />
+        </>
       )}
       <BotonBarra title="Marcar como no leído" onClick={() => arranca(async () => { await marcarLeidosCorreo(ids, false); router.push(volverHref, { scroll: false }); })}>
         <Mail className="size-4" />
