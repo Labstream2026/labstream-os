@@ -34,7 +34,8 @@ export function ClientesRail({ clientes, activo }: { clientes: ClienteRailVM[]; 
 
   return (
     <>
-      <p className="mt-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Clientes</p>
+      {/* «Por cliente» (filtros de uno en uno) — la bandeja «Clientes» de arriba los junta todos. */}
+      <p className="mt-3 px-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Por cliente</p>
       {orden.map((c) => {
         const fijo = fijos.includes(c.id);
         return (

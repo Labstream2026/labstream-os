@@ -27,6 +27,7 @@ export type HiloVM = {
   destacado: boolean;
   conAdjunto: boolean;
   cliente: { nombre: string; hex: string } | null;
+  clienteId: string | null; // para agrupar la bandeja «Clientes»
   ids: string[]; // todos los mensajes del hilo (para lote)
   ultimoId: string; // al que se le pone/quita la estrella
 };
@@ -195,6 +196,68 @@ function MenuPosponer({ ids, quitar, onHecho }: { ids: string[]; quitar?: boolea
   );
 }
 
+// ── La bandeja «CLIENTES»: todo lo hablado con cada cliente, agrupado ───────
+// Una sección por cliente (las de actividad más reciente arriba), con sus hilos debajo:
+// recibidos, enviados y archivados — el REGISTRO de la conversación, no una lista de
+// pendientes. Por eso aquí no hay selección en lote ni cursor: se viene a leer el hilo
+// completo de la relación, no a despachar bandeja.
+export type GrupoClienteVM = {
+  clientId: string;
+  nombre: string;
+  hex: string;
+  noLeidos: number;
+  hilos: HiloVM[];
+};
+
+export function ListaClientes({ grupos, carpeta, hiloActivo }: { grupos: GrupoClienteVM[]; carpeta: string; hiloActivo?: string | null }) {
+  if (!grupos.length) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+        <p className="text-sm text-muted-foreground">Aún no hay correos agrupados por cliente.</p>
+        <p className="text-[11.5px] text-muted-foreground/80">
+          Se agrupan solos cuando el remitente es miembro del portal de un cliente o cuando agrupas su dominio
+          («¿Agrupar todo @empresa.com…?» al abrir un hilo).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {grupos.map((g) => (
+        <details key={g.clientId} open className="group/cl">
+          <summary className="sticky top-0 z-10 flex cursor-pointer list-none items-center gap-2 border-b border-border bg-card/95 px-3 py-2 backdrop-blur [&::-webkit-details-marker]:hidden">
+            <span className="size-2.5 shrink-0 rounded-full" style={{ background: g.hex }} />
+            <span className="text-[13px] font-bold">{g.nombre}</span>
+            <span className="text-[11px] text-muted-foreground">
+              {g.hilos.length} conversaci{g.hilos.length === 1 ? "ón" : "ones"}
+            </span>
+            {g.noLeidos > 0 ? (
+              <b className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[11px] tabular-nums text-primary">{g.noLeidos}</b>
+            ) : null}
+            <span className="ml-1 text-muted-foreground transition-transform group-open/cl:rotate-90">›</span>
+          </summary>
+          <ul className="divide-y divide-border/60">
+            {g.hilos.map((h) => (
+              <FilaHilo
+                key={h.clave}
+                h={h}
+                marcada={false}
+                conCursor={false}
+                activa={hiloActivo != null && h.ids.join(".") === hiloActivo}
+                enPapelera={false}
+                enArchivo={false}
+                carpeta={carpeta}
+                onMarcar={() => {}}
+                sinSeleccion
+              />
+            ))}
+          </ul>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 // Caché de vistas previas ya pedidas: posar el ratón dos veces no vuelve al servidor.
 const previasCache = new Map<string, string>();
 
@@ -202,8 +265,10 @@ const previasCache = new Map<string, string>();
 // (densidad compacta, para quien maneja volumen). La fila activa (el hilo abierto al lado)
 // se marca con la regleta. Al POSAR el ratón medio segundo, asoma la vista previa flotante
 // del último mensaje — mirar de reojo sin abrir (y sin marcar leído).
-function FilaHilo({ h, marcada, conCursor, activa, enPapelera, enArchivo, carpeta, onMarcar }: {
+function FilaHilo({ h, marcada, conCursor, activa, enPapelera, enArchivo, carpeta, onMarcar, sinSeleccion }: {
   h: HiloVM; marcada: boolean; conCursor: boolean; activa?: boolean; enPapelera: boolean; enArchivo: boolean; carpeta: string; onMarcar: (on: boolean) => void;
+  /** La bandeja de clientes es de LECTURA: sin casilla de selección. */
+  sinSeleccion?: boolean;
 }) {
   const router = useRouter();
   const { vista } = useVistaCorreo();
@@ -238,7 +303,9 @@ function FilaHilo({ h, marcada, conCursor, activa, enPapelera, enArchivo, carpet
 
   const casillaEstrella = (
     <span className={cn("flex shrink-0 items-center", !compacta && "pt-0.5")}>
-      <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1 accent-primary opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" style={marcada ? { opacity: 1 } : undefined} />
+      {!sinSeleccion ? (
+        <input type="checkbox" checked={marcada} onChange={(e) => onMarcar(e.target.checked)} className="mx-1 accent-primary opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" style={marcada ? { opacity: 1 } : undefined} />
+      ) : null}
       <button
         type="button" aria-label={estrella ? "Quitar estrella" : "Destacar"}
         onClick={() => { setEstrella(!estrella); void estrellaCorreo(h.ultimoId, !estrella); }}

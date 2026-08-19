@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Clock, FileText, Inbox, Mail, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { Archive, Building2, Clock, FileText, Inbox, Mail, Paperclip, PenTool, RefreshCw, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
@@ -21,7 +21,7 @@ import { AbrirBorrador, BotonRedactar, CompositorProvider } from "./compositor";
 import { PanelFirma, BibliotecaGifs } from "./firma-gifs";
 import { VistaCorreoProvider, PanelesCorreo, MenuVista } from "./vista-correo";
 import { ClientesRail } from "./clientes-rail";
-import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM, type ProyectoAsignable } from "./bandeja";
+import { BarraHilo, BotonesRespuesta, ListaClientes, ListaHilos, MarcarHiloLeido, type GrupoClienteVM, type HiloVM, type ProyectoAsignable } from "./bandeja";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +33,10 @@ export const dynamic = "force-dynamic";
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
 type Adjunto = { indice: number; nombre: string; mime: string; bytes: number; cid?: string };
-type CarpetaKey = "recibidos" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
+type CarpetaKey = "recibidos" | "clientes" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
 const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "recibidos", label: "Recibidos", Icon: Inbox },
+  { key: "clientes", label: "Clientes", Icon: Building2 },
   { key: "destacados", label: "Destacados", Icon: Star },
   { key: "pospuestos", label: "Pospuestos", Icon: Clock },
   { key: "enviados", label: "Enviados", Icon: Send },
@@ -73,7 +74,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
   const ahora = new Date();
   const whereCarpeta = clFiltro
     ? { clientId: clFiltro, folder: { not: "PAPELERA" } }
-    : carpeta === "destacados"
+    : carpeta === "clientes"
+      // El REGISTRO con los clientes: recibido, enviado y archivado — todo menos la papelera.
+      ? { clientId: { not: null }, folder: { not: "PAPELERA" } }
+      : carpeta === "destacados"
       ? { flagged: true, folder: { not: "PAPELERA" } }
       : carpeta === "pospuestos"
         ? { snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } }
@@ -81,7 +85,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
           ? { folder: "INBOX", OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] }
           : { folder: carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
 
-  const [mensajes, sinLeer, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
+  const [mensajes, sinLeer, sinLeerClientes, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
@@ -91,11 +95,13 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
           : {}),
       },
       orderBy: { date: "desc" },
-      take: 400,
+      take: carpeta === "clientes" ? 600 : 400,
       select: { id: true, threadKey: true, folder: true, fromName: true, fromEmail: true, toList: true, subject: true, snippet: true, date: true, seen: true, flagged: true, clientId: true, attachments: true },
     }),
     // No leídos SIN los pospuestos: posponer es sacarlo de la vista, contarlo sería trampa.
     db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] } }),
+    // No leídos DE CLIENTES (el badge de la bandeja «Clientes»).
+    db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false, clientId: { not: null } } }),
     db.mailMessage.count({ where: { accountId: cuenta.id, snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } } }),
     db.mailDraft.findMany({ where: { accountId: cuenta.id }, orderBy: { updatedAt: "desc" }, take: 50 }),
     // Clientes detectados en ESTE buzón, con sus no-leídos: el raíl solo lista lo que existe.
@@ -154,10 +160,30 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       destacado: h.destacado,
       conAdjunto: h.mensajes.some((m) => Array.isArray((m as (typeof mensajes)[number]).attachments) && ((m as (typeof mensajes)[number]).attachments as unknown[]).length > 0),
       cliente: cid ? clienteInfo.get(cid) ?? null : null,
+      clienteId: cid,
       ids: h.mensajes.map((m) => m.id),
       ultimoId: u.id,
     };
   });
+
+  // ── Bandeja «Clientes»: los mismos hilos, en secciones por cliente. El orden de los
+  // grupos sale solo: los hilos ya vienen por actividad, y el primer hilo de cada cliente
+  // fija su lugar — el cliente con lo más reciente queda arriba. ──
+  const grupos: GrupoClienteVM[] = [];
+  if (carpeta === "clientes" && !clFiltro) {
+    const porCliente = new Map<string, GrupoClienteVM>();
+    for (const h of hilos) {
+      if (!h.clienteId || !h.cliente) continue;
+      let g = porCliente.get(h.clienteId);
+      if (!g) {
+        g = { clientId: h.clienteId, nombre: h.cliente.nombre, hex: h.cliente.hex, noLeidos: 0, hilos: [] };
+        porCliente.set(h.clienteId, g);
+        grupos.push(g);
+      }
+      g.hilos.push(h);
+      g.noLeidos += h.noLeidos;
+    }
+  }
 
   // ── El hilo abierto (por ids, del propio buzón siempre) ──
   const hiloMsgs = hiloAbiertoIds.length
@@ -253,6 +279,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted")}>
               <Icon className="size-3.5" /> {label}
               {key === "recibidos" && sinLeer > 0 ? <b className="text-[11px] tabular-nums">{sinLeer}</b> : null}
+              {key === "clientes" && sinLeerClientes > 0 ? <b className="text-[11px] tabular-nums">{sinLeerClientes}</b> : null}
             </Link>
           ))}
         </nav>
@@ -266,6 +293,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
                 <Icon className="size-4" /> {label}
                 {key === "recibidos" && sinLeer > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeer}</b> : null}
+                {key === "clientes" && sinLeerClientes > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeerClientes}</b> : null}
                 {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{nPospuestos}</span> : null}
                 {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{borradores.length}</span> : null}
               </Link>
@@ -356,7 +384,13 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
               /* ── Lista + LECTURA: al lado o abajo, según la preferencia del menú Vista ── */
               <PanelesCorreo
                 hayHilo={hiloMsgs.length > 0}
-                lista={<ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} hiloActivo={sp.h ?? null} enBusqueda={!!q} />}
+                lista={
+                  carpeta === "clientes" && !clFiltro ? (
+                    <ListaClientes grupos={grupos} carpeta="clientes" hiloActivo={sp.h ?? null} />
+                  ) : (
+                    <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} hiloActivo={sp.h ?? null} enBusqueda={!!q} />
+                  )
+                }
                 lectura={
                   !hiloMsgs.length ? (
                     /* Panel de lectura vacío: la casa de los atajos (antes eran un pie de página perpetuo). */
