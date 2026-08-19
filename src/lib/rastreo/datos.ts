@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/session";
 import { parsePeriodo, type Periodo, type FilaBarra, type Jornada, type SerieBarras } from "@/lib/reportes/datos";
 import { FRANJAS, franjaDe, NAVEGADORES, sitioDe } from "@/lib/rastreo/navegacion";
+import { APPS_EDICION, proyectoEdicionDe } from "@/lib/rastreo/edicion";
 import { accesoRastreo, filtroSujetos } from "./acceso";
 
 // ── Los DATOS del panel de rastreo ──────────────────────────────────────────
@@ -40,6 +41,8 @@ export type PersonaRastreo = {
   serie: SerieBarras; // su curva en el periodo
   apps: FilaBarra[];
   cuentas: FilaBarra[];
+  /** Proyectos de EDICIÓN abiertos (leídos del título de Resolve/Premiere/AE): «Reel · Resolve». */
+  proyectosEdicion: FilaBarra[];
   /** Páginas más frecuentes en el navegador (catálogo conocido + «Otros sitios»). */
   sitios: FilaBarra[];
   /** Solo los sitios de OCIO, con su total. Vacío si no hubo. */
@@ -67,6 +70,9 @@ export type RastreoDatos = {
   /** Ocio en el navegador de TODO el equipo en el periodo: top de sitios y total. */
   ocioEquipo: FilaBarra[];
   ocioEquipoTxt: string | null;
+  /** En qué proyectos de edición está el equipo (título de Resolve/Premiere/AE) y su total. */
+  edicionEquipo: FilaBarra[];
+  edicionEquipoTxt: string | null;
   /** El que mira ve a TODO el equipo (permiso) o solo a personas compartidas con él. */
   ambitoTodos: boolean;
   /** El periodo trajo más navegación que el tope de la consulta: las cifras son parciales. */
@@ -149,7 +155,7 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   const wUsuarios = acceso.sujetos === null ? Prisma.empty : Prisma.sql`AND "userId" IN (${Prisma.join(acceso.sujetos)})`;
   const wDesde = periodo.desde ? Prisma.sql`AND "startedAt" >= ${periodo.desde}` : Prisma.empty;
 
-  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb, bloquesNavegador] = await Promise.all([
+  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb, bloquesNavegador, bloquesEdicion] = await Promise.all([
     // Un renglón por persona y día LOCAL: cuánto sumó, cuánto de eso fue activo, y a qué hora
     // abrió y cerró. De aquí salen la serie, los días trabajados y las jornadas.
     db.$queryRaw<FilaDia[]>`
@@ -215,6 +221,18 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
       orderBy: { startedAt: "desc" },
       take: 60000,
     }),
+    // Los bloques de EDICIÓN (Resolve/Premiere/After Effects), para leer qué PROYECTO estaba
+    // abierto según el título de la ventana. Mismas reglas que la navegación: orden y tope.
+    db.workBlock.findMany({
+      where: {
+        startedAt: rango,
+        ...filtro,
+        OR: APPS_EDICION.map((n) => ({ app: { contains: n, mode: "insensitive" as const } })),
+      },
+      select: { userId: true, app: true, title: true, seconds: true },
+      orderBy: { startedAt: "desc" },
+      take: 60000,
+    }),
   ]);
 
   const ahoraMs = ahora.getTime();
@@ -251,6 +269,28 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
     }
     navDe.set(b.userId, nav);
   }
+  // ── Proyectos de edición: qué proyecto estaba abierto en Resolve/Premiere/AE ──
+  // Agregado por nombre normalizado (minúsculas) para que «Reel Agosto» y «reel agosto» sean
+  // el mismo proyecto; se enseña con la primera forma vista.
+  const edicionDe = new Map<string, Map<string, { label: string; seg: number }>>();
+  const edicionEquipoM = new Map<string, { label: string; seg: number }>();
+  for (const b of bloquesEdicion) {
+    const p = proyectoEdicionDe(b.app, b.title);
+    if (!p) continue;
+    const clave = `${p.proyecto.toLowerCase()}|${p.programa}`;
+    const label = `${p.proyecto} · ${p.programa}`;
+    const mio = edicionDe.get(b.userId) ?? new Map<string, { label: string; seg: number }>();
+    const e = mio.get(clave) ?? { label, seg: 0 };
+    e.seg += b.seconds;
+    mio.set(clave, e);
+    edicionDe.set(b.userId, mio);
+    const eq = edicionEquipoM.get(clave) ?? { label, seg: 0 };
+    eq.seg += b.seconds;
+    edicionEquipoM.set(clave, eq);
+  }
+  const comoMapa = (m: Map<string, { label: string; seg: number }>): Map<string, number> =>
+    new Map([...m.values()].map((x) => [x.label, x.seg]));
+
   // Top N + una fila «Resto» con lo recortado: así cada lista CIERRA contra el total que la
   // acompaña (sin ella, con >N sitios la columna sumaba menos que el título y que las franjas).
   const aBarras = (m: Map<string, number>, tope: number): FilaBarra[] => {
@@ -320,6 +360,7 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
         serie: agrupar(dias, periodo).serie,
         apps: appsDe.get(u.id) ?? [],
         cuentas: cuentasDe.get(u.id) ?? [],
+        proyectosEdicion: edicionDe.has(u.id) ? aBarras(comoMapa(edicionDe.get(u.id)!), 8) : [],
         sitios: nav ? aBarras(nav.sitios, 8) : [],
         ocioSitios: nav ? aBarras(nav.ocioSitios, 6) : [],
         ocioTxt: ocioSeg > 0 ? horas1(ocioSeg) : null,
@@ -367,8 +408,10 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
     personas,
     ocioEquipo: aBarras(navEquipoSitios, 6),
     ocioEquipoTxt: navEquipoSitios.size ? horas1([...navEquipoSitios.values()].reduce((s, x) => s + x, 0)) : null,
+    edicionEquipo: aBarras(comoMapa(edicionEquipoM), 8),
+    edicionEquipoTxt: edicionEquipoM.size ? horas1([...edicionEquipoM.values()].reduce((s, x) => s + x.seg, 0)) : null,
     ambitoTodos: acceso.sujetos === null,
-    navegacionTruncada: bloquesNavegador.length === 60000,
+    navegacionTruncada: bloquesNavegador.length === 60000 || bloquesEdicion.length === 60000,
     candidatos: acceso.gestiona ? usuarios.map((u) => ({ id: u.id, nombre: u.name, ini: u.initials, color: u.avatarColor })) : [],
     sinSensor: personas.every((p) => p.equipos === 0) && totalSeg === 0,
   };

@@ -133,6 +133,16 @@ function Lista({ datos, onElegir }: { datos: RastreoDatos; onElegir: (id: string
         </Caja>
       ) : null}
 
+      {datos.edicionEquipoTxt ? (
+        <Caja
+          titulo={`En qué proyectos se edita (${datos.ambitoTodos ? "equipo" : "personas visibles"}) · ${datos.edicionEquipoTxt}`}
+          hint="El proyecto abierto en Resolve, Premiere o After Effects, leído del título de la ventana. El detalle por persona está en cada ficha."
+          className="mt-2.5"
+        >
+          <FilasBarra filas={datos.edicionEquipo} color="var(--rs1)" />
+        </Caja>
+      ) : null}
+
       {datos.ocioEquipoTxt ? (
         <Caja
           titulo={`Ocio en el navegador (${datos.ambitoTodos ? "equipo" : "personas visibles"}) · ${datos.ocioEquipoTxt}`}
@@ -247,6 +257,14 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
             <Vacio texto="Sin jornadas en el periodo." />
           )}
         </Caja>
+        {p.proyectosEdicion.length ? (
+          <Caja
+            titulo="En qué proyectos edita"
+            hint="Leído del título de la ventana de Resolve, Premiere o After Effects: el nombre es el del proyecto en el programa."
+          >
+            <FilasBarra filas={p.proyectosEdicion} color="var(--rs1)" />
+          </Caja>
+        ) : null}
         <Caja
           titulo="En qué páginas (navegador)"
           hint="Clasificado por el título de la ventana contra un catálogo de sitios conocidos; lo demás va a «Otros sitios». Un rato en YouTube puede ser un tutorial: esto dice dónde y cuándo, no por qué."
