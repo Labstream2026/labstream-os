@@ -1,34 +1,46 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Inbox, Mail, Paperclip, RefreshCw, Search, Send, Unlink } from "lucide-react";
+import { Archive, Inbox, Mail, Paperclip, RefreshCw, Search, Send, Star, Trash2, Unlink } from "lucide-react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { formatBogota } from "@/lib/bogota-time";
+import { tone } from "@/lib/colors";
 import { sanearCorreo } from "@/lib/correo/sanitizar";
 import { sincronizarCuenta } from "@/lib/correo/imap";
+import { agruparHilos, asuntoLimpio } from "@/lib/correo/hilos";
+import { estadoRonda } from "@/lib/rondas";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { ConectarCorreo } from "./conectar";
-import { MarcarLeido, Redactar } from "./redactar";
 import { desconectarCorreo, sincronizarAhora } from "./acciones";
+import { BotonRedactar, CompositorProvider } from "./compositor";
+import { BarraHilo, BotonesRespuesta, ListaHilos, MarcarHiloLeido, type HiloVM } from "./bandeja";
 
 export const dynamic = "force-dynamic";
 
-// ── Pestaña Correo: el buzón PERSONAL de cada quien ─────────────────────────
-// La bandeja vive sincronizada en Postgres (rápida de listar y de buscar) y el detalle se
-// pinta desde ahí; los adjuntos se bajan del servidor al pedirse. El HTML de un correo pasa
-// SIEMPRE por sanearCorreo y además se encierra en un iframe sandbox: dos vallas, no una.
+// ── Pestaña Correo v2: bandeja de CONVERSACIONES al estilo Gmail ────────────
+// Raíl (Redactar + carpetas + clientes detectados), lista de hilos con selección y acciones,
+// y vista de conversación con los mensajes viejos plegados. El servidor agrupa, sanea y
+// serializa; el cliente pinta y dispara. Las etiquetas de cliente y el banner del hilo son
+// lo que Gmail no puede hacer: el correo cruzado con el CRM y el estado real del proyecto.
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
 type Adjunto = { indice: number; nombre: string; mime: string; bytes: number };
+type CarpetaKey = "recibidos" | "destacados" | "enviados" | "archivo" | "papelera";
+const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
+  { key: "recibidos", label: "Recibidos", Icon: Inbox },
+  { key: "destacados", label: "Destacados", Icon: Star },
+  { key: "enviados", label: "Enviados", Icon: Send },
+  { key: "archivo", label: "Archivo", Icon: Archive },
+  { key: "papelera", label: "Papelera", Icon: Trash2 },
+];
 
-export default async function CorreoPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string; q?: string; img?: string }> }) {
+export default async function CorreoPage({ searchParams }: { searchParams: Promise<{ c?: string; q?: string; h?: string; img?: string }> }) {
   const session = await getSession();
   if (!session || session.role === "cliente" || session.role === "demo") redirect("/");
   const sp = await searchParams;
 
   const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id } });
-
   if (!cuenta) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
@@ -38,178 +50,257 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     );
   }
 
-  // Sincronización oportunista al abrir: si la última fue hace poco, no se molesta al
-  // servidor. El cron de fondo mantiene el ritmo cuando nadie tiene la pestaña abierta.
   const rancio = !cuenta.lastSyncAt || Date.now() - cuenta.lastSyncAt.getTime() > 90_000;
   if (rancio) await sincronizarCuenta(cuenta.id, { max: 120 });
-  const estado = rancio ? await db.mailAccount.findUnique({ where: { id: cuenta.id }, select: { syncError: true, lastSyncAt: true } }) : cuenta;
+  const estado = rancio ? await db.mailAccount.findUnique({ where: { id: cuenta.id }, select: { syncError: true } }) : cuenta;
 
-  const carpeta = sp.c === "enviados" ? "ENVIADOS" : "INBOX";
+  const carpeta: CarpetaKey = (CARPETAS.find((c) => c.key === sp.c)?.key ?? "recibidos") as CarpetaKey;
   const q = (sp.q ?? "").trim().slice(0, 100);
+  const clFiltro = (sp.c ?? "").startsWith("cliente:") ? (sp.c ?? "").slice(8) : null;
 
-  const [mensajes, sinLeer] = await Promise.all([
+  const whereCarpeta = clFiltro
+    ? { clientId: clFiltro, folder: { not: "PAPELERA" } }
+    : carpeta === "destacados"
+      ? { flagged: true, folder: { not: "PAPELERA" } }
+      : { folder: carpeta === "recibidos" ? "INBOX" : carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
+
+  const [mensajes, sinLeer, porCliente, clientes, contactosEquipo] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
-        folder: carpeta,
+        ...whereCarpeta,
         ...(q
           ? { OR: [{ subject: { contains: q, mode: "insensitive" } }, { fromEmail: { contains: q, mode: "insensitive" } }, { fromName: { contains: q, mode: "insensitive" } }, { snippet: { contains: q, mode: "insensitive" } }] }
           : {}),
       },
       orderBy: { date: "desc" },
-      take: 100,
-      select: { id: true, fromName: true, fromEmail: true, toList: true, subject: true, snippet: true, date: true, seen: true, answered: true, attachments: true },
+      take: 400,
+      select: { id: true, threadKey: true, folder: true, fromName: true, fromEmail: true, toList: true, subject: true, snippet: true, date: true, seen: true, flagged: true, clientId: true, attachments: true },
     }),
     db.mailMessage.count({ where: { accountId: cuenta.id, folder: "INBOX", seen: false } }),
+    // Clientes detectados en ESTE buzón, con sus no-leídos: el raíl solo lista lo que existe.
+    db.mailMessage.groupBy({ by: ["clientId"], where: { accountId: cuenta.id, clientId: { not: null }, folder: "INBOX", seen: false }, _count: { _all: true } }),
+    db.mailMessage.findMany({ where: { accountId: cuenta.id, clientId: { not: null } }, distinct: ["clientId"], select: { client: { select: { id: true, name: true, accentColor: true } } } }),
+    // Autocompletar del compositor: equipo + miembros de portales de clientes. Del CRM, no
+    // de una libreta aparte.
+    db.user.findMany({ where: { active: true, isSystemBot: false, isGuest: false }, select: { email: true } }),
   ]);
 
-  // El mensaje abierto (?m=): suyo o nada — el id viene del navegador.
-  const abierto = sp.m
-    ? await db.mailMessage.findFirst({
-        where: { id: sp.m, accountId: cuenta.id },
-        select: { id: true, folder: true, fromName: true, fromEmail: true, toList: true, subject: true, date: true, textBody: true, htmlBody: true, seen: true, attachments: true },
+  const clienteInfo = new Map(clientes.filter((c) => c.client).map((c) => [c.client!.id, { nombre: c.client!.name, hex: tone(c.client!.accentColor ?? "slate").hex }]));
+  const noLeidosCliente = new Map(porCliente.map((r) => [r.clientId!, r._count._all]));
+  const contactos = [...new Set(contactosEquipo.map((u) => u.email).filter(Boolean))].sort();
+
+  const hiloAbiertoIds = (sp.h ?? "").split(".").filter(Boolean).slice(0, 60);
+  const linkBase = `/correo?c=${clFiltro ? `cliente:${clFiltro}` : carpeta}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+
+  // ── VM de la lista: hilos agrupados, ya formateados ──
+  const cortito = (d: Date) => {
+    const hoy = new Date().toDateString() === d.toDateString();
+    return hoy ? formatBogota(d, { hour: "2-digit", minute: "2-digit", hour12: false }) : formatBogota(d, { day: "numeric", month: "short" }).replace(".", "");
+  };
+  const hilos: HiloVM[] = agruparHilos(mensajes).slice(0, 80).map((h) => {
+    const u = h.ultimo;
+    const quien = u.folder === "ENVIADOS" ? `Para: ${(u as (typeof mensajes)[number]).toList || "—"}` : ((u as (typeof mensajes)[number]).fromName || u.fromEmail || "—");
+    const cid = h.mensajes.map((m) => (m as (typeof mensajes)[number]).clientId).find(Boolean) ?? null;
+    return {
+      clave: h.clave,
+      href: `${linkBase}&h=${h.mensajes.map((m) => m.id).join(".")}`,
+      quien,
+      n: h.mensajes.length,
+      asunto: asuntoLimpio(u.subject),
+      snippet: (u as (typeof mensajes)[number]).snippet,
+      cuando: cortito(u.date),
+      noLeidos: h.noLeidos,
+      destacado: h.destacado,
+      conAdjunto: h.mensajes.some((m) => Array.isArray((m as (typeof mensajes)[number]).attachments) && ((m as (typeof mensajes)[number]).attachments as unknown[]).length > 0),
+      cliente: cid ? clienteInfo.get(cid) ?? null : null,
+      ids: h.mensajes.map((m) => m.id),
+      ultimoId: u.id,
+    };
+  });
+
+  // ── El hilo abierto (por ids, del propio buzón siempre) ──
+  const hiloMsgs = hiloAbiertoIds.length
+    ? await db.mailMessage.findMany({
+        where: { id: { in: hiloAbiertoIds }, accountId: cuenta.id },
+        orderBy: { date: "asc" },
+        select: { id: true, folder: true, fromName: true, fromEmail: true, toList: true, ccList: true, subject: true, snippet: true, date: true, textBody: true, htmlBody: true, seen: true, clientId: true, attachments: true },
+      })
+    : [];
+
+  // Banner CRM del hilo: cliente + la pieza que está en su cancha ahora mismo.
+  const hiloClienteId = hiloMsgs.map((m) => m.clientId).find(Boolean) ?? null;
+  const crm = hiloClienteId
+    ? await db.client.findUnique({
+        where: { id: hiloClienteId },
+        select: {
+          id: true, name: true,
+          projects: {
+            where: { archivedAt: null, deliverables: { some: { status: "ENVIADO_CLIENTE", sentToClientAt: { not: null } } } },
+            select: {
+              id: true, name: true, roundsIncluded: true,
+              deliverables: {
+                where: { status: "ENVIADO_CLIENTE", sentToClientAt: { not: null } },
+                orderBy: { sentToClientAt: "desc" }, take: 1,
+                select: { id: true, name: true, number: true, sentToClientAt: true, decisions: { where: { stage: "CLIENTE", result: "CAMBIOS" }, select: { id: true } } },
+              },
+            },
+            take: 1,
+          },
+        },
       })
     : null;
-  const cuerpo = abierto?.htmlBody ? sanearCorreo(abierto.htmlBody, { permitirImagenes: sp.img === "1" }) : null;
-  const adjuntos = ((abierto?.attachments as Adjunto[] | null) ?? []).filter((a) => a && typeof a.indice === "number");
-  const linkBase = `/correo?c=${carpeta === "ENVIADOS" ? "enviados" : "recibidos"}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const crmPieza = crm?.projects[0]?.deliverables[0] ?? null;
+  const crmRonda = crmPieza && crm?.projects[0] ? estadoRonda(crmPieza.decisions.length, crm.projects[0].roundsIncluded) : null;
+  const diasConCliente = crmPieza?.sentToClientAt ? Math.max(0, Math.floor((Date.now() - crmPieza.sentToClientAt.getTime()) / 86_400_000)) : null;
+
+  const ultimo = hiloMsgs[hiloMsgs.length - 1] ?? null;
+  const miEmail = cuenta.email.toLowerCase();
+  const otros = ultimo
+    ? [...(ultimo.toList ?? "").split(","), ...(ultimo.ccList ?? "").split(",")]
+        .map((s) => s.trim()).filter((s) => s && !s.toLowerCase().includes(miEmail))
+    : [];
+  const prefills = ultimo
+    ? {
+        responder: { modo: "responder" as const, para: ultimo.folder === "ENVIADOS" ? ultimo.toList : (ultimo.fromEmail ?? ""), asunto: `Re: ${asuntoLimpio(ultimo.subject)}`, responderAId: ultimo.id },
+        todos: otros.length
+          ? { modo: "todos" as const, para: ultimo.folder === "ENVIADOS" ? ultimo.toList : (ultimo.fromEmail ?? ""), cc: otros.join(", "), asunto: `Re: ${asuntoLimpio(ultimo.subject)}`, responderAId: ultimo.id }
+          : null,
+        reenviar: { modo: "reenviar" as const, asunto: `Fwd: ${asuntoLimpio(ultimo.subject)}`, reenviarDeId: ultimo.id },
+      }
+    : null;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-7">
-      <PageHeader title="Correo" description={cuenta.email} icon={<Mail className="size-4" />} />
+    <CompositorProvider contactos={contactos}>
+      <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-6">
+        <PageHeader title="Correo" description={cuenta.email} icon={<Mail className="size-4" />} />
 
-      {/* Barra: pestañas + buscar + acciones */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex overflow-hidden rounded-lg border border-border" role="group" aria-label="Carpeta">
-          <Link href="/correo" className={cn("inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px]", carpeta === "INBOX" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted")}>
-            <Inbox className="size-3.5" /> Recibidos{sinLeer > 0 ? <b className="tabular-nums">· {sinLeer}</b> : null}
-          </Link>
-          <Link href="/correo?c=enviados" className={cn("inline-flex items-center gap-1.5 border-l border-border px-2.5 py-1.5 text-[11.5px]", carpeta === "ENVIADOS" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted")}>
-            <Send className="size-3.5" /> Enviados
-          </Link>
-        </span>
-        <form action="/correo" className="relative min-w-40 flex-1 sm:max-w-xs">
-          {carpeta === "ENVIADOS" ? <input type="hidden" name="c" value="enviados" /> : null}
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input name="q" defaultValue={q} placeholder="Buscar en el correo…"
-            className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2.5 text-[12px] outline-none focus:ring-2 focus:ring-ring" />
-        </form>
-        <Redactar />
-        <form action={async () => { "use server"; await sincronizarAhora(); }}>
-          <button type="submit" title="Buscar correo nuevo ahora" className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground">
-            <RefreshCw className="size-3.5" /> Actualizar
-          </button>
-        </form>
-        <form action={async () => { "use server"; await desconectarCorreo(); }}>
-          <button type="submit" title="Desconectar este buzón de la app (tu correo real no se toca)" className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11.5px] text-muted-foreground hover:bg-muted hover:text-foreground">
-            <Unlink className="size-3.5" />
-          </button>
-        </form>
-      </div>
+        <div className="grid gap-3 lg:grid-cols-[200px_1fr]">
+          {/* ── Raíl ── */}
+          <nav className="flex flex-row flex-wrap gap-1 lg:flex-col">
+            <div className="mb-1 w-full lg:mb-3"><BotonRedactar /></div>
+            {CARPETAS.map(({ key, label, Icon }) => (
+              <Link key={key} href={`/correo?c=${key}`} prefetch={false}
+                className={cn("flex items-center gap-2.5 rounded-full px-3.5 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                <Icon className="size-4" /> {label}
+                {key === "recibidos" && sinLeer > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeer}</b> : null}
+              </Link>
+            ))}
+            {clienteInfo.size ? <p className="mt-2 hidden px-3.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground lg:block">Clientes · automático</p> : null}
+            {[...clienteInfo.entries()].map(([id, c]) => (
+              <Link key={id} href={`/correo?c=cliente:${id}`} prefetch={false}
+                className={cn("flex items-center gap-2.5 rounded-full px-3.5 py-1.5 text-[13px]", clFiltro === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                <span className="size-2.5 rounded-full" style={{ background: c.hex }} /> <span className="truncate">{c.nombre}</span>
+                {noLeidosCliente.get(id) ? <b className="ml-auto text-[11.5px] tabular-nums">{noLeidosCliente.get(id)}</b> : null}
+              </Link>
+            ))}
+          </nav>
 
-      {estado?.syncError ? (
-        <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px]">
-          <b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span>
-        </p>
-      ) : null}
-
-      <div className="mt-4 grid gap-3 lg:grid-cols-[340px_1fr]">
-        {/* ── Lista ── */}
-        <div className={cn("overflow-hidden rounded-xl border border-border bg-card", abierto ? "hidden lg:block" : "")}>
-          {mensajes.length === 0 ? (
-            <p className="px-4 py-10 text-center text-[12px] text-muted-foreground">
-              {q ? "Nada coincide con esa búsqueda." : carpeta === "ENVIADOS" ? "Aún no has enviado nada desde la app." : "Bandeja al día: no hay correos sincronizados todavía."}
-            </p>
-          ) : (
-            <ul className="max-h-[70vh] divide-y divide-border overflow-y-auto">
-              {mensajes.map((m) => {
-                const quien = carpeta === "ENVIADOS" ? `Para: ${m.toList || "—"}` : m.fromName || m.fromEmail || "—";
-                const conAdj = Array.isArray(m.attachments) && (m.attachments as unknown[]).length > 0;
-                return (
-                  <li key={m.id}>
-                    <Link href={`${linkBase}&m=${m.id}`} prefetch={false} scroll={false}
-                      className={cn("block px-3 py-2.5 transition-colors hover:bg-accent/40", abierto?.id === m.id && "bg-primary/5")}>
-                      <span className="flex items-baseline gap-2">
-                        {!m.seen && carpeta === "INBOX" ? <span aria-label="Sin leer" className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
-                        <span className={cn("min-w-0 flex-1 truncate text-[12px]", m.seen ? "text-muted-foreground" : "font-semibold")}>{quien}</span>
-                        <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">{formatBogota(m.date, { day: "numeric", month: "short" })}</span>
-                      </span>
-                      <span className={cn("mt-0.5 block truncate text-[12.5px]", !m.seen && carpeta === "INBOX" && "font-medium")}>
-                        {conAdj ? <Paperclip className="mr-1 inline size-3 text-muted-foreground" /> : null}
-                        {m.answered ? <span title="Respondido" className="mr-1 text-muted-foreground">↩</span> : null}
-                        {m.subject}
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{m.snippet}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {/* ── Lector ── */}
-        <div className="min-w-0">
-          {!abierto ? (
-            <div className="hidden h-full min-h-48 items-center justify-center rounded-xl border border-dashed border-border lg:flex">
-              <p className="text-[12px] text-muted-foreground">Elige un correo para leerlo.</p>
+          {/* ── Panel ── */}
+          <div className="flex min-h-[70vh] flex-col overflow-hidden rounded-xl border border-border bg-card">
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+              <form action="/correo" className="relative min-w-40 flex-1 sm:max-w-md">
+                <input type="hidden" name="c" value={clFiltro ? `cliente:${clFiltro}` : carpeta} />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input name="q" defaultValue={q} placeholder="Buscar en el correo…"
+                  className="w-full rounded-full border border-border bg-background py-1.5 pl-9 pr-3 text-[12.5px] outline-none focus:ring-2 focus:ring-ring" />
+              </form>
+              <form action={async () => { "use server"; await sincronizarAhora(); }}>
+                <button type="submit" title="Buscar correo nuevo ahora" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><RefreshCw className="size-4" /></button>
+              </form>
+              <form action={async () => { "use server"; await desconectarCorreo(); }}>
+                <button type="submit" title="Desconectar este buzón (tu correo real no se toca)" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Unlink className="size-4" /></button>
+              </form>
             </div>
-          ) : (
-            <article className="rounded-xl border border-border bg-card p-4">
-              {!abierto.seen && abierto.folder === "INBOX" ? <MarcarLeido id={abierto.id} /> : null}
-              <Link href={linkBase} scroll={false} className="mb-2 inline-block text-[11px] text-muted-foreground hover:text-foreground lg:hidden">← Volver a la lista</Link>
-              <h2 className="text-[15px] font-semibold leading-snug">{abierto.subject}</h2>
-              <p className="mt-1 text-[11.5px] text-muted-foreground">
-                {abierto.folder === "ENVIADOS" ? <>Para: <b className="text-foreground">{abierto.toList || "—"}</b></> : <><b className="text-foreground">{abierto.fromName || abierto.fromEmail}</b>{abierto.fromName ? ` <${abierto.fromEmail}>` : ""}</>}
-                {" · "}{formatBogota(abierto.date)}
-              </p>
 
-              {adjuntos.length ? (
-                <p className="mt-2 flex flex-wrap gap-1.5">
-                  {adjuntos.map((a) => (
-                    <a key={a.indice} href={`/api/correo/adjunto/${abierto.id}/${a.indice}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10.5px] text-muted-foreground hover:bg-muted hover:text-foreground">
-                      <Paperclip className="size-3" /> {a.nombre} <span className="tabular-nums">({Math.max(1, Math.round(a.bytes / 1024))} KB)</span>
-                    </a>
-                  ))}
-                </p>
-              ) : null}
+            {estado?.syncError ? (
+              <p className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[12px]"><b className="text-destructive">No se pudo sincronizar:</b> <span className="text-muted-foreground">{estado.syncError}</span></p>
+            ) : null}
 
-              {cuerpo && cuerpo.imagenesBloqueadas > 0 ? (
-                <p className="mt-2 flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
-                  {cuerpo.imagenesBloqueadas} {cuerpo.imagenesBloqueadas === 1 ? "imagen oculta" : "imágenes ocultas"} — avisan al remitente que abriste el correo.
-                  <Link href={`${linkBase}&m=${abierto.id}&img=1`} scroll={false} className="font-medium text-primary hover:underline">Mostrar imágenes</Link>
-                </p>
-              ) : null}
+            {!hiloMsgs.length ? (
+              <ListaHilos hilos={hilos} carpeta={clFiltro ? "recibidos" : carpeta} />
+            ) : (
+              <>
+                <BarraHilo ids={hiloMsgs.map((m) => m.id)} carpeta={carpeta} volverHref={linkBase} />
+                <MarcarHiloLeido ids={hiloMsgs.filter((m) => !m.seen && m.folder === "INBOX").map((m) => m.id)} />
+                <article className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
+                  <h1 className="flex flex-wrap items-center gap-2 text-[18px] font-medium">
+                    {asuntoLimpio(ultimo?.subject ?? "")}
+                    {hiloClienteId && clienteInfo.get(hiloClienteId) ? (
+                      <span className="rounded px-1.5 py-0.5 text-[10.5px] font-semibold" style={{ background: `${clienteInfo.get(hiloClienteId)!.hex}22`, color: clienteInfo.get(hiloClienteId)!.hex }}>
+                        {clienteInfo.get(hiloClienteId)!.nombre}
+                      </span>
+                    ) : null}
+                  </h1>
 
-              <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                {cuerpo ? (
-                  // Segunda valla tras el saneado: sandbox sin scripts ni mismo origen. Los
-                  // enlaces (_blank) necesitan allow-popups para poder abrirse — nada más.
-                  <iframe
-                    title="Contenido del correo"
-                    sandbox="allow-popups allow-popups-to-escape-sandbox"
-                    srcDoc={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:14px;background:#fff;color:#111;font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;word-break:break-word">${cuerpo.html}</body></html>`}
-                    className="h-[58vh] w-full bg-white"
-                  />
-                ) : (
-                  <pre className="max-h-[58vh] overflow-y-auto whitespace-pre-wrap bg-background px-4 py-3 font-sans text-[13px] leading-relaxed">{abierto.textBody || "(sin contenido)"}</pre>
-                )}
-              </div>
+                  {crm ? (
+                    <p className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border border-l-2 border-l-primary bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+                      🎬 Este hilo es de <b className="text-foreground">{crm.name}</b>
+                      {crmPieza ? (
+                        <> · la pieza <b className="text-foreground">{crmPieza.number ? `#${crmPieza.number} ` : ""}{crmPieza.name}</b> está con el cliente
+                          {diasConCliente !== null ? <> hace <b className="text-foreground">{diasConCliente} día{diasConCliente === 1 ? "" : "s"}</b></> : null}
+                          {crmRonda?.texto ? <> · {crmRonda.texto.toLowerCase()}</> : null}</>
+                      ) : null}
+                      <Link href={`/clientes/${crm.id}`} className="ml-auto font-semibold text-primary hover:underline">Abrir el cliente →</Link>
+                    </p>
+                  ) : null}
 
-              {abierto.folder === "INBOX" ? (
-                <div className="mt-3">
-                  <Redactar responderA={{ id: abierto.id, para: abierto.fromEmail ?? "", asunto: abierto.subject }} />
-                </div>
-              ) : null}
-            </article>
-          )}
+                  <div className="mt-2 space-y-2.5">
+                    {hiloMsgs.map((m, i) => {
+                      const esUltimo = i === hiloMsgs.length - 1;
+                      const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id }) : null;
+                      const adjuntos = ((m.attachments as Adjunto[] | null) ?? []).filter((a) => a && typeof a.indice === "number");
+                      return (
+                        <details key={m.id} open={esUltimo} className="group/msg rounded-xl border border-border open:bg-card [&:not([open])]:bg-muted/30">
+                          <summary className="flex cursor-pointer list-none items-baseline gap-2.5 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
+                            <b className="shrink-0 text-[13px]">{m.folder === "ENVIADOS" ? "Yo" : m.fromName || m.fromEmail}</b>
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground group-open/msg:hidden">{m.snippet ?? ""}</span>
+                            <span className="hidden min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground group-open/msg:inline">
+                              {m.folder === "ENVIADOS" ? `para ${m.toList}` : m.fromEmail}{m.ccList ? ` · cc: ${m.ccList}` : ""}
+                            </span>
+                            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatBogota(m.date)}</span>
+                          </summary>
+                          <div className="px-4 pb-4">
+                            {adjuntos.length ? (
+                              <p className="mb-2 flex flex-wrap gap-1.5">
+                                {adjuntos.map((a) => (
+                                  <a key={a.indice} href={m.folder === "ENVIADOS" ? undefined : `/api/correo/adjunto/${m.id}/${a.indice}`}
+                                    className={cn("inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10.5px] text-muted-foreground", m.folder !== "ENVIADOS" && "hover:bg-muted hover:text-foreground")}>
+                                    <Paperclip className="size-3" /> {a.nombre} <span className="tabular-nums">({Math.max(1, Math.round(a.bytes / 1024))} KB)</span>
+                                  </a>
+                                ))}
+                              </p>
+                            ) : null}
+                            {cuerpo && cuerpo.imagenesBloqueadas > 0 ? (
+                              <p className="mb-2 flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+                                🛡️ {cuerpo.imagenesBloqueadas} {cuerpo.imagenesBloqueadas === 1 ? "imagen oculta" : "imágenes ocultas"} — avisan al remitente que abriste el correo.
+                                <Link href={`${linkBase}&h=${sp.h}&img=${m.id}`} scroll={false} className="font-medium text-primary hover:underline">Mostrar</Link>
+                              </p>
+                            ) : null}
+                            {cuerpo ? (
+                              <iframe title="Mensaje" sandbox="allow-popups allow-popups-to-escape-sandbox"
+                                srcDoc={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:10px;background:#fff;color:#111;font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;word-break:break-word">${cuerpo.html}</body></html>`}
+                                className="h-[46vh] w-full rounded-lg border border-border bg-white" />
+                            ) : (
+                              <pre className="max-h-[46vh] overflow-y-auto whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{m.textBody || "(sin contenido)"}</pre>
+                            )}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+
+                  {prefills ? <BotonesRespuesta prefills={prefills} /> : null}
+                </article>
+              </>
+            )}
+          </div>
         </div>
-      </div>
 
-      <p className="mt-3 text-[10.5px] text-muted-foreground">
-        Se sincroniza la bandeja de entrada reciente (últimos {60} días, al abrir y cada pocos minutos). El buzón completo sigue en el webmail de MailPlus.
-      </p>
-    </div>
+        <p className="mt-2 text-[10.5px] text-muted-foreground">
+          Sincronizado con MailPlus: archivar, destacar o leer aquí se refleja igual en el webmail. Atajo: <kbd className="rounded border border-border bg-muted px-1">c</kbd> redacta.
+        </p>
+      </div>
+    </CompositorProvider>
   );
 }

@@ -130,6 +130,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // con un puñado de filas.
   const accRastreo = await accesoRastreo(session);
 
+  // No leídos del buzón conectado (0 si no hay buzón): el numerito del menú. Barato: count
+  // por índice (accountId, seen).
+  const correoUnread = await db.mailMessage.count({
+    where: { account: { userId: session.id }, folder: "INBOX", seen: false },
+  }).catch(() => 0);
+
   // Preferencias del usuario (panel lateral/chat, accesibilidad) que sincronizan entre dispositivos.
   const prefs = await getUserPreference(session.id);
 
@@ -193,6 +199,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       wikiPages={wikiPages}
       canReports={hasPermission(session, "ver_reportes")}
       canRastreo={accRastreo.puede}
+      correoUnread={correoUnread}
       canClients={hasPermission(session, "ver_clientes")}
       canPapelera={hasPermission(session, "ver_papelera")}
       canCreateTasks={hasPermission(session, "crear_tareas")}

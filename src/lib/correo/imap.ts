@@ -3,6 +3,7 @@ import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { textoPlano } from "./sanitizar";
+import { claveHilo, clienteDeRemitente } from "./hilos";
 
 // ── El motor IMAP del correo personal ───────────────────────────────────────
 // MailPlus corre en este mismo NAS, así que todo esto habla con la LAN: conectar por mensaje
@@ -66,16 +67,22 @@ const listaDe = (a: AddressObject | AddressObject[] | undefined): string => {
     .slice(0, 500);
 };
 
-function filaDe(accountId: string, uid: number, flags: Set<string>, parsed: ParsedMail) {
+function filaDe(accountId: string, uid: number, flags: Set<string>, parsed: ParsedMail, clientesCatalogo: { email: string; clientId: string }[]) {
   const texto = (parsed.text ?? "").slice(0, MAX_TEXTO);
   const html = (parsed.html || null)?.slice(0, MAX_HTML) ?? null;
   const de = parsed.from?.value?.[0];
+  // mailparser entrega References como string o lista: se normaliza a una cadena.
+  const references = Array.isArray(parsed.references) ? parsed.references.join(" ") : (parsed.references ?? null);
   return {
     accountId,
     uid: BigInt(uid),
     folder: "INBOX",
     messageId: parsed.messageId?.slice(0, 300) ?? null,
     inReplyTo: parsed.inReplyTo?.slice(0, 300) ?? null,
+    threadKey: claveHilo({ messageId: parsed.messageId, inReplyTo: parsed.inReplyTo, references }),
+    clientId: clienteDeRemitente(de?.address, clientesCatalogo),
+    flagged: flags.has("\\Flagged"),
+    ccList: listaDe(parsed.cc),
     fromName: de?.name?.slice(0, 200) || null,
     fromEmail: de?.address?.slice(0, 200) || null,
     toList: listaDe(parsed.to),
@@ -111,9 +118,22 @@ export async function sincronizarCuenta(accountId: string, opts?: { max?: number
   }
 }
 
+// Los correos de los MIEMBROS del portal de cada cliente: contra esto se etiqueta el
+// remitente. Solo usuarios con rol cliente — que un productor escriba no etiqueta nada.
+async function catalogoClientes(): Promise<{ email: string; clientId: string }[]> {
+  const filas = await db.clientMember.findMany({
+    where: { user: { active: true, role: { key: "cliente" } } },
+    select: { clientId: true, user: { select: { email: true } } },
+  });
+  return filas
+    .filter((f) => f.user?.email)
+    .map((f) => ({ email: f.user.email.toLowerCase(), clientId: f.clientId }));
+}
+
 async function sincronizar(accountId: string, max: number): Promise<{ nuevos: number; error: string | null }> {
   const cuenta = await db.mailAccount.findUnique({ where: { id: accountId } });
   if (!cuenta) return { nuevos: 0, error: "La cuenta ya no existe." };
+  const clientesCatalogo = await catalogoClientes();
 
   const client = clienteImap(cuenta);
   let nuevos = 0;
@@ -161,6 +181,10 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
             folder: "INBOX",
             messageId: env?.messageId?.slice(0, 300) ?? null,
             inReplyTo: null,
+            threadKey: env?.messageId?.slice(0, 300) ?? null,
+            clientId: clienteDeRemitente(de?.address, clientesCatalogo),
+            flagged: flags.has("\\Flagged"),
+            ccList: "",
             fromName: de?.name?.slice(0, 200) || null,
             fromEmail: de?.address?.slice(0, 200) || null,
             toList: (env?.to ?? []).map((t) => t.address ?? "").filter(Boolean).join(", ").slice(0, 500),
@@ -176,7 +200,7 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
         } else {
           const full = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
           if (!full || typeof full === "boolean" || !full.source) continue;
-          fila = filaDe(accountId, uid, flags, await simpleParser(full.source));
+          fila = filaDe(accountId, uid, flags, await simpleParser(full.source), clientesCatalogo);
         }
 
         // Upsert por (cuenta, carpeta, uid): resincronizar jamás duplica.
@@ -195,7 +219,7 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
         where: { accountId, folder: "INBOX" },
         orderBy: { date: "desc" },
         take: 150,
-        select: { id: true, uid: true, seen: true, answered: true },
+        select: { id: true, uid: true, seen: true, answered: true, flagged: true },
       });
       if (recientes.length > 1) {
         const min = recientes.reduce((m, r) => (r.uid < m ? r.uid : m), recientes[0].uid);
@@ -205,26 +229,35 @@ async function sincronizar(accountId: string, max: number): Promise<{ nuevos: nu
           if (!fila) continue;
           const seen = msg.flags?.has("\\Seen") ?? false;
           const answered = msg.flags?.has("\\Answered") ?? false;
-          if (seen !== fila.seen || answered !== fila.answered) {
-            await db.mailMessage.update({ where: { id: fila.id }, data: { seen, answered } });
+          const flagged = msg.flags?.has("\\Flagged") ?? false;
+          if (seen !== fila.seen || answered !== fila.answered || flagged !== fila.flagged) {
+            await db.mailMessage.update({ where: { id: fila.id }, data: { seen, answered, flagged } });
           }
         }
       }
 
-      // Carpeta de enviados (una sola vez): para el APPEND al enviar, y que el webmail de
-      // MailPlus también vea lo que salió desde la app.
-      let sentFolder = cuenta.sentFolder;
-      if (!sentFolder) {
+      // Carpetas del servidor (una sola vez): enviados para el APPEND, y archivo/papelera
+      // para que archivar aquí archive TAMBIÉN en el webmail — una sola verdad del buzón.
+      let { sentFolder, archiveFolder, trashFolder } = cuenta;
+      if (!sentFolder || !archiveFolder || !trashFolder) {
         const carpetas = await client.list();
-        sentFolder =
+        sentFolder ??=
           carpetas.find((f) => f.specialUse === "\\Sent")?.path ??
           carpetas.find((f) => /sent|enviad/i.test(f.path))?.path ??
+          null;
+        archiveFolder ??=
+          carpetas.find((f) => f.specialUse === "\\Archive")?.path ??
+          carpetas.find((f) => /archive|archivo/i.test(f.path))?.path ??
+          null;
+        trashFolder ??=
+          carpetas.find((f) => f.specialUse === "\\Trash")?.path ??
+          carpetas.find((f) => /trash|deleted|papelera|eliminad/i.test(f.path))?.path ??
           null;
       }
 
       await db.mailAccount.update({
         where: { id: accountId },
-        data: { lastUid: BigInt(lastUid), uidValidity: validez, lastSyncAt: new Date(), syncError: null, sentFolder },
+        data: { lastUid: BigInt(lastUid), uidValidity: validez, lastSyncAt: new Date(), syncError: null, sentFolder, archiveFolder, trashFolder },
       });
     } finally {
       lock.release();
@@ -250,15 +283,17 @@ export async function descargarAdjunto(
 ): Promise<{ nombre: string; mime: string; contenido: Buffer } | { error: string; status: number }> {
   const msg = await db.mailMessage.findUnique({
     where: { id: mensajeId },
-    select: { uid: true, folder: true, attachments: true, account: { select: { id: true, userId: true, email: true, imapHost: true, imapPort: true, username: true, passwordEnc: true, tlsRelaxed: true } } },
+    select: { uid: true, folder: true, attachments: true, account: true },
   });
   if (!msg || msg.account.userId !== userId) return { error: "No encontrado", status: 404 };
-  if (msg.folder !== "INBOX") return { error: "Los enviados no guardan adjuntos", status: 404 };
+  // El mensaje puede vivir archivado o en la papelera: se busca en SU carpeta del servidor.
+  const carpeta = carpetaServidor(msg.account, msg.folder);
+  if (!carpeta) return { error: "Los enviados no guardan adjuntos", status: 404 };
 
   const client = clienteImap(msg.account);
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    const lock = await client.getMailboxLock(carpeta);
     try {
       const full = await client.fetchOne(String(msg.uid), { uid: true, source: true }, { uid: true });
       if (!full || typeof full === "boolean" || !full.source) return { error: "El mensaje ya no está en el servidor", status: 404 };
@@ -281,22 +316,115 @@ export async function descargarAdjunto(
   }
 }
 
-/** Marca \Seen o \Answered en el servidor, sin bloquear a nadie: si falla, la bandeja local
- *  ya quedó bien y el próximo refresco de flags reconcilia. */
-export async function marcarEnServidor(accountId: string, uid: bigint, flag: "\\Seen" | "\\Answered"): Promise<void> {
+/** La carpeta REAL del servidor para una carpeta local. ENVIADOS es local (no se opera). */
+export function carpetaServidor(
+  cuenta: { sentFolder: string | null; archiveFolder: string | null; trashFolder: string | null },
+  folder: string,
+): string | null {
+  if (folder === "INBOX") return "INBOX";
+  if (folder === "ARCHIVO") return cuenta.archiveFolder;
+  if (folder === "PAPELERA") return cuenta.trashFolder;
+  return null;
+}
+
+/** Pone o quita \Seen/\Answered/\Flagged en el servidor, en la carpeta que toque. Mejor
+ *  esfuerzo: la bandeja local ya quedó bien y el refresco de flags reconcilia. */
+export async function marcarEnServidor(
+  accountId: string,
+  uid: bigint,
+  flag: "\\Seen" | "\\Answered" | "\\Flagged",
+  opts?: { quitar?: boolean; folder?: string },
+): Promise<void> {
   const cuenta = await db.mailAccount.findUnique({ where: { id: accountId } });
   if (!cuenta) return;
+  const carpeta = carpetaServidor(cuenta, opts?.folder ?? "INBOX");
+  if (!carpeta) return;
   const client = clienteImap(cuenta);
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
+    const lock = await client.getMailboxLock(carpeta);
     try {
-      await client.messageFlagsAdd(String(uid), [flag], { uid: true });
+      if (opts?.quitar) await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+      else await client.messageFlagsAdd(String(uid), [flag], { uid: true });
     } finally {
       lock.release();
     }
   } catch {
     /* mejor-esfuerzo: el refresco de flags del próximo sync reconcilia */
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
+/**
+ * Mueve un mensaje entre carpetas EN EL SERVIDOR (archivar, papelera, restaurar) y actualiza
+ * la fila local. El UID cambia al mover: se toma del uidMap (UIDPLUS) y, si el servidor no lo
+ * da, se RECUPERA buscando el Message-ID en la carpeta destino — sin UID real, los adjuntos
+ * de ese mensaje quedarían huérfanos. Si la carpeta de destino no existe, se crea (un buzón
+ * recién estrenado no trae «Archive»).
+ */
+export async function moverMensaje(
+  mensajeId: string,
+  userId: string,
+  destino: "ARCHIVO" | "PAPELERA" | "INBOX",
+): Promise<{ ok: boolean; error?: string }> {
+  const msg = await db.mailMessage.findUnique({
+    where: { id: mensajeId },
+    select: { id: true, uid: true, folder: true, messageId: true, account: true },
+  });
+  if (!msg || msg.account.userId !== userId) return { ok: false, error: "No encontrado" };
+  if (msg.folder === "ENVIADOS") return { ok: false, error: "Los enviados locales no se mueven." };
+  if (msg.folder === destino) return { ok: true };
+
+  const cuenta = msg.account;
+  const origen = carpetaServidor(cuenta, msg.folder);
+  if (!origen) return { ok: false, error: "Carpeta de origen desconocida." };
+
+  const client = clienteImap(cuenta);
+  try {
+    await client.connect();
+
+    // Carpeta destino: la detectada, o se crea con nombre estándar y se recuerda.
+    let destinoSrv = carpetaServidor(cuenta, destino);
+    if (!destinoSrv) {
+      destinoSrv = destino === "ARCHIVO" ? "Archive" : "Trash";
+      await client.mailboxCreate(destinoSrv).catch(() => {}); // puede existir sin listarse
+      await db.mailAccount.update({
+        where: { id: cuenta.id },
+        data: destino === "ARCHIVO" ? { archiveFolder: destinoSrv } : { trashFolder: destinoSrv },
+      });
+    }
+
+    const lock = await client.getMailboxLock(origen);
+    let nuevoUid: number | null = null;
+    try {
+      const r = await client.messageMove(String(msg.uid), destinoSrv, { uid: true });
+      const mapa = (r && typeof r === "object" && "uidMap" in r ? (r as { uidMap?: Map<number, number> }).uidMap : undefined) ?? null;
+      nuevoUid = mapa?.get(Number(msg.uid)) ?? null;
+    } finally {
+      lock.release();
+    }
+
+    // Sin UIDPLUS: recuperar el UID nuevo buscando el Message-ID en el destino.
+    if (nuevoUid === null && msg.messageId) {
+      const lock2 = await client.getMailboxLock(destinoSrv);
+      try {
+        const ids = (await client.search({ header: { "message-id": msg.messageId } }, { uid: true })) || [];
+        if (ids.length) nuevoUid = ids[ids.length - 1];
+      } finally {
+        lock2.release();
+      }
+    }
+
+    await db.mailMessage.update({
+      where: { id: msg.id },
+      // Sin UID recuperable, un pseudo-UID único conserva la fila (los adjuntos de ese
+      // mensaje ya no se podrán bajar desde la app; el webmail sigue teniéndolos).
+      data: { folder: destino, uid: BigInt(nuevoUid ?? Date.now()) },
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errorEnEspanol(e, cuenta.imapHost) };
   } finally {
     await client.logout().catch(() => {});
   }

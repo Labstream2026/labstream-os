@@ -3,6 +3,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { clienteImap, errorEnEspanol } from "./imap";
+import { claveHilo } from "./hilos";
 
 // ── Enviar correo con la identidad de la persona ────────────────────────────
 // Sale por el SMTP de SU cuenta (MailPlus), no por el relay de notificaciones de la app: el
@@ -68,20 +69,29 @@ export async function enviarDesdeCuenta(input: {
   accountId: string;
   nombreRemitente: string;
   para: string;
+  cc?: string | null;
   asunto: string;
   texto: string;
-  // Para responder EN HILO: el Message-ID del original.
+  // Para responder EN HILO: el Message-ID del original y su cadena References completa —
+  // con solo el id del padre, Gmail del otro lado partiría hilos largos en dos.
   enRespuestaA?: string | null;
+  referencias?: string | null;
+  adjuntos?: { nombre: string; mime: string; contenido: Buffer }[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const cuenta = await db.mailAccount.findUnique({ where: { id: input.accountId } });
   if (!cuenta) return { ok: false, error: "La cuenta de correo ya no existe." };
 
+  const referencias = [input.referencias, input.enRespuestaA].filter(Boolean).join(" ").trim() || undefined;
   const opciones = {
     from: { name: input.nombreRemitente, address: cuenta.email },
     to: input.para,
+    ...(input.cc ? { cc: input.cc } : {}),
     subject: input.asunto,
     text: input.texto,
-    ...(input.enRespuestaA ? { inReplyTo: input.enRespuestaA, references: input.enRespuestaA } : {}),
+    ...(input.enRespuestaA ? { inReplyTo: input.enRespuestaA, references: referencias } : {}),
+    ...(input.adjuntos?.length
+      ? { attachments: input.adjuntos.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.mime })) }
+      : {}),
   };
 
   // El mensaje se COMPONE una sola vez y ese mismo crudo se envía y se appendea: lo que hay
@@ -95,7 +105,10 @@ export async function enviarDesdeCuenta(input: {
 
   let messageId: string | null = null;
   try {
-    const info = await transporte(cuenta).sendMail({ envelope: { from: cuenta.email, to: [input.para] }, raw: crudo });
+    // El sobre lleva TODOS los destinatarios (para + cc): el header cc sin sobre es un
+    // mensaje que dice tener copia pero no la entrega.
+    const destinos = [input.para, ...(input.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean)];
+    const info = await transporte(cuenta).sendMail({ envelope: { from: cuenta.email, to: destinos }, raw: crudo });
     messageId = info.messageId ?? null;
   } catch (e) {
     return { ok: false, error: errorEnEspanol(e, cuenta.smtpHost) };
@@ -111,6 +124,9 @@ export async function enviarDesdeCuenta(input: {
         folder: "ENVIADOS",
         messageId,
         inReplyTo: input.enRespuestaA ?? null,
+        // El enviado entra al MISMO hilo que lo que responde: la conversación se ve entera.
+        threadKey: claveHilo({ messageId, inReplyTo: input.enRespuestaA, references: referencias ?? null }),
+        ccList: (input.cc ?? "").slice(0, 500),
         fromName: input.nombreRemitente,
         fromEmail: cuenta.email,
         toList: input.para.slice(0, 500),
@@ -119,6 +135,9 @@ export async function enviarDesdeCuenta(input: {
         snippet: input.texto.replace(/\s+/g, " ").trim().slice(0, 180),
         textBody: input.texto.slice(0, 200_000),
         seen: true,
+        attachments: input.adjuntos?.length
+          ? input.adjuntos.map((a, i) => ({ indice: i, nombre: a.nombre.slice(0, 200), mime: a.mime.slice(0, 100), bytes: a.contenido.length }))
+          : undefined,
       },
     })
     .catch(() => {});

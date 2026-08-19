@@ -189,6 +189,7 @@ export function Sidebar({
   canTimeline = true,
   canReports = true,
   canRastreo = false,
+  correoUnread = 0,
   canClients = true,
   canPapelera = false,
   canCreateTasks = false,
@@ -217,6 +218,7 @@ export function Sidebar({
   // Panel de rastreo: por defecto FALSE. A diferencia del resto, este no se hereda por rol —
   // es dato personal del equipo y se concede a mano (ver lib/rastreo/acceso).
   canRastreo?: boolean;
+  correoUnread?: number;
   canClients?: boolean;
   canPapelera?: boolean;
   // Muestra el acceso rápido «+ Tarea» del cajón móvil (los modales viven en QuickCreateFab).
@@ -256,7 +258,7 @@ export function Sidebar({
     { href: "/calendario", label: "Calendario", icon: CalendarDays, show: canCalendar, active: pathname === "/calendario" },
     { href: "/recordatorios", label: "Recordatorios", icon: AlarmClock, badge: remindersToday || undefined, show: !isCliente, active: pathname === "/recordatorios" },
     // Buzón PERSONAL (cada quien conecta el suyo): nunca para el portal del cliente.
-    { href: "/correo", label: "Correo", icon: Mail, show: !isCliente, active: pathname.startsWith("/correo") },
+    { href: "/correo", label: "Correo", icon: Mail, badge: correoUnread || undefined, show: !isCliente, active: pathname.startsWith("/correo") },
     { href: "/notas", label: "Notas", icon: StickyNote, show: !isCliente, active: pathname === "/notas" },
     // Acceso directo a TODOS los proyectos (el panel de Producción navega por cliente; esta
     // entrada da la vista global que se había perdido). El cliente del portal también la ve.

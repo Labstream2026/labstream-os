@@ -511,6 +511,7 @@ model Client {
   // Sirve para mandarle el enlace de sus portadas o de su entrega desde la app; se recuerda
   // al primer envío. Un cliente NO es necesariamente un usuario, por eso vive aquí.
   phone       String?
+  mailMessages MailMessage[]
   // Carpeta del CLIENTE en la galería de entregas (LabTem, relativa a NAS_GALERIA_DIR).
   // Todo el material del cliente cuelga de aquí, con una subcarpeta por proyecto: así los
   // editores lo ven todo junto. Los proyectos heredan de esta salvo vínculo propio.
@@ -1879,9 +1880,11 @@ model MailAccount {
   uidValidity BigInt?
   lastSyncAt  DateTime?
   syncError   String? // último error, visible en la pestaña para no fallar en silencio
-  // Carpeta de enviados detectada en el servidor (para APPEND al enviar: así el webmail de
-  // MailPlus también ve lo que se mandó desde la app).
-  sentFolder  String?
+  // Carpetas del servidor detectadas (specialUse o nombre): enviados para el APPEND al
+  // enviar, y archivo/papelera para que archivar aquí archive TAMBIÉN en el webmail.
+  sentFolder    String?
+  archiveFolder String?
+  trashFolder   String?
 
   createdAt DateTime      @default(now())
   messages  MailMessage[]
@@ -1912,6 +1915,16 @@ model MailMessage {
   htmlBody  String? // CRUDO y acotado; nunca se sirve sin sanear
   seen      Boolean @default(false)
   answered  Boolean @default(false)
+  // Estrella (\Flagged de IMAP): destacado aquí = destacado en el webmail.
+  flagged   Boolean @default(false)
+  ccList    String  @default("")
+  // La CONVERSACIÓN: raíz del hilo (References/In-Reply-To; el propio Message-ID si abre
+  // hilo). Es lo que agrupa la bandeja al estilo Gmail. Ver lib/correo/hilos.
+  threadKey String?
+  // Cliente del CRM detectado por el remitente (correo exacto de un miembro de su portal):
+  // el correo llega YA etiquetado por cliente, sin que nadie etiquete nada.
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId String?
   // [{ indice, nombre, mime, bytes }] — solo el índice; los bytes se bajan del IMAP al pedirse.
   attachments Json?
 
@@ -1920,6 +1933,8 @@ model MailMessage {
   @@unique([accountId, folder, uid])
   @@index([accountId, date])
   @@index([accountId, seen])
+  @@index([accountId, threadKey])
+  @@index([accountId, clientId])
 }
 
 model TimeEntry {
