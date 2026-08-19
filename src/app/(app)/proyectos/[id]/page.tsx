@@ -24,6 +24,7 @@ import { ProjectDetailsForm } from "./project-details-form";
 import { MoveProjectClient } from "./move-project-client";
 import { Lock, FileText, ChevronDown, Inbox, Megaphone, Users, Settings, Mail as MailIcon } from "lucide-react";
 import { CorreoProyecto } from "./correo-proyecto";
+import { LlamadosStrip } from "./llamados-strip";
 import {
   IconTablero, IconTareas, IconCalendario, IconCronograma, IconEntregas,
   IconArchivo, IconNotas, IconEquipo, IconActividad,
@@ -1057,6 +1058,8 @@ export default async function ProyectoPage({
               Calendario de <span className="font-medium text-foreground">{project.name}</span>: citas y reuniones del
               proyecto, tareas (entrega y rodaje) e hitos (inicio, entrega y entregables).
             </p>
+            {/* Las hojas de llamado viven aquí: el llamado ES un asunto de fecha. */}
+            {!isCliente ? <LlamadosStrip projectId={id} gestiona={canManageProject(project, session) && session?.role !== "demo"} /> : null}
             <div className="h-[74vh] min-h-[26rem]">
               <ProjectCalendar
                 items={projectCalItems}

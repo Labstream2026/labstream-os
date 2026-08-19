@@ -193,6 +193,8 @@ model User {
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
   mailAccount        MailAccount?
   gifsSubidos        MailGif[]          @relation("GifDe")
+  llamadosCreados    CallSheet[]        @relation("LlamadoCreador")
+  llamados           CallSheetPerson[]  @relation("LlamadoPersona")
   ausencias          Absence[]          @relation("AusenciaDe")
   ausenciasCreadas   Absence[]          @relation("AusenciaCreadaPor")
   runningTimer       RunningTimer?
@@ -694,6 +696,7 @@ model Project {
   surveys        ProjectSurvey[]
   correos      MailMessage[] @relation("CorreoDeProyecto") // hilos asignados a este proyecto
   reglasCorreo MailRule[]    @relation("ReglaProyecto")
+  callSheets   CallSheet[] // hojas de llamado de los rodajes
 
   // Enlace público de SUBIDA del cliente (portal /subir/[token]): el cliente arrastra su material y
   // cae en ESTE proyecto SIN cuenta. Como el enlace de revisión: revocable + caducidad opcional.
@@ -2869,10 +2872,71 @@ model EquipmentKitItem {
 
 // Plan de equipo para una grabación: proyecto + fecha. Lleva un responsable opcional y,
 // si se asigna, una tarea espejo (aparece en "Mis tareas" de esa persona).
+// ── HOJA DE LLAMADO: el documento del día de rodaje ─────────────────────────
+// Quién va (con su hora de citación y confirmación), dónde es, el cronograma del día y qué
+// equipos se llevan (del plan de equipos de esa fecha). Nace pre-llenada desde el proyecto,
+// se envía al equipo con aviso, y tiene enlace público firmado para freelancers sin cuenta.
+model CallSheet {
+  id        String  @id @default(cuid())
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+  // Día del rodaje (mediodía UTC, granularidad de día — igual que EquipmentPlan.shootDate).
+  fecha  DateTime
+  titulo String? // «Rodaje reels — locación norte»; vacío = «Rodaje <proyecto>»
+
+  citacionGeneral String? // «07:00» — cada persona puede tener la suya encima
+  locacion        String? // nombre del lugar
+  direccion       String?
+  indicaciones    String? // cómo llegar, parqueadero, quién recibe
+  clienteEnSet    String? // contacto del cliente en set (nombre y teléfono)
+  notas           String? // dress code, alimentación, seguridad, clima
+
+  // Cronograma del día: [{ hora: "07:00", actividad: "Citación y desayuno", notas: "" }]
+  bloques Json?
+
+  // Plan de equipos vinculado: la lista de gear del documento sale de ahí (una sola verdad).
+  equipmentPlan   EquipmentPlan? @relation("LlamadoEquipos", fields: [equipmentPlanId], references: [id], onDelete: SetNull)
+  equipmentPlanId String?
+
+  estado          String    @default("BORRADOR") // BORRADOR | ENVIADA
+  sentAt          DateTime?
+  publicRevokedAt DateTime? // mata el enlace público sin borrar la hoja
+
+  createdBy   User?             @relation("LlamadoCreador", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  personas    CallSheetPerson[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([projectId, fecha])
+}
+
+// Una persona citada: del equipo (userId) o EXTERNA (freelancer: nombre/rol/teléfono a mano).
+// La confirmación es por persona — «visto» no es «voy».
+model CallSheetPerson {
+  id      String    @id @default(cuid())
+  sheet   CallSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  sheetId String
+  user    User?     @relation("LlamadoPersona", fields: [userId], references: [id], onDelete: Cascade)
+  userId  String?
+
+  nombre   String? // solo externos (los del equipo usan su ficha)
+  rol      String?
+  telefono String?
+  citacion String? // hora propia; null = la general
+
+  confirmadoAt DateTime?
+  position     Int       @default(0)
+
+  @@unique([sheetId, userId])
+  @@index([sheetId])
+}
+
 model EquipmentPlan {
   id          String                 @id @default(cuid())
   project     Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
+  callSheets  CallSheet[]            @relation("LlamadoEquipos")
   title       String? // ej. "Grabación reels — locación norte"
   shootDate   DateTime // día de la grabación (se guarda a las 12:00 UTC, granularidad de día)
   status      String                 @default("planeando") // planeando | listo | entregado | devuelto
