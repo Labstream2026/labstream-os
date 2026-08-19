@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { resolveTemplate } from "@/lib/provisioning";
 import { programarPlantilla } from "@/lib/plantillas/calendario";
-import { capacidadSemana, claveDia, festivosDeVentana, lunesDe, repartirCarga, semanasDesde } from "@/lib/carga/semanal";
+import { capacidadSemana, claveDia, estaAusente, festivosDeVentana, lunesDe, repartirCarga, semanasDesde } from "@/lib/carga/semanal";
 import { todayInputValue } from "@/lib/today";
 
 // ── Previsualizar el plan de una plantilla ANTES de crear ───────────────────
@@ -85,6 +85,13 @@ export async function previsualizarPlan(
   const eventos = eventosDb.flatMap((e) =>
     e.attendees.filter((a) => a.status !== "DECLINED").map((a) => ({ userId: a.userId, start: e.start, end: e.end, allDay: e.allDay })),
   );
+  // Ausencias de la ventana: quien está de vacaciones el día de una tarea no se sugiere.
+  const ausenciasDb = await db.absence.findMany({
+    where: { endDate: { gte: new Date(`${semanas[0]}T00:00:00.000Z`) }, startDate: { lt: finVentana } },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+  const ymdBog = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  const ausencias = ausenciasDb.map((a) => ({ userId: a.userId, desde: ymdBog(a.startDate), hasta: ymdBog(a.endDate) }));
   const carga = repartirCarga(
     tareasAbiertas.map((t) => ({ assigneeId: t.assigneeId!, projectId: t.projectId, estimatedMinutes: t.estimatedMinutes!, startDate: t.startDate, dueDate: t.dueDate })),
     semanas,
@@ -107,7 +114,12 @@ export async function previsualizarPlan(
     if (!t.role || !t.fin) {
       return { title: t.title, role: t.role, inicio: t.inicio, fin: t.fin, estimatedMinutes: t.estimatedMinutes, sugeridoId: null, sugeridoNombre: null, choque: null };
     }
-    const candidatos = usuarios.filter((u) => u.role?.key === t.role);
+    let candidatos = usuarios.filter((u) => u.role?.key === t.role);
+    // Quien está AUSENTE el día del vencimiento no se sugiere. Si todos los del rol lo están,
+    // se conservan y el choque lo dice — mejor una sugerencia con advertencia que ninguna.
+    const presentes = candidatos.filter((u) => !estaAusente(u.id, t.fin!, ausencias));
+    const todosAusentes = candidatos.length > 0 && presentes.length === 0;
+    if (presentes.length) candidatos = presentes;
     if (!candidatos.length) {
       return { title: t.title, role: t.role, inicio: t.inicio, fin: t.fin, estimatedMinutes: t.estimatedMinutes, sugeridoId: null, sugeridoNombre: null, choque: `No hay nadie con el rol «${t.role}».` };
     }
@@ -117,7 +129,7 @@ export async function previsualizarPlan(
     for (const u of candidatos) {
       const base = enVentana ? (carga.get(u.id)?.get(lunes)?.totalMin ?? 0) : 0;
       const propio = sumadoPorPlan.get(u.id)?.get(lunes) ?? 0;
-      const cap = enVentana ? capacidadSemana(u.weeklyCapacityHours || 40, lunes, festivos, eventos, u.id).capacidadMin : (u.weeklyCapacityHours || 40) * 60;
+      const cap = enVentana ? capacidadSemana(u.weeklyCapacityHours || 40, lunes, festivos, eventos, u.id, ausencias).capacidadMin : (u.weeklyCapacityHours || 40) * 60;
       const ocupadoMin = base + propio;
       if (!mejor || ocupadoMin / Math.max(cap, 1) < mejor.ocupadoMin / Math.max(mejor.capMin, 1)) mejor = { u, ocupadoMin, capMin: cap };
     }
@@ -130,6 +142,9 @@ export async function previsualizarPlan(
     }
     let choque: string | null = null;
     const quedariaMin = s.ocupadoMin + (t.estimatedMinutes ?? 0);
+    if (todosAusentes) {
+      choque = `Todo el rol «${t.role}» está ausente ese día (vacaciones/permiso).`;
+    } else
     if (diasOcupados.get(s.u.id)?.has(t.fin) && t.role === "camarografo") {
       choque = `${s.u.name.split(" ")[0]} ya tiene un rodaje o cita ese mismo día.`;
     } else if (quedariaMin > s.capMin && s.capMin > 0) {

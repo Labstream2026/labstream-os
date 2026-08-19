@@ -135,6 +135,32 @@ describe("capacidadSemana — la regla 3", () => {
     expect(c.capacidadMin).toBe(960);
   });
 
+  it("una semana entera de vacaciones deja la capacidad en CERO, no en 40", () => {
+    const c = capacidadSemana(40, "2026-08-17", SIN_FESTIVOS, [], "u1", [{ userId: "u1", desde: "2026-08-10", hasta: "2026-08-30" }]);
+    expect(c.capacidadMin).toBe(0);
+    expect(c.ausenciaDias).toBe(5);
+  });
+
+  it("dos días de permiso descuentan dos quintos, y un festivo dentro de la ausencia NO descuenta doble", () => {
+    // Ausente lun-mar; el lunes además es festivo → festivo 1 + ausencia 1 (el martes).
+    const c = capacidadSemana(40, "2026-08-17", new Set(["2026-08-17"]), [], "u1", [{ userId: "u1", desde: "2026-08-17", hasta: "2026-08-18" }]);
+    expect(c.festivos).toBe(1);
+    expect(c.ausenciaDias).toBe(1);
+    expect(c.capacidadMin).toBe(2400 - 2 * 480); // 40h − 2 días
+  });
+
+  it("una cita durante la ausencia no descuenta aparte: ese día ya vale cero", () => {
+    const c = capacidadSemana(40, "2026-08-17", SIN_FESTIVOS, [{ userId: "u1", start: new Date("2026-08-19T14:00:00.000Z"), end: null, allDay: true }], "u1", [
+      { userId: "u1", desde: "2026-08-19", hasta: "2026-08-19" },
+    ]);
+    expect(c.capacidadMin).toBe(2400 - 480); // un solo día descontado
+  });
+
+  it("la ausencia de OTRA persona no me descuenta nada", () => {
+    const c = capacidadSemana(40, "2026-08-17", SIN_FESTIVOS, [], "u1", [{ userId: "u2", desde: "2026-08-17", hasta: "2026-08-21" }]);
+    expect(c.capacidadMin).toBe(2400);
+  });
+
   it("nunca queda negativa por muchos descuentos que haya", () => {
     const eventos = Array.from({ length: 8 }, (_, i) => ({
       userId: "u1",

@@ -88,10 +88,29 @@ export async function personCompliance(
     },
   });
 
+  // AUSENCIAS: una tarea que vence mientras su responsable está de vacaciones, incapacitado
+  // o con permiso NO se juzga — ni tarde ni vencida ni a tiempo. Antes el cumplimiento
+  // castigaba automáticamente a quien no estaba, y esa injusticia le quitaba credibilidad a
+  // todo el indicador. La tabla es pequeña: se trae entera una vez.
+  const ausencias = await db.absence.findMany({ select: { userId: true, startDate: true, endDate: true } });
+  const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  const ausenciasDe = new Map<string, { desde: string; hasta: string }[]>();
+  for (const a of ausencias) {
+    const arr = ausenciasDe.get(a.userId) ?? [];
+    arr.push({ desde: ymd(a.startDate), hasta: ymd(a.endDate) });
+    ausenciasDe.set(a.userId, arr);
+  }
+  const exenta = (userId: string, due: Date | null) => {
+    if (!due) return false;
+    const dia = ymd(due);
+    return (ausenciasDe.get(userId) ?? []).some((r) => dia >= r.desde && dia <= r.hasta);
+  };
+
   const map = new Map<string, Acc>();
   for (const t of tasks) {
     if (!t.assignee) continue;
     const uid = t.assignee.id;
+    if (exenta(uid, t.dueDate)) continue;
     let acc = map.get(uid);
     if (!acc) {
       acc = {

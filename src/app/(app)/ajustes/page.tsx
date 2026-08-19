@@ -36,6 +36,7 @@ import { CalendarSyncSettings } from "@/app/(app)/configuracion/calendar-sync-se
 import { getCalendarSyncConfig } from "@/lib/calendar-sync-config";
 import { ProfileForm } from "@/app/(app)/perfil/profile-form";
 import { TrackerDevices, type EquipoRastreador } from "@/app/(app)/perfil/tracker-devices";
+import { AusenciasPanel } from "./ausencias-panel";
 import { ahoraMs, fechaRelativa } from "@/lib/archivos/tipos";
 import { PreferencesForm } from "@/app/(app)/perfil/preferences-form";
 import { NotificationPrefsForm } from "@/app/(app)/perfil/notification-prefs-form";
@@ -465,6 +466,7 @@ export default async function AjustesPage({ searchParams }: { searchParams: Prom
   const sections: AjustesSection[] = [
     ...cuentaSections,
     { key: "usuarios", label: "Usuarios", group: "equipo", icon: <IconUsuarios />, admin: true, node: usuariosNode },
+    { key: "ausencias", label: "Ausencias", group: "equipo", icon: <IconUsuarios />, admin: true, node: <AusenciasPanel /> },
     { key: "roles", label: "Roles y permisos", group: "equipo", icon: <IconRoles />, admin: true, node: rolesNode },
     { key: "labels", label: "Estados y prioridades", group: "equipo", icon: <IconEtiquetas />, admin: true, node: labelsNode },
     { key: "estados-proyecto", label: "Estados de proyecto", group: "equipo", icon: <IconFlujo />, admin: true, node: projectStatusesNode },

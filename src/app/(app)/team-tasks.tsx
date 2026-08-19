@@ -58,6 +58,13 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
       .filter((a) => a.status !== "DECLINED")
       .map((a) => ({ userId: a.userId, start: e.start, end: e.end, allDay: e.allDay })),
   );
+  // Ausencias que tocan la ventana: encogen la capacidad real (una semana de vacaciones = 0 h).
+  const ausenciasDb = await db.absence.findMany({
+    where: { endDate: { gte: new Date(`${semanas[0]}T00:00:00.000Z`) }, startDate: { lt: finVentana } },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+  const ymdBog = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  const ausencias = ausenciasDb.map((a) => ({ userId: a.userId, desde: ymdBog(a.startDate), hasta: ymdBog(a.endDate) }));
 
   const isAdmin = session?.role === "admin";
   const mine = (t: { ownerId: string | null; assigneeId: string | null }) => t.ownerId === session?.id || t.assigneeId === session?.id;
@@ -123,7 +130,7 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
     .map((u) => {
       const porSemana = carga.get(u.id);
       const actual = porSemana?.get(semanas[0]);
-      const cap = capacidadSemana(u.weeklyCapacityHours || 40, semanas[0], festivos, eventos, u.id);
+      const cap = capacidadSemana(u.weeklyCapacityHours || 40, semanas[0], festivos, eventos, u.id, ausencias);
       const totalMin = actual?.totalMin ?? 0;
       // Desglose por proyecto de la semana ACTUAL: top 3 + «otros», para que la barra diga de
       // dónde viene la carga y no solo «rojo».
@@ -138,7 +145,7 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
       const resto = totalMin - tramos.reduce((s, t) => s + t.min, 0);
       if (resto > 1) tramos.push({ nombre: "Otros", min: resto, color: SEG_COLORES[3] });
       const siguientes = semanas.slice(1).map((lunes) => {
-        const c = capacidadSemana(u.weeklyCapacityHours || 40, lunes, festivos, eventos, u.id);
+        const c = capacidadSemana(u.weeklyCapacityHours || 40, lunes, festivos, eventos, u.id, ausencias);
         const min = porSemana?.get(lunes)?.totalMin ?? 0;
         return { lunes, horas: h1(min), pct: c.capacidadMin > 0 ? Math.round((min / c.capacidadMin) * 100) : min > 0 ? 999 : 0 };
       });
@@ -175,7 +182,7 @@ export async function TeamTasks({ session }: { session: SessionUser | null }) {
               const excesoMin = Math.max(0, u.totalMin - u.cap.capacidadMin);
               const capNota =
                 u.cap.capacidadMin < u.cap.baseMin
-                  ? `Capacidad ${h1(u.cap.capacidadMin)} h esta semana: ${[u.cap.festivos ? `${u.cap.festivos} festivo${u.cap.festivos > 1 ? "s" : ""}` : "", u.cap.eventosMin ? `${h1(u.cap.eventosMin)} h en rodajes/citas` : ""].filter(Boolean).join(" y ")}`
+                  ? `Capacidad ${h1(u.cap.capacidadMin)} h esta semana: ${[u.cap.ausenciaDias ? `${u.cap.ausenciaDias} día${u.cap.ausenciaDias > 1 ? "s" : ""} de ausencia` : "", u.cap.festivos ? `${u.cap.festivos} festivo${u.cap.festivos > 1 ? "s" : ""}` : "", u.cap.eventosMin ? `${h1(u.cap.eventosMin)} h en rodajes/citas` : ""].filter(Boolean).join(" y ")}`
                   : null;
               return (
                 <div key={u.id}>

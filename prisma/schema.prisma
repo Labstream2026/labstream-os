@@ -192,6 +192,8 @@ model User {
   rastreoDeEl        TrackerShare[]     @relation("RastreoSujeto")
   rastreoConcedido   TrackerShare[]     @relation("RastreoQuienConcede")
   mailAccount        MailAccount?
+  ausencias          Absence[]          @relation("AusenciaDe")
+  ausenciasCreadas   Absence[]          @relation("AusenciaCreadaPor")
   runningTimer       RunningTimer?
   taskWatching       TaskWatcher[]
   ownedWikiPages     WikiPage[]         @relation("WikiPageOwner")
@@ -1961,6 +1963,30 @@ model MailDraft {
   createdAt DateTime @default(now())
 
   @@index([accountId, updatedAt])
+}
+
+// ── AUSENCIAS: vacaciones, incapacidades y permisos ─────────────────────────
+// Hasta ahora no existían en el sistema: el cumplimiento castigaba automáticamente a quien
+// estaba de vacaciones y su semana seguía pesando 40 h disponibles. Una ausencia descuenta
+// capacidad en la Carga del equipo y en las sugerencias de plantilla, y exime del
+// cumplimiento las tareas que vencen dentro de ella. Fechas a mediodía UTC (bogotaNoon),
+// AMBOS extremos inclusivos.
+model Absence {
+  id          String  @id @default(cuid())
+  user        User    @relation("AusenciaDe", fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  createdBy   User?   @relation("AusenciaCreadaPor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+
+  tipo      String // VACACIONES · INCAPACIDAD · PERMISO · OTRO
+  startDate DateTime
+  endDate   DateTime
+  nota      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, startDate])
+  @@index([endDate])
 }
 
 model TimeEntry {

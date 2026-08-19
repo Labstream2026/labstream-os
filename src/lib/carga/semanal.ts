@@ -156,11 +156,15 @@ export function repartirCarga(
   return out;
 }
 
+/** Una ausencia como rango de días de Bogotá, AMBOS extremos inclusivos. */
+export type AusenciaCarga = { userId: string; desde: string; hasta: string };
+
 export type CapacidadSemana = {
   capacidadMin: number; // la real, ya descontada
   baseMin: number; // la nominal de la persona
   festivos: number; // días festivos hábiles que cayeron en la semana
   eventosMin: number; // minutos comprometidos en citas/rodajes
+  ausenciaDias: number; // días hábiles de vacaciones/incapacidad/permiso en la semana
 };
 
 /**
@@ -175,10 +179,23 @@ export function capacidadSemana(
   festivos: Set<string>,
   eventos: EventoCarga[],
   userId: string,
+  ausencias: AusenciaCarga[] = [],
 ): CapacidadSemana {
   const baseMin = Math.max(0, capHoras) * 60;
   const porDia = baseMin / 5;
   const finSemana = sumarDias(lunes, 6);
+
+  // Días hábiles de AUSENCIA (vacaciones, incapacidad, permiso) en la semana. Un día que ya
+  // es festivo no se descuenta dos veces, y una cita durante la ausencia tampoco: la persona
+  // simplemente NO ESTÁ ese día, y ese día vale cero una sola vez.
+  const ausente = new Set<string>();
+  for (const a of ausencias) {
+    if (a.userId !== userId) continue;
+    for (let i = 0; i < 5; i++) {
+      const dia = sumarDias(lunes, i);
+      if (dia >= a.desde && dia <= a.hasta && !festivos.has(dia)) ausente.add(dia);
+    }
+  }
 
   let festivosDias = 0;
   for (let i = 0; i < 5; i++) {
@@ -189,7 +206,7 @@ export function capacidadSemana(
   for (const e of eventos) {
     if (e.userId !== userId) continue;
     const dia = claveDia(e.start);
-    if (dia < lunes || dia > finSemana || esFinDeSemana(dia) || festivos.has(dia)) continue;
+    if (dia < lunes || dia > finSemana || esFinDeSemana(dia) || festivos.has(dia) || ausente.has(dia)) continue;
     if (e.allDay || !e.end) {
       eventosMin += porDia;
     } else {
@@ -198,6 +215,11 @@ export function capacidadSemana(
     }
   }
 
-  const capacidadMin = Math.max(0, baseMin - festivosDias * porDia - eventosMin);
-  return { capacidadMin, baseMin, festivos: festivosDias, eventosMin: Math.round(eventosMin) };
+  const capacidadMin = Math.max(0, baseMin - (festivosDias + ausente.size) * porDia - eventosMin);
+  return { capacidadMin, baseMin, festivos: festivosDias, eventosMin: Math.round(eventosMin), ausenciaDias: ausente.size };
+}
+
+/** ¿La persona está ausente ese día de Bogotá? Para los choques de plantilla y el cronograma. */
+export function estaAusente(userId: string, dia: string, ausencias: AusenciaCarga[]): boolean {
+  return ausencias.some((a) => a.userId === userId && dia >= a.desde && dia <= a.hasta);
 }

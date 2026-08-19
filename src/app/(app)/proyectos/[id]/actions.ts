@@ -3673,13 +3673,19 @@ export async function getTeamWeeklyLoad(): Promise<{ id: string; hours: number; 
   const eventos = eventosDb.flatMap((e) =>
     e.attendees.filter((a) => a.status !== "DECLINED").map((a) => ({ userId: a.userId, start: e.start, end: e.end, allDay: e.allDay })),
   );
+  const ausenciasDb = await db.absence.findMany({
+    where: { endDate: { gte: new Date(`${semanas[0]}T00:00:00.000Z`) }, startDate: { lt: finSemana } },
+    select: { userId: true, startDate: true, endDate: true },
+  });
+  const ymdBog = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  const ausencias = ausenciasDb.map((a) => ({ userId: a.userId, desde: ymdBog(a.startDate), hasta: ymdBog(a.endDate) }));
   const carga = repartirCarga(
     tareas.map((t) => ({ assigneeId: t.assigneeId!, projectId: t.projectId, estimatedMinutes: t.estimatedMinutes!, startDate: t.startDate, dueDate: t.dueDate })),
     semanas,
     festivos,
   );
   return users.map((u) => {
-    const cap = capacidadSemana(u.weeklyCapacityHours || 40, semanas[0], festivos, eventos, u.id);
+    const cap = capacidadSemana(u.weeklyCapacityHours || 40, semanas[0], festivos, eventos, u.id, ausencias);
     const min = carga.get(u.id)?.get(semanas[0])?.totalMin ?? 0;
     return { id: u.id, hours: Math.round((min / 60) * 10) / 10, cap: Math.round(cap.capacidadMin / 60) };
   });
