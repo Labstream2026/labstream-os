@@ -10,6 +10,7 @@ import { logActivity } from "@/lib/activity";
 import { getQuoteSettings } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 import { isQuoteStatus } from "@/lib/enum-guards";
+import { clampAdvancePct } from "@/lib/billing";
 
 async function requirePerm(key: string) {
   const session = await getSession();
@@ -96,6 +97,7 @@ export async function duplicateQuote(quoteId: string) {
           currency: q.currency,
           taxRate: q.taxRate,
           contingencyPct: q.contingencyPct,
+          advancePct: q.advancePct,
           notes: q.notes,
           scope: q.scope,
           deliverables: q.deliverables,
@@ -133,6 +135,7 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
       ...(title ? { title } : {}),
       taxRate,
       contingencyPct,
+      advancePct: parseAdvancePct(formData),
       notes,
       recipientName,
       recipientCity,
@@ -143,6 +146,41 @@ export async function updateQuoteMeta(quoteId: string, formData: FormData) {
     },
   });
   refresh(quoteId);
+}
+
+// % de anticipo del formulario: vacío o 0 = sin anticipo (null); si viene, saneado 1–90.
+function parseAdvancePct(formData: FormData): number | null {
+  const raw = String(formData.get("advancePct") ?? "").trim();
+  const n = parseInt(raw, 10);
+  return raw && Number.isFinite(n) && n > 0 ? clampAdvancePct(n) : null;
+}
+
+// Pactar (o cambiar) el ANTICIPO de una cotización YA APROBADA. La aprobación congela los
+// valores del contrato, pero el anticipo no cambia el total — solo parte el cobro en dos —
+// así que se puede acordar después de aprobar (el caso real: «aprobado; facturemos el 50 %
+// para arrancar»). El candado que sí aplica: con CUALQUIER factura emitida ya no se toca,
+// porque el % quedó impreso en la factura de anticipo y el saldo debe cuadrar con él.
+export async function setQuoteAdvance(quoteId: string, formData: FormData) {
+  await requirePerm("crear_cotizaciones");
+  await ensureQuoteAccess(quoteId);
+  const q = await db.quote.findUnique({
+    where: { id: quoteId },
+    select: { code: true, clientId: true, _count: { select: { invoices: true } } },
+  });
+  if (!q) throw new Error("Cotización inexistente");
+  if (q._count.invoices > 0) throw new Error("Esta cotización ya tiene factura; el anticipo pactado no se puede cambiar.");
+  const advancePct = parseAdvancePct(formData);
+  await db.quote.update({ where: { id: quoteId }, data: { advancePct } });
+  await logActivity({
+    action: "quote.update",
+    summary: advancePct ? `pactó un anticipo del ${advancePct}% en ${q.code}` : `quitó el anticipo pactado de ${q.code}`,
+    clientId: q.clientId,
+    entityType: "quote",
+    entityId: quoteId,
+    silent: true,
+  });
+  refresh(quoteId);
+  revalidatePath("/facturacion");
 }
 
 // Agrega varias líneas a la cotización tomadas del CATÁLOGO interno (componer servicio).

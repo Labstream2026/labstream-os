@@ -10,6 +10,7 @@ export type QuoteDoc = {
   currency: string;
   taxRate: number;
   contingencyPct?: number; // imprevisto OCULTO: ya viene incluido en los valores que ve el cliente
+  advancePct?: number | null; // anticipo pactado: se declara como forma de pago en la carta
   notes: string | null;
   scope?: string | null;        // qué se va a hacer (lo entiende el cliente)
   deliverables?: string | null; // qué recibe el cliente
@@ -166,6 +167,14 @@ export function QuoteDocument({ quote }: { quote: QuoteDoc }) {
             <p className="font-semibold">Entregables:</p>
             <p className="mt-1 whitespace-pre-wrap">{quote.deliverables}</p>
           </div>
+        ) : null}
+
+        {/* Forma de pago: solo si se pactó anticipo (sin anticipo, se factura al final como siempre) */}
+        {quote.advancePct ? (
+          <p className="mt-4">
+            <span className="font-semibold">Forma de pago: </span>
+            {quote.advancePct}% de anticipo para dar inicio y {100 - quote.advancePct}% contra entrega.
+          </p>
         ) : null}
 
         {/* Pie de página legal */}

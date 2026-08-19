@@ -80,6 +80,7 @@ export default async function CotizacionPublicaPage({ params }: { params: Promis
           currency: quote.currency,
           taxRate: quote.taxRate,
           contingencyPct: quote.contingencyPct,
+          advancePct: quote.advancePct,
           notes: quote.notes,
           scope: quote.scope,
           deliverables: quote.deliverables,

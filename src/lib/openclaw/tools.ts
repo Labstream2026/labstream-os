@@ -1945,7 +1945,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       if (!ref) return "Falta la cotización (código, id o nombre).";
       const base = { client: accessibleClientWhere(session) };
       const sel = {
-        id: true, code: true, title: true, currency: true, taxRate: true, contingencyPct: true, notes: true,
+        id: true, code: true, title: true, currency: true, taxRate: true, contingencyPct: true, advancePct: true, notes: true,
         scope: true, deliverables: true, validUntil: true, createdAt: true, recipientName: true, recipientCity: true, intro: true,
         client: { select: { name: true, company: true } }, project: { select: { name: true } },
         items: { orderBy: { position: "asc" as const }, select: { section: true, description: true, unit: true, quantity: true, unitPrice: true } },
@@ -1956,7 +1956,7 @@ export async function executeAgentTool(name: string, args: Record<string, unknow
       let bytes: Uint8Array;
       try {
         bytes = await renderQuotePdf({
-          code: q.code, title: q.title, currency: q.currency, taxRate: q.taxRate, contingencyPct: q.contingencyPct,
+          code: q.code, title: q.title, currency: q.currency, taxRate: q.taxRate, contingencyPct: q.contingencyPct, advancePct: q.advancePct,
           notes: q.notes, scope: q.scope, deliverables: q.deliverables, validUntil: q.validUntil, createdAt: q.createdAt,
           clientName: q.client.name, clientCompany: q.client.company, recipientName: q.recipientName, recipientCity: q.recipientCity,
           intro: q.intro, projectName: q.project?.name ?? null,

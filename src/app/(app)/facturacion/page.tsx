@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { accessibleClientWhere } from "@/lib/client-access";
 import { invoiceStatusMeta, quoteTotals, formatMoney, formatShortDate } from "@/lib/ui";
-import { billableQuoteWhere, quoteBillTotal, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
+import { billableQuoteWhere, advanceBillableQuoteWhere, quoteBillTotal, advanceBillTotal, saldoBillTotal, clampAdvancePct, daysSince, effectiveInvoiceStatus } from "@/lib/billing";
 import { IconFacturacion } from "@/components/icons";
 import { EntityEmoji, emojiToText } from "@/components/icons/marks";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -78,7 +78,7 @@ export default async function FacturacionPage({
   const mesSel = typeof mesParam === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(mesParam) && mesParam <= mesActual ? mesParam : mesActual;
   const rangoSel = rangoMes(mesSel);
 
-  const [invoices, billableQuotes, siigo, org, gastosSel] = await Promise.all([
+  const [invoices, billableQuotes, anticipoQuotes, siigo, org, gastosSel] = await Promise.all([
     db.invoice.findMany({
       where: { client: accessibleClientWhere(session) },
       orderBy: { createdAt: "desc" },
@@ -89,9 +89,22 @@ export default async function FacturacionPage({
       },
     }),
     // Cotizaciones aprobadas que ya toca facturar (proyecto terminado o sin proyecto) y
-    // que aún no tienen factura: el caso "terminé el proyecto y falta emitir".
+    // sin factura completa ni de saldo: el caso "terminé el proyecto y falta emitir".
+    // `invoices` viaja para saber si lo pendiente es TODO o solo el SALDO del anticipo.
     db.quote.findMany({
       where: { client: accessibleClientWhere(session), ...billableQuoteWhere() },
+      orderBy: { approvedAt: "asc" },
+      include: {
+        client: { select: { name: true, emoji: true } },
+        project: { select: { name: true, emoji: true } },
+        items: { select: { quantity: true, unitPrice: true } },
+        invoices: { select: { parte: true } },
+      },
+    }),
+    // Cotizaciones con anticipo pactado y proyecto EN CURSO, sin factura aún: el hito
+    // de arranque (el 50 % antes de rodar) que antes se cobraba fuera de la app.
+    db.quote.findMany({
+      where: { client: accessibleClientWhere(session), ...advanceBillableQuoteWhere() },
       orderBy: { approvedAt: "asc" },
       include: {
         client: { select: { name: true, emoji: true } },
@@ -143,22 +156,40 @@ export default async function FacturacionPage({
 
   const fromQuotes: PorFacturarItem[] = billableQuotes.map((q) => {
     const d = daysSince(q.approvedAt);
+    // Si el anticipo ya se facturó, lo que queda pendiente es el SALDO (y el monto mostrado
+    // es el complemento exacto, no el contrato entero otra vez).
+    const soloSaldo = q.invoices.some((i) => i.parte === "ANTICIPO");
     return {
       key: `q-${q.id}`,
       clientName: q.client.name,
       clientEmoji: q.client.emoji,
       context: q.project ? `${emojiToText(q.project.emoji, "🎬")} ${q.project.name}` : q.title,
-      note: q.project
-        ? `Proyecto terminado · sin factura${d != null ? ` · aprobada hace ${d} d` : ""}`
-        : `Sin proyecto · cobro directo${d != null ? ` · aprobada hace ${d} d` : ""}`,
+      note: soloSaldo
+        ? `Proyecto terminado · falta el saldo (${100 - clampAdvancePct(q.advancePct)}%)`
+        : q.project
+          ? `Proyecto terminado · sin factura${d != null ? ` · aprobada hace ${d} d` : ""}`
+          : `Sin proyecto · cobro directo${d != null ? ` · aprobada hace ${d} d` : ""}`,
       urgent: d != null && d >= 15,
-      amount: quoteBillTotal(q),
+      amount: soloSaldo ? saldoBillTotal(q) : quoteBillTotal(q),
       currency: q.currency,
       emit: { type: "quote", quoteId: q.id },
     };
   });
 
-  const porFacturar = [...fromQuotes, ...drafts];
+  // Anticipos por cobrar de proyectos en marcha: van de primeros — son la plata que
+  // desbloquea el arranque, no un cobro que puede esperar al cierre.
+  const fromAnticipos: PorFacturarItem[] = anticipoQuotes.map((q) => ({
+    key: `adv-${q.id}`,
+    clientName: q.client.name,
+    clientEmoji: q.client.emoji,
+    context: q.project ? `${emojiToText(q.project.emoji, "🎬")} ${q.project.name}` : q.title,
+    note: `Proyecto en curso · anticipo ${clampAdvancePct(q.advancePct)}% pactado, sin facturar`,
+    amount: advanceBillTotal(q),
+    currency: q.currency,
+    emit: { type: "advance", quoteId: q.id },
+  }));
+
+  const porFacturar = [...fromAnticipos, ...fromQuotes, ...drafts];
   const porFacturarTotal = porFacturar.reduce((n, it) => n + it.amount, 0);
 
   // Facturas ya emitidas (todo lo que no es borrador): tabla de seguimiento de cobro.

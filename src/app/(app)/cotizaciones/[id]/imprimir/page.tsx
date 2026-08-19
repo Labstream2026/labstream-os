@@ -40,6 +40,7 @@ export default async function ImprimirCotizacionPage({ params }: { params: Promi
           currency: quote.currency,
           taxRate: quote.taxRate,
           contingencyPct: quote.contingencyPct,
+          advancePct: quote.advancePct,
           notes: quote.notes,
           scope: quote.scope,
           deliverables: quote.deliverables,

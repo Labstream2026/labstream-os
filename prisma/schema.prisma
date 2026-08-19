@@ -846,6 +846,9 @@ model Quote {
   sentAt       DateTime?
   openCount    Int       @default(0)
   lastOpenedAt DateTime?
+  // ANTICIPO pactado (% del total) — el hito de cobro de la producción audiovisual: se
+  // factura al arrancar, sin esperar a que el proyecto termine. Null = sin anticipo.
+  advancePct   Int?
   currency     String      @default("COP")
   taxRate      Int         @default(0) // % IVA (0-100)
   notes        String?
@@ -986,6 +989,9 @@ model Invoice {
   projectId   String?
   quote       Quote?        @relation(fields: [quoteId], references: [id], onDelete: SetNull)
   quoteId     String?
+  // Qué parte del contrato factura: ANTICIPO · SALDO · null = factura completa clásica.
+  // Con esto una cotización puede tener DOS facturas sin romper el candado anti-duplicado.
+  parte       String?
   createdBy   User?         @relation("InvoiceCreator", fields: [createdById], references: [id])
   createdById String?
   items       InvoiceItem[]

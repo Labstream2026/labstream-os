@@ -45,16 +45,51 @@ export async function createInvoiceFromQuote(quoteId: string) {
   // la acción puede invocarse directamente).
   if (quote.status !== "APROBADA") throw new Error("Solo se puede facturar una cotización aprobada.");
 
+  // Si la cotización pactó ANTICIPO y ya se facturó, lo que toca ahora es el SALDO — no la
+  // factura completa (se cobraría el contrato entero dos veces). Sin anticipo facturado, la
+  // completa de siempre.
+  const anticipoFacturado = quote.advancePct
+    ? await db.invoice.findFirst({ where: { quoteId: quote.id, parte: "ANTICIPO" }, select: { id: true } })
+    : null;
+
   // A prueba de DOBLE FACTURACIÓN: el check «¿ya existe factura para esta cotización?» + el
   // create van serializados con advisory-lock dentro del helper. Si ya existía (doble submit,
   // re-render, reintento de agente), se devuelve la misma factura sin crear otra FAC distinta.
-  const { invoice, alreadyExisted } = await createOrGetInvoiceForQuote(quote, session.id);
+  const { invoice, alreadyExisted } = await createOrGetInvoiceForQuote(quote, session.id, anticipoFacturado ? { parte: "SALDO" } : undefined);
   if (!alreadyExisted) {
     await logActivity({ action: "invoice.create", summary: `generó la factura ${invoice.code} desde ${quote.code}`, clientId: quote.clientId, entityType: "invoice", entityId: invoice.id });
     refresh(invoice.id);
   }
   // Documento unificado: volvemos a la cotización (pestaña "Facturado" muestra la factura).
   redirect(`/cotizaciones/${quoteId}`);
+}
+
+// ── Facturar el ANTICIPO de una cotización con proyecto EN CURSO ──
+// El hito de cobro de la producción audiovisual: el 50 % para arrancar rodaje. Antes esto
+// pasaba fuera de la app porque la cola solo sacaba proyectos terminados.
+export async function createAdvanceInvoiceFromQuote(quoteId: string) {
+  const session = await requirePerm("crear_cotizaciones");
+  const quote = await db.quote.findUnique({
+    where: { id: quoteId },
+    include: { items: { orderBy: { position: "asc" } } },
+  });
+  if (!quote) throw new Error("Cotización inexistente");
+  if (!(await userCanAccessClient(quote.clientId, session))) noAutorizado();
+  if (quote.status !== "APROBADA") throw new Error("Solo se factura anticipo de una cotización aprobada.");
+  if (!quote.advancePct || quote.advancePct <= 0) throw new Error("Esta cotización no pactó anticipo.");
+
+  const { invoice, alreadyExisted } = await createOrGetInvoiceForQuote(quote, session.id, { parte: "ANTICIPO" });
+  if (!alreadyExisted) {
+    await logActivity({
+      action: "invoice.create",
+      summary: `generó la factura de anticipo ${invoice.code} (${quote.advancePct}%) desde ${quote.code}`,
+      clientId: quote.clientId,
+      entityType: "invoice",
+      entityId: invoice.id,
+    });
+    refresh(invoice.id);
+  }
+  redirect(`/facturacion/${invoice.id}`);
 }
 
 export async function setInvoiceStatus(invoiceId: string, status: string): Promise<{ ok: boolean; error?: string }> {

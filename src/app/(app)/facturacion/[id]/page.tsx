@@ -36,7 +36,14 @@ export default async function FacturaPage({ params }: { params: Promise<{ id: st
       </Link>
 
       <div className="mb-4">
-        <h1 className="text-2xl font-bold tracking-tight">Factura {invoice.code}</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+          Factura {invoice.code}
+          {invoice.parte ? (
+            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+              {invoice.parte === "ANTICIPO" ? "Anticipo" : "Saldo"}
+            </span>
+          ) : null}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           <EntityEmoji value={invoice.client.emoji} /> {invoice.client.name}
           {invoice.project ? (

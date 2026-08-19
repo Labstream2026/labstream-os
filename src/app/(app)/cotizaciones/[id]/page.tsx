@@ -6,9 +6,10 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { userCanAccessClient } from "@/lib/client-access";
 import { quoteStatusMeta, formatShortDate } from "@/lib/ui";
 import { signQuoteToken } from "@/lib/quote-token";
-import { updateQuoteMeta, copyQuoteBriefToProject, duplicateQuote } from "../actions";
+import { updateQuoteMeta, copyQuoteBriefToProject, duplicateQuote, setQuoteAdvance } from "../actions";
 import { getServiceCatalog, getServicePackages } from "@/lib/services-catalog";
-import { createInvoiceFromQuote } from "../../facturacion/actions";
+import { clampAdvancePct } from "@/lib/billing";
+import { createInvoiceFromQuote, createAdvanceInvoiceFromQuote } from "../../facturacion/actions";
 import { InvoiceView } from "../../facturacion/invoice-view";
 import { ViewTabs } from "@/app/(app)/proyectos/[id]/view-tabs";
 import { QuoteEditor } from "./quote-editor";
@@ -34,8 +35,9 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
       createdBy: { select: { name: true } },
       approvedBy: { select: { name: true } },
       items: { orderBy: { position: "asc" } },
-      // Factura generada desde esta cotización (la más reciente) para la pestaña "Facturado".
-      invoices: { orderBy: { createdAt: "desc" }, take: 1, include: { items: { orderBy: { position: "asc" } } } },
+      // Facturas generadas desde esta cotización para la pestaña "Facturado". Pueden ser
+      // DOS con cobro por hitos (anticipo + saldo); en orden de emisión.
+      invoices: { orderBy: { createdAt: "asc" }, include: { items: { orderBy: { position: "asc" } } } },
       // Propuesta de la que nació, para poder leer el camino al revés.
       fromProposals: { select: { id: true, code: true, title: true }, take: 1 },
     },
@@ -49,10 +51,13 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
   const publicPath = `/cotizacion/${signQuoteToken(quote.id)}`;
   const [catalog, packages] = canEdit ? await Promise.all([getServiceCatalog(), getServicePackages()]) : [[], []];
 
-  const inv = quote.invoices[0] ?? null;
-  const invoiceForView = inv
-    ? { id: inv.id, code: inv.code, status: inv.status, currency: inv.currency, taxRate: inv.taxRate, notes: inv.notes, issueDate: inv.issueDate, dueDate: inv.dueDate, paidAt: inv.paidAt, quote: null, items: inv.items }
-    : null;
+  const invoicesForView = quote.invoices.map((inv) => ({
+    parte: inv.parte,
+    view: { id: inv.id, code: inv.code, status: inv.status, currency: inv.currency, taxRate: inv.taxRate, notes: inv.notes, issueDate: inv.issueDate, dueDate: inv.dueDate, paidAt: inv.paidAt, quote: null, items: inv.items },
+  }));
+  // Con el anticipo emitido, lo siguiente que se puede generar es el SALDO.
+  const soloAnticipo = quote.invoices.length > 0 && quote.invoices.every((i) => i.parte === "ANTICIPO");
+  const pctAnticipo = quote.advancePct ? clampAdvancePct(quote.advancePct) : null;
 
   // ── Pestaña "Servicios y valores": datos editables + conceptos (el editor de la cotización) ──
   const serviciosNode = (
@@ -70,6 +75,10 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
           <label className="text-sm">
             <span className="mb-1 block font-medium">Imprevisto (%) <span className="font-normal text-muted-foreground">· oculto al cliente</span></span>
             <input name="contingencyPct" type="number" min={0} max={100} step="0.5" defaultValue={quote.contingencyPct} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Anticipo (%) <span className="font-normal text-muted-foreground">· vacío = se factura todo al final</span></span>
+            <input name="advancePct" type="number" min={1} max={90} placeholder="p. ej. 50" defaultValue={quote.advancePct ?? ""} className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring" />
           </label>
           <label className="text-sm">
             <span className="mb-1 block font-medium">Válida hasta</span>
@@ -139,16 +148,57 @@ export default async function CotizacionPage({ params }: { params: Promise<{ id:
     </div>
   );
 
-  // ── Pestaña "Facturado": la factura generada (o el botón para generarla) ──
-  const facturadoNode = invoiceForView ? (
-    <InvoiceView invoice={invoiceForView} canEdit={canEdit} canApprove={canApprove} />
+  // ── Pestaña "Facturado": las facturas generadas (o los botones para generarlas). Con
+  // cobro por hitos son DOS documentos: el anticipo al arrancar y el saldo al cerrar. ──
+  const facturadoNode = invoicesForView.length > 0 ? (
+    <div className="space-y-6">
+      {invoicesForView.map(({ parte, view }) => (
+        <div key={view.id}>
+          {parte ? (
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {parte === "ANTICIPO" ? `Factura de anticipo${pctAnticipo ? ` · ${pctAnticipo}%` : ""}` : `Factura de saldo${pctAnticipo ? ` · ${100 - pctAnticipo}%` : ""}`}
+            </p>
+          ) : null}
+          <InvoiceView invoice={view} canEdit={canEdit} canApprove={canApprove} />
+        </div>
+      ))}
+      {soloAnticipo && canEdit && quote.status === "APROBADA" ? (
+        <div className="rounded-xl border border-dashed border-border p-6 text-center">
+          <p className="text-sm text-muted-foreground">Falta la factura del saldo{pctAnticipo ? ` (${100 - pctAnticipo}%)` : ""} — normalmente al terminar el proyecto.</p>
+          <form action={createInvoiceFromQuote.bind(null, quote.id)} className="mt-3">
+            <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">🧾 Generar factura del saldo</button>
+          </form>
+        </div>
+      ) : null}
+    </div>
   ) : (
     <div className="rounded-xl border border-dashed border-border p-8 text-center">
       <p className="text-sm text-muted-foreground">Aún no se ha generado la factura de esta cotización.</p>
       {canEdit && quote.status === "APROBADA" ? (
-        <form action={createInvoiceFromQuote.bind(null, quote.id)} className="mt-3">
-          <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">🧾 Generar factura</button>
-        </form>
+        <>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            {pctAnticipo ? (
+              <form action={createAdvanceInvoiceFromQuote.bind(null, quote.id)}>
+                <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">🧾 Facturar anticipo ({pctAnticipo}%)</button>
+              </form>
+            ) : null}
+            <form action={createInvoiceFromQuote.bind(null, quote.id)}>
+              <button className={pctAnticipo
+                ? "inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+                : "inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"}>
+                🧾 {pctAnticipo ? "Facturar todo de una vez" : "Generar factura"}
+              </button>
+            </form>
+          </div>
+          {/* Pactar (o cambiar) el anticipo: se puede incluso ya aprobada, mientras no haya factura. */}
+          <form action={setQuoteAdvance.bind(null, quote.id)} className="mx-auto mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              Anticipo pactado (%)
+              <input name="advancePct" type="number" min={1} max={90} placeholder="50" defaultValue={quote.advancePct ?? ""} className="w-20 rounded-md border border-input bg-background px-2 py-1.5 text-foreground outline-none focus:ring-2 focus:ring-ring" />
+            </label>
+            <button className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">Guardar</button>
+          </form>
+        </>
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">Aprueba la cotización para poder facturar.</p>
       )}

@@ -18,6 +18,7 @@ export type PdfQuote = {
   currency: string;
   taxRate: number;
   contingencyPct?: number;
+  advancePct?: number | null;
   notes: string | null;
   scope?: string | null;
   deliverables?: string | null;
@@ -176,6 +177,12 @@ export async function renderQuotePdf(quote: PdfQuote): Promise<Uint8Array> {
 
   // Entregables
   if (quote.deliverables?.trim()) { para("Entregables:", 11, bold, ink, 1); para(quote.deliverables, 11, font, ink, 6); }
+
+  // Forma de pago (solo con anticipo pactado) — mismo texto que la carta web
+  if (quote.advancePct) {
+    para("Forma de pago:", 11, bold, ink, 1);
+    para(`${quote.advancePct}% de anticipo para dar inicio y ${100 - quote.advancePct}% contra entrega.`, 11, font, ink, 6);
+  }
 
   // Pie legal
   const days = validityDays(quote.createdAt, quote.validUntil);

@@ -3,7 +3,7 @@ import { formatMoney } from "@/lib/ui";
 import { EntityEmoji } from "@/components/icons/marks";
 import { cn } from "@/lib/utils";
 import { SubmitButton } from "@/components/submit-button";
-import { createInvoiceFromQuote } from "./actions";
+import { createInvoiceFromQuote, createAdvanceInvoiceFromQuote } from "./actions";
 
 // Una línea de la cola "Por facturar": un borrador que falta emitir, o una cotización
 // aprobada cuyo proyecto terminó (o sin proyecto) que aún no se ha facturado.
@@ -16,8 +16,9 @@ export type PorFacturarItem = {
   urgent?: boolean; // resalta la sub-línea (antigüedad)
   amount: number;
   currency: string;
-  // Acción: emitir desde la cotización (crea la factura) o abrir el borrador existente.
-  emit: { type: "quote"; quoteId: string } | { type: "open"; href: string };
+  // Acción: emitir desde la cotización (la completa o el saldo), facturar el ANTICIPO
+  // de un proyecto en curso, o abrir el borrador existente.
+  emit: { type: "quote"; quoteId: string } | { type: "advance"; quoteId: string } | { type: "open"; href: string };
 };
 
 export function PorFacturarList({
@@ -56,14 +57,14 @@ export function PorFacturarList({
             </p>
           </div>
           <span className="text-sm font-semibold whitespace-nowrap">{formatMoney(it.amount, it.currency)}</span>
-          {it.emit.type === "quote" ? (
+          {it.emit.type === "quote" || it.emit.type === "advance" ? (
             canCreate ? (
-              <form action={createInvoiceFromQuote.bind(null, it.emit.quoteId)}>
+              <form action={(it.emit.type === "advance" ? createAdvanceInvoiceFromQuote : createInvoiceFromQuote).bind(null, it.emit.quoteId)}>
                 <SubmitButton
                   pendingText="Generando…"
                   className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
                 >
-                  Generar factura
+                  {it.emit.type === "advance" ? "Facturar anticipo" : "Generar factura"}
                 </SubmitButton>
               </form>
             ) : null
