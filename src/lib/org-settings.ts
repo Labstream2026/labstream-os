@@ -46,5 +46,20 @@ export function brandCss(primaryColor: string | null): string {
   if (!primaryColor) return "";
   const triplet = hexToHslTriplet(primaryColor);
   if (!triplet) return "";
-  return `:root,.dark{--primary:${triplet};--ring:${triplet};}`;
+
+  // El ítem ACTIVO del menú lateral también se tiñe. Sin esto, la barra inferior del celular
+  // usaba el color de marca y el rail del escritorio un azul fijo: el mismo estado «estoy aquí»
+  // salía de dos colores distintos según el dispositivo, y quien ponía su naranja en
+  // Ajustes → Marca veía que solo la mitad de la app le hacía caso.
+  //
+  // OJO: NO se le mete el color de marca tal cual. El activo del rail es un TINTE claro con el
+  // texto en color (no un relleno sólido), y el mismo token alimenta `hover:bg-sidebar-accent/40`;
+  // usar el color saturado convertiría el menú en bloques macizos y el hover en un manchón. Se
+  // re-tiñe conservando el diseño: se toman hue y saturación de la marca y se mantienen las
+  // luminosidades que ya tenía cada tema.
+  const [h, s] = triplet.split(" ");
+  const sat = parseInt(s, 10);
+  const claro = `--sidebar-accent:${h} ${Math.min(92, sat + 20)}% 95%;--sidebar-accent-foreground:${h} ${Math.max(45, sat)}% 40%;`;
+  const oscuro = `--sidebar-accent:${h} ${Math.min(60, sat)}% 18%;--sidebar-accent-foreground:${h} ${Math.min(91, sat + 15)}% 78%;`;
+  return `:root{--primary:${triplet};--ring:${triplet};${claro}}.dark{--primary:${triplet};--ring:${triplet};${oscuro}}`;
 }

@@ -62,7 +62,13 @@ export function NextUpHero({ task, timer }: { task: HeroTask | null; timer: Hero
   const title = timer?.taskTitle ?? task!.title;
 
   return (
-    <div className="mt-4 max-w-2xl rounded-2xl bg-gradient-to-br from-primary to-indigo-900 p-4 text-white shadow-lg shadow-primary/20">
+    // El degradado sale del color de MARCA y va a una versión oscurecida de él mismo, no a un
+    // índigo fijo: con la marca en naranja, la tarjeta más visible de la pantalla quedaba
+    // naranja→índigo y parecía un error de carga. Mismo color-mix que ya usa Recordatorios.
+    <div
+      className="mt-4 max-w-2xl rounded-2xl p-4 text-white shadow-lg shadow-primary/20"
+      style={{ backgroundImage: "linear-gradient(to bottom right, hsl(var(--primary)), color-mix(in srgb, hsl(var(--primary)) 45%, #10121f))" }}
+    >
       <p className="text-[11px] font-semibold uppercase tracking-wider text-white/70">
         {timer ? "⏱ Cronómetro corriendo" : "▶ Ahora sigue"}
       </p>
@@ -80,7 +86,7 @@ export function NextUpHero({ task, timer }: { task: HeroTask | null; timer: Hero
               else setError(r.error ?? "No se pudo parar.");
             })}
             disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-indigo-700 hover:opacity-90 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-primary hover:opacity-90 disabled:opacity-60"
           >
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />} Parar y anotar
           </button>
