@@ -9,7 +9,7 @@ import { conectarCorreo } from "./acciones";
 // El equipo solo escribe su correo y su contraseña: los servidores vienen prellenados con el
 // MailPlus del NAS y viven en un desplegable de «Avanzado» para quien tenga un caso raro.
 
-export function ConectarCorreo({ hostDefecto }: { hostDefecto: string }) {
+export function ConectarCorreo({ hostDefecto, emailSugerido }: { hostDefecto: string; emailSugerido?: string }) {
   const router = useRouter();
   const [error, setError] = React.useState<string | null>(null);
   const [pendiente, arranca] = React.useTransition();
@@ -29,7 +29,8 @@ export function ConectarCorreo({ hostDefecto }: { hostDefecto: string }) {
     <div className="mx-auto max-w-md rounded-xl border border-border bg-card p-5">
       <h2 className="flex items-center gap-2 text-sm font-semibold"><Mail className="size-4 text-primary" /> Conecta tu buzón</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        Tu correo del estudio, aquí mismo: bandeja de entrada y envíos con tu propia dirección.
+        Es el correo del propio servidor del estudio (Synology MailPlus): tu dirección ya viene
+        puesta — solo falta <b className="text-foreground">tu contraseña</b>, la misma de tu usuario del Synology.
       </p>
       <p className="mt-2 flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11.5px] leading-relaxed text-muted-foreground">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
@@ -42,12 +43,12 @@ export function ConectarCorreo({ hostDefecto }: { hostDefecto: string }) {
       <form onSubmit={enviar} className="mt-4 flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-xs font-medium">
           Tu correo
-          <input name="email" type="email" required placeholder="nombre@labstreamsas.com" autoComplete="email"
+          <input name="email" type="email" required defaultValue={emailSugerido ?? ""} placeholder="nombre@labstreamsas.com" autoComplete="email"
             className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium">
-          Contraseña del correo
-          <input name="password" type="password" required autoComplete="current-password"
+          Contraseña (la de tu usuario del Synology)
+          <input name="password" type="password" required autoFocus={!!emailSugerido} autoComplete="current-password"
             className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
         </label>
 

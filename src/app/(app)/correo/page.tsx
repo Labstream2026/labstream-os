@@ -47,7 +47,9 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     return (
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
         <PageHeader title="Correo" description="Tu buzón del estudio, dentro de la app" icon={<Mail className="size-4" />} />
-        <ConectarCorreo hostDefecto={HOST_DEFECTO} />
+        {/* La dirección viene de la cuenta de la app: los correos del equipo SON sus buzones
+            de MailPlus, así que conectar es escribir la contraseña y nada más. */}
+        <ConectarCorreo hostDefecto={HOST_DEFECTO} emailSugerido={session.email ?? undefined} />
       </div>
     );
   }
