@@ -3,6 +3,7 @@
 import { noAutorizado } from "@/lib/authz-error";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
+import { capacidadSemana, festivosDeVentana, repartirCarga, semanasDesde } from "@/lib/carga/semanal";
 import { getSession, hasPermission } from "@/lib/auth";
 import { isDeliverableStatus } from "@/lib/enum-guards";
 import { accessibleProjectWhere, canAccessProject, canManageProject, canWriteProject, canReviewProject } from "@/lib/project-access";
@@ -3646,19 +3647,42 @@ export async function applyChecklistTemplate(taskId: string, templateId: string)
 export async function getTeamWeeklyLoad(): Promise<{ id: string; hours: number; cap: number }[]> {
   const session = await getSession();
   if (!session || session.role === "cliente") return [];
-  const [users, sums] = await Promise.all([
+  // MISMA regla que la tarjeta «Carga del equipo» (lib/carga/semanal): solo la SEMANA ACTUAL,
+  // con lo vencido amontonado en ella y la capacidad real (festivos y rodajes descontados).
+  // Antes esta función sumaba TODO lo abierto sin ventana —«Diana ya va en 51 h» eran 51 horas
+  // de aquí a fin de año— y encima contaba distinto que la tarjeta: dos números para la misma
+  // persona el mismo día.
+  const semanas = semanasDesde(new Date(), 1);
+  const festivos = festivosDeVentana(semanas);
+  const finSemana = new Date(`${semanas[0]}T00:00:00.000Z`);
+  finSemana.setUTCDate(finSemana.getUTCDate() + 7);
+  const [users, tareas, eventosDb] = await Promise.all([
     db.user.findMany({
       where: { active: true, isSystemBot: false, role: { isNot: { key: "cliente" } } },
       select: { id: true, weeklyCapacityHours: true },
     }),
-    db.task.groupBy({
-      by: ["assigneeId"],
+    db.task.findMany({
       where: { completedAt: null, assigneeId: { not: null }, estimatedMinutes: { not: null }, OR: [{ projectId: null }, { project: { archivedAt: null, finishedAt: null } }] },
-      _sum: { estimatedMinutes: true },
+      select: { assigneeId: true, projectId: true, estimatedMinutes: true, startDate: true, dueDate: true },
+    }),
+    db.calendarEvent.findMany({
+      where: { start: { gte: new Date(`${semanas[0]}T00:00:00.000Z`), lt: finSemana } },
+      select: { start: true, end: true, allDay: true, attendees: { select: { userId: true, status: true } } },
     }),
   ]);
-  const byId = new Map(sums.map((r) => [r.assigneeId!, r._sum.estimatedMinutes ?? 0]));
-  return users.map((u) => ({ id: u.id, hours: Math.round(((byId.get(u.id) ?? 0) / 60) * 10) / 10, cap: u.weeklyCapacityHours || 40 }));
+  const eventos = eventosDb.flatMap((e) =>
+    e.attendees.filter((a) => a.status !== "DECLINED").map((a) => ({ userId: a.userId, start: e.start, end: e.end, allDay: e.allDay })),
+  );
+  const carga = repartirCarga(
+    tareas.map((t) => ({ assigneeId: t.assigneeId!, projectId: t.projectId, estimatedMinutes: t.estimatedMinutes!, startDate: t.startDate, dueDate: t.dueDate })),
+    semanas,
+    festivos,
+  );
+  return users.map((u) => {
+    const cap = capacidadSemana(u.weeklyCapacityHours || 40, semanas[0], festivos, eventos, u.id);
+    const min = carga.get(u.id)?.get(semanas[0])?.totalMin ?? 0;
+    return { id: u.id, hours: Math.round((min / 60) * 10) / 10, cap: Math.round(cap.capacidadMin / 60) };
+  });
 }
 
 // Convierte un comentario de la revisión (interno o del cliente) en una TAREA de corrección:
