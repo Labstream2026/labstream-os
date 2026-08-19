@@ -1924,6 +1924,7 @@ model MailAccount {
   messages  MailMessage[]
   drafts    MailDraft[]
   rules     MailRule[]
+  outbox    MailOutbox[]
 }
 
 // Un correo sincronizado (o enviado desde la app). El cuerpo HTML se guarda CRUDO y acotado,
@@ -2076,6 +2077,51 @@ model MailRule {
   createdAt DateTime @default(now())
 
   @@unique([accountId, fromEmail])
+}
+
+// COLA DE SALIDA: «deshacer envío» y «programar envío». Todo envío espera aquí — unos
+// segundos si fue un «Enviar» normal (la ventana de deshacer), o hasta su hora si se
+// programó. El mensaje viaja YA COMPUESTO (el MIME crudo, byte a byte lo que va a salir):
+// deshacer a tiempo lo saca de la cola y nada llegó al SMTP; vencido el plazo lo despacha el
+// timer del proceso (o el cron cada 5 min, si el proceso se reinició en medio). La firma y
+// los adjuntos quedan congelados al momento de escribir — igual que en Gmail.
+model MailOutbox {
+  id        String      @id @default(cuid())
+  account   MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+
+  sendAt DateTime
+  // pendiente → enviando → (la fila se borra al salir) · error (falló o quedó en duda). El
+  // reclamo del estado es el árbitro de las carreras: deshacer y despachar compiten por la
+  // MISMA transición desde «pendiente» y solo uno gana.
+  estado      String  @default("pendiente")
+  intentos    Int     @default(0)
+  ultimoError String?
+
+  crudo     Bytes // el MIME completo: se envía y se APPENDea tal cual
+  messageId String? // generado al componer — el hilo y la copia local usan el mismo
+  para      String
+  cc        String  @default("")
+  asunto    String  @default("")
+  // Para la copia local de «Enviados» y para restaurar el compositor al deshacer: el HTML
+  // del redactor (imágenes data:/GIF vivas, sin cid:) + la cola solo-local (reenvío citado,
+  // firma en modo URL y cita de la respuesta). El de alambre con cid: vive solo en `crudo`.
+  htmlUsuario     String  @default("")
+  colaLocal       String  @default("")
+  textoLocal      String  @default("")
+  enRespuestaA    String?
+  referencias     String?
+  respondeAId     String? // MailMessage local que se marcará respondido AL SALIR (no antes)
+  reenviaDeId     String?
+  projectId       String?
+  adjuntosMeta    Json? // [{nombre,mime,bytes}] — copia local y aviso al restaurar
+  nombreRemitente String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estado, sendAt])
+  @@index([accountId, estado])
 }
 
 // Un BORRADOR del compositor: lo que se estaba escribiendo, guardado solo (autosave). Vive

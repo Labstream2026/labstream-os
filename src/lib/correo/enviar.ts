@@ -9,6 +9,11 @@ import { claveHilo } from "./hilos";
 // Sale por el SMTP de SU cuenta (MailPlus), no por el relay de notificaciones de la app: el
 // destinatario ve «Diana Ruiz <diana.ruiz@labstreamsas.com>», responde ahí, y todo cuadra.
 //
+// COMPONER y DESPACHAR van separados a propósito: componer pasa al hacer clic en «Enviar»
+// (la firma y los adjuntos quedan congelados en el crudo MIME), despachar pasa cuando el
+// mensaje de verdad sale — 15 segundos después, o a la hora programada. Entre uno y otro
+// vive la cola de salida (MailOutbox) y el botón «Deshacer».
+//
 // Después de enviar, el MISMO mensaje crudo se APPENDea a la carpeta de enviados del servidor:
 // así el webmail de MailPlus también lo ve y no hay dos historias de lo que se mandó. Si el
 // append falla, el envío NO se deshace — el correo ya salió; solo quedaría fuera del webmail.
@@ -65,8 +70,7 @@ export async function probarConexion(cfg: {
   return { ok: true };
 }
 
-export async function enviarDesdeCuenta(input: {
-  accountId: string;
+export type EntradaCorreo = {
   nombreRemitente: string;
   para: string;
   cc?: string | null;
@@ -81,12 +85,17 @@ export async function enviarDesdeCuenta(input: {
   enRespuestaA?: string | null;
   referencias?: string | null;
   adjuntos?: { nombre: string; mime: string; contenido: Buffer }[];
-  /** Proyecto del hilo (heredado o elegido): la copia local queda ya asignada. */
-  projectId?: string | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const cuenta = await db.mailAccount.findUnique({ where: { id: input.accountId } });
-  if (!cuenta) return { ok: false, error: "La cuenta de correo ya no existe." };
+};
 
+export type CorreoCompuesto = {
+  crudo: Buffer;
+  /** Generado AL COMPONER y fijado en el crudo: el hilo y la copia local usan el mismo. */
+  messageId: string | null;
+};
+
+/** Compone el MIME UNA sola vez: ese mismo crudo se envía por SMTP y se APPENDea a Enviados
+ *  — byte a byte lo que recibió el destinatario, no una reconstrucción. */
+export async function componerCorreo(emailCuenta: string, input: EntradaCorreo): Promise<CorreoCompuesto | { error: string }> {
   const referencias = [input.referencias, input.enRespuestaA].filter(Boolean).join(" ").trim() || undefined;
   // Las incrustadas van como adjuntos con cid + disposición inline; las normales, como siempre.
   const attachments = [
@@ -100,7 +109,7 @@ export async function enviarDesdeCuenta(input: {
     ...(input.adjuntos ?? []).map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.mime })),
   ];
   const opciones = {
-    from: { name: input.nombreRemitente, address: cuenta.email },
+    from: { name: input.nombreRemitente, address: emailCuenta },
     to: input.para,
     ...(input.cc ? { cc: input.cc } : {}),
     subject: input.asunto,
@@ -109,52 +118,77 @@ export async function enviarDesdeCuenta(input: {
     ...(input.enRespuestaA ? { inReplyTo: input.enRespuestaA, references: referencias } : {}),
     ...(attachments.length ? { attachments } : {}),
   };
-
-  // El mensaje se COMPONE una sola vez y ese mismo crudo se envía y se appendea: lo que hay
-  // en «Enviados» es byte a byte lo que recibió el destinatario, no una reconstrucción.
-  let crudo: Buffer;
   try {
-    crudo = await new MailComposer(opciones).compile().build();
+    const mime = new MailComposer(opciones).compile();
+    // El Message-ID se genera AHORA (no al enviar): queda dentro del crudo, y la copia local
+    // hila con el mismo id aunque el despacho pase minutos (o días) después.
+    const messageId = mime.messageId() || null;
+    const crudo = await mime.build();
+    return { crudo, messageId };
   } catch {
-    return { ok: false, error: "No se pudo componer el mensaje." };
+    return { error: "No se pudo componer el mensaje." };
   }
+}
 
-  let messageId: string | null = null;
+/** DESPACHA un mensaje ya compuesto: SMTP → copia local en «Enviados» → APPEND al servidor.
+ *  Si el SMTP falla, no salió nada (reintentable). Después del SMTP ya nada falla hacia el
+ *  usuario: el correo salió, lo demás solo se degrada. */
+export async function despacharCorreo(
+  accountId: string,
+  comp: CorreoCompuesto,
+  meta: {
+    nombreRemitente: string;
+    para: string;
+    cc?: string | null;
+    asunto: string;
+    texto: string;
+    /** HTML para la copia LOCAL: firma por URL y data:/GIF vivos — no el de alambre con cid:
+     *  (los enviados locales no guardan las partes, así que un cid: aquí es una imagen rota). */
+    htmlLocal?: string | null;
+    enRespuestaA?: string | null;
+    referencias?: string | null;
+    projectId?: string | null;
+    adjuntosMeta?: { nombre: string; mime: string; bytes: number }[];
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cuenta = await db.mailAccount.findUnique({ where: { id: accountId } });
+  if (!cuenta) return { ok: false, error: "La cuenta de correo ya no existe." };
+
   try {
     // El sobre lleva TODOS los destinatarios (para + cc): el header cc sin sobre es un
     // mensaje que dice tener copia pero no la entrega.
-    const destinos = [input.para, ...(input.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean)];
-    const info = await transporte(cuenta).sendMail({ envelope: { from: cuenta.email, to: destinos }, raw: crudo });
-    messageId = info.messageId ?? null;
+    const destinos = [meta.para, ...(meta.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean)];
+    await transporte(cuenta).sendMail({ envelope: { from: cuenta.email, to: destinos }, raw: comp.crudo });
   } catch (e) {
     return { ok: false, error: errorEnEspanol(e, cuenta.smtpHost) };
   }
 
-  // Copia local (pestaña «Enviados») — el envío ya está hecho: de aquí en adelante nada falla
-  // hacia el usuario, solo se degrada.
+  const referencias = [meta.referencias, meta.enRespuestaA].filter(Boolean).join(" ").trim() || null;
+  // Copia local (pestaña «Enviados»). El tope del HTML es generoso a propósito: aquí viven
+  // las imágenes pegadas como data: (la copia local no puede bajarlas de ningún servidor).
   await db.mailMessage
     .create({
       data: {
         accountId: cuenta.id,
         uid: BigInt(Date.now()), // pseudo-UID local; los reales son del servidor
         folder: "ENVIADOS",
-        messageId,
-        inReplyTo: input.enRespuestaA ?? null,
+        messageId: comp.messageId,
+        inReplyTo: meta.enRespuestaA ?? null,
         // El enviado entra al MISMO hilo que lo que responde: la conversación se ve entera.
-        threadKey: claveHilo({ messageId, inReplyTo: input.enRespuestaA, references: referencias ?? null }),
-        ccList: (input.cc ?? "").slice(0, 500),
-        fromName: input.nombreRemitente,
+        threadKey: claveHilo({ messageId: comp.messageId, inReplyTo: meta.enRespuestaA ?? null, references: referencias }),
+        ccList: (meta.cc ?? "").slice(0, 500),
+        fromName: meta.nombreRemitente,
         fromEmail: cuenta.email,
-        toList: input.para.slice(0, 500),
-        subject: input.asunto.slice(0, 500) || "(sin asunto)",
+        toList: meta.para.slice(0, 500),
+        subject: meta.asunto.slice(0, 500) || "(sin asunto)",
         date: new Date(),
-        snippet: input.texto.replace(/\s+/g, " ").trim().slice(0, 180),
-        textBody: input.texto.slice(0, 200_000),
-        htmlBody: input.html ? input.html.slice(0, 400_000) : null,
-        projectId: input.projectId ?? null,
+        snippet: meta.texto.replace(/\s+/g, " ").trim().slice(0, 180),
+        textBody: meta.texto.slice(0, 200_000),
+        htmlBody: meta.htmlLocal ? meta.htmlLocal.slice(0, 12_000_000) : null,
+        projectId: meta.projectId ?? null,
         seen: true,
-        attachments: input.adjuntos?.length
-          ? input.adjuntos.map((a, i) => ({ indice: i, nombre: a.nombre.slice(0, 200), mime: a.mime.slice(0, 100), bytes: a.contenido.length }))
+        attachments: meta.adjuntosMeta?.length
+          ? meta.adjuntosMeta.map((a, i) => ({ indice: i, nombre: a.nombre.slice(0, 200), mime: a.mime.slice(0, 100), bytes: a.bytes }))
           : undefined,
       },
     })
@@ -165,7 +199,7 @@ export async function enviarDesdeCuenta(input: {
     const imap = clienteImap(cuenta);
     try {
       await imap.connect();
-      await imap.append(cuenta.sentFolder, crudo, ["\\Seen"]);
+      await imap.append(cuenta.sentFolder, comp.crudo, ["\\Seen"]);
     } catch {
       /* el correo ya salió; solo quedó fuera del webmail */
     } finally {
@@ -174,4 +208,27 @@ export async function enviarDesdeCuenta(input: {
   }
 
   return { ok: true };
+}
+
+/** Componer + despachar EN EL ACTO: los envíos del sistema (revisiones, videos) no pasan por
+ *  la cola de deshacer — los dispara un flujo, no un dedo que puede arrepentirse. */
+export async function enviarDesdeCuenta(
+  input: EntradaCorreo & { accountId: string; projectId?: string | null },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cuenta = await db.mailAccount.findUnique({ where: { id: input.accountId }, select: { email: true } });
+  if (!cuenta) return { ok: false, error: "La cuenta de correo ya no existe." };
+  const comp = await componerCorreo(cuenta.email, input);
+  if ("error" in comp) return { ok: false, error: comp.error };
+  return despacharCorreo(input.accountId, comp, {
+    nombreRemitente: input.nombreRemitente,
+    para: input.para,
+    cc: input.cc,
+    asunto: input.asunto,
+    texto: input.texto,
+    htmlLocal: input.html,
+    enRespuestaA: input.enRespuestaA,
+    referencias: input.referencias,
+    projectId: input.projectId,
+    adjuntosMeta: input.adjuntos?.map((a) => ({ nombre: a.nombre, mime: a.mime, bytes: a.contenido.length })),
+  });
 }

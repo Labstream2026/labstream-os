@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Building2, Clock, FileText, Inbox, Paperclip, PenTool, RefreshCw, Reply as ReplyIcon, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
+import { Archive, Building2, CalendarClock, Clock, FileText, Inbox, Paperclip, PenTool, RefreshCw, Reply as ReplyIcon, Search, Send, Star, Trash2, Unlink, X } from "lucide-react";
 import { IconCorreo } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
@@ -24,6 +24,8 @@ import { AbrirBorrador, BotonRedactar, CompositorProvider } from "./compositor";
 import { PanelFirma, BibliotecaGifs } from "./firma-gifs";
 import { VistaCorreoProvider, PanelesCorreo, MenuVista } from "./vista-correo";
 import { ClientesRail } from "./clientes-rail";
+import { etiquetaSalida } from "@/lib/correo/programar";
+import { ListaProgramados } from "./programados";
 import { BarraHilo, BotonesRespuesta, ListaClientes, ListaHilos, MarcarHiloLeido, type GrupoClienteVM, type HiloVM, type ProyectoAsignable } from "./bandeja";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +38,7 @@ export const dynamic = "force-dynamic";
 
 const HOST_DEFECTO = process.env.CORREO_HOST_DEFECTO || "192.168.0.22";
 type Adjunto = { indice: number; nombre: string; mime: string; bytes: number; cid?: string };
-type CarpetaKey = "recibidos" | "responder" | "clientes" | "destacados" | "pospuestos" | "enviados" | "borradores" | "archivo" | "papelera" | "ajustes";
+type CarpetaKey = "recibidos" | "responder" | "clientes" | "destacados" | "pospuestos" | "enviados" | "programados" | "borradores" | "archivo" | "papelera" | "ajustes";
 const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "recibidos", label: "Recibidos", Icon: Inbox },
   { key: "responder", label: "Por responder", Icon: ReplyIcon },
@@ -44,6 +46,9 @@ const CARPETAS: { key: CarpetaKey; label: string; Icon: typeof Inbox }[] = [
   { key: "destacados", label: "Destacados", Icon: Star },
   { key: "pospuestos", label: "Pospuestos", Icon: Clock },
   { key: "enviados", label: "Enviados", Icon: Send },
+  // «Programados» solo aparece cuando hay algo esperando (o algo que NO salió): una carpeta
+  // vacía perpetua es ruido — y un envío fallido escondido sería mentirle a la persona.
+  { key: "programados", label: "Programados", Icon: CalendarClock },
   { key: "borradores", label: "Borradores", Icon: FileText },
   { key: "archivo", label: "Archivo", Icon: Archive },
   { key: "papelera", label: "Papelera", Icon: Trash2 },
@@ -88,11 +93,12 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       ? { flagged: true, folder: { not: "PAPELERA" } }
       : carpeta === "pospuestos"
         ? { snoozedUntil: { gt: ahora }, folder: { not: "PAPELERA" } }
-        : carpeta === "recibidos" || carpeta === "ajustes"
+        // Programados no lista MailMessage (su lista sale de la cola); el where da igual.
+        : carpeta === "recibidos" || carpeta === "ajustes" || carpeta === "programados"
           ? { folder: "INBOX", OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: ahora } }] }
           : { folder: carpeta === "enviados" ? "ENVIADOS" : carpeta === "archivo" ? "ARCHIVO" : "PAPELERA" };
 
-  const [mensajes, sinLeer, sinLeerClientes, nPorResponder, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo] = await Promise.all([
+  const [mensajes, sinLeer, sinLeerClientes, nPorResponder, nPospuestos, borradores, porCliente, clientes, contactosEquipo, gifsLib, yo, nProgramados, nProgramadosError] = await Promise.all([
     db.mailMessage.findMany({
       where: {
         accountId: cuenta.id,
@@ -122,6 +128,10 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     // La biblioteca de GIFs (solo metadatos: los bytes los sirve /api/correo/gif/<id>).
     db.mailGif.findMany({ orderBy: { createdAt: "desc" }, take: 60, select: { id: true, nombre: true, createdBy: { select: { name: true } } } }),
     db.user.findUnique({ where: { id: session.id }, select: { name: true, title: true } }),
+    // La cola de salida: lo genuinamente programado (a más de un minuto — la ventana de
+    // deshacer de un envío normal no cuenta como «programado») y lo que NO salió.
+    db.mailOutbox.count({ where: { accountId: cuenta.id, OR: [{ estado: "error" }, { estado: "pendiente", sendAt: { gt: new Date(Date.now() + 60_000) } }] } }),
+    db.mailOutbox.count({ where: { accountId: cuenta.id, estado: "error" } }),
   ]);
   // Plantillas del estudio para el menú del redactor (las de fábrica van en el código).
   const plantillasCorreo = await db.mailTemplate.findMany({
@@ -136,6 +146,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
     select: { id: true, nombre: true, html: true, imageMime: true, createdBy: { select: { name: true } } },
   });
 
+  const carpetasVisibles = CARPETAS.filter((c) => c.key !== "programados" || nProgramados > 0);
   const clienteInfo = new Map(clientes.filter((c) => c.client).map((c) => [c.client!.id, { nombre: c.client!.name, hex: tone(c.client!.accentColor ?? "slate").hex }]));
   const noLeidosCliente = new Map(porCliente.map((r) => [r.clientId!, r._count._all]));
   const contactos = [...new Set(contactosEquipo.map((u) => u.email).filter(Boolean))].sort();
@@ -193,6 +204,25 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       g.noLeidos += h.noLeidos;
     }
   }
+
+  // ── Carpeta «Programados»: la cola de salida de este buzón, esperas y fallos ──
+  const programados = carpeta === "programados" && !clFiltro
+    ? (
+        await db.mailOutbox.findMany({
+          where: { accountId: cuenta.id, estado: { in: ["pendiente", "error"] } },
+          orderBy: { sendAt: "asc" },
+          take: 100,
+          select: { id: true, para: true, asunto: true, sendAt: true, estado: true, ultimoError: true, textoLocal: true },
+        })
+      ).map((f) => ({
+        id: f.id,
+        para: f.para,
+        asunto: f.asunto,
+        cuando: etiquetaSalida(f.sendAt),
+        error: f.estado === "error" ? (f.ultimoError ?? "no salió") : null,
+        snippet: f.textoLocal.replace(/\s+/g, " ").trim().slice(0, 90),
+      }))
+    : [];
 
   // ── El hilo abierto (por ids, del propio buzón siempre) ──
   const hiloMsgs = hiloAbiertoIds.length
@@ -288,13 +318,14 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
       <div className="flex h-full min-h-0 flex-col">
         {/* Carpetas en móvil/tablet: una fila deslizable arriba (el raíl aparece en lg). */}
         <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-1.5 lg:hidden">
-          {CARPETAS.map(({ key, label, Icon }) => (
+          {carpetasVisibles.map(({ key, label, Icon }) => (
             <Link key={key} href={`/correo?c=${key}`} prefetch={false}
               className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-[12px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted")}>
               <Icon className="size-3.5" /> {label}
               {key === "recibidos" && sinLeer > 0 ? <b className="text-[11px] tabular-nums">{sinLeer}</b> : null}
               {key === "responder" && nPorResponder > 0 ? <b className="text-[11px] tabular-nums text-amber-600 dark:text-amber-400">{nPorResponder}</b> : null}
               {key === "clientes" && sinLeerClientes > 0 ? <b className="text-[11px] tabular-nums">{sinLeerClientes}</b> : null}
+              {key === "programados" && nProgramados > 0 ? <b className={cn("text-[11px] tabular-nums", nProgramadosError > 0 && "text-destructive")}>{nProgramados}</b> : null}
             </Link>
           ))}
         </nav>
@@ -303,7 +334,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
           {/* ── Raíl (lg+): fino, sin ruido — Redactar, carpetas, clientes y la cuenta abajo ── */}
           <nav className="hidden w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border px-2.5 py-3 lg:flex">
             <div className="mb-2.5"><BotonRedactar /></div>
-            {CARPETAS.map(({ key, label, Icon }) => (
+            {carpetasVisibles.map(({ key, label, Icon }) => (
               <Link key={key} href={`/correo?c=${key}`} prefetch={false}
                 className={cn("flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px]", !clFiltro && carpeta === key ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
                 <Icon className="size-4" /> {label}
@@ -311,6 +342,7 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                 {key === "responder" && nPorResponder > 0 ? <b className="ml-auto text-[11.5px] tabular-nums text-amber-600 dark:text-amber-400">{nPorResponder}</b> : null}
                 {key === "clientes" && sinLeerClientes > 0 ? <b className="ml-auto text-[11.5px] tabular-nums">{sinLeerClientes}</b> : null}
                 {key === "pospuestos" && nPospuestos > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{nPospuestos}</span> : null}
+                {key === "programados" && nProgramados > 0 ? <b className={cn("ml-auto text-[11.5px] tabular-nums", nProgramadosError > 0 ? "text-destructive" : "text-muted-foreground")}>{nProgramados}</b> : null}
                 {key === "borradores" && borradores.length > 0 ? <span className="ml-auto text-[11.5px] tabular-nums text-muted-foreground">{borradores.length}</span> : null}
               </Link>
             ))}
@@ -375,6 +407,8 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                   </form>
                 </div>
               </div>
+            ) : carpeta === "programados" && !clFiltro ? (
+              <ListaProgramados filas={programados} />
             ) : carpeta === "borradores" && !clFiltro ? (
               <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
                 {borradores.map((b) => (
@@ -463,7 +497,9 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                       const adjuntos = ((m.attachments as Adjunto[] | null) ?? []).filter((a) => a && typeof a.indice === "number");
                       // Imágenes INCRUSTADAS (firmas, GIFs): cid → nuestra ruta autenticada.
                       const cids = new Map(adjuntos.filter((a) => a.cid).map((a) => [cidLimpio(a.cid!), `/api/correo/inline/${m.id}/${a.indice}`]));
-                      const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id, cids }) : null;
+                      // Los ENVIADOS son PROPIOS: su HTML lo compuso nuestro redactor — las
+                      // imágenes data: pegadas al escribir se muestran (no hay de dónde bajarlas).
+                      const cuerpo = m.htmlBody ? sanearCorreo(m.htmlBody, { permitirImagenes: sp.img === m.id, cids, propio: m.folder === "ENVIADOS" }) : null;
                       // CITA detectada: solo en el mensaje más reciente (ahí vive la logística)
                       // y solo en lo recibido — agendar desde lo que uno mismo mandó es raro.
                       const cita = esUltimo && m.folder !== "ENVIADOS" ? detectarCita(m.subject, m.textBody ?? m.snippet, Date.now()) : null;
@@ -496,7 +532,11 @@ export default async function CorreoPage({ searchParams }: { searchParams: Promi
                               </p>
                             ) : null}
                             {cuerpo ? (
-                              <iframe title="Mensaje" sandbox="allow-popups allow-popups-to-escape-sandbox"
+                              /* allow-same-origin es NECESARIO, no cortesía: sin él el marco es de
+                                 origen opaco y la cookie de sesión (SameSite=Lax) no viaja con las
+                                 <img> hacia /api/correo/… — firmas y GIFs incrustados salían rotos.
+                                 Sigue sin allow-scripts y con el HTML doblemente saneado: inerte. */
+                              <iframe title="Mensaje" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                                 srcDoc={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:10px;background:#fff;color:#111;font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;word-break:break-word">${cuerpo.html}</body></html>`}
                                 className="h-[46vh] w-full rounded-lg border border-border bg-white" />
                             ) : (

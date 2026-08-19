@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlignCenter, AlignLeft, Bold, Eraser, Heading2, ImagePlus, Italic, LayoutTemplate, Link2, List, ListOrdered, Loader2, Minus, Paintbrush, Paperclip, PenLine, Send, Smile, Sparkles, Trash2, Underline, Upload, X } from "lucide-react";
-import { enviarCorreoForm, guardarBorrador, subirGif, guardarPlantillaCorreo, eliminarPlantillaCorreo } from "./acciones";
+import { AlignCenter, AlignLeft, Bold, CalendarClock, ChevronUp, Eraser, Heading2, ImagePlus, Italic, LayoutTemplate, Link2, List, ListOrdered, Loader2, Minus, Paintbrush, Paperclip, PenLine, Send, Smile, Sparkles, Trash2, Underline, Undo2, Upload, X } from "lucide-react";
+import { deshacerEnvio, enviarCorreoForm, guardarBorrador, subirGif, guardarPlantillaCorreo, eliminarPlantillaCorreo } from "./acciones";
 import { bloqueBoton, bloqueCaja, bloqueSeparador, bloqueTarjeta, PLANTILLAS_BASE } from "@/lib/correo/bloques";
+import { presetsProgramacion } from "@/lib/correo/programar";
 import { PALETA_CORREO } from "@/lib/correo/redactar";
 
 // ── El compositor flotante (estilo Gmail), ahora CON FORMATO ────────────────
@@ -61,6 +62,15 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
   const [pendiente, arranca] = React.useTransition();
   const formRef = React.useRef<HTMLFormElement>(null);
   const editorRef = React.useRef<HTMLDivElement>(null);
+  const programadoRef = React.useRef<HTMLInputElement>(null);
+  // El envío EN LA COLA: con esto vive el toast de «Deshacer» (y su restauración exacta).
+  const [enviado, setEnviado] = React.useState<{
+    id: string;
+    saleEn: number;
+    programado: string | null;
+    restore: PrefillCompositor;
+    conAdjuntos: boolean;
+  } | null>(null);
 
   // ── Autoguardado de borrador (ahora guarda el HTML del redactor) ──
   const [borradorId, setBorradorId] = React.useState<string | null>(null);
@@ -134,18 +144,47 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
   const enviar = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const editor = editorRef.current;
-    if (!editor) return;
+    const p = prefill;
+    if (!editor || !p) return;
     if (!editor.innerText.trim() && !editor.querySelector("img")) { setError("El mensaje está vacío."); return; }
     const fd = new FormData(e.currentTarget);
     fd.set("html", editor.innerHTML);
+    if (programadoRef.current) programadoRef.current.value = ""; // consumido: el próximo Enviar vuelve a ser normal
+    // La RESTAURACIÓN se arma ANTES de enviar: si la persona deshace, el compositor vuelve
+    // con exactamente esto (los archivos adjuntos no pueden volver solos — se avisa).
+    const restore: PrefillCompositor = {
+      modo: p.modo,
+      para: String(fd.get("para") ?? ""),
+      cc: String(fd.get("cc") ?? ""),
+      asunto: String(fd.get("asunto") ?? ""),
+      texto: editor.innerHTML,
+      responderAId: p.responderAId,
+      reenviarDeId: p.reenviarDeId,
+      proyectoId: p.proyectoId,
+    };
+    const conAdjuntos = fd.getAll("archivos").some((f) => f instanceof File && f.size > 0);
     setError(null);
     arranca(async () => {
       const r = await enviarCorreoForm(fd);
       if (!r.ok) { setError(r.error ?? "No se pudo enviar."); return; }
       setPrefill(null);
+      if (r.envio) setEnviado({ ...r.envio, restore, conAdjuntos });
       router.refresh();
     });
   };
+
+  // «Deshacer»: compite con el despacho — si gana, el compositor vuelve con lo escrito.
+  const deshacer = React.useCallback(async (): Promise<boolean> => {
+    const e = enviado;
+    if (!e) return false;
+    const r = await deshacerEnvio(e.id);
+    if (!r.ok) return false;
+    setEnviado(null);
+    abrir(e.restore);
+    if (e.conAdjuntos) setError("Ojo: los archivos adjuntos no vuelven solos — adjúntalos otra vez.");
+    router.refresh();
+    return true;
+  }, [enviado, abrir, router]);
 
   const titulo =
     prefill?.modo === "responder" ? "Responder" : prefill?.modo === "todos" ? "Responder a todos" : prefill?.modo === "reenviar" ? "Reenviar" : "Mensaje nuevo";
@@ -215,10 +254,20 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
             ) : null}
             {error ? <p className="px-4 pb-1 pt-2 text-[12px] font-medium text-destructive">{error}</p> : null}
             <div className="flex items-center gap-2 px-3 py-2.5">
-              <button type="submit" disabled={pendiente}
-                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-5 py-2 text-[13px] font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                {pendiente ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />} Enviar
-              </button>
+              <input ref={programadoRef} type="hidden" name="programadoPara" defaultValue="" />
+              <div className="flex items-stretch">
+                <button type="submit" disabled={pendiente}
+                  className="inline-flex items-center gap-1.5 rounded-l-full bg-primary px-5 py-2 text-[13px] font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                  {pendiente ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />} Enviar
+                </button>
+                <MenuProgramar
+                  disabled={pendiente}
+                  programar={(valor) => {
+                    if (programadoRef.current) programadoRef.current.value = valor;
+                    formRef.current?.requestSubmit();
+                  }}
+                />
+              </div>
               <label className="cursor-pointer rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" title="Adjuntar archivos (máx. 15 MB en total)">
                 <Paperclip className="size-4" />
                 <input
@@ -235,7 +284,102 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
       <datalist id="correo-contactos">
         {contactos.map((c) => (<option key={c} value={c} />))}
       </datalist>
+      {enviado ? <ToastEnvio key={enviado.id} envio={enviado} deshacer={deshacer} cerrar={() => setEnviado(null)} /> : null}
     </CompositorCtx.Provider>
+  );
+}
+
+// ── «Programar envío»: el lado ▲ del botón dividido ─────────────────────────
+// Presets en hora de Bogotá (los calcula la MISMA librería que valida en el servidor) y un
+// campo libre. Elegir es enviar: el valor viaja en el formulario y el mensaje espera en la
+// cola hasta su hora — visible en la carpeta «Programados», cancelable hasta el final.
+function MenuProgramar({ disabled, programar }: { disabled: boolean; programar: (valor: string) => void }) {
+  const [abierto, setAbierto] = React.useState(false);
+  const [fechaLibre, setFechaLibre] = React.useState("");
+  const presets = React.useMemo(() => (abierto ? presetsProgramacion(Date.now()) : []), [abierto]);
+  return (
+    <div className="relative">
+      <button type="button" disabled={disabled} onClick={() => setAbierto((v) => !v)} title="Programar envío"
+        aria-expanded={abierto}
+        className="flex h-full items-center rounded-r-full border-l border-primary-foreground/25 bg-primary px-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+        <ChevronUp className={cnFlecha(abierto)} />
+      </button>
+      {abierto ? (
+        <div className="absolute bottom-11 left-0 z-30 w-64 rounded-xl border border-border bg-card p-2 shadow-2xl">
+          <p className="flex items-center gap-1.5 px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <CalendarClock className="size-3.5" /> Programar envío
+          </p>
+          {presets.map((p) => (
+            <button key={p.valor} type="button" onClick={() => { setAbierto(false); programar(p.valor); }}
+              className="flex w-full items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-muted">
+              {p.etiqueta} <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{p.detalle}</span>
+            </button>
+          ))}
+          <div className="mt-1 border-t border-border px-2 pb-1 pt-2">
+            <label className="text-[11px] text-muted-foreground" htmlFor="programar-libre">O elige el momento (hora de Bogotá):</label>
+            <div className="mt-1 flex items-center gap-1.5">
+              <input id="programar-libre" type="datetime-local" value={fechaLibre} onChange={(e) => setFechaLibre(e.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:ring-2 focus:ring-ring" />
+              <button type="button" disabled={!fechaLibre}
+                onClick={() => { setAbierto(false); programar(fechaLibre); }}
+                className="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40">
+                Listo
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+const cnFlecha = (abierto: boolean) => `size-4 transition-transform ${abierto ? "" : "rotate-180"}`;
+
+// ── El toast del envío en cola: la red de seguridad visible ─────────────────
+// Un «Enviar» normal espera 15 s en la cola; esto es la cuenta regresiva y el botón
+// «Deshacer». Un programado muestra su hora — también se puede deshacer aquí mismo.
+function ToastEnvio({ envio, deshacer, cerrar }: {
+  envio: { id: string; saleEn: number; programado: string | null };
+  deshacer: () => Promise<boolean>;
+  cerrar: () => void;
+}) {
+  const [resta, setResta] = React.useState(() => Math.max(0, Math.ceil((envio.saleEn - Date.now()) / 1000)));
+  const [tarde, setTarde] = React.useState(false);
+  const [pendiente, arranca] = React.useTransition();
+  const salido = !envio.programado && resta <= 0;
+
+  // El reloj del toast (solo pinta: el despacho real es del servidor).
+  React.useEffect(() => {
+    if (envio.programado) return;
+    const t = setInterval(() => setResta(Math.max(0, Math.ceil((envio.saleEn - Date.now()) / 1000))), 250);
+    return () => clearInterval(t);
+  }, [envio.saleEn, envio.programado]);
+
+  // Se despide solo: 4 s después de salir, o 12 s para un programado.
+  React.useEffect(() => {
+    if (envio.programado) { const t = setTimeout(cerrar, 12_000); return () => clearTimeout(t); }
+    if (salido) { const t = setTimeout(cerrar, 4_000); return () => clearTimeout(t); }
+  }, [salido, envio.programado, cerrar]);
+
+  return (
+    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-3 rounded-xl border border-border bg-foreground px-4 py-2.5 text-[13px] text-background shadow-2xl">
+      {tarde ? (
+        <span>Ya había salido 😬 — míralo en Enviados.</span>
+      ) : envio.programado ? (
+        <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-4" /> Programado: sale el {envio.programado}.</span>
+      ) : salido ? (
+        <span>✓ Enviado.</span>
+      ) : (
+        <span className="tabular-nums">Enviando en {resta} s…</span>
+      )}
+      {!tarde && !salido ? (
+        <button type="button" disabled={pendiente}
+          onClick={() => arranca(async () => { const ok = await deshacer(); if (!ok) { setTarde(true); setTimeout(cerrar, 3_000); } })}
+          className="inline-flex items-center gap-1 rounded-full bg-background/15 px-3 py-1 font-bold hover:bg-background/25 disabled:opacity-50">
+          <Undo2 className="size-3.5" /> Deshacer
+        </button>
+      ) : null}
+      <button type="button" onClick={cerrar} aria-label="Cerrar aviso" className="rounded p-0.5 opacity-60 hover:opacity-100"><X className="size-3.5" /></button>
+    </div>
   );
 }
 

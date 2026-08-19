@@ -55,9 +55,15 @@ export function sanearCorreo(
     permitirImagenes?: boolean;
     /** Content-ID → URL de la app que sirve esa parte incrustada (autenticada). */
     cids?: Map<string, string>;
+    /** Mensaje ESCRITO EN LA APP (copia local de Enviados): su HTML ya pasó por el saneador
+     *  de salida al componerse, así que las imágenes data: del redactor se dejan vivir —
+     *  no son baliza (no piden nada a nadie) y son la única forma de verlas: la copia
+     *  local no guarda partes CID de las que bajarlas. Lo remoto sigue bloqueado igual. */
+    propio?: boolean;
   },
 ): HtmlSaneado {
   const permitir = opts?.permitirImagenes === true;
+  const propio = opts?.propio === true;
   const cids = opts?.cids;
   let bloqueadas = 0;
 
@@ -77,7 +83,7 @@ export function sanearCorreo(
     allowedStyles: { "*": ESTILOS },
     // mailto incluido: «escríbenos a…» es legítimo en un correo. javascript: muere aquí.
     allowedSchemes: ["http", "https", "mailto"],
-    allowedSchemesByTag: { img: permitir ? ["http", "https"] : [] },
+    allowedSchemesByTag: { img: [...(permitir ? ["http", "https"] : []), ...(propio ? ["data"] : [])] },
     transformTags: {
       // Todo enlace abre fuera y sin darle al destino una ventana que manipular.
       a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
@@ -92,8 +98,9 @@ export function sanearCorreo(
     exclusiveFilter: (frame) => {
       if (frame.tag !== "img") return false;
       const src = String(frame.attribs?.src ?? "");
-      // Vivas: las incrustadas ya resueltas a nuestra ruta, y las remotas solo si se pidió.
-      const viva = src.startsWith("/api/correo/") || (permitir && /^https?:\/\//i.test(src));
+      // Vivas: las incrustadas ya resueltas a nuestra ruta, las remotas solo si se pidió, y
+      // las data: de imagen solo en mensajes PROPIOS (lo que el redactor pegó al escribir).
+      const viva = src.startsWith("/api/correo/") || (permitir && /^https?:\/\//i.test(src)) || (propio && /^data:image\//i.test(src));
       if (!viva) bloqueadas += 1;
       return !viva;
     },

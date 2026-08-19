@@ -78,6 +78,23 @@ describe("sanearCorreo — lo que tiene que vivir", () => {
     const r = sanearCorreo(`<a href="mailto:hola@labstream.co">escríbenos</a>`);
     expect(r.html).toContain("mailto:hola@labstream.co");
   });
+
+  it("en mensajes PROPIOS (enviados) las imágenes data: viven; en ajenos, no", () => {
+    const html = `<p>mira</p><img src="data:image/png;base64,iVBORw0KGgo=">`;
+    const propio = sanearCorreo(html, { propio: true });
+    expect(propio.html).toContain("data:image/png");
+    expect(propio.imagenesBloqueadas).toBe(0);
+    const ajeno = sanearCorreo(html);
+    expect(ajeno.html).not.toContain("data:image");
+    expect(ajeno.imagenesBloqueadas).toBe(1);
+  });
+
+  it("propio NO abre la puerta a lo remoto ni a data: que no sea imagen", () => {
+    const r = sanearCorreo(`<img src="https://tracker.example/pixel.gif"><img src="data:text/html;base64,PGI+">`, { propio: true });
+    expect(r.html).not.toContain("tracker.example");
+    expect(r.html).not.toContain("data:text");
+    expect(r.imagenesBloqueadas).toBe(2);
+  });
 });
 
 describe("textoPlano", () => {

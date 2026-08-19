@@ -12,7 +12,9 @@ import { backfillCuenta, descargarAdjunto, marcarEnServidor, moverMensaje, sincr
 import { esDominioAgrupable } from "@/lib/correo/hilos";
 import { userCanAccessClient } from "@/lib/client-access";
 import { userCanAccessProject } from "@/lib/project-access";
-import { enviarDesdeCuenta, probarConexion } from "@/lib/correo/enviar";
+import { componerCorreo, probarConexion } from "@/lib/correo/enviar";
+import { cancelarDespacho, despacharOutbox, programarDespacho } from "@/lib/correo/outbox";
+import { etiquetaSalida, validarProgramacion } from "@/lib/correo/programar";
 import { sanearSaliente, extraerInlines, textoDeHtml, htmlDeTexto, type ParteInline } from "@/lib/correo/redactar";
 import { firmaDeCuenta } from "@/lib/correo/firma";
 import { textoPlano } from "@/lib/correo/sanitizar";
@@ -139,7 +141,18 @@ const MAX_ADJUNTOS_BYTES = 15 * 1024 * 1024;
  * llega como HTML del redactor: se sanea, sus imágenes se vuelven partes CID (GIFs de la
  * biblioteca incluidos) y la firma —con su imagen en alta calidad— se anexa al final.
  */
-export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; error?: string }> {
+// La ventana de DESHACER: lo que un «Enviar» normal espera en la cola antes de salir de
+// verdad. Suficiente para el «¡el adjunto!» — corta para que el correo no se sienta lento.
+const DESHACER_SEGUNDOS = 15;
+
+export type EnvioEncolado = {
+  ok: boolean;
+  error?: string;
+  /** El envío quedó en la cola: con esto el toast ofrece «Deshacer» (o muestra la hora). */
+  envio?: { id: string; saleEn: number; programado: string | null };
+};
+
+export async function enviarCorreoForm(fd: FormData): Promise<EnvioEncolado> {
   const session = await sesionEquipo();
   if (!session) return { ok: false, error: "El correo es solo para el equipo." };
   const cuenta = await db.mailAccount.findUnique({ where: { userId: session.id }, select: { id: true, email: true } });
@@ -155,8 +168,16 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
 
   if (!para || !listaValida(para)) return { ok: false, error: "El destinatario no parece una dirección válida." };
   if (cc && !listaValida(cc)) return { ok: false, error: "Hay una dirección inválida en CC." };
+  // ¿Programado? El valor viene como pared de Bogotá; inválido se rechaza aquí, no se
+  // «corrige» en silencio a otra hora.
+  const programadoRaw = String(fd.get("programadoPara") ?? "").trim();
+  const programadoPara = programadoRaw ? validarProgramacion(programadoRaw, Date.now()) : null;
+  if (programadoRaw && !programadoPara) return { ok: false, error: "Esa hora de envío no sirve: ya pasó o está a más de un año." };
   // El redactor manda `html`; `texto` queda como respaldo (borradores viejos, sin JS).
-  let html = htmlCrudo ? sanearSaliente(htmlCrudo) : htmlDeTexto(textoCrudo);
+  // Lo que escribió la persona se guarda APARTE (htmlUsuario): es lo que vuelve al
+  // compositor si deshace, y la base de la copia local — sin cid: de alambre.
+  const htmlUsuario = htmlCrudo ? sanearSaliente(htmlCrudo) : htmlDeTexto(textoCrudo);
+  let html = htmlUsuario;
   if (!textoDeHtml(html).trim() && !/<img\b/i.test(html)) return { ok: false, error: "El mensaje está vacío." };
 
   // Adjuntos del formulario, con tope total.
@@ -176,6 +197,7 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   let original: { id: string; uid: bigint; folder: string; projectId: string | null } | null = null;
   let projectId: string | null = null;
   let cita = ""; // el original citado (respuestas): va DESPUÉS de la firma, como en Gmail
+  let colaFwd = ""; // el original citado (reenvíos): va ANTES de la firma
   // «Escribir al cliente» desde un proyecto: el enviado nace colgado de él (validado, no se
   // confía en el id del navegador).
   const proyectoIdForm = String(fd.get("proyectoId") ?? "").trim() || null;
@@ -207,7 +229,7 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
       // ADJUNTOS originales (se bajan del servidor y viajan de nuevo; antes se perdían).
       asunto = asunto || `Fwd: ${orig.subject}`;
       const fecha = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" }).format(orig.date);
-      html += `<br><br><div>---------- Mensaje reenviado ----------<br>De: ${htmlDeTexto(`${orig.fromName ?? ""} <${orig.fromEmail ?? ""}>`)}<br>Fecha: ${htmlDeTexto(fecha)}<br>Asunto: ${htmlDeTexto(orig.subject)}<br>Para: ${htmlDeTexto(orig.toList)}</div><blockquote>${htmlDeTexto((orig.textBody ?? "").slice(0, 100_000))}</blockquote>`;
+      colaFwd = `<br><br><div>---------- Mensaje reenviado ----------<br>De: ${htmlDeTexto(`${orig.fromName ?? ""} <${orig.fromEmail ?? ""}>`)}<br>Fecha: ${htmlDeTexto(fecha)}<br>Asunto: ${htmlDeTexto(orig.subject)}<br>Para: ${htmlDeTexto(orig.toList)}</div><blockquote>${htmlDeTexto((orig.textBody ?? "").slice(0, 100_000))}</blockquote>`;
 
       const metaAdjuntos = ((orig.attachments as { indice: number; nombre?: string; bytes?: number }[] | null) ?? []).filter((a) => typeof a?.indice === "number");
       for (const a of metaAdjuntos) {
@@ -224,9 +246,13 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   }
 
   // Firma: la corporativa de plantilla, la personalizada o la institucional — la compone
-  // el MISMO helper de la vista previa, con la imagen INCRUSTADA en alta calidad.
+  // el MISMO helper de la vista previa, con la imagen INCRUSTADA en alta calidad. Para la
+  // copia LOCAL se pide otra vez en modo vista previa (imagen por URL de la app): los
+  // enviados locales no guardan las partes CID y un cid: ahí sería una imagen rota.
   const firma = await firmaDeCuenta(cuenta.id);
-  html += firma.html + cita;
+  const firmaLocal = await firmaDeCuenta(cuenta.id, { paraVistaPrevia: true });
+  html += colaFwd + firma.html + cita;
+  const colaLocal = colaFwd + firmaLocal.html + cita;
 
   // Imágenes del cuerpo (pegadas o de la biblioteca de GIFs) → partes CID.
   const extraccion = await extraerInlines(html, async (id) => {
@@ -236,8 +262,10 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
   if (extraccion.error) return { ok: false, error: extraccion.error };
   const inlines: ParteInline[] = [...extraccion.inlines, ...firma.inlines];
 
-  const r = await enviarDesdeCuenta({
-    accountId: cuenta.id,
+  // COMPONER ya (la firma y los adjuntos quedan congelados en el crudo) y ENCOLAR: el
+  // despacho de verdad pasa en 15 segundos — la ventana de «Deshacer» — o a la hora
+  // programada. Del original solo se guarda el id: respondido se marca AL SALIR, no antes.
+  const comp = await componerCorreo(cuenta.email, {
     nombreRemitente: session.name ?? "Labstream",
     para,
     cc: cc || null,
@@ -248,19 +276,96 @@ export async function enviarCorreoForm(fd: FormData): Promise<{ ok: boolean; err
     enRespuestaA,
     referencias,
     adjuntos,
-    projectId,
   });
-  if (!r.ok) return r;
+  if ("error" in comp) return { ok: false, error: comp.error };
 
-  if (original && original.folder !== "ENVIADOS") {
-    await db.mailMessage.update({ where: { id: original.id }, data: { answered: true } }).catch(() => {});
-    void marcarEnServidor(cuenta.id, original.uid, "\\Answered", { folder: original.folder }).catch(() => {});
-  }
-  // El borrador del que salió este envío ya cumplió: se va.
+  const sendAt = programadoPara ?? new Date(Date.now() + DESHACER_SEGUNDOS * 1000);
+  const fila = await db.mailOutbox.create({
+    data: {
+      accountId: cuenta.id,
+      sendAt,
+      crudo: new Uint8Array(comp.crudo),
+      messageId: comp.messageId,
+      para,
+      cc,
+      asunto: asunto || "(sin asunto)",
+      htmlUsuario,
+      colaLocal,
+      textoLocal: textoDeHtml(extraccion.html),
+      enRespuestaA,
+      referencias,
+      respondeAId: original?.id ?? null,
+      reenviaDeId: reenviarDeId,
+      projectId,
+      adjuntosMeta: adjuntos.length ? adjuntos.map((a) => ({ nombre: a.nombre, mime: a.mime, bytes: a.contenido.length })) : undefined,
+      nombreRemitente: session.name ?? "Labstream",
+    },
+    select: { id: true },
+  });
+  programarDespacho(fila.id, sendAt);
+
+  // El borrador del que salió este envío ya cumplió: se va. (Si deshace, el autoguardado
+  // del compositor restaurado crea uno nuevo — nada se pierde.)
   const borradorId = String(fd.get("borradorId") ?? "").trim();
   if (borradorId) await db.mailDraft.deleteMany({ where: { id: borradorId, accountId: cuenta.id } }).catch(() => {});
   revalidatePath("/correo");
+  return { ok: true, envio: { id: fila.id, saleEn: sendAt.getTime(), programado: programadoPara ? etiquetaSalida(sendAt) : null } };
+}
+
+// ── La cola de salida: deshacer, cancelar, adelantar ──
+// Las tres compiten con el despacho por la MISMA transición de estado, así que aquí no hay
+// carreras: o la fila seguía pendiente y la operación gana, o ya salió y se dice la verdad.
+
+export async function deshacerEnvio(id: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const r = await db.mailOutbox.deleteMany({ where: { id, estado: "pendiente", account: { userId: session.id } } });
+  if (r.count !== 1) return { ok: false, error: "Ya había salido." };
+  cancelarDespacho(id);
+  revalidatePath("/correo");
   return { ok: true };
+}
+
+/** Cancela un programado (o un fallido) y lo deja en BORRADORES: nada se pierde. */
+export async function cancelarProgramado(id: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const fila = await db.mailOutbox.findFirst({
+    where: { id, account: { userId: session.id } },
+    select: { accountId: true, para: true, cc: true, asunto: true, htmlUsuario: true, respondeAId: true, reenviaDeId: true },
+  });
+  if (!fila) return { ok: false, error: "Ese envío ya no existe." };
+  const r = await db.mailOutbox.deleteMany({ where: { id, estado: { in: ["pendiente", "error"] } } });
+  if (r.count !== 1) return { ok: false, error: "Justo estaba saliendo — mira en Enviados." };
+  cancelarDespacho(id);
+  await db.mailDraft.create({
+    data: {
+      accountId: fila.accountId,
+      para: fila.para.slice(0, 500),
+      cc: fila.cc.slice(0, 500),
+      asunto: fila.asunto.slice(0, 300),
+      texto: fila.htmlUsuario.slice(0, 100_000),
+      responderAId: fila.respondeAId,
+      reenviarDeId: fila.reenviaDeId,
+    },
+  });
+  revalidatePath("/correo");
+  return { ok: true };
+}
+
+/** «Enviar ahora»: adelanta un programado — o reintenta un fallido (reinicia el conteo). */
+export async function enviarAhoraProgramado(id: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await sesionEquipo();
+  if (!session) return { ok: false, error: "Sin sesión." };
+  const r = await db.mailOutbox.updateMany({
+    where: { id, account: { userId: session.id }, estado: { in: ["pendiente", "error"] } },
+    data: { estado: "pendiente", sendAt: new Date(), intentos: 0, ultimoError: null },
+  });
+  if (r.count !== 1) return { ok: false, error: "Justo estaba saliendo." };
+  cancelarDespacho(id);
+  const res = await despacharOutbox(id);
+  revalidatePath("/correo");
+  return res.ok ? { ok: true } : { ok: false, error: res.error ?? "No se pudo enviar." };
 }
 
 // ── Acciones sobre mensajes: estrella, leído/no leído, archivar, papelera ──
