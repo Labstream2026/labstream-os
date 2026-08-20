@@ -311,6 +311,22 @@ export function Sidebar({
   const activeProjectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
   const [openMap, setOpenMap] = React.useState<Record<string, boolean>>({});
   const isClientOpen = (c: SidebarClient) => openMap[c.id] ?? c.projects.some((p) => p.id === activeProjectId);
+  // ── Raíl mínimo ── Con TODO cerrado, los clientes son solo su foto; abrir uno DESPIERTA
+  // la sección y los nombres de todos se vuelven legibles (los clientes nuevos, cuya foto
+  // aún no dice nada, se leen sin abrir nada). Esc cierra y vuelve a fotos puras.
+  const seccionDespierta = clients.some((c) => isClientOpen(c));
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      // Cierre explícito de TODOS (incluido el auto-abierto del proyecto activo, que sin
+      // esto renacería del fallback de isClientOpen).
+      setOpenMap(Object.fromEntries(clients.map((c) => [c.id, false])));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clients]);
 
   // Sección "Administrativo" desplegable (recuerda el estado; se abre sola si estás dentro).
   const adminActive = pathname.startsWith("/cotizaciones") || pathname.startsWith("/facturacion") || pathname === "/asistente" || pathname.startsWith("/wiki") || pathname.startsWith("/plantillas") || pathname.startsWith("/biblioteca") || pathname.startsWith("/comercial") || pathname.startsWith("/reportes") || pathname.startsWith("/rastreo") || pathname.startsWith("/papelera");
@@ -364,93 +380,115 @@ export function Sidebar({
     );
   };
 
-  // Bloque de un cliente: fila (avatar real + NEGRILLA + acciones al pasar) + proyectos.
+  // Bloque de un cliente — RAÍL MÍNIMO: en reposo es SOLO su foto (logo o inicial teñida);
+  // el clic lo expande AHÍ MISMO con el nombre y los proyectos colgando de un hilo de su
+  // color. Uno abierto a la vez (acordeón de siempre); con algo abierto, la sección está
+  // «despierta» y todos los nombres se leen en suave. Sin chevrons, sin filas de texto.
   const clientBlock = (c: SidebarClient) => {
     const hex = clientHex(c);
-    const active = pathname === `/clientes/${c.id}`;
     const open = isClientOpen(c);
-    const hasProjects = c.projects.length > 0;
+    // Anillo = aquí vives ahora: la ficha del cliente abierta, o un proyecto suyo activo.
+    const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
     const pinned = pins.c.includes(c.id);
+    const vivos = c.projects.filter((p) => !p.finished);
     return (
-      <div key={c.id}>
-        <div
-          className={cn(
-            "group/cli relative flex items-center rounded-lg text-sm transition-colors",
-            active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/40",
-          )}
-        >
-          {active ? <span className="absolute inset-y-1.5 -left-1.5 w-[3px] rounded-r-full bg-primary" /> : null}
-          {hasProjects ? (
-            <button
-              type="button"
-              onClick={() => setOpenMap({ [c.id]: !open })} /* acordeón: abrir uno recoge los demás */
-              aria-label={open ? "Contraer" : "Desplegar"}
-              className="grid size-6 shrink-0 place-items-center rounded-md text-sidebar-muted hover:text-sidebar-foreground"
-            >
-              <ChevronRight className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")} />
-            </button>
-          ) : (
-            <span className="w-6 shrink-0" />
-          )}
-          <Link
-            href={`/clientes/${c.id}`}
-            onClick={() => {
-              // Abrir el cliente también DESPLIEGA sus proyectos y recoge los de los demás
-              // (acordeón): ya no hay que pasar por el botón de desplegar. La ficha del
-              // cliente se abre igual (la navegación del Link sigue su curso).
-              setOpenMap({ [c.id]: true });
-              onNavigate?.();
-            }}
-            className="flex min-w-0 flex-1 items-center gap-2.5 py-[7px] pr-1"
+      <div key={c.id} className={cn("rounded-xl transition-colors duration-200", open && "bg-sidebar-accent/30")}>
+        <div className="group/cli relative flex items-center gap-1 rounded-xl pl-1 pr-1">
+          <button
+            type="button"
+            onClick={() => setOpenMap({ [c.id]: !open })} /* acordeón: abrir uno recoge los demás */
+            aria-expanded={open}
+            aria-label={c.name}
+            title={seccionDespierta ? undefined : c.name}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-1.5 text-left"
           >
-            <ClientAvatar client={c} hex={hex} />
-            <span className="min-w-0 flex-1 truncate font-bold tracking-[0.005em] text-sidebar-foreground">{c.name}</span>
-          </Link>
-          <span className="px-1.5 text-xs tabular-nums text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span>
-          <span className="mr-1 hidden shrink-0 items-center gap-0.5 group-hover/cli:flex">
-            <button
-              type="button"
-              onClick={() => togglePinClient(c.id)}
-              title={pinned ? "Desanclar" : "Anclar arriba"}
-              aria-label={pinned ? `Desanclar ${c.name}` : `Anclar ${c.name}`}
-              className={cn("grid size-6 place-items-center rounded-md", pinned ? "text-amber-500" : "text-sidebar-muted hover:text-amber-500")}
+            <span className={cn("relative shrink-0 rounded-full transition-transform duration-200", !open && "group-hover/cli:scale-110", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
+              <ClientAvatar client={c} hex={hex} className="rounded-full" />
+            </span>
+            {/* El nombre no ocupa la atención en reposo: aparece con la sección despierta
+                (suave) y del todo en el abierto — así el cliente NUEVO también se lee. */}
+            <span
+              className={cn(
+                "min-w-0 flex-1 transition-all duration-300",
+                seccionDespierta ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-2 opacity-0",
+              )}
             >
-              <Star className={cn("size-3.5", pinned && "fill-current")} />
-            </button>
-            {canAdmin ? (
+              <span className={cn("block truncate text-[13px] tracking-[0.005em]", open ? "font-bold text-sidebar-foreground" : "font-medium text-sidebar-foreground/60")}>
+                {c.name}
+              </span>
+              {open ? (
+                <span className="block text-[10.5px] text-sidebar-muted">
+                  {c.projectCount} proyecto{c.projectCount === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </span>
+          </button>
+          {/* Acciones del cliente: solo en el ABIERTO, al pasar — el reposo queda limpio. */}
+          {open ? (
+            <span className="mr-0.5 hidden shrink-0 items-center gap-0.5 group-hover/cli:flex">
               <button
                 type="button"
-                onClick={() => removeClient(c.id, c.name)}
-                title="Archivar cliente"
-                aria-label={`Archivar ${c.name}`}
-                className="grid size-6 place-items-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => togglePinClient(c.id)}
+                title={pinned ? "Desanclar" : "Anclar arriba"}
+                aria-label={pinned ? `Desanclar ${c.name}` : `Anclar ${c.name}`}
+                className={cn("grid size-6 place-items-center rounded-md", pinned ? "text-amber-500" : "text-sidebar-muted hover:text-amber-500")}
               >
-                <Archive className="size-3.5" />
+                <Star className={cn("size-3.5", pinned && "fill-current")} />
               </button>
-            ) : null}
-          </span>
+              {canAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => removeClient(c.id, c.name)}
+                  title="Archivar cliente"
+                  aria-label={`Archivar ${c.name}`}
+                  className="grid size-6 place-items-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Archive className="size-3.5" />
+                </button>
+              ) : null}
+            </span>
+          ) : null}
         </div>
-        {open && hasProjects ? (
-          <div
-            className="ml-[30px] flex flex-col gap-0.5 border-l-2 pb-1 pl-2.5 pt-0.5 animate-in fade-in slide-in-from-top-1 duration-150"
-            style={{ borderColor: `${hex}66` }}
-          >
-            {/* Ciclo de vida: los TERMINADOS no estorban entre los activos — se pliegan al
-                final en «✔ Terminados (N)» (sin estado persistente: un details basta). */}
-            {c.projects.filter((p) => !p.finished).map((p) => projectRow(p, c, hex))}
-            {c.projects.some((p) => p.finished) ? (
-              <details className="group/fin">
-                <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg py-1 pl-2 pr-1 text-[11.5px] font-medium text-sidebar-muted transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground">
-                  <ChevronRight className="size-3 transition-transform group-open/fin:rotate-90" />
-                  ✔ Terminados ({c.projects.filter((p) => p.finished).length})
-                </summary>
-                <div className="flex flex-col gap-0.5 opacity-70">
-                  {c.projects.filter((p) => p.finished).map((p) => projectRow(p, c, hex))}
+
+        {/* El despliegue EN EL SITIO: alto animado (0fr→1fr), proyectos en cascada. */}
+        <div
+          data-abierto={open || undefined}
+          className="group/desp grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out data-[abierto]:grid-rows-[1fr]"
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="mb-1.5 ml-[26px] flex flex-col gap-0.5 border-l-2 pb-0.5 pl-2.5" style={{ borderColor: hex }}>
+              {vivos.map((p, i) => (
+                <div
+                  key={p.id}
+                  style={{ transitionDelay: open ? `${70 + i * 45}ms` : "0ms" }}
+                  className="-translate-y-1 opacity-0 transition-[opacity,transform] duration-200 group-data-[abierto]/desp:translate-y-0 group-data-[abierto]/desp:opacity-100"
+                >
+                  {projectRow(p, c, hex)}
                 </div>
-              </details>
-            ) : null}
+              ))}
+              {c.projects.some((p) => p.finished) ? (
+                <details className="group/fin">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg py-1 pl-2 pr-1 text-[11.5px] font-medium text-sidebar-muted transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground">
+                    <ChevronRight className="size-3 transition-transform group-open/fin:rotate-90" />
+                    ✔ Terminados ({c.projects.filter((p) => p.finished).length})
+                  </summary>
+                  <div className="flex flex-col gap-0.5 opacity-70">
+                    {c.projects.filter((p) => p.finished).map((p) => projectRow(p, c, hex))}
+                  </div>
+                </details>
+              ) : null}
+              {/* La ficha del cliente vive aquí (antes era el clic en el nombre). */}
+              <Link
+                href={`/clientes/${c.id}`}
+                onClick={onNavigate}
+                style={{ transitionDelay: open ? `${70 + vivos.length * 45}ms` : "0ms" }}
+                className="-translate-y-1 rounded-lg py-1 pl-2 pr-1 text-[11.5px] font-medium text-sidebar-muted opacity-0 transition-[opacity,transform,background,color] duration-200 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground group-data-[abierto]/desp:translate-y-0 group-data-[abierto]/desp:opacity-100"
+              >
+                Abrir la ficha de {c.name} →
+              </Link>
+            </div>
           </div>
-        ) : null}
+        </div>
       </div>
     );
   };
