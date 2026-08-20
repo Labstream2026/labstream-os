@@ -415,15 +415,21 @@ export function Sidebar({
             type="button"
             onClick={() => {
               // Recogida, la foto es el atajo del reposo: abre el panel CON ese cliente
-              // desplegado. Desplegada, es el acordeón de siempre (abrir uno recoge los demás).
+              // desplegado. Desplegada, el clic tiene DOS tiempos: el primero abre el
+              // acordeón (y recoge al que estuviera abierto), el segundo — sobre el ya
+              // abierto — ENTRA a la ficha del cliente. Tocarse a sí mismo NUNCA lo recoge:
+              // recoger es trabajo del siguiente cliente que se abra.
               if (collapsed) { setOpenMap({ [c.id]: true }); onExpand?.(); return; }
-              setOpenMap({ [c.id]: !open });
+              if (!open) { setOpenMap({ [c.id]: true }); return; }
+              router.push(`/clientes/${c.id}`);
+              onNavigate?.();
             }}
             aria-expanded={open}
             /* Recogida no se lee el nombre: el globo del navegador es el que lo dice. El globo
                propio que llevaba la tira de fotos NUNCA se veía —nacía fuera del recorte de la
-               columna, que es `overflow-hidden`—, así que aquí va uno que sí funciona. */
-            title={collapsed ? c.name : undefined}
+               columna, que es `overflow-hidden`—, así que aquí va uno que sí funciona. Abierto,
+               el globo anuncia el segundo tiempo del clic. */
+            title={collapsed ? c.name : open ? `Abrir la ficha de ${c.name}` : undefined}
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-1.5 text-left"
           >
             <span
@@ -503,15 +509,6 @@ export function Sidebar({
                   </div>
                 </details>
               ) : null}
-              {/* La ficha del cliente vive aquí (antes era el clic en el nombre). */}
-              <Link
-                href={`/clientes/${c.id}`}
-                onClick={onNavigate}
-                style={{ transitionDelay: open ? `${70 + vivos.length * 45}ms` : "0ms" }}
-                className="-translate-y-1 rounded-lg py-1 pl-2 pr-1 text-[11.5px] font-medium text-sidebar-muted opacity-0 transition-[opacity,transform,background,color] duration-200 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground group-data-[abierto]/desp:translate-y-0 group-data-[abierto]/desp:opacity-100"
-              >
-                Abrir la ficha de {c.name} →
-              </Link>
             </div>
           </div>
         </div>
