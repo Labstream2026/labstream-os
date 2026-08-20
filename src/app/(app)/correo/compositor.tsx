@@ -236,11 +236,16 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
               aria-label="Cuerpo del mensaje"
               onInput={() => autoguardar(prefill)}
               data-placeholder={prefill.modo === "reenviar" ? "Escribe algo antes del mensaje reenviado (se cita solo)…" : "Escribe el mensaje…"}
-              className="min-h-40 px-4 py-3 text-[13.5px] leading-relaxed outline-none [overflow-wrap:anywhere] empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_h2]:my-2 [&_h2]:text-[17px] [&_h2]:font-bold [&_h3]:my-1.5 [&_h3]:text-[15px] [&_h3]:font-bold [&_hr]:my-3 [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+              // El anillo de foco: la regla GLOBAL de accesibilidad (:focus-visible en globals.css)
+              // le pintaba al editor un contorno naranja de borde a borde que chocaba con las
+              // esquinas del compositor — un contenteditable SIEMPRE califica como focus-visible.
+              // Aquí el indicador es un anillo fino, interior y redondeado, hecho a la medida.
+              // El canalón queda en 16px como el resto (mx-1.5 + px-2.5 = 16).
+              className="mx-1.5 my-1 min-h-40 rounded-lg px-2.5 py-2.5 text-[13.5px] leading-relaxed outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 [overflow-wrap:anywhere] empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_h2]:my-2 [&_h2]:text-[17px] [&_h2]:font-bold [&_h3]:my-1.5 [&_h3]:text-[15px] [&_h3]:font-bold [&_hr]:my-3 [&_img]:my-1 [&_img]:max-w-full [&_img]:rounded-md [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
             />
 
             {/* La firma que el servidor anexará, tal cual (la imagen incluida, en nítido). */}
-            <div className="mx-4 rounded-lg border border-dashed border-border/70 px-3 py-2 opacity-75">
+            <div className="mx-4 mt-1 rounded-lg border border-dashed border-border/70 px-3.5 py-2.5 opacity-75">
               <div className="text-[12px] [&_img]:max-w-[200px]" dangerouslySetInnerHTML={{ __html: firmaHtml }} />
               <p className="mt-1 text-[10px] text-muted-foreground">firma automática — se añade al enviar · cámbiala en «Firma y GIFs»</p>
             </div>
@@ -253,7 +258,8 @@ export function CompositorProvider({ contactos, firmaHtml, gifs, plantillas, aut
               </p>
             ) : null}
             {error ? <p className="px-4 pb-1 pt-2 text-[12px] font-medium text-destructive">{error}</p> : null}
-            <div className="flex items-center gap-2 px-3 py-2.5">
+            {/* Pie de acciones: con su propia línea y el mismo canalón de 16px que el resto. */}
+            <div className="mt-2 flex items-center gap-2 border-t border-border px-4 py-3">
               <input ref={programadoRef} type="hidden" name="programadoPara" defaultValue="" />
               <div className="flex items-stretch">
                 <button type="submit" disabled={pendiente}
@@ -421,34 +427,45 @@ function BarraFormato({ editorRef, gifs, plantillas, alCambiar }: {
   );
 
   return (
-    <div className="relative flex flex-wrap items-center gap-0.5 border-b border-border px-2 py-1">
+    // La barra envuelve en dos filas cuando no cabe. Los separadores viajan CON su grupo (van
+    // pegados al primer botón del grupo, no sueltos al final de la fila anterior), y Bloques y
+    // Plantillas —los dos con etiqueta— van juntos a la derecha: si bajan de fila, bajan como
+    // un bloque alineado, no como sobras.
+    <div className="relative flex flex-wrap items-center gap-x-0.5 gap-y-1 border-b border-border px-2 py-1.5">
       <B title="Título de sección" onMouseDown={() => manda("formatBlock", "<h2>")}><Heading2 className="size-3.5" /></B>
       <B title="Texto normal" onMouseDown={() => manda("formatBlock", "<p>")}><span className="px-0.5 text-[11px] font-bold">P</span></B>
-      <span className="mx-1 h-4 w-px bg-border" />
-      <B title="Negrita (Ctrl+B)" onMouseDown={() => manda("bold")}><Bold className="size-3.5" /></B>
-      <B title="Cursiva (Ctrl+I)" onMouseDown={() => manda("italic")}><Italic className="size-3.5" /></B>
-      <B title="Subrayado (Ctrl+U)" onMouseDown={() => manda("underline")}><Underline className="size-3.5" /></B>
-      <B title="Color del texto" activo={menu === "color"} onMouseDown={() => alterna("color")}><Paintbrush className="size-3.5" /></B>
-      <span className="mx-1 h-4 w-px bg-border" />
-      <B title="Alinear a la izquierda" onMouseDown={() => manda("justifyLeft")}><AlignLeft className="size-3.5" /></B>
-      <B title="Centrar" onMouseDown={() => manda("justifyCenter")}><AlignCenter className="size-3.5" /></B>
-      <B title="Lista" onMouseDown={() => manda("insertUnorderedList")}><List className="size-3.5" /></B>
-      <B title="Lista numerada" onMouseDown={() => manda("insertOrderedList")}><ListOrdered className="size-3.5" /></B>
-      <B title="Enlace" onMouseDown={enlace}><Link2 className="size-3.5" /></B>
-      <span className="mx-1 h-4 w-px bg-border" />
-      <label className="cursor-pointer rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Insertar imagen en el cuerpo">
-        <ImagePlus className="size-3.5" />
-        <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void insertaImagen(f); e.target.value = ""; }} />
-      </label>
-      <B title="GIFs del estudio" activo={menu === "gifs"} onMouseDown={() => alterna("gifs")}><Smile className="size-3.5" /></B>
-      <B title="Bloques listos: botón, tarjeta, caja, separador" activo={menu === "bloques"} onMouseDown={() => alterna("bloques")}>
-        <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-semibold"><Sparkles className="size-3.5" /> Bloques</span>
-      </B>
-      <B title="Plantillas del estudio" activo={menu === "plantillas"} onMouseDown={() => alterna("plantillas")}>
-        <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-semibold"><LayoutTemplate className="size-3.5" /> Plantillas</span>
-      </B>
-      <span className="mx-1 h-4 w-px bg-border" />
-      <B title="Quitar formato" onMouseDown={() => manda("removeFormat")}><Eraser className="size-3.5" /></B>
+      <span className="flex items-center gap-0.5">
+        <span className="mx-1 h-4 w-px bg-border" />
+        <B title="Negrita (Ctrl+B)" onMouseDown={() => manda("bold")}><Bold className="size-3.5" /></B>
+        <B title="Cursiva (Ctrl+I)" onMouseDown={() => manda("italic")}><Italic className="size-3.5" /></B>
+        <B title="Subrayado (Ctrl+U)" onMouseDown={() => manda("underline")}><Underline className="size-3.5" /></B>
+        <B title="Color del texto" activo={menu === "color"} onMouseDown={() => alterna("color")}><Paintbrush className="size-3.5" /></B>
+        <B title="Quitar formato" onMouseDown={() => manda("removeFormat")}><Eraser className="size-3.5" /></B>
+      </span>
+      <span className="flex items-center gap-0.5">
+        <span className="mx-1 h-4 w-px bg-border" />
+        <B title="Alinear a la izquierda" onMouseDown={() => manda("justifyLeft")}><AlignLeft className="size-3.5" /></B>
+        <B title="Centrar" onMouseDown={() => manda("justifyCenter")}><AlignCenter className="size-3.5" /></B>
+        <B title="Lista" onMouseDown={() => manda("insertUnorderedList")}><List className="size-3.5" /></B>
+        <B title="Lista numerada" onMouseDown={() => manda("insertOrderedList")}><ListOrdered className="size-3.5" /></B>
+        <B title="Enlace" onMouseDown={enlace}><Link2 className="size-3.5" /></B>
+      </span>
+      <span className="flex items-center gap-0.5">
+        <span className="mx-1 h-4 w-px bg-border" />
+        <label className="cursor-pointer rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Insertar imagen en el cuerpo">
+          <ImagePlus className="size-3.5" />
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void insertaImagen(f); e.target.value = ""; }} />
+        </label>
+        <B title="GIFs del estudio" activo={menu === "gifs"} onMouseDown={() => alterna("gifs")}><Smile className="size-3.5" /></B>
+      </span>
+      <span className="ml-auto flex items-center gap-0.5 pl-1">
+        <B title="Bloques listos: botón, tarjeta, caja, separador" activo={menu === "bloques"} onMouseDown={() => alterna("bloques")}>
+          <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-semibold"><Sparkles className="size-3.5" /> Bloques</span>
+        </B>
+        <B title="Plantillas del estudio" activo={menu === "plantillas"} onMouseDown={() => alterna("plantillas")}>
+          <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-semibold"><LayoutTemplate className="size-3.5" /> Plantillas</span>
+        </B>
+      </span>
 
       {menu === "gifs" ? <PanelGifs gifs={gifs} insertar={(id) => { manda("insertHTML", `<img src="/api/correo/gif/${id}" style="max-width:240px">`); setMenu(null); }} /> : null}
       {menu === "color" ? (
