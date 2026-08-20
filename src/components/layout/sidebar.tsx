@@ -852,38 +852,6 @@ export function Sidebar({
           </Link>
         ))}
         <div className="min-h-2 flex-1" />
-        {/* ── Los CLIENTES nunca se van: al contraer el panel, sus fotos (pequeñas, cuadradas
-            con esquinas suaves) se quedan aquí en el raíl, ancladas sobre el grupo del
-            estudio. Clic en una = el panel vuelve a abrirse CON ese cliente desplegado.
-            shrink-0 + tope con scroll propio: el espacio «sobrante» del raíl puede ser CERO
-            (pantallas bajas, muchos iconos) y las fotos NO se negocian — el bug de estreno
-            fue exactamente ese: flex-1 les daba el sobrante, que era 0 px. ── */}
-        {collapsed && canClients && clients.length ? (
-          <div className="flex max-h-[320px] shrink-0 flex-col items-center gap-1.5 overflow-y-auto py-1 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
-            {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c) => {
-              const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setOpenMap({ [c.id]: true });
-                    onExpand?.();
-                  }}
-                  aria-label={`Abrir ${c.name}`}
-                  className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
-                >
-                  <span className={cn("block rounded-[9px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
-                    <ClientAvatar client={c} hex={clientHex(c)} className="size-7 rounded-[8px]" />
-                  </span>
-                  <span className="pointer-events-none absolute left-[calc(100%+14px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-                    {c.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
         {/* Administrativo: iconos con tooltip, abajo del rail (separados con una línea). */}
         {RAIL_ADMIN.length ? (
           <>
@@ -922,6 +890,37 @@ export function Sidebar({
           </button>
         </form>
       </div>
+
+      {/* ── BARRA DE CLIENTES (solo con el panel contraído): una columna PROPIA al lado del
+          raíl, solo fotos — grandes, cuadradas con esquinas suaves. Los clientes nunca se
+          van al recoger el panel: clic en una foto = el panel vuelve CON ese cliente
+          desplegado. Anclados ⭐ de primeros; anillo = donde vives ahora. ── */}
+      {collapsed && canClients && clients.length ? (
+        <div className="relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-2.5 overflow-y-auto border-r border-sidebar-border bg-sidebar py-4 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
+          {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c) => {
+            const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setOpenMap({ [c.id]: true });
+                  onExpand?.();
+                }}
+                aria-label={`Abrir ${c.name}`}
+                className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
+              >
+                <span className={cn("block rounded-[11px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
+                  <ClientAvatar client={c} hex={clientHex(c)} className="size-10 rounded-[10px]" />
+                </span>
+                <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
+                  {c.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/* PANEL de Producción (colapsable desde el topbar; redimensionable arrastrando) */}
       {/* PANEL de Producción. En Modo Enfoque (/chat) NO se desmonta: el ANCHO transiciona a 0 con una
