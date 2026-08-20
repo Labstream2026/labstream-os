@@ -118,7 +118,11 @@ function ClientAvatar({ client, hex, className }: { client: SidebarClient; hex: 
   const [photoBroken, setPhotoBroken] = React.useState(false);
   const [logoBroken, setLogoBroken] = React.useState(false);
   // Más grande y CUADRADO (32px, esquinas suaves) para reconocer al cliente de un vistazo.
-  const base = cn("relative size-8 shrink-0 overflow-hidden rounded-[9px]", className);
+  // `block` es OBLIGATORIO: un span en línea ignora width/height (las ramas de foto y logo
+  // quedaban en 0×0 apenas el avatar dejó de ser hijo directo de un flex — la envoltura del
+  // anillo lo desenmascaró y las fotos del CRM se volvieron invisibles). Las ramas de emoji
+  // e iniciales ya traían `grid`, que pisa a `block` donde aplica.
+  const base = cn("relative block size-8 shrink-0 overflow-hidden rounded-[9px]", className);
   if (client.photoUrl && !photoBroken) {
     return (
       <span className={base}>
