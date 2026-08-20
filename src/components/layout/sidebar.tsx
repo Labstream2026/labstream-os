@@ -177,8 +177,14 @@ const W_MIN = 240;
 const W_MAX = 400;
 const W_DEF = 288;
 
-// Filtro insensible a acentos/mayúsculas ("cli" encuentra "CLÍNICA").
-const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+// La cara de REPOSO: la tira de fotos de clientes, y con ella la fila del buscador, miden
+// esto al estar contraída la barra. Es constante (y no una clase suelta) porque la fila del
+// buscador necesita el NÚMERO para animar su ancho.
+const W_TIRA = 68;
+// Alto de la fila del buscador. 56 no es un número bonito al azar: deja la lupa CENTRADA
+// justo a la altura de tu avatar del raíl (py-3 + h-8 → centro en 28), así lo primero que
+// se ve de las dos columnas arranca en la misma línea.
+const H_FILA = 56;
 
 export function Sidebar({
   user,
@@ -307,8 +313,8 @@ export function Sidebar({
   };
   const resetWidth = () => { setWidth(W_DEF); window.localStorage.setItem(WIDTH_KEY, String(W_DEF)); };
 
-  // Filtro de clientes (insensible a acentos) y anclados ⭐ (por dispositivo).
-  const [filtro, setFiltro] = React.useState("");
+  // Anclados ⭐ (por dispositivo). El filtro de texto que vivía aquí se retiró: buscar un
+  // cliente es lo mismo que buscar cualquier cosa en la app, y eso ya lo hace la lupa (⌘K).
   const [pins, setPins] = React.useState<Pins>({ c: [], p: [] });
   React.useEffect(() => { setPins(loadPins()); }, []);
   const savePins = (next: Pins) => { setPins(next); try { window.localStorage.setItem(PINS_KEY, JSON.stringify(next)); } catch {} };
@@ -343,7 +349,6 @@ export function Sidebar({
   const toggleAdmin = () => setAdminOpen((o) => { const n = !o; window.localStorage.setItem("ui:adminOpen", n ? "1" : "0"); return n; });
   const showAdminItems = adminOpen || adminActive;
 
-  const filtered = filtro.trim() ? clients.filter((c) => fold(c.name).includes(fold(filtro))) : clients;
   const pinnedClients = clients.filter((c) => pins.c.includes(c.id));
   const pinnedProjects = clients.flatMap((c) => c.projects.filter((p) => pins.p.includes(p.id)).map((p) => ({ p, c })));
   const hayAnclados = pinnedClients.length > 0 || pinnedProjects.length > 0;
@@ -494,22 +499,12 @@ export function Sidebar({
     </div>
   );
 
-  // Contenido de PRODUCCIÓN (anclados ⭐ + filtro + clientes) — corazón del panel.
+  // Contenido de PRODUCCIÓN (anclados ⭐ + clientes) — corazón del panel.
   const produccion = (
     <>
       {canClients ? (
         <>
-          <div className="relative px-1 pb-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-[60%] text-sidebar-muted" />
-            <input
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              placeholder="Filtrar clientes…"
-              className="w-full rounded-lg border border-sidebar-border bg-background/60 py-1.5 pl-8 pr-2.5 text-[13px] text-sidebar-foreground outline-none transition-colors placeholder:text-sidebar-muted focus:border-primary focus:bg-background"
-            />
-          </div>
-
-          {hayAnclados && !filtro.trim() ? (
+          {hayAnclados ? (
             <div className="animate-in fade-in duration-200">
               {secHeader(<><Star className="size-3 fill-amber-400 text-amber-400" /> Anclados</>)}
               {pinnedClients.map(clientBlock)}
@@ -517,16 +512,21 @@ export function Sidebar({
             </div>
           ) : null}
 
-          {secHeader(
-            <Link href="/clientes" onClick={onNavigate} className="hover:text-sidebar-foreground">Clientes · {filtered.length}</Link>,
-            <Link href="/clientes/nuevo" onClick={onNavigate} aria-label="Nuevo cliente" title="Nuevo cliente" className="text-sidebar-muted transition-colors hover:text-sidebar-foreground">
-              <Plus className="size-3.5" />
-            </Link>,
-          )}
-          {filtered.map(clientBlock)}
-          {filtro.trim() && filtered.length === 0 ? (
-            <p className="px-3 py-1 text-xs text-sidebar-muted">Sin resultados para «{filtro.trim()}».</p>
+          {/* El rótulo «Clientes» del ESCRITORIO vive ahora en la fila del buscador, que es la
+              que viaja con la barra; aquí solo queda una línea que separe los anclados del
+              resto. El CAJÓN móvil no tiene esa fila (una sola columna, sin contraer), así que
+              conserva su cabecera con la cuenta y el atajo de «nuevo cliente». */}
+          {drawer ? (
+            secHeader(
+              <Link href="/clientes" onClick={onNavigate} className="hover:text-sidebar-foreground">Clientes · {clients.length}</Link>,
+              <Link href="/clientes/nuevo" onClick={onNavigate} aria-label="Nuevo cliente" title="Nuevo cliente" className="text-sidebar-muted transition-colors hover:text-sidebar-foreground">
+                <Plus className="size-3.5" />
+              </Link>,
+            )
+          ) : hayAnclados ? (
+            <div className="mx-2 my-2 h-px bg-sidebar-border" />
           ) : null}
+          {clients.map(clientBlock)}
         </>
       ) : canTimeline ? (
         <Link
@@ -891,25 +891,35 @@ export function Sidebar({
         </form>
       </div>
 
-      {/* ── BARRA DE CLIENTES: una columna PROPIA al lado del raíl, solo fotos — grandes,
-          cuadradas con esquinas suaves. Es la cara de REPOSO del sidebar: al recoger el
-          panel los clientes nunca se van; clic en una foto = el panel vuelve CON ese
-          cliente desplegado. SIEMPRE montada y el ANCHO transiciona (68↔0) con la MISMA
-          curva del panel: contraer y expandir es un solo movimiento continuo, nada aparece
-          de golpe. Las fotos entran en cascada al quedar visible la barra. ── */}
-      {canClients && clients.length ? (
+      {/* ── LA COLUMNA QUE RESPIRA ── La tira de fotos y el panel son dos capas del MISMO
+          movimiento (68↔0 y 0↔ancho, misma curva), y por encima de las dos viaja una sola
+          fila de buscador. Van juntas bajo este contenedor `relative` para que esa fila
+          pueda medirse contra ellas sin saber nada del raíl. ── */}
+      <div className="relative flex shrink-0">
+        {/* ── BARRA DE CLIENTES: una columna PROPIA al lado del raíl, solo fotos — grandes,
+            cuadradas con esquinas suaves. Es la cara de REPOSO del sidebar: al recoger el
+            panel los clientes nunca se van; clic en una foto = el panel vuelve CON ese
+            cliente desplegado. SIEMPRE montada y el ANCHO transiciona (68↔0) con la MISMA
+            curva del panel: contraer y expandir es un solo movimiento continuo, nada aparece
+            de golpe. Las fotos entran en cascada al quedar visible la barra.
+            Se monta AUNQUE no haya clientes (o no se puedan ver): contraída, esta tira es el
+            sitio de la lupa, y sin ella la barra recogida se quedaría sin buscador. ── */}
         <div
           aria-hidden={!collapsed}
+          style={{ width: collapsed ? W_TIRA : 0 }}
           className={cn(
             "relative z-10 flex shrink-0 flex-col overflow-hidden bg-sidebar",
             dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
-            collapsed ? "w-[68px] border-r border-sidebar-border" : "w-0 border-r-0",
+            collapsed ? "border-r border-sidebar-border" : "border-r-0",
           )}
         >
+          {/* El relleno de arriba es el hueco de la fila del buscador, que va superpuesta: las
+              fotos empiezan justo debajo de la lupa y pasan POR DEBAJO de ella al desplazarse. */}
           <div
             data-viva={collapsed || undefined}
             inert={!collapsed || undefined}
-            className="group/fotos flex w-[68px] shrink-0 grow flex-col items-center gap-2.5 overflow-y-auto py-4 [scrollbar-width:none]"
+            style={{ width: W_TIRA, paddingTop: H_FILA }}
+            className="group/fotos flex shrink-0 grow flex-col items-center gap-2.5 overflow-y-auto pb-4 [scrollbar-width:none]"
           >
             {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c, i) => {
               const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
@@ -943,56 +953,88 @@ export function Sidebar({
             })}
           </div>
         </div>
-      ) : null}
 
-      {/* PANEL de Producción (colapsable desde el topbar; redimensionable arrastrando) */}
-      {/* PANEL de Producción. En Modo Enfoque (/chat) NO se desmonta: el ANCHO transiciona a 0 con una
-          curva suave y el contenido —de ancho FIJO— se clipa con overflow-hidden, para que el panel
-          se RETIRE (y vuelva a entrar) de forma FLUIDA sin reacomodar el texto durante la animación. */}
-      <div
-        className={cn(
-          "relative flex flex-col overflow-hidden bg-sidebar",
-          collapsed ? "border-r-0" : "border-r border-sidebar-border",
-          dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
-        )}
-        style={{ width: collapsed ? 0 : width }}
-        aria-hidden={collapsed}
-      >
-        {/* Contenido de ancho FIJO (no se reacomoda mientras el contenedor se cierra/abre). Al estar
-            retraído se marca `inert`: sigue en el DOM para la animación, pero no recibe foco ni clics. */}
-        <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width }} inert={collapsed || undefined}>
-          {/* Cabecera del panel: solo el rótulo y buscar — el logo se mudó a la barra superior
-              (esquina derecha) y este espacio se lo ganó el menú. */}
-          <div className="flex items-center gap-2 px-3 pb-1 pt-3">
-            <span className="min-w-0 flex-1 truncate text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted">
-              {isCliente ? "Mis proyectos" : "Producción"}
-            </span>
-            <button
-              onClick={onSearch}
-              title="Buscar (⌘K)"
-              aria-label="Buscar"
-              className="grid size-7 shrink-0 place-items-center rounded-lg border border-sidebar-border bg-background/60 text-sidebar-muted transition-colors hover:border-primary hover:text-sidebar-foreground"
-            >
-              <Search className="size-3.5" />
-            </button>
+        {/* PANEL de Producción (colapsable desde el topbar; redimensionable arrastrando). En Modo
+            Enfoque (/chat) NO se desmonta: el ANCHO transiciona a 0 con una curva suave y el
+            contenido —de ancho FIJO— se clipa con overflow-hidden, para que el panel se RETIRE (y
+            vuelva a entrar) de forma FLUIDA sin reacomodar el texto durante la animación. */}
+        <div
+          className={cn(
+            "relative flex flex-col overflow-hidden bg-sidebar",
+            collapsed ? "border-r-0" : "border-r border-sidebar-border",
+            dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
+          )}
+          style={{ width: collapsed ? 0 : width }}
+          aria-hidden={collapsed}
+        >
+          {/* Contenido de ancho FIJO (no se reacomoda mientras el contenedor se cierra/abre). Al estar
+              retraído se marca `inert`: sigue en el DOM para la animación, pero no recibe foco ni clics.
+              El relleno de arriba es el hueco de la fila del buscador (superpuesta): la cabecera propia
+              del panel ya no existe — su rótulo y su lupa son AHORA esa fila. */}
+          <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width, paddingTop: H_FILA }} inert={collapsed || undefined}>
+            <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1">{produccion}</div>
           </div>
-          <div className="flex-1 overflow-y-auto px-2 pb-3">{produccion}</div>
+
+          {/* Asa de redimensionado (oculta al estar retraído): arrastra (240–400 px) · doble clic = ancho por defecto */}
+          {!collapsed ? (
+            <div
+              onPointerDown={onHandleDown}
+              onPointerMove={onHandleMove}
+              onPointerUp={onHandleUp}
+              onPointerCancel={onHandleUp}
+              onDoubleClick={resetWidth}
+              title="Arrastra para redimensionar · doble clic: ancho por defecto"
+              className="group/asa absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize"
+            >
+              <div className={cn("absolute inset-y-3 left-[3px] w-[3px] rounded-full transition-colors", dragging ? "bg-primary" : "bg-transparent group-hover/asa:bg-primary/60")} />
+            </div>
+          ) : null}
         </div>
 
-        {/* Asa de redimensionado (oculta al estar retraído): arrastra (240–400 px) · doble clic = ancho por defecto */}
-        {!collapsed ? (
-          <div
-            onPointerDown={onHandleDown}
-            onPointerMove={onHandleMove}
-            onPointerUp={onHandleUp}
-            onPointerCancel={onHandleUp}
-            onDoubleClick={resetWidth}
-            title="Arrastra para redimensionar · doble clic: ancho por defecto"
-            className="group/asa absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize"
+        {/* ── LA FILA DEL BUSCADOR ── Una sola lupa para los dos estados, y CLAVADA en el mismo
+            sitio siempre: el eje por el que bajan las fotos. Lo único que se mueve al desplegar
+            es la palabra, que se abre a su derecha. Que el ancla no se mueva es justo lo que
+            hace fluido el gesto — el ojo ya tiene dónde agarrarse y la barra crece por detrás,
+            en vez de reacomodarse entera.
+            Va superpuesta a las dos columnas y su ancho es el que SUMAN ellas (68+0 contraída,
+            0+ancho desplegada) con la misma curva, así su borde derecho nunca se despega del de
+            la columna que tapa. Debajo del raíl (z-10 < z-20) para no comerse sus globos. */}
+        <div
+          style={{ width: collapsed ? W_TIRA : width, height: H_FILA }}
+          className={cn(
+            "absolute left-0 top-0 z-10 flex items-center border-r border-sidebar-border bg-sidebar",
+            dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
+          )}
+        >
+          {/* 18 px de margen izquierdo dejan el centro del botón en 34 — el mismo eje por el que
+              bajan las fotos (y, con el panel abierto, la columna de avatares de los clientes).
+              Es un margen FIJO: la lupa no se entera de si la barra está abierta o cerrada. */}
+          <button
+            onClick={onSearch}
+            title="Buscar (⌘K)"
+            aria-label="Buscar"
+            className="ml-[18px] grid size-8 shrink-0 place-items-center rounded-[10px] border border-sidebar-border bg-background/60 text-sidebar-muted transition-colors hover:border-primary hover:text-sidebar-foreground"
           >
-            <div className={cn("absolute inset-y-3 left-[3px] w-[3px] rounded-full transition-colors", dragging ? "bg-primary" : "bg-transparent group-hover/asa:bg-primary/60")} />
-          </div>
-        ) : null}
+            <Search className="size-4" />
+          </button>
+          {/* La palabra entra cuando ya hay sitio (140 ms) y con un pelín de deslizamiento: si
+              entra a la vez que empieza a abrirse, se ve espachurrada contra la lupa media
+              animación. El hueco entre lupa y palabra es el MISMO (gap-2.5) que hay entre la
+              foto y el nombre en cada fila de cliente, para que la fila lleve el ritmo de la
+              lista que encabeza. */}
+          <span
+            inert={collapsed || undefined}
+            style={{ transitionDelay: collapsed ? "0ms" : "140ms" }}
+            className={cn(
+              "ml-2.5 min-w-0 flex-1 truncate pr-3 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted transition-[opacity,transform] duration-200 ease-out",
+              collapsed ? "-translate-x-1 opacity-0" : "translate-x-0 opacity-100",
+            )}
+          >
+            <Link href={canClients ? "/clientes" : "/proyectos"} onClick={onNavigate} className="transition-colors hover:text-sidebar-foreground">
+              {isCliente ? "Mis proyectos" : "Clientes"}
+            </Link>
+          </span>
+        </div>
       </div>
     </aside>
   );
