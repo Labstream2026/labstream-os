@@ -91,7 +91,9 @@ export function CalendarBoard({
   team?: TeamMember[];
   projectId?: string | null;
   detailMode?: "dock" | "inline";
-  defaultView?: "semana" | "mes";
+  // Los CUATRO que el estado acepta: el tipo declaraba solo dos, así que pedir «agenda» de
+  // entrada no compilaba aunque por dentro funcionara.
+  defaultView?: EmbView;
   // Si se pasa, la barra muestra el conmutador Calendario/Cronograma (mismo renglón) y al
   // elegir "Cronograma" se renderiza este nodo en lugar de la rejilla. Compacta la interfaz.
   timelineNode?: React.ReactNode | null;
@@ -260,9 +262,17 @@ export function CalendarBoard({
   // ── Piezas del calendario EMBEBIDO ──
   // «Ahora» de pared: la app guarda horas de pared en campos UTC, así que la hora local del
   // equipo (Colombia) se lee como si fuera UTC para poder comparar contra los items.
+  // AHORA y DÓNDE ESTÁS MIRANDO son dos cosas distintas, y `anchor` hacía las dos.
+  // «Próximo» dice «en 3 h» / «mañana» contando desde `wallNowMs`, que salía del anchor: en el
+  // shell, navegar tres semanas hacía que «Próximo» midiera contra un ahora FALSO y anunciara
+  // «en 21 días» lo que pasa mañana. Y en el embebido era la razón de que el anchor estuviera
+  // clavado —moverlo rompía «Próximo»—, así que las flechas no navegaban.
+  //
+  // `ahora` se captura una vez al montar (lazy init, sin Date.now() en el render) y no se mueve.
+  const [ahora] = React.useState<Date>(() => new Date());
   const wallNowMs = React.useMemo(
-    () => Date.UTC(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), anchor.getHours(), anchor.getMinutes()),
-    [anchor],
+    () => Date.UTC(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), ahora.getHours(), ahora.getMinutes()),
+    [ahora],
   );
   // Lo PRÓXIMO del proyecto/cliente (respeta capas y filtro de persona): franja de arriba.
   const nextUp = React.useMemo(() => {
@@ -274,34 +284,35 @@ export function CalendarBoard({
     }
     return best;
   }, [shownItems, wallNowMs]);
-  // Contadores del MES visible por tipo (se pintan en las tarjetas-interruptor de capa).
-  // En modo embebido las vistas navegan por su cuenta (no controladas) y el `anchor` del
-  // board se quedaba en HOY: las tarjetas y el sufijo «· JUL» mostraban siempre el mes
-  // actual aunque navegaras a otro. `viewMonth` recibe el mes real vía onNavigate; el
-  // `anchor` NO se toca porque alimenta la franja «Próximo» (relativa a AHORA).
-  const [viewMonth, setViewMonth] = React.useState<Date>(() => new Date());
-  const countMonth = shell ? anchor : viewMonth;
-  const monthKey = `${countMonth.getFullYear()}-${pad(countMonth.getMonth() + 1)}`;
+  // Contadores del MES visible por tipo. Ahora el `anchor` manda en las dos modalidades (antes
+  // el embebido navegaba por su cuenta y hacía falta un `viewMonth` aparte que le llegara por
+  // `onNavigate`), así que el mes contado es sencillamente el mes al que estás mirando.
+  const monthKey = `${anchor.getFullYear()}-${pad(anchor.getMonth() + 1)}`;
   const kindCounts = React.useMemo(() => {
     const c: Record<string, number> = {};
     for (const it of items) if (it.date.slice(0, 7) === monthKey) c[it.kind] = (c[it.kind] ?? 0) + 1;
     return c;
   }, [items, monthKey]);
 
-  // Navegación del shell según la vista (mes/semana/día/agenda).
-  const navShell = (dir: -1 | 1) => setAnchor((a) => {
+  // Un paso de navegación mide lo que mide la vista: un mes, una semana, un día o la ventana de
+  // 30 días de la Agenda. Sirve igual para el shell y para el embebido.
+  const paso = (v: string, dir: -1 | 1) => setAnchor((a) => {
     const d = new Date(a);
-    if (shellView === "mes") d.setMonth(d.getMonth() + dir);
-    else if (shellView === "semana") d.setDate(d.getDate() + dir * 7);
-    else if (shellView === "dia") d.setDate(d.getDate() + dir);
+    if (v === "mes") d.setMonth(d.getMonth() + dir);
+    else if (v === "semana") d.setDate(d.getDate() + dir * 7);
+    else if (v === "dia") d.setDate(d.getDate() + dir);
     else d.setDate(d.getDate() + dir * 30);
     return d;
   });
-  const shellTitle = shellView === "dia"
+  const navShell = (dir: -1 | 1) => paso(shellView, dir);
+  // El rótulo de la Agenda decía «próximos 30 días», que era cierto solo mientras no se pudiera
+  // navegar. Ahora dice desde CUÁNDO cuenta esos 30 días, y sigue siendo cierto en cualquier sitio.
+  const tituloDe = (v: string) => v === "dia"
     ? cap(new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long" }).format(anchor))
-    : shellView === "agenda"
-      ? "Agenda · próximos 30 días"
+    : v === "agenda"
+      ? `30 días desde el ${new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "long" }).format(anchor)}`
       : cap(new Intl.DateTimeFormat("es-CO", { month: "long", year: "numeric" }).format(anchor));
+  const shellTitle = tituloDe(shellView);
 
   React.useEffect(() => {
     const onCreateEv = (e: Event) => {
@@ -520,7 +531,7 @@ export function CalendarBoard({
     ? [...new Set([nextUp.assignee?.name, ...(nextUp.attendees ?? []).map((a) => a.name)].filter(Boolean) as string[])]
     : [];
   const maxKindCount = Math.max(1, ...KIND_LAYERS.map((L) => kindCounts[L.key] ?? 0));
-  const monthShort = MONTH_FMT.format(countMonth).replace(".", "").toUpperCase();
+  const monthShort = MONTH_FMT.format(anchor).replace(".", "").toUpperCase();
 
   // Próximas ENTREGAS (tareas con fecha + hitos): la lista del panel derecho. Los rodajes y
   // citas no entran — para lo inmediato ya está la franja «Próximo».
@@ -649,9 +660,13 @@ export function CalendarBoard({
   ) : view === "agenda" ? (
     <div className="min-h-0 flex-1 overflow-y-auto"><AgendaView items={shownItems} anchor={anchor} days={30} colorBy={colorBy} /></div>
   ) : view === "mes" ? (
-    <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} onNavigate={setViewMonth} /></div>
+    // Con `onAnchorChange` las dos vistas pasan a CONTROLADAS: esconden su propia fila de
+    // ←/Hoy/→ (había dos barras de navegación, una encima de otra) y navegan el anchor del
+    // board, que es el mismo que alimenta la Agenda. Antes cada una llevaba su cuenta y la
+    // Agenda no navegaba en absoluto: recibía el anchor del montaje y ahí se quedaba.
+    <div className="min-h-0 flex-1 overflow-y-auto"><MyCalendar items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} anchor={anchor} onAnchorChange={setAnchor} /></div>
   ) : (
-    <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} onNavigate={setViewMonth} /></div>
+    <div className="min-h-0 flex-1"><WeekView items={shownItems} canCreate={Boolean(onCreate)} colorBy={colorBy} days={view === "dia" ? 1 : 7} anchor={anchor} onAnchorChange={setAnchor} /></div>
   );
 
   const barraNode = (
@@ -683,6 +698,14 @@ export function CalendarBoard({
             {v.label}
           </button>
         ))}
+      </div>
+      {/* LA barra de navegación, una sola. Antes la vista de semana pintaba la suya por dentro
+          (dos filas de ←/Hoy/→ apiladas) y la Agenda no tenía ninguna: no se podía mover. */}
+      <div className="inline-flex items-center gap-1">
+        <button type="button" onClick={() => paso(view, -1)} aria-label="Anterior" className="rounded-md border border-border px-2 py-1.5 text-sm leading-none hover:bg-muted">←</button>
+        <span className="min-w-0 px-1.5 text-xs font-semibold first-letter:uppercase">{tituloDe(view)}</span>
+        <button type="button" onClick={() => setAnchor(new Date())} className="rounded-md border border-border px-2 py-1.5 text-xs leading-none hover:bg-muted">Hoy</button>
+        <button type="button" onClick={() => paso(view, 1)} aria-label="Siguiente" className="rounded-md border border-border px-2 py-1.5 text-sm leading-none hover:bg-muted">→</button>
       </div>
       </div>
       )}
