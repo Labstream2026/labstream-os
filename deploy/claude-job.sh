@@ -49,13 +49,15 @@ tar xzf "$TMP/src.tgz" -C "$TMP"
 SRC="$TMP/labstream-os-$BRANCH"
 
 # ── Qué commit queda desplegado ──
-# El tarball de codeload no trae .git, así que el SHA se pregunta a la API de GitHub. Se escribe
-# en public/version.txt, que el Dockerfile hornea en la imagen (el runner copia public/), y así
-# se puede comprobar desde el navegador en /version.txt SIN entrar al NAS ni abrir el log.
-# Antes solo se podía deducir por lo que faltaba en la pantalla, que es como estuvimos un día
-# creyendo que no se desplegaba nada cuando en realidad sí.
-# Si la API falla (sin red, límite de peticiones) NO se tumba el deploy: queda "desconocido".
-SHA=$(curl -fsSL "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null \
+# El SHA viene DENTRO del propio tarball (cabecera pax global: «comment=<sha>» en los
+# primeros bytes): ni red ni cuotas. Antes se preguntaba a la API de GitHub, que sin token
+# aguanta 60 consultas/hora por IP — un día de muchos deploys la agotó y produjo un
+# «desconocido» en producción (2026-08-19). La API queda de RESPALDO por si el tarball
+# viniera algún día sin cabecera; si todo falla, NO se tumba el deploy: queda "desconocido".
+# Se escribe en public/version.txt, que el Dockerfile hornea en la imagen: /api/version lo
+# enseña sin entrar al NAS, y el aviso de «recarga» de las pestañas compara contra él.
+SHA=$(gunzip -c "$TMP/src.tgz" 2>/dev/null | head -c 2048 | tr -c '0-9a-f' '\n' | grep -Ex '[0-9a-f]{40}' | head -1)
+[ -n "$SHA" ] || SHA=$(curl -fsSL "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null \
       | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -1)
 [ -n "$SHA" ] || SHA="desconocido"
 printf '%s\n%s\n' "$SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SRC/public/version.txt"
