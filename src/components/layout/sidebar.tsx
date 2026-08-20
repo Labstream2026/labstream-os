@@ -759,8 +759,10 @@ export function Sidebar({
     <aside className={cn("flex h-full shrink-0 bg-sidebar text-sidebar-foreground", dragging && "select-none")}>
       {dialog}
 
-      {/* RAIL: navegación principal con badges, SIEMPRE visible */}
-      <div className="relative z-20 flex w-[58px] shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-3">
+      {/* RAIL: navegación principal con badges, SIEMPRE visible. Con overflow propio: en
+          pantallas bajas los iconos + las fotos de clientes suman más que el alto y sin esto
+          lo de abajo (o las fotos) moría aplastado a 0 px. */}
+      <div className="relative z-20 flex w-[58px] shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-sidebar-border bg-sidebar py-3 [scrollbar-width:none]">
         {/* Tu avatar, arriba del todo (donde vivía la marca compacta, que nadie reconocía como
             logo): ES la puerta de Ajustes. Clic = menú con las pestañas y entras directo a la
             sección — ya no te saca de donde estás para caer en la portada de Ajustes. La caja
@@ -845,11 +847,15 @@ export function Sidebar({
             </span>
           </Link>
         ))}
+        <div className="min-h-2 flex-1" />
         {/* ── Los CLIENTES nunca se van: al contraer el panel, sus fotos (pequeñas, cuadradas
-            con esquinas suaves) se quedan aquí en el raíl. Clic en una = el panel vuelve a
-            abrirse CON ese cliente desplegado — siempre a un clic, y el espacio, recuperado. ── */}
+            con esquinas suaves) se quedan aquí en el raíl, ancladas sobre el grupo del
+            estudio. Clic en una = el panel vuelve a abrirse CON ese cliente desplegado.
+            shrink-0 + tope con scroll propio: el espacio «sobrante» del raíl puede ser CERO
+            (pantallas bajas, muchos iconos) y las fotos NO se negocian — el bug de estreno
+            fue exactamente ese: flex-1 les daba el sobrante, que era 0 px. ── */}
         {collapsed && canClients && clients.length ? (
-          <div className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto py-1 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
+          <div className="flex max-h-[320px] shrink-0 flex-col items-center gap-1.5 overflow-y-auto py-1 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
             {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c) => {
               const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
               return (
@@ -873,9 +879,7 @@ export function Sidebar({
               );
             })}
           </div>
-        ) : (
-          <div className="flex-1" />
-        )}
+        ) : null}
         {/* Administrativo: iconos con tooltip, abajo del rail (separados con una línea). */}
         {RAIL_ADMIN.length ? (
           <>
