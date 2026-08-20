@@ -20,7 +20,14 @@ export function ProjectCalendar({
   team: TeamMember[];
 }) {
   const [solo, setSolo] = React.useState(false);
-  const shown = solo ? items.filter((i) => i.kind === "milestone" || i.kind === "shoot") : items;
+  // «Solo hitos y entregas» es el modo que se enseña AL CLIENTE en una llamada, así que además
+  // de filtrar tipos hay que quitar lo interno. La ronda («Ronda 5 de 4 · 1 por cobrar») es
+  // postura de facturación: eso se plantea en un correo y cuando tú decidas, no se lee por
+  // encima de tu hombro. Se BORRA del dato antes de pintar, no se esconde con CSS: lo que no
+  // viaja no se puede filtrar mal ni leer en el HTML.
+  const shown = solo
+    ? items.filter((i) => i.kind === "milestone" || i.kind === "shoot").map((i) => ({ ...i, nota: null, notaTono: null }))
+    : items;
   return (
     <div className="flex h-full flex-col gap-2">
       <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">

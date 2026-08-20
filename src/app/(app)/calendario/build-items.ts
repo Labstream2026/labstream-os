@@ -1,5 +1,6 @@
 import type { CalItem } from "./my-calendar";
 import { taskUrgency, urgencyHexCalendario } from "@/lib/task-urgency";
+import { estadoRonda } from "@/lib/rondas";
 
 // Constructores compartidos: convierten filas de CalendarEvent / Task en CalItem,
 // para que TODOS los calendarios de la app (equipo, proyecto, cliente, mis tareas)
@@ -81,7 +82,11 @@ export type ProjectSummaryRow = {
   emoji: string | null;
   startDate: Date | null;
   dueDate: Date | null;
-  deliverables: { name: string; dueDate: Date | null }[];
+  // `rondas` = cuántas veces el cliente ha pedido cambios en ESA pieza (se deriva contando
+  // DeliverableDecision con stage=CLIENTE y result=CAMBIOS; no hay columna que mantener).
+  deliverables: { name: string; dueDate: Date | null; rondas?: number }[];
+  // Tope pactado en la propuesta («hasta 4 rondas»). Null = no se acordó ninguno.
+  roundsIncluded?: number | null;
 };
 
 // Resumen de un proyecto en el calendario (solo lectura): inicio ▶, entrega 🏁 y la
@@ -98,7 +103,14 @@ export function projectSummaryItems(p: ProjectSummaryRow): CalItem[] {
   if (p.startDate) out.push({ id: `pstart-${p.id}`, title: `Inicio del proyecto`, date: p.startDate.toISOString(), start: p.startDate.toISOString(), ...base });
   if (p.dueDate) out.push({ id: `pdue-${p.id}`, title: `Entrega del proyecto`, date: p.dueDate.toISOString(), start: p.dueDate.toISOString(), ...base });
   for (const [i, d] of p.deliverables.entries()) {
-    if (d.dueDate) out.push({ id: `pdel-${p.id}-${i}`, title: d.name, date: d.dueDate.toISOString(), start: d.dueDate.toISOString(), ...base });
+    if (!d.dueDate) continue;
+    // La ronda pactada, en el día de la pieza. Sin cambios pedidos, `estadoRonda` devuelve
+    // texto null y aquí no se pinta nada: un chip «Ronda 0» solo sería ruido.
+    const r = estadoRonda(d.rondas ?? 0, p.roundsIncluded ?? null);
+    out.push({
+      id: `pdel-${p.id}-${i}`, title: d.name, date: d.dueDate.toISOString(), start: d.dueDate.toISOString(),
+      nota: r.texto, notaTono: r.texto ? r.tono : null, ...base,
+    });
   }
   return out;
 }

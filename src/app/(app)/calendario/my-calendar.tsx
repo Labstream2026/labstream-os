@@ -36,6 +36,11 @@ export type CalItem = {
   description?: string | null;
   location?: string | null; // sala o enlace de reunión (Meet/Zoom)
   guests?: string[]; // correos de invitados externos
+  // Etiqueta corta al lado del título: hoy la usa la ronda de cambios («Ronda 5 de 4 · 1 por
+  // cobrar»). Es información INTERNA — postura de facturación —, así que el modo presentación
+  // la quita antes de pintar, no la esconde con CSS.
+  nota?: string | null;
+  notaTono?: "neutro" | "ok" | "aviso" | "excedido" | null;
   // ── Edición (solo eventos creados en la app por el usuario actual) ──
   eventId?: string; // id real del evento (sin prefijo)
   canEdit?: boolean; // el usuario actual lo creó y es un evento de la app

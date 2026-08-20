@@ -29,6 +29,14 @@ function dayLabel(key: string): string {
 // Emoji por tipo para el cuadrito de cada fila (mismo lenguaje visual que las capas del board).
 // Los mismos íconos que el resto del calendario. Eran emoji, que además de mezclarse con los
 // íconos vectoriales de al lado los dibuja cada sistema operativo a su manera.
+// Los cuatro tonos de `estadoRonda`: sin tope · dentro · última incluida · pasado.
+const TONO_NOTA: Record<string, string> = {
+  neutro: "border-border text-muted-foreground",
+  ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  aviso: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  excedido: "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400",
+};
+
 const KIND_ICON: Record<CalItem["kind"], (p: { className?: string }) => React.ReactElement> = {
   event: IconCalendario, task: IconEntregas, shoot: IconRodaje, milestone: IconHito,
 };
@@ -106,6 +114,13 @@ export function AgendaView({ items, anchor, days = 30, colorBy = "tipo" }: {
                     </span>
                     <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">{timeLabel}</span>
                     <span className="truncate text-sm font-medium">{it.title}</span>
+                    {/* La ronda pactada, junto a la pieza. El modo presentación ya la quitó del
+                        dato, así que aquí no hay nada que decidir: si llega, se pinta. */}
+                    {it.nota ? (
+                      <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium", TONO_NOTA[it.notaTono ?? "neutro"])}>
+                        {it.nota}
+                      </span>
+                    ) : null}
                     {it.projectName ? (
                       <span className={cn("ml-auto shrink-0 truncate text-xs text-muted-foreground")}>
                         <EntityEmoji value={it.projectEmoji} fallback="🗂️" /> {it.projectName}

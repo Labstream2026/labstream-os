@@ -524,6 +524,21 @@ export default async function ProyectoPage({
   // Estado al que vuelve una tarea reabierta: el primer estado abierto del catálogo.
   const reopenStatusKey = taskLabels.statuses.find((st) => !st.isDone)?.key ?? "PENDIENTE";
 
+  // Rondas de cambios POR PIEZA. Una ronda es un ciclo «te mandé una versión → me pediste
+  // cambios», y se DERIVA: no hay columna que mantener, se cuentan las decisiones del cliente
+  // que pidieron cambios. Las internas no cuentan — revisar en casa no se le cobra a nadie.
+  //
+  // Consulta aparte y no `decisions` de la consulta grande: aquella trae las 12 ÚLTIMAS y solo
+  // cuando se abre la pestaña de entregables, así que contar con ella daría un número corto y
+  // dependiente de qué pestaña miras.
+  const rondasPorPieza = new Map<string, number>(
+    (await db.deliverableDecision.groupBy({
+      by: ["deliverableId"],
+      where: { stage: "CLIENTE", result: "CAMBIOS", deliverable: { projectId: id } },
+      _count: { _all: true },
+    }).catch(() => [])).map((r) => [r.deliverableId, r._count._all]),
+  );
+
   // Items del calendario del proyecto: citas + tareas (entrega/rodaje) + hitos del
   // propio proyecto (inicio, entrega y fechas de entregables).
   const projectCalItems = [
@@ -539,7 +554,8 @@ export default async function ProyectoPage({
     ...projectSummaryItems({
       id, name: project.name, emoji: project.emoji,
       startDate: project.startDate, dueDate: project.dueDate,
-      deliverables: project.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate })),
+      deliverables: project.deliverables.map((d) => ({ name: d.name, dueDate: d.dueDate, rondas: rondasPorPieza.get(d.id) ?? 0 })),
+      roundsIncluded: project.roundsIncluded,
     }),
   ];
 

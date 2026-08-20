@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { taskToCalItems, coincidePersona } from "./build-items";
+import { taskToCalItems, coincidePersona, projectSummaryItems } from "./build-items";
 import { urgencyHex, urgencyHexCalendario } from "@/lib/task-urgency";
 import { calTone } from "./calendar-detail";
 
@@ -70,6 +70,48 @@ describe("los colores de urgencia no pueden chocar con los de tipo", () => {
     for (const estado of ["sin", "a_tiempo", "lejano", "proximo", "pronto"] as const) {
       expect(urgencyHexCalendario(estado)).toBeUndefined();
     }
+  });
+});
+
+// La ronda es postura de FACTURACIÓN («Ronda 5 de 4 · 1 por cobrar»). Se deriva contando las
+// decisiones del cliente que pidieron cambios; las internas no cuentan, porque revisar en casa
+// no se le cobra a nadie.
+describe("projectSummaryItems · la ronda pactada", () => {
+  const proyecto = {
+    id: "p1", name: "Reel", emoji: null, startDate: null, dueDate: null,
+    deliverables: [{ name: "Reel 30 s", dueDate: new Date("2026-09-01T12:00:00.000Z"), rondas: 5 }],
+  };
+
+  it("con tope pactado avisa de lo que se pasa", () => {
+    const [pieza] = projectSummaryItems({ ...proyecto, roundsIncluded: 4 });
+    expect(pieza.nota).toContain("Ronda 5");
+    expect(pieza.nota).toContain("cobrar");
+    expect(pieza.notaTono).toBe("excedido");
+  });
+
+  it("sin tope pactado cuenta pero no reclama", () => {
+    const [pieza] = projectSummaryItems({ ...proyecto, roundsIncluded: null });
+    expect(pieza.nota).toBe("Ronda 5");
+    expect(pieza.nota).not.toContain("cobrar");
+  });
+
+  it("sin cambios pedidos no pinta nada — un chip «Ronda 0» solo sería ruido", () => {
+    const [pieza] = projectSummaryItems({
+      ...proyecto, roundsIncluded: 4,
+      deliverables: [{ name: "Reel 30 s", dueDate: new Date("2026-09-01T12:00:00.000Z"), rondas: 0 }],
+    });
+    expect(pieza.nota).toBeNull();
+    expect(pieza.notaTono).toBeNull();
+  });
+
+  it("el inicio y la entrega del proyecto nunca llevan ronda", () => {
+    const items = projectSummaryItems({
+      ...proyecto, roundsIncluded: 4,
+      startDate: new Date("2026-08-01T12:00:00.000Z"), dueDate: new Date("2026-10-01T12:00:00.000Z"),
+    });
+    const hitos = items.filter((i) => i.id.startsWith("pstart-") || i.id.startsWith("pdue-"));
+    expect(hitos).toHaveLength(2);
+    for (const h of hitos) expect(h.nota).toBeUndefined();
   });
 });
 
