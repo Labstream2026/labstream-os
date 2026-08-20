@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { IconCalendario, IconEntregas, IconRodaje, IconHito } from "@/components/icons";
 import { avatarHex } from "@/lib/ui";
 import { MyCalendar, type CalItem, type TeamMember } from "./my-calendar";
+import { coincidePersona } from "./build-items";
 import { WeekView } from "./week-view";
 import { AgendaView } from "./agenda-view";
 import { MiniCalendar } from "./mini-calendar";
@@ -235,7 +236,8 @@ export function CalendarBoard({
   // Items a mostrar (no-shell): capas por tipo + filtro por persona única (select).
   const shownItems = React.useMemo(() => items.filter((it) => {
     if (hiddenKinds.has(it.kind)) return false;
-    if (personFilter && !(it.assignee?.name === personFilter || (it.attendees ?? []).some((a) => a.name === personFilter))) return false;
+    // La regla vive en build-items (con su prueba): lo que no tiene dueño pasa siempre.
+    if (!coincidePersona(it, personFilter)) return false;
     return true;
   }), [items, personFilter, hiddenKinds]);
 

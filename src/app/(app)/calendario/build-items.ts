@@ -91,12 +91,32 @@ export function projectSummaryItems(p: ProjectSummaryRow): CalItem[] {
   const link = `/proyectos/${p.id}`;
   const base = { kind: "milestone" as const, allDay: true, canEdit: false, projectName: p.name, projectEmoji: p.emoji ?? null, link };
   const out: CalItem[] = [];
-  if (p.startDate) out.push({ id: `pstart-${p.id}`, title: `▶ Inicio del proyecto`, date: p.startDate.toISOString(), start: p.startDate.toISOString(), ...base });
-  if (p.dueDate) out.push({ id: `pdue-${p.id}`, title: `🏁 Entrega del proyecto`, date: p.dueDate.toISOString(), start: p.dueDate.toISOString(), ...base });
+  // Sin emoji en el TÍTULO. Los tres son de clase `milestone`, así que ya llevan el ícono de
+  // hito delante; el emoji era una segunda marca encima de la primera. Y uno mentía: el 🎬 de
+  // un entregable es una claqueta, o sea el símbolo del RODAJE, que es otra cosa y ya tiene su
+  // propio ícono en la misma pantalla.
+  if (p.startDate) out.push({ id: `pstart-${p.id}`, title: `Inicio del proyecto`, date: p.startDate.toISOString(), start: p.startDate.toISOString(), ...base });
+  if (p.dueDate) out.push({ id: `pdue-${p.id}`, title: `Entrega del proyecto`, date: p.dueDate.toISOString(), start: p.dueDate.toISOString(), ...base });
   for (const [i, d] of p.deliverables.entries()) {
-    if (d.dueDate) out.push({ id: `pdel-${p.id}-${i}`, title: `🎬 ${d.name}`, date: d.dueDate.toISOString(), start: d.dueDate.toISOString(), ...base });
+    if (d.dueDate) out.push({ id: `pdel-${p.id}-${i}`, title: d.name, date: d.dueDate.toISOString(), start: d.dueDate.toISOString(), ...base });
   }
   return out;
+}
+
+// ¿Este item pasa el filtro «ver el calendario de X»?
+//
+// La regla que no es obvia: lo que NO tiene dueño pasa siempre. Los hitos del proyecto (inicio,
+// entrega, fechas de entregables) nacen sin responsable ni asistentes a propósito —son de
+// todos—, así que un filtro que exija coincidencia los borraba: elegir a una persona escondía
+// la fecha de entrega del proyecto, que es lo más importante de esa pantalla.
+export function coincidePersona(
+  it: { assignee?: { name: string } | null; attendees?: { name: string }[] | null },
+  persona: string,
+): boolean {
+  if (!persona) return true;
+  const deAlguien = Boolean(it.assignee) || (it.attendees ?? []).length > 0;
+  if (!deAlguien) return true;
+  return it.assignee?.name === persona || (it.attendees ?? []).some((a) => a.name === persona);
 }
 
 // Convierte una tarea en hasta dos chips: entrega (dueDate) y rodaje (shootDate).

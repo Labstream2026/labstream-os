@@ -28,8 +28,14 @@ export function ProjectCalendar({
         <IconHito className="size-3.5" />
         Solo hitos y entregas
       </label>
-      <div className="min-h-0 flex-1">
-        <CalendarBoard items={shown} onCreate={onCreate} projectId={projectId} team={team} />
+      {/* `asideStats`: «Próximo», las capas y las próximas entregas se van a una columna derecha
+          y la vista principal gana todo el alto. La rama ya existía y lleva meses viva en la
+          ficha del cliente; aquí simplemente no se pasaba. De paso el proyecto gana la lista de
+          próximas entregas, que en esta pantalla no se mostraba.
+          `pb-20`: los dos botones flotantes (chat y crear) se anclan abajo a la derecha y
+          tapaban el final de la rejilla — justo donde caen viernes y sábado. */}
+      <div className="min-h-0 flex-1 pb-20">
+        <CalendarBoard items={shown} onCreate={onCreate} projectId={projectId} team={team} asideStats />
       </div>
     </div>
   );

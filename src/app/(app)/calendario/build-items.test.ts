@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { taskToCalItems } from "./build-items";
+import { taskToCalItems, coincidePersona } from "./build-items";
 import { urgencyHex } from "@/lib/task-urgency";
 
 // Una tarea HECHA se seguía pintando de rojo en el calendario al pasar su fecha: `taskUrgency`
@@ -31,10 +31,40 @@ describe("taskToCalItems · el color de una entrega", () => {
   });
 
   it("no le cambia el color a la que no tiene fecha de entrega", () => {
+
     const [chip] = taskToCalItems({ ...base, dueDate: null, shootDate: ayer });
     // Sin dueDate no hay chip de entrega: el único que sale es el de rodaje, que no lleva color
     // de urgencia (un rodaje no vence).
     expect(chip.kind).toBe("shoot");
     expect(chip.urgencyHex).toBeUndefined();
+  });
+});
+
+// Filtrar por persona escondía la FECHA DE ENTREGA del proyecto: los hitos nacen sin
+// responsable ni asistentes a propósito —son de todos— y el filtro los descartaba por no
+// coincidir con nadie. Elegir a un compañero borraba lo más importante de la pantalla.
+describe("coincidePersona · el filtro por persona", () => {
+  const conDuenio = { assignee: { name: "Camila" }, attendees: [] };
+  const hito = { assignee: null, attendees: [] };
+
+  it("sin filtro pasa todo", () => {
+    expect(coincidePersona(conDuenio, "")).toBe(true);
+    expect(coincidePersona(hito, "")).toBe(true);
+  });
+
+  it("deja pasar lo de la persona elegida y descarta lo de otra", () => {
+    expect(coincidePersona(conDuenio, "Camila")).toBe(true);
+    expect(coincidePersona(conDuenio, "Andrés")).toBe(false);
+  });
+
+  it("deja pasar SIEMPRE lo que no tiene dueño — los hitos son de todos", () => {
+    expect(coincidePersona(hito, "Camila")).toBe(true);
+    expect(coincidePersona(hito, "Andrés")).toBe(true);
+  });
+
+  it("una cita cuenta por sus asistentes, no solo por el responsable", () => {
+    const cita = { assignee: null, attendees: [{ name: "Andrés" }, { name: "Camila" }] };
+    expect(coincidePersona(cita, "Andrés")).toBe(true);
+    expect(coincidePersona(cita, "Nadie")).toBe(false);
   });
 });
