@@ -164,6 +164,16 @@ function Lista({ datos, onElegir }: { datos: RastreoDatos; onElegir: (id: string
         </Caja>
       ) : null}
 
+      {datos.inactividadEquipoTxt ? (
+        <Caja
+          titulo={`Inactividad del ${datos.ambitoTodos ? "equipo" : "grupo visible"} · ${datos.inactividadEquipoTxt}`}
+          hint="Tiempo con el equipo encendido y SIN ninguna entrada de mouse o teclado, tras los 3 min de umbral. Es distinta del ocio de navegador. Aquí, en qué franjas del día se concentra · hora de Bogotá."
+          className="mt-2.5"
+        >
+          <FilasBarra filas={datos.inactividadEquipoFranjas} color="var(--rs2)" />
+        </Caja>
+      ) : null}
+
       <Caja titulo="Cada persona" hint="Clic en alguien para abrir su ficha" className="mt-2.5">
         <div className="flex flex-col">
           {datos.personas.map((p) => (
@@ -282,6 +292,14 @@ function Ficha({ p, datos, onCerrar }: { p: PersonaRastreo; datos: RastreoDatos;
               <FilasBarra filas={p.ocioSitios} color="var(--rs3)" />
               <FilasBarra filas={p.ocioFranjas} color="var(--rs3)" />
             </div>
+          </Caja>
+        ) : null}
+        {p.inactivoTotalTxt ? (
+          <Caja
+            titulo={`Inactividad · ${p.inactivoTotalTxt}${p.inactivoPct != null ? ` (${p.inactivoPct}% del tiempo encendido)` : ""}`}
+            hint="Equipo encendido y sin una sola entrada de mouse o teclado, tras los 3 min de umbral. NO es lo mismo que el ocio de navegador. Las barras dicen a qué HORAS del día se queda más quieto · hora de Bogotá."
+          >
+            <FilasBarra filas={p.inactividadFranjas} color="var(--rs2)" />
           </Caja>
         ) : null}
         <div className="flex flex-col gap-2.5">

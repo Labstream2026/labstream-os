@@ -50,6 +50,13 @@ export type PersonaRastreo = {
   ocioTxt: string | null; // total de ocio en el navegador («4,2 h») · null si nada
   /** En qué franjas del día cae el ocio (madrugada/mañana/tarde/noche), en horas de Bogotá. */
   ocioFranjas: FilaBarra[];
+  /** INACTIVIDAD (equipo encendido y sin una sola entrada, tras los 3 min de umbral): total y
+   *  qué parte del tiempo encendido fue. Es DISTINTA del ocio de navegador. null si no hubo (o
+   *  el sensor es anterior a 1.9). */
+  inactivoTotalTxt: string | null;
+  inactivoPct: number | null; // % del tiempo con el equipo encendido que fue inactividad
+  /** A qué HORAS del día se queda quieto: la inactividad repartida por franja · hora de Bogotá. */
+  inactividadFranjas: FilaBarra[];
   jornadas: Jornada[]; // las últimas 10, de la más reciente a la más vieja
   equipos: number; // equipos vinculados y vivos
   ultimoTxt: string | null; // «hace 3 min» · null si nunca reportó
@@ -73,6 +80,9 @@ export type RastreoDatos = {
   /** En qué proyectos de edición está el equipo (título de Resolve/Premiere/AE) y su total. */
   edicionEquipo: FilaBarra[];
   edicionEquipoTxt: string | null;
+  /** Inactividad de TODO el equipo: total y en qué franjas del día cae más · hora de Bogotá. */
+  inactividadEquipoTxt: string | null;
+  inactividadEquipoFranjas: FilaBarra[];
   /** El que mira ve a TODO el equipo (permiso) o solo a personas compartidas con él. */
   ambitoTodos: boolean;
   /** El periodo trajo más navegación que el tope de la consulta: las cifras son parciales. */
@@ -155,7 +165,7 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   const wUsuarios = acceso.sujetos === null ? Prisma.empty : Prisma.sql`AND "userId" IN (${Prisma.join(acceso.sujetos)})`;
   const wDesde = periodo.desde ? Prisma.sql`AND "startedAt" >= ${periodo.desde}` : Prisma.empty;
 
-  const [porDia, ocioPorDia, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb, bloquesNavegador, bloquesEdicion] = await Promise.all([
+  const [porDia, ocioPorDia, ocioPorFranja, apps, cuentas, usuarios, dispositivos, compartidos, clientesDb, bloquesNavegador, bloquesEdicion] = await Promise.all([
     // Un renglón por persona y día LOCAL: cuánto sumó, cuánto de eso fue activo, y a qué hora
     // abrió y cerró. De aquí salen la serie, los días trabajados y las jornadas.
     db.$queryRaw<FilaDia[]>`
@@ -178,6 +188,21 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
              SUM("seconds")::int AS seg
       FROM "IdleBlock"
       WHERE "startedAt" < ${periodo.hasta} ${wDesde} ${wUsuarios}
+      GROUP BY 1, 2
+    `,
+    // La inactividad por FRANJA del día (Bogotá): responde «¿a qué horas se queda quieto el
+    // equipo?». Se agrupa por la hora de INICIO del tramo, como el resto del panel — un tramo
+    // rara vez cruza el borde de una franja de 6 h. Mismas 4 franjas que el ocio de navegador.
+    db.$queryRaw<{ userId: string; franja: number; seg: number }[]>`
+      SELECT "userId",
+             CASE WHEN h < 6 THEN 0 WHEN h < 12 THEN 1 WHEN h < 18 THEN 2 ELSE 3 END AS franja,
+             SUM("seconds")::int AS seg
+      FROM (
+        SELECT "userId", "seconds",
+               EXTRACT(HOUR FROM ("startedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota'))::int AS h
+        FROM "IdleBlock"
+        WHERE "startedAt" < ${periodo.hasta} ${wDesde} ${wUsuarios}
+      ) t
       GROUP BY 1, 2
     `,
     db.workBlock.groupBy({ by: ["userId", "app"], where: { startedAt: rango, ...filtro }, _sum: { seconds: true } }),
@@ -249,6 +274,18 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
   // la fecha pura de Postgres, igual que el resto del archivo.
   const ocioDe = new Map<string, number>();
   for (const f of ocioPorDia) ocioDe.set(`${f.userId}|${f.dia.toISOString().slice(0, 10)}`, f.seg);
+
+  // Inactividad por persona repartida en las 4 franjas del día, y el acumulado del equipo.
+  const idleFranjaDe = new Map<string, [number, number, number, number]>();
+  const idleFranjaEquipo: [number, number, number, number] = [0, 0, 0, 0];
+  for (const f of ocioPorFranja) {
+    const arr = idleFranjaDe.get(f.userId) ?? [0, 0, 0, 0];
+    arr[f.franja] += f.seg;
+    idleFranjaDe.set(f.userId, arr);
+    idleFranjaEquipo[f.franja] += f.seg;
+  }
+  const franjasBarra = (f: [number, number, number, number]): FilaBarra[] =>
+    f.map((seg, i) => ({ label: FRANJAS[i], valor: seg, texto: horas1(seg) })).filter((x) => x.valor > 0);
 
   // ── Navegación: qué páginas y cuándo ──
   // Se clasifica cada bloque de navegador por el catálogo de sitios; lo no reconocido cae en
@@ -347,6 +384,8 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
       const eq = equiposDe.get(u.id);
       const nav = navDe.get(u.id);
       const ocioSeg = nav ? [...nav.ocioSitios.values()].reduce((s, x) => s + x, 0) : 0;
+      const idleF = idleFranjaDe.get(u.id) ?? [0, 0, 0, 0];
+      const idleSeg = idleF[0] + idleF[1] + idleF[2] + idleF[3];
       return {
         id: u.id,
         ini: u.initials,
@@ -370,6 +409,10 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
                 .map((seg, i) => ({ label: FRANJAS[i], valor: seg, texto: horas1(seg) }))
                 .filter((f) => f.valor > 0)
             : [],
+        inactivoTotalTxt: idleSeg > 0 ? horas1(idleSeg) : null,
+        // % del tiempo con el EQUIPO ENCENDIDO (trabajo medido + inactividad) que fue quietud.
+        inactivoPct: seg + idleSeg > 0 ? Math.round((idleSeg / (seg + idleSeg)) * 100) : null,
+        inactividadFranjas: idleSeg > 0 ? franjasBarra(idleF) : [],
         jornadas: [...dias]
           .sort((a, b) => b.dia.getTime() - a.dia.getTime())
           .slice(0, 10)
@@ -410,6 +453,8 @@ export async function construirRastreo(session: SessionUser | null, sp: { p?: st
     ocioEquipoTxt: navEquipoSitios.size ? horas1([...navEquipoSitios.values()].reduce((s, x) => s + x, 0)) : null,
     edicionEquipo: aBarras(comoMapa(edicionEquipoM), 8),
     edicionEquipoTxt: edicionEquipoM.size ? horas1([...edicionEquipoM.values()].reduce((s, x) => s + x.seg, 0)) : null,
+    inactividadEquipoTxt: idleFranjaEquipo.some((x) => x > 0) ? horas1(idleFranjaEquipo[0] + idleFranjaEquipo[1] + idleFranjaEquipo[2] + idleFranjaEquipo[3]) : null,
+    inactividadEquipoFranjas: franjasBarra(idleFranjaEquipo),
     ambitoTodos: acceso.sujetos === null,
     navegacionTruncada: bloquesNavegador.length === 60000 || bloquesEdicion.length === 60000,
     candidatos: acceso.gestiona ? usuarios.map((u) => ({ id: u.id, nombre: u.name, ini: u.initials, color: u.avatarColor })) : [],
