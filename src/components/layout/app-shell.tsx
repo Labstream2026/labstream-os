@@ -163,6 +163,17 @@ export function AppShell({
       return next;
     });
   };
+
+  // Clic en una FOTO de cliente del raíl (panel contraído): el panel vuelve a abrirse — el
+  // cliente ya viene desplegado (eso lo hace el propio sidebar antes de llamar aquí).
+  const expandSidebar = React.useCallback(() => {
+    if (focusPage) {
+      setChatFocus(false);
+      return;
+    }
+    setSidebarCollapsed(false);
+    void saveUserPreference({ sidebarCollapsed: false });
+  }, [focusPage]);
   // Cerrar cajones móviles y paneles flotantes al navegar entre páginas.
   React.useEffect(() => {
     setMobileMenuOpen(false);
@@ -186,7 +197,7 @@ export function AppShell({
     <div className={`flex h-[calc(100dvh-var(--pwa-nav-h,0px))] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canRastreo={canRastreo} correoUnread={correoUnread} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canRastreo={canRastreo} correoUnread={correoUnread} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} onExpand={expandSidebar} />
       </div>
 
       {/* Cajón de menú (móvil) */}

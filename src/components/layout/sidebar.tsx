@@ -203,6 +203,7 @@ export function Sidebar({
   remindersToday = 0,
   onNavigate,
   onSearch,
+  onExpand,
 }: {
   user: SidebarUser;
   clients: SidebarClient[];
@@ -234,6 +235,9 @@ export function Sidebar({
   remindersToday?: number;
   onNavigate?: () => void;
   onSearch?: () => void;
+  /** Pide DESPLEGAR el panel de Producción (lo maneja el shell): las fotos de clientes del
+   *  raíl lo usan — clic en una foto = panel abierto con ese cliente desplegado. */
+  onExpand?: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -311,10 +315,7 @@ export function Sidebar({
   const activeProjectId = pathname.startsWith("/proyectos/") ? pathname.split("/")[2] : null;
   const [openMap, setOpenMap] = React.useState<Record<string, boolean>>({});
   const isClientOpen = (c: SidebarClient) => openMap[c.id] ?? c.projects.some((p) => p.id === activeProjectId);
-  // ── Raíl mínimo ── Con TODO cerrado, los clientes son solo su foto; abrir uno DESPIERTA
-  // la sección y los nombres de todos se vuelven legibles (los clientes nuevos, cuya foto
-  // aún no dice nada, se leen sin abrir nada). Esc cierra y vuelve a fotos puras.
-  const seccionDespierta = clients.some((c) => isClientOpen(c));
+  // Esc recoge todos los despliegues (incluido el auto-abierto del proyecto activo).
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -380,10 +381,9 @@ export function Sidebar({
     );
   };
 
-  // Bloque de un cliente — RAÍL MÍNIMO: en reposo es SOLO su foto (logo o inicial teñida);
-  // el clic lo expande AHÍ MISMO con el nombre y los proyectos colgando de un hilo de su
-  // color. Uno abierto a la vez (acordeón de siempre); con algo abierto, la sección está
-  // «despierta» y todos los nombres se leen en suave. Sin chevrons, sin filas de texto.
+  // Bloque de un cliente: fila con avatar CUADRADO (esquinas suaves) + nombre SIEMPRE
+  // legible; el clic la expande AHÍ MISMO con los proyectos colgando de un hilo del color
+  // del cliente. Uno abierto a la vez (acordeón); la ficha vive al final del despliegue.
   const clientBlock = (c: SidebarClient) => {
     const hex = clientHex(c);
     const open = isClientOpen(c);
@@ -398,22 +398,13 @@ export function Sidebar({
             type="button"
             onClick={() => setOpenMap({ [c.id]: !open })} /* acordeón: abrir uno recoge los demás */
             aria-expanded={open}
-            aria-label={c.name}
-            title={seccionDespierta ? undefined : c.name}
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-1.5 text-left"
           >
-            <span className={cn("relative shrink-0 rounded-full transition-transform duration-200", !open && "group-hover/cli:scale-110", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
-              <ClientAvatar client={c} hex={hex} className="rounded-full" />
+            <span className={cn("relative shrink-0 rounded-[10px] transition-transform duration-200", !open && "group-hover/cli:scale-105", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
+              <ClientAvatar client={c} hex={hex} />
             </span>
-            {/* El nombre no ocupa la atención en reposo: aparece con la sección despierta
-                (suave) y del todo en el abierto — así el cliente NUEVO también se lee. */}
-            <span
-              className={cn(
-                "min-w-0 flex-1 transition-all duration-300",
-                seccionDespierta ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-2 opacity-0",
-              )}
-            >
-              <span className={cn("block truncate text-[13px] tracking-[0.005em]", open ? "font-bold text-sidebar-foreground" : "font-medium text-sidebar-foreground/60")}>
+            <span className="min-w-0 flex-1">
+              <span className={cn("block truncate text-[13px] tracking-[0.005em] text-sidebar-foreground", open ? "font-bold" : "font-semibold")}>
                 {c.name}
               </span>
               {open ? (
@@ -423,31 +414,29 @@ export function Sidebar({
               ) : null}
             </span>
           </button>
-          {/* Acciones del cliente: solo en el ABIERTO, al pasar — el reposo queda limpio. */}
-          {open ? (
-            <span className="mr-0.5 hidden shrink-0 items-center gap-0.5 group-hover/cli:flex">
+          {!open ? <span className="px-1.5 text-xs tabular-nums text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span> : null}
+          <span className="mr-1 hidden shrink-0 items-center gap-0.5 group-hover/cli:flex">
+            <button
+              type="button"
+              onClick={() => togglePinClient(c.id)}
+              title={pinned ? "Desanclar" : "Anclar arriba"}
+              aria-label={pinned ? `Desanclar ${c.name}` : `Anclar ${c.name}`}
+              className={cn("grid size-6 place-items-center rounded-md", pinned ? "text-amber-500" : "text-sidebar-muted hover:text-amber-500")}
+            >
+              <Star className={cn("size-3.5", pinned && "fill-current")} />
+            </button>
+            {canAdmin ? (
               <button
                 type="button"
-                onClick={() => togglePinClient(c.id)}
-                title={pinned ? "Desanclar" : "Anclar arriba"}
-                aria-label={pinned ? `Desanclar ${c.name}` : `Anclar ${c.name}`}
-                className={cn("grid size-6 place-items-center rounded-md", pinned ? "text-amber-500" : "text-sidebar-muted hover:text-amber-500")}
+                onClick={() => removeClient(c.id, c.name)}
+                title="Archivar cliente"
+                aria-label={`Archivar ${c.name}`}
+                className="grid size-6 place-items-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive"
               >
-                <Star className={cn("size-3.5", pinned && "fill-current")} />
+                <Archive className="size-3.5" />
               </button>
-              {canAdmin ? (
-                <button
-                  type="button"
-                  onClick={() => removeClient(c.id, c.name)}
-                  title="Archivar cliente"
-                  aria-label={`Archivar ${c.name}`}
-                  className="grid size-6 place-items-center rounded-md text-sidebar-muted hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Archive className="size-3.5" />
-                </button>
-              ) : null}
-            </span>
-          ) : null}
+            ) : null}
+          </span>
         </div>
 
         {/* El despliegue EN EL SITIO: alto animado (0fr→1fr), proyectos en cascada. */}
@@ -856,7 +845,37 @@ export function Sidebar({
             </span>
           </Link>
         ))}
-        <div className="flex-1" />
+        {/* ── Los CLIENTES nunca se van: al contraer el panel, sus fotos (pequeñas, cuadradas
+            con esquinas suaves) se quedan aquí en el raíl. Clic en una = el panel vuelve a
+            abrirse CON ese cliente desplegado — siempre a un clic, y el espacio, recuperado. ── */}
+        {collapsed && canClients && clients.length ? (
+          <div className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto py-1 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
+            {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c) => {
+              const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setOpenMap({ [c.id]: true });
+                    onExpand?.();
+                  }}
+                  aria-label={`Abrir ${c.name}`}
+                  className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
+                >
+                  <span className={cn("block rounded-[9px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
+                    <ClientAvatar client={c} hex={clientHex(c)} className="size-7 rounded-[8px]" />
+                  </span>
+                  <span className="pointer-events-none absolute left-[calc(100%+14px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
+                    {c.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
         {/* Administrativo: iconos con tooltip, abajo del rail (separados con una línea). */}
         {RAIL_ADMIN.length ? (
           <>
