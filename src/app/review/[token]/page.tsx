@@ -92,7 +92,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
         orderBy: { createdAt: "asc" },
         include: { resolvedBy: { select: { name: true } } },
       },
-      photos: { orderBy: { position: "asc" } },
+      // Curaduría: lo excluido por el equipo NO sale del servidor por este enlace (ni en borrador).
+      photos: { where: { excludedAt: null }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
       // Archivos finales por formato (centro de descargas del cliente).
       renditions: { orderBy: { position: "asc" }, select: { id: true, format: true, label: true, url: true } },
     },
@@ -194,7 +195,23 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // Entregable de FOTOGRAFIA: en vez del reproductor, una galería de selección. Las URLs de
   // visualización se calculan en el servidor (token de archivo para las locales, Drive para enlaces).
   const isPhoto = deliverable.type === "FOTOGRAFIA";
-  const photos = deliverable.photos.map((p) => ({ id: p.id, filename: p.filename, src: photoViewSrc(p), pick: p.pick, clientNote: p.clientNote }));
+  const photos = deliverable.photos.map((p) => ({
+    id: p.id,
+    filename: p.filename,
+    src: photoViewSrc(p),
+    pick: p.pick,
+    clientNote: p.clientNote,
+    seccion: p.section,
+    // Proporción para las filas justificadas; sin dimensiones (fotos de Drive o viejas), 3:2 y
+    // la galería la corrige al cargar la imagen.
+    ar: p.width && p.height ? Math.min(2.8, Math.max(0.4, p.width / p.height)) : 1.5,
+  }));
+  // Héroe de la galería: la portada elegida en el estudio o, si no hay, la primera foto.
+  const fotosCover = isPhoto
+    ? deliverable.coverFileAssetId
+      ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
+      : (photos[0]?.src ?? null)
+    : null;
   // La PORTADA es propia de los reels (vertical): la aprueba el cliente. En videos horizontales no aplica.
   const isReel = deliverableOrientation(deliverable.type) === "vertical";
   const coverSrc = isReel && deliverable.coverFileAssetId ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null }) : null;
@@ -257,13 +274,21 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             </div>
           ) : (
             <>
-              <p className="mb-4 text-sm text-muted-foreground">Elige las fotos que te gustan y descarta las que no. Puedes dejar un comentario en cada una.</p>
-              <PhotoGallery token={token} photos={photos} />
+              <PhotoGallery
+                token={token}
+                photos={photos}
+                setName={deliverable.name}
+                clientName={deliverable.project.client?.name ?? null}
+                coverSrc={fotosCover}
+              />
               {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato.
                   En BORRADOR no: ahí se elige y se comenta, pero no se aprueba ni se descarga. */}
               {isDraft ? null : (
                 <>
-                  <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} invited={invited} />
+                  {/* Ancla del botón «Terminé mi selección» de la barra flotante de la galería. */}
+                  <div id="decision-fotos">
+                    <PhotoDecision token={token} status={deliverable.status} sessionName={sessionName} invited={invited} />
+                  </div>
                   <DownloadCenter renditions={renditions} />
                 </>
               )}

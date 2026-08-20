@@ -1,0 +1,294 @@
+"use server";
+
+import { noAutorizado } from "@/lib/authz-error";
+import { revalidatePath } from "next/cache";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { canManageProject, canWriteProject } from "@/lib/project-access";
+import { logActivity } from "@/lib/activity";
+import { notifyManyAndEmail, type NotifyInput } from "@/lib/notify";
+import { closeDeliverableAutoTasks, createDeliverableAutoTask, createReviewTasksForReviewers, AUTO_TASK_PREFIX } from "@/lib/deliverable-tasks";
+import type { SessionUser } from "@/lib/session";
+
+// ── Acciones del ESTUDIO de un set de fotos ──
+// Separadas de actions.ts (enorme y compartido entre sesiones) igual que covers-actions.ts.
+// Aquí vive la curaduría (qué pasa al cliente), la organización (secciones, portada) y los dos
+// caminos de salida del set: revisión interna o directo al cliente — la MISMA dinámica de los
+// videos, sin versiones porque un set no las tiene (la "versión" es el conjunto curado).
+
+const accessSelect = {
+  isPrivate: true,
+  leadId: true,
+  members: { select: { userId: true, role: true } },
+  archivedAt: true,
+  finishedAt: true,
+} as const;
+
+type SetConProyecto = {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+  projectId: string;
+  reviewerId: string | null;
+  ownerId: string | null;
+  reviewers: { userId: string }[];
+  project: { leadId: string | null; name: string } & Record<string, unknown>;
+};
+
+// Carga el set y verifica el nivel pedido. El projectId REAL sale del set (no se confía en el
+// que mande el navegador). «escribir» = organizar (secciones, portada); «gestionar» = decidir
+// qué ve el cliente y mandárselo (curaduría y envíos), el mismo listón que compartir enlaces.
+async function ensureSet(setId: string, nivel: "escribir" | "gestionar"): Promise<{ session: SessionUser; set: SetConProyecto }> {
+  const session = await getSession();
+  const set = await db.deliverable.findUnique({
+    where: { id: setId },
+    select: {
+      id: true, name: true, status: true, projectId: true, reviewerId: true, ownerId: true,
+      reviewers: { select: { userId: true } },
+      type: true,
+      project: { select: { ...accessSelect, name: true } },
+    },
+  });
+  if (!set || set.type !== "FOTOGRAFIA") noAutorizado();
+  if (set.project.archivedAt || set.project.finishedAt) noAutorizado();
+  const ok = nivel === "gestionar" ? canManageProject(set.project, session) : canWriteProject(set.project, session);
+  if (!ok) noAutorizado();
+  return { session: session!, set: set as unknown as SetConProyecto };
+}
+
+function refresh(projectId: string, setId: string) {
+  revalidatePath(`/proyectos/${projectId}`);
+  revalidatePath(`/proyectos/${projectId}/fotos/${setId}`);
+}
+
+// Cuántas fotos verá el cliente (las no excluidas por la curaduría).
+async function visiblesDe(setId: string): Promise<number> {
+  return db.deliverablePhoto.count({ where: { deliverableId: setId, excludedAt: null } });
+}
+
+// A quién avisar/asignar del lado del equipo: revisores del set, o el responsable del proyecto.
+function revisoresDe(set: SetConProyecto): string[] {
+  const ids = new Set<string>(set.reviewers.map((r) => r.userId));
+  if (set.reviewerId) ids.add(set.reviewerId);
+  if (ids.size === 0 && set.project.leadId) ids.add(set.project.leadId);
+  return [...ids];
+}
+
+export type ResultadoSet = { ok: boolean; message?: string };
+
+// ── Curaduría: la foto entra o no entra en lo que ve el cliente ──
+export async function toggleFotoExcluida(photoId: string): Promise<{ ok: boolean; excluded?: boolean }> {
+  const photo = await db.deliverablePhoto.findUnique({
+    where: { id: photoId },
+    select: { excludedAt: true, deliverableId: true },
+  });
+  if (!photo) noAutorizado();
+  const { set } = await ensureSet(photo.deliverableId, "gestionar");
+  const excluded = !photo.excludedAt;
+  await db.deliverablePhoto.update({ where: { id: photoId }, data: { excludedAt: excluded ? new Date() : null } });
+  refresh(set.projectId, set.id);
+  return { ok: true, excluded };
+}
+
+// ── Organización: sección de una foto (o quitarla con null/vacío) ──
+export async function fijarSeccionFoto(photoId: string, section: string | null): Promise<ResultadoSet> {
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true } });
+  if (!photo) noAutorizado();
+  const { set } = await ensureSet(photo.deliverableId, "escribir");
+  const clean = (section ?? "").trim().slice(0, 80) || null;
+  await db.deliverablePhoto.update({ where: { id: photoId }, data: { section: clean } });
+  refresh(set.projectId, set.id);
+  return { ok: true };
+}
+
+// Renombrar una sección completa (todas sus fotos de una vez).
+export async function renombrarSeccion(setId: string, de: string, a: string): Promise<ResultadoSet> {
+  const { set } = await ensureSet(setId, "escribir");
+  const nuevo = a.trim().slice(0, 80);
+  if (!nuevo) return { ok: false, message: "Ponle nombre a la sección." };
+  await db.deliverablePhoto.updateMany({ where: { deliverableId: setId, section: de }, data: { section: nuevo } });
+  refresh(set.projectId, set.id);
+  return { ok: true };
+}
+
+// ── Portada del set: la foto que recibe al cliente en el héroe de su galería ──
+// Reutiliza Deliverable.coverFileAssetId (el mismo campo de la portada de los reels).
+export async function hacerPortadaSet(photoId: string): Promise<ResultadoSet> {
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, fileAssetId: true } });
+  if (!photo) noAutorizado();
+  if (!photo.fileAssetId) return { ok: false, message: "Solo una foto subida al NAS puede ser portada (las de Drive no)." };
+  const { set } = await ensureSet(photo.deliverableId, "escribir");
+  await db.deliverable.update({ where: { id: set.id }, data: { coverFileAssetId: photo.fileAssetId } });
+  refresh(set.projectId, set.id);
+  return { ok: true };
+}
+
+// Borra una foto del set (y su archivo local). Mismo contrato que deleteDeliverablePhoto.
+export async function borrarFotoSet(photoId: string): Promise<ResultadoSet> {
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, fileAssetId: true } });
+  if (!photo) noAutorizado();
+  const { set } = await ensureSet(photo.deliverableId, "gestionar");
+  await db.deliverablePhoto.delete({ where: { id: photoId } });
+  if (photo.fileAssetId) await db.fileAsset.delete({ where: { id: photo.fileAssetId } }).catch(() => {});
+  refresh(set.projectId, set.id);
+  return { ok: true };
+}
+
+// ── Camino 1: revisión interna (otro par de ojos antes del cliente) ──
+// El set pasa a REVISION_INTERNA y los revisores lo reciben en su bandeja /revisiones, con su
+// tarea «Pre-aprobar…» — la misma coreografía de los videos.
+export async function enviarSetARevision(setId: string): Promise<ResultadoSet> {
+  const { session, set } = await ensureSet(setId, "gestionar");
+  const visibles = await visiblesDe(setId);
+  if (visibles === 0) return { ok: false, message: "El set no tiene fotos que mostrar: sube fotos (o des-excluye alguna) antes de mandarlo a revisión." };
+  await db.deliverable.update({ where: { id: setId }, data: { status: "REVISION_INTERNA" } });
+  const revisores = revisoresDe(set).filter((id) => id !== session.id);
+  if (revisores.length) {
+    await notifyManyAndEmail(revisores, {
+      type: "review",
+      event: "internal_review",
+      title: `Set de fotos para pre-aprobar: ${set.name}`,
+      body: `${session.name} mandó a revisión el set «${set.name}» (${visibles} fotos) de «${set.project.name}». Revisa la galería tal como la verá el cliente.`,
+      link: `/revisiones/${setId}`,
+      actorId: session.id,
+    } satisfies NotifyInput);
+  }
+  await createReviewTasksForReviewers({
+    projectId: set.projectId,
+    deliverableId: setId,
+    title: `${AUTO_TASK_PREFIX.review} «${set.name}» · fotos`,
+    description: `Revisa la galería del set (${visibles} fotos, tal como la verá el cliente) y pre-apruébala o pide cambios desde /revisiones.`,
+    reviewerIds: revisoresDe(set).filter((id) => id !== session.id),
+    actorId: session.id,
+  });
+  await logActivity({
+    action: "deliverable.version",
+    summary: `mandó el set «${set.name}» a pre-aprobación interna (${visibles} fotos)`,
+    projectId: set.projectId,
+    entityType: "deliverable",
+    entityId: setId,
+  });
+  refresh(set.projectId, setId);
+  return { ok: true, message: "Set en revisión interna. Los revisores ya tienen el aviso." };
+}
+
+// ── Decisión del revisor interno sobre el set ──
+// APROBADO → el set queda de cara al cliente (su enlace se abre) y se avisa al portal.
+// CAMBIOS → vuelve a edición (el enlace del cliente NO se abre: sin la compuerta de versiones
+// de los videos, dejarlo en CORRECCIONES expondría la galería sin pre-aprobar).
+export async function decisionSetInterno(setId: string, result: "APROBADO" | "CAMBIOS", note?: string): Promise<ResultadoSet> {
+  const session = await getSession();
+  const set = await db.deliverable.findUnique({
+    where: { id: setId },
+    select: {
+      id: true, name: true, status: true, projectId: true, reviewerId: true, ownerId: true, type: true,
+      reviewers: { select: { userId: true } },
+      project: { select: { ...accessSelect, name: true } },
+    },
+  });
+  if (!set || set.type !== "FOTOGRAFIA") noAutorizado();
+  const puedeDecidir =
+    canManageProject(set.project, session) ||
+    set.reviewerId === session!.id ||
+    set.reviewers.some((r) => r.userId === session!.id);
+  if (!puedeDecidir) return { ok: false, message: "Solo un revisor asignado o el responsable puede decidir." };
+
+  const aprobado = result === "APROBADO";
+  await db.deliverableDecision.create({
+    data: { deliverableId: setId, versionNumber: null, stage: "INTERNA", result, byUserId: session!.id, note: note?.slice(0, 1000) || null },
+  });
+
+  const responsable = set.ownerId ?? set.project.leadId;
+  if (aprobado) {
+    await db.deliverable.update({ where: { id: setId }, data: { status: "ENVIADO_CLIENTE" } });
+    await closeDeliverableAutoTasks(setId, ["review"]);
+    await notifyProjectClients(set.projectId, {
+      type: "review",
+      event: "client_deliverable_ready",
+      title: `Tus fotos están listas: ${set.name}`,
+      body: `El equipo terminó la galería «${set.name}» en «${set.project.name}». Entra a elegir tus favoritas y dejar comentarios.`,
+      link: `/mis-entregas/${set.projectId}`,
+      actorId: session!.id,
+    });
+    if (responsable) {
+      await createDeliverableAutoTask({
+        projectId: set.projectId,
+        deliverableId: setId,
+        title: `${AUTO_TASK_PREFIX.deliver} «${set.name}» (fotos pre-aprobadas)`,
+        description: "La galería quedó pre-aprobada y de cara al cliente. Mándale el enlace (correo o WhatsApp) desde el estudio del set. Cuando el cliente decida, esta tarea se completa sola.",
+        assigneeId: responsable,
+        actorId: session!.id,
+      });
+    }
+  } else {
+    await db.deliverable.update({ where: { id: setId }, data: { status: "EN_EDICION" } });
+    await closeDeliverableAutoTasks(setId, ["review"], { assigneeId: session!.id });
+    if (responsable) {
+      await createDeliverableAutoTask({
+        projectId: set.projectId,
+        deliverableId: setId,
+        title: `${AUTO_TASK_PREFIX.fix} «${set.name}» · fotos`,
+        description: `Ajusta el set según lo pedido${note ? `: ${note.slice(0, 300)}` : ""}. Al mandarlo de nuevo a revisión, esta tarea se completa sola.`,
+        assigneeId: responsable,
+        actorId: session!.id,
+      });
+      await notifyManyAndEmail([responsable].filter((id) => id !== session!.id), {
+        type: "review",
+        event: "internal_review",
+        title: `Cambios en el set: ${set.name}`,
+        body: `${session!.name} pidió cambios en la galería «${set.name}»${note ? `: ${note.slice(0, 200)}` : "."}`,
+        link: `/proyectos/${set.projectId}/fotos/${setId}`,
+        actorId: session!.id,
+      });
+    }
+  }
+  await logActivity({
+    action: "deliverable.preapproval",
+    summary: aprobado ? `pre-aprobó el set de fotos «${set.name}»` : `pidió cambios en el set de fotos «${set.name}»`,
+    projectId: set.projectId,
+    entityType: "deliverable",
+    entityId: setId,
+  });
+  refresh(set.projectId, setId);
+  revalidatePath(`/revisiones/${setId}`);
+  return { ok: true, message: aprobado ? "Set pre-aprobado: el enlace del cliente ya está activo." : "Cambios pedidos. El responsable recibió la tarea." };
+}
+
+// ── Camino 2: directo al cliente (sin pre-aprobación interna) ──
+export async function enviarSetAlCliente(setId: string): Promise<ResultadoSet> {
+  const { session, set } = await ensureSet(setId, "gestionar");
+  const visibles = await visiblesDe(setId);
+  if (visibles === 0) return { ok: false, message: "El set no tiene fotos que mostrar: sube fotos (o des-excluye alguna) antes de mandarlo." };
+  const yaAbierto = ["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"].includes(set.status);
+  if (!yaAbierto) {
+    await db.deliverable.update({ where: { id: setId }, data: { status: "ENVIADO_CLIENTE" } });
+    await closeDeliverableAutoTasks(setId, ["review"]);
+    await notifyProjectClients(set.projectId, {
+      type: "review",
+      event: "client_deliverable_ready",
+      title: `Tus fotos están listas: ${set.name}`,
+      body: `El equipo publicó la galería «${set.name}» en «${set.project.name}». Entra a elegir tus favoritas y dejar comentarios.`,
+      link: `/mis-entregas/${set.projectId}`,
+      actorId: session.id,
+    });
+    await logActivity({
+      action: "deliverable.version",
+      summary: `liberó el set «${set.name}» directo al cliente (${visibles} fotos)`,
+      projectId: set.projectId,
+      entityType: "deliverable",
+      entityId: setId,
+    });
+  }
+  refresh(set.projectId, setId);
+  return { ok: true, message: yaAbierto ? "El enlace del cliente ya estaba activo." : "Enlace del cliente activo. Ahora mándaselo por correo o WhatsApp." };
+}
+
+// Aviso a los miembros-cliente del proyecto (misma mecánica que actions.ts, local a este módulo).
+async function notifyProjectClients(projectId: string, n: NotifyInput) {
+  const members = await db.projectMember.findMany({
+    where: { projectId, user: { role: { key: "cliente" } } },
+    select: { userId: true },
+  });
+  if (members.length) await notifyManyAndEmail(members.map((m) => m.userId), n);
+}

@@ -248,8 +248,10 @@ export async function setPhotoPick(token: string, photoId: string, pick: string,
     throw new Error("Demasiadas acciones seguidas. Espera un momento e inténtalo de nuevo.");
   }
   const { id: deliverableId } = await resolveDeliverable(token);
-  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true } });
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, excludedAt: true } });
   if (!photo || photo.deliverableId !== deliverableId) throw new Error("Foto no encontrada");
+  // Una foto excluida por la curaduría no está en la sala: un id manipulado tampoco la marca.
+  if (photo.excludedAt) throw new Error("Foto no encontrada");
   const value = pick === "ME_GUSTA" || pick === "NO_ME_GUSTA" ? pick : "PENDIENTE";
   await db.deliverablePhoto.update({
     where: { id: photoId },

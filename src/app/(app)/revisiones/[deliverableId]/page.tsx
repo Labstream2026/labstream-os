@@ -14,6 +14,9 @@ import { formatBogotaDate } from "@/lib/bogota-time";
 import { draftShareInfo } from "@/lib/draft-share";
 import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
+import { DecisionSetFotos } from "./decision-set-fotos";
+import { PhotoGallery } from "@/app/review/[token]/photo-gallery";
+import { photoViewSrc } from "@/lib/deliverable-photo";
 import type { StageComment } from "@/components/review/review-stage";
 import { EntityEmoji } from "@/components/icons/marks";
 
@@ -40,6 +43,8 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
       versions: { orderBy: { number: "desc" }, include: { fileAsset: { select: { id: true, name: true, kind: true, path: true } } } },
       // resolvedBy: quién dio por hecha cada corrección (se muestra junto al chip «Hecho»).
       reviewComments: { orderBy: { createdAt: "asc" }, include: { resolvedBy: { select: { name: true } } } },
+      // Sets de FOTOGRAFÍA: aquí la revisión interna es la galería, no el reproductor.
+      photos: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
     },
   });
   if (!deliverable) notFound();
@@ -104,6 +109,73 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     puedeEnviar,
     correoActivo: await isEmailEnabled(),
   };
+
+  // ── Set de FOTOGRAFÍA: la revisión interna ES la galería del cliente ──
+  // Sin versiones ni reproductor: el revisor mira exactamente lo que verá el cliente (curaduría
+  // aplicada) y decide. La gestión foto a foto vive en el estudio del set, no aquí.
+  if (deliverable.type === "FOTOGRAFIA") {
+    const visiblesSet = deliverable.photos.filter((p) => !p.excludedAt);
+    const excluidasSet = deliverable.photos.length - visiblesSet.length;
+    const fotosSet = visiblesSet.map((p) => ({
+      id: p.id,
+      filename: p.filename,
+      src: photoViewSrc(p),
+      pick: p.pick,
+      clientNote: p.clientNote,
+      seccion: p.section,
+      ar: p.width && p.height ? Math.min(2.8, Math.max(0.4, p.width / p.height)) : 1.5,
+    }));
+    const coverSet = deliverable.coverFileAssetId
+      ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
+      : (fotosSet[0]?.src ?? null);
+    const setAbierto = ["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"].includes(deliverable.status);
+    return (
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <Link href="/revisiones" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-3.5" /> Revisiones
+          </Link>
+          <Link
+            href={`/proyectos/${deliverable.project.id}/fotos/${deliverable.id}`}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Abrir el estudio del set (subir, curar, resultados)
+          </Link>
+        </div>
+
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight">{deliverable.number ? <span className="mr-1.5 text-muted-foreground">#{deliverable.number}</span> : null}{deliverable.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              <Link href={`/proyectos/${deliverable.project.id}?tab=entregables`} className="hover:underline">
+                <EntityEmoji value={deliverable.project.emoji} /> {deliverable.project.name}
+              </Link>
+              {deliverable.project.client ? ` · ${deliverable.project.client.name}` : ""}
+              {excluidasSet > 0 ? ` · ${excluidasSet} excluida${excluidasSet === 1 ? "" : "s"} por curaduría (no se enseñan)` : ""}
+            </p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}>{meta.label}</span>
+        </header>
+
+        {fotosSet.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+            El set no tiene fotos visibles. Súbelas (o des-excluye alguna) en el estudio del set.
+          </div>
+        ) : (
+          <PhotoGallery
+            token=""
+            photos={fotosSet}
+            setName={deliverable.name}
+            clientName={deliverable.project.client?.name ?? null}
+            coverSrc={coverSet}
+            soloLectura
+          />
+        )}
+
+        <DecisionSetFotos setId={deliverable.id} canDecide={puedeEnviar} yaAbierto={setAbierto} envio={envio} deQuien={session.name} />
+      </div>
+    );
+  }
 
   return (
     // El ancho de la sala se adapta a la pieza: las horizontales sueltan el corsé de 5xl en

@@ -1,9 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Heart, X, MessageSquare, Check } from "lucide-react";
+import * as React from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Heart, MessageSquare, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setPhotoPick } from "./actions";
+
+// ── La galería de selección del cliente ──
+// Rediseño 2026-08: de cuadrícula de recortes cuadrados a una galería de estudio: héroe con la
+// portada del set, capítulos (secciones), filas justificadas que respetan la proporción de cada
+// toma, visor a pantalla completa con teclado/deslizamiento y una barra flotante con el conteo.
+//
+// El corazón es el gesto principal; el «no me gusta» vive en el visor, secundario — un cliente
+// elige favoritas, no reprueba fotos. Todo se guarda al instante (optimista), como antes.
+//
+// La misma pieza sirve la revisión interna del equipo (`soloLectura`): ahí se MIRA la galería
+// exacta que verá el cliente, sin poder marcar por él.
 
 export type GalleryPhoto = {
   id: string;
@@ -11,127 +22,506 @@ export type GalleryPhoto = {
   src: string;
   pick: string; // PENDIENTE | ME_GUSTA | NO_ME_GUSTA
   clientNote: string | null;
+  seccion: string | null;
+  ar: number; // proporción ancho/alto (respaldo 1.5 si no se conoce)
 };
 
-// Galería de selección del cliente (entregable de fotografía). El cliente marca cada foto
-// «me gusta» (♥) o «no me gusta» (✗) y puede dejar una nota. La selección se guarda al instante
-// (optimista) vía la acción del portal; no hace falta sesión, la autoriza el token del enlace.
-export function PhotoGallery({ token, photos: initial }: { token: string; photos: GalleryPhoto[] }) {
-  const [photos, setPhotos] = useState(initial);
-  const [openNote, setOpenNote] = useState<string | null>(null);
-  const [zoom, setZoom] = useState<GalleryPhoto | null>(null);
-  const [, startTransition] = useTransition();
+type Filtro = "todas" | "elegidas" | "comentadas" | "sin";
 
-  const liked = photos.filter((p) => p.pick === "ME_GUSTA").length;
-  const disliked = photos.filter((p) => p.pick === "NO_ME_GUSTA").length;
-  const pending = photos.length - liked - disliked;
+export function PhotoGallery({
+  token,
+  photos: initial,
+  setName,
+  clientName,
+  coverSrc,
+  soloLectura = false,
+}: {
+  token: string;
+  photos: GalleryPhoto[];
+  setName: string;
+  clientName: string | null;
+  coverSrc: string | null;
+  soloLectura?: boolean;
+}) {
+  // Copia local optimista, con ajuste-durante-render si el servidor re-renderiza con datos nuevos.
+  const [photos, setPhotos] = React.useState(initial);
+  const [prev, setPrev] = React.useState(initial);
+  if (initial !== prev) {
+    setPrev(initial);
+    setPhotos(initial);
+  }
+
+  const [filtro, setFiltro] = React.useState<Filtro>("todas");
+  // Proporciones corregidas al cargar cada imagen (fotos de Drive llegan sin dimensiones).
+  const [arVisto, setArVisto] = React.useState<Record<string, number>>({});
+  const [abierta, setAbierta] = React.useState<string | null>(null); // id en el visor
+  const galRef = React.useRef<HTMLDivElement>(null);
+
+  const [, startTransition] = React.useTransition();
 
   function update(id: string, patch: Partial<GalleryPhoto>) {
-    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setPhotos((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }
 
   function setPick(p: GalleryPhoto, pick: string) {
+    if (soloLectura) return;
     // Toggle: volver a tocar el mismo estado lo deja en PENDIENTE.
     const next = p.pick === pick ? "PENDIENTE" : pick;
     update(p.id, { pick: next });
     startTransition(async () => {
-      try { await setPhotoPick(token, p.id, next, p.clientNote ?? undefined); } catch { /* la UI ya reflejó el intento */ }
+      try {
+        await setPhotoPick(token, p.id, next, p.clientNote ?? undefined);
+      } catch {
+        /* la UI ya reflejó el intento */
+      }
     });
   }
 
   function saveNote(p: GalleryPhoto, note: string) {
+    if (soloLectura) return;
     update(p.id, { clientNote: note });
     startTransition(async () => {
-      try { await setPhotoPick(token, p.id, p.pick, note); } catch { /* noop */ }
+      try {
+        await setPhotoPick(token, p.id, p.pick, note);
+      } catch {
+        /* noop */
+      }
     });
   }
 
+  const liked = photos.filter((p) => p.pick === "ME_GUSTA").length;
+  const comentadas = photos.filter((p) => (p.clientNote ?? "").trim()).length;
+  const sinMarcar = photos.filter((p) => p.pick === "PENDIENTE" && !(p.clientNote ?? "").trim()).length;
+
+  const visibles = photos.filter((p) => {
+    if (filtro === "elegidas") return p.pick === "ME_GUSTA";
+    if (filtro === "comentadas") return !!(p.clientNote ?? "").trim();
+    if (filtro === "sin") return p.pick === "PENDIENTE";
+    return true;
+  });
+
+  // Capítulos en orden de aparición. Si hay secciones con nombre, las fotos sueltas de la raíz
+  // se agrupan bajo «Galería»; si nada tiene sección, no se pinta encabezado.
+  const grupos: { titulo: string | null; fotos: GalleryPhoto[] }[] = [];
+  for (const p of visibles) {
+    const t = p.seccion ?? null;
+    const g = grupos.find((x) => x.titulo === t);
+    if (g) g.fotos.push(p);
+    else grupos.push({ titulo: t, fotos: [p] });
+  }
+  const haySecciones = grupos.some((g) => g.titulo);
+
+  const idxAbierta = abierta ? visibles.findIndex((p) => p.id === abierta) : -1;
+  const fotoAbierta = idxAbierta >= 0 ? visibles[idxAbierta] : null;
+
+  function abrir(id: string) {
+    setAbierta(id);
+  }
+  // Sin useCallback a propósito: el compilador de React memoiza solo, y la memoización manual
+  // sobre `visibles` (que se re-deriva en cada render) no se puede conservar (lint del repo).
+  function navegar(d: number) {
+    setAbierta((cur) => {
+      if (!visibles.length) return null;
+      const i = visibles.findIndex((p) => p.id === cur);
+      return visibles[(i + d + visibles.length) % visibles.length].id;
+    });
+  }
+
+  const arDe = (p: GalleryPhoto) => arVisto[p.id] ?? p.ar;
+
   return (
-    <div className="space-y-4">
-      {/* Resumen de selección */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm">
-        <span className="font-semibold">{photos.length} fotos</span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><Heart className="size-3" /> {liked} me gustan</span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"><X className="size-3" /> {disliked} descartadas</span>
-        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">{pending} sin marcar</span>
-        <span className="ml-auto text-xs text-muted-foreground">Marca ♥ las que te gustan y ✗ las que no. Se guarda solo.</span>
-      </div>
-
-      {/* Cuadrícula */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {photos.map((p) => {
-          const liked = p.pick === "ME_GUSTA";
-          const disliked = p.pick === "NO_ME_GUSTA";
-          return (
-            <div key={p.id} className={cn("overflow-hidden rounded-xl border bg-card transition-colors", liked ? "border-emerald-400" : disliked ? "border-rose-300 opacity-70" : "border-border")}>
-              <button type="button" onClick={() => setZoom(p)} className="block w-full" title="Ampliar">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.src} alt={p.filename} loading="lazy" className="aspect-square w-full object-cover" />
-              </button>
-              <div className="flex items-center gap-1 p-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPick(p, "ME_GUSTA")}
-                  aria-pressed={liked}
-                  className={cn("flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium transition-colors", liked ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-500/15")}
-                  title="Me gusta"
-                >
-                  <Heart className={cn("size-3.5", liked && "fill-current")} /> Sí
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPick(p, "NO_ME_GUSTA")}
-                  aria-pressed={disliked}
-                  className={cn("flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium transition-colors", disliked ? "bg-rose-500 text-white" : "bg-muted text-muted-foreground hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-500/15")}
-                  title="No me gusta"
-                >
-                  <X className="size-3.5" /> No
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOpenNote((cur) => (cur === p.id ? null : p.id))}
-                  className={cn("flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent", p.clientNote && "text-primary")}
-                  title="Añadir un comentario a esta foto"
-                >
-                  <MessageSquare className="size-3.5" />
-                </button>
-              </div>
-              {openNote === p.id || p.clientNote ? (
-                <div className="px-1.5 pb-1.5">
-                  <textarea
-                    defaultValue={p.clientNote ?? ""}
-                    onBlur={(e) => { if (e.target.value !== (p.clientNote ?? "")) saveNote(p, e.target.value); }}
-                    rows={2}
-                    placeholder="Comentario para esta foto…"
-                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Visor ampliado */}
-      {zoom ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setZoom(null)}>
-          <button type="button" className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20" title="Cerrar"><X className="size-5" /></button>
+    <div className="space-y-5">
+      {/* ── Héroe: la portada recibe al cliente ── */}
+      {coverSrc ? (
+        <section className="relative -mt-1 flex min-h-[19rem] items-end overflow-hidden rounded-2xl border border-white/10 md:min-h-[24rem]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom.src} alt={zoom.filename} className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
-          <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            <button type="button" onClick={() => { setPick(zoom, "ME_GUSTA"); setZoom((z) => (z ? { ...z, pick: z.pick === "ME_GUSTA" ? "PENDIENTE" : "ME_GUSTA" } : z)); }} className={cn("inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium", zoom.pick === "ME_GUSTA" ? "bg-emerald-500 text-white" : "bg-white/90 text-foreground")}>
-              <Heart className={cn("size-4", zoom.pick === "ME_GUSTA" && "fill-current")} /> Me gusta
-            </button>
-            <button type="button" onClick={() => { setPick(zoom, "NO_ME_GUSTA"); setZoom((z) => (z ? { ...z, pick: z.pick === "NO_ME_GUSTA" ? "PENDIENTE" : "NO_ME_GUSTA" } : z)); }} className={cn("inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium", zoom.pick === "NO_ME_GUSTA" ? "bg-rose-500 text-white" : "bg-white/90 text-foreground")}>
-              <X className="size-4" /> No me gusta
+          <img src={coverSrc} alt="" className="absolute inset-0 size-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/20" />
+          <div className="relative flex w-full flex-wrap items-end gap-4 p-6 md:p-8">
+            <div className="min-w-0 flex-1">
+              {clientName ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">Para {clientName}</p>
+              ) : null}
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white md:text-5xl">{setName}</h1>
+              <p className="mt-2 text-sm text-white/75">
+                {photos.length} fotografía{photos.length === 1 ? "" : "s"}
+                {soloLectura ? " · tal como la verá el cliente" : liked ? ` · llevas ${liked} elegida${liked === 1 ? "" : "s"} ♥` : " · elige tus favoritas ♥"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => galRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90"
+            >
+              Ver la galería <ChevronDown className="size-4" />
             </button>
           </div>
-        </div>
+        </section>
       ) : null}
 
-      <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-        <Check className="size-3.5" /> Tu selección se guarda automáticamente. El equipo verá qué fotos elegiste.
-      </p>
+      {/* ── Capítulos + filas justificadas ── */}
+      <div ref={galRef} className="scroll-mt-20 space-y-6">
+        {grupos.map((g) => (
+          <section key={g.titulo ?? "·raiz"}>
+            {haySecciones ? (
+              <div className="mb-2.5 flex items-baseline gap-3">
+                <h2 className="text-lg font-semibold tracking-tight">{g.titulo ?? "Galería"}</h2>
+                <span className="text-xs text-muted-foreground">{g.fotos.length} fotos</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2 [--fh:10rem] md:[--fh:13.5rem]">
+              {g.fotos.map((p) => {
+                const esLiked = p.pick === "ME_GUSTA";
+                const esNo = p.pick === "NO_ME_GUSTA";
+                const conNota = !!(p.clientNote ?? "").trim();
+                const ar = arDe(p);
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "group relative overflow-hidden rounded-xl bg-card ring-2 ring-transparent transition-shadow",
+                      esLiked && "ring-primary",
+                      esNo && "opacity-60",
+                    )}
+                    style={{ height: "var(--fh)", flexGrow: ar * 100, flexBasis: `calc(${ar} * var(--fh))` }}
+                  >
+                    <button type="button" onClick={() => abrir(p.id)} className="absolute inset-0 w-full cursor-zoom-in" title="Ampliar">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.src}
+                        alt={p.filename}
+                        loading="lazy"
+                        onLoad={(e) => {
+                          // Foto sin dimensiones conocidas (Drive): al cargar se corrige la
+                          // proporción real y la fila se re-acomoda una sola vez.
+                          const el = e.currentTarget;
+                          if (!el.naturalWidth || !el.naturalHeight) return;
+                          const real = Math.min(2.8, Math.max(0.4, el.naturalWidth / el.naturalHeight));
+                          if (Math.abs(real - ar) > 0.01) setArVisto((cur) => (cur[p.id] ? cur : { ...cur, [p.id]: real }));
+                        }}
+                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                      />
+                      <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                    </button>
+
+                    {/* Insignias: nota y descarte. */}
+                    <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                      {conNota ? (
+                        <span className="flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+                          <MessageSquare className="size-3" />
+                        </span>
+                      ) : null}
+                      {esNo ? (
+                        <span className="rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">No va</span>
+                      ) : null}
+                    </div>
+
+                    {/* Acciones: siempre visibles en el celular, al pasar el mouse en escritorio. */}
+                    {!soloLectura ? (
+                      <div
+                        className={cn(
+                          "absolute right-2 top-2 flex gap-1.5 transition-opacity md:opacity-0 md:group-hover:opacity-100",
+                          (esLiked || conNota) && "md:opacity-100",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setPick(p, "ME_GUSTA")}
+                          aria-pressed={esLiked}
+                          title={esLiked ? "Quitar de elegidas" : "Me gusta"}
+                          className={cn(
+                            "flex size-8 items-center justify-center rounded-full backdrop-blur-sm transition-transform hover:scale-110",
+                            esLiked ? "bg-primary text-primary-foreground" : "bg-black/55 text-white hover:bg-black/75",
+                          )}
+                        >
+                          <Heart className={cn("size-4", esLiked && "fill-current")} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrir(p.id)}
+                          title="Comentar esta foto"
+                          className={cn(
+                            "flex size-8 items-center justify-center rounded-full backdrop-blur-sm transition-transform hover:scale-110",
+                            conNota ? "bg-white text-black" : "bg-black/55 text-white hover:bg-black/75",
+                          )}
+                        >
+                          <MessageSquare className="size-4" />
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <span className="pointer-events-none absolute bottom-1.5 left-2.5 max-w-[80%] truncate text-[10.5px] text-white/90 opacity-0 drop-shadow transition-opacity group-hover:opacity-100">
+                      {p.filename}
+                    </span>
+                  </div>
+                );
+              })}
+              <span aria-hidden className="grow-[9999]" />
+            </div>
+          </section>
+        ))}
+        {visibles.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">Nada con este filtro.</p>
+        ) : null}
+      </div>
+
+      {/* ── Barra flotante: conteo, filtros y cierre ── */}
+      <div className="pointer-events-none sticky bottom-3 z-30 flex justify-center">
+        <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-2xl backdrop-blur-xl">
+          <span className="inline-flex items-center gap-1.5 pl-1 pr-1 text-[13px] font-semibold">
+            <Heart className="size-3.5 fill-primary text-primary" />
+            {liked === 1 ? "1 elegida" : `${liked} elegidas`}
+          </span>
+          {(
+            [
+              ["todas", "Todas"],
+              ["elegidas", "Elegidas"],
+              ["comentadas", "Comentadas"],
+              ["sin", "Sin marcar"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setFiltro(k)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                filtro === k ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+              {k === "comentadas" && comentadas ? ` · ${comentadas}` : ""}
+              {k === "sin" && sinMarcar ? ` · ${sinMarcar}` : ""}
+            </button>
+          ))}
+          {!soloLectura ? (
+            <button
+              type="button"
+              onClick={() => document.getElementById("decision-fotos")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+              className="ml-1 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+            >
+              Terminé mi selección ✓
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {fotoAbierta ? (
+        <Visor
+          foto={fotoAbierta}
+          idx={idxAbierta}
+          total={visibles.length}
+          lista={visibles}
+          arDe={arDe}
+          soloLectura={soloLectura}
+          onCerrar={() => setAbierta(null)}
+          onNavegar={navegar}
+          onIr={(id) => setAbierta(id)}
+          onPick={setPick}
+          onNota={saveNote}
+        />
+      ) : null}
     </div>
   );
+}
+
+// ── El visor a pantalla completa ──
+function Visor({
+  foto,
+  idx,
+  total,
+  lista,
+  arDe,
+  soloLectura,
+  onCerrar,
+  onNavegar,
+  onIr,
+  onPick,
+  onNota,
+}: {
+  foto: GalleryPhoto;
+  idx: number;
+  total: number;
+  lista: GalleryPhoto[];
+  arDe: (p: GalleryPhoto) => number;
+  soloLectura: boolean;
+  onCerrar: () => void;
+  onNavegar: (d: number) => void;
+  onIr: (id: string) => void;
+  onPick: (p: GalleryPhoto, pick: string) => void;
+  onNota: (p: GalleryPhoto, note: string) => void;
+}) {
+  const [notaAbierta, setNotaAbierta] = React.useState(!!(foto.clientNote ?? "").trim());
+  const filmRef = React.useRef<HTMLDivElement>(null);
+  const touch = React.useRef<number | null>(null);
+
+  // Teclado: ← → navegar, F me gusta, C comentar, Esc cerrar. (Escribiendo la nota, solo Esc.)
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.target as HTMLElement)?.tagName === "TEXTAREA") {
+        if (e.key === "Escape") (e.target as HTMLElement).blur();
+        return;
+      }
+      // preventDefault en las teclas atendidas: sin él, la «c» que abre el comentario aterrizaba
+      // DENTRO del textarea recién enfocado (quedaba «cEsta para…»), y las flechas hacían
+      // scroll de la página debajo del visor.
+      if (e.key === "ArrowRight") onNavegar(1);
+      else if (e.key === "ArrowLeft") onNavegar(-1);
+      else if (e.key === "Escape") onCerrar();
+      else if (!soloLectura && (e.key === "f" || e.key === "F")) onPick(foto, "ME_GUSTA");
+      else if (!soloLectura && (e.key === "c" || e.key === "C")) setNotaAbierta(true);
+      else return;
+      e.preventDefault();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [foto, onNavegar, onCerrar, onPick, soloLectura]);
+
+  // La miniatura activa de la tira siempre a la vista, y los vecinos precargados.
+  React.useEffect(() => {
+    filmRef.current?.querySelector(`[data-id="${foto.id}"]`)?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    for (const d of [1, -1]) {
+      const vecino = lista[(idx + d + lista.length) % lista.length];
+      if (vecino) new Image().src = vecino.src;
+    }
+  }, [foto.id, idx, lista]);
+
+  const esLiked = foto.pick === "ME_GUSTA";
+  const esNo = foto.pick === "NO_ME_GUSTA";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md"
+      onTouchStart={(e) => {
+        touch.current = e.touches[0].clientX;
+      }}
+      onTouchEnd={(e) => {
+        if (touch.current === null) return;
+        const dx = e.changedTouches[0].clientX - touch.current;
+        touch.current = null;
+        if (Math.abs(dx) > 48) onNavegar(dx < 0 ? 1 : -1);
+      }}
+    >
+      <div className="flex items-center gap-3 px-4 py-3 text-sm text-white/70">
+        <span className="tabular-nums">
+          {idx + 1} / {total}
+        </span>
+        <span className="min-w-0 truncate font-medium text-white">{foto.filename}</span>
+        <button
+          type="button"
+          onClick={onCerrar}
+          aria-label="Cerrar"
+          className="ml-auto flex size-9 items-center justify-center rounded-full border border-white/15 text-white hover:bg-white/10"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-2 px-2 md:gap-4 md:px-4">
+        <button
+          type="button"
+          onClick={() => onNavegar(-1)}
+          aria-label="Anterior"
+          className="hidden size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/70 hover:text-white sm:flex"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img key={foto.id} src={foto.src} alt={foto.filename} className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl" />
+        <button
+          type="button"
+          onClick={() => onNavegar(1)}
+          aria-label="Siguiente"
+          className="hidden size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/70 hover:text-white sm:flex"
+        >
+          <ChevronRight className="size-5" />
+        </button>
+      </div>
+
+      <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-3">
+        {!soloLectura ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => onPick(foto, "ME_GUSTA")}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+                esLiked ? "border-primary bg-primary text-primary-foreground" : "border-white/20 text-white hover:bg-white/10",
+              )}
+            >
+              <Heart className={cn("size-4", esLiked && "fill-current")} /> {esLiked ? "Elegida" : "Me gusta"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setNotaAbierta((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/10"
+            >
+              <MessageSquare className="size-4" /> Comentar
+            </button>
+            <button
+              type="button"
+              onClick={() => onPick(foto, "NO_ME_GUSTA")}
+              title="Marcarla como descartada"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors",
+                esNo ? "border-rose-400 bg-rose-500 text-white" : "border-white/15 text-white/60 hover:bg-white/10 hover:text-white",
+              )}
+            >
+              <X className="size-3.5" /> No va
+            </button>
+          </div>
+        ) : null}
+
+        {!soloLectura && notaAbierta ? (
+          <textarea
+            autoFocus={!(foto.clientNote ?? "").trim()}
+            key={foto.id}
+            defaultValue={foto.clientNote ?? ""}
+            onBlur={(e) => {
+              if (e.target.value !== (foto.clientNote ?? "")) onNota(foto, e.target.value);
+            }}
+            rows={2}
+            placeholder="Cuéntanos qué ves en esta foto… se guarda solo."
+            className="w-full max-w-xl rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:border-white/40"
+          />
+        ) : soloLectura && (foto.clientNote ?? "").trim() ? (
+          <p className="max-w-xl text-center text-sm italic text-white/80">«{foto.clientNote}»</p>
+        ) : null}
+
+        <div ref={filmRef} className="flex max-w-full gap-1.5 overflow-x-auto p-1">
+          {lista.map((p) => (
+            <button
+              key={p.id}
+              data-id={p.id}
+              type="button"
+              onClick={() => onIr(p.id)}
+              className={cn(
+                "h-10 shrink-0 overflow-hidden rounded-md border-2 transition-opacity",
+                p.id === foto.id ? "border-white opacity-100" : p.pick === "ME_GUSTA" ? "border-primary opacity-90" : "border-transparent opacity-45 hover:opacity-80",
+              )}
+              style={{ width: `${Math.round(40 * Math.min(2, Math.max(0.6, arDe(p))))}px` }}
+              aria-label={p.filename}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.src} alt="" loading="lazy" className="size-full object-cover" />
+            </button>
+          ))}
+        </div>
+
+        <p className="hidden text-[11px] text-white/40 md:block">
+          <Tecla>←</Tecla> <Tecla>→</Tecla> navegar{!soloLectura ? (
+            <>
+              {" "}· <Tecla>F</Tecla> me gusta · <Tecla>C</Tecla> comentar
+            </>
+          ) : null}{" "}
+          · <Tecla>Esc</Tecla> cerrar
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Tecla({ children }: { children: React.ReactNode }) {
+  return <kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 font-sans text-[10px]">{children}</kbd>;
 }

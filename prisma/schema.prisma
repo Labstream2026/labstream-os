@@ -2407,6 +2407,16 @@ model DeliverablePhoto {
   url           String?
   filename      String // nombre visible de la foto
   position      Int         @default(0) // orden en la galería
+  // Sección/capítulo dentro del set («Retratos», «Backstage»…). Nace sola de las subcarpetas
+  // de la carpeta que arrastra el equipo al subir; null = sin sección (raíz de la carpeta).
+  section       String?
+  // Curaduría del EQUIPO: si está puesto, la foto NO pasa al cliente (ni en la sala ni en el
+  // borrador) — queda guardada solo para el equipo. Fecha y no booleano, como los demás sellos.
+  excludedAt    DateTime?
+  // Dimensiones del original (las lee sharp al subir). Sirven para la cuadrícula justificada:
+  // sin proporción conocida, la fila no se puede calcular en el servidor y la galería salta.
+  width         Int?
+  height        Int?
   // Selección del cliente.
   pick          PhotoPick   @default(PENDIENTE)
   clientNote    String? // comentario opcional del cliente para esta foto

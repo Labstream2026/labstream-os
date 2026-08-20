@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { FolderDown, Plus, Copy, Check, Camera } from "lucide-react";
+import Link from "next/link";
+import { FolderDown, Plus, Copy, Check, Camera, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SubmitButton } from "@/components/submit-button";
 import { createPhotoSet, importDriveFolderPhotos } from "./covers-actions";
@@ -113,12 +114,18 @@ export function PhotosPanel({ projectId, canUpload, sets }: { projectId: string;
                     {s.disliked > 0 ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">✗ {s.disliked}</span> : null}
                     {pending > 0 ? <span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">{pending} sin calificar</span> : null}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Link
+                      href={`/proyectos/${projectId}/fotos/${s.id}`}
+                      className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+                    >
+                      Abrir estudio <ArrowRight className="size-3" />
+                    </Link>
                     <CopyBtn url={s.reviewUrl} />
                     <a href={s.reviewUrl} target="_blank" rel="noreferrer" className="rounded-md border border-border px-2 py-1 text-[11px] font-medium hover:bg-accent">Ver como cliente ↗</a>
                   </div>
                   {canUpload ? <DriveImport projectId={projectId} setId={s.id} /> : null}
-                  <p className="text-[10.5px] text-muted-foreground">Subir archivos o borrar fotos: en su tarjeta de «En curso».</p>
+                  <p className="text-[10.5px] text-muted-foreground">En el estudio: subir la carpeta completa, curar qué pasa al cliente y leer su selección.</p>
                 </div>
               </div>
             );
