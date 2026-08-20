@@ -8,6 +8,7 @@ import { defaultFixDeadline } from "@/lib/business-time";
 import { usePromptDialog } from "@/components/ui/prompt-dialog";
 import { formatBogota } from "@/lib/bogota-time";
 import { formatTimecode } from "@/lib/ui";
+import { claveDeAutor, colorDeAutor, inicialesDeAutor } from "@/lib/color-autor";
 // Solo el TIPO: `import type` se borra al compilar, así que hls.js no entra en el paquete por
 // esta línea. La librería se carga con `import()` y únicamente cuando hay escalera que
 // reproducir (ver el efecto de la escalera adaptativa, más abajo).
@@ -213,6 +214,9 @@ export function ReviewStage({
   // La captura ya NO se pinta a lo ancho (una sola llenaba la pantalla y repasar 10 ajustes era
   // scroll infinito): va de MINIATURA al lado del texto y el clic la amplía en el lightbox.
   const [momentFilter, setMomentFilter] = React.useState<"all" | "pending" | "done" | "must" | "sugg">("all");
+  // Filtro por PERSONA (clave normalizada del autor): con varios revisores sobre el mismo video,
+  // «solo lo de Juanse» de un clic. Compone con el filtro de estado; null = todos.
+  const [autorFiltro, setAutorFiltro] = React.useState<string | null>(null);
   const [momentView, setMomentView] = React.useState<"list" | "grid">("list");
   const [lightboxId, setLightboxId] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
@@ -414,15 +418,30 @@ export function ReviewStage({
   const allMoments = ofVersion.filter((c) => !c.isNote).sort((a, b) => (a.timecode ?? 1e9) - (b.timecode ?? 1e9));
   const resolvedCount = allMoments.filter((c) => c.resolved).length;
   const suggCount = allMoments.filter((c) => c.priority === "SUGERENCIA").length;
+  // Quiénes han comentado (leyenda-filtro por persona): nombre visible + cuántas correcciones.
+  // Se agrupa por la CLAVE normalizada («Jaime» y «jaime» son la misma persona) y se ordena por
+  // volumen; el conteo sale de allMoments para que la leyenda no cambie al filtrar.
+  const autores = (() => {
+    const porClave = new Map<string, { nombre: string; n: number }>();
+    for (const c of allMoments) {
+      const k = claveDeAutor(c.authorName);
+      const e = porClave.get(k);
+      if (e) e.n += 1;
+      else porClave.set(k, { nombre: c.authorName, n: 1 });
+    }
+    return [...porClave.entries()].map(([clave, v]) => ({ clave, ...v })).sort((a, b) => b.n - a.n);
+  })();
   // Lista según el chip de filtro activo. La exportación (Copiar/CSV) y el contador del título
   // siguen usando allMoments: el filtro es solo de LECTURA, nunca recorta lo que se exporta.
-  const moments = allMoments.filter((c) =>
-    momentFilter === "pending" ? !c.resolved
-    : momentFilter === "done" ? !!c.resolved
-    : momentFilter === "must" ? (c.priority ?? "OBLIGATORIA") === "OBLIGATORIA"
-    : momentFilter === "sugg" ? c.priority === "SUGERENCIA"
-    : true,
-  );
+  const moments = allMoments
+    .filter((c) =>
+      momentFilter === "pending" ? !c.resolved
+      : momentFilter === "done" ? !!c.resolved
+      : momentFilter === "must" ? (c.priority ?? "OBLIGATORIA") === "OBLIGATORIA"
+      : momentFilter === "sugg" ? c.priority === "SUGERENCIA"
+      : true,
+    )
+    .filter((c) => autorFiltro == null || claveDeAutor(c.authorName) === autorFiltro);
   // Capturas visibles con el filtro actual: alimentan la galería y la navegación del lightbox.
   const captures = moments.filter((c) => !!c.drawing?.image);
   const anyCaptures = allMoments.some((c) => !!c.drawing?.image);
@@ -928,7 +947,7 @@ export function ReviewStage({
           <div className="fixed inset-0 z-[90] flex flex-col bg-black/85 p-3 sm:p-5" role="dialog" aria-modal="true" onClick={() => setLightboxId(null)}>
             <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
               <p className="min-w-0 truncate text-sm text-white">
-                <span className="font-medium">{c.authorName}</span>
+                <span className="font-medium" style={{ color: colorDeAutor(c.authorName).claro }}>{c.authorName}</span>
                 <span className="text-white/60"> · captura {i + 1} de {captures.length}</span>
               </p>
               <button type="button" onClick={() => setLightboxId(null)} aria-label="Cerrar" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm text-white hover:bg-white/20">✕</button>
@@ -1114,13 +1133,13 @@ export function ReviewStage({
           {!immersive ? (
             <>
           {/* Línea de tiempo de correcciones: cada momento comentado es una marca (ámbar =
-              pendiente, verde = hecha); clic = saltar. SOLO para fuentes iframe con segundo
-              (YouTube/Vimeo): el <video> del mismo origen ya trae la pista con marcas
+              color de su autor; atenuada = hecha); clic = saltar. SOLO para fuentes iframe con
+              segundo (YouTube/Vimeo): el <video> del mismo origen ya trae la pista con marcas
               INTEGRADA en su barra propia (PlayerBar) — dos líneas de tiempo confundían. */}
           {caps.time && !caps.frame ? (
             <TimelineStrip
               playerRef={playerRef}
-              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved }))}
+              markers={allMoments.filter((c) => c.timecode != null).map((c) => ({ id: c.id, t: c.timecode!, resolved: !!c.resolved, author: c.authorName }))}
               onJump={(t) => playerRef.current?.seek(t, false)}
             />
           ) : null}
@@ -1299,6 +1318,31 @@ export function ReviewStage({
                 ) : null}
               </div>
             ) : null}
+            {/* ── Quiénes han comentado ── leyenda de personas con SU color; tocar una filtra sus
+                correcciones (compone con los chips de estado de arriba). Solo aparece con 2+
+                personas — con una sola no hay nada que distinguir. */}
+            {autores.length > 1 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {autores.map((a) => {
+                  const col = colorDeAutor(a.nombre);
+                  const activo = autorFiltro === a.clave;
+                  return (
+                    <button
+                      key={a.clave}
+                      type="button"
+                      aria-pressed={activo}
+                      onClick={() => setAutorFiltro(activo ? null : a.clave)}
+                      title={activo ? "Quitar el filtro por persona" : `Ver solo lo de ${a.nombre}`}
+                      className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${activo ? "border-transparent text-white" : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                      style={activo ? { background: col.base } : undefined}
+                    >
+                      <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: activo ? "#fff" : col.base }} />
+                      <span className="max-w-28 truncate">{a.nombre}</span> · {a.n}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         );
         const momentsListNode = (
@@ -1356,7 +1400,7 @@ export function ReviewStage({
                     ) : null}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{c.authorName}</span>
+                        <FirmaAutor nombre={c.authorName} />
                         {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
                         {mode === "internal" && c.fromDraft ? <DraftMark /> : null}
                         {c.timecode != null ? (
@@ -1402,7 +1446,7 @@ export function ReviewStage({
                           {replies.map((r) => (
                             <div key={r.id} className="text-[13px]">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs font-medium">{r.authorName}</span>
+                                <FirmaAutor nombre={r.authorName} chico claseNombre="text-xs" />
                                 {!r.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
                                 {mode === "internal" && r.fromDraft ? <DraftMark /> : null}
                                 {/* Solo para el equipo: de un vistazo, qué respuestas ve el cliente
@@ -1481,7 +1525,12 @@ export function ReviewStage({
                     {c.resolved ? <span className="absolute right-1 top-1 rounded bg-emerald-500 px-1 text-[10px] font-bold text-white">✓</span> : null}
                   </span>
                   <span className="block px-2 py-1.5">
-                    <span className="block truncate text-[11px] font-medium">{c.authorName}</span>
+                    <span
+                      className="block truncate text-[11px] font-medium text-[color:var(--ca)] dark:text-[color:var(--ca-claro)]"
+                      style={{ "--ca": colorDeAutor(c.authorName).base, "--ca-claro": colorDeAutor(c.authorName).claro } as React.CSSProperties}
+                    >
+                      {c.authorName}
+                    </span>
                     <span className="line-clamp-2 block text-[11px] text-muted-foreground">{c.body}</span>
                   </span>
                 </button>
@@ -1519,7 +1568,7 @@ export function ReviewStage({
                 notes.map((c) => (
                   <div key={c.id} className="rounded-lg border border-dashed border-border bg-card px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium">{c.authorName}</span>
+                      <FirmaAutor nombre={c.authorName} chico claseNombre="text-xs" />
                       {!c.fromClient ? <span className="rounded bg-secondary px-1.5 text-[10px] text-secondary-foreground">equipo</span> : <span className="rounded bg-primary/10 px-1.5 text-[10px] text-primary">cliente</span>}
                       {mode === "internal" && c.fromDraft ? <DraftMark /> : null}
                       {c.editedAt ? <EditedMark /> : null}
@@ -1568,6 +1617,37 @@ export function ReviewStage({
         );
       })()}
     </div>
+  );
+}
+
+// ── Firma visual del AUTOR ── sello con las iniciales sobre SU color + nombre teñido del
+// mismo tono. El color sale de colorDeAutor (hash del nombre, nada guardado en BD): con varias
+// personas corrigiendo el mismo video, de un vistazo se sabe quién pidió qué. `oscuro` fija la
+// variante clara (superficies siempre negras: HUD inmersivo); sin él, el tinte sigue el tema de
+// la app con variables CSS (tono base en claro, tono claro bajo `.dark`).
+function FirmaAutor({ nombre, chico = false, oscuro = false, claseNombre = "" }: {
+  nombre: string;
+  chico?: boolean; // sello más pequeño (respuestas de hilo, notas)
+  oscuro?: boolean;
+  claseNombre?: string; // tamaño del texto del nombre donde el contexto lo fija (HUD)
+}) {
+  const col = colorDeAutor(nombre);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span
+        aria-hidden
+        style={{ background: col.base }}
+        className={`flex shrink-0 select-none items-center justify-center rounded-full font-bold leading-none text-white ${chico ? "size-4 text-[7.5px]" : "size-5 text-[9px]"}`}
+      >
+        {inicialesDeAutor(nombre)}
+      </span>
+      <span
+        className={`truncate font-medium ${oscuro ? "" : "text-[color:var(--ca)] dark:text-[color:var(--ca-claro)]"} ${claseNombre}`}
+        style={oscuro ? { color: col.claro } : ({ "--ca": col.base, "--ca-claro": col.claro } as React.CSSProperties)}
+      >
+        {nombre}
+      </span>
+    </span>
   );
 }
 
@@ -1956,7 +2036,8 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
                 className="absolute top-1/2 flex size-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
                 style={{ left: `${Math.min(99, (c.timecode / durT) * 100)}%` }}
               >
-                <span className={`block size-2.5 rounded-full ring-2 ring-black/40 ${c.fromClient ? "bg-primary" : "bg-white"}`} />
+                {/* El punto lleva el color de SU autor: en la barra se ve quién comentó dónde. */}
+                <span className="block size-2.5 rounded-full ring-2 ring-black/40" style={{ background: colorDeAutor(c.authorName).claro }} />
               </button>
             ))}
           </div>
@@ -1983,7 +2064,7 @@ const ImmersiveHud = React.memo(function ImmersiveHud({ playerRef, canTap, rateC
           className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 w-56 max-w-[80vw] rounded-xl border border-white/15 bg-zinc-900 px-3 py-2"
           style={{ left: `clamp(0.75rem, calc(${dotPop.pct}% - 7rem), calc(100% - 14.75rem))` }}
         >
-          <p className="text-[11px] font-medium text-primary">{dotPop.author}</p>
+          <p className="text-[11px] font-medium" style={{ color: colorDeAutor(dotPop.author).claro }}>{dotPop.author}</p>
           <p className="mt-0.5 line-clamp-3 text-xs text-white/90">{dotPop.body}</p>
         </div>
       ) : null}
@@ -2174,7 +2255,7 @@ function ImmersiveSheet({
                       ) : null}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[13px] font-medium text-white">{c.authorName}</span>
+                          <FirmaAutor nombre={c.authorName} oscuro claseNombre="text-[13px]" />
                           {c.fromClient
                             ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
                             : <span className="rounded bg-white/10 px-1.5 text-[10px] text-white/70">equipo</span>}
@@ -2197,7 +2278,7 @@ function ImmersiveSheet({
                             {replies.map((r) => (
                               <div key={r.id}>
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-[11px] font-medium text-white/85">{r.authorName}</span>
+                                  <FirmaAutor nombre={r.authorName} chico oscuro claseNombre="text-[11px]" />
                                   {r.fromClient
                                     ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
                                     : <span className="rounded bg-white/15 px-1.5 text-[10px] text-white/70">equipo</span>}
@@ -2242,7 +2323,7 @@ function ImmersiveSheet({
             notes.map((c) => (
               <div key={c.id} className="rounded-xl border border-dashed border-white/15 bg-white/[0.04] p-3">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[13px] font-medium text-white">{c.authorName}</span>
+                  <FirmaAutor nombre={c.authorName} oscuro claseNombre="text-[13px]" />
                   {c.fromClient
                     ? <span className="rounded bg-primary/20 px-1.5 text-[10px] text-primary">cliente</span>
                     : <span className="rounded bg-white/15 px-1.5 text-[10px] text-white/70">equipo</span>}
@@ -3221,13 +3302,16 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false, safeZone 
                   <button
                     key={m.id}
                     type="button"
-                    aria-label={`Corrección en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
+                    aria-label={`Corrección de ${m.author} en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); const v = videoRef.current; if (v) v.currentTime = m.t; }}
                     onMouseEnter={() => showPop(i, true)}
                     onMouseLeave={() => setPop((p) => (p?.sticky ? null : p))}
-                    className={`absolute -top-[5px] h-4 w-1 -translate-x-1/2 rounded-sm transition-transform hover:scale-125 ${m.resolved ? "bg-emerald-400" : "bg-amber-400"}`}
-                    style={{ left: pct(m.t) }}
+                    // La marca lleva el color de SU autor (quién comentó dónde, de un vistazo);
+                    // el estado ya no va en el color sino en la opacidad: atenuada = hecha.
+                    // El popover y el aria-label conservan el estado en palabras.
+                    className={`absolute -top-[5px] h-4 w-1 -translate-x-1/2 rounded-sm transition-transform hover:scale-125 ${m.resolved ? "opacity-40" : ""}`}
+                    style={{ left: pct(m.t), background: colorDeAutor(m.author).claro }}
                   />
                 ))
               : null}
@@ -3241,7 +3325,9 @@ function PlayerBar({ videoRef, markers, rate, onRate, compact = false, safeZone 
               className="pointer-events-none absolute bottom-8 z-20 w-56 max-w-[70vw] -translate-x-1/2 rounded-lg border border-white/15 bg-neutral-900 px-2.5 py-2"
               style={{ left: `${Math.min(85, Math.max(15, ((markers[pop.idx].t) / (durRef.current || 1)) * 100))}%` }}
             >
-              <p className="text-[12px] font-medium text-white">{markers[pop.idx].author} · {fmtTime(markers[pop.idx].t)}</p>
+              <p className="text-[12px] font-medium text-white">
+                <span style={{ color: colorDeAutor(markers[pop.idx].author).claro }}>{markers[pop.idx].author}</span> · {fmtTime(markers[pop.idx].t)}
+              </p>
               <p className="mt-0.5 line-clamp-2 text-[12px] text-white/75">{markers[pop.idx].body}</p>
               <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${markers[pop.idx].resolved ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                 {markers[pop.idx].resolved ? "✓ Hecha" : "Pendiente"}
@@ -3560,17 +3646,17 @@ function wrapText(g: CanvasRenderingContext2D, text: string, maxW: number): stri
 }
 
 // ── Línea de tiempo de correcciones (B) ──
-// Barra propia DEBAJO del reproductor: posición actual + una marca por cada momento comentado
-// (ámbar = pendiente, verde = hecha). Clic en la pista o en una marca = saltar. Sondea el
-// PlayerApi cada 500 ms (mismo patrón que LiveTimecode): NO toca el <video> ni sus controles,
-// así la captura de fotograma y el timecode quedan intactos.
+// Barra propia DEBAJO del reproductor: posición actual + una marca por cada momento comentado,
+// con el COLOR de su autor (quién comentó dónde, de un vistazo); atenuada = hecha. Clic en la
+// pista o en una marca = saltar. Sondea el PlayerApi cada 500 ms (mismo patrón que
+// LiveTimecode): NO toca el <video> ni sus controles, así la captura y el timecode quedan intactos.
 function TimelineStrip({
   playerRef,
   markers,
   onJump,
 }: {
   playerRef: React.RefObject<PlayerApi | null>;
-  markers: { id: string; t: number; resolved: boolean }[];
+  markers: { id: string; t: number; resolved: boolean; author: string }[];
   onJump: (t: number) => void;
 }) {
   const [dur, setDur] = React.useState(0);
@@ -3603,14 +3689,14 @@ function TimelineStrip({
           <button
             key={m.id}
             type="button"
-            title={`${fmtTime(m.t)} · ${m.resolved ? "hecha ✓" : "pendiente"}`}
-            aria-label={`Corrección en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
+            title={`${m.author} · ${fmtTime(m.t)} · ${m.resolved ? "hecha ✓" : "pendiente"}`}
+            aria-label={`Corrección de ${m.author} en ${fmtTime(m.t)} (${m.resolved ? "hecha" : "pendiente"})`}
             onClick={(ev) => {
               ev.stopPropagation();
               onJump(m.t);
             }}
-            className={`absolute -top-1 h-4 w-1 -translate-x-1/2 rounded-sm ${m.resolved ? "bg-emerald-500" : "bg-amber-400"} hover:scale-125`}
-            style={{ left: pct(m.t) }}
+            className={`absolute -top-1 h-4 w-1 -translate-x-1/2 rounded-sm hover:scale-125 bg-[color:var(--ca)] dark:bg-[color:var(--ca-claro)] ${m.resolved ? "opacity-40" : ""}`}
+            style={{ left: pct(m.t), "--ca": colorDeAutor(m.author).base, "--ca-claro": colorDeAutor(m.author).claro } as React.CSSProperties}
           />
         ))}
         <div className="pointer-events-none absolute -top-0.5 size-3 -translate-x-1/2 rounded-full bg-primary shadow" style={{ left: pct(pos) }} />
@@ -3618,9 +3704,7 @@ function TimelineStrip({
       <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
         <span className="font-mono">{fmtTime(pos)} / {fmtTime(dur)}</span>
         {markers.length ? (
-          <span>
-            <span className="text-amber-500">▮</span> pendiente · <span className="text-emerald-500">▮</span> hecha — clic para saltar
-          </span>
+          <span>el color de la marca es de quién comenta · atenuada = hecha — clic para saltar</span>
         ) : null}
       </div>
     </div>
