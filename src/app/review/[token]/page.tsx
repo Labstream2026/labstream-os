@@ -285,6 +285,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
                 setName={deliverable.name}
                 clientName={deliverable.project.client?.name ?? null}
                 coverSrc={fotosCover}
+                // Descargar sus originales: solo en el enlace OFICIAL (no en borrador) y solo si
+                // hay fotos que son archivo real (las de Drive no se empaquetan).
+                deliverableId={isDraft ? null : deliverable.id}
+                descargables={isDraft ? 0 : deliverable.photos.filter((p) => p.fileAssetId).length}
               />
               {/* Las galerías también cierran su ciclo: aprobar/pedir cambios + descargas por formato.
                   En BORRADOR no: ahí se elige y se comenta, pero no se aprueba ni se descarga. */}

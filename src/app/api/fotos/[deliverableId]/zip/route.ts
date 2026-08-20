@@ -5,23 +5,30 @@ import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { readBuffer } from "@/lib/storage";
 import { readOps } from "@/lib/nas-ops";
+import { resolveReviewToken } from "@/lib/review-token";
+import { rateLimit } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ── Descargar ORIGINALES del set, por tandas o completo (ZIP en streaming) ──
-// Para el EQUIPO (sesión + acceso al proyecto): bajar de un golpe lo que el cliente eligió — o
-// el filtro que sea — para llevarlo a Lightroom, en vez de foto por foto. El ZIP se arma SIN
-// comprimir (método store): un JPEG no vuelve a comprimir, y así el armado es puro streaming —
-// en memoria vive UNA foto a la vez, nunca el paquete entero.
-//
-// `que` repite los filtros del estudio, resueltos en el SERVIDOR (nada de listas de ids en la
-// URL): todo · cliente (no excluidas) · excluidas · elegidas (♥) · comentadas.
+// Dos entradas, un mismo paquete:
+//  · EQUIPO (sesión + acceso al proyecto): baja de un golpe lo que el cliente eligió —o el
+//    filtro que sea— para llevarlo a Lightroom, en vez de foto por foto. Ve todos los filtros.
+//  · CLIENTE (token de su sala, sin cuenta): baja SUS fotos —todas las que ve, o las que
+//    marcó— desde la galería. Nunca toca lo que la curaduría excluyó, y solo si el set ya está
+//    de cara a él.
+// El ZIP se arma SIN comprimir (método store): un JPEG no vuelve a comprimir, y así el armado
+// es puro streaming — en memoria vive UNA foto a la vez, nunca el paquete entero.
 // Las fotos por ENLACE (Drive) no se pueden empacar; se listan en un OMITIDAS.txt dentro del
 // ZIP para que la caja diga la verdad.
 
 const QUE = new Set(["todo", "cliente", "excluidas", "elegidas", "comentadas"]);
+// Lo que el CLIENTE puede pedir: nunca «todo» (incluye excluidas) ni «excluidas».
+const QUE_CLIENTE = new Set(["cliente", "elegidas", "comentadas"]);
+// El set tiene que estar de cara al cliente para que baje nada: material sin enviar no se filtra.
+const DE_CARA_AL_CLIENTE = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"]);
 const MAX_FOTOS = 1000; // sin zip64: techo holgado y honesto
 const MAX_BYTES = 3_800_000_000; // ~3,8 GB — por debajo del límite de zip clásico
 
@@ -112,20 +119,45 @@ function nombreZip(usados: Set<string>, section: string | null, filename: string
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverableId: string }> }) {
   const { deliverableId } = await ctx.params;
-  const session = await getSession();
-  if (!session || session.role === "cliente" || session.role === "demo") {
-    return NextResponse.json({ error: "Descarga del equipo: entra con tu cuenta." }, { status: 401 });
+  const url = new URL(req.url);
+  const token = url.searchParams.get("t");
+
+  // ── Quién baja: cliente por token de su sala, o miembro del equipo con sesión ──
+  let esCliente = false;
+  if (token) {
+    const resolved = resolveReviewToken(token);
+    // El token tiene que ser el OFICIAL (no el de borrador) y de ESTE mismo set.
+    if (!resolved || resolved.deliverableId !== deliverableId || resolved.mode !== "final") {
+      return NextResponse.json({ error: "Enlace de descarga no válido." }, { status: 401 });
+    }
+    // Un GET de descarga no se puede limitar como una acción, pero sí frenar el abuso por enlace.
+    if (!rateLimit(`fotos-zip:${token.slice(0, 40)}`, 8, 60_000)) {
+      return NextResponse.json({ error: "Demasiadas descargas seguidas. Espera un momento." }, { status: 429 });
+    }
+    esCliente = true;
+  } else {
+    const session = await getSession();
+    if (!session || session.role === "cliente" || session.role === "demo") {
+      return NextResponse.json({ error: "Descarga del equipo: entra con tu cuenta." }, { status: 401 });
+    }
   }
-  const que = new URL(req.url).searchParams.get("que") ?? "todo";
-  if (!QUE.has(que)) return NextResponse.json({ error: "Filtro desconocido" }, { status: 400 });
+
+  // El filtro por defecto y los permitidos dependen de quién baja.
+  let que = url.searchParams.get("que") ?? (esCliente ? "cliente" : "todo");
+  if (esCliente) {
+    if (!QUE_CLIENTE.has(que)) que = "cliente"; // el cliente jamás pide «todo»/«excluidas»
+  } else if (!QUE.has(que)) {
+    return NextResponse.json({ error: "Filtro desconocido" }, { status: 400 });
+  }
 
   const set = await db.deliverable.findUnique({
     where: { id: deliverableId },
     select: {
       name: true,
       type: true,
+      status: true,
       projectId: true,
-      project: { select: PROJECT_ACCESS_SELECT },
+      project: { select: { ...PROJECT_ACCESS_SELECT, archivedAt: true } },
       photos: {
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
         select: {
@@ -136,9 +168,20 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
     },
   });
   if (!set || set.type !== "FOTOGRAFIA") return NextResponse.json({ error: "Set no encontrado" }, { status: 404 });
-  if (!canAccessProject(set.project, session)) return NextResponse.json({ error: "Sin acceso al proyecto" }, { status: 403 });
+  if (esCliente) {
+    // El token autoriza ESTE set (ya verificado), pero el proyecto en papelera o el set aún sin
+    // enviar cierran la puerta: material dormido o sin aprobar no se descarga por el enlace.
+    if (set.project.archivedAt) return NextResponse.json({ error: "Este material ya no está disponible." }, { status: 403 });
+    if (!DE_CARA_AL_CLIENTE.has(set.status)) return NextResponse.json({ error: "Tus fotos aún no están listas para descargar." }, { status: 403 });
+  } else {
+    const session = await getSession();
+    if (!session || !canAccessProject(set.project, session)) return NextResponse.json({ error: "Sin acceso al proyecto" }, { status: 403 });
+  }
 
-  const filtradas = set.photos.filter((p) => {
+  // El cliente NUNCA ve lo excluido por la curaduría (defensa aparte de que sus filtros ya lo
+  // evitan): se recorta antes de aplicar el filtro pedido.
+  const universo = esCliente ? set.photos.filter((p) => !p.excludedAt) : set.photos;
+  const filtradas = universo.filter((p) => {
     if (que === "cliente") return !p.excludedAt;
     if (que === "excluidas") return !!p.excludedAt;
     if (que === "elegidas") return p.pick === "ME_GUSTA";
@@ -156,13 +199,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
     return NextResponse.json({ error: `El paquete pesaría ~${Math.round(totalEstimado / 1e9)} GB y el ZIP clásico llega a ~3,8 GB. Baja por tandas con los filtros.` }, { status: 413 });
   }
 
+  // Quién descargó, para la actividad: el equipo con su id; el cliente por enlace, sin id.
+  const quien = esCliente ? null : (await getSession())?.id ?? null;
   await logActivity({
     action: "file.download",
-    summary: `descargó ${empacables.length} original(es) del set «${set.name}» (ZIP · ${que})`,
+    summary: esCliente
+      ? `el cliente descargó ${empacables.length} de sus fotos del set «${set.name}» (${que})`
+      : `descargó ${empacables.length} original(es) del set «${set.name}» (ZIP · ${que})`,
     projectId: set.projectId,
     entityType: "deliverable",
     entityId: deliverableId,
-    userId: session.id,
+    userId: quien,
+    actorName: esCliente ? "Cliente (enlace)" : undefined,
     silent: true,
   }).catch(() => {});
 

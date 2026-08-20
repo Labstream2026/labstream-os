@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronLeft, ChevronRight, Heart, MessageSquare, Pencil, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Heart, MessageSquare, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CoverAnnotator } from "@/components/covers/cover-annotator";
 import { setPhotoDrawing, setPhotoPick } from "./actions";
@@ -37,6 +37,8 @@ type Filtro = "todas" | "elegidas" | "comentadas" | "sin";
 
 export function PhotoGallery({
   token,
+  deliverableId = null,
+  descargables = 0,
   photos: initial,
   setName,
   clientName,
@@ -44,6 +46,10 @@ export function PhotoGallery({
   soloLectura = false,
 }: {
   token: string;
+  // Para armar el enlace de descarga del cliente (ZIP por token). null en la revisión interna.
+  deliverableId?: string | null;
+  // Cuántas fotos de la galería son archivos reales (no enlaces de Drive): si 0, no hay ZIP.
+  descargables?: number;
   photos: GalleryPhoto[];
   setName: string;
   clientName: string | null;
@@ -321,6 +327,35 @@ export function PhotoGallery({
               {k === "sin" && sinMarcar ? ` · ${sinMarcar}` : ""}
             </button>
           ))}
+          {/* Descargar MIS fotos: originales en ZIP (todas las que veo, o mis elegidas). Solo el
+              cliente (no la revisión interna), solo si hay archivos reales (no puros enlaces de
+              Drive), y por el token de la sala — sin cuenta. El menú abre HACIA ARRIBA porque la
+              barra vive pegada abajo. */}
+          {!soloLectura && deliverableId && token && descargables > 0 ? (
+            <details className="relative">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+                <Download className="size-3.5" /> Descargar
+              </summary>
+              <div className="absolute bottom-full right-0 mb-2 w-60 rounded-xl border border-border bg-popover p-1 shadow-2xl">
+                <a
+                  href={`/api/fotos/${deliverableId}/zip?que=cliente&t=${encodeURIComponent(token)}`}
+                  className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
+                >
+                  Todas mis fotos <span className="text-xs tabular-nums text-muted-foreground">{descargables}</span>
+                </a>
+                {liked > 0 ? (
+                  <a
+                    href={`/api/fotos/${deliverableId}/zip?que=elegidas&t=${encodeURIComponent(token)}`}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Heart className="size-3.5 fill-primary text-primary" /> Mis elegidas</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">{liked}</span>
+                  </a>
+                ) : null}
+                <p className="px-2.5 pb-1 pt-1.5 text-[10.5px] text-muted-foreground">Un ZIP con los archivos originales, en carpetas por sección.</p>
+              </div>
+            </details>
+          ) : null}
           {!soloLectura ? (
             <button
               type="button"

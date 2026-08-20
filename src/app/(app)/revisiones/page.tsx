@@ -9,6 +9,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { deliverableStatusMeta } from "@/lib/ui";
 import { TONE_MAP } from "@/lib/colors";
 import { signReviewToken, signReviewMediaToken } from "@/lib/review-token";
+import { photoThumbSrc } from "@/lib/deliverable-photo";
 import { signFileToken } from "@/lib/storage";
 import { PreviewVideo } from "./preview-video";
 import { DeliverableAdminActions } from "./deliverable-admin-actions";
@@ -262,6 +263,9 @@ export default async function RevisionesPage({
         // id/fileUrl/fileAsset → para firmar la fuente del PREVIEW en hover (la misma que
         // reproduce el player: files-asset si vive en el NAS, review-media si vive en Drive).
         versions: { orderBy: { number: "desc" }, take: 1, select: { id: true, number: true, createdAt: true, durationSec: true, fileUrl: true, fileAsset: { select: { id: true, name: true } }, uploadedBy: { select: { id: true, name: true, initials: true, avatarColor: true } } } },
+        // Un set de FOTOGRAFIA no tiene versión: su miniatura sale de la portada del set o, si no
+        // hay, de su primera foto no excluida. Con esto la bandeja deja de mostrar el icono vacío.
+        photos: { where: { excludedAt: null }, orderBy: { position: "asc" }, take: 1, select: { fileAssetId: true, url: true } },
         _count: { select: { reviewComments: true } },
       },
       orderBy: activeTab === "publicados" ? { publishedAt: "desc" } : { updatedAt: "desc" },
@@ -317,6 +321,14 @@ export default async function RevisionesPage({
     type: d.type,
     updatedAt: d.updatedAt,
     coverFileAssetId: d.coverFileAssetId,
+    // Miniatura resuelta EN EL SERVIDOR (photoThumbSrc firma token, no puede correr en el Card).
+    // Portada del set gana; si no hay, la primera foto no excluida. `&thumb=1` = webp ~480px, sin
+    // auditar y con caché de un día (el cover crudo de antes servía el derivado pesado y auditaba).
+    posterSrc: d.coverFileAssetId
+      ? `/api/files-asset/${d.coverFileAssetId}?t=${signFileToken(d.coverFileAssetId)}&thumb=1`
+      : d.photos[0]
+        ? photoThumbSrc(d.photos[0])
+        : null,
     project: { id: d.project.id, name: d.project.name, emoji: d.project.emoji, client: d.project.client ? { id: d.project.client.id, name: d.project.client.name, photoUrl: d.project.client.photoUrl, accentColor: d.project.client.accentColor } : null },
     versions: d.versions,
     previewSrc: previewSrcDe(d.versions[0]),
@@ -648,6 +660,7 @@ type Item = {
   type: string | null;
   updatedAt: Date;
   coverFileAssetId: string | null;
+  posterSrc: string | null;
   project: { id: string; name: string; emoji: string | null; client: { id: string; name: string; photoUrl: string | null; accentColor: string | null } | null };
   versions: { number: number; createdAt: Date; durationSec: number | null; uploadedBy: { id: string; name: string; initials: string | null; avatarColor: string | null } | null }[];
   // Fuente firmada del preview en hover; null = esta pieza no tiene video que enseñar.
@@ -936,7 +949,9 @@ function Card({ d, neutral, showStatus }: { d: Item; neutral?: boolean; showStat
   const uploader = v?.uploadedBy;
   const dur = fmtDur(v?.durationSec);
   const clientPhoto = d.project.client?.photoUrl ? `/api/client-asset/photo/${d.project.client.id}` : null;
-  const src = d.coverFileAssetId ? `/api/files-asset/${d.coverFileAssetId}` : clientPhoto;
+  // Póster ya resuelto en el servidor (portada del set/video o primera foto, como webp ~480 sin
+  // auditar). Los sets de fotos ya no salen con el icono vacío; el vídeo gana caché de un día.
+  const src = d.posterSrc ?? clientPhoto;
   // La edad como texto plano que solo GRITA cuando es un problema del equipo, con los umbrales
   // que la pantalla ya usaba (1+ día ámbar, 3+ días rojo). En los grupos neutrales el tiempo
   // corre para el cliente: sin color, sin culpa.

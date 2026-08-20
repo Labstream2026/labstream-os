@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { canAccessProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
-import { photoViewSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc } from "@/lib/deliverable-photo";
 import { DELIVERABLE_TYPE, deliverableOrientation, formatTimecode } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { EntityEmoji } from "@/components/icons/marks";
@@ -65,6 +65,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
           dueDate: true,
           coverFileAssetId: true,
           versions: { where: { internalApproved: true }, orderBy: { number: "desc" }, take: 1, select: { number: true, durationSec: true } },
+          // Set de fotos sin portada: su miniatura sale de la primera foto no excluida.
+          photos: { where: { excludedAt: null }, orderBy: { position: "asc" }, take: 1, select: { fileAssetId: true, url: true } },
           reviewComments: { where: { OR: [{ fromClient: true }, { visibleToClient: true }] }, select: { id: true } },
         },
       },
@@ -146,8 +148,15 @@ export default async function CampaignPage({ params }: { params: Promise<{ proje
                   const st = STATUS[d.status] ?? { label: d.status, className: "bg-muted text-muted-foreground" };
                   const vertical = deliverableOrientation(d.type) === "vertical";
                   const isPhoto = d.type === "FOTOGRAFIA";
-                  // Miniatura de portada para cualquier orientación (se captura un fotograma al subir).
-                  const cover = d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null;
+                  // Miniatura de portada para cualquier orientación (se captura un fotograma al
+                  // subir). Se usa la MINIATURA ligera (~480px, no audita): antes salía el
+                  // derivado pesado y registraba una «descarga» por cada tarjeta de la lista.
+                  // Para un set de fotos sin portada, cae a su primera foto.
+                  const cover = d.coverFileAssetId
+                    ? photoThumbSrc({ fileAssetId: d.coverFileAssetId, url: null })
+                    : d.photos[0]
+                      ? photoThumbSrc(d.photos[0])
+                      : null;
                   const v = d.versions[0];
                   const token = signReviewToken(d.id);
                   const due = d.dueDate && (d.status === "ENVIADO_CLIENTE" || d.status === "CORRECCIONES")
