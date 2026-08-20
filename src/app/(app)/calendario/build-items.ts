@@ -68,6 +68,9 @@ export type TaskRow = {
   dueDate: Date | null;
   dueTime?: string | null; // "HH:mm" opcional → la entrega se muestra a esa hora
   shootDate: Date | null;
+  // Sin esto, una tarea HECHA se seguía pintando de rojo al pasar su fecha: `taskUrgency` ya
+  // sabe devolver «hecha» y «hecha tarde», pero se la llamaba solo con la fecha de entrega.
+  completedAt?: Date | null;
   project?: { id: string; name: string | null; emoji: string | null } | null;
   assignee?: { name: string; initials: string | null; avatarColor: string | null } | null;
 };
@@ -109,7 +112,7 @@ export function taskToCalItems(t: TaskRow): CalItem[] {
       id: `t-${t.id}`, title: t.title, date: iso, start: iso, kind: "task",
       // Con hora → bloque a esa hora; sin hora → todo el día (como antes).
       allDay: !timed, time: timed ? (t.dueTime ?? null) : null,
-      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state), ...base,
+      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null }).state), ...base,
     });
   }
   if (t.shootDate) out.push({ id: `s-${t.id}`, title: t.title, date: t.shootDate.toISOString(), start: t.shootDate.toISOString(), kind: "shoot", allDay: true, ...base });

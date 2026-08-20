@@ -161,19 +161,27 @@ export function CalendarBoard({
   const [shellView, setShellView] = React.useState<ShellView>("mes");
   const [hiddenKinds, setHiddenKinds] = React.useState<Set<string>>(() => new Set());
   const [hiddenPeople, setHiddenPeople] = React.useState<Set<string>>(() => new Set());
+  // Las capas apagadas son POR PANTALLA cuando el calendario va embebido: apagar «Rodajes» en un
+  // proyecto no puede apagarlo en el calendario de todo el equipo. El shell conserva su clave de
+  // siempre, así que nadie pierde lo que ya tenía configurado. Antes había un doble fallo: el
+  // embebido ESCRIBÍA en la clave global —pisando la del equipo— y no la leía nunca (la
+  // restauración salía por el `if (!shell) return`), así que lo apagado volvía solo.
   React.useEffect(() => {
-    if (!shell || typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
+    const clave = (que: string) => (shell ? `cal:${que}:v1` : `cal:${que}:${window.location.pathname}`);
     let savedView = false;
     try {
-      const v = window.localStorage.getItem("cal:view:v1");
-      if (v === "dia" || v === "semana" || v === "mes" || v === "agenda") { setShellView(v); savedView = true; }
-      const hk = window.localStorage.getItem("cal:hiddenKinds:v1");
+      if (shell) {
+        const v = window.localStorage.getItem("cal:view:v1");
+        if (v === "dia" || v === "semana" || v === "mes" || v === "agenda") { setShellView(v); savedView = true; }
+      }
+      const hk = window.localStorage.getItem(clave("hiddenKinds"));
       if (hk) setHiddenKinds(new Set(JSON.parse(hk) as string[]));
-      const hp = window.localStorage.getItem("cal:hiddenPeople:v1");
+      const hp = window.localStorage.getItem(clave("hiddenPeople"));
       if (hp) setHiddenPeople(new Set(JSON.parse(hp) as string[]));
     } catch { /* localStorage no disponible: valores por defecto */ }
     // Solo se fuerza Mes en móvil si NO había una vista guardada: si el usuario eligió Semana, se respeta.
-    if (!savedView && window.innerWidth < 768) setShellView("mes");
+    if (shell && !savedView && window.innerWidth < 768) setShellView("mes");
   }, [shell]);
   const pickShellView = (v: ShellView) => {
     setShellView(v);
@@ -181,12 +189,12 @@ export function CalendarBoard({
   };
   const toggleKind = (k: string) => setHiddenKinds((prev) => {
     const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k);
-    try { window.localStorage.setItem("cal:hiddenKinds:v1", JSON.stringify([...n])); } catch { /* ignore */ }
+    try { window.localStorage.setItem(shell ? "cal:hiddenKinds:v1" : `cal:hiddenKinds:${window.location.pathname}`, JSON.stringify([...n])); } catch { /* ignore */ }
     return n;
   });
   const togglePerson = (name: string) => setHiddenPeople((prev) => {
     const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name);
-    try { window.localStorage.setItem("cal:hiddenPeople:v1", JSON.stringify([...n])); } catch { /* ignore */ }
+    try { window.localStorage.setItem(shell ? "cal:hiddenPeople:v1" : `cal:hiddenPeople:${window.location.pathname}`, JSON.stringify([...n])); } catch { /* ignore */ }
     return n;
   });
 

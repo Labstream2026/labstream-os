@@ -200,7 +200,10 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
   const session = await getSession();
   if (!session) noAutorizado();
   if (!hasPermission(session, "gestionar_calendario")) noAutorizado();
-  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true, title: true, attendees: { select: { userId: true } } } });
+  // projectId: la cita puede vivir en el calendario de un proyecto; sin él, moverla desde ahí
+  // escribía en la base, avisaba a los citados y dejaba la pantalla con la hora vieja — que el
+  // usuario lee como «esto no sirve». `moveMyTask` (abajo) ya revalidaba su proyecto.
+  const event = await db.calendarEvent.findUnique({ where: { id: eventId }, select: { createdById: true, source: true, allDay: true, title: true, projectId: true, attendees: { select: { userId: true } } } });
   if (!event) return;
   // Puede MOVER la cita el creador o un admin/productor (para reorganizar la agenda del equipo).
   // La edición/borrado siguen siendo solo del creador. Las citas importadas (Synology) no se mueven.
@@ -222,6 +225,7 @@ export async function moveMyEvent(eventId: string, startIso: string, endIso: str
     notifyAndEmail(a.userId, { type: "event", event: "calendar_event", title: `Se movió la cita: ${event.title}`, body: `${session.name} la reprogramó · ${when}`, link: "/calendario", actorId: session.id }).catch(() => null),
   ));
   await logActivity({ action: "event.move", summary: `reprogramó la cita «${event.title}»`, entityType: "event", entityId: eventId, silent: true });
+  if (event.projectId) revalidatePath(`/proyectos/${event.projectId}`);
   revalidatePath("/calendario");
 }
 
