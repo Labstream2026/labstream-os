@@ -891,34 +891,57 @@ export function Sidebar({
         </form>
       </div>
 
-      {/* ── BARRA DE CLIENTES (solo con el panel contraído): una columna PROPIA al lado del
-          raíl, solo fotos — grandes, cuadradas con esquinas suaves. Los clientes nunca se
-          van al recoger el panel: clic en una foto = el panel vuelve CON ese cliente
-          desplegado. Anclados ⭐ de primeros; anillo = donde vives ahora. ── */}
-      {collapsed && canClients && clients.length ? (
-        <div className="relative z-10 flex w-[68px] shrink-0 flex-col items-center gap-2.5 overflow-y-auto border-r border-sidebar-border bg-sidebar py-4 duration-300 animate-in fade-in slide-in-from-left-2 [scrollbar-width:none]">
-          {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c) => {
-            const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => {
-                  setOpenMap({ [c.id]: true });
-                  onExpand?.();
-                }}
-                aria-label={`Abrir ${c.name}`}
-                className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
-              >
-                <span className={cn("block rounded-[11px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
-                  <ClientAvatar client={c} hex={clientHex(c)} className="size-10 rounded-[10px]" />
-                </span>
-                <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-                  {c.name}
-                </span>
-              </button>
-            );
-          })}
+      {/* ── BARRA DE CLIENTES: una columna PROPIA al lado del raíl, solo fotos — grandes,
+          cuadradas con esquinas suaves. Es la cara de REPOSO del sidebar: al recoger el
+          panel los clientes nunca se van; clic en una foto = el panel vuelve CON ese
+          cliente desplegado. SIEMPRE montada y el ANCHO transiciona (68↔0) con la MISMA
+          curva del panel: contraer y expandir es un solo movimiento continuo, nada aparece
+          de golpe. Las fotos entran en cascada al quedar visible la barra. ── */}
+      {canClients && clients.length ? (
+        <div
+          aria-hidden={!collapsed}
+          className={cn(
+            "relative z-10 flex shrink-0 flex-col overflow-hidden bg-sidebar",
+            dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
+            collapsed ? "w-[68px] border-r border-sidebar-border" : "w-0 border-r-0",
+          )}
+        >
+          <div
+            data-viva={collapsed || undefined}
+            inert={!collapsed || undefined}
+            className="group/fotos flex w-[68px] shrink-0 grow flex-col items-center gap-2.5 overflow-y-auto py-4 [scrollbar-width:none]"
+          >
+            {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c, i) => {
+              const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setOpenMap({ [c.id]: true });
+                    onExpand?.();
+                  }}
+                  aria-label={`Abrir ${c.name}`}
+                  className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
+                >
+                  {/* La ENTRADA en cascada vive en esta capa (con su demora escalonada); el
+                      hover-scale vive en el botón, sin demora — si compartieran capa, la
+                      demora de la cascada le pondría medio segundo de retraso al hover. */}
+                  <span
+                    style={{ transitionDelay: collapsed ? `${90 + i * 24}ms` : "0ms" }}
+                    className="block -translate-x-2 opacity-0 transition-[opacity,transform] duration-200 ease-out group-data-[viva]/fotos:translate-x-0 group-data-[viva]/fotos:opacity-100"
+                  >
+                    <span className={cn("block rounded-[11px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
+                      <ClientAvatar client={c} hex={clientHex(c)} className="size-10 rounded-[10px]" />
+                    </span>
+                  </span>
+                  <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
+                    {c.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
@@ -930,7 +953,7 @@ export function Sidebar({
         className={cn(
           "relative flex flex-col overflow-hidden bg-sidebar",
           collapsed ? "border-r-0" : "border-r border-sidebar-border",
-          dragging ? "" : "transition-[width] duration-300 ease-[cubic-bezier(.33,1,.68,1)]",
+          dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
         )}
         style={{ width: collapsed ? 0 : width }}
         aria-hidden={collapsed}

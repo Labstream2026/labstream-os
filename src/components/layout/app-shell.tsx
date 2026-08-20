@@ -13,7 +13,6 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { QuickCreateFab } from "@/components/quick-create/quick-create-fab";
 import type { ChatMe, ChatMsg } from "@/components/chat/channel-chat";
 import type { NotificationItem } from "@/components/layout/notifications-bell";
-import { saveUserPreference } from "@/app/(app)/perfil/preference-actions";
 import { ChatLiveProvider, useChatLive } from "@/components/layout/chat-live";
 import { IconChat } from "@/components/icons";
 
@@ -51,7 +50,6 @@ export function AppShell({
   reviewPending = 0,
   remindersToday = 0,
   notifications,
-  initialSidebarCollapsed = false,
   reduceMotion = false,
   children,
 }: {
@@ -93,14 +91,23 @@ export function AppShell({
   reduceMotion?: boolean;
   children: React.ReactNode;
 }) {
-  // Escritorio (preferencias recordadas EN BD → sincronizan entre dispositivos; el valor
-  // inicial llega del servidor, así que no hay parpadeo al cargar).
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(initialSidebarCollapsed);
   // Móvil (cajones, no se recuerdan).
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
 
   const pathname = usePathname();
+
+  // ── El RITMO de la barra ── Contraída por DEFECTO: la barra de fotos de clientes siempre
+  // visible. Se EXPANDE al tocar una foto (o el botón del topbar) y cada pestaña marca su
+  // regla al entrar: dentro de un PROYECTO o la ficha de un CLIENTE el panel se MANTIENE
+  // como esté (ahí se trabaja con él); al entrar a las demás (correo, recordatorios, notas,
+  // chat, wiki…) se contrae solo y queda la barra de fotos. Es un ritmo, no un ajuste: por
+  // eso ya no se persiste nada — el estado nace contraído en cada carga.
+  const esRutaDeTrabajo = pathname.startsWith("/proyectos/") || pathname.startsWith("/clientes/");
+  const [sidebarExpandido, setSidebarExpandido] = React.useState(false);
+  React.useEffect(() => {
+    if (!esRutaDeTrabajo) setSidebarExpandido(false);
+  }, [pathname, esRutaDeTrabajo]);
 
   const isChatPage = pathname === "/chat" || pathname.startsWith("/chat/");
   // El chat vive en BURBUJAS (+ la pestaña /chat): la barra derecha fija y el botón del
@@ -112,30 +119,6 @@ export function AppShell({
   // El panel de la burbuja y la hoja móvil son efímeros (no se persisten): nunca sorprenden abiertos.
   const [chatPanelOpen, setChatPanelOpen] = React.useState(false);
   const [mobileChatOpen, setMobileChatOpen] = React.useState(false);
-  // La WIKI trae su PROPIO menú lateral (el árbol de páginas), así que aquí manda el mismo
-  // modo enfoque que en el chat: el panel de «Producción/Clientes» se pliega solo para no
-  // tener dos menús compitiendo. /plantillas y /biblioteca cuentan como Wiki: comparten ese
-  // árbol y se llega a ellas desde sus Herramientas.
-  const isWikiPage =
-    pathname === "/wiki" ||
-    pathname.startsWith("/wiki/") ||
-    pathname === "/plantillas" ||
-    pathname.startsWith("/plantillas/") ||
-    pathname === "/biblioteca" ||
-    pathname.startsWith("/biblioteca/");
-
-  // El CORREO también enfoca: al abrirlo, el panel de clientes/proyectos se pliega solo para
-  // que la bandeja ocupe toda la pantalla — el correo trae su propio raíl de carpetas y dos
-  // menús laterales compitiendo es justo lo contrario de concentrarse.
-  const isCorreoPage = pathname === "/correo" || pathname.startsWith("/correo/");
-
-  // MODO ENFOQUE (/chat, /wiki y /correo): el panel de «Producción/Clientes» se retira por defecto
-  // para que la conversación —o el árbol de la wiki, o la bandeja— ocupe todo el ancho. El botón de
-  // colapsar de la barra lo trae de vuelta durante la sesión; al recargar vuelve a enfocarse. Fuera
-  // manda la preferencia normal (persistida).
-  const [chatFocus, setChatFocus] = React.useState(true);
-  const focusPage = isChatPage || isWikiPage || isCorreoPage;
-
   // Atajo ⌘K / Ctrl+K para abrir el buscador.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -148,32 +131,10 @@ export function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Al alternar, persiste en BD (best-effort) para que el estado siga al usuario entre el
-  // móvil y el escritorio. Antes solo se guardaba en localStorage de ese navegador.
-  const toggleSidebar = () => {
-    // En /chat y en la Wiki el botón de colapsar controla el MODO ENFOQUE (mostrar/ocultar el panel
-    // de clientes); no se persiste (cada entrada arranca enfocada). Fuera, la preferencia normal.
-    if (focusPage) {
-      setChatFocus((v) => !v);
-      return;
-    }
-    setSidebarCollapsed((v) => {
-      const next = !v;
-      void saveUserPreference({ sidebarCollapsed: next });
-      return next;
-    });
-  };
-
-  // Clic en una FOTO de cliente del raíl (panel contraído): el panel vuelve a abrirse — el
-  // cliente ya viene desplegado (eso lo hace el propio sidebar antes de llamar aquí).
-  const expandSidebar = React.useCallback(() => {
-    if (focusPage) {
-      setChatFocus(false);
-      return;
-    }
-    setSidebarCollapsed(false);
-    void saveUserPreference({ sidebarCollapsed: false });
-  }, [focusPage]);
+  // El botón del topbar alterna a mano (vale en cualquier pestaña); la foto de un cliente
+  // siempre EXPANDE (el cliente ya viene desplegado — eso lo hace el sidebar antes de llamar).
+  const toggleSidebar = () => setSidebarExpandido((v) => !v);
+  const expandSidebar = React.useCallback(() => setSidebarExpandido(true), []);
   // Cerrar cajones móviles y paneles flotantes al navegar entre páginas.
   React.useEffect(() => {
     setMobileMenuOpen(false);
@@ -197,7 +158,7 @@ export function AppShell({
     <div className={`flex h-[calc(100dvh-var(--pwa-nav-h,0px))] w-full overflow-hidden bg-background${reduceMotion ? " reduce-motion" : ""}`}>
       {/* Barra lateral de escritorio */}
       <div className="hidden md:flex">
-        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canRastreo={canRastreo} correoUnread={correoUnread} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={focusPage ? chatFocus : sidebarCollapsed} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} onExpand={expandSidebar} />
+        <Sidebar user={user} clients={clients} canAdmin={canAdmin} canQuotes={canQuotes} canComercial={canComercial} canAsistente={canAsistente} canWiki={canWiki} canBiblioteca={canBiblioteca} opsEnabled={opsEnabled} galeriaEnabled={galeriaEnabled} canCalendar={canCalendar} canTimeline={canTimeline} canReports={canReports} canRastreo={canRastreo} correoUnread={correoUnread} canClients={canClients} canPapelera={canPapelera} isCliente={isCliente} collapsed={!sidebarExpandido} chatUnread={chatUnread} reviewPending={reviewPending} remindersToday={remindersToday} onSearch={() => setSearchOpen(true)} onExpand={expandSidebar} />
       </div>
 
       {/* Cajón de menú (móvil) */}
