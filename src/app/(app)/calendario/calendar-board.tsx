@@ -84,6 +84,7 @@ export function CalendarBoard({
   timelineNode = null,
   shell = false,
   asideStats = false,
+  capasCompactas = false,
 }: {
   items: CalItem[];
   onCreate?: (fd: FormData) => Promise<void>;
@@ -101,6 +102,10 @@ export function CalendarBoard({
   // rejilla gana todo el alto (se ven más horas). En pantallas angostas se cae a la pila de
   // siempre — el panel no roba ancho donde no lo hay.
   asideStats?: boolean;
+  // Las capas como pastillas de un renglón en vez de cuatro tarjetas. Se pide donde el espacio
+  // vertical vale más que el número grande — la ficha de proyecto. El calendario del equipo
+  // conserva sus tarjetas: ahí los números son de verdad y la fila se gana su sitio.
+  capasCompactas?: boolean;
 }) {
   const [view, setView] = React.useState<EmbView>(defaultView);
   // Vista embebida: restaura la última elegida EN ESTA SUPERFICIE (clave por ruta: cada
@@ -552,8 +557,43 @@ export function CalendarBoard({
     </button>
   ) : null;
 
+  // ── Versión COMPACTA de las capas (solo donde se pide con `capasCompactas`) ──
+  // Cuatro tarjetas ocupan una fila entera para decir «0 · 1 · 0 · 0», y en un proyecto en
+  // planeación tres de ellas cantan un cero. Aquí son pastillas de un renglón y SOLO de los
+  // tipos que la pantalla tiene de verdad (o de los apagados, para poder devolverlos).
+  //
+  // Se va también la barrita relativa de la tarjeta: su ancho es `n / el más numeroso`, así que
+  // con una sola entrega del mes salía AL 100 %. Una barra llena se lee como «completo», no como
+  // «este es el que más tiene» — decía lo contrario de lo que pasaba.
+  const capasCompactasNode = items.length > 0 ? (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {KIND_LAYERS.map((L) => {
+        const on = !hiddenKinds.has(L.key);
+        const n = kindCounts[L.key] ?? 0;
+        if (n === 0 && on) return null;
+        return (
+          <button
+            key={L.key}
+            type="button"
+            onClick={() => toggleKind(L.key)}
+            title={on ? `Ocultar ${L.label.toLowerCase()}` : `Mostrar ${L.label.toLowerCase()}`}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+              on ? "border-border text-muted-foreground hover:bg-muted" : "border-dashed border-border text-muted-foreground/50 hover:text-muted-foreground",
+            )}
+          >
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: L.color, opacity: on ? 1 : 0.4 }} />
+            {L.short}
+            <span className="tabular-nums opacity-70">{n}</span>
+          </button>
+        );
+      })}
+      <span className="text-[10.5px] uppercase tracking-wide text-muted-foreground/60">{monthShort}</span>
+    </div>
+  ) : null;
+
   // Capas por tipo con contador del mes: cada tarjeta es también el interruptor de su capa.
-  const capasNode = (cols: string) => items.length > 0 ? (
+  const capasNode = (cols: string) => capasCompactas ? capasCompactasNode : items.length > 0 ? (
     <div className={cn("grid shrink-0 gap-2", cols)}>
       {KIND_LAYERS.map((L) => {
         const on = !hiddenKinds.has(L.key);

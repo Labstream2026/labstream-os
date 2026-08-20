@@ -35,7 +35,7 @@ export function ProjectCalendar({
           `pb-20`: los dos botones flotantes (chat y crear) se anclan abajo a la derecha y
           tapaban el final de la rejilla — justo donde caen viernes y sábado. */}
       <div className="min-h-0 flex-1 pb-20">
-        <CalendarBoard items={shown} onCreate={onCreate} projectId={projectId} team={team} asideStats />
+        <CalendarBoard items={shown} onCreate={onCreate} projectId={projectId} team={team} asideStats capasCompactas />
       </div>
     </div>
   );

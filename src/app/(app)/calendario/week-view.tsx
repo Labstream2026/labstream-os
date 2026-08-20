@@ -344,8 +344,18 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
 
   const hours = Array.from({ length: VISIBLE_HOURS }, (_, i) => i + START_HOUR);
 
+  // Sin NADA con hora en los días visibles, la rejilla no informa de nada y se comía la pantalla
+  // entera: en un proyecto en planeación eran ~600 px de cuadrícula vacía con un cartel flotando
+  // en medio. Aquí se pliega a una franja, que sigue siendo rejilla de verdad —se puede tocar
+  // para crear una cita y se desplaza— pero deja de reservar el alto de una jornada completa.
+  //
+  // La señal se reaprovecha del auto-desplazamiento: `timedStarts` ya calculaba exactamente esto.
+  // No se toca NI UNA constante de la aritmética (START_HOUR, VISIBLE_HOURS, minToTop): lo que
+  // cambia es cuánto alto pide el contenedor, y de eso el arrastre no depende.
+  const sinHoras = timedStarts.length === 0;
+
   return (
-    <div className="flex h-full flex-col">
+    <div className={cn("flex flex-col", !sinHoras && "h-full")}>
       {controlled ? null : (
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <h3 className="text-sm font-semibold first-letter:uppercase">{monthLabel}</h3>
@@ -361,7 +371,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           En móvil hace scroll HORIZONTAL: con 7 columnas + horas, por debajo de ~680px las
           columnas quedarían ilegibles, así que el ancho mínimo fuerza el scroll lateral y las
           tres rejillas (cabecera, todo-el-día y horas) se desplazan juntas y alineadas. */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
+      <div className={cn("relative flex flex-col overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card", !sinHoras && "min-h-0 flex-1")}>
         {/* Estado vacío (como el de Agenda): la rejilla sola no dice si «no hay nada» o «no
             cargó». Overlay sin capturar clics: crear tocando una franja sigue funcionando. */}
         {!parsed.some((p) => days.some((d) => evOnDay(p.start, d))) ? (
@@ -427,7 +437,7 @@ export function WeekView({ items, onSelect, canCreate = false, colorBy = "tipo",
           </div>
 
           {/* Rejilla de horas (scroll, llena el alto disponible) */}
-          <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", drag && "select-none")}>
+          <div ref={scrollRef} className={cn("overflow-y-auto", sinHoras ? "h-48" : "min-h-0 flex-1", drag && "select-none")}>
             <div ref={gridRef} className="relative grid" style={{ gridTemplateColumns: `${GUTTER}px repeat(${dayCount}, minmax(0,1fr))`, height: VISIBLE_HOURS * hourH }}>
               {/* Columna de horas */}
               <div className="relative">
