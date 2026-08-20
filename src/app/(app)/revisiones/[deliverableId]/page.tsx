@@ -16,7 +16,7 @@ import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
 import { DecisionSetFotos } from "./decision-set-fotos";
 import { PhotoGallery } from "@/app/review/[token]/photo-gallery";
-import { photoViewSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoLightboxSrc } from "@/lib/deliverable-photo";
 import type { StageComment } from "@/components/review/review-stage";
 import { EntityEmoji } from "@/components/icons/marks";
 
@@ -119,15 +119,16 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
     const fotosSet = visiblesSet.map((p) => ({
       id: p.id,
       filename: p.filename,
-      src: photoViewSrc(p),
+      src: photoThumbSrc(p),
+      srcXl: photoLightboxSrc(p),
       pick: p.pick,
       clientNote: p.clientNote,
       seccion: p.section,
       ar: p.width && p.height ? Math.min(2.8, Math.max(0.4, p.width / p.height)) : 1.5,
     }));
     const coverSet = deliverable.coverFileAssetId
-      ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
-      : (fotosSet[0]?.src ?? null);
+      ? photoLightboxSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
+      : (fotosSet[0]?.srcXl ?? null);
     const setAbierto = ["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"].includes(deliverable.status);
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">

@@ -2308,6 +2308,10 @@ model Deliverable {
   versions  DeliverableVersion[]
   // Fotos del entregable cuando type = FOTOGRAFIA (galería de selección del cliente).
   photos    DeliverablePhoto[]
+  // Carpeta de Operaciones_LAB donde VIVEN las fotos de este set (relativa a NAS_OPS_DIR).
+  // Con carpeta: las subidas caen al disco (sección = subcarpeta) y se puede importar lo que
+  // ya esté allí; el servidor solo guarda miniaturas en su caché interna, nunca en la share.
+  photosOpsFolder String?
   tasks     Task[]
   reviewComments ReviewComment[]
   decisions DeliverableDecision[]

@@ -6,7 +6,8 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
-import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { opsEnabled } from "@/lib/nas-ops";
 import { isEmailEnabled } from "@/lib/email";
 import { toWhatsappNumber } from "@/lib/whatsapp/send";
 import { textoWhatsapp } from "@/lib/review-share";
@@ -39,10 +40,12 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
           id: true, name: true, emoji: true, isPrivate: true, leadId: true,
           members: { select: { userId: true, role: true } },
           archivedAt: true, finishedAt: true,
+          // La carpeta del PROYECTO en el disco: punto de partida sugerido del selector del set.
+          opsFolder: true,
           client: { select: { name: true, phone: true } },
         },
       },
-      photos: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
+      photos: { orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { fileAsset: { select: { kind: true } } } },
     },
   });
   if (!set || set.type !== "FOTOGRAFIA" || set.projectId !== projectId) notFound();
@@ -57,7 +60,7 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
   const fotos: FotoStudio[] = set.photos.map((p) => ({
     id: p.id,
     filename: p.filename,
-    src: photoViewSrc(p),
+    src: photoThumbSrc(p),
     fullSrc: photoDownloadSrc(p),
     seccion: p.section,
     // Proporción para la cuadrícula justificada; sin dimensiones (fotos viejas o de Drive), 3:2.
@@ -66,6 +69,8 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
     pick: p.pick,
     note: p.clientNote,
     esPortada: !!p.fileAssetId && p.fileAssetId === set.coverFileAssetId,
+    // OPS: el original vive en Operaciones_LAB — borrarla del set no toca el disco.
+    esOps: p.fileAsset?.kind === "OPS",
   }));
   const nextPos = (set.photos.at(-1)?.position ?? -1) + 1;
 
@@ -117,6 +122,9 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
         reviewUrl={reviewUrl}
         emailEnabled={await isEmailEnabled()}
         wa={wa}
+        opsHabilitado={opsEnabled()}
+        carpetaOps={set.photosOpsFolder}
+        carpetaInicio={set.project.opsFolder}
       />
     </div>
   );

@@ -3,8 +3,9 @@ import sharp from "sharp";
 import { db } from "@/lib/db";
 import { getSession, hasPermission } from "@/lib/auth";
 import { canWriteProject } from "@/lib/project-access";
-import { mimeFor } from "@/lib/storage";
-import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
+import { mimeFor, writeRelBuffer } from "@/lib/storage";
+import { saveBufferWithPreview, isOptimizableImage, optimizeToWebp } from "@/lib/image";
+import { createOpsFolder, opsReady, opsThumb, writeOps } from "@/lib/nas-ops";
 import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deliverabl
 
   const deliverable = await db.deliverable.findUnique({
     where: { id: deliverableId },
-    select: { id: true, name: true, type: true, projectId: true, project: { select: accessSelect } },
+    select: { id: true, name: true, type: true, projectId: true, photosOpsFolder: true, project: { select: accessSelect } },
   });
   if (!deliverable || deliverable.type !== "FOTOGRAFIA") return NextResponse.json({ error: "Set no encontrado" }, { status: 404 });
   // Proyecto dormido (papelera/terminado) o sin escritura: mismas puertas que las server actions.
@@ -79,11 +80,40 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deliverabl
     /* sin dimensiones la galería usa una proporción de respaldo */
   }
 
-  const asset = await db.fileAsset.create({
-    data: { projectId: deliverable.projectId, name: file.name, kind: "LOCAL", path: "", mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id },
-  });
-  const rel = await saveBufferWithPreview(`project/${deliverable.projectId}/fotos`, `${asset.id}-${file.name}`, buf, file.type);
-  await db.fileAsset.update({ where: { id: asset.id }, data: { path: rel } });
+  // ── Dónde VIVE el original ──
+  // Set con carpeta de Operaciones_LAB: el original cae AL DISCO (sección = subcarpeta, así la
+  // share queda organizada igual que la galería) y el registro es kind OPS. El servidor solo
+  // guarda miniaturas en su caché interna — a la share no se le escribe nada auxiliar.
+  // Sin carpeta: al disco de la app, como siempre.
+  let asset: { id: string };
+  if (deliverable.photosOpsFolder) {
+    if (!(await opsReady())) {
+      return NextResponse.json({ error: "El disco Operaciones_LAB no responde. Las fotos de este set viven allá: revisa el montaje y vuelve a intentar." }, { status: 503 });
+    }
+    let destDir = deliverable.photosOpsFolder;
+    if (section) destDir = await createOpsFolder(deliverable.photosOpsFolder, section); // idempotente (EEXIST se traga)
+    const rel = await writeOps(destDir, file.name, buf);
+    asset = await db.fileAsset.create({
+      data: { projectId: deliverable.projectId, name: file.name, kind: "OPS", path: rel, mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id },
+      select: { id: true },
+    });
+    // Calienta las DOS miniaturas (cuadrícula 480 y visor 1600) ya mismo: si no, el primer
+    // cliente en abrir la galería paga la fabricación de todas. Mejor esfuerzo, sin bloquear.
+    void opsThumb(rel, 480).catch(() => {});
+    void opsThumb(rel, 1600).catch(() => {});
+  } else {
+    const creado = await db.fileAsset.create({
+      data: { projectId: deliverable.projectId, name: file.name, kind: "LOCAL", path: "", mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id },
+      select: { id: true },
+    });
+    const rel = await saveBufferWithPreview(`project/${deliverable.projectId}/fotos`, `${creado.id}-${file.name}`, buf, file.type);
+    await db.fileAsset.update({ where: { id: creado.id }, data: { path: rel } });
+    // La mini de 480 para la cuadrícula, fabricada del buffer que ya está en la mano.
+    void optimizeToWebp(buf, { maxEdge: 480 })
+      .then((mini) => (mini ? writeRelBuffer(`thumbs-local/${creado.id}.webp`, mini) : null))
+      .catch(() => {});
+    asset = creado;
+  }
   const photo = await db.deliverablePhoto.create({
     data: { deliverableId, fileAssetId: asset.id, filename: file.name, position, section, width, height },
     select: { id: true },

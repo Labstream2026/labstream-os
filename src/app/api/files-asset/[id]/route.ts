@@ -68,7 +68,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   // Modo MINIATURA (?thumb=1): lo pide la cuadrícula de Archivos para pintar decenas de
   // celdas. No es una apertura del archivo → no se audita (sin esto, mirar la pestaña
   // escribía una línea de actividad por celda), y se permite caché privada del navegador.
-  const isThumb = !!url.searchParams.get("thumb");
+  // `?thumb=xl` es el mismo trato a 1600 px: la VISTA del visor de fotos — ver una foto en
+  // grande tampoco es descargarla, y sin esto la galería auditaba una «descarga» por foto.
+  const thumbParam = url.searchParams.get("thumb");
+  const isThumb = !!thumbParam;
+  const thumbEdge = thumbParam === "xl" ? 1600 : 480;
 
   // Modo PÓSTER (?poster=1): el FOTOGRAMA de un video, servido como imagen. Es un parámetro
   // aparte de ?thumb porque para video la rama inline NUNCA puede devolver una imagen (el
@@ -137,7 +141,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const opsIsVideo = opsType.startsWith("video/") || VIDEO_EXT.test(file.name);
     if (wantInline && !opsIsVideo) {
       try {
-        const webp = await opsThumb(file.path, isThumb ? 480 : 1600);
+        const webp = await opsThumb(file.path, isThumb ? thumbEdge : 1600);
         if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
         /* sin miniatura → sigue con el original */
@@ -160,7 +164,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const galIsVideo = galeriaKind(file.name) === "video";
     if (wantInline && !galIsVideo) {
       try {
-        const webp = await galeriaThumb(file.path, 1600);
+        const webp = await galeriaThumb(file.path, isThumb ? thumbEdge : 1600);
         if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
         /* sin miniatura → sigue con el original */
@@ -429,6 +433,32 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   // Previsualización inline: derivado WebP si existe. NUNCA para video (serviría una imagen en
   // vez del video y el <video> no reproduciría). Se sirve completo (las miniaturas son pequeñas).
   if (wantInline && !isVideo) {
+    // MINIATURA pequeña (?thumb=1, 480) también para los archivos LOCALES: la cuadrícula de la
+    // galería de fotos pinta decenas de celdas y el derivado de siempre pesa como una foto de
+    // 1920 — el cliente cargaba megas para ver postales. Se fabrica UNA vez desde ese derivado
+    // (más barato que el original) y queda en la caché interna; el archivo local es inmutable
+    // (su ruta lleva el id), así que la clave no necesita mtime.
+    if (isThumb && thumbEdge === 480 && file.path) {
+      const rutaLocal = file.path;
+      const miniRel = `thumbs-local/${id}.webp`;
+      try {
+        return respuestaWebp(await fs.readFile(absPath(miniRel)), file.name, req, true);
+      } catch {
+        /* aún no está fabricada */
+      }
+      try {
+        const fuente = await fs.readFile(absPath(previewRel(rutaLocal))).catch(() => fs.readFile(absPath(rutaLocal)));
+        const { optimizeToWebp } = await import("@/lib/image");
+        const mini = await optimizeToWebp(fuente, { maxEdge: 480 });
+        if (mini) {
+          const { writeRelBuffer } = await import("@/lib/storage");
+          await writeRelBuffer(miniRel, mini).catch(() => {});
+          return respuestaWebp(mini, file.name, req, true);
+        }
+      } catch {
+        /* sin miniatura → cae al derivado normal de abajo */
+      }
+    }
     try {
       const webp = await fs.readFile(absPath(previewRel(file.path)));
       return respuestaWebp(webp, file.name, req, isThumb);

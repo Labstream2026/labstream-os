@@ -16,7 +16,7 @@ import { ahoraMs, type ArchivoItem } from "@/lib/archivos/tipos";
 import { diasQueQuedan } from "@/lib/archivos/papelera";
 import { docPresenceFor } from "@/lib/doc-collab";
 import { opsEnabled, listOps, statOps } from "@/lib/nas-ops";
-import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { photoViewSrc, photoThumbSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { ProjectSettings } from "@/components/project-settings";
 import { ProjectLifecycleBanner } from "./lifecycle-banner";
@@ -645,7 +645,8 @@ export default async function ProyectoPage({
         photos: d.photos.map((p) => ({
           id: p.id,
           filename: p.filename,
-          src: photoViewSrc(p),
+          // Miniatura de verdad (~480): estos src pintan mosaicos de 6 celdas chicas.
+          src: photoThumbSrc(p),
           downloadSrc: photoDownloadSrc(p),
           pick: p.pick,
           clientNote: p.clientNote,

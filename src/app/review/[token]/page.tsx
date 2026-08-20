@@ -7,7 +7,7 @@ import { resolveReviewToken, signReviewToken } from "@/lib/review-token";
 import { isEmailEnabled } from "@/lib/email";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
-import { photoViewSrc } from "@/lib/deliverable-photo";
+import { photoViewSrc, photoThumbSrc, photoLightboxSrc } from "@/lib/deliverable-photo";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
@@ -198,7 +198,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   const photos = deliverable.photos.map((p) => ({
     id: p.id,
     filename: p.filename,
-    src: photoViewSrc(p),
+    // Miniatura ~480 para la cuadrícula y vista ~1600 para el visor: el cliente no carga megas
+    // para ojear, y mirar fotos no escribe «descargas» en la actividad.
+    src: photoThumbSrc(p),
+    srcXl: photoLightboxSrc(p),
     pick: p.pick,
     clientNote: p.clientNote,
     seccion: p.section,
@@ -209,8 +212,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
   // Héroe de la galería: la portada elegida en el estudio o, si no hay, la primera foto.
   const fotosCover = isPhoto
     ? deliverable.coverFileAssetId
-      ? photoViewSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
-      : (photos[0]?.src ?? null)
+      ? photoLightboxSrc({ fileAssetId: deliverable.coverFileAssetId, url: null })
+      : (photos[0]?.srcXl ?? null)
     : null;
   // La PORTADA es propia de los reels (vertical): la aprueba el cliente. En videos horizontales no aplica.
   const isReel = deliverableOrientation(deliverable.type) === "vertical";

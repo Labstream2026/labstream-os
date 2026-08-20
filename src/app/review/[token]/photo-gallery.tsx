@@ -19,7 +19,10 @@ import { setPhotoPick } from "./actions";
 export type GalleryPhoto = {
   id: string;
   filename: string;
+  // MINIATURA (~480 px) para la cuadrícula y la tira: el cliente no debe cargar megas para ver
+  // postales. La VISTA (~1600 px) es solo para el visor. Ninguna audita como descarga.
   src: string;
+  srcXl: string;
   pick: string; // PENDIENTE | ME_GUSTA | NO_ME_GUSTA
   clientNote: string | null;
   seccion: string | null;
@@ -383,7 +386,7 @@ function Visor({
     filmRef.current?.querySelector(`[data-id="${foto.id}"]`)?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
     for (const d of [1, -1]) {
       const vecino = lista[(idx + d + lista.length) % lista.length];
-      if (vecino) new Image().src = vecino.src;
+      if (vecino) new Image().src = vecino.srcXl;
     }
   }, [foto.id, idx, lista]);
 
@@ -428,7 +431,7 @@ function Visor({
           <ChevronLeft className="size-5" />
         </button>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={foto.id} src={foto.src} alt={foto.filename} className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl" />
+        <img key={foto.id} src={foto.srcXl} alt={foto.filename} className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl" />
         <button
           type="button"
           onClick={() => onNavegar(1)}

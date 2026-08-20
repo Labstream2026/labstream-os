@@ -3,14 +3,15 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Check, Copy, ExternalLink, FolderUp, Heart, Image as ImageIcon, Loader2, MessageSquare,
+  Check, Copy, ExternalLink, FolderDown, FolderUp, HardDrive, Heart, Image as ImageIcon, Loader2, MessageSquare,
   MoreHorizontal, RefreshCw, Send, ShieldCheck, Star, Trash2, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmailReviewButton } from "../../email-review-button";
 import { BotonWa } from "@/app/(app)/revisiones/boton-wa";
+import { SetOpsPicker } from "./set-ops-picker";
 import {
-  borrarFotoSet, enviarSetAlCliente, enviarSetARevision,
+  borrarFotoSet, enviarSetAlCliente, enviarSetARevision, importarCarpetaOps,
   fijarSeccionFoto, hacerPortadaSet, toggleFotoExcluida, type ResultadoSet,
 } from "./set-actions";
 
@@ -30,6 +31,8 @@ export type FotoStudio = {
   pick: string; // PENDIENTE | ME_GUSTA | NO_ME_GUSTA
   note: string | null;
   esPortada: boolean;
+  // El original vive en Operaciones_LAB: quitarla del set NO toca el disco.
+  esOps: boolean;
 };
 
 type Subida = {
@@ -126,6 +129,9 @@ export function SetStudio({
   reviewUrl,
   emailEnabled,
   wa,
+  opsHabilitado,
+  carpetaOps,
+  carpetaInicio,
 }: {
   setId: string;
   fotos: FotoStudio[];
@@ -141,6 +147,11 @@ export function SetStudio({
   reviewUrl: string;
   emailEnabled: boolean;
   wa: { href: string; phone: string } | null;
+  // Operaciones_LAB: si el servidor lo tiene montado, dónde viven las fotos del set y desde
+  // dónde arrancar el selector (la carpeta del proyecto en el disco).
+  opsHabilitado: boolean;
+  carpetaOps: string | null;
+  carpetaInicio: string | null;
 }) {
   const router = useRouter();
 
@@ -203,7 +214,18 @@ export function SetStudio({
         setAviso={setAviso}
       />
 
-      {canUpload ? <SubidaCarpeta setId={setId} nextPos={nextPos} onListo={() => router.refresh()} /> : null}
+      {opsHabilitado ? (
+        <DiscoDelSet
+          setId={setId}
+          carpeta={carpetaOps}
+          inicio={carpetaInicio}
+          canManage={canManage}
+          canUpload={canUpload}
+          setAviso={setAviso}
+        />
+      ) : null}
+
+      {canUpload ? <SubidaCarpeta setId={setId} nextPos={nextPos} enDisco={!!carpetaOps} onListo={() => router.refresh()} /> : null}
 
       {/* ── Toolbar: contador de curaduría + filtros ── */}
       <div className="flex flex-wrap items-center gap-2">
@@ -281,11 +303,95 @@ export function SetStudio({
   );
 }
 
+// ── La carpeta del set en Operaciones_LAB ──
+// El vínculo con el disco: dónde VIVEN los originales. Con carpeta, las subidas caen allá
+// (sección = subcarpeta) y se puede traer lo que la carpeta ya tenga; el cliente solo recibe
+// las miniaturas que fabrica el servidor — el original ni viaja ni se toca.
+function DiscoDelSet({
+  setId,
+  carpeta,
+  inicio,
+  canManage,
+  canUpload,
+  setAviso,
+}: {
+  setId: string;
+  carpeta: string | null;
+  inicio: string | null;
+  canManage: boolean;
+  canUpload: boolean;
+  setAviso: (a: { ok: boolean; text: string } | null) => void;
+}) {
+  const router = useRouter();
+  const [picker, setPicker] = React.useState(false);
+  const [pendiente, start] = React.useTransition();
+
+  function importar() {
+    setAviso(null);
+    start(async () => {
+      const r = await importarCarpetaOps(setId);
+      setAviso({ ok: r.ok, text: r.message ?? (r.ok ? "Listo." : "No se pudo importar.") });
+      if (r.ok) router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
+      <HardDrive className="size-4 shrink-0 text-muted-foreground" />
+      {carpeta ? (
+        <>
+          <span className="min-w-0 truncate text-xs">
+            Las fotos viven en <b className="font-semibold">Operaciones_LAB / {carpeta}</b>
+          </span>
+          <span className="ml-auto" />
+          {canUpload ? (
+            <button
+              type="button"
+              disabled={pendiente}
+              onClick={importar}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+              title="Trae al set las fotos que ya están en la carpeta (subcarpetas = secciones). No duplica."
+            >
+              {pendiente ? <Loader2 className="size-3.5 animate-spin" /> : <FolderDown className="size-3.5" />} Importar las que ya están
+            </button>
+          ) : null}
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => setPicker(true)}
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Cambiar…
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <span className="text-xs text-muted-foreground">
+            Las fotos van al disco de la app. Si prefieres que vivan en el disco del estudio, elige su carpeta.
+          </span>
+          <span className="ml-auto" />
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => setPicker(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"
+            >
+              <HardDrive className="size-3.5" /> Guardarlas en Operaciones_LAB…
+            </button>
+          ) : null}
+        </>
+      )}
+      {picker ? <SetOpsPicker setId={setId} actual={carpeta} inicio={inicio} onClose={() => setPicker(false)} /> : null}
+    </div>
+  );
+}
+
 // ── Subir la carpeta completa ──
 // El motor de la cola vive FUERA de los efectos (regla del repo: nada de setState en el cuerpo
 // de un efecto): `bombear()` arranca subidas desde los manejadores de eventos y desde las
 // continuaciones del XHR. El estado de React solo PINTA lo que el motor va haciendo.
-function SubidaCarpeta({ setId, nextPos, onListo }: { setId: string; nextPos: number; onListo: () => void }) {
+function SubidaCarpeta({ setId, nextPos, enDisco, onListo }: { setId: string; nextPos: number; enDisco: boolean; onListo: () => void }) {
   const [cola, setCola] = React.useState<Subida[]>([]);
   const [arrastrando, setArrastrando] = React.useState(false);
   const [omitidas, setOmitidas] = React.useState(0);
@@ -395,7 +501,10 @@ function SubidaCarpeta({ setId, nextPos, onListo }: { setId: string; nextPos: nu
         <FolderUp className="mx-auto size-8 text-primary" />
         <p className="mt-2 text-sm font-semibold">Suelta aquí la carpeta de la sesión</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Las subcarpetas se vuelven secciones de la galería, solas. También puedes{" "}
+          {enDisco
+            ? "Los originales caen en tu carpeta de Operaciones_LAB (cada sección, en su subcarpeta) y el cliente solo carga miniaturas ligeras. "
+            : "Las subcarpetas se vuelven secciones de la galería, solas. "}
+          También puedes{" "}
           <button
             type="button"
             className="underline underline-offset-2 hover:text-foreground"
@@ -593,7 +702,10 @@ function TarjetaCuraduria({
                 type="button"
                 onClick={(e) => {
                   e.currentTarget.closest("details")?.removeAttribute("open");
-                  if (!window.confirm(`¿Borrar «${foto.filename}» del set? Esto también borra el archivo.`)) return;
+                  const msg = foto.esOps
+                    ? `¿Quitar «${foto.filename}» del set? El archivo seguirá intacto en Operaciones_LAB.`
+                    : `¿Borrar «${foto.filename}» del set? Esto también borra el archivo.`;
+                  if (!window.confirm(msg)) return;
                   correr(() => borrarFotoSet(foto.id));
                 }}
                 className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
