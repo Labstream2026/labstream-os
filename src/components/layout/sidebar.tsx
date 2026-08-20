@@ -351,7 +351,6 @@ export function Sidebar({
 
   const pinnedClients = clients.filter((c) => pins.c.includes(c.id));
   const pinnedProjects = clients.flatMap((c) => c.projects.filter((p) => pins.p.includes(p.id)).map((p) => ({ p, c })));
-  const hayAnclados = pinnedClients.length > 0 || pinnedProjects.length > 0;
 
   // ── Piezas reutilizables (panel y cajón móvil) ──
 
@@ -393,26 +392,55 @@ export function Sidebar({
   // Bloque de un cliente: fila con avatar CUADRADO (esquinas suaves) + nombre SIEMPRE
   // legible; el clic la expande AHÍ MISMO con los proyectos colgando de un hilo del color
   // del cliente. Uno abierto a la vez (acordeón); la ficha vive al final del despliegue.
+  //
+  // ES LA MISMA FILA en los dos estados de la barra. Con la barra recogida no se cambia de
+  // lista ni de columna: se recorta a 68 px y lo que queda a la vista es EXACTAMENTE la foto,
+  // en su sitio y de su tamaño. Al desplegar solo se despliega el NOMBRE. Por eso la foto no
+  // salta, no cambia de talla y no se cruza en un fundido con otra copia de sí misma.
   const clientBlock = (c: SidebarClient) => {
     const hex = clientHex(c);
-    const open = isClientOpen(c);
+    // Recogida, la lista es SOLO fotos: un desplegable abierto ahí dentro pintaría un hilo de
+    // color y un hueco sin nada, y de paso empujaría hacia abajo las fotos siguientes.
+    const open = !collapsed && isClientOpen(c);
     // Anillo = aquí vives ahora: la ficha del cliente abierta, o un proyecto suyo activo.
     const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
     const pinned = pins.c.includes(c.id);
     const vivos = c.projects.filter((p) => !p.finished);
     return (
       <div key={c.id} className={cn("rounded-xl transition-colors duration-200", open && "bg-sidebar-accent/30")}>
-        <div className="group/cli relative flex items-center gap-1 rounded-xl pl-1 pr-1">
+        {/* pl-1.5 (6) + los 8 del scroll = 14: es lo que deja la foto de 40 px CENTRADA en los
+            68 de la barra recogida, y su centro (34) en el mismo eje que la lupa de arriba. */}
+        <div className="group/cli relative flex items-center gap-1 rounded-xl pl-1.5 pr-1">
           <button
             type="button"
-            onClick={() => setOpenMap({ [c.id]: !open })} /* acordeón: abrir uno recoge los demás */
+            onClick={() => {
+              // Recogida, la foto es el atajo del reposo: abre el panel CON ese cliente
+              // desplegado. Desplegada, es el acordeón de siempre (abrir uno recoge los demás).
+              if (collapsed) { setOpenMap({ [c.id]: true }); onExpand?.(); return; }
+              setOpenMap({ [c.id]: !open });
+            }}
             aria-expanded={open}
+            /* Recogida no se lee el nombre: el globo del navegador es el que lo dice. El globo
+               propio que llevaba la tira de fotos NUNCA se veía —nacía fuera del recorte de la
+               columna, que es `overflow-hidden`—, así que aquí va uno que sí funciona. */
+            title={collapsed ? c.name : undefined}
             className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-1.5 text-left"
           >
-            <span className={cn("relative shrink-0 rounded-[10px] transition-transform duration-200", !open && "group-hover/cli:scale-105", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
-              <ClientAvatar client={c} hex={hex} />
+            <span
+              className={cn(
+                "relative shrink-0 rounded-[11px] transition-transform duration-200",
+                collapsed ? "hover:scale-110" : !open && "group-hover/cli:scale-105",
+                resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar",
+              )}
+            >
+              <ClientAvatar client={c} hex={hex} className="size-10 rounded-[10px]" />
             </span>
-            <span className="min-w-0 flex-1">
+            {/* Lo ÚNICO que se despliega. Entra a los 140 ms, cuando ya hay sitio; recogida se
+                apaga (además de quedar fuera del recorte) para que no asome media letra. */}
+            <span
+              style={{ transitionDelay: collapsed ? "0ms" : "140ms" }}
+              className={cn("min-w-0 flex-1 transition-opacity duration-200", collapsed && "opacity-0")}
+            >
               <span className={cn("block truncate text-[13px] tracking-[0.005em] text-sidebar-foreground", open ? "font-bold" : "font-semibold")}>
                 {c.name}
               </span>
@@ -423,8 +451,8 @@ export function Sidebar({
               ) : null}
             </span>
           </button>
-          {!open ? <span className="px-1.5 text-xs tabular-nums text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span> : null}
-          <span className="mr-1 hidden shrink-0 items-center gap-0.5 group-hover/cli:flex">
+          {!collapsed && !open ? <span className="px-1.5 text-xs tabular-nums text-sidebar-muted group-hover/cli:hidden">{c.projectCount}</span> : null}
+          <span className={cn("mr-1 hidden shrink-0 items-center gap-0.5", !collapsed && "group-hover/cli:flex")}>
             <button
               type="button"
               onClick={() => togglePinClient(c.id)}
@@ -499,36 +527,45 @@ export function Sidebar({
     </div>
   );
 
-  // Contenido de PRODUCCIÓN (anclados ⭐ + clientes) — corazón del panel.
+  // Contenido de PRODUCCIÓN (proyectos anclados ⭐ + clientes) — corazón del panel.
   const produccion = (
     <>
       {canClients ? (
         <>
-          {hayAnclados ? (
-            <div className="animate-in fade-in duration-200">
-              {secHeader(<><Star className="size-3 fill-amber-400 text-amber-400" /> Anclados</>)}
-              {pinnedClients.map(clientBlock)}
-              {pinnedProjects.map(({ p, c }) => projectRow(p, c, clientHex(c), { indent: true }))}
+          {/* Los PROYECTOS anclados se despliegan CON la barra (0fr→1fr, como el acordeón de un
+              cliente): recogida no ocupan alto, porque ahí la lista es solo fotos y un proyecto
+              suelto no tiene foto que enseñar — y si ocuparan, empujarían todas las fotos.
+              Los CLIENTES anclados ya no tienen sección propia: ⭐ los sube al principio de la
+              única lista. Antes salían DOS veces con el panel abierto (en Anclados y en la
+              lista) y una sola con la barra recogida: dos listas distintas para lo mismo, que es
+              justo lo que impedía que la foto se quedara quieta. */}
+          {pinnedProjects.length ? (
+            <div
+              data-abierto={!collapsed || undefined}
+              className="grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out data-[abierto]:grid-rows-[1fr]"
+            >
+              <div className="min-h-0 overflow-hidden">
+                {secHeader(<><Star className="size-3 fill-amber-400 text-amber-400" /> Anclados</>)}
+                {pinnedProjects.map(({ p, c }) => projectRow(p, c, clientHex(c), { indent: true }))}
+                <div className="mx-2 my-2 h-px bg-sidebar-border" />
+              </div>
             </div>
           ) : null}
 
-          {/* El rótulo «Clientes» del ESCRITORIO vive ahora en la fila del buscador, que es la
-              que viaja con la barra; aquí solo queda una línea que separe los anclados del
-              resto. El CAJÓN móvil no tiene esa fila (una sola columna, sin contraer), así que
-              conserva su cabecera con la cuenta y el atajo de «nuevo cliente». */}
-          {drawer ? (
-            secHeader(
-              <Link href="/clientes" onClick={onNavigate} className="hover:text-sidebar-foreground">Clientes · {clients.length}</Link>,
-              <Link href="/clientes/nuevo" onClick={onNavigate} aria-label="Nuevo cliente" title="Nuevo cliente" className="text-sidebar-muted transition-colors hover:text-sidebar-foreground">
-                <Plus className="size-3.5" />
-              </Link>,
-            )
-          ) : hayAnclados ? (
-            <div className="mx-2 my-2 h-px bg-sidebar-border" />
-          ) : null}
-          {clients.map(clientBlock)}
+          {/* El rótulo «Clientes» del ESCRITORIO vive en la fila del buscador. El CAJÓN móvil no
+              tiene esa fila (una sola columna, sin contraer), así que conserva su cabecera con
+              la cuenta y el atajo de «nuevo cliente». */}
+          {drawer
+            ? secHeader(
+                <Link href="/clientes" onClick={onNavigate} className="hover:text-sidebar-foreground">Clientes · {clients.length}</Link>,
+                <Link href="/clientes/nuevo" onClick={onNavigate} aria-label="Nuevo cliente" title="Nuevo cliente" className="text-sidebar-muted transition-colors hover:text-sidebar-foreground">
+                  <Plus className="size-3.5" />
+                </Link>,
+              )
+            : null}
+          {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map(clientBlock)}
         </>
-      ) : canTimeline ? (
+      ) : canTimeline && !collapsed ? (
         <Link
           href="/proyectos"
           onClick={onNavigate}
@@ -891,88 +928,27 @@ export function Sidebar({
         </form>
       </div>
 
-      {/* ── LA COLUMNA QUE RESPIRA ── La tira de fotos y el panel son dos capas del MISMO
-          movimiento (68↔0 y 0↔ancho, misma curva), y por encima de las dos viaja una sola
-          fila de buscador. Van juntas bajo este contenedor `relative` para que esa fila
-          pueda medirse contra ellas sin saber nada del raíl. ── */}
+      {/* ── LA COLUMNA QUE RESPIRA ── Una sola columna para los dos estados. NO hay una tira de
+          fotos y un panel que se releven: hay UNA lista de clientes, siempre la misma y en el
+          mismo sitio, y lo que cambia es cuánto de ella se ve — 68 px (solo la foto) o el ancho
+          entero (foto + nombre + sus proyectos). Por eso la foto no salta ni cambia de talla al
+          abrir: nunca se fue a ningún lado.
+          `relative` para que la fila del buscador, superpuesta, pueda medirse contra ella. ── */}
       <div className="relative flex shrink-0">
-        {/* ── BARRA DE CLIENTES: una columna PROPIA al lado del raíl, solo fotos — grandes,
-            cuadradas con esquinas suaves. Es la cara de REPOSO del sidebar: al recoger el
-            panel los clientes nunca se van; clic en una foto = el panel vuelve CON ese
-            cliente desplegado. SIEMPRE montada y el ANCHO transiciona (68↔0) con la MISMA
-            curva del panel: contraer y expandir es un solo movimiento continuo, nada aparece
-            de golpe. Las fotos entran en cascada al quedar visible la barra.
-            Se monta AUNQUE no haya clientes (o no se puedan ver): contraída, esta tira es el
-            sitio de la lupa, y sin ella la barra recogida se quedaría sin buscador. ── */}
-        <div
-          aria-hidden={!collapsed}
-          style={{ width: collapsed ? W_TIRA : 0 }}
-          className={cn(
-            "relative z-10 flex shrink-0 flex-col overflow-hidden bg-sidebar",
-            dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
-            collapsed ? "border-r border-sidebar-border" : "border-r-0",
-          )}
-        >
-          {/* El relleno de arriba es el hueco de la fila del buscador, que va superpuesta: las
-              fotos empiezan justo debajo de la lupa y pasan POR DEBAJO de ella al desplazarse. */}
-          <div
-            data-viva={collapsed || undefined}
-            inert={!collapsed || undefined}
-            style={{ width: W_TIRA, paddingTop: H_FILA }}
-            className="group/fotos flex shrink-0 grow flex-col items-center gap-2.5 overflow-y-auto pb-4 [scrollbar-width:none]"
-          >
-            {[...pinnedClients, ...clients.filter((c) => !pins.c.includes(c.id))].map((c, i) => {
-              const resaltado = pathname === `/clientes/${c.id}` || c.projects.some((p) => p.id === activeProjectId);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setOpenMap({ [c.id]: true });
-                    onExpand?.();
-                  }}
-                  aria-label={`Abrir ${c.name}`}
-                  className="group relative shrink-0 transition-transform duration-150 hover:scale-110"
-                >
-                  {/* La ENTRADA en cascada vive en esta capa (con su demora escalonada); el
-                      hover-scale vive en el botón, sin demora — si compartieran capa, la
-                      demora de la cascada le pondría medio segundo de retraso al hover. */}
-                  <span
-                    style={{ transitionDelay: collapsed ? `${90 + i * 24}ms` : "0ms" }}
-                    className="block -translate-x-2 opacity-0 transition-[opacity,transform] duration-200 ease-out group-data-[viva]/fotos:translate-x-0 group-data-[viva]/fotos:opacity-100"
-                  >
-                    <span className={cn("block rounded-[11px]", resaltado && "ring-2 ring-primary ring-offset-2 ring-offset-sidebar")}>
-                      <ClientAvatar client={c} hex={clientHex(c)} className="size-10 rounded-[10px]" />
-                    </span>
-                  </span>
-                  <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100">
-                    {c.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* PANEL de Producción (colapsable desde el topbar; redimensionable arrastrando). En Modo
-            Enfoque (/chat) NO se desmonta: el ANCHO transiciona a 0 con una curva suave y el
-            contenido —de ancho FIJO— se clipa con overflow-hidden, para que el panel se RETIRE (y
-            vuelva a entrar) de forma FLUIDA sin reacomodar el texto durante la animación. */}
+        {/* El contenido es de ancho FIJO y el contenedor lo RECORTA: así nada se reacomoda
+            mientras se abre o se cierra — el texto no se reflowea, solo entra en cuadro. La
+            curva y la duración son las mismas de la fila del buscador de arriba. */}
         <div
           className={cn(
-            "relative flex flex-col overflow-hidden bg-sidebar",
-            collapsed ? "border-r-0" : "border-r border-sidebar-border",
+            "relative flex flex-col overflow-hidden border-r border-sidebar-border bg-sidebar",
             dragging ? "" : "transition-[width] duration-[340ms] ease-[cubic-bezier(.22,1,.36,1)]",
           )}
-          style={{ width: collapsed ? 0 : width }}
-          aria-hidden={collapsed}
+          style={{ width: collapsed ? W_TIRA : width }}
         >
-          {/* Contenido de ancho FIJO (no se reacomoda mientras el contenedor se cierra/abre). Al estar
-              retraído se marca `inert`: sigue en el DOM para la animación, pero no recibe foco ni clics.
-              El relleno de arriba es el hueco de la fila del buscador (superpuesta): la cabecera propia
-              del panel ya no existe — su rótulo y su lupa son AHORA esa fila. */}
-          <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width, paddingTop: H_FILA }} inert={collapsed || undefined}>
-            <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1">{produccion}</div>
+          {/* El relleno de arriba es el hueco de la fila del buscador (superpuesta): la cabecera
+              propia del panel ya no existe — su rótulo y su lupa son AHORA esa fila. */}
+          <div className="flex min-h-0 flex-1 shrink-0 flex-col" style={{ width, paddingTop: H_FILA }}>
+            <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1 [scrollbar-width:none]">{produccion}</div>
           </div>
 
           {/* Asa de redimensionado (oculta al estar retraído): arrastra (240–400 px) · doble clic = ancho por defecto */}
@@ -991,14 +967,12 @@ export function Sidebar({
           ) : null}
         </div>
 
-        {/* ── LA FILA DEL BUSCADOR ── Una sola lupa para los dos estados, y CLAVADA en el mismo
-            sitio siempre: el eje por el que bajan las fotos. Lo único que se mueve al desplegar
-            es la palabra, que se abre a su derecha. Que el ancla no se mueva es justo lo que
-            hace fluido el gesto — el ojo ya tiene dónde agarrarse y la barra crece por detrás,
-            en vez de reacomodarse entera.
-            Va superpuesta a las dos columnas y su ancho es el que SUMAN ellas (68+0 contraída,
-            0+ancho desplegada) con la misma curva, así su borde derecho nunca se despega del de
-            la columna que tapa. Debajo del raíl (z-10 < z-20) para no comerse sus globos. */}
+        {/* ── LA FILA DEL BUSCADOR ── La misma regla que las filas de cliente que encabeza: el
+            ancla no se mueve y lo único que se despliega es la palabra. La lupa vive en el eje
+            por el que bajan las fotos y se queda ahí, abierta o cerrada la barra.
+            Va superpuesta a la columna, con su MISMO ancho y su misma curva, así que su borde
+            derecho nunca se despega del de abajo ni a mitad de animación. Debajo del raíl
+            (z-10 < z-20) para no comerse sus globos de ayuda. */}
         <div
           style={{ width: collapsed ? W_TIRA : width, height: H_FILA }}
           className={cn(
@@ -1017,16 +991,15 @@ export function Sidebar({
           >
             <Search className="size-4" />
           </button>
-          {/* La palabra entra cuando ya hay sitio (140 ms) y con un pelín de deslizamiento: si
-              entra a la vez que empieza a abrirse, se ve espachurrada contra la lupa media
-              animación. El hueco entre lupa y palabra es el MISMO (gap-2.5) que hay entre la
-              foto y el nombre en cada fila de cliente, para que la fila lleve el ritmo de la
-              lista que encabeza. */}
+          {/* La palabra entra a los 140 ms, cuando ya hay sitio: si entra a la vez que empieza a
+              abrirse, se ve espachurrada contra la lupa media animación. Los 14 px la dejan
+              empezando en el 64 — la misma vertical exacta por la que bajan los NOMBRES de los
+              clientes (14 de la foto + 40 de ancho + 10 de hueco). */}
           <span
             inert={collapsed || undefined}
             style={{ transitionDelay: collapsed ? "0ms" : "140ms" }}
             className={cn(
-              "ml-2.5 min-w-0 flex-1 truncate pr-3 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted transition-[opacity,transform] duration-200 ease-out",
+              "ml-[14px] min-w-0 flex-1 truncate pr-3 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebar-muted transition-[opacity,transform] duration-200 ease-out",
               collapsed ? "-translate-x-1 opacity-0" : "translate-x-0 opacity-100",
             )}
           >
