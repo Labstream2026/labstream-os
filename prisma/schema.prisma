@@ -2425,6 +2425,10 @@ model DeliverablePhoto {
   pick          PhotoPick   @default(PENDIENTE)
   clientNote    String? // comentario opcional del cliente para esta foto
   pickedAt      DateTime? // cuándo la marcó por última vez
+  // El cliente RAYÓ la foto (lápiz/flecha/recuadro/texto, como en las correcciones de video).
+  // El JPEG aplanado vive en el storage interno (fotos-marcas/<photoId>.jpg), no en la BD:
+  // aquí solo el sello de que existe. null = sin marcas.
+  drawnAt       DateTime?
   createdAt     DateTime    @default(now())
 
   @@index([deliverableId])

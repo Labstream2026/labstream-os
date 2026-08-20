@@ -16,7 +16,7 @@ import { InternalReview } from "./internal-review";
 import { UploadVersionCard } from "./upload-version";
 import { DecisionSetFotos } from "./decision-set-fotos";
 import { PhotoGallery } from "@/app/review/[token]/photo-gallery";
-import { photoThumbSrc, photoLightboxSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoLightboxSrc, photoMarkSrc } from "@/lib/deliverable-photo";
 import type { StageComment } from "@/components/review/review-stage";
 import { EntityEmoji } from "@/components/icons/marks";
 
@@ -121,6 +121,7 @@ export default async function InternalReviewPage({ params }: { params: Promise<{
       filename: p.filename,
       src: photoThumbSrc(p),
       srcXl: photoLightboxSrc(p),
+      marca: p.drawnAt ? photoMarkSrc(p.id) : null,
       pick: p.pick,
       clientNote: p.clientNote,
       seccion: p.section,

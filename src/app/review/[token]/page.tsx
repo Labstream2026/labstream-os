@@ -7,7 +7,7 @@ import { resolveReviewToken, signReviewToken } from "@/lib/review-token";
 import { isEmailEnabled } from "@/lib/email";
 import { deliverableStatusMeta, deliverableOrientation } from "@/lib/ui";
 import { buildStageVersions } from "@/lib/review-version";
-import { photoViewSrc, photoThumbSrc, photoLightboxSrc } from "@/lib/deliverable-photo";
+import { photoViewSrc, photoThumbSrc, photoLightboxSrc, photoMarkSrc } from "@/lib/deliverable-photo";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
 import { ReviewClient } from "./review-client";
@@ -202,6 +202,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
     // para ojear, y mirar fotos no escribe «descargas» en la actividad.
     src: photoThumbSrc(p),
     srcXl: photoLightboxSrc(p),
+    // Lo que el cliente rayó sobre la foto, si existe (JPEG aplanado servido aparte).
+    marca: p.drawnAt ? photoMarkSrc(p.id) : null,
     pick: p.pick,
     clientNote: p.clientNote,
     seccion: p.section,

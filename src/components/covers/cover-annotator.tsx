@@ -91,12 +91,15 @@ export function CoverAnnotator({
   src,
   name,
   pending = false,
+  promptTexto = "Escribe la nota que va sobre la portada:",
   onSend,
   onCancel,
 }: {
   src: string;
   name: string;
   pending?: boolean;
+  // Pregunta de la herramienta de TEXTO (la galería de fotos la usa con su propio texto).
+  promptTexto?: string;
   // Devuelve el JPEG aplanado (o null si no se dibujó nada) + la nota escrita.
   onSend: (drawing: string | null, body: string) => void;
   onCancel: () => void;
@@ -146,9 +149,9 @@ export function CoverAnnotator({
   // el dedo dibuje en vez de arrastrar la página.
   // La herramienta/color activos se leen desde una ref para que los listeners nativos (que se
   // registran una sola vez) siempre vean el valor vigente sin re-suscribirse en cada cambio.
-  const state = React.useRef({ tool, color, pending });
+  const state = React.useRef({ tool, color, pending, promptTexto });
   React.useEffect(() => {
-    state.current = { tool, color, pending };
+    state.current = { tool, color, pending, promptTexto };
   });
 
   React.useEffect(() => {
@@ -175,7 +178,7 @@ export function CoverAnnotator({
         /* sin captura */
       }
       if (t === "text") {
-        const text = window.prompt("Escribe la nota que va sobre la portada:")?.trim();
+        const text = window.prompt(state.current.promptTexto)?.trim();
         if (text) setShapes((s) => [...s, { kind: "text", color: col, at: p, text: text.slice(0, 60) }]);
         return;
       }

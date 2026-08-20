@@ -3,8 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Check, Copy, ExternalLink, FolderDown, FolderUp, HardDrive, Heart, Image as ImageIcon, Loader2, MessageSquare,
-  MoreHorizontal, RefreshCw, Send, ShieldCheck, Star, Trash2, X,
+  Check, Copy, Download, ExternalLink, FolderDown, FolderUp, HardDrive, Heart, Image as ImageIcon, Loader2, MessageSquare,
+  MoreHorizontal, Pencil, RefreshCw, Send, ShieldCheck, Star, Trash2, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmailReviewButton } from "../../email-review-button";
@@ -33,6 +33,8 @@ export type FotoStudio = {
   esPortada: boolean;
   // El original vive en Operaciones_LAB: quitarla del set NO toca el disco.
   esOps: boolean;
+  // La foto RAYADA por el cliente (URL del JPEG aplanado), null si no marcó nada.
+  marcaSrc: string | null;
 };
 
 type Subida = {
@@ -254,9 +256,38 @@ export function SetStudio({
             {label}
           </button>
         ))}
-        {canManage ? (
-          <span className="ml-auto hidden text-xs text-muted-foreground sm:block">clic en una foto = entra o sale de la entrega</span>
-        ) : null}
+        <span className="ml-auto flex items-center gap-2">
+          {canManage ? <span className="hidden text-xs text-muted-foreground lg:block">clic en una foto = entra o sale de la entrega</span> : null}
+          {/* Descargar ORIGINALES en ZIP: por tandas (los mismos filtros) o todo de una. */}
+          {local.length > 0 ? (
+            <details data-autoclose className="relative">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+                <Download className="size-3.5" /> Descargar originales
+              </summary>
+              <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                <a href={`/api/fotos/${setId}/zip?que=todo`} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                  Todo el set <span className="text-xs tabular-nums text-muted-foreground">{local.length}</span>
+                </a>
+                {elegidas.length ? (
+                  <a href={`/api/fotos/${setId}/zip?que=elegidas`} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                    ♥ Las elegidas del cliente <span className="text-xs tabular-nums text-muted-foreground">{elegidas.length}</span>
+                  </a>
+                ) : null}
+                {comentadas.length ? (
+                  <a href={`/api/fotos/${setId}/zip?que=comentadas`} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                    💬 Las comentadas <span className="text-xs tabular-nums text-muted-foreground">{comentadas.length}</span>
+                  </a>
+                ) : null}
+                {visibles.length !== local.length ? (
+                  <a href={`/api/fotos/${setId}/zip?que=cliente`} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                    Las que ve el cliente <span className="text-xs tabular-nums text-muted-foreground">{visibles.length}</span>
+                  </a>
+                ) : null}
+                <p className="px-2 pb-1 pt-1.5 text-[10.5px] text-muted-foreground">ZIP con los originales, en carpetas por sección. Las de Drive se listan aparte dentro del paquete.</p>
+              </div>
+            </details>
+          ) : null}
+        </span>
       </div>
 
       {/* ── La cuadrícula de curaduría, por secciones ── */}
@@ -274,7 +305,7 @@ export function SetStudio({
             {sec.titulo || secciones.length > 1 ? (
               <div className="mb-2 flex items-baseline gap-2">
                 <h3 className="text-sm font-semibold">{sec.titulo ?? "Sin sección"}</h3>
-                <span className="text-xs text-muted-foreground">{sec.fotos.length} fotos</span>
+                <span className="text-xs text-muted-foreground">{sec.fotos.length} foto{sec.fotos.length === 1 ? "" : "s"}</span>
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
@@ -296,8 +327,14 @@ export function SetStudio({
       )}
 
       {/* ── Lo que volvió del cliente ── */}
-      {elegidas.length || comentadas.length || descartadas.length ? (
-        <ResultadosSet elegidas={elegidas} comentadas={comentadas} descartadas={descartadas.length} total={visibles.length} />
+      {elegidas.length || comentadas.length || descartadas.length || local.some((f) => f.marcaSrc) ? (
+        <ResultadosSet
+          elegidas={elegidas}
+          comentadas={comentadas}
+          marcadas={local.filter((f) => f.marcaSrc)}
+          descartadas={descartadas.length}
+          total={visibles.length}
+        />
       ) : null}
     </div>
   );
@@ -642,6 +679,11 @@ function TarjetaCuraduria({
             <X className="size-2.5" /> No le gustó
           </span>
         ) : null}
+        {foto.marcaSrc ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+            <Pencil className="size-2.5" /> Rayada
+          </span>
+        ) : null}
         {(foto.note ?? "").trim() ? (
           <span title={foto.note ?? ""} className="pointer-events-auto inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
             <MessageSquare className="size-2.5" /> Nota
@@ -839,11 +881,14 @@ function EnvioSet({
 function ResultadosSet({
   elegidas,
   comentadas,
+  marcadas,
   descartadas,
   total,
 }: {
   elegidas: FotoStudio[];
   comentadas: FotoStudio[];
+  // Fotos que el cliente RAYÓ: el editor las ve aquí tal como las marcó, en grande.
+  marcadas: FotoStudio[];
   descartadas: number;
   total: number;
 }) {
@@ -917,6 +962,31 @@ function ResultadosSet({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {/* Las fotos RAYADAS, en grande: esto es lo que el editor abre para entender qué quiere
+          el cliente con cada foto antes de tocarla en Lightroom/Photoshop. */}
+      {marcadas.length ? (
+        <div className="mt-4">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <Pencil className="size-3.5" /> Marcadas por el cliente — lo que quiere cambiar
+          </p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            {marcadas.map((f) => (
+              <figure key={f.id} className="overflow-hidden rounded-lg border border-border">
+                <a href={f.marcaSrc!} target="_blank" rel="noreferrer" title="Ver la marca en grande">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.marcaSrc!} alt={`Marcas del cliente sobre ${f.filename}`} loading="lazy" className="max-h-80 w-full bg-muted object-contain" />
+                </a>
+                <figcaption className="flex items-baseline gap-2 px-3 py-2 text-xs">
+                  <span className="min-w-0 truncate font-medium">{f.filename}</span>
+                  {(f.note ?? "").trim() ? <span className="min-w-0 flex-1 truncate italic text-muted-foreground">«{f.note}»</span> : null}
+                  {f.pick === "ME_GUSTA" ? <Heart className="ml-auto size-3 shrink-0 fill-emerald-500 text-emerald-500" /> : null}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
         </div>
       ) : null}
     </section>

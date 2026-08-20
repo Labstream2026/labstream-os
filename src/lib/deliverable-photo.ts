@@ -45,6 +45,12 @@ export function photoLightboxSrc(p: PhotoLike): string {
   return photoViewSrc(p, 1600);
 }
 
+// La foto RAYADA por el cliente (JPEG aplanado del lienzo). El token firma «marca:<photoId>»
+// para que la sala (sin sesión) la vea; el archivo vive en fotos-marcas/ del storage interno.
+export function photoMarkSrc(photoId: string): string {
+  return `/api/fotos/marca/${photoId}?t=${signFileToken(`marca:${photoId}`)}`;
+}
+
 // URL de descarga del original a resolución completa.
 export function photoDownloadSrc(p: PhotoLike): string {
   if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId)}&download=1`;

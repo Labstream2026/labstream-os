@@ -259,6 +259,54 @@ export async function setPhotoPick(token: string, photoId: string, pick: string,
   });
 }
 
+// El cliente RAYA la foto (lápiz/flecha/recuadro/texto) para señalar qué cambiaría — el mismo
+// gesto de las correcciones de video, aplicado a la imagen fija. El JPEG llega APLANADO del
+// lienzo (imagen + trazos en uno) y se guarda en el storage interno, nunca en la BD ni en los
+// discos del estudio. `drawing: null` borra la marca. Funciona también en BORRADOR (es
+// feedback temprano, que es justo para lo que existe ese enlace).
+const MARCA_RE = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/;
+const MARCA_CAP = 500_000; // mismo tope que las capturas de las correcciones de video
+
+export async function setPhotoDrawing(
+  token: string,
+  photoId: string,
+  drawing: string | null,
+  note?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!rateLimit(`review-draw:${await rlKey(token)}`, 60, 60_000)) {
+    return { ok: false, message: "Demasiadas marcas seguidas. Espera un momento e inténtalo de nuevo." };
+  }
+  const { id: deliverableId } = await resolveDeliverable(token);
+  const photo = await db.deliverablePhoto.findUnique({
+    where: { id: photoId },
+    select: { deliverableId: true, excludedAt: true, clientNote: true },
+  });
+  if (!photo || photo.deliverableId !== deliverableId || photo.excludedAt) {
+    return { ok: false, message: "Foto no encontrada" };
+  }
+  const { writeRelBuffer, deleteRel } = await import("@/lib/storage");
+  const rel = `fotos-marcas/${photoId}.jpg`;
+  if (drawing === null) {
+    await deleteRel(rel);
+    await db.deliverablePhoto.update({ where: { id: photoId }, data: { drawnAt: null } });
+    return { ok: true };
+  }
+  const m = MARCA_RE.exec(drawing.trim());
+  if (!m) return { ok: false, message: "La marca no llegó como imagen válida. Inténtalo otra vez." };
+  if (drawing.length > MARCA_CAP) return { ok: false, message: "La marca pesa demasiado. Haz trazos más simples e inténtalo otra vez." };
+  const buf = Buffer.from(m[1], "base64");
+  if (buf.length === 0) return { ok: false, message: "La marca llegó vacía." };
+  await writeRelBuffer(rel, buf);
+  const limpio = (note ?? "").trim().slice(0, 1000);
+  await db.deliverablePhoto.update({
+    where: { id: photoId },
+    // La nota del lienzo ES el comentario de la foto (si escribió algo); si mandó solo el
+    // dibujo, el comentario que ya tuviera se conserva.
+    data: { drawnAt: new Date(), pickedAt: new Date(), ...(limpio ? { clientNote: limpio } : {}) },
+  });
+  return { ok: true };
+}
+
 // Devuelve un resultado TIPADO (no lanza) para los fallos esperados/de cara al usuario: en
 // producción Next.js REDACTA el mensaje de un Error lanzado desde una server action (el cliente
 // recibiría un texto genérico en inglés). Devolviendo { ok, message } el copy en español llega

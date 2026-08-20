@@ -6,7 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
-import { photoThumbSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoDownloadSrc, photoMarkSrc } from "@/lib/deliverable-photo";
 import { opsEnabled } from "@/lib/nas-ops";
 import { isEmailEnabled } from "@/lib/email";
 import { toWhatsappNumber } from "@/lib/whatsapp/send";
@@ -71,6 +71,8 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
     esPortada: !!p.fileAssetId && p.fileAssetId === set.coverFileAssetId,
     // OPS: el original vive en Operaciones_LAB — borrarla del set no toca el disco.
     esOps: p.fileAsset?.kind === "OPS",
+    // La foto rayada por el cliente: el editor la ve en Resultados tal como la marcó.
+    marcaSrc: p.drawnAt ? photoMarkSrc(p.id) : null,
   }));
   const nextPos = (set.photos.at(-1)?.position ?? -1) + 1;
 

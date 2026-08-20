@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Heart, MessageSquare, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ChevronDown, ChevronLeft, ChevronRight, Heart, MessageSquare, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { setPhotoPick } from "./actions";
+import { CoverAnnotator } from "@/components/covers/cover-annotator";
+import { setPhotoDrawing, setPhotoPick } from "./actions";
 
 // ── La galería de selección del cliente ──
 // Rediseño 2026-08: de cuadrícula de recortes cuadrados a una galería de estudio: héroe con la
@@ -27,6 +29,8 @@ export type GalleryPhoto = {
   clientNote: string | null;
   seccion: string | null;
   ar: number; // proporción ancho/alto (respaldo 1.5 si no se conoce)
+  // La foto RAYADA por el cliente (URL del JPEG aplanado), null si no ha marcado nada.
+  marca: string | null;
 };
 
 type Filtro = "todas" | "elegidas" | "comentadas" | "sin";
@@ -88,6 +92,20 @@ export function PhotoGallery({
         await setPhotoPick(token, p.id, p.pick, note);
       } catch {
         /* noop */
+      }
+    });
+  }
+
+  // El cliente rayó la foto (o quitó sus marcas). La vista se actualiza al instante con el
+  // dataURL local; el servidor guarda el JPEG aplanado y el estudio lo verá por su URL.
+  function saveMarca(p: GalleryPhoto, drawing: string | null, note: string) {
+    if (soloLectura) return;
+    update(p.id, { marca: drawing, ...(note ? { clientNote: note } : {}) });
+    startTransition(async () => {
+      try {
+        await setPhotoDrawing(token, p.id, drawing, note || undefined);
+      } catch {
+        /* la UI ya reflejó el intento */
       }
     });
   }
@@ -169,7 +187,7 @@ export function PhotoGallery({
             {haySecciones ? (
               <div className="mb-2.5 flex items-baseline gap-3">
                 <h2 className="text-lg font-semibold tracking-tight">{g.titulo ?? "Galería"}</h2>
-                <span className="text-xs text-muted-foreground">{g.fotos.length} fotos</span>
+                <span className="text-xs text-muted-foreground">{g.fotos.length} foto{g.fotos.length === 1 ? "" : "s"}</span>
                 <span className="h-px flex-1 bg-border" />
               </div>
             ) : null}
@@ -208,8 +226,13 @@ export function PhotoGallery({
                       <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                     </button>
 
-                    {/* Insignias: nota y descarte. */}
+                    {/* Insignias: marca (rayada), nota y descarte. */}
                     <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                      {p.marca ? (
+                        <span title="Tiene marcas dibujadas" className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Pencil className="size-3" />
+                        </span>
+                      ) : null}
                       {conNota ? (
                         <span className="flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
                           <MessageSquare className="size-3" />
@@ -323,6 +346,7 @@ export function PhotoGallery({
           onIr={(id) => setAbierta(id)}
           onPick={setPick}
           onNota={saveNote}
+          onMarca={saveMarca}
         />
       ) : null}
     </div>
@@ -342,6 +366,7 @@ function Visor({
   onIr,
   onPick,
   onNota,
+  onMarca,
 }: {
   foto: GalleryPhoto;
   idx: number;
@@ -354,14 +379,31 @@ function Visor({
   onIr: (id: string) => void;
   onPick: (p: GalleryPhoto, pick: string) => void;
   onNota: (p: GalleryPhoto, note: string) => void;
+  onMarca: (p: GalleryPhoto, drawing: string | null, note: string) => void;
 }) {
   const [notaAbierta, setNotaAbierta] = React.useState(!!(foto.clientNote ?? "").trim());
   const filmRef = React.useRef<HTMLDivElement>(null);
   const touch = React.useRef<number | null>(null);
 
+  // Lienzo de anotación abierto (portal a <body>: dentro de este overlay con backdrop-blur, un
+  // `fixed` anidado quedaría preso del ancestro filtrado — la lección de Portadas 2.0).
+  const [rayando, setRayando] = React.useState(false);
+  const host = typeof document === "undefined" ? null : document.body;
+
+  // Con marcas se abre ENSEÑANDO las marcas (es lo que el cliente quiso decir); el chip permite
+  // ver la foto limpia. Ajuste-durante-render al cambiar de foto.
+  const [verMarca, setVerMarca] = React.useState(true);
+  const [fotoPrev, setFotoPrev] = React.useState(foto.id);
+  if (foto.id !== fotoPrev) {
+    setFotoPrev(foto.id);
+    setVerMarca(true);
+    setRayando(false);
+  }
+
   // Teclado: ← → navegar, F me gusta, C comentar, Esc cerrar. (Escribiendo la nota, solo Esc.)
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (rayando) return; // el lienzo está abierto: las flechas no deben cambiar la foto debajo
       if ((e.target as HTMLElement)?.tagName === "TEXTAREA") {
         if (e.key === "Escape") (e.target as HTMLElement).blur();
         return;
@@ -379,7 +421,7 @@ function Visor({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [foto, onNavegar, onCerrar, onPick, soloLectura]);
+  }, [foto, onNavegar, onCerrar, onPick, soloLectura, rayando]);
 
   // La miniatura activa de la tira siempre a la vista, y los vecinos precargados.
   React.useEffect(() => {
@@ -431,7 +473,12 @@ function Visor({
           <ChevronLeft className="size-5" />
         </button>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={foto.id} src={foto.srcXl} alt={foto.filename} className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl" />
+        <img
+          key={foto.id + (foto.marca && verMarca ? "·marca" : "")}
+          src={foto.marca && verMarca ? foto.marca : foto.srcXl}
+          alt={foto.filename}
+          className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl"
+        />
         <button
           type="button"
           onClick={() => onNavegar(1)}
@@ -443,6 +490,26 @@ function Visor({
       </div>
 
       <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-3">
+        {/* Con marcas: alternar entre lo que rayó el cliente y la foto limpia (también en la
+            revisión interna — el editor necesita ver ambas). */}
+        {foto.marca ? (
+          <div className="flex items-center gap-1 rounded-full border border-white/15 p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setVerMarca(true)}
+              className={cn("rounded-full px-3 py-1", verMarca ? "bg-primary text-primary-foreground" : "text-white/70 hover:text-white")}
+            >
+              ✏️ Con marcas
+            </button>
+            <button
+              type="button"
+              onClick={() => setVerMarca(false)}
+              className={cn("rounded-full px-3 py-1", !verMarca ? "bg-white text-black" : "text-white/70 hover:text-white")}
+            >
+              Original
+            </button>
+          </div>
+        ) : null}
         {!soloLectura ? (
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
@@ -454,6 +521,17 @@ function Visor({
               )}
             >
               <Heart className={cn("size-4", esLiked && "fill-current")} /> {esLiked ? "Elegida" : "Me gusta"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRayando(true)}
+              title="Raya sobre la foto lo que cambiarías: círculos, flechas, texto"
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                foto.marca ? "border-primary/60 text-white hover:bg-white/10" : "border-white/20 text-white hover:bg-white/10",
+              )}
+            >
+              <Pencil className="size-4" /> {foto.marca ? "Volver a marcar" : "Marcar la foto"}
             </button>
             <button
               type="button"
@@ -473,6 +551,16 @@ function Visor({
             >
               <X className="size-3.5" /> No va
             </button>
+            {foto.marca ? (
+              <button
+                type="button"
+                onClick={() => onMarca(foto, null, "")}
+                title="Borrar tus marcas de esta foto"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white"
+              >
+                Quitar marcas
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -521,6 +609,43 @@ function Visor({
           · <Tecla>Esc</Tecla> cerrar
         </p>
       </div>
+
+      {/* Lienzo de anotación (el MISMO de Portadas: lápiz, flecha, recuadro, texto, colores).
+          En portal a <body>: un fixed anidado bajo el backdrop-blur de este visor quedaría
+          preso del ancestro filtrado. Se dibuja SIEMPRE sobre la foto limpia. */}
+      {rayando && host
+        ? createPortal(
+            <div role="dialog" aria-modal="true" aria-label={`Marcar ${foto.filename}`} className="fixed inset-0 z-[130] flex flex-col bg-black/95 p-4 backdrop-blur-sm">
+              <div className="mb-2 flex items-center gap-2 text-white">
+                <p className="min-w-0 truncate text-sm font-semibold">✏️ Marca sobre «{foto.filename}» lo que cambiarías</p>
+                <button
+                  type="button"
+                  onClick={() => setRayando(false)}
+                  aria-label="Cerrar"
+                  className="ml-auto grid size-8 place-items-center rounded-lg text-white/80 hover:bg-white/15"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+              <div className="mx-auto min-h-0 w-full max-w-2xl flex-1 overflow-y-auto">
+                <CoverAnnotator
+                  src={foto.srcXl}
+                  name={foto.filename}
+                  promptTexto="Escribe la nota que va sobre la foto:"
+                  onSend={(drawing, body) => {
+                    // Solo nota sin dibujo → es un comentario normal (no borra marcas previas).
+                    if (drawing) onMarca(foto, drawing, body);
+                    else if (body) onNota(foto, body);
+                    setRayando(false);
+                    setVerMarca(true);
+                  }}
+                  onCancel={() => setRayando(false)}
+                />
+              </div>
+            </div>,
+            host,
+          )
+        : null}
     </div>
   );
 }
