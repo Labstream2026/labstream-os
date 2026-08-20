@@ -1,5 +1,5 @@
 import type { CalItem } from "./my-calendar";
-import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
+import { taskUrgency, urgencyHexCalendario } from "@/lib/task-urgency";
 
 // Constructores compartidos: convierten filas de CalendarEvent / Task en CalItem,
 // para que TODOS los calendarios de la app (equipo, proyecto, cliente, mis tareas)
@@ -132,7 +132,7 @@ export function taskToCalItems(t: TaskRow): CalItem[] {
       id: `t-${t.id}`, title: t.title, date: iso, start: iso, kind: "task",
       // Con hora → bloque a esa hora; sin hora → todo el día (como antes).
       allDay: !timed, time: timed ? (t.dueTime ?? null) : null,
-      urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null }).state), ...base,
+      urgencyHex: urgencyHexCalendario(taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null }).state), ...base,
     });
   }
   if (t.shootDate) out.push({ id: `s-${t.id}`, title: t.title, date: t.shootDate.toISOString(), start: t.shootDate.toISOString(), kind: "shoot", allDay: true, ...base });

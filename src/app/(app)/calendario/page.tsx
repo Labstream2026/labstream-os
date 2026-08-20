@@ -8,7 +8,7 @@ import { dueDateTimeISO } from "./build-items";
 import { createMyEvent } from "./actions";
 import { buildSessionTimeline } from "@/lib/timeline-data";
 import { GlobalTimeline } from "@/app/(app)/timeline/global-timeline";
-import { taskUrgency, urgencyHex } from "@/lib/task-urgency";
+import { taskUrgency, urgencyHexCalendario } from "@/lib/task-urgency";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +60,9 @@ export default async function CalendarioPage() {
         OR: [{ dueDate: { gte: windowStart, lt: windowEnd } }, { shootDate: { gte: windowStart, lt: windowEnd } }],
       },
       select: {
-        id: true, title: true, description: true, dueDate: true, dueTime: true, shootDate: true, isPrivate: true, ownerId: true, assigneeId: true,
+        // completedAt: para que una tarea HECHA deje de pintarse de rojo también en el
+        // calendario del equipo, no solo en el del proyecto.
+        id: true, title: true, description: true, dueDate: true, dueTime: true, shootDate: true, completedAt: true, isPrivate: true, ownerId: true, assigneeId: true,
         assignee: { select: { name: true, initials: true, avatarColor: true } },
         project: { select: { id: true, name: true, emoji: true, ...accessSelect } },
       },
@@ -142,7 +144,7 @@ export default async function CalendarioPage() {
         date: iso,
         start: iso,
         kind: "task" as const,
-        urgencyHex: urgencyHex(taskUrgency({ dueDate: t.dueDate }).state),
+        urgencyHex: urgencyHexCalendario(taskUrgency({ dueDate: t.dueDate, completedAt: t.completedAt ?? null }).state),
         allDay: !timed,
         time: timed ? (t.dueTime ?? null) : null,
         description: t.description,

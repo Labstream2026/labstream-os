@@ -11,7 +11,7 @@ import { WeekView } from "./week-view";
 import { AgendaView } from "./agenda-view";
 import { MiniCalendar } from "./mini-calendar";
 import { EventModal, type EventModalState } from "./event-modal";
-import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard, emitCalendarCreate, type ColorBy } from "./calendar-detail";
+import { CAL_CREATE_EVENT, CAL_EDIT_EVENT, CAL_DETAIL_EVENT, CalendarDetailCard, calTone, emitCalendarCreate, type ColorBy } from "./calendar-detail";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 // Los campos UTC del Date guardado SON la hora de pared (la app guarda en UTC sin convertir,
@@ -36,10 +36,12 @@ const SHELL_VIEWS: { key: ShellView; label: string }[] = [
 // íconos vectoriales del menú del proyecto. Además un emoji lo dibuja el SISTEMA: el equipo en
 // Mac y quien entra desde Windows no veían el mismo calendario.
 const KIND_LAYERS: { key: CalItem["kind"]; label: string; short: string; Icon: (p: { className?: string }) => React.ReactElement; color: string }[] = [
-  { key: "event", label: "Citas y reuniones", short: "Citas", Icon: IconCalendario, color: "#6366f1" },
-  { key: "task", label: "Entregas", short: "Entregas", Icon: IconEntregas, color: "#f59e0b" },
-  { key: "shoot", label: "Rodajes", short: "Rodajes", Icon: IconRodaje, color: "#f43f5e" },
-  { key: "milestone", label: "Hitos de proyecto", short: "Hitos", Icon: IconHito, color: "#0ea5e9" },
+  // El color sale de `calTone`, que es de donde lo sacan las vistas. Estaba escrito DOS veces
+  // —aquí y allá— y son la leyenda y lo que pinta: en cuanto se separen, la leyenda miente.
+  { key: "event", label: "Citas y reuniones", short: "Citas", Icon: IconCalendario, color: calTone("event").solid },
+  { key: "task", label: "Entregas", short: "Entregas", Icon: IconEntregas, color: calTone("task").solid },
+  { key: "shoot", label: "Rodajes", short: "Rodajes", Icon: IconRodaje, color: calTone("shoot").solid },
+  { key: "milestone", label: "Hitos de proyecto", short: "Hitos", Icon: IconHito, color: calTone("milestone").solid },
 ];
 
 // El ícono de un tipo, con respaldo si llegara una clase desconocida.

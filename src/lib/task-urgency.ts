@@ -161,10 +161,28 @@ const URGENCY_HEX: Record<UrgencyState, string> = {
   proximo: "#22c55e",
   pronto: "#f59e0b",
   hoy: "#f97316",
-  vencida: "#f43f5e",
+  // #dc2626 y no #f43f5e: ese rosa-rojo es EXACTAMENTE el color del tipo «Rodaje» en el
+  // calendario, así que una entrega vencida se pintaba idéntica a un rodaje. En una llamada con
+  // el cliente se señala un bloque diciendo «ahí rodamos» y es un incumplimiento propio.
+  vencida: "#dc2626",
   hecha: "#10b981",
-  hecha_tarde: "#f59e0b",
+  // Verde más oscuro, no ámbar: en ámbar «hecha tarde» era indistinguible de una entrega
+  // pendiente. Sigue leyéndose «hecha», que es lo que importa, pero no como la limpia.
+  hecha_tarde: "#059669",
 };
 export function urgencyHex(state: UrgencyState): string {
   return URGENCY_HEX[state];
+}
+
+// El color de una entrega EN EL CALENDARIO, o undefined para que se pinte por su tipo.
+//
+// Antes la urgencia tomaba el color SIEMPRE, y el resultado es que la leyenda mentía casi
+// siempre: dice «Entregas ● ámbar» y una entrega a ocho días salía turquesa, a cuatro verde, y
+// sin fecha gris — siete de los nueve estados daban un color que no está en la leyenda.
+//
+// Ahora la urgencia solo toma el color cuando dice algo que hay que ATENDER (vencida, hoy) o
+// que ya está RESUELTO (hecha, hecha tarde). En medio, una entrega se ve como una entrega.
+const URGENCIA_PINTA = new Set<UrgencyState>(["vencida", "hoy", "hecha", "hecha_tarde"]);
+export function urgencyHexCalendario(state: UrgencyState): string | undefined {
+  return URGENCIA_PINTA.has(state) ? URGENCY_HEX[state] : undefined;
 }

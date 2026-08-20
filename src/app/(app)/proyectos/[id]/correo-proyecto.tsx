@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Mail, PenLine, X } from "lucide-react";
+import { PenLine, X } from "lucide-react";
+import { IconCorreo } from "@/components/icons";
 import { db } from "@/lib/db";
 import { formatBogota } from "@/lib/bogota-time";
 import { asuntoLimpio } from "@/lib/correo/hilos";
@@ -75,7 +76,7 @@ export async function CorreoProyecto({ projectId, sessionUserId, gestiona = fals
       <div>
         {bloqueContactos}
         <EmptyState
-          icon={<Mail className="size-4" />}
+          icon={<IconCorreo className="size-4" />}
           title="Sin correos asignados"
           description="Desde tu bandeja de Correo, abre un hilo del cliente y usa «Asignar a proyecto»: quedará aquí, a la vista del equipo, y lo que llegue después al hilo cae solo."
         />
