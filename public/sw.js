@@ -20,13 +20,42 @@
 const ESTATICO = "labstream-estatico-v1";
 const MINIATURAS = "labstream-miniaturas-v1";
 const PAGINAS = "labstream-paginas-v1";
-const OFFLINE_CACHE = "labstream-offline-v1";
+const OFFLINE_CACHE = "labstream-offline-v2";
 const OFFLINE_URL = "/offline.html";
 const VIVOS = [ESTATICO, MINIATURAS, PAGINAS, OFFLINE_CACHE];
 
 // Topes: sin esto el caché crece sin freno en equipos que se usan todo el día.
 const TOPE_MINIATURAS = 400;
 const TOPE_PAGINAS = 40;
+
+// Rutas NÚCLEO que deben ABRIR sin conexión (modo offline, Camino B — Fase 3). Son justo las
+// pantallas donde SÍ se puede trabajar sin servidor: escribir notas, crear/completar tareas y
+// registrar horas (todo cae en la cola local y se sincroniza al volver). Se precachean al activar
+// el SW —con la sesión ya iniciada—, para que el arranque EN FRÍO sin red (la app de escritorio
+// abriendo sus pestañas) caiga en una pantalla usable y no en «sin conexión». Se sirven de la
+// copia SOLO cuando la red falla de verdad (la navegación sigue siendo red-primero).
+const NUCLEO_OFFLINE = ["/", "/mis-tareas", "/notas"];
+
+async function precachearNucleo() {
+  try {
+    const cache = await caches.open(PAGINAS);
+    await Promise.all(
+      NUCLEO_OFFLINE.map(async (ruta) => {
+        try {
+          // credentials same-origin por defecto: la cookie de sesión viaja, así se guarda la
+          // versión AUTENTICADA de la pantalla (no el login).
+          const res = await fetch(ruta, { cache: "no-store" });
+          if (guardable(res)) await cache.put(ruta, res.clone());
+        } catch {
+          /* sin red al activar: no pasa nada, se cachea sola al visitarla online */
+        }
+      }),
+    );
+    await recortar(PAGINAS, TOPE_PAGINAS);
+  } catch {
+    /* el precaché es un lujo: si falla, la app sigue igual */
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -41,6 +70,9 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((k) => !VIVOS.includes(k)).map((k) => caches.delete(k)));
       await self.clients.claim();
+      // Deja listas las pantallas que abren sin conexión (no bloquea el claim: si tarda o no hay
+      // red, la app ya está controlada por el SW igual).
+      await precachearNucleo();
     })(),
   );
 });
@@ -134,9 +166,11 @@ self.addEventListener("fetch", (event) => {
           return res;
         } catch {
           // Aquí sí falló la red de verdad: la copia de ESTA página, y si no, la pantalla
-          // de sin conexión.
+          // de sin conexión. `ignoreVary` porque Next marca las páginas con `Vary: RSC…`: sin
+          // esto, la copia PRECACHEADA (traída sin esas cabeceras) no casaría con la navegación
+          // real y se perdería el arranque offline de las rutas núcleo.
           const cache = await caches.open(PAGINAS);
-          const guardada = await cache.match(req, { ignoreSearch: false });
+          const guardada = await cache.match(req, { ignoreSearch: false, ignoreVary: true });
           if (guardada) return guardada;
           const off = await caches.open(OFFLINE_CACHE);
           return (await off.match(OFFLINE_URL)) || Response.error();
