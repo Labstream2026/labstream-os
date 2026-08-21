@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Heart, MessageSquare, Pencil, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Heart, ImageOff, Loader2, MessageSquare, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CoverAnnotator } from "@/components/covers/cover-annotator";
 import { setPhotoDrawing, setPhotoPick } from "./actions";
@@ -34,6 +34,36 @@ export type GalleryPhoto = {
 };
 
 type Filtro = "todas" | "elegidas" | "comentadas" | "sin";
+
+// Imagen con APARICIÓN SUAVE (fundido al cargar, sin el salto gris→foto) y MARCADOR elegante si no
+// hay vista previa (un RAW que ni FFmpeg abre, o un archivo que ya no está en el disco) en vez de
+// un icono de imagen rota. Respeta prefers-reduced-motion.
+function FotoImg({ src, alt, className, onDims }: { src: string; alt: string; className?: string; onDims?: (el: HTMLImageElement) => void }) {
+  const [cargada, setCargada] = React.useState(false);
+  const [rota, setRota] = React.useState(false);
+  if (rota) {
+    return (
+      <div className={cn("flex flex-col items-center justify-center gap-1 bg-muted/60 text-muted-foreground", className)}>
+        <ImageOff className="size-6 opacity-40" />
+        <span className="px-2 text-center text-[10px] leading-tight opacity-70">Sin vista previa</span>
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onLoad={(e) => {
+        setCargada(true);
+        onDims?.(e.currentTarget);
+      }}
+      onError={() => setRota(true)}
+      className={cn("transition-[opacity,transform] duration-500 ease-out motion-reduce:transition-none", cargada ? "opacity-100" : "opacity-0", className)}
+    />
+  );
+}
 
 export function PhotoGallery({
   token,
@@ -159,7 +189,11 @@ export function PhotoGallery({
   const idxAbierta = abierta ? visibles.findIndex((p) => p.id === abierta) : -1;
   const fotoAbierta = idxAbierta >= 0 ? visibles[idxAbierta] : null;
 
-  function abrir(id: string) {
+  // `conNota` = abrir el visor con el campo de comentario ya desplegado (desde el botón 💬 de la
+  // cuadrícula: un solo clic para comentar, no dos).
+  const [pedirNota, setPedirNota] = React.useState(false);
+  function abrir(id: string, conNota = false) {
+    setPedirNota(conNota);
     setAbierta(id);
   }
   // Sin useCallback a propósito: el compilador de React memoiza solo, y la memoización manual
@@ -244,20 +278,17 @@ export function PhotoGallery({
                     style={{ height: "var(--fh)", flexGrow: ar * 100, flexBasis: `calc(${ar} * var(--fh))` }}
                   >
                     <button type="button" onClick={() => abrir(p.id)} className="absolute inset-0 w-full cursor-zoom-in" title="Ampliar">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <FotoImg
                         src={p.src}
                         alt={p.filename}
-                        loading="lazy"
-                        onLoad={(e) => {
-                          // Foto sin dimensiones conocidas (Drive): al cargar se corrige la
-                          // proporción real y la fila se re-acomoda una sola vez.
-                          const el = e.currentTarget;
+                        // Foto sin dimensiones conocidas (Drive): al cargar se corrige la proporción
+                        // real y la fila se re-acomoda una sola vez.
+                        onDims={(el) => {
                           if (!el.naturalWidth || !el.naturalHeight) return;
                           const real = Math.min(2.8, Math.max(0.4, el.naturalWidth / el.naturalHeight));
                           if (Math.abs(real - ar) > 0.01) setArVisto((cur) => (cur[p.id] ? cur : { ...cur, [p.id]: real }));
                         }}
-                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                        className="size-full object-cover group-hover:scale-[1.03]"
                       />
                       <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                     </button>
@@ -293,15 +324,16 @@ export function PhotoGallery({
                           aria-pressed={esLiked}
                           title={esLiked ? "Quitar de elegidas" : "Me gusta"}
                           className={cn(
-                            "flex size-8 items-center justify-center rounded-full backdrop-blur-sm transition-transform hover:scale-110",
+                            "flex size-8 items-center justify-center rounded-full backdrop-blur-sm transition-transform hover:scale-110 active:scale-95",
                             esLiked ? "bg-primary text-primary-foreground" : "bg-black/55 text-white hover:bg-black/75",
                           )}
                         >
-                          <Heart className={cn("size-4", esLiked && "fill-current")} />
+                          {/* key por estado → al ELEGIR el corazón se re-monta y hace un «pop». */}
+                          <Heart key={esLiked ? "on" : "off"} className={cn("size-4", esLiked && "fill-current animate-in zoom-in-50 duration-300 motion-reduce:animate-none")} />
                         </button>
                         <button
                           type="button"
-                          onClick={() => abrir(p.id)}
+                          onClick={() => abrir(p.id, true)}
                           title="Comentar esta foto"
                           className={cn(
                             "flex size-8 items-center justify-center rounded-full backdrop-blur-sm transition-transform hover:scale-110",
@@ -410,7 +442,8 @@ export function PhotoGallery({
           lista={visibles}
           arDe={arDe}
           soloLectura={soloLectura}
-          onCerrar={() => setAbierta(null)}
+          abrirNota={pedirNota}
+          onCerrar={() => { setAbierta(null); setPedirNota(false); }}
           onNavegar={navegar}
           onIr={(id) => setAbierta(id)}
           onPick={setPick}
@@ -430,6 +463,7 @@ function Visor({
   lista,
   arDe,
   soloLectura,
+  abrirNota,
   onCerrar,
   onNavegar,
   onIr,
@@ -443,6 +477,7 @@ function Visor({
   lista: GalleryPhoto[];
   arDe: (p: GalleryPhoto) => number;
   soloLectura: boolean;
+  abrirNota?: boolean;
   onCerrar: () => void;
   onNavegar: (d: number) => void;
   onIr: (id: string) => void;
@@ -450,7 +485,9 @@ function Visor({
   onNota: (p: GalleryPhoto, note: string) => void;
   onMarca: (p: GalleryPhoto, drawing: string | null, note: string) => void;
 }) {
-  const [notaAbierta, setNotaAbierta] = React.useState(!!(foto.clientNote ?? "").trim());
+  // Se abre con la nota desplegada si la foto ya tenía comentario, o si se entró por el botón 💬.
+  const [notaAbierta, setNotaAbierta] = React.useState(abrirNota || !!(foto.clientNote ?? "").trim());
+  const [cargandoImg, setCargandoImg] = React.useState(true); // spinner mientras llega la foto grande
   const filmRef = React.useRef<HTMLDivElement>(null);
   const touch = React.useRef<number | null>(null);
 
@@ -467,7 +504,18 @@ function Visor({
     setFotoPrev(foto.id);
     setVerMarca(true);
     setRayando(false);
+    setCargandoImg(true);
   }
+
+  // Bloquea el scroll del FONDO mientras el visor está abierto (en móvil, arrastrar sobre los
+  // bordes movía la galería de atrás). Se restaura al cerrar.
+  React.useEffect(() => {
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previo;
+    };
+  }, []);
 
   // Teclado: ← → navegar, F me gusta, C comentar, Esc cerrar. (Escribiendo la nota, solo Esc.)
   React.useEffect(() => {
@@ -506,7 +554,10 @@ function Visor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Foto ${idx + 1} de ${total}: ${foto.filename}`}
+      className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md animate-in fade-in duration-200 motion-reduce:animate-none"
       onTouchStart={(e) => {
         touch.current = e.touches[0].clientX;
       }}
@@ -532,21 +583,32 @@ function Visor({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center gap-2 px-2 md:gap-4 md:px-4">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center gap-2 px-2 md:gap-4 md:px-4">
         <button
           type="button"
           onClick={() => onNavegar(-1)}
           aria-label="Anterior"
-          className="hidden size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/70 hover:text-white sm:flex"
+          className="z-10 hidden size-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-white/70 hover:text-white sm:flex"
         >
           <ChevronLeft className="size-5" />
         </button>
+        {/* Spinner mientras la foto grande no está en caché: antes el centro quedaba en negro y se
+            sentía «roto» en conexiones lentas. */}
+        {cargandoImg ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <Loader2 className="size-8 animate-spin text-white/50" />
+          </div>
+        ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           key={foto.id + (foto.marca && verMarca ? "·marca" : "")}
           src={foto.marca && verMarca ? foto.marca : foto.srcXl}
           alt={foto.filename}
-          className="max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl"
+          onLoad={() => setCargandoImg(false)}
+          className={cn(
+            "max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-300 motion-reduce:transition-none",
+            cargandoImg ? "opacity-0" : "opacity-100",
+          )}
         />
         <button
           type="button"
