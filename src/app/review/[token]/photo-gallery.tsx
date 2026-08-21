@@ -171,7 +171,10 @@ export function PhotoGallery({
   const visibles = photos.filter((p) => {
     if (filtro === "elegidas") return p.pick === "ME_GUSTA";
     if (filtro === "comentadas") return !!(p.clientNote ?? "").trim();
-    if (filtro === "sin") return p.pick === "PENDIENTE";
+    // «Sin marcar» = lo que aún NO has mirado: ni elegida/descartada ni comentada. Así el filtro
+    // casa exacto con el conteo «Sin marcar · N» (antes el filtro incluía las pendientes comentadas
+    // y el número no coincidía con lo que aparecía).
+    if (filtro === "sin") return p.pick === "PENDIENTE" && !(p.clientNote ?? "").trim();
     return true;
   });
 
@@ -363,7 +366,9 @@ export function PhotoGallery({
       {/* ── Barra flotante: conteo, filtros y cierre ── */}
       <div className="pointer-events-none sticky bottom-3 z-30 flex justify-center">
         <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-2xl backdrop-blur-xl">
-          <span className="inline-flex items-center gap-1.5 pl-1 pr-1 text-[13px] font-semibold">
+          {/* key por conteo → al elegir/quitar, el contador hace un pequeño «pop»: confirmación de
+              que la acción viajó (junto al aviso de error, éxito y fallo quedan bien distinguibles). */}
+          <span key={liked} className="inline-flex animate-in zoom-in-95 items-center gap-1.5 pl-1 pr-1 text-[13px] font-semibold duration-300 motion-reduce:animate-none">
             <Heart className="size-3.5 fill-primary text-primary" />
             {liked === 1 ? "1 elegida" : `${liked} elegidas`}
           </span>
@@ -379,6 +384,7 @@ export function PhotoGallery({
               key={k}
               type="button"
               onClick={() => setFiltro(k)}
+              aria-pressed={filtro === k}
               className={cn(
                 "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
                 filtro === k ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground",

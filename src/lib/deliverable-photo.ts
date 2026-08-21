@@ -1,5 +1,10 @@
 import { signFileToken } from "@/lib/storage";
 
+// Vida de los tokens de las fotos. Por defecto signFileToken vive 1-2h; un cliente que revisa su
+// galería a lo largo del DÍA (la abre, vuelve más tarde) veía las imágenes caerse a 401. 24h cubre
+// una jornada; la página re-renderiza (force-dynamic) y re-firma tokens frescos en cada carga.
+const TTL_FOTO = 24 * 60 * 60;
+
 // URLs de visualización de una foto de entregable (galería de selección del cliente).
 // Una foto tiene dos fuentes posibles:
 //   - LOCAL (fileAssetId): archivo en el NAS. Se sirve por /api/files-asset con token firmado;
@@ -24,7 +29,7 @@ function driveId(url: string): string | null {
 
 // URL para mostrar la foto en <img> (cuadrícula y visor). Tamaño = lado largo sugerido para Drive.
 export function photoViewSrc(p: PhotoLike, size = 1600): string {
-  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId)}`;
+  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId, TTL_FOTO)}`;
   const u = p.url ?? "";
   const id = driveId(u);
   if (id) return `https://drive.google.com/thumbnail?id=${id}&sz=w${size}`;
@@ -37,23 +42,23 @@ export function photoViewSrc(p: PhotoLike, size = 1600): string {
 // «abrió/descargó» en la actividad. La descarga del ORIGINAL (photoDownloadSrc) sí audita,
 // que es la que cuenta como apertura de verdad.
 export function photoThumbSrc(p: PhotoLike): string {
-  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId)}&thumb=1`;
+  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId, TTL_FOTO)}&thumb=1`;
   return photoViewSrc(p, 480);
 }
 export function photoLightboxSrc(p: PhotoLike): string {
-  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId)}&thumb=xl`;
+  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId, TTL_FOTO)}&thumb=xl`;
   return photoViewSrc(p, 1600);
 }
 
 // La foto RAYADA por el cliente (JPEG aplanado del lienzo). El token firma «marca:<photoId>»
 // para que la sala (sin sesión) la vea; el archivo vive en fotos-marcas/ del storage interno.
 export function photoMarkSrc(photoId: string): string {
-  return `/api/fotos/marca/${photoId}?t=${signFileToken(`marca:${photoId}`)}`;
+  return `/api/fotos/marca/${photoId}?t=${signFileToken(`marca:${photoId}`, TTL_FOTO)}`;
 }
 
 // URL de descarga del original a resolución completa.
 export function photoDownloadSrc(p: PhotoLike): string {
-  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId)}&download=1`;
+  if (p.fileAssetId) return `/api/files-asset/${p.fileAssetId}?t=${signFileToken(p.fileAssetId, TTL_FOTO)}&download=1`;
   const u = p.url ?? "";
   const id = driveId(u);
   if (id) return `https://drive.google.com/uc?export=download&id=${id}`;

@@ -99,8 +99,12 @@ function centralDirectory(entradas: Entrada[], offsetFin: number): Buffer {
 
 // Nombre seguro dentro del ZIP (sección como carpeta) con desempate de repetidos.
 function nombreZip(usados: Set<string>, section: string | null, filename: string): string {
-  const limpia = (s: string) => s.replace(/[/\\:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim();
-  const dir = section ? `${limpia(section)}/` : "";
+  // Ademas de quitar separadores (/ \\) y caracteres ilegales, se ELIMINAN los puntos iniciales:
+  // sin esto, una seccion «..» produciria «../» y un descompresor permisivo escribiria FUERA de la
+  // carpeta destino en el equipo del CLIENTE (Zip Slip). La seccion es texto libre del equipo.
+  const limpia = (s: string) => s.replace(/[/\\:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().replace(/^\.+/, "").trim();
+  const dirLimpio = section ? limpia(section) : "";
+  const dir = dirLimpio ? `${dirLimpio}/` : "";
   const base = limpia(filename) || "foto.jpg";
   const dot = base.lastIndexOf(".");
   const stem = dot > 0 ? base.slice(0, dot) : base;

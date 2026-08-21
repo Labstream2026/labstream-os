@@ -121,11 +121,14 @@ export async function renombrarSeccion(setId: string, de: string, a: string): Pr
 // ── Portada del set: la foto que recibe al cliente en el héroe de su galería ──
 // Reutiliza Deliverable.coverFileAssetId (el mismo campo de la portada de los reels).
 export async function hacerPortadaSet(photoId: string): Promise<ResultadoSet> {
-  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, fileAssetId: true } });
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, fileAssetId: true, excludedAt: true } });
   if (!photo) noAutorizado();
   if (!photo.fileAssetId) return { ok: false, message: "Solo una foto subida al NAS puede ser portada (las de Drive no)." };
   const { set } = await ensureSet(photo.deliverableId, "escribir");
+  // Una portada EXCLUIDA sería un héroe que no aparece en la galería (incoherente). Al hacerla
+  // portada se re-incluye, para que la portada sea siempre una foto visible.
   await db.deliverable.update({ where: { id: set.id }, data: { coverFileAssetId: photo.fileAssetId } });
+  if (photo.excludedAt) await db.deliverablePhoto.update({ where: { id: photoId }, data: { excludedAt: null } });
   refresh(set.projectId, set.id);
   return { ok: true };
 }
