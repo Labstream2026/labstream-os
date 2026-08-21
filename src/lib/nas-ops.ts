@@ -19,15 +19,36 @@ import { posterDeVideo, puedeHacerPoster } from "@/lib/video-poster";
 
 export const OPS_DIR = process.env.NAS_OPS_DIR || "";
 
+// Centinela anti «mount fantasma»: si el NAS se desmonta, el bind mount de Docker deja
+// /nas/operaciones como una carpeta VACÍA del contenedor (capa efímera). Un simple stat pasaría
+// como OK y las fotos se escribirían a la nada → pérdida silenciosa. El centinela vive en la raíz
+// de la share REAL, así que su ausencia delata el fantasma. Se SIEMBRA solo la primera vez que la
+// carpeta se ve con contenido real (mismo espíritu que ESCRITURA_SENTINEL de la galería), y se
+// re-siembra al volver el mount: no hay que crearlo a mano ni se apaga la función por error.
+export const OPS_SENTINEL = ".labstream-ops";
+
 export function opsEnabled(): boolean {
   return Boolean(OPS_DIR);
 }
 
-// ¿Está montada Y accesible? (el mount puede faltar aunque la variable exista)
+// ¿Está montada Y accesible? (el mount puede faltar —o quedar fantasma— aunque la variable exista)
 export async function opsReady(): Promise<boolean> {
   if (!OPS_DIR) return false;
   try {
-    return (await fs.stat(OPS_DIR)).isDirectory();
+    if (!(await fs.stat(OPS_DIR)).isDirectory()) return false;
+    const sentinel = path.join(path.resolve(OPS_DIR), OPS_SENTINEL);
+    try {
+      await fs.stat(sentinel);
+      return true; // centinela presente → el mount es el real
+    } catch {
+      // Sin centinela: solo se da por bueno (y se siembra) si la carpeta YA tiene contenido real.
+      // Vacía = fantasma (o mount recién caído) → false, y la subida devuelve «disco no disponible»
+      // en vez de escribir a un directorio efímero.
+      const entries = await fs.readdir(OPS_DIR).catch(() => [] as string[]);
+      if (!entries.some((e) => !isJunkName(e))) return false;
+      await fs.writeFile(sentinel, "Centinela de Labstream OS: NO BORRAR. Marca que este es el disco Operaciones_LAB real.\n").catch(() => {});
+      return true;
+    }
   } catch {
     return false;
   }
@@ -36,7 +57,7 @@ export async function opsReady(): Promise<boolean> {
 // ── Rutas seguras ──────────────────────────────────────────────────────────────
 
 // Basura que no se lista ni se sirve: metadatos de Synology, papelera, fantasmas de macOS/Windows.
-const JUNK = new Set(["@eaDir", "#recycle", "#snapshot", ".DS_Store", "Thumbs.db", "desktop.ini", ".SynologyWorkingDirectory", "@tmp", "Backups_LabstreamOS"]);
+const JUNK = new Set(["@eaDir", "#recycle", "#snapshot", ".DS_Store", "Thumbs.db", "desktop.ini", ".SynologyWorkingDirectory", "@tmp", "Backups_LabstreamOS", OPS_SENTINEL]);
 export function isJunkName(name: string): boolean {
   return JUNK.has(name) || name.startsWith("._") || name.startsWith(".");
 }

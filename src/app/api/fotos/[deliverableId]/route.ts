@@ -90,9 +90,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deliverabl
     if (!(await opsReady())) {
       return NextResponse.json({ error: "El disco Operaciones_LAB no responde. Las fotos de este set viven allá: revisa el montaje y vuelve a intentar." }, { status: 503 });
     }
-    let destDir = deliverable.photosOpsFolder;
-    if (section) destDir = await createOpsFolder(deliverable.photosOpsFolder, section); // idempotente (EEXIST se traga)
-    const rel = await writeOps(destDir, file.name, buf);
+    let rel: string;
+    try {
+      let destDir = deliverable.photosOpsFolder;
+      if (section) destDir = await createOpsFolder(deliverable.photosOpsFolder, section); // idempotente (EEXIST se traga)
+      rel = await writeOps(destDir, file.name, buf);
+    } catch (e) {
+      // Sin esto, un disco lleno / carpeta movida por SMB / sin permisos devolvía un 500 mudo y
+      // el uploader mostraba «error» sin causa. Cada código de errno tiene su mensaje accionable.
+      const code = (e as NodeJS.ErrnoException)?.code;
+      const [msg, status]: readonly [string, number] =
+        code === "ENOSPC" ? ["El disco Operaciones_LAB está lleno. Libera espacio y reintenta.", 507]
+        : code === "ENOENT" ? ["La carpeta vinculada del set ya no existe en el disco. Vuelve a vincularla.", 409]
+        : code === "EACCES" || code === "EPERM" ? ["Sin permiso de escritura en el disco Operaciones_LAB.", 503]
+        : ["No se pudo escribir la foto en el disco. Reintenta.", 502];
+      return NextResponse.json({ error: msg }, { status });
+    }
     asset = await db.fileAsset.create({
       data: { projectId: deliverable.projectId, name: file.name, kind: "OPS", path: rel, mime: mimeFor(file.name, file.type), size: buf.length, uploadedById: session.id },
       select: { id: true },

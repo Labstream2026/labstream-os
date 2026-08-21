@@ -273,6 +273,12 @@ export async function importarCarpetaOps(setId: string): Promise<ResultadoSet> {
 // tarea «Pre-aprobar…» — la misma coreografía de los videos.
 export async function enviarSetARevision(setId: string): Promise<ResultadoSet> {
   const { session, set } = await ensureSet(setId, "gestionar");
+  // Simétrico a la guarda `yaAbierto` de enviarSetAlCliente: REVISION_INTERNA no es un estado de
+  // cara al cliente, así que mandar a revisión un set YA enviado le CERRARÍA el enlace al cliente.
+  // La UI oculta el botón cuando el enlace está abierto, pero una pestaña vieja / doble clic no.
+  if (["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO", "ENTREGADO"].includes(set.status)) {
+    return { ok: false, message: "El set ya está de cara al cliente; no lo devuelvas a revisión interna sin querer. Retócalo y reenvíale el enlace si hace falta." };
+  }
   const visibles = await visiblesDe(setId);
   if (visibles === 0) return { ok: false, message: "El set no tiene fotos que mostrar: sube fotos (o des-excluye alguna) antes de mandarlo a revisión." };
   await db.deliverable.update({ where: { id: setId }, data: { status: "REVISION_INTERNA" } });
@@ -329,11 +335,24 @@ export async function decisionSetInterno(setId: string, result: "APROBADO" | "CA
     },
   });
   if (!set || set.type !== "FOTOGRAFIA") noAutorizado();
+  // Proyecto dormido: no se decide sobre material archivado/terminado. ensureSet lo bloquea en el
+  // resto del módulo; aquí el findUnique es aparte, así que se repite la puerta.
+  if (set.project.archivedAt || set.project.finishedAt) noAutorizado();
   const puedeDecidir =
-    canManageProject(set.project, session) ||
+    // Igual que internalDecision de los videos: el gestor necesita ADEMÁS aprobar_entregables (la
+    // UI ya lo exige para pintar el botón; sin esto, un gestor sin el permiso podría decidir
+    // llamando el action directo). Un revisor asignado siempre puede, por definición del encargo.
+    (canManageProject(set.project, session) && hasPermission(session, "aprobar_entregables")) ||
     set.reviewerId === session!.id ||
     set.reviewers.some((r) => r.userId === session!.id);
-  if (!puedeDecidir) return { ok: false, message: "Solo un revisor asignado o el responsable puede decidir." };
+  if (!puedeDecidir) return { ok: false, message: "Solo un revisor asignado, o el responsable con permiso para aprobar, puede decidir." };
+  // Blindaje contra invocación OBSOLETA (pestaña vieja / doble clic): solo se decide desde
+  // REVISION_INTERNA. Sin esto, un «cambios» sobre un set que el cliente YA aprobó lo tiraría a
+  // edición (cerrando su enlace), y un «aprobado» re-dispararía avisos y recrearía la tarea de
+  // entrega. Mismo patrón «estado obsoleto» que internalDecision de los videos.
+  if (set.status !== "REVISION_INTERNA") {
+    return { ok: false, message: "El set ya no está en revisión interna (alguien decidió antes, o el cliente ya lo tiene). Recarga la página." };
+  }
 
   const aprobado = result === "APROBADO";
   await db.deliverableDecision.create({

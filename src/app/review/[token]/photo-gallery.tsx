@@ -71,6 +71,17 @@ export function PhotoGallery({
   const galRef = React.useRef<HTMLDivElement>(null);
 
   const [, startTransition] = React.useTransition();
+  // Aviso cuando un guardado NO llegó. Antes el error se tragaba: el cliente veía su elección
+  // puesta (anillo naranja) pero el servidor nunca la registraba → se perdía en silencio. Ahora
+  // se REVIERTE el cambio optimista y se avisa para que reintente. (La sala monta OfflineProvider;
+  // enrutar esto por la cola offline queda como mejora aparte.)
+  const [aviso, setAviso] = React.useState<string | null>(null);
+  const avisoTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mostrarAviso = React.useCallback((msg: string) => {
+    setAviso(msg);
+    if (avisoTimer.current) clearTimeout(avisoTimer.current);
+    avisoTimer.current = setTimeout(() => setAviso(null), 4000);
+  }, []);
 
   function update(id: string, patch: Partial<GalleryPhoto>) {
     setPhotos((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -80,24 +91,28 @@ export function PhotoGallery({
     if (soloLectura) return;
     // Toggle: volver a tocar el mismo estado lo deja en PENDIENTE.
     const next = p.pick === pick ? "PENDIENTE" : pick;
+    const antes = p.pick;
     update(p.id, { pick: next });
     startTransition(async () => {
       try {
         await setPhotoPick(token, p.id, next, p.clientNote ?? undefined);
       } catch {
-        /* la UI ya reflejó el intento */
+        update(p.id, { pick: antes }); // revertir: no quedó guardado
+        mostrarAviso("No pudimos guardar tu elección. Revisa tu conexión y vuelve a tocarla.");
       }
     });
   }
 
   function saveNote(p: GalleryPhoto, note: string) {
     if (soloLectura) return;
+    const antes = p.clientNote ?? null;
     update(p.id, { clientNote: note });
     startTransition(async () => {
       try {
         await setPhotoPick(token, p.id, p.pick, note);
       } catch {
-        /* noop */
+        update(p.id, { clientNote: antes });
+        mostrarAviso("No pudimos guardar tu comentario. Revisa tu conexión y reinténtalo.");
       }
     });
   }
@@ -106,12 +121,15 @@ export function PhotoGallery({
   // dataURL local; el servidor guarda el JPEG aplanado y el estudio lo verá por su URL.
   function saveMarca(p: GalleryPhoto, drawing: string | null, note: string) {
     if (soloLectura) return;
+    const antesMarca = p.marca ?? null;
+    const antesNota = p.clientNote ?? null;
     update(p.id, { marca: drawing, ...(note ? { clientNote: note } : {}) });
     startTransition(async () => {
       try {
         await setPhotoDrawing(token, p.id, drawing, note || undefined);
       } catch {
-        /* la UI ya reflejó el intento */
+        update(p.id, { marca: antesMarca, clientNote: antesNota });
+        mostrarAviso("No pudimos guardar tu marca. Revisa tu conexión y vuelve a enviarla.");
       }
     });
   }
@@ -158,6 +176,14 @@ export function PhotoGallery({
 
   return (
     <div className="space-y-5">
+      {/* Aviso de guardado fallido (antes se perdía en silencio). */}
+      {aviso ? (
+        <div role="status" className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-4">
+          <div className="pointer-events-auto max-w-sm rounded-xl border border-amber-400/40 bg-amber-500/95 px-4 py-2.5 text-center text-[13px] font-medium text-black shadow-lg backdrop-blur">
+            {aviso}
+          </div>
+        </div>
+      ) : null}
       {/* ── Héroe: la portada recibe al cliente ── */}
       {coverSrc ? (
         <section className="relative -mt-1 flex min-h-[19rem] items-end overflow-hidden rounded-2xl border border-white/10 md:min-h-[24rem]">

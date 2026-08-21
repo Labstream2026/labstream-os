@@ -144,8 +144,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         const webp = await opsThumb(file.path, isThumb ? thumbEdge : 1600);
         if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
-        /* sin miniatura → sigue con el original */
+        /* sin miniatura → ver abajo */
       }
+      // MINIATURA (?thumb) sin preview (HEIC no decodable, imagen corrupta): 404, NUNCA el
+      // original completo. Una cuadrícula pide decenas de celdas; servir el original en cada
+      // fallo le empuja megas al cliente, justo lo contrario de «preview pequeña, carga rápida».
+      if (isThumb) return new NextResponse(null, { status: 404 });
     }
     return serveDisk(req, opsFile, file.name, opsType, opsIsVideo, wantInline);
   }
@@ -167,8 +171,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         const webp = await galeriaThumb(file.path, isThumb ? thumbEdge : 1600);
         if (webp) return respuestaWebp(webp, file.name, req, isThumb);
       } catch {
-        /* sin miniatura → sigue con el original */
+        /* sin miniatura → ver abajo */
       }
+      // ?thumb sin preview: 404, nunca el original completo en una celda de la cuadrícula.
+      if (isThumb) return new NextResponse(null, { status: 404 });
     }
     // ── DIAGNÓSTICO (?diag=1) ── Lo pide la sala cuando el reproductor ya falló. Sin esto, una
     // pieza del NAS caía en el consejo genérico «sube un export H.264 como nueva versión» — que
@@ -463,8 +469,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       const webp = await fs.readFile(absPath(previewRel(file.path)));
       return respuestaWebp(webp, file.name, req, isThumb);
     } catch {
-      /* sin preview → sigue con el original */
+      /* sin preview → ver abajo */
     }
+    // ?thumb sin preview (HEIC/corrupto): 404, nunca el original completo en una celda.
+    if (isThumb) return new NextResponse(null, { status: 404 });
   }
 
   let abs: string;
