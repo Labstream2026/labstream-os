@@ -773,7 +773,14 @@ export async function logTime(taskId: string, _projectId: string, formData: Form
   const note = String(formData.get("note") ?? "").trim().slice(0, 300) || null;
   const dayRaw = String(formData.get("spentOn") ?? "").trim();
   const spentOn = dayRaw ? noonUTC(dayRaw) : noonUTC(todayKey());
-  await db.timeEntry.create({ data: { taskId, userId: session?.id ?? null, minutes, note, spentOn } });
+  // Idempotencia offline (Fase 2): el registro puede traer un id de cliente (se apuntó sin
+  // conexión y se reenvía al volver). Si ya existe uno con ese id, no se duplican las horas.
+  const entryId = String(formData.get("clientId") ?? "").trim() || undefined;
+  if (entryId) {
+    const dup = await db.timeEntry.findUnique({ where: { id: entryId }, select: { id: true } });
+    if (dup) { refresh(projectId); return; }
+  }
+  await db.timeEntry.create({ data: { ...(entryId ? { id: entryId } : {}), taskId, userId: session?.id ?? null, minutes, note, spentOn } });
   await logActivity({ action: "task.time", summary: `registró ${minutesToHours(minutes)} h en «${task!.title}»`, projectId, entityType: "task", entityId: taskId });
   refresh(projectId);
 }
@@ -3462,6 +3469,7 @@ export async function clientDecideDeliverable(deliverableId: string, decision: "
 export async function quickAddTask(
   rawText: string,
   projectId?: string | null,
+  clientId?: string | null,
 ): Promise<{ ok: boolean; error?: string; taskId?: string }> {
   const session = await getSession();
   if (!session) return { ok: false, error: "No autorizado." };
@@ -3474,7 +3482,7 @@ export async function quickAddTask(
     }
     pid = projectId;
   }
-  const r = await quickCreateFromText(session, rawText, pid);
+  const r = await quickCreateFromText(session, rawText, pid, clientId ?? null);
   if (!r.ok) return r;
   revalidatePath("/mis-tareas");
   if (pid) refresh(pid);

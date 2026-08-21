@@ -15,9 +15,10 @@ import { alCambiarCola, contarPendientes, pendientes, quitar } from "./cola";
 //   · 5xx / timeout / red → el servidor está mal; se PARA y se reintenta luego (nada se pierde).
 
 type Estado = "idle" | "sincronizando" | "error";
-type Ctx = { pendientes: number; estado: Estado; sincronizarAhora: () => void };
+type Fallo = { etiqueta?: string; motivo?: string };
+type Ctx = { pendientes: number; estado: Estado; fallo: Fallo | null; sincronizarAhora: () => void };
 
-const OfflineCtx = React.createContext<Ctx>({ pendientes: 0, estado: "idle", sincronizarAhora: () => {} });
+const OfflineCtx = React.createContext<Ctx>({ pendientes: 0, estado: "idle", fallo: null, sincronizarAhora: () => {} });
 export function useOffline(): Ctx {
   return React.useContext(OfflineCtx);
 }
@@ -34,6 +35,7 @@ async function servidorVivo(): Promise<boolean> {
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [num, setNum] = React.useState(0);
   const [estado, setEstado] = React.useState<Estado>("idle");
+  const [fallo, setFallo] = React.useState<Fallo | null>(null);
   const corriendo = React.useRef(false);
 
   const flush = React.useCallback(async () => {
@@ -48,7 +50,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
     corriendo.current = true;
     setEstado("sincronizando");
-    let huboError = false;
+    let ultimoFallo: Fallo | null = null;
     try {
       for (const op of cola) {
         let r: Response;
@@ -67,10 +69,18 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
           continue;
         }
         if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) {
-          // Rechazo permanente: reintentar no lo arregla. Se saca de la cola para no atascarla.
-          // (Fase 2: guardar el motivo y ofrecer un detalle «no se pudo sincronizar X».)
+          // Rechazo permanente (sesión, permiso, conflicto, token caducado): reintentar no lo
+          // arregla. Se saca para no atascar la cola y se GUARDA el motivo (con la etiqueta de la
+          // op) para poder decir QUÉ no se pudo sincronizar, en vez de un error genérico.
+          let motivo: string | undefined;
+          try {
+            const j = (await r.json()) as { error?: string };
+            motivo = j?.error;
+          } catch {
+            /* sin cuerpo legible */
+          }
+          ultimoFallo = { etiqueta: op.etiqueta, motivo };
           await quitar(op.opId);
-          huboError = true;
           continue;
         }
         break; // 5xx / 408 / 429: el servidor está mal; se reintenta luego sin perder nada
@@ -79,7 +89,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       corriendo.current = false;
       const quedan = await contarPendientes();
       setNum(quedan);
-      setEstado(huboError ? "error" : "idle");
+      setFallo(ultimoFallo);
+      setEstado(ultimoFallo ? "error" : "idle");
     }
   }, []);
 
@@ -108,8 +119,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   }, [flush]);
 
   const ctx = React.useMemo<Ctx>(
-    () => ({ pendientes: num, estado, sincronizarAhora: () => void flush() }),
-    [num, estado, flush],
+    () => ({ pendientes: num, estado, fallo, sincronizarAhora: () => void flush() }),
+    [num, estado, fallo, flush],
   );
   return <OfflineCtx.Provider value={ctx}>{children}</OfflineCtx.Provider>;
 }

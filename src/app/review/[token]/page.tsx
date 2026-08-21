@@ -10,6 +10,8 @@ import { buildStageVersions } from "@/lib/review-version";
 import { photoViewSrc, photoThumbSrc, photoLightboxSrc, photoMarkSrc } from "@/lib/deliverable-photo";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { Logo } from "@/components/brand/logo";
+import { OfflineProvider } from "@/lib/offline/sync";
+import { PendientesBar } from "@/components/offline/pendientes-bar";
 import { ReviewClient } from "./review-client";
 import { PhotoGallery } from "./photo-gallery";
 import { PhotoDecision } from "./photo-decision";
@@ -261,6 +263,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
       </header>
 
       <main className={`relative mx-auto max-w-5xl px-6 py-6${shellW}`}>
+        {/* Modo offline (Camino B, Fase 2): el portal de revisión vive FUERA del layout de la app,
+            así que monta aquí su propio motor de sync + barra de pendientes. Si el servidor se cae
+            mientras el cliente comenta, la corrección queda en la cola local y se envía al volver. */}
+        <OfflineProvider>
+        <PendientesBar />
         {/* Aviso de BORRADOR: quien abre este enlace tiene que saber, antes de mirar nada, que
             está viendo trabajo en curso y que lo que se espera de él son comentarios. */}
         {isDraft ? (
@@ -356,6 +363,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             }))}
           />
         )}
+        </OfflineProvider>
       </main>
     </RoomShell>
   );

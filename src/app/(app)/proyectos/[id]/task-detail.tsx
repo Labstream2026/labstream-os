@@ -18,7 +18,6 @@ import {
   setTaskDates,
   setTaskShootDate,
   setTaskEstimate,
-  logTime,
   deleteTimeEntry,
   getTaskTimeEntries,
   deleteTask,
@@ -40,6 +39,7 @@ import { type LabelRow, labelOptions } from "@/lib/colors";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatMinutes, minutesToHours, parseHoursToMinutes, todayKey } from "@/lib/timeline";
 import { formatBogotaDate } from "@/lib/bogota-time";
+import { registrarHorasResiliente } from "@/lib/offline/registrar-horas";
 import { cn } from "@/lib/utils";
 
 function timeAgo(iso: string): string {
@@ -349,6 +349,7 @@ function TimeTracking({
   const [entries, setEntries] = React.useState<TimeEntryItem[] | null>(null);
   const [pending, start] = React.useTransition();
   const [err, setErr] = React.useState<string | null>(null);
+  const [pendiente, setPendiente] = React.useState(false);
   const formRef = React.useRef<HTMLFormElement>(null);
 
   React.useEffect(() => {
@@ -373,14 +374,25 @@ function TimeTracking({
       return;
     }
     setErr(null);
+    setPendiente(false);
     start(async () => {
-      try {
-        await logTime(taskId, projectId, fd);
-        form.reset();
-        setEntries(await getTaskTimeEntries(taskId));
-      } catch (e) {
+      const r = await registrarHorasResiliente(taskId, projectId, {
+        hours: String(fd.get("hours") ?? ""),
+        note: String(fd.get("note") ?? "") || undefined,
+        spentOn: String(fd.get("spentOn") ?? "") || undefined,
+      });
+      if (!r.ok) {
         // No reseteamos el formulario: lo escrito queda intacto para reintentar sin perderlo.
-        setErr(e instanceof Error ? e.message : "No se pudo registrar. Reintenta.");
+        setErr(r.error ?? "No se pudo registrar. Reintenta.");
+        return;
+      }
+      form.reset();
+      if (r.pendiente) {
+        // Sin conexión: el parte quedó en la cola local; aún no está en el servidor, así que no lo
+        // volvemos a leer, pero está a salvo y se envía solo (la barra global lo indica).
+        setPendiente(true);
+      } else {
+        setEntries(await getTaskTimeEntries(taskId));
       }
     });
   }
@@ -430,6 +442,11 @@ function TimeTracking({
       </form>
       {err ? (
         <p role="alert" className="mt-1.5 text-xs text-destructive">{err}</p>
+      ) : null}
+      {pendiente ? (
+        <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+          Registrado sin conexión. Se enviará cuando vuelva el servidor.
+        </p>
       ) : null}
 
       <div className="mt-3 space-y-1.5">

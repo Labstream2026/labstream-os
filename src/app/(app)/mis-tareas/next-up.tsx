@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Loader2, Play, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { completeMyTask } from "./actions";
+import { completarTareaResiliente } from "@/lib/offline/completar-tarea";
 import { startTaskTimer, stopTaskTimer } from "./timer-actions";
 import { postponeTask } from "@/app/(app)/proyectos/[id]/actions";
 
@@ -36,6 +36,7 @@ export function NextUpHero({ task, timer }: { task: HeroTask | null; timer: Hero
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  const [pendiente, setPendiente] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
   const now = React.useSyncExternalStore(subscribeTick, readTick, () => 0);
 
@@ -105,9 +106,11 @@ export function NextUpHero({ task, timer }: { task: HeroTask | null; timer: Hero
         )}
         <button
           onClick={() => run(async () => {
-            const r = await completeMyTask(focusId);
-            if (r.ok) router.refresh();
-            else setError(r.error ?? "No se pudo completar.");
+            setPendiente(false);
+            const r = await completarTareaResiliente(focusId);
+            if (!r.ok) { setError(r.error ?? "No se pudo completar."); return; }
+            if (r.pendiente) setPendiente(true);
+            else router.refresh();
           })}
           disabled={pending}
           className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25 disabled:opacity-60"
@@ -136,6 +139,7 @@ export function NextUpHero({ task, timer }: { task: HeroTask | null; timer: Hero
         </details>
       </div>
       {error ? <p className="mt-2 text-xs font-semibold text-rose-200">{error}</p> : null}
+      {pendiente ? <p className="mt-2 text-xs font-semibold text-amber-200">Completada sin conexión. Se enviará al volver.</p> : null}
       {note ? <p className="mt-2 text-xs font-medium text-emerald-200">{note}</p> : null}
     </div>
   );

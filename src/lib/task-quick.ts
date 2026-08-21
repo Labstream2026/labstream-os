@@ -16,9 +16,18 @@ export async function quickCreateFromText(
   session: SessionUser,
   rawText: string,
   pid: string | null,
+  clientId: string | null = null,
 ): Promise<{ ok: boolean; error?: string; taskId?: string; title?: string }> {
   const text = rawText.trim().slice(0, 300);
   if (!text) return { ok: false, error: "Escribe la tarea." };
+  // Idempotencia offline (Camino B, Fase 2): si la tarea se creó SIN conexión, el cliente le
+  // asignó un id y al volver la red se reenvía aquí. Como el id es la clave, si ya existe una
+  // tarea con ese id no se crea otra —se devuelve la existente—: reenviar el mismo «crear» nunca
+  // duplica la tarea ni re-dispara sus avisos/rastro. Mismo patrón que persistNote con las notas.
+  if (clientId) {
+    const dup = await db.task.findUnique({ where: { id: clientId }, select: { id: true, title: true } });
+    if (dup) return { ok: true, taskId: dup.id, title: dup.title };
+  }
   const parsed = parseTaskText(text, Date.now());
   if (!parsed.title) return { ok: false, error: "Falta el título (los tokens solos no bastan)." };
 
@@ -53,6 +62,7 @@ export async function quickCreateFromText(
   const position = pid ? await db.task.count({ where: { projectId: pid } }) : 0;
   const task = await db.task.create({
     data: {
+      ...(clientId ? { id: clientId } : {}),
       title: parsed.title,
       priority: priority as never,
       startDate: bogotaNoon(),

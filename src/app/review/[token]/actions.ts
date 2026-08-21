@@ -115,6 +115,15 @@ export async function addReviewComment(token: string, formData: FormData) {
   // Un comentario debe tener texto o un dibujo (anotación).
   if (!body && !drawingRaw) return;
 
+  // Idempotencia offline (Camino B, Fase 2): la corrección puede haberse escrito SIN conexión
+  // (el cliente le asignó un id y la cola local la reenvía al volver la red). Si ya existe un
+  // comentario con ese id, no se crea otro ni se vuelve a avisar al equipo: reenviar es un no-op.
+  const clientId = String(formData.get("clientId") ?? "").trim() || undefined;
+  if (clientId) {
+    const dup = await db.reviewComment.findUnique({ where: { id: clientId }, select: { id: true } });
+    if (dup) return;
+  }
+
   let drawingData: unknown = undefined;
   if (drawingRaw) {
     try {
@@ -141,6 +150,7 @@ export async function addReviewComment(token: string, formData: FormData) {
 
   await db.reviewComment.create({
     data: {
+      ...(clientId ? { id: clientId } : {}),
       deliverableId,
       authorName,
       authorUserId: inviter?.id ?? undefined,

@@ -8,7 +8,7 @@ import { useOffline } from "@/lib/offline/sync";
 // guardado en el equipo esperando volver. Nace del modo offline (Camino B, Fase 1): sin ella,
 // «se guardó local y se enviará luego» sería invisible y el usuario no sabría que aún falta subir.
 export function PendientesBar() {
-  const { pendientes, estado } = useOffline();
+  const { pendientes, estado, fallo } = useOffline();
   if (pendientes === 0 && estado !== "error") return null;
 
   return (
@@ -38,8 +38,12 @@ export function PendientesBar() {
           </>
         ) : (
           <>
-            <b className="text-destructive">Algo no se pudo sincronizar.</b>{" "}
-            <span className="text-muted-foreground">Revisa tu sesión y vuelve a intentarlo.</span>
+            <b className="text-destructive">
+              {fallo?.etiqueta ? `No se pudo sincronizar «${fallo.etiqueta}».` : "Algo no se pudo sincronizar."}
+            </b>{" "}
+            <span className="text-muted-foreground">
+              {fallo?.motivo ? fallo.motivo : "Revisa tu sesión y vuelve a intentarlo."}
+            </span>
           </>
         )}
       </p>

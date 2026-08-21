@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, Clock3 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { completeMyTask } from "./actions";
+import { completarTareaResiliente } from "@/lib/offline/completar-tarea";
 import { postponeTask } from "@/app/(app)/proyectos/[id]/actions";
 
 // Gestos táctiles de una fila de Mis tareas (Tareas 2.0, Fase 1) — el mismo patrón de los
@@ -19,15 +19,20 @@ export function SwipeTaskRow({ taskId, children }: { taskId: string; children: R
   const [dx, setDx] = React.useState(0);
   const [ask, setAsk] = React.useState(false); // barra de posponer visible
   const [error, setError] = React.useState<string | null>(null);
+  const [pendiente, setPendiente] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
   const dragRef = React.useRef<{ x: number; id: number } | null>(null);
 
   const complete = () => {
     setError(null);
+    setPendiente(false);
     startTransition(async () => {
-      const r = await completeMyTask(taskId);
-      if (r.ok) router.refresh();
-      else setError(r.error ?? "No se pudo completar.");
+      const r = await completarTareaResiliente(taskId);
+      if (!r.ok) { setError(r.error ?? "No se pudo completar."); return; }
+      // Sin conexión la tarea queda marcada en la cola local: no refrescamos (seguiría en la
+      // lista del servidor), solo avisamos; se completa de verdad al volver la red.
+      if (r.pendiente) setPendiente(true);
+      else router.refresh();
     });
   };
   const postpone = (when: "tarde" | "manana" | "lunes") => {
@@ -86,6 +91,7 @@ export function SwipeTaskRow({ taskId, children }: { taskId: string; children: R
         </div>
       ) : null}
       {error ? <p className="mt-1 px-1 text-xs font-medium text-destructive">{error}</p> : null}
+      {pendiente ? <p className="mt-1 px-1 text-xs font-medium text-amber-600 dark:text-amber-400">Completada sin conexión. Se enviará al volver el servidor.</p> : null}
     </div>
   );
 }

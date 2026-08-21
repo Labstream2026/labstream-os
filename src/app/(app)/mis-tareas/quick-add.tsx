@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseTaskText, type ParsedTask } from "@/lib/task-parse";
-import { quickAddTask } from "@/app/(app)/proyectos/[id]/actions";
+import { crearTareaRapidaResiliente } from "@/lib/offline/guardar-tarea";
 
 // Quick-add de tareas en UN renglón (Tareas 2.0, Fase 1): «Grabar dron mañana 9am @Zahid
 // #rodaje 2h» → Enter y listo. El parser corre también AQUÍ (es lib pura) para previsualizar
@@ -16,11 +16,13 @@ export function QuickAdd({ projectId, placeholder }: { projectId?: string | null
   const [text, setText] = React.useState("");
   const [parsed, setParsed] = React.useState<ParsedTask | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [pendiente, setPendiente] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
 
   const onChange = (v: string) => {
     setText(v);
     setError(null);
+    setPendiente(false);
     setParsed(v.trim() ? parseTaskText(v, Date.now()) : null);
   };
 
@@ -28,11 +30,14 @@ export function QuickAdd({ projectId, placeholder }: { projectId?: string | null
     const t = text.trim();
     if (!t || pending) return;
     startTransition(async () => {
-      const r = await quickAddTask(t, projectId ?? null);
+      const r = await crearTareaRapidaResiliente(t, projectId ?? null);
       if (r.ok) {
         setText("");
         setParsed(null);
-        router.refresh();
+        // Sin conexión la tarea quedó en la cola local: aún no está en el servidor, así que no la
+        // veremos al refrescar, pero está a salvo y se enviará sola (la barra global lo indica).
+        setPendiente(!!r.pendiente);
+        if (!r.pendiente) router.refresh();
       } else {
         setError(r.error ?? "No se pudo crear la tarea.");
       }
@@ -77,6 +82,11 @@ export function QuickAdd({ projectId, placeholder }: { projectId?: string | null
         </div>
       ) : null}
       {error ? <p className="mt-1.5 px-1 text-xs font-medium text-destructive">{error}</p> : null}
+      {pendiente ? (
+        <p className="mt-1.5 px-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+          Guardada sin conexión. Aparecerá cuando vuelva el servidor.
+        </p>
+      ) : null}
     </div>
   );
 }
