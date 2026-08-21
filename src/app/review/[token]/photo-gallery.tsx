@@ -176,6 +176,10 @@ export function PhotoGallery({
 
   return (
     <div className="space-y-5">
+      {/* Destino oculto de las descargas: si el ZIP responde error (413 son demasiadas, 429 espera,
+          404 sin originales), el JSON carga AQUÍ dentro —invisible— en vez de reemplazar la galería
+          y sacar al cliente de su sala. En éxito, el `attachment` dispara la descarga igual. */}
+      <iframe name="ls-descarga" title="descarga" className="hidden" aria-hidden="true" />
       {/* Aviso de guardado fallido (antes se perdía en silencio). */}
       {aviso ? (
         <div role="status" className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-4">
@@ -365,6 +369,7 @@ export function PhotoGallery({
               <div className="absolute bottom-full right-0 mb-2 w-60 rounded-xl border border-border bg-popover p-1 shadow-2xl">
                 <a
                   href={`/api/fotos/${deliverableId}/zip?que=cliente&t=${encodeURIComponent(token)}`}
+                  target="ls-descarga"
                   className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
                 >
                   Todas mis fotos <span className="text-xs tabular-nums text-muted-foreground">{descargables}</span>
@@ -372,6 +377,7 @@ export function PhotoGallery({
                 {liked > 0 ? (
                   <a
                     href={`/api/fotos/${deliverableId}/zip?que=elegidas&t=${encodeURIComponent(token)}`}
+                    target="ls-descarga"
                     className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
                   >
                     <span className="inline-flex items-center gap-1.5"><Heart className="size-3.5 fill-primary text-primary" /> Mis elegidas</span>
@@ -382,7 +388,9 @@ export function PhotoGallery({
               </div>
             </details>
           ) : null}
-          {!soloLectura ? (
+          {/* Solo cuando hay decisión que tomar: en BORRADOR (deliverableId null) no existe el ancla
+              #decision-fotos, así que el botón no haría nada — se oculta. */}
+          {!soloLectura && deliverableId ? (
             <button
               type="button"
               onClick={() => document.getElementById("decision-fotos")?.scrollIntoView({ behavior: "smooth", block: "center" })}

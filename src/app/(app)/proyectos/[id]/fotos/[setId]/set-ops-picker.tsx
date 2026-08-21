@@ -41,19 +41,29 @@ export function SetOpsPicker({
   const [tick, setTick] = React.useState(0);
   const clave = `${path}#${tick}`;
   const [leida, setLeida] = React.useState<string | null>(null);
+  const [discoCaido, setDiscoCaido] = React.useState(false);
   const loading = leida !== clave;
 
   React.useEffect(() => {
     let vivo = true;
     fetch(`/api/ops/list?path=${encodeURIComponent(path)}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
+      .then(async (r) => {
+        const j = (await r.json().catch(() => null)) as { dirs?: Dir[]; error?: string } | null;
         if (!vivo) return;
-        setDirs((j?.dirs as Dir[]) || []);
+        // Distinguir «disco no disponible» (503/500 o {error}) de «carpeta vacía»: antes ambos se
+        // veían como «sin subcarpetas» y el equipo vinculaba/creaba contra un disco que no estaba.
+        if (!r.ok || j?.error) {
+          setDiscoCaido(true);
+          setDirs([]);
+        } else {
+          setDiscoCaido(false);
+          setDirs(j?.dirs ?? []);
+        }
         setLeida(clave);
       })
       .catch(() => {
         if (!vivo) return;
+        setDiscoCaido(true);
         setDirs([]);
         setLeida(clave);
       });
@@ -118,6 +128,8 @@ export function SetOpsPicker({
         <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
           {loading ? (
             <p className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Leyendo el disco…</p>
+          ) : discoCaido ? (
+            <p className="flex items-start gap-2 px-3 py-4 text-sm text-destructive"><HardDrive className="mt-0.5 size-4 shrink-0" /> El disco Operaciones_LAB no responde ahora. Revisa el montaje del NAS y reintenta —no vincules ni crees carpetas hasta que vuelva.</p>
           ) : dirs.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted-foreground">Sin subcarpetas aquí. Puedes crear una abajo.</p>
           ) : (
@@ -161,7 +173,7 @@ export function SetOpsPicker({
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setNewName(newName === null ? "" : null)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted">
+          <button onClick={() => setNewName(newName === null ? "" : null)} disabled={discoCaido} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50">
             <FolderPlus className="size-3.5" /> Nueva carpeta aquí
           </button>
           <span className="ml-auto" />
@@ -177,7 +189,7 @@ export function SetOpsPicker({
           ) : null}
           <button
             onClick={() => void vincular(path || "")}
-            disabled={busy || !path}
+            disabled={busy || !path || discoCaido}
             title={path ? `Elegir «${path}»` : "Navega a una carpeta para elegirla"}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
           >
