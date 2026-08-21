@@ -4,10 +4,8 @@ import { verifyProposalToken, verifyProposalUnlock } from "@/lib/proposals/token
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { ProposalGate } from "./gate";
 import { Logo } from "@/components/brand/logo";
-import { effectiveStatus, BRAND_DEFAULT, CINE_PALETTE, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
+import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
 import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
-import { ProposalPresentation } from "@/app/(app)/cotizaciones/propuestas/proposal-presentation";
-import { ProposalCine } from "@/app/(app)/cotizaciones/propuestas/proposal-cine";
 import { sanitizeBlockBodies } from "@/lib/proposals/html-sanitize";
 import { PrintButton } from "@/components/print-button";
 import { AcceptProposal } from "./accept";
@@ -84,84 +82,11 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   // Decidida = el cliente ya respondió (sí o no): no se le vuelve a pedir que decida.
   const decided = accepted || rejected;
 
-  // Tema "cine": el deck editorial de Labstream a pantalla completa (verde-noche y crema
-  // alternándose, videos de fondo, índice lateral). El pie —aceptar / vencida— va como última
-  // diapositiva para que el cliente no tenga que salirse del deck para decidir.
-  if (brand.theme === "cine") {
-    const pal = { ...CINE_PALETTE, ...(brand.cine ?? {}) };
-    return (
-      <ProposalCine
-        blocks={blocks}
-        brand={brand}
-        variant="full"
-        footer={
-          accepted ? (
-            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
-              ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
-            </div>
-          ) : rejected ? (
-            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(237,239,234,0.78)" }}>
-              Registramos tu respuesta. Gracias por contarnos el motivo.
-            </div>
-          ) : expired ? (
-            <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
-              Esta propuesta venció. Escríbenos para actualizarla.
-            </div>
-          ) : (
-            <AcceptProposal token={token} accent={pal.gold} dark />
-          )
-        }
-      />
-    );
-  }
-
-  // Tema "presentacion": experiencia inmersiva oscura a pantalla completa (misma propuesta, otro
-  // envoltorio). El documento clásico sigue igual para las propuestas en tema "documento".
-  if (brand.theme === "presentacion") {
-    return (
-      <div className="min-h-screen text-white" style={{ background: "#0d1017" }}>
-        <div
-          className="sticky top-0 z-20 flex items-center justify-between gap-3 px-5 py-3"
-          style={{ background: "rgba(13,16,23,0.82)", backdropFilter: "blur(8px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          <div>
-            <p className="text-sm font-semibold">{brand.company}</p>
-            <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>{brand.tagline}</p>
-          </div>
-        </div>
-
-        <ProposalPresentation blocks={blocks} brand={brand} variant="full" />
-
-        <section className="px-6 py-20" style={{ background: "#0d1017" }}>
-          <div className="mx-auto max-w-xl">
-            {accepted ? (
-              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#6ee7b7" }}>
-                ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
-              </div>
-            ) : rejected ? (
-              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(244,246,250,0.75)" }}>
-                Registramos tu respuesta. Gracias por contarnos el motivo.
-              </div>
-            ) : expired ? (
-              <div className="rounded-2xl px-5 py-4 text-center text-sm font-medium" style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fda4af" }}>
-                Esta propuesta venció. Escríbenos para actualizarla.
-              </div>
-            ) : (
-              <AcceptProposal token={token} accent={brand.accent} dark />
-            )}
-          </div>
-        </section>
-
-        <div className="flex items-center justify-center gap-1.5 py-8 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
-          <span>Hecho con</span>
-          <Logo className="h-3.5 opacity-60" alt="Labstream Studio" />
-        </div>
-      </div>
-    );
-  }
-
+  // Un solo diseño: el documento editorial premium (se retiraron los temas "cine" y
+  // "presentación"). La propuesta se muestra como una "hoja" centrada; el renderer pinta su
+  // propio fondo crema y las secciones —incluidos los fondos de video/imagen— llenan la hoja.
   return (
-    <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
+    <div className="min-h-screen py-8 print:bg-white print:py-0" style={{ background: "#eceae4" }}>
       <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 print:hidden">
         <div>
           <p className="text-sm font-semibold text-neutral-800">{brand.company}</p>
@@ -184,7 +109,7 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-3xl rounded-2xl bg-white p-4 shadow-sm print:rounded-none print:p-0 print:shadow-none sm:p-8">
+      <div className="mx-auto max-w-3xl overflow-hidden rounded-2xl shadow-sm print:rounded-none print:shadow-none">
         <ProposalRenderer blocks={blocks} brand={brand} />
       </div>
 

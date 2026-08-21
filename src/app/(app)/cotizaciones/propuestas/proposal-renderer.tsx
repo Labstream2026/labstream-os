@@ -1,6 +1,11 @@
-// Renderer del documento de propuesta. Componente PURO (sin hooks ni imports de
-// servidor): se usa tanto en la vista previa del editor (cliente) como en la
-// vista pública del cliente (servidor). El color de acento viene de brand.accent.
+// Renderer ÚNICO de la propuesta — diseño editorial premium (papel crema, serif de
+// despliegue, acento de marca). Componente PURO (sin hooks ni imports de servidor): se usa
+// tanto en la vista previa del editor (cliente) como en la vista pública del cliente (servidor).
+//
+// Un solo diseño para TODAS las propuestas (se retiraron los temas "presentación" y "cine").
+// Cada bloque puede llevar un FONDO de medios opcional —imagen (`bg`) o video en loop
+// (`bgVideo`)— con degradado oscuro encima y texto claro; o un tono oscuro (`tone: "dark"`)
+// para una sección de contraste. Sin fondo, la sección va sobre el papel crema.
 
 import * as React from "react";
 import { logoItems, type Block, type Brand } from "@/lib/proposals/types";
@@ -10,11 +15,34 @@ import { mesCal } from "@/lib/proposals/calendar";
 import { sanitizeProposalHtml } from "@/lib/proposals/sanitize";
 import { safeBgUrl, safeExternalUrl } from "@/lib/proposals/safe-url";
 
+// ── Paleta editorial (fija, NO hereda el tema de la app: la propuesta es un documento) ──
+const PAPER = "#fbfaf8";
+const INK = "#17171a";
+const INK_SOFT = "#5b5b63";
+const LINE = "#e7e4dd";
+const LINE2 = "#d8d4cb";
+const OK = "#0e9f6e";
+const SERIF = '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif';
+
 function str(v: unknown, d = ""): string {
   return typeof v === "string" ? v : v == null ? d : String(v);
 }
 function arr<T = unknown>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
+}
+
+// Colores de una sección según si va sobre fondo oscuro (media/tono oscuro) o sobre papel.
+function palette(onDark: boolean, accent: string) {
+  return {
+    title: onDark ? "#ffffff" : INK,
+    body: onDark ? "rgba(255,255,255,0.82)" : "#2e2e34",
+    soft: onDark ? "rgba(255,255,255,0.68)" : INK_SOFT,
+    accent: onDark ? `color-mix(in srgb, ${accent} 55%, white)` : accent,
+    cardBg: onDark ? "rgba(255,255,255,0.06)" : "#ffffff",
+    cardBorder: onDark ? "rgba(255,255,255,0.16)" : LINE,
+    line: onDark ? "rgba(255,255,255,0.16)" : LINE,
+    tableHead: onDark ? "rgba(255,255,255,0.08)" : "#f4f2ec",
+  };
 }
 
 // Convierte una URL de YouTube/Vimeo/MP4 en un embed; si no, deja un enlace.
@@ -27,232 +55,314 @@ function VideoEmbed({ url, caption }: { url: string; caption?: string }) {
   else if (vimeo) src = `https://player.vimeo.com/video/${vimeo[1]}`;
   if (!u) {
     return (
-      <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-border bg-muted/40 text-sm text-muted-foreground">
+      <div className="flex aspect-video w-full items-center justify-center rounded-2xl border border-dashed text-sm" style={{ borderColor: LINE2, color: INK_SOFT, background: "#fff" }}>
         Añade la URL del video
       </div>
     );
   }
   if (src) {
     return (
-      <div className="overflow-hidden rounded-xl border border-border bg-black">
+      <div className="overflow-hidden rounded-2xl border bg-black shadow-sm" style={{ borderColor: LINE }}>
         <iframe src={src} title={caption || "Video"} allowFullScreen className="aspect-video w-full" />
       </div>
     );
   }
   if (/\.(mp4|webm|mov)$/i.test(u)) {
-    return <video src={u} controls className="aspect-video w-full rounded-xl border border-border bg-black" />;
+    return <video src={u} controls className="aspect-video w-full rounded-2xl border bg-black shadow-sm" style={{ borderColor: LINE }} />;
   }
-  // Enlace de respaldo SOLO si es http(s): evita que un `javascript:`/`data:` guardado sea clicable
-  // (XSS almacenado) en el portal público.
   const safe = safeExternalUrl(u);
   return safe ? (
-    <a href={safe} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">
+    <a href={safe} target="_blank" rel="noreferrer" className="text-sm underline" style={{ color: INK }}>
       Ver video →
     </a>
   ) : (
-    <p className="text-sm text-muted-foreground">Video no disponible</p>
+    <p className="text-sm" style={{ color: INK_SOFT }}>Video no disponible</p>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-xl font-bold tracking-tight sm:text-2xl">{children}</h2>;
+// Etiqueta superior (kicker) de una sección.
+function Eyebrow({ children, color }: { children: React.ReactNode; color: string }) {
+  return (
+    <p className="mb-2.5 text-[11.5px] font-bold uppercase" style={{ color, letterSpacing: "0.13em" }}>
+      {children}
+    </p>
+  );
 }
 
-function BlockView({ block, brand }: { block: Block; brand: Brand }) {
-  const accent = brand.accent || "#6366f1";
+// Título de sección (serif de despliegue).
+function Titulo({ children, color }: { children: React.ReactNode; color: string }) {
+  return (
+    <h2 className="mb-5 text-[1.55rem] leading-[1.12] sm:text-[2rem]" style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: "-0.015em", color, textWrap: "balance" }}>
+      {children}
+    </h2>
+  );
+}
+
+// Envoltorio de una sección: pinta el fondo (papel / oscuro / medios) y centra el contenido.
+function Shell({
+  bg,
+  video,
+  dark,
+  first,
+  padY = "py-12 sm:py-14",
+  children,
+}: {
+  bg?: string | null;
+  video?: string | null;
+  dark?: boolean;
+  first?: boolean;
+  padY?: string;
+  children: React.ReactNode;
+}) {
+  const media = !!(bg || video);
+  const onDark = media || !!dark;
+  return (
+    <section
+      className="relative overflow-hidden"
+      style={{
+        background: onDark ? INK : "transparent",
+        borderTop: !onDark && !first ? `1px solid ${LINE}` : undefined,
+      }}
+    >
+      {video ? (
+        <video autoPlay muted loop playsInline src={video} className="absolute inset-0 z-0 h-full w-full object-cover" />
+      ) : bg ? (
+        <div className="absolute inset-0 z-0" style={{ backgroundImage: `url("${bg}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
+      ) : null}
+      {media ? <div className="absolute inset-0 z-[1]" style={{ background: "linear-gradient(180deg, rgba(10,12,20,0.35), rgba(10,12,20,0.80))" }} /> : null}
+      <div className={`relative z-[2] mx-auto w-full max-w-3xl px-6 sm:px-8 ${padY}`}>{children}</div>
+    </section>
+  );
+}
+
+function BlockView({ block, brand, first }: { block: Block; brand: Brand; first?: boolean }) {
+  const accent = brand.accent || "#2563eb";
+  const bg = safeBgUrl(str(block.bg));
+  const video = safeExternalUrl(str(block.bgVideo));
+  const dark = block.tone === "dark";
+  const onDark = !!(bg || video) || dark;
+  const c = palette(onDark, accent);
+  const kicker = str(block.kicker);
+
   switch (block.type) {
     case "hero": {
-      const bg = str(block.bg);
-      // Con imagen de fondo: la foto + un degradado oscuro encima para legibilidad.
-      // Sin imagen: degradado del color de acento.
-      const safeBg = safeBgUrl(bg);
-      const heroStyle: React.CSSProperties = safeBg
-        ? { backgroundImage: `linear-gradient(135deg, ${accent}cc, rgba(15,23,42,0.78)), url("${safeBg}")`, backgroundSize: "cover", backgroundPosition: "center" }
-        : { background: `linear-gradient(135deg, ${accent}, ${accent}cc 55%, #0f172a)` };
+      const meta = arr<{ k?: string; v?: string }>(block.meta);
       return (
-        <header className="overflow-hidden rounded-2xl px-6 py-14 text-center text-white sm:px-12 sm:py-20" style={heroStyle}>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{brand.company}</p>
-          <h1 className="mx-auto mt-3 max-w-2xl text-3xl font-bold leading-tight sm:text-5xl">{str(block.title, "Propuesta")}</h1>
-          {str(block.subtitle) ? <p className="mx-auto mt-4 max-w-xl text-base text-white/85 sm:text-lg">{str(block.subtitle)}</p> : null}
-        </header>
+        <Shell bg={bg} video={video} dark={dark} first={first} padY="pt-16 pb-12 sm:pt-20 sm:pb-14">
+          <p className="text-[12px] font-bold uppercase" style={{ color: c.accent, letterSpacing: "0.14em" }}>
+            {kicker || brand.company}
+          </p>
+          <h1 className="mt-3 max-w-2xl text-[2.2rem] leading-[1.05] sm:text-[3.1rem]" style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: "-0.02em", color: c.title, textWrap: "balance" }}>
+            {str(block.title, "Propuesta")}
+          </h1>
+          {str(block.subtitle) ? (
+            <p className="mt-4 max-w-[34ch] text-[1.15rem]" style={{ color: c.soft }}>{str(block.subtitle)}</p>
+          ) : null}
+          {str(block.intro) ? (
+            <p className="mt-3 max-w-[52ch] text-[0.98rem]" style={{ color: c.soft }}>{str(block.intro)}</p>
+          ) : null}
+          {meta.length ? (
+            <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
+              {meta.map((m, i) => (
+                <div key={i} className="text-[13px]" style={{ color: c.body }}>
+                  <span className="block text-[10.5px] font-bold uppercase" style={{ color: c.soft, letterSpacing: "0.09em" }}>{str(m.k)}</span>
+                  {str(m.v)}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {video ? (
+            <span className="mt-6 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-semibold text-white" style={{ background: "rgba(0,0,0,0.35)" }}>🎬 Video en loop</span>
+          ) : null}
+        </Shell>
       );
     }
     case "text":
       return (
-        <section className="space-y-3">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
           <div
-            className="prose-proposal max-w-none leading-relaxed text-muted-foreground [&_strong]:text-foreground"
+            className="prose-proposal max-w-[60ch] text-[1.05rem] leading-relaxed"
+            style={{ color: c.body }}
             dangerouslySetInnerHTML={{ __html: sanitizeProposalHtml(str(block.body)) }}
           />
-        </section>
+        </Shell>
       );
     case "cards":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {arr<{ icon?: string; t?: string; d?: string }>(block.items).map((it, i) => (
-              <div key={i} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div className="text-2xl">{it.icon || "✦"}</div>
-                <h3 className="mt-2 font-semibold">{it.t}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{it.d}</p>
-              </div>
-            ))}
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+            {arr<{ icon?: string; t?: string; d?: string }>(block.items).map((it, i) => {
+              const ico = str(it.icon, "✦");
+              const esNum = /^\d{1,2}$/.test(ico.trim());
+              return (
+                <div key={i} className="rounded-2xl border p-5" style={{ background: c.cardBg, borderColor: c.cardBorder, boxShadow: onDark ? undefined : "0 1px 2px rgba(20,20,25,.04), 0 12px 32px rgba(20,20,25,.05)" }}>
+                  {esNum ? (
+                    <div className="text-[1.05rem] font-semibold" style={{ fontFamily: SERIF, color: c.accent }}>{ico}</div>
+                  ) : (
+                    <div className="text-2xl leading-none">{ico}</div>
+                  )}
+                  <h3 className="mt-2.5 font-semibold" style={{ color: c.title }}>{str(it.t)}</h3>
+                  <p className="mt-1 text-sm" style={{ color: c.soft }}>{str(it.d)}</p>
+                </div>
+              );
+            })}
           </div>
-        </section>
+        </Shell>
       );
     case "stats":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
             {arr<{ n?: string; p?: string; f?: string }>(block.items).map((it, i) => (
-              <div key={i} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div className="text-3xl font-bold" style={{ color: accent }}>{it.n}</div>
-                <p className="mt-1 text-sm text-muted-foreground">{it.p}</p>
-                {it.f ? <p className="mt-2 text-[11px] uppercase tracking-wide text-muted-foreground/70">{it.f}</p> : null}
+              <div key={i} className="rounded-2xl border p-5" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
+                <div className="text-[2.1rem] leading-none" style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: "-0.02em", color: c.accent }}>{str(it.n)}</div>
+                <p className="mt-2 text-sm" style={{ color: c.body }}>{str(it.p)}</p>
+                {str(it.f) ? <p className="mt-2 text-[10.5px] uppercase" style={{ color: c.soft, letterSpacing: "0.06em" }}>{str(it.f)}</p> : null}
               </div>
             ))}
           </div>
-        </section>
+        </Shell>
       );
-    case "cta":
+    case "checks":
       return (
-        <section className="rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
-          <SectionTitle>{str(block.title, "Trabajemos juntos")}</SectionTitle>
-          {str(block.sub) ? <p className="mx-auto mt-2 max-w-md text-muted-foreground">{str(block.sub)}</p> : null}
-          <a
-            href={`mailto:${str(block.email, brand.email)}`}
-            className="mt-5 inline-flex items-center justify-center rounded-lg px-6 py-3 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
-            style={{ background: accent }}
-          >
-            {str(block.btn, "Contactar")}
-          </a>
-          <p className="mt-3 text-xs text-muted-foreground">{brand.email} · {brand.whatsapp}</p>
-        </section>
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <ul className="rounded-2xl border p-6" style={{ background: c.cardBg, borderColor: c.cardBorder, boxShadow: onDark ? undefined : "0 1px 2px rgba(20,20,25,.04), 0 12px 32px rgba(20,20,25,.05)" }}>
+            {arr<string>(block.items).map((it, i) => (
+              <li key={i} className="flex gap-3 py-2 text-[0.98rem]" style={{ color: c.body, borderTop: i === 0 ? undefined : `1px solid ${c.line}` }}>
+                <span className="shrink-0 font-extrabold" style={{ color: OK }}>✓</span>
+                <span>{str(it)}</span>
+              </li>
+            ))}
+          </ul>
+        </Shell>
       );
     case "timeline":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <ol className="relative space-y-4 border-l border-border pl-6">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="ml-1 pl-6" style={{ borderLeft: `2px solid ${c.line}` }}>
             {arr<{ phase?: string; dur?: string; desc?: string }>(block.steps).map((s, i) => (
-              <li key={i} className="relative">
-                <span className="absolute -left-[1.65rem] top-1 size-3 rounded-full ring-4 ring-background" style={{ background: accent }} />
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <h3 className="font-semibold">{s.phase}</h3>
-                  {s.dur ? <span className="text-xs text-muted-foreground">· {s.dur}</span> : null}
+              <div key={i} className="relative py-2 pb-4">
+                <span className="absolute top-[0.8rem] size-[11px] rounded-full" style={{ left: "calc(-1.5rem - 6px)", background: c.accent, boxShadow: `0 0 0 4px ${onDark ? INK : PAPER}` }} />
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="font-semibold" style={{ color: c.title }}>{str(s.phase)}</h3>
+                  {str(s.dur) ? <span className="text-xs font-semibold" style={{ color: c.accent }}>{str(s.dur)}</span> : null}
                 </div>
-                <p className="text-sm text-muted-foreground">{s.desc}</p>
-              </li>
+                <p className="mt-0.5 text-sm" style={{ color: c.soft }}>{str(s.desc)}</p>
+              </div>
             ))}
-          </ol>
-        </section>
+          </div>
+        </Shell>
       );
     case "plan":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          {str(block.sub) ? <p className="text-sm text-muted-foreground">{str(block.sub)}</p> : null}
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-left text-xs font-medium text-muted-foreground">
-                <tr>{arr<string>(block.cols).map((c, i) => (<th key={i} className="px-4 py-2.5">{c}</th>))}</tr>
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          {str(block.sub) ? <p className="mb-3 text-sm" style={{ color: c.soft }}>{str(block.sub)}</p> : null}
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: c.cardBorder }}>
+            <table className="w-full text-sm" style={{ background: c.cardBg }}>
+              <thead style={{ background: c.tableHead }}>
+                <tr>{arr<string>(block.cols).map((col, i) => (<th key={i} className="px-4 py-3 text-left text-[11px] font-bold uppercase" style={{ color: c.soft, letterSpacing: "0.06em" }}>{col}</th>))}</tr>
               </thead>
               <tbody>
                 {arr<string[]>(block.rows).map((row, i) => (
-                  <tr key={i} className="border-t border-border">
-                    {arr<string>(row).map((cell, j) => (<td key={j} className="px-4 py-2.5">{cell}</td>))}
+                  <tr key={i} style={{ borderTop: `1px solid ${c.line}` }}>
+                    {arr<string>(row).map((cell, j) => (<td key={j} className="px-4 py-3" style={{ color: j === 0 ? c.title : c.body }}>{cell}</td>))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
+        </Shell>
       );
     case "pricing": {
       const rows = arr<{ c?: string; d?: string; p?: string }>(block.rows);
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: c.cardBorder }}>
+            <table className="w-full text-sm" style={{ background: c.cardBg }}>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium">{r.c}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.d}</td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">{r.p}</td>
+                  <tr key={i} style={{ borderTop: i === 0 ? undefined : `1px solid ${c.line}` }}>
+                    <td className="px-4 py-3 font-medium" style={{ color: c.title }}>{str(r.c)}</td>
+                    <td className="px-4 py-3" style={{ color: c.soft }}>{str(r.d)}</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums" style={{ color: c.title }}>{str(r.p)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-muted/40">
-                  <td className="px-4 py-3 font-semibold" colSpan={2}>Total</td>
-                  <td className="px-4 py-3 text-right font-bold tabular-nums" style={{ color: accent }}>{str(block.total, "A convenir")}</td>
+                <tr style={{ background: c.tableHead }}>
+                  <td className="px-4 py-3 font-bold" style={{ color: c.title }} colSpan={2}>Total</td>
+                  <td className="px-4 py-3 text-right font-bold tabular-nums" style={{ color: c.accent }}>{str(block.total, "A convenir")}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          {str(block.note) ? <p className="text-xs text-muted-foreground">{str(block.note)}</p> : null}
-        </section>
+          {str(block.note) ? <p className="mt-3 text-[0.82rem]" style={{ color: c.soft }}>{str(block.note)}</p> : null}
+        </Shell>
       );
     }
     case "budget": {
-      // El cliente SOLO ve precio, descuento e IVA. El desglose de costos (sections) es
-      // interno y nunca se renderiza aquí. "Incluye" lista los servicios (solo nombres).
       const sections = arr<BudgetSection>(block.sections);
       const cur = str(block.cur, "COP");
       const iva = Number(block.iva) || 0;
       const discountPct = Number(block.discountPct) || 0;
       const explicitPrice = Number(block.price) || 0;
-      // El precio al cliente SOLO puede venir del campo `price` explícito. Si falta o es <= 0,
-      // se muestra "Por definir": NUNCA se filtra el costo interno como precio.
       const hasPrice = explicitPrice > 0;
-      const basePrice = explicitPrice;
-      const { discount, subtotal, tax, total } = clientTotals({ price: basePrice, discountPct, iva });
-      // arr(s?.items): una sección malformada (sin items o null) NO debe tumbar el render del portal.
+      const { discount, subtotal, tax, total } = clientTotals({ price: explicitPrice, discountPct, iva });
       const included = sections.flatMap((s) => arr<{ t?: string }>((s as { items?: unknown })?.items).map((it) => it?.t)).filter(Boolean);
       const showIncluded = block.showIncluded !== false && included.length > 0;
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          {str(block.sub) ? <p className="text-sm text-muted-foreground">{str(block.sub)}</p> : null}
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          {str(block.sub) ? <p className="mb-3 text-sm" style={{ color: c.soft }}>{str(block.sub)}</p> : null}
           {showIncluded ? (
-            <div className="rounded-xl border border-border p-4">
-              <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Incluye</p>
-              <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <div className="mb-4 rounded-2xl border p-5" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
+              <p className="mb-3 text-[10.5px] font-bold uppercase" style={{ color: c.soft, letterSpacing: "0.08em" }}>Incluye</p>
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {included.map((n, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
-                    <span className="mt-0.5 font-bold" style={{ color: accent }}>✓</span>
+                  <li key={i} className="flex items-start gap-2 text-sm" style={{ color: c.body }}>
+                    <span className="mt-0.5 font-extrabold" style={{ color: OK }}>✓</span>
                     <span>{n}</span>
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          <div className="overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: c.cardBorder }}>
+            <table className="w-full text-sm" style={{ background: c.cardBg }}>
               <tbody>
-                <tr><td className="px-4 py-2.5 text-muted-foreground">Precio</td><td className="px-4 py-2.5 text-right tabular-nums">{hasPrice ? formatMoney(basePrice, cur) : "Por definir"}</td></tr>
+                <tr><td className="px-4 py-3" style={{ color: c.soft }}>Precio</td><td className="px-4 py-3 text-right tabular-nums" style={{ color: c.title }}>{hasPrice ? formatMoney(explicitPrice, cur) : "Por definir"}</td></tr>
                 {hasPrice && discountPct > 0 ? (
                   <>
-                    <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">Descuento ({discountPct}%)</td><td className="px-4 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400">− {formatMoney(discount, cur)}</td></tr>
-                    <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">Subtotal</td><td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(subtotal, cur)}</td></tr>
+                    <tr style={{ borderTop: `1px solid ${c.line}` }}><td className="px-4 py-3" style={{ color: c.soft }}>Descuento ({discountPct}%)</td><td className="px-4 py-3 text-right tabular-nums" style={{ color: OK }}>− {formatMoney(discount, cur)}</td></tr>
+                    <tr style={{ borderTop: `1px solid ${c.line}` }}><td className="px-4 py-3" style={{ color: c.soft }}>Subtotal</td><td className="px-4 py-3 text-right tabular-nums" style={{ color: c.title }}>{formatMoney(subtotal, cur)}</td></tr>
                   </>
                 ) : null}
                 {hasPrice ? (
-                  <tr className="border-t border-border"><td className="px-4 py-2.5 text-muted-foreground">IVA ({iva}%)</td><td className="px-4 py-2.5 text-right tabular-nums">{formatMoney(tax, cur)}</td></tr>
+                  <tr style={{ borderTop: `1px solid ${c.line}` }}><td className="px-4 py-3" style={{ color: c.soft }}>IVA ({iva}%)</td><td className="px-4 py-3 text-right tabular-nums" style={{ color: c.title }}>{formatMoney(tax, cur)}</td></tr>
                 ) : null}
               </tbody>
-              <tfoot className="border-t-2 border-border">
-                <tr><td className="px-4 py-3 font-bold">Total</td><td className="px-4 py-3 text-right text-base font-bold tabular-nums" style={{ color: accent }}>{hasPrice ? formatMoney(total, cur) : "Por definir"}</td></tr>
+              <tfoot>
+                <tr style={{ background: c.tableHead }}><td className="px-4 py-3 font-bold" style={{ color: c.title }}>Total</td><td className="px-4 py-3 text-right text-base font-bold tabular-nums" style={{ color: c.accent }}>{hasPrice ? formatMoney(total, cur) : "Por definir"}</td></tr>
               </tfoot>
             </table>
           </div>
-          {str(block.note) ? <p className="text-xs text-muted-foreground">{str(block.note)}</p> : null}
-        </section>
+          {str(block.note) ? <p className="mt-3 text-[0.82rem]" style={{ color: c.soft }}>{str(block.note)}</p> : null}
+        </Shell>
       );
     }
     case "calendar": {
@@ -260,74 +370,84 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
       const mes = str(block.mes, "Enero");
       const cal = mesCal(pais, mes);
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-            <p className="text-sm"><span className="font-semibold">{mes} · {pais}</span> — {cal.foco}</p>
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="rounded-2xl border p-5" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
+            <p className="text-[0.95rem]" style={{ color: c.body }}><span className="font-semibold" style={{ color: c.title }}>{mes} · {pais}</span> — {cal.foco}</p>
             {cal.hitos.length ? (
-              <ul className="mt-3 space-y-2">
+              <div className="mt-3">
                 {cal.hitos.map((h, i) => (
-                  <li key={i} className="flex gap-3 text-sm">
-                    <span className="mt-0.5 inline-block w-24 shrink-0 text-xs font-medium" style={{ color: accent }}>{h.f}</span>
-                    <span><span className="font-medium">{h.t}.</span> <span className="text-muted-foreground">{h.i}</span></span>
-                  </li>
+                  <div key={i} className="flex gap-3 py-2 text-sm" style={{ borderTop: i === 0 ? undefined : `1px solid ${c.line}` }}>
+                    <span className="w-24 shrink-0 text-[0.82rem] font-semibold" style={{ color: c.accent }}>{h.f}</span>
+                    <span style={{ color: c.body }}><span className="font-medium" style={{ color: c.title }}>{h.t}.</span> <span style={{ color: c.soft }}>{h.i}</span></span>
+                  </div>
                 ))}
-              </ul>
+              </div>
             ) : null}
           </div>
-        </section>
+        </Shell>
       );
     }
     case "video":
       return (
-        <section className="space-y-2">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
           <VideoEmbed url={str(block.url)} caption={str(block.caption)} />
-          {str(block.caption) ? <p className="text-center text-sm text-muted-foreground">{str(block.caption)}</p> : null}
-        </section>
+          {str(block.caption) ? <p className="mt-2 text-center text-sm" style={{ color: c.soft }}>{str(block.caption)}</p> : null}
+        </Shell>
       );
     case "fullvideo":
       return (
-        <section className="space-y-3">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
           <VideoEmbed url={str(block.url)} caption={str(block.title)} />
-        </section>
+        </Shell>
       );
     case "carousel":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          {str(block.sub) ? <p className="text-sm text-muted-foreground">{str(block.sub)}</p> : null}
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          {str(block.sub) ? <p className="mb-3 text-sm" style={{ color: c.soft }}>{str(block.sub)}</p> : null}
           <div className="flex snap-x gap-4 overflow-x-auto pb-2">
             {arr<{ img?: string; t?: string; d?: string }>(block.items).map((it, i) => (
-              <div key={i} className="w-64 shrink-0 snap-start overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                {it.img ? <img src={it.img} alt={it.t || ""} className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-muted/40 text-xs text-muted-foreground">Imagen</div>}
-                <div className="p-3"><h3 className="text-sm font-semibold">{it.t}</h3><p className="text-xs text-muted-foreground">{it.d}</p></div>
+              <div key={i} className="w-60 shrink-0 snap-start overflow-hidden rounded-2xl border" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
+                {str(it.img) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={str(it.img)} alt={str(it.t)} className="aspect-video w-full object-cover" />
+                ) : (
+                  <div className="flex aspect-video items-center justify-center text-xs" style={{ background: "rgba(0,0,0,0.05)", color: c.soft }}>Imagen</div>
+                )}
+                <div className="p-3.5"><h3 className="text-sm font-semibold" style={{ color: c.title }}>{str(it.t)}</h3><p className="text-xs" style={{ color: c.soft }}>{str(it.d)}</p></div>
               </div>
             ))}
           </div>
-        </section>
+        </Shell>
       );
     case "acc":
       return (
-        <section className="space-y-3">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="overflow-hidden rounded-2xl border" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
             {arr<{ q?: string; a?: string }>(block.items).map((it, i) => (
-              <details key={i} className="group p-4">
-                <summary className="cursor-pointer list-none font-medium">{it.q}</summary>
-                <p className="mt-2 text-sm text-muted-foreground">{it.a}</p>
+              <details key={i} className="p-4" style={{ borderTop: i === 0 ? undefined : `1px solid ${c.line}` }}>
+                <summary className="cursor-pointer list-none font-medium" style={{ color: c.title }}>{str(it.q)}</summary>
+                <p className="mt-2 text-sm" style={{ color: c.soft }}>{str(it.a)}</p>
               </details>
             ))}
           </div>
-        </section>
+        </Shell>
       );
     case "logos":
       return (
-        <section className="space-y-4 text-center">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="flex flex-wrap items-center justify-center gap-3">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <div className="text-center"><Eyebrow color={c.accent}>{kicker}</Eyebrow></div> : null}
+          {str(block.title) ? <div className="text-center"><Titulo color={c.title}>{str(block.title)}</Titulo></div> : null}
+          {str(block.sub) ? <p className="mx-auto mb-4 max-w-[52ch] text-center text-sm" style={{ color: c.soft }}>{str(block.sub)}</p> : null}
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
             {logoItems(block.items).map((it, i) => (
-              <span key={i} className="flex items-center rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm">
+              <span key={i} className="flex items-center rounded-xl border px-4 py-2 text-sm font-semibold" style={{ background: c.cardBg, borderColor: c.cardBorder, color: c.soft }}>
                 {it.logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={it.logo} alt={it.name} className="max-h-7 max-w-[7rem] object-contain" />
@@ -337,22 +457,41 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
               </span>
             ))}
           </div>
-        </section>
+        </Shell>
       );
     case "styles":
       return (
-        <section className="space-y-4">
-          {str(block.title) ? <SectionTitle>{str(block.title)}</SectionTitle> : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             {arr<{ icon?: string; t?: string; d?: string; url?: string }>(block.items).map((it, i) => (
-              <div key={i} className="rounded-xl border border-border bg-card p-4 shadow-sm">
-                <div className="flex items-center gap-2"><span className="text-xl">{it.icon || "🎥"}</span><h3 className="font-semibold">{it.t}</h3></div>
-                <p className="mt-1 text-sm text-muted-foreground">{it.d}</p>
-                {it.url ? <div className="mt-3"><VideoEmbed url={it.url} caption={it.t} /></div> : null}
+              <div key={i} className="rounded-2xl border p-5" style={{ background: c.cardBg, borderColor: c.cardBorder }}>
+                <div className="flex items-center gap-2"><span className="text-xl">{str(it.icon, "🎥")}</span><h3 className="font-semibold" style={{ color: c.title }}>{str(it.t)}</h3></div>
+                <p className="mt-1 text-sm" style={{ color: c.soft }}>{str(it.d)}</p>
+                {str(it.url) ? <div className="mt-3"><VideoEmbed url={str(it.url)} caption={str(it.t)} /></div> : null}
               </div>
             ))}
           </div>
-        </section>
+        </Shell>
+      );
+    case "cta":
+      return (
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          <div className="text-center">
+            {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+            <h2 className="text-[1.6rem] sm:text-[2.3rem]" style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: "-0.02em", color: c.title, textWrap: "balance" }}>{str(block.title, "Trabajemos juntos")}</h2>
+            {str(block.sub) ? <p className="mx-auto mt-3 max-w-[44ch]" style={{ color: c.soft }}>{str(block.sub)}</p> : null}
+            <a
+              href={`mailto:${str(block.email, brand.email)}`}
+              className="mt-6 inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+              style={{ background: accent }}
+            >
+              {str(block.btn, "Contactar")}
+            </a>
+            <p className="mt-3 text-xs" style={{ color: c.soft }}>{brand.email} · {brand.whatsapp}</p>
+          </div>
+        </Shell>
       );
     default:
       return null;
@@ -361,9 +500,9 @@ function BlockView({ block, brand }: { block: Block; brand: Brand }) {
 
 export function ProposalRenderer({ blocks, brand }: { blocks: Block[]; brand: Brand }) {
   return (
-    <div className="space-y-10">
+    <div style={{ background: PAPER, color: INK }}>
       {blocks.map((b, i) => (
-        <BlockView key={i} block={b} brand={brand} />
+        <BlockView key={i} block={b} brand={brand} first={i === 0} />
       ))}
     </div>
   );
