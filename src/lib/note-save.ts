@@ -97,7 +97,18 @@ export async function persistNote(
 
   if (input.id) {
     const existing = await db.note.findUnique({ where: { id: input.id }, select: { createdById: true, archivedAt: true, title: true, content: true, updatedAt: true } });
-    if (!existing) return { ok: false, error: "La nota no existe" };
+    // Nota nueva creada con un id DEL CLIENTE (flujo offline): el id lo generó el editor para
+    // tener una nota estable sin conexión, y al sincronizar llega aquí. Como el id es la clave,
+    // reenviar el mismo «crear» es idempotente: la primera vez CREA con ese id; las siguientes
+    // caen en el UPDATE de abajo. Así una nota escrita offline nunca se duplica al volver la red.
+    if (!existing) {
+      const n = await db.note.create({
+        data: { id: input.id, title, content, category, source: "app", createdById: session.id, projectId: projectId ?? null, clientId: clientId ?? null, color: color ?? null, remindAt: remindAt ?? null, visibility: visibility ?? "private" },
+        select: { id: true, title: true, createdAt: true, updatedAt: true },
+      });
+      await logActivity({ action: "note.create", summary: `creó la nota «${title}»`, entityType: "note", entityId: n.id }).catch(() => null);
+      return { ok: true, id: n.id, title: n.title, createdAt: n.createdAt.toISOString(), updatedAt: n.updatedAt.toISOString() };
+    }
     if (existing.createdById !== session.id && session.role !== "admin") return { ok: false, error: "No autorizado" };
     // Si la nota se mandó a la papelera mientras el editor tenía un guardado pendiente, ese
     // guardado NO la resucita: se descarta en silencio.

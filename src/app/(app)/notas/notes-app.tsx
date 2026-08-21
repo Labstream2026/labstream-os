@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Check, Loader2, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter } from "lucide-react";
+import { Plus, Trash2, Check, Loader2, ChevronLeft, Pin, PinOff, Tag, FolderOpen, Eye, Pencil, Bell, BellOff, Users, Lock, RotateCcw, ArrowLeft, AlertTriangle, ListChecks, MoreHorizontal, Layers, Palette, Building2, Filter, CloudOff } from "lucide-react";
 import { IconNotas, IconPapelera, IconTareas } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { AtajosBarra, BuscadorBarra, ChipFiltro, MenuBarra, MenuGrupo, MenuOpcion, MenuSeparador, usePreferenciaLocal } from "@/components/ui/barra-menu";
@@ -9,7 +9,10 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { renderMarkdown } from "@/lib/markdown";
 import { tone } from "@/lib/colors";
 import { toggleNoteTask, countNoteTasks, noteTaskLines, noteTaskKey } from "@/lib/note-tasks";
-import { saveNote, deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
+import { deleteNote, togglePinNote, restoreNote, purgeNote, emptyNoteTrash } from "./actions";
+import { guardarNotaResiliente } from "@/lib/offline/guardar-nota";
+import { notasPendientes } from "@/lib/offline/notas-pendientes";
+import { alCambiarCola } from "@/lib/offline/cola";
 import { createTaskFromNoteLine, createTaskFromNote, setNoteTaskDone } from "./task-actions";
 import { setNoteReminder, clearNoteReminder, type NoteReminder } from "./reminder-actions";
 
@@ -159,7 +162,14 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   // mando aparece aquí hasta que se cambie de nota.
   const [reveladas, setReveladas] = React.useState<Set<string>>(() => new Set());
   const revelar = (k: string) => setReveladas((s) => new Set(s).add(k));
-  const [status, setStatus] = React.useState<"idle" | "saving" | "saved">("idle");
+  const [status, setStatus] = React.useState<"idle" | "saving" | "saved" | "pendiente">("idle");
+  // Notas que están en la cola offline (sin sincronizar): la cola manda, el editor la refleja.
+  const [pendientesNotas, setPendientesNotas] = React.useState<Set<string>>(() => new Set());
+  React.useEffect(() => {
+    const refrescar = () => void notasPendientes().then(setPendientesNotas);
+    refrescar();
+    return alCambiarCola(refrescar);
+  }, []);
   // En móvil: false = se ve la lista; true = se ve el editor. En escritorio se ven ambos.
   const [mobileEditorOpen, setMobileEditorOpen] = React.useState(false);
   // Cuerpo: editar (textarea Markdown) o vista (render con checkboxes interactivos).
@@ -235,9 +245,16 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
   const persist = React.useCallback(
     (d: Draft, force = false) => {
       if (!d.content.trim() && !d.title.trim()) return;
+      // Toda nota tiene un id ESTABLE desde el primer guardado: si es nueva, lo genera el cliente.
+      // Así puede vivir sin conexión y encolarse de forma idempotente (opId = note-save:<id>), y
+      // el servidor la UPSERTA por ese id en vez de asignar uno nuevo. Antes el id lo ponía el
+      // servidor, y una nota escrita offline no tenía identidad hasta llegar.
+      const id = d.id ?? crypto.randomUUID();
       setStatus("saving");
       start(async () => {
-        const r = await saveNote(savePayload(d), force ? { force: true } : undefined);
+        // Resiliente: online usa el server action de siempre; sin servidor, encola y marca
+        // «pendiente» (el trabajo queda a salvo en la cola local y se reenvía al volver).
+        const r = await guardarNotaResiliente({ ...savePayload(d), id }, force ? { force: true } : undefined);
         if (r.ok) {
           const realId = r.id;
           const finalTitle = r.title;
@@ -253,8 +270,9 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
               ? prev.map((n) => (n.id === realId ? { ...n, title: finalTitle, content: d.content, category: d.category || null, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, visibility: d.visibility, updatedAt } : n))
               : [{ id: realId, title: finalTitle, content: d.content, category: d.category || null, source: "app", pinned: false, projectId: d.projectId || null, clientId: d.clientId || null, color: d.color || null, remindAt: null, visibility: d.visibility, mine: true, ownerName: null, createdAt: r.createdAt, updatedAt }, ...prev];
           });
-          setStatus("saved");
-          setTimeout(() => setStatus("idle"), 1200);
+          // «pendiente» = quedó en la cola offline; NO se finge «guardado en el servidor».
+          setStatus(r.pendiente ? "pendiente" : "saved");
+          setTimeout(() => setStatus("idle"), r.pendiente ? 2400 : 1200);
         } else {
           // La nota cambió en otro dispositivo: no se pisa nada, se pregunta.
           if (r.conflict && r.server) setConflict(r.server);
@@ -735,7 +753,7 @@ export function NotesApp({ initial, initialId, trashed, taskLinks, noteReminders
                   <ChevronLeft className="size-4" /> Notas
                 </button>
                 <span className="inline-flex items-center gap-1.5">
-                  {readOnly ? <><Eye className="size-3.5" /> Compartida por {currentNote?.ownerName ?? "otro"} · solo lectura</> : status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : draft.id ? "Autoguardado" : "Nota nueva"}
+                  {readOnly ? <><Eye className="size-3.5" /> Compartida por {currentNote?.ownerName ?? "otro"} · solo lectura</> : status === "saving" ? <><Loader2 className="size-3.5 animate-spin" /> Guardando…</> : status === "saved" ? <><Check className="size-3.5 text-emerald-500" /> Guardado</> : status === "pendiente" || (draft.id && pendientesNotas.has(draft.id)) ? <><CloudOff className="size-3.5 text-amber-500" /> Pendiente de sincronizar</> : draft.id ? "Autoguardado" : "Nota nueva"}
                 </span>
               </div>
               {/* La papelera de la nota vive en «＋ Añadir», con el resto de acciones sobre la nota

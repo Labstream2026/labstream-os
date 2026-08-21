@@ -74,8 +74,8 @@ export function SinConexion() {
       <p className="min-w-48 flex-1 text-[12px] leading-relaxed">
         <b className="text-destructive">Sin conexión con el servidor.</b>{" "}
         <span className="text-muted-foreground">
-          Puedes consultar lo último que viste, pero <b className="text-foreground">los cambios no se van a guardar</b>. Espera a que
-          vuelva antes de escribir nada — se reconecta solo.
+          Puedes consultar lo último que viste y <b className="text-foreground">seguir escribiendo notas</b> —se guardan en este
+          equipo y se sincronizan al volver—. Otras acciones esperan al servidor; se reconecta solo.
         </span>
       </p>
     </div>

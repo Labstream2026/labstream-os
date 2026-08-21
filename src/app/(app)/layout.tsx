@@ -21,6 +21,8 @@ import { MarcebotPopup } from "./marcebot-popup";
 import { AvisoVincular } from "@/components/tracker/aviso-vincular";
 import { AvisoVersion } from "@/components/layout/aviso-version";
 import { SinConexion } from "@/components/sin-conexion";
+import { OfflineProvider } from "@/lib/offline/sync";
+import { PendientesBar } from "@/components/offline/pendientes-bar";
 
 // El SHA del build que está sirviendo (lo hornea el deploy en public/version.txt). Se lee
 // UNA vez por proceso: es la identidad de este build, no cambia hasta el próximo contenedor.
@@ -282,14 +284,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Aviso de un clic para vincular el rastreador. Se pinta solo dentro de la app de
           escritorio y solo si el sensor dice que este equipo no está vinculado; en el
           navegador y en el portal del cliente no existe. */}
-      <SinConexion />
-      {/* Tras un deploy, la pestaña abierta queda apuntando a acciones del build anterior y
-          el siguiente clic falla («Failed to find Server Action»). Este aviso lo detecta
-          ANTES del clic — y se enciende al instante si una acción ya falló por eso. */}
-      <AvisoVersion versionPropia={await versionDelBuild} />
-      {session.role === "cliente" || session.role === "demo" ? null : <AvisoVincular />}
-      {children}
-      <MarcebotPopup />
+      {/* Modo offline (Camino B): el proveedor corre el motor de sync de la cola local y expone
+          el contador de pendientes. Envuelve todo para que useOffline funcione en cualquier
+          pantalla (la barra de pendientes, el editor de notas…). */}
+      <OfflineProvider>
+        <SinConexion />
+        {/* Cuánto trabajo guardado sin conexión falta por subir (y el «sincronizando…»). */}
+        <PendientesBar />
+        {/* Tras un deploy, la pestaña abierta queda apuntando a acciones del build anterior y
+            el siguiente clic falla («Failed to find Server Action»). Este aviso lo detecta
+            ANTES del clic — y se enciende al instante si una acción ya falló por eso. */}
+        <AvisoVersion versionPropia={await versionDelBuild} />
+        {session.role === "cliente" || session.role === "demo" ? null : <AvisoVincular />}
+        {children}
+        <MarcebotPopup />
+      </OfflineProvider>
     </AppShell>
   );
 }
