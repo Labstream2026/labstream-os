@@ -3,7 +3,12 @@
 import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "labstream_session";
-export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 días
+// Vida de la sesión del EQUIPO: 30 días (≈ un mes). Antes eran 7 días, y con Authentik caducando
+// aún antes, el equipo re-iniciaba sesión cada 2-3 días. Ahora el re-login es MENSUAL. Sigue
+// siendo seguro: la cookie es httpOnly/secure/sameSite=lax, y getSession() SIEMPRE superpone el
+// estado EN VIVO desde la BD, así que desactivar/borrar a un usuario corta su acceso al instante
+// aunque su cookie no haya caducado (revocación efectiva sin esperar los 30 días).
+export const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 días (≈ 1 mes)
 
 export type SessionUser = {
   id: string;
@@ -37,7 +42,9 @@ export async function signSession(user: SessionUser): Promise<string> {
   return new SignJWT({ ...user })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    // En segundos desde ahora, atado a SESSION_MAX_AGE para que el `exp` del token y el `maxAge`
+    // de la cookie nunca se desfasen (si se cambia la vida, se cambia en UN solo sitio).
+    .setExpirationTime(Math.floor(Date.now() / 1000) + SESSION_MAX_AGE)
     .sign(secretKey());
 }
 
