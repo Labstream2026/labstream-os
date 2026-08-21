@@ -248,11 +248,19 @@ export function CoverAnnotator({
     }
     const unit = w / 400;
     for (const s of shapes) paint(ctx, s, w, h, unit);
-    for (const q of [0.72, 0.6, 0.5, 0.4, 0.32]) {
-      const url = c.toDataURL("image/jpeg", q);
-      if (url.length <= SIZE_CAP) return url;
+    // toDataURL LANZA SecurityError si el canvas quedó «teñido» por una imagen de otro origen (una
+    // foto ENLAZADA de Google Drive: drawImage no falla, pero teñir sí). Iba fuera de try/catch, así
+    // que el error subía por send()→onClick y se perdían el dibujo Y la nota en silencio. Ahora se
+    // atrapa: el dibujo se descarta pero la nota (body) sigue su curso en send().
+    try {
+      for (const q of [0.72, 0.6, 0.5, 0.4, 0.32]) {
+        const url = c.toDataURL("image/jpeg", q);
+        if (url.length <= SIZE_CAP) return url;
+      }
+      return c.toDataURL("image/jpeg", 0.3);
+    } catch {
+      return null; // canvas teñido (imagen de otro origen): no se puede exportar el dibujo
     }
-    return c.toDataURL("image/jpeg", 0.3);
   };
 
   const send = () => {
