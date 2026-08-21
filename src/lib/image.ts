@@ -6,28 +6,21 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
 
-// ── Respaldo HEIC/HEIF con FFmpeg ──────────────────────────────────────────────
-// El binario prebuilt de sharp (libvips) del NAS NO decodifica HEIC/HEVC (quitado por licencias):
-// solo AVIF. Pero HEIC es el formato POR DEFECTO del iPhone, así que sin esto las fotos del cliente
-// salían ROTAS en la galería. FFmpeg —que YA está en la imagen (Dockerfile) y decodifica HEVC de
-// serie— hace de puente: cuando sharp falla y el buffer es HEIF, se decodifica a JPEG con FFmpeg y
-// sharp termina el WebP. El demuxer HEIF necesita entrada SEEKABLE, por eso va por archivo temporal
-// y no por stdin.
+// ── Respaldo de decodificación con FFmpeg (máxima compatibilidad) ──────────────
+// El binario prebuilt de sharp (libvips) del NAS decodifica pocos formatos: NO HEIC/HEVC (el
+// formato POR DEFECTO del iPhone, quitado por licencias), y falla con TIFF raros, BMP exóticos y
+// muchos RAW de cámara. FFmpeg —que YA está en la imagen (Dockerfile) y trae un montón de
+// decodificadores— hace de puente: cuando sharp NO puede, se decodifica el original a JPEG con
+// FFmpeg y sharp termina el WebP. Así «casi todo lo que se pueda abrir» se ve en la galería. El
+// demuxer necesita entrada SEEKABLE (HEIF, RAW), por eso va por archivo temporal y no por stdin.
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
-const FFMPEG_MS = 20_000;
+const FFMPEG_MS = 25_000;
 
-// ¿El buffer es de la familia HEIF (heic/heix/mif1…)? Caja `ftyp` con marca conocida.
-function esHeif(buf: Buffer): boolean {
-  if (buf.length < 12) return false;
-  if (buf.toString("ascii", 4, 8) !== "ftyp") return false;
-  const marca = buf.toString("ascii", 8, 12).toLowerCase();
-  return ["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "heif"].includes(marca);
-}
-
-// Decodifica un HEIC/HEIF a JPEG con FFmpeg. Devuelve null si no se pudo (FFmpeg ausente, archivo
-// raro, timeout). Escribe un temporal, lo lee FFmpeg y saca el primer (único) fotograma a stdout.
-async function heifAJpeg(buf: Buffer): Promise<Buffer | null> {
-  const tmp = path.join(tmpdir(), `ls-heic-${crypto.randomUUID()}.heic`);
+// Decodifica CUALQUIER imagen que FFmpeg entienda a un JPEG. Devuelve null si no pudo (FFmpeg
+// ausente, formato que ni FFmpeg abre —algún RAW propietario—, timeout). Escribe un temporal
+// (FFmpeg lee de archivo), saca el primer/único fotograma a stdout como MJPEG.
+async function ffmpegAJpeg(buf: Buffer): Promise<Buffer | null> {
+  const tmp = path.join(tmpdir(), `ls-img-${crypto.randomUUID()}`);
   try {
     await fs.writeFile(tmp, buf);
   } catch {
@@ -95,7 +88,10 @@ export function previewRel(rel: string) {
   return rel + OPT_SUFFIX;
 }
 
-const RASTER_RE = /\.(jpe?g|png|webp|gif|tiff?|avif|heic|heif|bmp)$/i;
+// Rasterizables que sharp O FFmpeg pueden abrir. Incluye RAW de cámara (Canon 5Ds CR2/CR3, Nikon
+// NEF, Sony ARW, Adobe DNG, Fuji RAF, Olympus ORF, Panasonic RW2, Pentax PEF…): sharp no los abre,
+// pero FFmpeg decodifica muchos; los que ni FFmpeg pueda quedan SIN miniatura pero SÍ descargables.
+const RASTER_RE = /\.(jpe?g|png|webp|gif|tiff?|avif|heic|heif|bmp|cr2|cr3|nef|nrw|arw|sr2|srf|dng|raf|orf|rw2|pef|srw|3fr|dcr|mrw)$/i;
 const RASTER_MIME = new Set([
   "image/jpeg",
   "image/png",
@@ -137,15 +133,15 @@ export async function optimizeToWebp(buf: Buffer, opts?: OptimizeOpts): Promise<
   try {
     return await webpDeBuffer(buf, opts);
   } catch {
-    // sharp no pudo. Si es HEIC/HEIF (iPhone), decodificar con FFmpeg y reintentar sobre el JPEG.
-    if (esHeif(buf)) {
-      const jpeg = await heifAJpeg(buf);
-      if (jpeg) {
-        try {
-          return await webpDeBuffer(jpeg, opts);
-        } catch {
-          return null;
-        }
+    // sharp no pudo (HEIC del iPhone, TIFF/BMP raro, RAW de cámara…). Se intenta decodificar con
+    // FFmpeg y, si sale un JPEG, sharp termina el WebP. Si FFmpeg tampoco puede, null (el llamador
+    // conserva el original y la miniatura cae a un marcador; nunca se sirve el original pesado).
+    const jpeg = await ffmpegAJpeg(buf);
+    if (jpeg) {
+      try {
+        return await webpDeBuffer(jpeg, opts);
+      } catch {
+        return null;
       }
     }
     return null;
